@@ -65,7 +65,7 @@ export function App() {
               </div>
               <div>
                 <dt>Build</dt>
-                <dd>{state.info.buildProfile}</dd>
+                <dd className="capitalize">{state.info.buildProfile}</dd>
               </div>
               <div>
                 <dt>Platform</dt>

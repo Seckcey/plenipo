@@ -126,6 +126,9 @@ body,
 
 .facts dd {
   margin: 2px 0 0;
+}
+
+.facts dd.capitalize {
   text-transform: capitalize;
 }
 
