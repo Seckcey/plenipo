@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  frontend:
+    name: Frontend (versions, format, lint, typecheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm versions:check
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  rust:
+    name: Rust (fmt, clippy, test, bindings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Tauri Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Generated TypeScript bindings are up to date
+        run: |
+          if [ -n "$(git status --porcelain packages/types/src/generated)" ]; then
+            git status --porcelain packages/types/src/generated
+            git diff packages/types/src/generated
+            echo "::error::Run 'pnpm bindings' and commit packages/types/src/generated"
+            exit 1
+          fi
+
+  windows:
+    name: Windows (test, build, installer, launch smoke)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: cargo test --workspace --locked
+      - name: Build release app and NSIS installer
+        run: pnpm build
+      - name: Launch smoke test (app must render the shell and report ready)
+        shell: pwsh
+        env:
+          PLENIPO_SMOKE_TEST: "1"
+          PLENIPO_SMOKE_TIMEOUT_SECS: "90"
+        run: |
+          $exe = "target/release/plenipo-desktop.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          $p = Start-Process -FilePath $exe -PassThru
+          $null = $p.Handle # cache the handle so ExitCode is available after exit
+          if (-not $p.WaitForExit(150000)) {
+            Stop-Process -Id $p.Id -Force
+            throw "Plenipo did not exit within 150s"
+          }
+          Write-Host "Plenipo exited with code $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "Launch smoke test failed (exit $($p.ExitCode))" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plenipo-windows-installer
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
