@@ -1,0 +1,16 @@
+{
+  "name": "@plenipo/types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript DTOs shared with the Rust backend. Generated from crates/core via ts-rs.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"@plenipo/types: no runtime code; covered by typecheck\""
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
