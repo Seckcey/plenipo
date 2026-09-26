@@ -1,6 +1,6 @@
 # Phase 5 — Implementation Checklist
 
-**Status:** implemented on `claude/phase-5`; awaiting owner acceptance (see the
+**Status:** accepted by the owner on 2026-09-26; released as v0.6.0 (see the
 [acceptance report](phase-5-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 5 — Workforce and Organization Engine. Phase 4 is implemented,
