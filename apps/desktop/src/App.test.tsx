@@ -406,5 +406,7 @@ describe("AI tools page", () => {
     expect(screen.queryByText("Backend Developer is waiting for your approval")).toBeNull();
     await user.click(within(card).getByRole("button", { name: "Approve" }));
     expect(api.resolveApproval).toHaveBeenCalledWith("approval-1", true);
+    // The answer updates the sidebar count at once.
+    await waitFor(() => expect(within(nav).queryByLabelText("1 waiting for you")).toBeNull());
   });
 });

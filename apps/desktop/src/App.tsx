@@ -242,7 +242,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenPosition={openPosition}
             />
           )}
-          {view === "approvals" && <ApprovalsView onOpenTask={openTask} />}
+          {view === "approvals" && <ApprovalsView onOpenTask={openTask} approvals={approvals} />}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />

@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, first_line, Parsed, ProbeOutput, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
-    TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
+    cap, first_line, tool_summary, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
+    RuntimeAdapter, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
 };
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
@@ -379,7 +379,7 @@ impl Parser {
                     &format!("{}/{}", str_of(item, "server"), str_of(item, "tool")),
                     80,
                 ),
-                summary: String::new(),
+                summary: tool_summary(item.get("arguments").unwrap_or(&Value::Null)),
             }),
             _ => Parsed::none(),
         }
@@ -682,6 +682,24 @@ mod tests {
         assert_eq!(
             parse_auth(&probe("error: unexpected argument", 2)).state,
             AuthState::Unknown
+        );
+    }
+
+    #[test]
+    fn plenipo_tool_calls_say_what_they_do() {
+        let mut p = Codex.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"item.started","item":{"id":"m1","type":"mcp_tool_call","server":"plenipo","tool":"run_command","arguments":{"program":"git","args":["--version"]},"status":"in_progress"}}),
+            ],
+        );
+        assert_eq!(
+            events,
+            [AgentEvent::ToolUse {
+                tool: "plenipo/run_command".into(),
+                summary: "git --version".into()
+            }]
         );
     }
 

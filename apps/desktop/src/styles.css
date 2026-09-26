@@ -2526,9 +2526,13 @@ button {
   gap: 12px;
 }
 
-.approval__title {
+.view .approval__title {
   margin: 0;
-  font-size: 1rem;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .approval__meta,

@@ -146,6 +146,8 @@ impl Guard {
         match result {
             Ok(_) => Ok(out),
             Err(_) if skipped => Ok(None),
+            // A refusal keeps its plain message (no "invalid input:" in front of it).
+            Err(LedgerError::InvalidInput(m)) => Err(GuardError::Invalid(m)),
             Err(e) => Err(e.into()),
         }
     }
@@ -558,11 +560,16 @@ mod tests {
         assert!(g.check_project_limit(Some("nope")).is_err());
         assert!(g.check_project_limit(None).is_ok());
         assert!(g.assign_role("missing-role", Some(&set.id)).is_err());
-        assert!(g
+        let refused = g
             .set_options(&GuardOptions {
-                approval_minutes: 99
+                approval_minutes: 99,
             })
-            .is_err());
+            .unwrap_err();
+        assert!(refused.is_caller_error());
+        assert!(
+            !refused.to_string().starts_with("invalid input"),
+            "refusals read plainly: {refused}"
+        );
         let s = g
             .save_secret(&SecretInput {
                 name: "Deploy token".into(),

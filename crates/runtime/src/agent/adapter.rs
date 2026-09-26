@@ -486,12 +486,30 @@ pub fn tool_summary(input: &serde_json::Value) -> String {
         "pattern",
         "url",
         "query",
+        "from",
+        "script",
+        "message",
         "description",
         "prompt",
     ];
-    let found = KEYS
-        .iter()
-        .find_map(|k| input.get(*k).and_then(serde_json::Value::as_str));
+    // Plenipo's run_command: a program and its arguments.
+    let program = input
+        .get("program")
+        .and_then(serde_json::Value::as_str)
+        .map(|p| {
+            let args = input
+                .get("args")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str);
+            std::iter::once(p).chain(args).collect::<Vec<_>>().join(" ")
+        });
+    let found = program.or_else(|| {
+        KEYS.iter()
+            .find_map(|k| input.get(*k).and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+    });
     found.map_or_else(String::new, |s| {
         first_line(&s.replace(['\r', '\n'], " "), MAX_SUMMARY)
     })
@@ -619,5 +637,9 @@ mod tests {
         let v = serde_json::json!({ "command": "ls -la\nrm x", "other": 1 });
         assert_eq!(tool_summary(&v), "ls -la rm x");
         assert_eq!(tool_summary(&serde_json::json!({})), "");
+        let run = serde_json::json!({ "program": "git", "args": ["--version"] });
+        assert_eq!(tool_summary(&run), "git --version");
+        let commit = serde_json::json!({ "message": "Fix the form\n\nDetails" });
+        assert_eq!(tool_summary(&commit), "Fix the form  Details");
     }
 }

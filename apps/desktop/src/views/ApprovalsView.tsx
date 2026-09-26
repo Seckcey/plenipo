@@ -10,12 +10,39 @@ import { useRun } from "../guard/useRun";
 import { ago } from "../org/format";
 import { useNow } from "../runtime/useNow";
 
+type Approvals = ReturnType<typeof useApprovals>;
+
 /**
  * Approvals: requests waiting for you (approval cards), workers using permissions now (with
- * Revoke), requests Guard blocked, and your recent answers.
+ * Revoke), requests Guard blocked, and your recent answers. `approvals` is the app's live queue
+ * (so an answer updates the sidebar count and the banner at once); without it the page keeps
+ * its own.
  */
-export function ApprovalsView({ onOpenTask }: { onOpenTask?: (taskId: string) => void }) {
-  const approvals = useApprovals();
+export function ApprovalsView({
+  onOpenTask,
+  approvals,
+}: {
+  onOpenTask?: (taskId: string) => void;
+  approvals?: Approvals;
+}) {
+  return approvals ? (
+    <ApprovalsPage approvals={approvals} onOpenTask={onOpenTask} />
+  ) : (
+    <OwnQueue onOpenTask={onOpenTask} />
+  );
+}
+
+function OwnQueue({ onOpenTask }: { onOpenTask?: ((taskId: string) => void) | undefined }) {
+  return <ApprovalsPage approvals={useApprovals()} onOpenTask={onOpenTask} />;
+}
+
+function ApprovalsPage({
+  approvals,
+  onOpenTask,
+}: {
+  approvals: Approvals;
+  onOpenTask?: ((taskId: string) => void) | undefined;
+}) {
   const permissions = usePermissions();
   const now = useNow(1000);
   return (
