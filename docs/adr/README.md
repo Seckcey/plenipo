@@ -18,4 +18,4 @@ architecture must be recorded here.
 | [001](ADR-001-desktop-stack.md)              | Tauri 2 + React/TypeScript + Rust desktop stack | Accepted |
 | [002](ADR-002-local-first-architecture.md)   | Local-first architecture                        | Accepted |
 | [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                      | Accepted |
-| [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Proposed |
+| [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Accepted |

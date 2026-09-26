@@ -97,7 +97,7 @@ against the real release binary.
 | M1–M3 manual checks on Windows 11 (installer, close-to-tray, tray Show / Stop all / Quit, no console flash) | **Passed** — reported by owner                                                                                |
 | O1 bundle identifier                                                                                        | Set to **`com.eightwest.plenipo`** by owner                                                                   |
 | O3 version                                                                                                  | Bumped to **`0.2.0`**; owner set the convention of one minor bump per phase until the MVP (Phase 8) = `1.0.0` |
-| O2 ADR-004 / ADR-005                                                                                        | Awaiting owner decision                                                                                       |
+| O2 ADR-004 / ADR-005                                                                                        | **Accepted** by owner                                                                                         |
 
 Phase 1 is **accepted**.
 
