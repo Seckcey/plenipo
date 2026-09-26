@@ -2358,6 +2358,7 @@ version = "0.4.0"
 dependencies = [
  "plenipo-core",
  "plenipo-ledger",
+ "plenipo-liaison",
  "plenipo-runtime",
  "serde",
  "serde_json",
@@ -2376,6 +2377,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "plenipo-liaison"
+version = "0.4.0"
+dependencies = [
+ "dunce",
+ "plenipo-ledger",
+ "plenipo-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
  "ts-rs",
  "uuid",
 ]

@@ -353,6 +353,17 @@ impl Ledger {
         })
     }
 
+    pub fn artifact(&self, id: &str) -> Result<Option<Artifact>> {
+        self.read(|c| {
+            Ok(c.query_row(
+                &format!("SELECT {ARTIFACT_COLS} FROM artifacts WHERE id = ?1"),
+                [id],
+                artifact_row,
+            )
+            .optional()?)
+        })
+    }
+
     pub fn artifacts_for_task(&self, task_id: &str) -> Result<Vec<Artifact>> {
         self.read(|c| {
             let mut stmt = c.prepare(&format!(
@@ -517,7 +528,9 @@ mod tests {
                 "worker",
             )
             .unwrap();
-        assert_eq!(l.artifacts_for_task(&t.id).unwrap(), [a]);
+        assert_eq!(l.artifacts_for_task(&t.id).unwrap(), [a.clone()]);
+        assert_eq!(l.artifact(&a.id).unwrap(), Some(a));
+        assert!(l.artifact("missing").unwrap().is_none());
         assert!(l
             .record_artifact(Some(&t.id), "file", None, None, None, &Value::Null, "w")
             .is_err());

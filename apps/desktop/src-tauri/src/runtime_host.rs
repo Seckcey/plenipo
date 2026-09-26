@@ -9,7 +9,8 @@ use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
-use crate::ledger_host::{self, LedgerExecutionStore};
+use crate::ledger_host;
+use plenipo_liaison::store::LedgerExecutionStore;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 /// Tauri event name carrying [`RuntimeEvent`] payloads to the main window.
