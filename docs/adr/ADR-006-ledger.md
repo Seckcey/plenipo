@@ -1,6 +1,6 @@
 # ADR-006: Plenipo Ledger (SQLite system of record)
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 2
 

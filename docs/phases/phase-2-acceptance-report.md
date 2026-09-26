@@ -85,6 +85,17 @@ real release binary (6 Phase 1 + 6 Phase 2).
 | O3  | Version bumped to **0.3.0** per the phase convention.                                                                                                                                                                                                              | —                                                                        |
 | O4  | Phase 3 (Codex and Claude Code runtime adapters) is the first phase that runs **real AI tools** on your machine and needs their logins. Per ROLLOUT_PLAN §8.12 this materially expands privileges and external integrations, so work stops here for your go-ahead. | Say "start Phase 3" when ready.                                          |
 
-## 8. Phase boundary
+## 8. Owner sign-off (2026-09-26)
+
+| Item                                                      | Outcome                                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| O1 ADR-006                                                | **Accepted** by owner                                                                                                    |
+| O2 Windows manual check (synthetic task, restart, backup) | **Passed** — reported by owner                                                                                           |
+| Feedback                                                  | "Add step" jumped to the new sub-task and hid the parent's Complete button → fixed in **v0.3.1** (parent stays selected) |
+| O4 Phase 3                                                | Owner will start Phase 3 in a new session                                                                                |
+
+Phase 2 is **accepted**.
+
+## 9. Phase boundary
 
 Phase 2 is complete. Phase 3 has not been started (§7, O4).
