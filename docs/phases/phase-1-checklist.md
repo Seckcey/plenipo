@@ -1,5 +1,7 @@
 # Phase 1 — Implementation Checklist
 
+**Status:** complete — see [phase-1-acceptance-report.md](phase-1-acceptance-report.md).
+
 Source: `ROLLOUT_PLAN.md`, Phase 1 — Desktop Shell and Local Runtime Supervisor.
 Phase 0 accepted (see `phase-0-acceptance-report.md`); owner approved starting Phase 1.
 
@@ -23,30 +25,30 @@ the desktop UI.
 
 ## Deliverables
 
-- [ ] `crates/runtime`: supervisor, execution IDs, lifecycle state machine, executable and
+- [x] `crates/runtime`: supervisor, execution IDs, lifecycle state machine, executable and
       environment policy, output capture (bounded), cancellation, timeouts, metadata store
-- [ ] Diagnostic child scenarios (echo, stderr, failure exit, long-running, env dump,
+- [x] Diagnostic child scenarios (echo, stderr, failure exit, long-running, env dump,
       process tree) + `plenipo-diag` test binary
-- [ ] Typed commands: overview, start, cancel, output — each granted in capabilities
-- [ ] Event streaming Rust → React (batched output + lifecycle events)
-- [ ] Main desktop shell with left navigation: Organization (placeholder, data-driven),
+- [x] Typed commands: overview, start, cancel, output — each granted in capabilities
+- [x] Event streaming Rust → React (batched output + lifecycle events)
+- [x] Main desktop shell with left navigation: Organization (placeholder, data-driven),
       Runtimes, Activity, Settings, Diagnostics
-- [ ] Process status screen: profiles, executions, live output, cancel
-- [ ] System tray: show window, active count, stop all, quit
-- [ ] Graceful shutdown: quit terminates owned processes and persists final state;
+- [x] Process status screen: profiles, executions, live output, cancel
+- [x] System tray: show window, active count, stop all, quit
+- [x] Graceful shutdown: quit terminates owned processes and persists final state;
       closing the window while work is active hides to tray instead of killing it
-- [ ] ADR-005 (runtime supervisor boundary); architecture doc update
-- [ ] E2E harness (tauri-driver) exercising the real UI → Core → process → UI path
+- [x] ADR-005 (runtime supervisor boundary); architecture doc update
+- [x] E2E harness (tauri-driver) exercising the real UI → Core → process → UI path
 
 ## Phase 1 tests (from plan)
 
-- [ ] Launch a harmless local test process
-- [ ] Receive incremental stdout
-- [ ] Receive stderr
-- [ ] Cancel a long-running test process
-- [ ] Detect normal and abnormal exits
-- [ ] Restart the UI without orphaning owned processes
-- [ ] Reject executable paths outside configured rules
+- [x] Launch a harmless local test process
+- [x] Receive incremental stdout
+- [x] Receive stderr
+- [x] Cancel a long-running test process
+- [x] Detect normal and abnormal exits
+- [x] Restart the UI without orphaning owned processes
+- [x] Reject executable paths outside configured rules
 
 Additional failure paths: timeout, spawn failure, invalid working directory, unknown profile,
 duplicate cancel, env isolation, process-tree kill, invalid state transitions, oversized
@@ -54,10 +56,10 @@ output lines, corrupt metadata file, crash of the owning process (Windows).
 
 ## Acceptance criteria (from plan)
 
-- [ ] Plenipo can launch, observe, and terminate a local child process
-- [ ] Live process activity is visible in the UI
-- [ ] Process state survives expected UI transitions
-- [ ] The frontend cannot directly execute arbitrary OS commands
+- [x] Plenipo can launch, observe, and terminate a local child process
+- [x] Live process activity is visible in the UI
+- [x] Process state survives expected UI transitions
+- [x] The frontend cannot directly execute arbitrary OS commands
 
 ## Out of scope
 
