@@ -1,5 +1,6 @@
 // Public entry point for shared DTOs.
 // Files under ./generated are produced by `pnpm bindings` from the Rust crates — do not edit by hand.
+export type { AgentAttribution } from "./generated/AgentAttribution";
 export type { AppInfo } from "./generated/AppInfo";
 export type { BuildProfile } from "./generated/BuildProfile";
 export type { CommandError } from "./generated/CommandError";
@@ -14,6 +15,7 @@ export type { OutputLine } from "./generated/OutputLine";
 export type { OutputStream } from "./generated/OutputStream";
 export type { RuntimeEvent } from "./generated/RuntimeEvent";
 export type { RuntimeOverview } from "./generated/RuntimeOverview";
+export type { TokenUsage } from "./generated/TokenUsage";
 export type { BackupInfo } from "./generated/BackupInfo";
 export type { ExportInfo } from "./generated/ExportInfo";
 export type { IntegrityReport } from "./generated/IntegrityReport";

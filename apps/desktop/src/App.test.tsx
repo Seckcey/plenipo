@@ -45,6 +45,7 @@ const record = (id: string, patch: Partial<ExecutionRecord> = {}): ExecutionReco
   detail: null,
   startedAt: Date.now(),
   endedAt: null,
+  agent: null,
   ...patch,
 });
 

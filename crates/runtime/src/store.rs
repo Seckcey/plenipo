@@ -201,6 +201,7 @@ mod tests {
             detail: None,
             started_at: 1,
             ended_at: None,
+            agent: None,
         }
     }
 
