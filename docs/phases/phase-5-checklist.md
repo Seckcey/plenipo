@@ -3,8 +3,8 @@
 **Status:** implemented on `claude/phase-5`; awaiting owner acceptance (see the
 [acceptance report](phase-5-acceptance-report.md)).
 
-Source: `ROLLOUT_PLAN.md`, Phase 5 — Workforce and Organization Engine. Phase 4 is implemented
-and merged (PR #5); the owner asked to begin Phase 5 on 2026-09-26. Owner direction for the UI:
+Source: `ROLLOUT_PLAN.md`, Phase 5 — Workforce and Organization Engine. Phase 4 is implemented,
+merged, and accepted (v0.5.0); the owner asked to begin Phase 5 on 2026-09-26. Owner direction for the UI:
 the Organization page should look and work like the UniFi Network topology map
 (`unifi.ui.com`) — hire, drag, assign, and move agents, and assign supervisors, QA evaluators,
 and security auditors, directly on the canvas.

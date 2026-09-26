@@ -3,8 +3,8 @@
 |              |                                                                                                                                                                       |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Phase**    | 5 — Workforce and Organization Engine                                                                                                                                 |
-| **Branch**   | `claude/phase-5` (PR_LINK)                                                                                                                                            |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: see the PR.                                                                      |
+| **Branch**   | `claude/phase-5` ([PR #7](https://github.com/Seckcey/plenipo/pull/7))                                                                                                 |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #7.                                |
 | **Date**     | 2026-09-26                                                                                                                                                            |
 | **Result**   | **The Phase 5 acceptance criterion passes end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2). |
 
@@ -15,7 +15,7 @@ Screenshots: [empty organization](evidence/phase-5/org-empty.png) ·
 [a worker's Ledger trail](evidence/phase-5/org-worker-trail.png) ·
 [list view after a restart](evidence/phase-5/org-list-after-restart.png).
 
-Test totals: **RUST_TOTAL Rust** (Linux) · **FRONTEND_TOTAL frontend** · **E2E_TOTAL end-to-end**
+Test totals: **348 Rust** (Linux) · **100 frontend** · **30 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5).
 
 CI has no provider accounts, so every automated test drives `plenipo-fake-agent`, the test
@@ -75,6 +75,7 @@ live reload), organization members in Workers, and the `org.*` trail description
 | E2E (real app)        | In the default 1200 × 780 window the palette and the details panel left the map about 420 px wide, so **Fit** showed the organization at 20 %.                                         | The details panel floats over the map, and fit, fly-to, zoom, the minimap, drops, and edge panning use the part it leaves uncovered; the palette is compact and folds to a rail; the header is two compact rows. |
 | E2E (real app)        | The link glow used a blur filter, which is slow under software rendering (the map moved in ~0.5 s steps).                                                                              | The glow is a faint wide stroke under each link.                                                                                                                                                                 |
 | E2E (real app)        | "QA evaluator" lost its capitals mid-sentence ("the team's qa evaluator").                                                                                                             | Oversight roles have their own mid-sentence names.                                                                                                                                                               |
+| E2E (harness, flaky)  | A relaunch in the Phase 3 suite could ask for a WebDriver session before the native driver that tauri-driver starts was listening, and was refused.                                    | The launcher waits for both drivers' ports.                                                                                                                                                                      |
 
 ## 4. Deliverables
 
@@ -127,7 +128,7 @@ live reload), organization members in Workers, and the `org.*` trail description
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
 | O1  | ADR-009 is **Proposed** (ADR-008 is still Proposed too).                                                                                                                                         | Accept or amend.                 |
 | O2  | Windows check with the **real** CLIs and your subscription sign-ins (~20 min): the steps in [phase-5-checklist.md](phase-5-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
-| O3  | Version stays **0.4.0** until O2 passes; then **0.5.0** per the phase convention.                                                                                                                | Bump after O2.                   |
+| O3  | Version stays **0.5.0** until O2 passes; then **0.6.0** per the phase convention.                                                                                                                | Bump after O2.                   |
 | O4  | Phase 6 (Model Policy Engine) replaces the per-position runtime choice with policy.                                                                                                              | Say "start Phase 6" after O1–O2. |
 
 Things only the real CLIs can confirm (O2): that a coordinator follows its instructions and
@@ -136,14 +137,14 @@ still finishes), and how long a team round trip takes on real subscriptions.
 
 ## 8. Verification
 
-| Check                                                                     | Result             |
-| ------------------------------------------------------------------------- | ------------------ |
-| `pnpm check` (versions, format, lint, typecheck, tests)                   | FRONTEND_CHECK     |
-| `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | CLIPPY_CHECK       |
-| `cargo test --workspace`                                                  | RUST_CHECK         |
-| `pnpm e2e` against the release build (Linux, Xvfb)                        | E2E_CHECK          |
-| Generated TypeScript bindings                                             | BINDINGS_CHECK     |
-| GitHub CI on the PR                                                       | Linked from the PR |
+| Check                                                                     | Result                                                                           |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 100 frontend tests                                                        |
+| `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                                                             |
+| `cargo test --workspace`                                                  | Pass — 348 tests, including 8 Workforce integration tests and 2 new Liaison ones |
+| `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 30 of 30, including the 5 Phase 5 tests                                   |
+| Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)                                      |
+| GitHub CI on the PR                                                       | Linked from the PR                                                               |
 
 ## 9. Phase boundary
 
