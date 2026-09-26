@@ -1,6 +1,6 @@
 # ADR-007: Provider runtime adapters (Codex, Claude Code)
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 3
 

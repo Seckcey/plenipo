@@ -1,4 +1,4 @@
-# Phase 3 — Acceptance Report (draft, pending owner verification)
+# Phase 3 — Acceptance Report
 
 |              |                                                                                                                                                                                                                                                         |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -6,7 +6,7 @@
 | **Branch**   | `claude/phase-3-runtime-adapters` ([PR #3](https://github.com/Seckcey/plenipo/pull/3); replaces #2)                                                                                                                                                     |
 | **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI **green** on `9fdd498`: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — [run](https://github.com/Seckcey/plenipo/actions/runs/36219759501). |
 | **Date**     | 2026-09-26                                                                                                                                                                                                                                              |
-| **Result**   | **All acceptance criteria pass end to end against fake CLIs.** The same criteria with the **real** Claude Code and Codex sign-ins are owner item **O2**.                                                                                                |
+| **Result**   | **All Phase 3 acceptance criteria pass**: end to end against fake CLIs in CI, and with the real Claude Code and Codex sign-ins on Windows (owner, §8).                                                                                                  |
 
 Screenshots: [agent runtimes](evidence/phase-3/agent-runtimes.png) ·
 [live turn](evidence/phase-3/worker-live.png) · [result](evidence/phase-3/worker-result.png) ·
@@ -120,6 +120,19 @@ Claude Code's `apiKeySource` for a subscription sign-in (`none` expected — any
 the turn as "API billing"), Codex's `login status` wording, the npm-installed Codex native binary
 path, and whether Claude Code on Windows needs `CLAUDE_CODE_GIT_BASH_PATH` set.
 
-## 8. Phase boundary
+## 8. Owner sign-off (2026-09-26)
 
-Phase 3 is implemented and verified against fake CLIs. It is **not accepted** until O1–O2.
+| Item                                                 | Outcome                                                                                            |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| O1 ADR-007                                           | **Accepted** by owner                                                                              |
+| O2 Windows check with the real Claude Code and Codex | **Passed** — reported by owner ("everything worked great"); criteria A1–A7 verified with real CLIs |
+| O3 Version                                           | Bumped to **0.4.0**; released as `v0.4.0` with the Windows installer                               |
+| O4 Push rule                                         | Resolved by owner                                                                                  |
+| O5 Phase 4                                           | Awaiting the owner's go-ahead                                                                      |
+
+Phase 3 is **accepted**.
+
+## 9. Phase boundary
+
+Phase 3 is complete. Phase 4 (Liaison message bus, cross-provider handoffs) has not been started
+(§7, O5).

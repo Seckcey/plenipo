@@ -1,0 +1,65 @@
+name: Release
+
+# Pushing a tag `vX.Y.Z` builds the Windows installer from that commit and publishes a GitHub
+# release with it attached. See docs/development/versioning.md → Releasing.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows installer and publish release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Tag matches the product version, and release notes exist
+        shell: bash
+        run: |
+          pnpm versions:check
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the product version $version"
+            exit 1
+          fi
+          if [ ! -f "docs/releases/$GITHUB_REF_NAME.md" ]; then
+            echo "::error::Missing release notes: docs/releases/$GITHUB_REF_NAME.md"
+            exit 1
+          fi
+      - name: Build release app and NSIS installer
+        run: pnpm build
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          title=$(head -n 1 "$notes" | sed 's/^# *//')
+          tail -n +2 "$notes" > "$RUNNER_TEMP/release-notes.md"
+          prerelease=()
+          case "$GITHUB_REF_NAME" in
+            v0.* | *-*) prerelease=(--prerelease) ;;
+          esac
+          installer=(target/release/bundle/nsis/*-setup.exe)
+          test -f "${installer[0]}"
+          gh release create "$GITHUB_REF_NAME" "${installer[@]}" \
+            --verify-tag \
+            --title "$title" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${prerelease[@]}"

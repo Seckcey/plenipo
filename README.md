@@ -5,10 +5,10 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 3 (in progress) — provider runtime adapters. The **Workers** view runs
-> tasks on your own signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API
-> billing), with live activity, normalized results, resume, and cancel. Every turn is recorded
-> in the durable local Ledger (Phase 2). Workers cannot change files yet, and there are no
+> **Status:** Phase 3 — provider runtime adapters (accepted, v0.4.0). The **Workers** view
+> runs tasks on your own signed-in Claude Code and Codex CLIs (subscription sign-ins only, no
+> API billing), with live activity, normalized results, resume, and cancel. Every turn is
+> recorded in the durable local Ledger. Workers cannot change files yet, and there are no
 > departments yet. See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack

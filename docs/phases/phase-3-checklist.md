@@ -1,7 +1,6 @@
 # Phase 3 — Implementation Checklist
 
-**Status:** implemented; verified end to end against fake CLIs. Acceptance with the real Claude
-Code and Codex sign-ins is pending the owner check below — see
+**Status:** complete — accepted by the owner (v0.4.0). See
 [phase-3-acceptance-report.md](phase-3-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 3 — Provider Runtime Adapters: Codex and Claude Code.
@@ -89,13 +88,13 @@ every new command, and E2E through the real app (`tests/e2e/specs/agents.e2e.mjs
 
 ## Acceptance criteria (from plan) — from the Plenipo UI
 
-- [ ] 1. Launch one Codex task
-- [ ] 2. Launch one Claude Code task
-- [ ] 3. See live activity
-- [ ] 4. Receive a normalized completion result
-- [ ] 5. Resume both sessions
-- [ ] 6. Cancel an active task
-- [ ] 7. Preserve the executions in the Ledger
+- [x] 1. Launch one Codex task
+- [x] 2. Launch one Claude Code task
+- [x] 3. See live activity
+- [x] 4. Receive a normalized completion result
+- [x] 5. Resume both sessions
+- [x] 6. Cancel an active task
+- [x] 7. Preserve the executions in the Ledger
 
 The Codex and Claude desktop applications are not required to be open.
 
