@@ -18,7 +18,7 @@ and invites quoting mistakes.
 xAI's Grok CLI (`grok 1.0.41`, and the `1.0.42` alpha) fails that item. Its one-task mode,
 `grok -p`, takes the prompt only as an argument or a file, and xAI's guide says "Headless mode
 does not read piped stdin into the prompt"
-([finding](../phases/ai-tools-grok-finding.md)). The owner wants Grok, and has ruled out both
+(the finding is recorded in [Grok's acceptance report](../phases/ai-tools-grok-acceptance-report.md#1-how-grok-got-here)). The owner wants Grok, and has ruled out both
 the prompt on the command line and the prompt in a file.
 
 The same CLI has a second official mode, `grok agent stdio`, which speaks **ACP** (Agent Client

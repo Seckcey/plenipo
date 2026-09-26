@@ -49,17 +49,20 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. AI tools: Claude Code and Codex (Phase 3, optional)
+## 3. AI tools: Claude Code, Codex, and Grok (optional)
 
-The **Workers** view runs tasks on the Claude Code and Codex command-line tools that are already
-installed **and signed in with your subscription** on this computer. Plenipo never asks for a
-password or API key, and refuses API-key sign-ins (no API billing). The desktop apps do not need
-to be open.
+<a id="3-ai-tools-claude-code-and-codex-phase-3-optional"></a>
 
-| AI tool     | Install (PowerShell)                                      | Sign in (once, in a terminal)                    |
-| ----------- | --------------------------------------------------------- | ------------------------------------------------ |
-| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account |
-| Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**  |
+The **Workers** view runs tasks on the Claude Code, Codex, and Grok command-line tools that are
+already installed **and signed in with your subscription** on this computer. Plenipo never asks
+for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
+apps do not need to be open.
+
+| AI tool     | Install (PowerShell)                                      | Sign in (once, in a terminal)                                                  |
+| ----------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account                               |
+| Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**                                |
+| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
 
 Then open **AI tools** in Plenipo and choose **Re-check**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -77,11 +80,27 @@ Notes:
   a model with `/model`. `codex exec --skip-git-repo-check "Say hi"` should then answer. You
   can also name a model for one position in Plenipo (details panel → **Edit title, AI tool, or
   model**).
-- Workers you start in **Workers** cannot change anything: Claude Code runs with no tools
-  (conversation only), Codex in its read-only sandbox, each conversation in its own empty folder
+- Grok (xAI's Grok Build, checked with version 1.0.41). The installer puts `grok.exe` in
+  `%USERPROFILE%\.grok\bin`; open a new PowerShell window afterwards so `grok` works there (Plenipo
+  also looks in that folder). To check the sign-in yourself, run `grok models`: its first line
+  should say you are signed in, not "You are not authenticated." or "You are using XAI_API_KEY.".
+  What Plenipo checks and does:
+  - Before every task it runs `grok models`. A key in `XAI_API_KEY`, or a key set on a model in
+    `%USERPROFILE%\.grok\config.toml`, makes Grok report an API key, and Plenipo refuses to run it.
+  - It starts Grok with `GROK_DISABLE_API_KEY_AUTH=1`, so Grok itself refuses API keys, and it
+    never passes `XAI_API_KEY`.
+  - Grok's one-task mode cannot take the task text on its input, so Plenipo runs
+    `grok agent --no-leader stdio` and talks to it over ACP ([ADR-015](../adr/ADR-015-acp-ai-tools.md),
+    running AI tools over ACP): one program per task, and the task text goes in on its input.
+  - Grok gets none of its own tools, helpers, memory, or web access, and none of your Claude Code
+    or Cursor settings. When Grok asks to use a tool, Plenipo answers for you: Plenipo's own
+    tools yes (Guard still decides each call), everything else no.
+  - Models: **grok-4.6** (low to extra high effort) and **grok-4.5** (low to high).
+- Workers you start in **Workers** cannot change anything: Claude Code and Grok run with none of
+  their own tools (conversation only), Codex in its read-only sandbox, each conversation in its own empty folder
   under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`. Organization
   workers get Plenipo's own tools, within their permissions (below).
-- Handoffs (Phase 4) need both AI tools Ready. In **Workers**, tick **Allow handoffs to other
+- Handoffs (Phase 4) need two AI tools Ready. In **Workers**, tick **Allow handoffs to other
   workers**, then give an objective that invites a second opinion — for example, on Codex:
   _"Write a function that parses ISO dates. Before you finish, ask claude-code to review it."_
   The task shows **Waiting for replies** while the Claude Code worker runs, then continues with
