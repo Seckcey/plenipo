@@ -1,0 +1,2 @@
+default flags: tools offered: 16 -> bash, read_bash, stop_bash, list_bash, apply_patch, view, fetch_copilot_cli_documentation, skill, sql, session_store_sql, read_agent, list_agents, write_agent, rg, glob, task
+with --available-tools=plenipo_no_tools: tools offered: 0 -> 

@@ -1,0 +1,48 @@
+AI credit usage:
+
+  Several Copilot CLI features help you see and understand how much of your
+  budget a session is consuming. Usage is measured in AI credits. If you're on
+  the legacy billing platform, you may see premium requests instead.
+
+Where to look:
+
+  footer           The status bar at the bottom of the screen continuously shows
+                   your remaining AI credit budget. If you're on the legacy
+                   billing platform, it shows your remaining premium requests
+                   instead.
+
+  /statusline      Add the `quota` option to show your usage against your plan
+                   limit (your AI credit budget, or your premium requests on the
+                   legacy billing platform), and the `ai-used` option to show AI
+                   credits used in this session.
+
+  /model           The model picker shows each model's relative cost so you can
+                   weigh it before switching: pricing is shown as per-token costs
+                   (input, cached input, and output). If you're on the legacy
+                   billing platform, a request multiplier is shown instead.
+
+  /context         Shows context-window token usage, broken down by the largest
+                   consumers (system prompt, tools, and messages). Finer
+                   per-source attribution (skills, subagents, MCP servers,
+                   plugins) appears in experimental mode (`/experimental`).
+
+  /usage           Shows AI credit usage for the current session, plus a token
+                   breakdown (input, output, and cached), and usage-limit
+                   progress when any limits apply. If you're on the legacy
+                   billing platform, premium requests are shown instead.
+
+  /exit            The exit summary reports the session's usage when you leave.
+
+Autopilot:
+
+  In autopilot mode, the agent pauses after a number of automatic continuation
+  messages so usage doesn't run away unattended. The default is 5; adjust it
+  with `--max-autopilot-continues <count>`.
+
+Learn more:
+
+  For details on Copilot billing and AI credits, see
+  https://docs.github.com/en/copilot/concepts/billing
+
+  For the legacy billing model and premium requests, see
+  https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy
