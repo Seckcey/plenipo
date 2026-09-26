@@ -3,8 +3,8 @@
 Real output from xAI's official Grok CLI ("Grok Build", `grok 1.0.41 (4220f3b224a6)`, stable
 channel, `linux-x86_64`), installed with `https://x.ai/cli/install.sh` on 2026-09-26. Nothing
 here was signed in: there was no `~/.grok/auth.json`, and no real API key. These files are the
-evidence for [the Grok finding](../../ai-tools-grok-finding.md). If Grok is tried again, they
-are a starting point for its adapter's tests and fake persona. The standard-input checks were
+evidence for Grok's [acceptance report](../../ai-tools-grok-acceptance-report.md) and the
+tests of its adapter (`grok.rs`) and the ACP driver (`acp.rs`), which read some of them directly. The standard-input checks were
 repeated on the alpha channel's `grok 1.0.42 (4651fbdf9f13)` with the same results.
 
 **Redacted:** working-directory paths (now `/work`), the host name, the agent and instance IDs,
@@ -16,22 +16,25 @@ the rest listed the capture machine's own skills. "Fake key" means `XAI_API_KEY`
 
 Every task below ran in an empty folder with standard input closed or piped, and a time limit.
 
-| File                                            | Command                                                                                       | Exit |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------- | ---- |
-| `version.txt`                                   | `grok --version`                                                                              | 0    |
-| `version.jsonl`                                 | `grok version --json`                                                                         | 0    |
-| `update-check.jsonl`                            | `grok update --check --json`                                                                  | 0    |
-| `help/*.txt`                                    | `grok [subcommand] --help` for every subcommand                                               | 0    |
-| `inspect-login-policy.json`                     | `GROK_DISABLE_API_KEY_AUTH=1 grok inspect --json` (cut down)                                  | 0    |
-| `models-signed-out.txt`                         | `grok models`                                                                                 | 0    |
-| `models-api-key.txt`                            | `XAI_API_KEY=<fake> grok models` (same text with `GROK_CODE_XAI_API_KEY`)                     | 0    |
-| `turn-signed-out.streaming-json.jsonl`          | `grok -p - --output-format streaming-json` (stdout; stderr in `turn-signed-out.stderr.txt`)   | 1    |
-| `turn-signed-out.json.jsonl`                    | `grok -m not-a-model -p hi --output-format json`                                              | 1    |
-| `turn-signed-out.streaming-messages-json.jsonl` | `grok -p "Reply with ok." --output-format streaming-messages-json --no-auto-update`           | 1    |
-| `turn-api-key-rejected.streaming-json.jsonl`    | `XAI_API_KEY=<fake> grok -p "Reply with ok." --output-format streaming-json --no-auto-update` | 1    |
-| `turn-api-key-refused.streaming-json.jsonl`     | the same with `GROK_DISABLE_API_KEY_AUTH=1`                                                   | 1    |
-| `acp-signed-out.client.jsonl`                   | what was sent to `grok agent stdio`: `initialize`, then `session/new` (never `authenticate`)  | —    |
-| `acp-signed-out.agent.jsonl`                    | what `grok agent stdio` answered                                                              | 0    |
+| File                                            | Command                                                                                             | Exit |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---- |
+| `version.txt`                                   | `grok --version`                                                                                    | 0    |
+| `version.jsonl`                                 | `grok version --json`                                                                               | 0    |
+| `update-check.jsonl`                            | `grok update --check --json`                                                                        | 0    |
+| `help/*.txt`                                    | `grok [subcommand] --help` for every subcommand                                                     | 0    |
+| `inspect-login-policy.json`                     | `GROK_DISABLE_API_KEY_AUTH=1 grok inspect --json` (cut down)                                        | 0    |
+| `models-signed-out.txt`                         | `grok models`                                                                                       | 0    |
+| `models-api-key.txt`                            | `XAI_API_KEY=<fake> grok models` (same text with `GROK_CODE_XAI_API_KEY`)                           | 0    |
+| `turn-signed-out.streaming-json.jsonl`          | `grok -p - --output-format streaming-json` (stdout; stderr in `turn-signed-out.stderr.txt`)         | 1    |
+| `turn-signed-out.json.jsonl`                    | `grok -m not-a-model -p hi --output-format json`                                                    | 1    |
+| `turn-signed-out.streaming-messages-json.jsonl` | `grok -p "Reply with ok." --output-format streaming-messages-json --no-auto-update`                 | 1    |
+| `turn-api-key-rejected.streaming-json.jsonl`    | `XAI_API_KEY=<fake> grok -p "Reply with ok." --output-format streaming-json --no-auto-update`       | 1    |
+| `turn-api-key-refused.streaming-json.jsonl`     | the same with `GROK_DISABLE_API_KEY_AUTH=1`                                                         | 1    |
+| `models-per-model-key.txt`                      | `grok models` with `[model."grok-4.6"] api_key = "<fake>"` in `~/.grok/config.toml`                 | 0    |
+| `turn-per-model-key.stderr.txt`                 | `grok -p "Reply ok." -m grok-4.6 --output-format streaming-json` with that setting: the key is sent | 1    |
+| `turn-per-model-key-refused.stderr.txt`         | the same with `GROK_DISABLE_API_KEY_AUTH=1`: refused before anything is sent                        | 1    |
+| `acp-signed-out.client.jsonl`                   | what was sent to `grok agent stdio`: `initialize`, then `session/new` (never `authenticate`)        | —    |
+| `acp-signed-out.agent.jsonl`                    | what `grok agent stdio` answered                                                                    | 0    |
 
 ## What these show
 
@@ -62,4 +65,6 @@ Every task below ran in an empty folder with standard input closed or piped, and
   `grok-4.7`; this version does not list it signed out.
 - **Credential order** (bundled `02-authentication.md`): a per-model `api_key`/`env_key` in
   `config.toml` wins, then the signed-in session, then `XAI_API_KEY`. `GROK_CODE_XAI_API_KEY`
-  is read the same way as `XAI_API_KEY`.
+  is read the same way as `XAI_API_KEY`. With `GROK_DISABLE_API_KEY_AUTH=1`, a per-model key is
+  refused too (compare the two `turn-per-model-key*` files), and `grok models` names it on its
+  first line ("Model 'grok-4.6' is using its own API key.").

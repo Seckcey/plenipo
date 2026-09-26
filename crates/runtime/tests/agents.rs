@@ -18,7 +18,7 @@ use plenipo_runtime::{
     RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
-const RUNTIMES: [&str; 2] = ["claude-code", "codex"];
+const RUNTIMES: [&str; 3] = ["claude-code", "codex", "grok"];
 const WAIT: Duration = Duration::from_secs(30);
 const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
@@ -146,6 +146,30 @@ impl H {
             .unwrap()
     }
 
+    /// The provider session a follow-up resumed: from the arguments, or, for Grok (ACP,
+    /// ADR-015), from the message that opened the session.
+    fn resumed(&self, runtime: &str) -> String {
+        if runtime == "grok" {
+            let acp: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(self.state().join("last-acp.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(acp["method"], "session/resume", "{acp}");
+            return acp["params"]["sessionId"].as_str().unwrap().to_owned();
+        }
+        let flag = if runtime == "claude-code" {
+            "--resume"
+        } else {
+            "resume"
+        };
+        let args = self.last_args();
+        let i = args
+            .iter()
+            .position(|a| a == flag)
+            .expect("resume argument");
+        args[i + 1].clone()
+    }
+
     fn last_env(&self) -> Vec<String> {
         std::fs::read_to_string(self.state().join("last-env.txt"))
             .unwrap()
@@ -253,8 +277,8 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 2);
-    for (info, version) in runtimes.iter().zip(["2.1.999", "0.99.0"]) {
+    assert_eq!(runtimes.len(), 3);
+    for (info, version) in runtimes.iter().zip(["2.1.999", "0.99.0", "1.0.99"]) {
         assert_eq!(
             info.installation.state,
             InstallState::Installed,
@@ -275,6 +299,10 @@ async fn installation_detection() {
         Some("Claude subscription (max)")
     );
     assert_eq!(runtimes[1].auth.method.as_deref(), Some("ChatGPT sign-in"));
+    assert_eq!(
+        runtimes[2].auth.method.as_deref(),
+        Some("Grok sign-in (X account)")
+    );
     // No account identifier from the status output is kept.
     assert!(!format!("{runtimes:?}").contains("owner@example.com"));
     // The UI was told.
@@ -466,14 +494,14 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
             "{live:?}"
         );
         assert!(live.iter().any(|e| matches!(e, AgentEvent::Message { .. })));
-        if runtime == "claude-code" {
-            let deltas = live
-                .iter()
-                .filter(|e| matches!(e, AgentEvent::TextDelta { .. }))
-                .count();
-            assert!(deltas > 1, "text streams incrementally ({deltas})");
-        } else {
-            assert!(live.iter().any(|e| matches!(e, AgentEvent::ToolUse { .. })));
+        let deltas = live
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::TextDelta { .. }))
+            .count();
+        match runtime {
+            "claude-code" => assert!(deltas > 1, "text streams incrementally ({deltas})"),
+            "codex" => assert!(live.iter().any(|e| matches!(e, AgentEvent::ToolUse { .. }))),
+            _ => assert!(deltas > 0, "text streams ({deltas})"),
         }
         let stored = h.store.activity(&turn.task_id);
         assert!(stored
@@ -507,8 +535,22 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
         assert!(Path::new(&exec.working_dir).ends_with(&session.id));
         // No credentials reached the CLI.
         let env = h.last_env();
-        for secret in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"] {
+        for secret in [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "XAI_API_KEY",
+            "GROK_CODE_XAI_API_KEY",
+        ] {
             assert!(!env.iter().any(|n| n == secret), "{secret}");
+        }
+        if runtime == "grok" {
+            // API-key sign-in refused by Grok itself; Plenipo never asked it to sign in.
+            assert!(env.iter().any(|n| n == "GROK_DISABLE_API_KEY_AUTH"));
+            assert!(env.iter().any(|n| n == "GROK_DISABLE_AUTOUPDATER"));
+            assert!(!h.state().join("authenticate-called").exists());
+            assert_eq!(args.last().map(String::as_str), Some("stdio"));
+            assert!(args.contains(&"--no-leader".to_owned()), "{args:?}");
         }
         if runtime == "claude-code" {
             assert!(env.iter().any(|n| n == "DISABLE_AUTOUPDATER"));
@@ -546,17 +588,7 @@ async fn resume_continues_the_same_provider_session() {
             Some(provider_id.as_str())
         );
         assert_eq!(detail.session.turn_count, 2);
-        let args = h.last_args();
-        let resume_flag = if runtime == "claude-code" {
-            "--resume"
-        } else {
-            "resume"
-        };
-        let i = args
-            .iter()
-            .position(|a| a == resume_flag)
-            .expect("resume argument");
-        assert_eq!(args[i + 1], provider_id);
+        assert_eq!(h.resumed(runtime), provider_id);
         // Two executions, both in the same Plenipo session.
         let execs: Vec<_> = h
             .sup
@@ -596,7 +628,14 @@ async fn cancellation_stops_the_turn_and_the_session_stays_resumable() {
         assert!(!turn.running, "{runtime}: recorded before cancel returns");
         assert_eq!(outcome(turn), TurnOutcome::Cancelled);
         let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
-        assert_eq!(exec.state, ExecutionState::Cancelled);
+        // A tool that talks (Grok, ADR-015) is asked to stop and ends by itself; the others
+        // are ended by Plenipo.
+        let ended = if runtime == "grok" {
+            ExecutionState::Succeeded
+        } else {
+            ExecutionState::Cancelled
+        };
+        assert_eq!(exec.state, ended, "{runtime}");
         assert!(detail.session.active_task_id.is_none());
 
         h.rt.resume_session(&id, "after cancel").await.unwrap();
@@ -1121,17 +1160,7 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         assert!(detail.session.waiting_task_id.is_none());
         assert_eq!(h.store.notes(&task), [note]);
         // Same provider session, resumed.
-        let args = h.last_args();
-        let flag = if runtime == "claude-code" {
-            "--resume"
-        } else {
-            "resume"
-        };
-        let i = args
-            .iter()
-            .position(|a| a == flag)
-            .expect("resume argument");
-        assert_eq!(args[i + 1], provider_id);
+        assert_eq!(h.resumed(runtime), provider_id);
         // Step 2's live activity is numbered after step 1's.
         let seqs: Vec<u64> = h
             .updates
