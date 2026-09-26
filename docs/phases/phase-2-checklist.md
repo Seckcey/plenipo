@@ -1,5 +1,7 @@
 # Phase 2 — Implementation Checklist
 
+**Status:** complete — see [phase-2-acceptance-report.md](phase-2-acceptance-report.md).
+
 Source: `ROLLOUT_PLAN.md`, Phase 2 — Plenipo Ledger: Durable Task and Event Model.
 Phase 1 accepted (v0.2.0). Owner approved starting Phase 2.
 
@@ -29,36 +31,36 @@ Phase 1 accepted (v0.2.0). Owner approved starting Phase 2.
 
 ## Deliverables
 
-- [ ] `crates/ledger`: connection setup, migration runner, repository layer
-- [ ] Schemas: department, role, agent instance, project, task, event, execution, approval,
+- [x] `crates/ledger`: connection setup, migration runner, repository layer
+- [x] Schemas: department, role, agent instance, project, task, event, execution, approval,
       artifact (extensible `metadata` JSON columns)
-- [ ] Provider/model execution metadata (execution table carries runtime, provider, model,
+- [x] Provider/model execution metadata (execution table carries runtime, provider, model,
       session, usage)
-- [ ] Runtime supervisor persists executions through the Ledger (store trait), one-time import
+- [x] Runtime supervisor persists executions through the Ledger (store trait), one-time import
       of `executions.json`
-- [ ] Commands: ledger status, tasks, task timeline, recent events, synthetic tasks (diagnostic),
+- [x] Commands: ledger status, tasks, task timeline, recent events, synthetic tasks (diagnostic),
       integrity check, backup, export — each granted in capabilities
-- [ ] Activity timeline UI: task list, ordered per-task trail, all-events feed, live updates
-- [ ] Diagnostics: ledger health, integrity check, backup, export, synthetic task tools
-- [ ] ADR-006 (Ledger design); architecture/config docs updated
+- [x] Activity timeline UI: task list, ordered per-task trail, all-events feed, live updates
+- [x] Diagnostics: ledger health, integrity check, backup, export, synthetic task tools
+- [x] ADR-006 (Ledger design); architecture/config docs updated
 
 ## Phase 2 tests (from plan)
 
-- [ ] Migration up/down strategy
-- [ ] CRUD tests
-- [ ] Parent/child task relations
-- [ ] Event ordering
-- [ ] Restart durability (including a hard-killed writer process)
-- [ ] Invalid state transition tests
-- [ ] Concurrent event writes (threads and separate connections)
-- [ ] Backup/export smoke test
+- [x] Migration up/down strategy
+- [x] CRUD tests
+- [x] Parent/child task relations
+- [x] Event ordering
+- [x] Restart durability (including a hard-killed writer process)
+- [x] Invalid state transition tests
+- [x] Concurrent event writes (threads and separate connections)
+- [x] Backup/export smoke test
 
 ## Acceptance criteria (from plan)
 
-- [ ] Kill and relaunch Plenipo while a synthetic task exists; task history remains intact
-- [ ] A task has a complete ordered activity trail
-- [ ] Invalid task transitions are rejected
-- [ ] Database corruption is not silently ignored
+- [x] Kill and relaunch Plenipo while a synthetic task exists; task history remains intact
+- [x] A task has a complete ordered activity trail
+- [x] Invalid task transitions are rejected
+- [x] Database corruption is not silently ignored
 
 ## Out of scope
 
