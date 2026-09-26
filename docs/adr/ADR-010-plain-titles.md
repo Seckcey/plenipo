@@ -1,6 +1,6 @@
 # ADR-010: Plain words, the chain of command, and choosable rank names
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 5
 

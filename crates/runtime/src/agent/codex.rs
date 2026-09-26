@@ -243,6 +243,23 @@ fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+/// Codex passes some service errors on as the service's own JSON body, for example
+/// `{"type":"error","status":400,"error":{"message":"The 'x' model is not supported…"}}`.
+/// Show the sentence inside it instead of the raw JSON.
+fn readable(message: &str) -> String {
+    let inner = serde_json::from_str::<Value>(message.trim())
+        .ok()
+        .and_then(|v| {
+            ["/error/message", "/message", "/detail"]
+                .iter()
+                .find_map(|p| v.pointer(p).and_then(Value::as_str).map(str::to_owned))
+        });
+    match inner {
+        Some(m) if !m.trim().is_empty() => readable(&m),
+        _ => message.to_owned(),
+    }
+}
+
 impl Parser {
     fn thread_started(&mut self, v: &Value) -> Parsed {
         let id = v
@@ -344,7 +361,7 @@ impl Parser {
                 })
             }
             Some("error") => {
-                let message = cap(str_of(item, "message"), MAX_EVENT_TEXT);
+                let message = cap(&readable(str_of(item, "message")), MAX_EVENT_TEXT);
                 self.state.last_warning = Some(message.clone());
                 Parsed::one(AgentEvent::Notice {
                     level: NoticeLevel::Warning,
@@ -386,12 +403,12 @@ impl TurnParser for Parser {
                 let message = v
                     .pointer("/error/message")
                     .and_then(Value::as_str)
-                    .unwrap_or("Codex reported that the turn failed");
-                self.state.error = Some(cap(message, MAX_EVENT_TEXT));
+                    .map_or_else(|| "Codex reported that the task failed".into(), readable);
+                self.state.error = Some(cap(&message, MAX_EVENT_TEXT));
                 Parsed::none()
             }
             Some("error") => {
-                let message = cap(str_of(&v, "message"), MAX_EVENT_TEXT);
+                let message = cap(&readable(str_of(&v, "message")), MAX_EVENT_TEXT);
                 self.state.last_warning = Some(message.clone());
                 Parsed::one(AgentEvent::Notice {
                     level: NoticeLevel::Warning,
@@ -595,6 +612,38 @@ mod tests {
         p.line("{not json", true);
         let r = p.finish(&end(ExecutionState::Failed, Some(1)));
         assert_eq!(r.outcome, TurnOutcome::MalformedOutput);
+    }
+
+    #[test]
+    fn service_errors_read_as_plain_sentences() {
+        // As the real Codex CLI reported an unsupported model (owner check, 2026-09-26).
+        let body = r#"{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-x' model is not supported when using Codex with a ChatGPT account."}}"#;
+        let plain = "The 'gpt-x' model is not supported when using Codex with a ChatGPT account.";
+        let mut p = Codex.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"thread.started","thread_id":"t-1"}),
+                json!({"type":"turn.started"}),
+                json!({"type":"error","message":body}),
+                json!({"type":"turn.failed","error":{"message":body}}),
+            ],
+        );
+        assert_eq!(
+            events.last(),
+            Some(&AgentEvent::Notice {
+                level: NoticeLevel::Warning,
+                text: plain.into()
+            })
+        );
+        let r = p.finish(&end(ExecutionState::Failed, Some(1)));
+        assert_eq!(r.outcome, TurnOutcome::Failed);
+        assert_eq!(r.summary, format!("Codex reported an error: {plain}"));
+        assert_eq!(r.error.as_deref(), Some(plain));
+
+        // Plain messages and JSON without a message stay as they are.
+        assert_eq!(readable("stream disconnected"), "stream disconnected");
+        assert_eq!(readable(r#"{"status":500}"#), r#"{"status":500}"#);
     }
 
     #[test]
