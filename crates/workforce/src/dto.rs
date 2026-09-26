@@ -446,3 +446,52 @@ pub struct RoleInput {
     pub kind: PositionKind,
     pub staffing: Staffing,
 }
+
+/// One of a project's objectives, in brief (Phase 8: the Projects page).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ObjectiveBrief {
+    pub root_task_id: String,
+    pub objective: String,
+    /// Who was given it.
+    pub position_title: Option<String>,
+    pub state: plenipo_ledger::TaskState,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number | null")]
+    pub completed_at: Option<u64>,
+    /// Tasks in its tree (its own included), those still going, and those that failed.
+    pub tasks: u32,
+    pub active: u32,
+    pub failed: u32,
+    pub waiting_approvals: u32,
+    /// Its branch, when it has a working copy.
+    pub branch: Option<String>,
+}
+
+/// A project's objectives and working copies (Phase 8: the Projects page).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProjectWork {
+    pub project_id: String,
+    /// Newest first.
+    pub objectives: Vec<ObjectiveBrief>,
+    /// Newest first.
+    pub working_copies: Vec<plenipo_ledger::Workspace>,
+}
+
+/// Set up a software project in the Development department (Phase 8): the department and its VP
+/// when missing, then the project with its supervisor and the standard team.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct DevelopmentInput {
+    /// The project (its department and supervisor come from the template).
+    pub project: ProjectInput,
+    /// The AI tool of the VP and the supervisor; absent: automatic. The team is always
+    /// automatic (each role's model choices pick).
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-objective-report"
+description = "Enables the get_objective_report command without any pre-configured scope."
+commands.allow = ["get_objective_report"]
+
+[[permission]]
+identifier = "deny-get-objective-report"
+description = "Denies the get_objective_report command without any pre-configured scope."
+commands.deny = ["get_objective_report"]

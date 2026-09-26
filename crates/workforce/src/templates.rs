@@ -170,6 +170,34 @@ const TEMPLATES: &[Template] = &[
     },
 ];
 
+/// A department and a project team to set up in one step (Phase 8). Data, like the role
+/// templates: the same engine runs every department.
+pub struct TeamTemplate {
+    pub department: &'static str,
+    pub description: &'static str,
+    /// The department head's title and role template.
+    pub head: (&'static str, &'static str),
+    /// The project supervisor's role template (titled "<project> Supervisor").
+    pub supervisor_role: &'static str,
+    /// On-call members of the project's team: title and role template.
+    pub team: &'static [(&'static str, &'static str)],
+}
+
+/// The Development department (the plan's Development Superintendent and project coordinators)
+/// with the standard software team.
+pub const DEVELOPMENT: TeamTemplate = TeamTemplate {
+    department: "Development",
+    description: "Builds and maintains the software projects.",
+    head: ("Development VP", "VP"),
+    supervisor_role: "Supervisor",
+    team: &[
+        ("Senior Developer", "Senior Developer"),
+        ("Code Reviewer", "Code Reviewer"),
+        ("QA Engineer", "QA Engineer"),
+        ("Documentation Writer", "Documentation Writer"),
+    ],
+};
+
 /// Built-in roles whose workers end their answers with a verdict (Phase 8).
 pub const VERDICT_ROLES: [&str; 3] = ["Code Reviewer", "QA Engineer", "Security Auditor"];
 
@@ -293,6 +321,13 @@ mod tests {
             for old in r.formerly {
                 assert!(all.iter().all(|o| o.name != *old), "{old}");
             }
+        }
+        // The Development template uses built-in roles only.
+        for role in std::iter::once(DEVELOPMENT.head.1)
+            .chain(std::iter::once(DEVELOPMENT.supervisor_role))
+            .chain(DEVELOPMENT.team.iter().map(|(_, r)| *r))
+        {
+            assert!(all.iter().any(|r| r.name == role), "{role}");
         }
         // Every starting policy belongs to a template.
         for (name, _) in template_policies() {

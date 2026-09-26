@@ -1640,3 +1640,62 @@ async fn cancelling_a_handed_over_objective_stops_only_that_task() {
     assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
     assert_eq!(session_of(&h.task(&next)), session_of(&child));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_development_template_sets_up_a_department_project_and_team() {
+    let h = harness().await;
+    let input = |name: &str| plenipo_workforce::DevelopmentInput {
+        project: ProjectInput {
+            capability_profile: None,
+            ..project_input(name, &["claude-code", "codex"])
+        },
+        runtime_id: Some("claude-code".into()),
+    };
+    let s = h.workforce.set_up_development(&input("Website")).unwrap();
+    assert_eq!(s.departments.len(), 1);
+    let dept = &s.departments[0];
+    assert_eq!(dept.name, "Development");
+    let vp = s
+        .positions
+        .iter()
+        .find(|p| Some(&p.id) == dept.head_position_id.as_ref())
+        .unwrap();
+    assert_eq!(
+        (vp.title.as_str(), vp.kind),
+        ("Development VP", PositionKind::Superintendent)
+    );
+    assert_eq!(vp.reports_to, None, "it reports to the owner");
+    assert_eq!(vp.runtime_id.as_deref(), Some("claude-code"));
+    let project = s.projects.iter().find(|p| p.name == "Website").unwrap();
+    assert!(project.branch_per_objective, "on by default");
+    let supervisor = project.coordinator_position_id.clone().unwrap();
+    assert_eq!(H::id_of(&s, "Website Supervisor"), supervisor);
+    let team: Vec<(String, bool)> = s
+        .positions
+        .iter()
+        .filter(|p| p.reports_to.as_deref() == Some(supervisor.as_str()))
+        .map(|p| (p.title.clone(), p.automatic))
+        .collect();
+    assert_eq!(
+        team,
+        [
+            ("Senior Developer".to_owned(), true),
+            ("Code Reviewer".to_owned(), true),
+            ("QA Engineer".to_owned(), true),
+            ("Documentation Writer".to_owned(), true),
+        ]
+    );
+    // The VP's team is its supervisor, which it hands objectives to.
+    let (_, briefing) = h.briefing(&vp.id);
+    assert_eq!(briefing[0].0, "role:Website Supervisor");
+
+    // A second project joins the same department; a name is used once.
+    let s = h.workforce.set_up_development(&input("Cloudline")).unwrap();
+    assert_eq!(s.departments.len(), 1);
+    assert_eq!(s.projects.len(), 2);
+    assert!(refusal(h.workforce.set_up_development(&input("website"))).contains("already exists"));
+    // The supervisor's AI tool must be allowed in the project.
+    let mut bad = input("Waypoint");
+    bad.project.allowed_runtimes = vec!["codex".into()];
+    assert!(refusal(h.workforce.set_up_development(&bad)).contains("allowed AI tools"));
+}

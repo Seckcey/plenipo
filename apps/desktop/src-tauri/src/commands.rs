@@ -37,8 +37,9 @@ use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
 };
 use plenipo_workforce::{
-    DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionPatchInput,
-    ProjectInput, RoleInput, TitleTheme, WorkView, Workforce, WorkforceError,
+    DepartmentInput, DevelopmentInput, HireInput, LeadInput, ObjectiveReport, OrgSnapshot,
+    OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, TitleTheme, WorkView,
+    Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -598,6 +599,60 @@ pub async fn create_project(
     validate_project(&input)?;
     check_project_limit(&guard, input.capability_profile.as_deref()).await?;
     with_workforce(&workforce, move |w| w.create_project(&input)).await
+}
+
+/// Set up a software project from the Development template (Phase 8): the Development
+/// department and its VP when missing, the project with its supervisor, and the standard team.
+#[tauri::command]
+pub async fn set_up_development(
+    workforce: State<'_, Workforce>,
+    guard: State<'_, Guard>,
+    input: DevelopmentInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_project(&input.project)?;
+    if input.project.department_id.is_some() || input.project.coordinator.is_some() {
+        return Err(CommandError::invalid_input(
+            "the Development template chooses the department and the supervisor",
+        ));
+    }
+    if let Some(r) = &input.runtime_id {
+        validate_runtimes(std::slice::from_ref(r))?;
+    }
+    check_project_limit(&guard, input.project.capability_profile.as_deref()).await?;
+    with_workforce(&workforce, move |w| w.set_up_development(&input)).await
+}
+
+/// Plenipo's record of the objective a task belongs to (Phase 8): tasks, workers and AI models,
+/// files, tests, branches, pull requests, findings, and approvals.
+#[tauri::command]
+pub async fn get_objective_report(
+    workforce: State<'_, Workforce>,
+    task_id: String,
+) -> Result<ObjectiveReport, CommandError> {
+    validate_id("task", &task_id)?;
+    with_workforce(&workforce, move |w| w.objective_report(&task_id)).await
+}
+
+/// A project's recent objectives and working copies (Phase 8: the Projects page).
+#[tauri::command]
+pub async fn get_project_work(
+    workforce: State<'_, Workforce>,
+    project_id: String,
+) -> Result<ProjectWork, CommandError> {
+    validate_id("project", &project_id)?;
+    with_workforce(&workforce, move |w| w.project_work(&project_id)).await
+}
+
+/// Remove a finished objective's working copy (its branch stays); returns its project's work.
+#[tauri::command]
+pub async fn remove_workspace(
+    workforce: State<'_, Workforce>,
+    broker: State<'_, Broker>,
+    workspace_id: String,
+) -> Result<ProjectWork, CommandError> {
+    validate_id("working copy", &workspace_id)?;
+    let removed = with_broker(&broker, move |b| b.remove_workspace(&workspace_id, OWNER)).await?;
+    with_workforce(&workforce, move |w| w.project_work(&removed.project_id)).await
 }
 
 #[tauri::command]

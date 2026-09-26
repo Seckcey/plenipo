@@ -225,6 +225,10 @@ pub fn configure<R: Runtime>(
             commands::get_approvals,
             commands::resolve_approval,
             commands::revoke_grant,
+            commands::set_up_development,
+            commands::get_objective_report,
+            commands::get_project_work,
+            commands::remove_workspace,
         ])
 }
 
@@ -1960,6 +1964,133 @@ mod ipc_boundary_tests {
             "revoke_grant",
         ] {
             let args = serde_json::json!({ "approvalId": SESSION, "approve": true });
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
+    }
+
+    // ---- The Development department (Phase 8) ----------------------------------------------
+
+    #[test]
+    fn the_development_department_is_set_up_and_reported_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let project = |name: &str| {
+            serde_json::json!({
+                "name": name, "description": "",
+                "repositoryUrl": "https://github.com/example/website",
+                "localPath": "D:\\projects\\website",
+                "allowedRuntimes": ["claude-code", "codex"],
+            })
+        };
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "set_up_development",
+            serde_json::json!({ "input": { "project": project("Website"), "runtimeId": "claude-code" } }),
+        ));
+        assert_eq!(s.departments[0].name, "Development");
+        let website = s.projects.iter().find(|p| p.name == "Website").unwrap();
+        assert!(website.branch_per_objective);
+        assert_eq!(
+            s.positions
+                .iter()
+                .filter(|p| p.reports_to == website.coordinator_position_id)
+                .count(),
+            4,
+            "the standard team"
+        );
+        // The template chooses the department and the supervisor; unknown fields are refused.
+        let mut with_department = project("Cloudline");
+        with_department["departmentId"] = serde_json::json!(s.departments[0].id);
+        for input in [
+            serde_json::json!({ "project": with_department }),
+            serde_json::json!({ "project": project("Cloudline"), "runtimeId": "--help" }),
+        ] {
+            let err = invoke_json(
+                &main,
+                "set_up_development",
+                serde_json::json!({ "input": input }),
+            )
+            .expect_err("refused");
+            assert_eq!(err["kind"], "invalidInput", "{err}");
+        }
+        let err = invoke_json(
+            &main,
+            "set_up_development",
+            serde_json::json!({ "input": { "project": project("Cloudline"), "extra": true } }),
+        )
+        .expect_err("unknown fields are refused");
+        assert!(err.to_string().contains("unknown field"), "{err}");
+
+        // A project's work: nothing yet.
+        let work: plenipo_workforce::ProjectWork = body(invoke_json(
+            &main,
+            "get_project_work",
+            serde_json::json!({ "projectId": website.id }),
+        ));
+        assert!(work.objectives.is_empty() && work.working_copies.is_empty());
+        // Every Phase 8 command checks its IDs.
+        for (cmd, args) in [
+            (
+                "get_project_work",
+                serde_json::json!({ "projectId": "../x" }),
+            ),
+            ("get_objective_report", serde_json::json!({ "taskId": "x" })),
+            (
+                "remove_workspace",
+                serde_json::json!({ "workspaceId": "x" }),
+            ),
+            (
+                "give_objective",
+                serde_json::json!({ "positionId": SESSION, "objective": "Hi", "projectId": "x" }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}: {err}");
+        }
+        for (cmd, args) in [
+            (
+                "get_project_work",
+                serde_json::json!({ "projectId": SESSION }),
+            ),
+            (
+                "get_objective_report",
+                serde_json::json!({ "taskId": SESSION }),
+            ),
+            (
+                "remove_workspace",
+                serde_json::json!({ "workspaceId": SESSION }),
+            ),
+        ] {
+            assert!(invoke_json(&main, cmd, args).is_err(), "{cmd}: unknown ID");
+        }
+        // A synthetic task's report: the task alone, nothing handed on.
+        let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
+        let report: plenipo_workforce::ObjectiveReport = body(invoke_json(
+            &main,
+            "get_objective_report",
+            serde_json::json!({ "taskId": task.id }),
+        ));
+        assert_eq!(report.root_task_id, task.id);
+        assert_eq!(report.tasks.len(), 1);
+        assert!(report.files.is_empty() && report.approvals.is_empty());
+    }
+
+    #[test]
+    fn development_commands_denied_for_ungranted_windows_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        for cmd in [
+            "set_up_development",
+            "get_objective_report",
+            "get_project_work",
+            "remove_workspace",
+        ] {
+            let args = serde_json::json!({ "projectId": SESSION, "taskId": SESSION });
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
             assert!(
                 invoke_with(&main, cmd, args, "https://example.com").is_err(),
