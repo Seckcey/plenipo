@@ -5,7 +5,7 @@
  */
 import type { OrgSnapshot, OversightRole, PositionInfo, RoleInfo } from "@plenipo/types";
 
-import { OVERSIGHT_LABEL } from "./format";
+import { OVERSIGHT_NOUN } from "./format";
 
 export function positionMap(snapshot: OrgSnapshot): Map<string, PositionInfo> {
   return new Map(snapshot.positions.map((p) => [p.id, p]));
@@ -141,7 +141,7 @@ export function oversightRefusal(
     (o) => o.overseerId === overseer.id && o.targetId === target.id && o.role === role,
   );
   if (existing) {
-    return `${overseer.title} is already the ${OVERSIGHT_LABEL[role].toLowerCase()} for ${target.title}'s team.`;
+    return `${overseer.title} is already the ${OVERSIGHT_NOUN[role]} for ${target.title}'s team.`;
   }
   return null;
 }

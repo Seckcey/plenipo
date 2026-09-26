@@ -14,6 +14,7 @@ import { TASK_STATE_LABEL } from "../../ledger/format";
 import {
   KIND_LABEL,
   OVERSIGHT_LABEL,
+  OVERSIGHT_NOUN,
   STAFFING_LABEL,
   STATUS_LABEL,
   WORKER_STATE_LABEL,
@@ -698,7 +699,7 @@ function OversightPanel({
               <button type="button" className="link" onClick={() => onSelect(o.overseerId)}>
                 {title(o.overseerId)}
               </button>{" "}
-              is this team&apos;s {OVERSIGHT_LABEL[o.role].toLowerCase()}{" "}
+              is this team&apos;s {OVERSIGHT_NOUN[o.role]}{" "}
               <button
                 type="button"
                 className="button button--small button--quiet"

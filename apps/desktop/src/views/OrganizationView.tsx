@@ -55,7 +55,7 @@ import {
   type CanvasHandle,
   type DragPayload,
 } from "../components/org/TopologyCanvas";
-import { OVERSIGHT_LABEL, plural } from "../org/format";
+import { OVERSIGHT_LABEL, OVERSIGHT_NOUN, plural } from "../org/format";
 import { ORG_ID, OWNER_ID, ancestorsOf, layoutOrganization } from "../org/layout";
 import { nodeContext } from "../org/nodes";
 import {
@@ -72,6 +72,9 @@ const SELECTED_KEY = "plenipo.orgSelected";
 const MODE_KEY = "plenipo.orgMode";
 const COLLAPSED_KEY = "plenipo.orgCollapsed";
 const OVERSIGHT_KEY = "plenipo.orgOversight";
+const PALETTE_KEY = "plenipo.orgPalette";
+/** The details panel's width; it floats over the right of the canvas (matches the CSS). */
+const PANEL_WIDTH = 360;
 
 type Mode = "topology" | "list";
 
@@ -168,6 +171,7 @@ export function OrganizationView({
   const [selectedId, setSelectedState] = useState<string | null>(() => read(SELECTED_KEY));
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
   const [showOversight, setShowOversight] = useState(() => read(OVERSIGHT_KEY) !== "off");
+  const [paletteOpen, setPaletteOpen] = useState(() => read(PALETTE_KEY) !== "folded");
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
@@ -371,7 +375,7 @@ export function OrganizationView({
             run: () =>
               void runWithToast(
                 () => assignOversight(moving.id, lead.id, role),
-                `${moving.title} is now ${lead.title}'s ${OVERSIGHT_LABEL[role].toLowerCase()}.`,
+                `${moving.title} is now ${lead.title}'s ${OVERSIGHT_NOUN[role]}.`,
               ),
           });
         }
@@ -416,6 +420,13 @@ export function OrganizationView({
     },
     [collapsed, updateCollapsed],
   );
+
+  const togglePalette = () => {
+    setPaletteOpen((open) => {
+      write(PALETTE_KEY, open ? "folded" : "open");
+      return !open;
+    });
+  };
 
   const toggleOversight = () => {
     setShowOversight((on) => {
@@ -469,11 +480,42 @@ export function OrganizationView({
   return (
     <section className="org" aria-labelledby="org-title">
       <header className="org__bar">
-        <div className="org__name">
-          <h1 id="org-title">{snapshot.name}</h1>
-          <button type="button" className="link" onClick={() => setDialog({ kind: "rename" })}>
-            Rename
-          </button>
+        <div className="org__top">
+          <div className="org__name">
+            <h1 id="org-title">{snapshot.name}</h1>
+            <button type="button" className="link" onClick={() => setDialog({ kind: "rename" })}>
+              Rename
+            </button>
+          </div>
+          <div className="org__tools">
+            <form className="org__search" role="search" onSubmit={findFirst}>
+              <Glyph name="search" size={16} />
+              <input
+                type="search"
+                value={query}
+                aria-label="Find in the organization"
+                placeholder="Find in organization…"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {matchList && (
+                <span className="org__matches" role="status">
+                  {plural(matchList.length, "match", "matches")}
+                </span>
+              )}
+            </form>
+            <div className="segmented" role="group" aria-label="Layout">
+              <button
+                type="button"
+                aria-pressed={mode === "topology"}
+                onClick={() => setMode("topology")}
+              >
+                Topology
+              </button>
+              <button type="button" aria-pressed={mode === "list"} onClick={() => setMode("list")}>
+                List
+              </button>
+            </div>
+          </div>
         </div>
         <dl className="org__kpis" aria-label="At a glance">
           <Kpi label="Departments" value={s.departments} />
@@ -497,35 +539,6 @@ export function OrganizationView({
             tone={s.failed24h > 0 ? "bad" : undefined}
           />
         </dl>
-        <div className="org__tools">
-          <form className="org__search" role="search" onSubmit={findFirst}>
-            <Glyph name="search" size={16} />
-            <input
-              type="search"
-              value={query}
-              aria-label="Find in the organization"
-              placeholder="Find in organization…"
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {matchList && (
-              <span className="org__matches" role="status">
-                {plural(matchList.length, "match", "matches")}
-              </span>
-            )}
-          </form>
-          <div className="segmented" role="group" aria-label="Layout">
-            <button
-              type="button"
-              aria-pressed={mode === "topology"}
-              onClick={() => setMode("topology")}
-            >
-              Topology
-            </button>
-            <button type="button" aria-pressed={mode === "list"} onClick={() => setMode("list")}>
-              List
-            </button>
-          </div>
-        </div>
       </header>
 
       {snapshot.notices.length > 0 && (
@@ -540,6 +553,8 @@ export function OrganizationView({
         {mode === "topology" && (
           <HirePalette
             snapshot={snapshot}
+            open={paletteOpen}
+            onToggle={togglePalette}
             onStartDrag={(payload, event) => canvas.current?.startDrag(payload, event)}
             onPick={(roleId) =>
               setDialog({
@@ -572,6 +587,7 @@ export function OrganizationView({
             dropRefusal={dropRefusal}
             onDrop={onDrop}
             describeDrag={describeDrag}
+            insetRight={selectedExists ? PANEL_WIDTH : 0}
           >
             {empty && (
               <div className="topology__empty" data-canvas-ui>

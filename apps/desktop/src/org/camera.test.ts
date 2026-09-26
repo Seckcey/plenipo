@@ -7,6 +7,7 @@ import {
   easeInOutCubic,
   fitCamera,
   focusCamera,
+  forInset,
   initialCamera,
   interpolate,
   panBy,
@@ -16,6 +17,7 @@ import {
   worldToScreen,
   worldTransform,
   zoomAt,
+  uncovered,
   type Camera,
 } from "./camera";
 
@@ -85,6 +87,15 @@ describe("camera", () => {
       y: 240,
       z: 0.6,
     });
+  });
+
+  it("keeps what it centers in the part of the canvas a panel does not cover", () => {
+    const fit = fitCamera(content, uncovered(view, 400));
+    const shifted = forInset(fit, 400);
+    // The content's center lands in the middle of the uncovered 600 px.
+    const [sx] = worldToScreen(shifted, view, content.x + content.w / 2, 0);
+    expect(sx).toBeCloseTo(300);
+    expect(shifted.z).toBe(fit.z);
   });
 
   it("eases and interpolates zoom on a log scale", () => {

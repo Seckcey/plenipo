@@ -1,7 +1,14 @@
 import { memo } from "react";
 import type { PositionInfo, PositionStatus } from "@plenipo/types";
 
-import { OVERSIGHT_CHIP, STATUS_LABEL, WORKER_STATE_LABEL, ago, plural } from "../../org/format";
+import {
+  OVERSIGHT_CHIP,
+  STAFFING_LABEL,
+  STATUS_LABEL,
+  WORKER_STATE_LABEL,
+  ago,
+  plural,
+} from "../../org/format";
 import type { LayoutNode } from "../../org/layout";
 import { nodeLabel, workerStatus, type DropState, type NodeContext } from "../../org/nodes";
 import { Glyph } from "./Glyph";
@@ -143,11 +150,12 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
       <span className="topo-node__body">
         <span className="topo-node__title">{p.title}</span>
         <span className="topo-node__meta">
-          {p.roleName} · {ctx.runtime(p.runtimeId)}
+          {p.title === p.roleName ? STAFFING_LABEL[p.staffing] : p.roleName}
           {p.model ? ` · ${p.model}` : ""}
         </span>
         <span className="topo-node__foot">
           <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
+          <span className="topo-node__runtime">{ctx.runtime(p.runtimeId)}</span>
           {p.staffing === "onDemand" && live > 0 && (
             <span className="topo-node__count">{plural(live, "live worker")}</span>
           )}

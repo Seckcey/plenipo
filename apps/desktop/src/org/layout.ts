@@ -27,15 +27,15 @@ export function workerNodeId(agentId: string): string {
 export type NodeKind = "owner" | "organization" | "position" | "worker";
 
 export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
-  owner: { w: 184, h: 64 },
-  organization: { w: 300, h: 100 },
-  position: { w: 256, h: 92 },
-  worker: { w: 232, h: 64 },
+  owner: { w: 164, h: 60 },
+  organization: { w: 288, h: 96 },
+  position: { w: 236, h: 84 },
+  worker: { w: 212, h: 60 },
 };
 
 /** Space between columns: the bus, the branch, and its chip live here. */
 export const COLUMN_GAP = 136;
-export const ROW_GAP = 22;
+export const ROW_GAP = 20;
 /** The bus runs this far to the right of its parent. */
 export const BUS_OFFSET = 40;
 /** The collapse toggle sits on the trunk, this far from the parent. */

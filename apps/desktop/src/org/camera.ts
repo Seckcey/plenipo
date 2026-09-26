@@ -169,6 +169,19 @@ export function focusCamera(camera: Camera, view: Size, rect: Rect): Camera {
   };
 }
 
+/**
+ * A camera computed for the uncovered part of the canvas (its right-hand `insetRight` pixels are
+ * under a panel) moved to the whole canvas: what it centers stays centered in the uncovered part.
+ */
+export function forInset(camera: Camera, insetRight: number): Camera {
+  return { ...camera, x: camera.x + insetRight / 2 / camera.z };
+}
+
+/** The part of the canvas a panel does not cover. */
+export function uncovered(view: Size, insetRight: number): Size {
+  return { w: Math.max(1, view.w - insetRight), h: view.h };
+}
+
 export function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }

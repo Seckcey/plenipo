@@ -26,15 +26,18 @@ import {
 import {
   DRAG_THRESHOLD,
   FLY_MS,
+  MAX_ZOOM,
   ZOOM_STEP,
   clampCamera,
   easeInOutCubic,
   fitCamera,
   focusCamera,
+  forInset,
   initialCamera,
   interpolate,
   panBy,
   screenToWorld,
+  uncovered,
   visibleRect,
   wheelFactor,
   worldTransform,
@@ -80,6 +83,8 @@ interface Props {
   dropRefusal: (payload: DragPayload, target: string) => string | null;
   onDrop: (payload: DragPayload, target: string, at: { x: number; y: number }) => void;
   describeDrag: (payload: DragPayload) => { title: string; glyph: string; hint: string };
+  /** Pixels on the right covered by a panel (the details panel floats over the canvas). */
+  insetRight?: number;
   children?: ReactNode;
   ref?: Ref<CanvasHandle>;
 }
@@ -149,6 +154,7 @@ export function TopologyCanvas({
   dropRefusal,
   onDrop,
   describeDrag,
+  insetRight = 0,
   children,
   ref,
 }: Props) {
@@ -157,15 +163,17 @@ export function TopologyCanvas({
   const size = measured ?? DEFAULT_SIZE;
   const [restored] = useState(readCamera);
   const [camera, setCameraState] = useState<Camera>(
-    () => restored ?? initialCamera(layout.bounds, DEFAULT_SIZE),
+    () =>
+      restored ??
+      forInset(initialCamera(layout.bounds, uncovered(DEFAULT_SIZE, insetRight)), insetRight),
   );
   const [drag, setDrag] = useState<DragView | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   // Latest values for the event handlers (they are registered once).
-  const live = useRef({ camera, size, layout, dropRefusal, onDrop, onSelect });
+  const live = useRef({ camera, size, layout, dropRefusal, onDrop, onSelect, inset: insetRight });
   useLayoutEffect(() => {
-    live.current = { camera, size, layout, dropRefusal, onDrop, onSelect };
+    live.current = { camera, size, layout, dropRefusal, onDrop, onSelect, inset: insetRight };
   });
   const gesture = useRef<Gesture>({ kind: "idle" });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -207,31 +215,42 @@ export function TopologyCanvas({
   );
 
   const fit = useCallback(() => {
-    const { size: view, layout: l } = live.current;
-    flyTo(fitCamera(l.bounds, view));
+    const { size: view, layout: l, inset } = live.current;
+    flyTo(forInset(fitCamera(l.bounds, uncovered(view, inset)), inset));
   }, [flyTo]);
 
   const zoomBy = useCallback(
     (factor: number) => {
       stopFly();
-      const { camera: c, size: view, layout: l } = live.current;
-      flyTo(zoomAt(c, view, l.bounds, view.w / 2, view.h / 2, factor));
+      const { camera: c, size: view, layout: l, inset } = live.current;
+      flyTo(zoomAt(c, view, l.bounds, (view.w - inset) / 2, view.h / 2, factor));
     },
     [flyTo, stopFly],
   );
 
-  /** Fly to a node unless it is already comfortably in view. */
+  /** Fly to a node unless it is already comfortably in view (and not under the panel). */
   const reveal = useCallback(
     (node: LayoutNode, force: boolean) => {
-      const { camera: c, size: view } = live.current;
-      const seen = visibleRect(c, view);
+      const { camera: c, size: view, inset } = live.current;
+      const full = visibleRect(c, view);
+      const seen = { ...full, w: full.w - inset / c.z };
       const margin = 24 / c.z;
       const inside =
         node.x >= seen.x + margin &&
         node.y >= seen.y + margin &&
         node.x + node.w <= seen.x + seen.w - margin &&
         node.y + node.h <= seen.y + seen.h - margin;
-      if (force || !inside) flyTo(focusCamera(c, view, node));
+      if (force || !inside) flyTo(forInset(focusCamera(c, uncovered(view, inset), node), inset));
+    },
+    [flyTo],
+  );
+
+  /** Zoom in on a node (double-click). */
+  const zoomTo = useCallback(
+    (node: LayoutNode) => {
+      const { camera: c, inset } = live.current;
+      const z = Math.max(1, Math.min(MAX_ZOOM, c.z * 1.5));
+      flyTo(forInset({ x: node.x + node.w / 2, y: node.y + node.h / 2, z }, inset));
     },
     [flyTo],
   );
@@ -254,7 +273,11 @@ export function TopologyCanvas({
     if (!measured || fitted.current) return;
     fitted.current = true;
     live.current.size = measured;
-    setCamera(restored ?? initialCamera(live.current.layout.bounds, measured));
+    const inset = live.current.inset;
+    setCamera(
+      restored ??
+        forInset(initialCamera(live.current.layout.bounds, uncovered(measured, inset)), inset),
+    );
   }, [measured, restored, setCamera]);
 
   // Keep the camera valid when the organization changes shape.
@@ -302,10 +325,12 @@ export function TopologyCanvas({
     if (!el) return null;
     const r = el.getBoundingClientRect();
     const sized = r.width > 0 && r.height > 0;
-    if (sized && (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom)) {
+    const { camera: c, size: view, layout: l, inset } = live.current;
+    // The panel over the right-hand side is not canvas.
+    const right = r.right - inset;
+    if (sized && (clientX < r.left || clientX > right || clientY < r.top || clientY > r.bottom)) {
       return null;
     }
-    const { camera: c, size: view, layout: l } = live.current;
     const [wx, wy] = screenToWorld(c, view, clientX - r.left, clientY - r.top);
     return nodeAt(l, wx, wy)?.id ?? EMPTY_CANVAS;
   }, []);
@@ -326,7 +351,7 @@ export function TopologyCanvas({
       e.vy = 0;
       if (r && r.width > 0 && over !== null) {
         if (x < r.left + EDGE) e.vx = -EDGE_SPEED;
-        else if (x > r.right - EDGE) e.vx = EDGE_SPEED;
+        else if (x > r.right - live.current.inset - EDGE) e.vx = EDGE_SPEED;
         if (y < r.top + EDGE) e.vy = -EDGE_SPEED;
         else if (y > r.bottom - EDGE) e.vy = EDGE_SPEED;
       }
@@ -638,6 +663,11 @@ export function TopologyCanvas({
       aria-label="Organization topology"
       aria-describedby="topology-help"
       onPointerDown={onPointerDown}
+      onDoubleClick={(e) => {
+        const id = (e.target as Element).closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
+        const node = id ? live.current.layout.byId.get(id) : undefined;
+        if (node) zoomTo(node);
+      }}
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -716,15 +746,18 @@ export function TopologyCanvas({
         <span className="topology__legend-item topology__legend-item--worker">Live worker</span>
         <span className="topology__legend-item topology__legend-item--oversight">Oversight</span>
       </div>
-      <Minimap
-        layout={layout}
-        camera={camera}
-        size={size}
-        onCenter={(x, y) => {
-          stopFly();
-          setCamera({ ...live.current.camera, x, y });
-        }}
-      />
+      {layout.nodes.length > 2 && (
+        <Minimap
+          layout={layout}
+          camera={camera}
+          size={size}
+          insetRight={insetRight}
+          onCenter={(x, y) => {
+            stopFly();
+            setCamera(forInset({ ...live.current.camera, x, y }, insetRight));
+          }}
+        />
+      )}
       {drag && <DragGhost drag={drag} describe={describeDrag} />}
     </div>
   );
@@ -770,6 +803,12 @@ const World = memo(function World({
                 selectedId === o.overseerId || selectedId === o.targetId ? " is-highlighted" : ""
               }`}
             />
+          ))}
+        </g>
+        {/* A wide, faint stroke under each link makes the glow (cheaper than a blur filter). */}
+        <g className="topo-halo">
+          {layout.links.map((l) => (
+            <path key={l.id} d={l.d} className={`topo-halo__path${l.active ? " is-active" : ""}`} />
           ))}
         </g>
         <g className="topo-links">
@@ -858,20 +897,25 @@ function Minimap({
   layout,
   camera,
   size,
+  insetRight,
   onCenter,
 }: {
   layout: OrgLayout;
   camera: Camera;
   size: Size;
+  insetRight: number;
   onCenter: (x: number, y: number) => void;
 }) {
-  const W = 184;
-  const H = 116;
+  // Smaller on a narrow canvas, so it never covers much of the map.
+  const W = size.w - insetRight < 760 ? 136 : 184;
+  const H = Math.round(W * 0.63);
   const b = layout.bounds;
   const scale = Math.min(W / Math.max(1, b.w), H / Math.max(1, b.h)) * 0.92;
   const ox = (W - b.w * scale) / 2 - b.x * scale;
   const oy = (H - b.h * scale) / 2 - b.y * scale;
-  const seen: Rect = visibleRect(camera, size);
+  const full: Rect = visibleRect(camera, size);
+  // What the owner sees: not the part under the details panel.
+  const seen: Rect = { ...full, w: full.w - insetRight / camera.z };
   const toWorld = (e: ReactPointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return [(e.clientX - r.left - ox) / scale, (e.clientY - r.top - oy) / scale] as const;
@@ -884,7 +928,12 @@ function Minimap({
     onCenter(x, y);
   };
   return (
-    <div className="topology__minimap" data-canvas-ui aria-hidden="true">
+    <div
+      className="topology__minimap"
+      data-canvas-ui
+      aria-hidden="true"
+      style={{ right: 14 + insetRight }}
+    >
       <svg width={W} height={H} onPointerDown={onPointer} onPointerMove={onPointer}>
         {layout.nodes.map((n) => (
           <rect

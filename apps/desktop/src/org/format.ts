@@ -47,6 +47,13 @@ export const OVERSIGHT_LABEL: Record<OversightRole, string> = {
   security: "Security auditor",
 };
 
+/** The oversight role mid-sentence ("the team's QA evaluator"). */
+export const OVERSIGHT_NOUN: Record<OversightRole, string> = {
+  review: "reviewer",
+  qa: "QA evaluator",
+  security: "security auditor",
+};
+
 /** Short chip text for an oversight link. */
 export const OVERSIGHT_CHIP: Record<OversightRole, string> = {
   review: "Review",

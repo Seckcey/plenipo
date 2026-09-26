@@ -127,7 +127,10 @@ describe("Organization view", () => {
     // Links are labelled with the department, the project, and each worker's runtime.
     expect(within(map).getByText("Engineering")).toBeInTheDocument();
     expect(within(map).getByText("Website Relaunch")).toBeInTheDocument();
-    expect(within(map).getByText("Codex")).toBeInTheDocument();
+    const codex = within(map).getAllByText("Codex");
+    expect(codex.some((el) => el.classList.contains("topo-chip"))).toBe(true);
+    // Each position also names its runtime.
+    expect(codex.some((el) => el.classList.contains("topo-node__runtime"))).toBe(true);
     // Oversight shows on the nodes as well as the links.
     expect(within(map).getAllByText(/Security → Website Coordinator/).length).toBeGreaterThan(0);
     const totals = screen.getByLabelText("At a glance");
