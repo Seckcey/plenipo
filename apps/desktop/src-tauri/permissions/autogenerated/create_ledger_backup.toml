@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-ledger-backup"
+description = "Enables the create_ledger_backup command without any pre-configured scope."
+commands.allow = ["create_ledger_backup"]
+
+[[permission]]
+identifier = "deny-create-ledger-backup"
+description = "Denies the create_ledger_backup command without any pre-configured scope."
+commands.deny = ["create_ledger_backup"]

@@ -1,0 +1,33 @@
+[package]
+name = "plenipo-desktop"
+description = "Plenipo Desktop: Tauri backend and privileged command layer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "plenipo_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+plenipo-core = { path = "../../../crates/core" }
+plenipo-ledger = { path = "../../../crates/ledger" }
+plenipo-runtime = { path = "../../../crates/runtime" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+
+[target.'cfg(unix)'.dependencies]
+tokio = { version = "1", features = ["signal"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test", "tray-icon"] }
+tempfile = "3"

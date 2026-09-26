@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-task-timeline"
+description = "Enables the get_task_timeline command without any pre-configured scope."
+commands.allow = ["get_task_timeline"]
+
+[[permission]]
+identifier = "deny-get-task-timeline"
+description = "Denies the get_task_timeline command without any pre-configured scope."
+commands.deny = ["get_task_timeline"]

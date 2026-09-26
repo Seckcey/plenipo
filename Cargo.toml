@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri", "crates/core", "crates/ledger", "crates/runtime"]
+
+[workspace.package]
+version = "0.3.1"
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://github.com/Seckcey/plenipo"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

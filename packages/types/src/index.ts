@@ -1,0 +1,25 @@
+// Public entry point for shared DTOs.
+// Files under ./generated are produced by `pnpm bindings` from the Rust crates — do not edit by hand.
+export type { AppInfo } from "./generated/AppInfo";
+export type { BuildProfile } from "./generated/BuildProfile";
+export type { CommandError } from "./generated/CommandError";
+export type { CommandErrorKind } from "./generated/CommandErrorKind";
+export type { ExecutionOutput } from "./generated/ExecutionOutput";
+export type { ExecutionRecord } from "./generated/ExecutionRecord";
+export type { ExecutionState } from "./generated/ExecutionState";
+export type { LaunchProfileInfo } from "./generated/LaunchProfileInfo";
+export type { LifecycleEvent } from "./generated/LifecycleEvent";
+export type { OutputBatch } from "./generated/OutputBatch";
+export type { OutputLine } from "./generated/OutputLine";
+export type { OutputStream } from "./generated/OutputStream";
+export type { RuntimeEvent } from "./generated/RuntimeEvent";
+export type { RuntimeOverview } from "./generated/RuntimeOverview";
+export type { BackupInfo } from "./generated/BackupInfo";
+export type { ExportInfo } from "./generated/ExportInfo";
+export type { IntegrityReport } from "./generated/IntegrityReport";
+export type { LedgerEvent } from "./generated/LedgerEvent";
+export type { LedgerStatus } from "./generated/LedgerStatus";
+export type { Task } from "./generated/Task";
+export type { TaskState } from "./generated/TaskState";
+export type { TaskTimeline } from "./generated/TaskTimeline";
+export type { SyntheticTaskAction } from "./generated/SyntheticTaskAction";

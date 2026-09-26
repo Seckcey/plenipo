@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned so local builds and CI use the same compiler and lints. Upgrade deliberately:
+# bump this, run `cargo clippy --workspace --all-targets -- -D warnings` and tests, commit.
+channel = "1.98"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,28 @@
+[package]
+name = "plenipo-ledger"
+description = "Plenipo Ledger: durable local system of record (SQLite)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+# Test helper: writes to a ledger continuously so tests can hard-kill it mid-write.
+name = "ledger-writer"
+path = "src/bin/ledger-writer.rs"
+test = false
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ts-rs = "11"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

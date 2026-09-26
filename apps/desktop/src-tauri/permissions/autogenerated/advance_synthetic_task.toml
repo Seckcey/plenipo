@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-advance-synthetic-task"
+description = "Enables the advance_synthetic_task command without any pre-configured scope."
+commands.allow = ["advance_synthetic_task"]
+
+[[permission]]
+identifier = "deny-advance-synthetic-task"
+description = "Denies the advance_synthetic_task command without any pre-configured scope."
+commands.deny = ["advance_synthetic_task"]

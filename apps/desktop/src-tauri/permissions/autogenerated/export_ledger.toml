@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-ledger"
+description = "Enables the export_ledger command without any pre-configured scope."
+commands.allow = ["export_ledger"]
+
+[[permission]]
+identifier = "deny-export-ledger"
+description = "Denies the export_ledger command without any pre-configured scope."
+commands.deny = ["export_ledger"]

@@ -1,0 +1,19 @@
+[package]
+name = "plenipo-core"
+description = "Plenipo Core: provider-neutral domain types and logic."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+ts-rs = "11"
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
