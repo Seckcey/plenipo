@@ -94,3 +94,32 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 5 organization events)", () => {
+  it("describes changes to the organization and its workers", () => {
+    expect(describeEvent(event("org.position_created", { title: "QA Engineer" }))).toBe(
+      "Position created: QA Engineer",
+    );
+    expect(
+      describeEvent(
+        event("org.oversight_assigned", {
+          kind: "security",
+          overseer: "Security Auditor",
+          target: "Website Coordinator",
+        }),
+      ),
+    ).toBe("Security Auditor is now the security auditor for Website Coordinator's team");
+    expect(describeEvent(event("org.worker_spawned", { title: "Senior Developer" }))).toBe(
+      "Worker spawned for Senior Developer",
+    );
+    expect(describeEvent(event("org.worker_retired", { lifecycle: "failed" }))).toBe(
+      "Worker failed and left the organization",
+    );
+    expect(describeEvent(event("org.position_moved", { title: "Designer", to: null }))).toBe(
+      "Designer now reports to the owner",
+    );
+    expect(describeEvent(event("org.project_archived", { name: "Q4 Campaign" }))).toBe(
+      "Project archived with its team: Q4 Campaign",
+    );
+  });
+});

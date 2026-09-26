@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
+import { emptyOrganization } from "./test/orgFixtures";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -29,6 +30,8 @@ vi.mock("./api/commands", async (importOriginal) => {
     cancelAgentTurn: vi.fn(),
     closeAgentSession: vi.fn(),
     getLiaisonOverview: vi.fn(),
+    getOrganization: vi.fn(),
+    getWork: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -114,6 +117,7 @@ beforeEach(() => {
   api.listTasks.mockResolvedValue([]);
   api.listRecentEvents.mockResolvedValue([]);
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
+  api.getOrganization.mockResolvedValue(emptyOrganization());
   api.getLiaisonOverview.mockResolvedValue({
     protocol: "plenipo-liaison/1",
     contextFormat: "plenipo-context/1",
@@ -185,9 +189,12 @@ describe("App shell", () => {
     expect(screen.queryByLabelText(/api key|password|token/i)).not.toBeInTheDocument();
   });
 
-  it("does not hard-code departments", () => {
+  it("does not hard-code departments: the organization comes from Core", async () => {
     render(<App />);
-    expect(screen.getByText("No departments configured yet")).toBeInTheDocument();
+    expect(await screen.findByText("Build your organization")).toBeInTheDocument();
+    expect(api.getOrganization).toHaveBeenCalled();
+    const map = screen.getByRole("region", { name: "Organization topology" });
+    expect(within(map).getAllByRole("button", { name: /, (owner|organization)$/ })).toHaveLength(2);
     for (const name of ["Development", "Sales", "Marketing", "Westy"]) {
       expect(screen.queryByText(new RegExp(name))).not.toBeInTheDocument();
     }

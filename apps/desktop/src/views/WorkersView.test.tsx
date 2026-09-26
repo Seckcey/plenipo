@@ -46,6 +46,8 @@ function send(update: AgentUpdate) {
   act(() => emit(update));
 }
 
+const openPosition = vi.fn();
+
 function Harness({ initial = null }: { initial?: string | null }) {
   const [selected, setSelected] = useState<string | null>(initial);
   return (
@@ -55,6 +57,7 @@ function Harness({ initial = null }: { initial?: string | null }) {
         onSelectSession={setSelected}
         onShowExecution={showExecution}
         onOpenRuntimes={openRuntimes}
+        onOpenPosition={openPosition}
       />
     </AgentsProvider>
   );
@@ -534,6 +537,37 @@ describe("Workers view — handoffs", () => {
     expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open requester session" }));
     expect(await screen.findByRole("list", { name: "Turn 1 steps" })).toBeInTheDocument();
+  });
+
+  it("marks an organization member's session and sends the owner to the Organization view", async () => {
+    const member = session("m1", {
+      title: "Website Coordinator",
+      metadata: {
+        liaison: { enabled: true, origin: "member", protocol: "plenipo-liaison/1" },
+        workforce: { positionId: "p-web", agentId: "agent-1", projectId: "pr-web" },
+      },
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      sessions: [member],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue(
+      detail({
+        session: member,
+        turns: [turn("t1", { running: false, result: completed("Planned."), endedAt: 9 })],
+      }),
+    );
+    api.getTaskHandoffs.mockResolvedValue(handoffs());
+    render(<Harness initial="m1" />);
+
+    expect(await screen.findByText("Organization member")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Sessions" })).toHaveTextContent("organization member");
+    // Its objectives come from its position, not from here.
+    expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Give it objectives from the/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open in Organization" }));
+    expect(openPosition).toHaveBeenCalledWith("p-web");
   });
 
   it("shows refusals with Liaison's reason", async () => {

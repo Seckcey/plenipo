@@ -70,11 +70,16 @@ export function isWaiting(session: AgentSession | undefined): boolean {
 export interface LiaisonSessionInfo {
   /** The worker may hand off work through Liaison. */
   enabled: boolean;
-  /** `owner` for sessions the owner started, `handoff` for handoff workers. */
-  origin: "owner" | "handoff" | null;
+  /**
+   * `owner` for sessions the owner started, `handoff` for handoff workers, `member` for the agent
+   * of an organization position (given objectives from the Organization view).
+   */
+  origin: "owner" | "handoff" | "member" | null;
   parentTaskId: string | null;
   parentSessionId: string | null;
   depth: number | null;
+  /** The organization position the session works for, if any. */
+  positionId: string | null;
 }
 
 export function liaisonInfo(session: AgentSession | undefined): LiaisonSessionInfo {
@@ -82,12 +87,18 @@ export function liaisonInfo(session: AgentSession | undefined): LiaisonSessionIn
   const l = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const text = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
   const origin = text(l.origin);
+  const rawWorkforce = session?.metadata?.workforce;
+  const w =
+    typeof rawWorkforce === "object" && rawWorkforce !== null
+      ? (rawWorkforce as Record<string, unknown>)
+      : {};
   return {
     enabled: l.enabled === true,
-    origin: origin === "owner" || origin === "handoff" ? origin : null,
+    origin: origin === "owner" || origin === "handoff" || origin === "member" ? origin : null,
     parentTaskId: text(l.parentTaskId),
     parentSessionId: text(l.parentSessionId),
     depth: typeof l.depth === "number" ? l.depth : null,
+    positionId: text(w.positionId),
   };
 }
 

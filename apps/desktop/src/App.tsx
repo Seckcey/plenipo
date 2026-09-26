@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AppInfo } from "@plenipo/types";
 
 import {
@@ -101,6 +101,7 @@ function Shell({ core }: { core: CoreState }) {
   const [selectedTask, setSelectedTask] = useState<string | null>(() =>
     readSession(SELECTED_TASK_KEY),
   );
+  const [orgFocus, setOrgFocus] = useState<string | null>(null);
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
 
@@ -133,6 +134,19 @@ function Shell({ core }: { core: CoreState }) {
     select(id);
     navigate("runtimes");
   };
+  const openSession = (id: string) => {
+    selectSession(id);
+    navigate("workers");
+  };
+  const openTask = (id: string) => {
+    selectTask(id);
+    navigate("activity");
+  };
+  const openPosition = (id: string) => {
+    setOrgFocus(id);
+    navigate("organization");
+  };
+  const clearOrgFocus = useCallback(() => setOrgFocus(null), []);
   const severe = ledgerNotices.some(isSevere);
 
   return (
@@ -154,7 +168,7 @@ function Shell({ core }: { core: CoreState }) {
           activeCount={activeCount}
           workingCount={workingCount}
         />
-        <main className="shell__main">
+        <main className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}>
           {ledgerNotices.length > 0 && !noticesDismissed && (
             <div
               className={`banner${severe ? " banner--severe" : ""}`}
@@ -178,13 +192,21 @@ function Shell({ core }: { core: CoreState }) {
               Plenipo Core is unavailable: {core.error.message}
             </p>
           )}
-          {view === "organization" && <OrganizationView />}
+          {view === "organization" && (
+            <OrganizationView
+              onOpenSession={openSession}
+              onOpenTask={openTask}
+              focusId={orgFocus}
+              onFocusHandled={clearOrgFocus}
+            />
+          )}
           {view === "workers" && (
             <WorkersView
               selectedSessionId={selectedSession}
               onSelectSession={selectSession}
               onShowExecution={showExecution}
               onOpenRuntimes={() => navigate("runtimes")}
+              onOpenPosition={openPosition}
             />
           )}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}

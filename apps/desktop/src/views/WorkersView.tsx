@@ -48,6 +48,7 @@ interface Navigation {
   canOpen: (sessionId: string) => boolean;
   onOpenSession: (sessionId: string) => void;
   onShowExecution: (executionId: string) => void;
+  onOpenPosition?: ((positionId: string) => void) | undefined;
 }
 
 export function WorkersView({
@@ -55,11 +56,14 @@ export function WorkersView({
   onSelectSession,
   onShowExecution,
   onOpenRuntimes,
+  onOpenPosition,
 }: {
   selectedSessionId: string | null;
   onSelectSession: (id: string | null) => void;
   onShowExecution: (executionId: string) => void;
   onOpenRuntimes: () => void;
+  /** Show an organization position (for sessions that work for one). */
+  onOpenPosition?: (positionId: string) => void;
 }) {
   const { state, start, resume, cancel, close, loadSession, refresh } = useAgents();
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
@@ -128,6 +132,7 @@ export function WorkersView({
     canOpen: (id) => id in state.sessions,
     onOpenSession: onSelectSession,
     onShowExecution,
+    onOpenPosition,
   };
 
   return (
@@ -277,6 +282,7 @@ export function WorkersView({
                         {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} turn
                         {s.turnCount === 1 ? "" : "s"} · {formatTime(s.updatedAt)}
                         {liaisonInfo(s).origin === "handoff" && " · handoff worker"}
+                        {liaisonInfo(s).origin === "member" && " · organization member"}
                       </span>
                     </button>
                   </li>
@@ -353,6 +359,11 @@ export function WorkersView({
                   This worker was started by Plenipo Liaison for another worker&apos;s request; it
                   takes work only through Liaison.
                 </p>
+              ) : info.origin === "member" ? (
+                <p className="muted">
+                  This agent holds a position in the organization. Give it objectives from the
+                  Organization view, where its team and oversight are set.
+                </p>
               ) : session.state === "open" ? (
                 <form className="followup" aria-label="Continue session" onSubmit={submitFollowUp}>
                   <label className="field">
@@ -388,6 +399,16 @@ export function WorkersView({
 
 /** Where a session stands with Liaison, for its header. */
 function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation }) {
+  const position = info.positionId;
+  const openPosition = position && nav.onOpenPosition && (
+    <>
+      {" "}
+      ·{" "}
+      <button type="button" className="link" onClick={() => nav.onOpenPosition?.(position)}>
+        Open in Organization
+      </button>
+    </>
+  );
   if (info.origin === "handoff") {
     const parent = info.parentSessionId;
     return (
@@ -403,6 +424,16 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
             </button>
           </>
         )}
+        {openPosition}
+      </div>
+    );
+  }
+  if (info.origin === "member") {
+    return (
+      <div className="card__meta">
+        <span className="pill pill--ok">Organization member</span> Hands work to its team through
+        Liaison
+        {openPosition}
       </div>
     );
   }

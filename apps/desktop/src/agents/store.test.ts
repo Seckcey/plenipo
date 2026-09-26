@@ -295,7 +295,19 @@ describe("agent store — waiting turns and steps (Phase 4)", () => {
       parentTaskId: null,
       parentSessionId: "s1",
       depth: 2,
+      positionId: null,
     });
     expect(liaisonInfo(session("x", { metadata: { liaison: "nonsense" } })).origin).toBeNull();
+    // The agent of an organization position, and the position it works for.
+    const member = liaisonInfo(
+      session("m", {
+        metadata: {
+          liaison: { enabled: true, origin: "member" },
+          workforce: { positionId: "p1", agentId: "a1" },
+        },
+      }),
+    );
+    expect(member.origin).toBe("member");
+    expect(member.positionId).toBe("p1");
   });
 });

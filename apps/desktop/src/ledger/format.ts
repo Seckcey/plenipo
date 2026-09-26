@@ -79,10 +79,72 @@ export function describeEvent(e: LedgerEvent): string {
     const code = typeof p.exitCode === "number" ? ` · exit ${p.exitCode}` : "";
     return `${label}: ${e.eventType.slice("execution.".length).replace(/_/g, " ")}${code}`;
   }
+  const org = describeOrgEvent(e.eventType, p);
+  if (org !== null) return org;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
   return e.eventType;
+}
+
+const OVERSIGHT_WORD: Record<string, string> = {
+  review: "reviewer",
+  qa: "QA evaluator",
+  security: "security auditor",
+};
+
+/** Phase 5: the organization's structure, its agents, and the workers it spawns. */
+function describeOrgEvent(type: string, p: Record<string, unknown>): string | null {
+  const title = str(p.title) ?? "a position";
+  const name = str(p.name) ?? "";
+  const why = str(p.reason) ? ` (${str(p.reason)})` : "";
+  switch (type) {
+    case "org.position_created":
+      return `Position created: ${title}`;
+    case "org.position_updated":
+      return str(p.title) ? `Position renamed to ${title}` : "Position runtime or model changed";
+    case "org.position_moved":
+      return `${title} now reports to ${p.to === null ? "the owner" : "a new supervisor"}`;
+    case "org.position_archived":
+      return `Position archived: ${title}${why}`;
+    case "org.agent_hired":
+      return `Agent hired for ${title}`;
+    case "org.agent_retired":
+      return `Agent retired from ${title}${why}`;
+    case "org.worker_spawned":
+      return `Worker spawned for ${title}`;
+    case "org.worker_started":
+      return "Worker started";
+    case "org.worker_retired":
+      return p.lifecycle === "failed"
+        ? "Worker failed and left the organization"
+        : "Worker finished and left the organization";
+    case "org.oversight_assigned":
+      return `${str(p.overseer) ?? "A position"} is now the ${
+        OVERSIGHT_WORD[str(p.kind) ?? ""] ?? "overseer"
+      } for ${str(p.target) ?? "a"}'s team`;
+    case "org.oversight_ended":
+      return `Oversight assignment ended${why}`;
+    case "org.department_created":
+      return `Department created: ${name}`;
+    case "org.department_updated":
+      return `Department updated: ${name}`;
+    case "org.department_deleted":
+      return `Department removed: ${name}`;
+    case "org.project_created":
+      return `Project created: ${name}`;
+    case "org.project_updated":
+      return `Project settings updated: ${name}`;
+    case "org.project_archived":
+      return `Project archived with its team: ${name}`;
+    case "org.project_reassigned":
+      return `Project moved to another department: ${name}`;
+    case "org.role_created":
+      return `Role added: ${name}`;
+    case "org.settings_changed":
+      return "Organization settings changed";
+  }
+  return null;
 }
 
 /** First line of agent-provided text, kept short for the trail. */
