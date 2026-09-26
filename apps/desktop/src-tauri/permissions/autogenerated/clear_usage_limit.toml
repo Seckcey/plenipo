@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-usage-limit"
+description = "Enables the clear_usage_limit command without any pre-configured scope."
+commands.allow = ["clear_usage_limit"]
+
+[[permission]]
+identifier = "deny-clear-usage-limit"
+description = "Denies the clear_usage_limit command without any pre-configured scope."
+commands.deny = ["clear_usage_limit"]

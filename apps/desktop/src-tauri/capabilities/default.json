@@ -49,6 +49,12 @@
     "allow-archive-position",
     "allow-assign-oversight",
     "allow-end-oversight",
-    "allow-give-objective"
+    "allow-give-objective",
+    "allow-get-routing",
+    "allow-save-model",
+    "allow-remove-model",
+    "allow-set-role-policy",
+    "allow-set-routing-options",
+    "allow-clear-usage-limit"
   ]
 }

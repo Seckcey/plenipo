@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 plenipo-core = { path = "../../../crates/core" }
 plenipo-ledger = { path = "../../../crates/ledger" }
 plenipo-liaison = { path = "../../../crates/liaison" }
+plenipo-router = { path = "../../../crates/router" }
 plenipo-runtime = { path = "../../../crates/runtime" }
 plenipo-workforce = { path = "../../../crates/workforce" }
 serde = { version = "1", features = ["derive"] }
