@@ -17,7 +17,7 @@ watches over the work, and keeps a complete record of it.
 > **Approvals** page lets you approve, deny, or revoke a worker's permissions at once, and
 > everything is recorded in the Ledger.
 >
-> Phase 6 — Model policy and role routing (implemented; awaiting owner acceptance). **Settings → AI models** says which AI model each role's workers
+> Phase 6 — Model policy and role routing (accepted, v0.7.0). **Settings → AI models** says which AI model each role's workers
 > get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
 > first choice, backups, what the model must be able to do, AI companies it never uses, and
 > reviews by a different AI company — and see, for every role, the model its next worker would
