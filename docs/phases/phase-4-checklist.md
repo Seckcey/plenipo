@@ -1,6 +1,7 @@
 # Phase 4 — Implementation Checklist
 
-**Status:** in progress on `claude/phase-4`.
+**Status:** implemented on `claude/phase-4`; awaiting owner acceptance (see the
+[acceptance report](phase-4-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 4 — Liaison Message Bus and Cross-Provider Handoffs.
 Phase 3 accepted (v0.4.0, owner sign-off 2026-09-26). Owner approved starting Phase 4 (Phase 3
@@ -34,8 +35,8 @@ directly controlling one another.
   capped context packet (`plenipo-context/1`) for the child. Nothing else is attached.
 - **Correlation:** every workflow (an owner task and everything delegated from it) has one
   correlation ID, carried by every message, child task, and Liaison event. A reply must match
-  its request's correlation ID, message ID, child task, and destination, and a request is
-  answered at most once.
+  its request's message ID, correlation ID, and child task (its destination is always the
+  requester), and a request is answered at most once.
 - **A task waits for its handoffs, then continues.** The requesting task moves to `blocked`
   ("waiting for handoff replies") in the same transaction that records the requests and
   creates the child tasks. When every reply is in, Liaison resumes the same provider session
@@ -57,31 +58,31 @@ directly controlling one another.
 
 ## Deliverables
 
-- [ ] Liaison service (`crates/liaison`): turn hook, validation, dispatch, reconciliation
-- [ ] Internal message envelope (requests and replies), persisted with dedupe keys
-- [ ] Task handoff protocol (`plenipo-liaison/1`): directive format, worker instructions
-- [ ] Context packet format (`plenipo-context/1`)
-- [ ] Correlation IDs on messages, child tasks, and every Liaison event
-- [ ] Reply routing back to the requesting task (continuation step in the same session)
-- [ ] Parent-child task visualization (Workers handoff cards, Activity delegation tree)
-- [ ] Codex-to-Claude handoff
-- [ ] Claude-to-Codex handoff
-- [ ] Ledger migration 0003 (`liaison_messages`), up/down and v2 → v3 tested
-- [ ] Runtime: multi-step turns, suspend/continue, cancel while waiting, busy vs not ready
-- [ ] Fake CLI handoff behaviors for tests (`plenipo-fake-agent`)
-- [ ] ADR-008; architecture, configuration, setup, README updated
+- [x] Liaison service (`crates/liaison`): turn hook, validation, dispatch, reconciliation
+- [x] Internal message envelope (requests and replies), persisted with dedupe keys
+- [x] Task handoff protocol (`plenipo-liaison/1`): directive format, worker instructions
+- [x] Context packet format (`plenipo-context/1`)
+- [x] Correlation IDs on messages, child tasks, and every Liaison event
+- [x] Reply routing back to the requesting task (continuation step in the same session)
+- [x] Parent-child task visualization (Workers handoff cards, Activity delegation tree)
+- [x] Codex-to-Claude handoff
+- [x] Claude-to-Codex handoff
+- [x] Ledger migration 0003 (`liaison_messages`), up/down and v2 → v3 tested
+- [x] Runtime: multi-step turns, suspend/continue, cancel while waiting, busy vs not ready
+- [x] Fake CLI handoff behaviors for tests (`plenipo-fake-agent`)
+- [x] ADR-008; architecture, configuration, setup, README updated
 
 ## Phase 4 tests (from plan)
 
-- [ ] Codex task creates Claude child task
-- [ ] Claude returns result to Codex parent
-- [ ] Reverse direction
-- [ ] Nested task depth limits
-- [ ] Missing destination
-- [ ] Failed worker
-- [ ] Canceled parent task
-- [ ] Duplicate message protection
-- [ ] Correlation integrity
+- [x] Codex task creates Claude child task
+- [x] Claude returns result to Codex parent
+- [x] Reverse direction
+- [x] Nested task depth limits
+- [x] Missing destination
+- [x] Failed worker
+- [x] Canceled parent task
+- [x] Duplicate message protection
+- [x] Correlation integrity
 
 Also: restart recovery, worker-slot queueing, per-answer and per-workflow limits, capability
 requests denied, forged identity fields rejected, non-handoff sessions ignore directives, IPC
@@ -89,12 +90,40 @@ boundary tests for new commands, end to end through the real app.
 
 ## Acceptance criteria (from plan)
 
-- [ ] A Codex worker can request a Claude review through Liaison, Claude can complete the
+- [x] A Codex worker can request a Claude review through Liaison, Claude can complete the
       review, and the response appears in the originating Codex workflow with a complete
       Ledger trail.
-- [ ] The reverse path also works.
+- [x] The reverse path also works.
 
-CI proves both against fake CLIs; the owner verifies both with the real CLIs on Windows.
+CI proves both against fake CLIs (ticked above); the owner verifies both with the real CLIs on
+Windows (below) before acceptance.
+
+### Owner check on Windows (~15 minutes)
+
+1. Both CLIs installed and signed in (setup guide §3): **Runtimes** → **Re-check** shows both
+   **Ready**.
+2. **Workers** → Codex → tick **Allow handoffs to other workers** → objective: _"Write a Python
+   function that checks whether a string is a valid ISO 8601 date. Before you finish, ask
+   claude-code to review it for bugs, then give me the final version."_ → **Start task**.
+   Expected: the turn shows **Waiting for replies** and a handoff card "→ Claude Code …
+   Worker running"; then the card turns **Answered**, the turn runs **Step 2 · continued with
+   handoff replies**, and ends **Completed** with a final answer that uses the review.
+   (Criterion 1.)
+3. On the handoff card choose **Open worker session**: a **Handoff worker** session on Claude
+   Code shows the request it was given ("Asked by Codex through Plenipo Liaison") and its
+   review. **Open requester session** goes back.
+4. **Activity** → the Codex task: **Delegation** lists both tasks; the trail shows "Handoff
+   requested → claude-code", "Reply received: Completed", "Continued with 1 handoff reply", and
+   the result. (Complete Ledger trail.)
+5. Reverse: Claude Code with handoffs allowed → _"Draft a five-item release checklist for a
+   desktop app. Ask codex to review it for anything missing, then give the final checklist."_
+   Same expectations, with Codex as the reviewer. (Criterion 2.)
+6. Optional: start step 2 again and choose **Cancel turn** while it waits — the turn ends
+   **Cancelled** and the reviewer's session stops too.
+
+Things only real CLIs can confirm (report anything odd): that each CLI follows Liaison's
+instructions and writes a valid `plenipo-handoff` block when asked (an invalid block is refused
+and the worker told why, so the task still finishes), and how long a round trip takes.
 
 ## Out of scope
 

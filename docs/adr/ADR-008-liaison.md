@@ -38,9 +38,10 @@ in the same transaction (ADR-006); model output is untrusted and must never chan
    `capabilities` (names from the plan's capability list), `priority` (0–4). Anything else —
    including identity fields such as `source`, `messageId`, `correlationId`, or
    `parentTaskId` — rejects the request. A block over 16 KiB, invalid JSON, or an unterminated
-   block is rejected. The worker learns the protocol from instructions Plenipo prepends to the
-   first objective of such a session (`plenipo-liaison/1`); the recorded objective stays the
-   owner's text. Tool calls or MCP were rejected for Phase 4: they would grant agents a
+   block is rejected. The worker learns the protocol from instructions Plenipo prepends to each
+   owner objective in such a session (`plenipo-liaison/1`; restated every time because a
+   provider may compact earlier turns away, and destinations may have changed); the recorded
+   objective stays the owner's text. Tool calls or MCP were rejected for Phase 4: they would grant agents a
    capability before Guard exists.
 
 2. **Identity and destinations.** The source of a request is the session and task Plenipo
@@ -68,8 +69,9 @@ cancelled`, or `rejected`. Reply states: `pending → delivered | discarded`.
 5. **Correlation.** Every owner task in a handoff session starts a workflow with a new
    correlation ID (task metadata `liaison.correlationId`, depth 0). Child tasks inherit it with
    depth + 1. Every message and Liaison event carries it. A reply is accepted only if its
-   correlation ID, `in_reply_to`, child task, and destination match the request, and only
-   once (unique per request).
+   `in_reply_to`, correlation ID, and child task match the request (its destination is always
+   the requester), and only once (unique per request); a mismatched reply is refused and
+   recorded (`liaison.reply_refused`) even when the request is already settled.
 6. **Waiting and continuing (multi-step tasks).** When a step's answer contains requests, the
    step's result, the requests (accepted ones create child tasks in `queued`), rejections, and
    the parent's move to `blocked` ("waiting for N handoff replies") are one Ledger
@@ -88,8 +90,9 @@ cancelled`, or `rejected`. Reply states: `pending → delivered | discarded`.
    (e) discard pending replies to tasks that no longer wait; (f) close finished handoff
    workers' sessions. Each action is guarded by the recorded state (compare-and-set), so
    repeated or concurrent triggers are harmless. A child's dispatch is recorded in the same
-   transaction that starts its turn; a runtime at capacity (`busy`) is retried later, any
-   other refusal fails the child with the reason, which becomes its reply.
+   transaction that starts its turn; a runtime at capacity (`busy`, which also covers a turn
+   still being recorded or being cancelled) is retried later, any other refusal fails the
+   child with the reason, which becomes its reply.
 8. **Duplicate protection.** Each request has a dedupe key (requesting task, step, canonical
    request JSON) with a unique constraint: the same request twice in one answer, or a step
    processed twice, creates one child. Message IDs are unique; a request can be answered once;
@@ -104,13 +107,15 @@ cancelled`, or `rejected`. Reply states: `pending → delivered | discarded`.
     Codex: read-only sandbox) in their own empty workspace.
 11. **Events.** On the requesting task: `liaison.handoff_requested`, `liaison.handoff_rejected`,
     `liaison.duplicate_ignored`, `liaison.reply_received`, `liaison.replies_delivered`,
-    `liaison.reply_discarded`, `liaison.handoff_cancelled`. On the child: `liaison.handoff_received`
+    `liaison.reply_discarded`, `liaison.handoff_cancelled`, and when something is refused,
+    `liaison.sender_rejected`, `liaison.reply_refused`, or `liaison.delivery_failed`. On the child: `liaison.handoff_received`
     (with the context packet summary and capability decision), `liaison.dispatched`,
     `liaison.dispatch_failed`, `liaison.reply_sent`. Plus the usual task, execution, and agent
     events, all in order on each task's trail.
-12. **Restart.** Tasks of a workflow that were running, waiting, or queued when Plenipo stopped
-    are recorded as interrupted (ADR-007 recovery); Liaison then answers and discards the
-    affected messages. Nothing is dispatched or resumed automatically at startup.
+12. **Restart.** Turns of a workflow that were running or waiting when Plenipo stopped are
+    recorded as interrupted (ADR-007 recovery); Liaison then answers their open requests,
+    cancels handoffs that were still queued, and discards replies nobody waits for. Nothing is
+    dispatched or resumed automatically at startup.
 13. **Code layout.** New crate `crates/liaison` (`plenipo-liaison`, planned by ADR-004). The
     Ledger-backed runtime stores (executions, sessions, turns) move from the desktop app into
     it, because Liaison records handoffs in the same transactions as turn state and its tests

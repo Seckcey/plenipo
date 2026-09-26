@@ -5,11 +5,14 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 3 — provider runtime adapters (accepted, v0.4.0). The **Workers** view
-> runs tasks on your own signed-in Claude Code and Codex CLIs (subscription sign-ins only, no
-> API billing), with live activity, normalized results, resume, and cancel. Every turn is
-> recorded in the durable local Ledger. Workers cannot change files yet, and there are no
-> departments yet. See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> **Status:** Phase 4 — Liaison handoffs between workers (implemented; awaiting owner
+> acceptance, so the version stays 0.4.0). The **Workers** view runs tasks on your own
+> signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing), with live
+> activity, normalized results, resume, and cancel. With handoffs allowed, a worker can ask a
+> worker on the other runtime for help — for example Codex asking Claude Code for a review —
+> and continues with the reply; every step is recorded in the durable local Ledger. Workers
+> cannot change files yet, and there are no departments yet. See
+> [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -61,6 +64,8 @@ apps/desktop/            React + TypeScript UI (Vite)
 apps/desktop/src-tauri/  Tauri 2 Rust backend: typed command boundary, capabilities
 crates/core/             Plenipo Core: provider-neutral domain types and shared DTOs
 crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, event trail
+crates/liaison/          Plenipo Liaison: handoff protocol, context packets, replies between
+                         workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
                          agent runtime adapters (Claude Code, Codex) and sessions
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
@@ -72,7 +77,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`liaison`, `guard`, …) are added when the
+Further crates from the plan (`workforce`, `guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation
