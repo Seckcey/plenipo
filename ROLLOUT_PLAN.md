@@ -1156,11 +1156,96 @@ Phase 7 and stable Runtime/Ledger.
 
 ---
 
+# Phase 12A — Visual Design System (UniFi-Style Console Aesthetic)
+
+## Goal
+
+Establish the Plenipo visual language and shared component library before the Phase 12 screens are built, so every operator surface reads as one dense, dark, professional network-operations console rather than a set of separately styled pages.
+
+**Reference aesthetic:** the Ubiquiti UniFi Network controller (`unifi.ui.com`) — Site Manager card grid, device list table, and port/topology detail views. Reference only for look, density, and interaction patterns; Plenipo's domain is agent workforce operations, not network monitoring.
+
+## Design Principles
+
+- Dark-first. Near-black application background, slightly lighter elevated surfaces, thin low-contrast dividers instead of heavy borders or drop shadows.
+- Electric blue as the single accent for selection, links, and primary actions. Status color is reserved for status only.
+- Information-dense. Small type, tight row heights, minimal padding. Prefer showing more rows over decorative whitespace.
+- Status is always a small colored dot plus a text label, never color alone.
+- Persistent left rail of icon-only section navigation, a contextual filter/facet sidebar, and a top bar carrying the current scope selector and global alerts.
+- Live data is normal. Timeline strips, sparklines, and "Now" markers are first-class, not add-ons.
+
+## Deliverables
+
+### Design tokens
+- color: background, surface, surface-raised, border, text-primary, text-secondary, text-muted, accent, and status ramp (ok / warn / error / offline / pending)
+- typography scale (roughly 11–20px), tabular numerals for all metrics
+- spacing, radius (small, 4–8px), elevation, and motion tokens
+- light theme mapping of the same tokens; dark is the default
+
+### Core layout shell
+- icon rail with active-section indicator and tooltips
+- collapsible left facet/filter panel (search box, grouped checkbox filters with counts, range sliders, "Clear Filters")
+- top bar: scope selector (org / department / project), title, theme toggle, notification badge
+- global banner slot for advisories and required actions, with an inline call-to-action button and dismiss
+
+### Component library
+- **Entity card** (Site Manager analogue): title, status dot and subtype line, horizontal 24h activity strip with time axis labels and a "Now" marker, a provider/owner row, and a footer row of small capability/resource icons. Used for departments, projects, and agents.
+- **Card grid** with responsive column count and a card/list view toggle.
+- **Dense data table**: sortable columns, status dot column, monospace/tabular numeric columns, inline links to parent entities, per-row selection checkboxes, column customization, page-size control, and a records counter.
+- **Facet filter panel** bound to the table and grid.
+- **Detail split view**: left properties/toggles panel, center live timeline scrubber, right topology/visual map, and a table below — the pattern from the UniFi port view, applied to an agent or task detail.
+- **Topology / relationship map**: node tiles with status color fill, labeled connectors, and per-node metric captions; used for delegation trees and handoff chains.
+- **Status primitives**: dot, pill, activity strip, sparkline, health bar, count badge.
+- **Empty, loading (skeleton), and error states** for every component above.
+
+### Documentation
+- `docs/design/design-system.md` describing tokens, components, usage rules, and the density guidelines
+- a component gallery/storybook route in the desktop app rendering every component in all states and both themes
+
+## Technical Implementation
+
+- Tokens defined once as CSS custom properties, generated from a single TypeScript source of truth so Rust-side or export surfaces can reuse the same values.
+- Components live in a shared `packages/ui` workspace package consumed by the desktop app; no screen-level ad-hoc styling.
+- No hardcoded color literals in feature code — lint rule enforces token usage.
+- Virtualized rendering for tables and card grids so 1,000+ rows and 100+ cards stay responsive.
+- Activity strips and timelines driven by the Phase 2 event model, with a defined downsampling strategy for long ranges.
+
+## Tests
+
+- visual regression snapshots of the gallery in dark and light themes
+- token contrast check: all text/background pairs meet WCAG AA
+- status is distinguishable without color (dot plus label present in DOM)
+- keyboard navigation and focus-visible styling across rail, filters, table, and cards
+- virtualized table performance with 5,000 rows
+- responsive behavior at the minimum supported window size
+
+## Acceptance Criteria
+
+Every component in the library renders correctly in both themes with real and empty data.
+
+Phase 12 screens can be assembled entirely from this library without introducing new one-off styles.
+
+No feature code contains raw color values.
+
+## Dependencies
+
+Phase 2 event model (for activity strips and timelines). Should land before or alongside the start of Phase 12.
+
+## Out of Scope
+
+- copying UniFi's iconography, logo, or proprietary assets
+- network-monitoring features implied by the reference screenshots
+- marketing site or brand identity work beyond the application UI
+- mobile layouts
+
+---
+
 # Phase 12 — Product UX, Notifications, Settings, and Operator Experience
 
 ## Goal
 
 Turn the proven engine into a desktop product that the owner can understand and operate without watching raw terminal output.
+
+All screens in this phase are assembled from the Phase 12A design system and component library. No new one-off styling.
 
 ## Deliverables
 
