@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hire-position"
+description = "Enables the hire_position command without any pre-configured scope."
+commands.allow = ["hire_position"]
+
+[[permission]]
+identifier = "deny-hire-position"
+description = "Denies the hire_position command without any pre-configured scope."
+commands.deny = ["hire_position"]

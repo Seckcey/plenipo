@@ -69,7 +69,7 @@ export function HandoffCard({
       )}
       {worker && canOpen(worker) && (
         <button type="button" className="link" onClick={() => onOpenSession(worker)}>
-          Open worker session
+          Open worker conversation
         </button>
       )}
     </li>

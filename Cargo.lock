@@ -2360,6 +2360,7 @@ dependencies = [
  "plenipo-ledger",
  "plenipo-liaison",
  "plenipo-runtime",
+ "plenipo-workforce",
  "serde",
  "serde_json",
  "tauri",
@@ -2412,6 +2413,22 @@ dependencies = [
  "ts-rs",
  "uuid",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "plenipo-workforce"
+version = "0.5.0"
+dependencies = [
+ "plenipo-ledger",
+ "plenipo-liaison",
+ "plenipo-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "ts-rs",
+ "uuid",
 ]
 
 [[package]]

@@ -49,19 +49,19 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. Agent runtimes (Phase 3, optional)
+## 3. AI tools: Claude Code and Codex (Phase 3, optional)
 
 The **Workers** view runs tasks on the Claude Code and Codex command-line tools that are already
 installed **and signed in with your subscription** on this computer. Plenipo never asks for a
 password or API key, and refuses API-key sign-ins (no API billing). The desktop apps do not need
 to be open.
 
-| Runtime     | Install (PowerShell)                                      | Sign in (once, in a terminal)                    |
+| AI tool     | Install (PowerShell)                                      | Sign in (once, in a terminal)                    |
 | ----------- | --------------------------------------------------------- | ------------------------------------------------ |
 | Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account |
 | Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**  |
 
-Then open **Runtimes** in Plenipo and choose **Re-check**: each runtime should show **Ready**
+Then open **AI tools** in Plenipo and choose **Re-check**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
 not signed in, API key), follow the hint on the card.
 
@@ -71,15 +71,26 @@ Notes:
   is reported as unsupported — install the native build above. For Codex, Plenipo uses the
   native binary inside the npm package automatically.
 - In Phase 3 workers cannot change anything: Claude Code runs with no tools (conversation
-  only), Codex in its read-only sandbox, each session in its own empty folder under
+  only), Codex in its read-only sandbox, each conversation in its own empty folder under
   `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.
-- Handoffs (Phase 4) need both runtimes Ready. In **Workers**, tick **Allow handoffs to other
+- Handoffs (Phase 4) need both AI tools Ready. In **Workers**, tick **Allow handoffs to other
   workers**, then give an objective that invites a second opinion — for example, on Codex:
   _"Write a function that parses ISO dates. Before you finish, ask claude-code to review it."_
-  The turn shows **Waiting for replies** while the Claude Code worker runs, then continues with
-  its review as step 2. **Open worker session** shows the reviewer's own session; **Activity**
+  The task shows **Waiting for replies** while the Claude Code worker runs, then continues with
+  its review as step 2. **Open worker conversation** shows the reviewer's own conversation;
+  **Activity**
   shows the delegation tree and the full trail. Handoff workers get the same permissions as
   any worker.
+- The organization (Phase 5) uses the same AI tools. In **Organization**, create a department
+  (it comes with its manager) and a project in it (it comes with its supervisor; tick the AI
+  tools its team may use), then drag roles from the **Hire** palette onto the supervisor — or
+  click a role and choose who it reports to. Select the supervisor and give it an objective that
+  names its team, for example: _"Add input validation to the signup form. Ask the Senior
+  Developer to implement it and the Code Reviewer to review it, then summarize."_ Each team
+  member it hands work to appears under its position as a live worker and leaves when its task
+  ends. Every position's AI tool is your choice (details panel → **Edit title, AI tool, or
+  model**). **Settings → Personalization → Titles** renames the ranks (for example after the
+  U.S. Army or the Mafia) without changing job titles.
 
 ## 4. Build a release and installer
 
@@ -127,9 +138,12 @@ xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
 Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
-it never touches your real Plenipo data. The Phase 3 and 4 tests put `plenipo-fake-agent` (a
+it never touches your real Plenipo data. The Phase 3–5 tests put `plenipo-fake-agent` (a
 test double that speaks the Claude Code and Codex stream formats and Liaison's handoff
 protocol) on `PATH` as `claude` and `codex`; they never start a real CLI or use an account.
+The Phase 5 tests build an organization on the canvas and give its supervisor objectives such
+as `[handoff:role:Senior Developer+delay:6000]`, which make the fake supervisor hand that
+position a task whose worker takes six seconds.
 
 ## 7. Linux (development / CI only)
 

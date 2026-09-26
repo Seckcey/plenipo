@@ -4,7 +4,7 @@ export type ViewId =
 export const VIEWS: { id: ViewId; label: string }[] = [
   { id: "organization", label: "Organization" },
   { id: "workers", label: "Workers" },
-  { id: "runtimes", label: "Runtimes" },
+  { id: "runtimes", label: "AI tools" },
   { id: "activity", label: "Activity" },
   { id: "settings", label: "Settings" },
   { id: "diagnostics", label: "Diagnostics" },

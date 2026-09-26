@@ -12,7 +12,8 @@
 //! - `last-args.json`, `last-env.txt`: what the last turn received.
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
-//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`.
+//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, and `[delay:MS]` (answer
+//! normally after MS milliseconds, at most 20 seconds).
 //!
 //! Plenipo Liaison messages (ADR-008) are understood too; markers then count only in the
 //! objective, never in the context or replies around it. Handoff markers make the answer end
@@ -331,6 +332,16 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
     }
 }
 
+/// Wait as long as a `[delay:MS]` marker asks (capped), before answering.
+fn delay(said: &str) {
+    if let Some(ms) = markers(said, "delay")
+        .first()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms.min(20_000)));
+    }
+}
+
 fn slow_ticks(mut tick: impl FnMut(u32)) {
     for i in 1..=300 {
         tick(i);
@@ -473,6 +484,7 @@ fn claude_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
+    delay(&said);
     let text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
@@ -597,6 +609,7 @@ fn codex_turn(args: &[String]) -> i32 {
     if said.contains("[unknown]") {
         out(&json!({ "type": "session.configured", "model": "x" }));
     }
+    delay(&said);
     out(&json!({ "type": "item.started",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": null, "status": "in_progress" } }));

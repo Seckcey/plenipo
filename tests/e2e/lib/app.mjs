@@ -73,6 +73,9 @@ export async function launch(home, extraEnv = {}) {
     detached: process.platform !== "win32",
   });
   await waitForPort(PORT);
+  // tauri-driver starts the native WebDriver alongside it; a session request that arrives
+  // before that one listens is refused.
+  await waitForPort(PORT + 1);
   const browser = await remote({
     hostname: "127.0.0.1",
     port: PORT,

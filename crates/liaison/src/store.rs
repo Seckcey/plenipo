@@ -344,6 +344,7 @@ impl SessionStore for LedgerSessionStore {
             TurnTask::New {
                 requested_by,
                 metadata,
+                project_id,
             } => {
                 let mut metadata = if metadata.is_object() {
                     metadata.clone()
@@ -359,6 +360,7 @@ impl SessionStore for LedgerSessionStore {
                         NewTask {
                             requested_by: requested_by.clone(),
                             assigned_to: Some(session.runtime_id.clone()),
+                            project_id: project_id.clone(),
                             objective: input.objective.clone(),
                             metadata,
                             ..NewTask::default()

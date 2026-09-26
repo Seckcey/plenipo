@@ -593,7 +593,7 @@ async fn supervise(
                 ExecutionState::TimedOut,
                 None,
                 Some(format!(
-                    "Exceeded the maximum runtime of {}s and was terminated",
+                    "Ran past its {}-second time limit and was stopped",
                     max_runtime.as_secs()
                 )),
             )

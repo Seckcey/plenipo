@@ -281,7 +281,7 @@ async fn enforces_maximum_runtime() {
     let rec = h.sup.start("short-timeout").await.unwrap();
     let done = wait_terminal(&h.sup, &rec.id).await;
     assert_eq!(done.state, ExecutionState::TimedOut);
-    assert!(done.detail.unwrap().contains("maximum runtime of 1s"));
+    assert!(done.detail.unwrap().contains("its 1-second time limit"));
     wait_pid_gone(rec.pid.unwrap()).await;
 }
 

@@ -37,7 +37,7 @@ const env = { PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` };
 mkdirSync(join(home, ".plenipo-fake-agent"), { recursive: true });
 writeFileSync(join(home, ".plenipo-fake-agent", "auth"), "subscription");
 
-const TURNS = '[aria-label="Turns"]';
+const TURNS = '[aria-label="Tasks"]';
 const NEW_TASK = 'form[aria-label="New task"]';
 const HEADER = ".detail__header";
 
@@ -134,7 +134,7 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     await screenshotTurns(browser, "handoff-codex-to-claude");
 
     // The Claude Code worker's own session: the request it was started for, and its answer.
-    await clickButton(browser, "Open worker session");
+    await clickButton(browser, "Open worker conversation");
     await waitForText(browser, HEADER, "Handoff worker");
     await waitForText(browser, '[aria-label="Handoff request"]', "Asked by Codex");
     const review = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "review");
@@ -143,11 +143,11 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
       /Turn 1: you asked "Review the answer above"; context: "Turn 1: you said \\"Write a parser/,
     );
     assert.equal(
-      await (await browser.$('form[aria-label="Continue session"]')).isExisting(),
+      await (await browser.$('form[aria-label="Continue the conversation"]')).isExisting(),
       false,
     );
     await screenshotTurns(browser, "handoff-worker-session");
-    await clickButton(browser, "Open requester session");
+    await clickButton(browser, "Open requester conversation");
     await waitForText(browser, `${HEADER} h2`, "Write a parser");
   });
 
@@ -216,13 +216,13 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     );
     await waitForText(browser, '[role="status"]', "waiting for replies to its handoffs");
     await screenshotTurns(browser, "handoff-waiting");
-    await clickButton(browser, "Cancel turn");
+    await clickButton(browser, "Cancel task");
     await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "cancelled");
     await waitUntil(
       async () => (await handoffCard(browser, "Claude Code")).includes("Cancelled"),
       "the handoff cancelled",
     );
-    await clickButton(browser, "Open worker session");
+    await clickButton(browser, "Open worker conversation");
     await waitForText(browser, HEADER, "Handoff worker");
     await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "the worker stopped");
   });
@@ -234,10 +234,12 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     assert.match(t.text, /received 1 reply: Plenipo: rejected: Reason: missing destination/);
     const card = await handoffCard(browser, "gemini");
     assert.match(card, /Refused/);
-    assert.match(card, /no worker runtime named "gemini"/);
+    assert.match(card, /no AI tool named "gemini"/);
     // Nothing was sent to another provider instead.
     assert.equal(
-      await (await browser.$('//button[normalize-space()="Open worker session"]')).isExisting(),
+      await (
+        await browser.$('//button[normalize-space()="Open worker conversation"]')
+      ).isExisting(),
       false,
     );
   });

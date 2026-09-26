@@ -17,6 +17,7 @@ use std::time::Duration;
 use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
+use plenipo_workforce::Workforce;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
 
 use runtime_host::Persistence;
@@ -73,11 +74,14 @@ pub fn configure<R: Runtime>(
                 agent_host::detect_in_background(&agents);
             }
             // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
-            let liaison = Liaison::new(ledger, agents.clone(), LiaisonConfig::default());
+            let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
             tauri::async_runtime::spawn(liaison.clone().run());
+            // Workforce (Phase 5): the organization, and Liaison's directory for its members.
+            let workforce = Workforce::new(ledger, agents.clone(), liaison.clone());
             app.manage(supervisor);
             app.manage(agents);
             app.manage(liaison);
+            app.manage(workforce);
             quit_on_termination_signal(app.handle().clone());
             if options.tray {
                 // A missing tray (e.g. no status-notifier host on Linux) is not fatal.
@@ -126,7 +130,27 @@ pub fn configure<R: Runtime>(
             commands::close_agent_session,
             commands::get_task_handoffs,
             commands::get_task_tree,
-            commands::get_liaison_overview
+            commands::get_liaison_overview,
+            commands::get_organization,
+            commands::get_work,
+            commands::rename_organization,
+            commands::set_organization_titles,
+            commands::create_role,
+            commands::create_department,
+            commands::update_department,
+            commands::remove_department,
+            commands::create_project,
+            commands::update_project,
+            commands::archive_project,
+            commands::hire_position,
+            commands::fill_position,
+            commands::vacate_position,
+            commands::update_position,
+            commands::move_position,
+            commands::archive_position,
+            commands::assign_oversight,
+            commands::end_oversight,
+            commands::give_objective
         ])
 }
 
@@ -236,10 +260,12 @@ mod ipc_boundary_tests {
             supervisor.clone(),
         );
         // Queries only: the reconciliation loop is not needed without running workers.
-        let liaison = Liaison::new(ledger, agents.clone(), LiaisonConfig::default());
+        let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
+        let workforce = Workforce::new(ledger, agents.clone(), liaison.clone());
         app.manage(supervisor);
         app.manage(agents);
         app.manage(liaison);
+        app.manage(workforce);
         app
     }
 
@@ -819,5 +845,308 @@ mod ipc_boundary_tests {
             serde_json::json!({ "runtimeId": "codex", "objective": "hi" })
         )
         .is_err());
+    }
+
+    // ---- Workforce (Phase 5) ---------------------------------------------------------------
+
+    fn role_id(snapshot: &plenipo_workforce::OrgSnapshot, name: &str) -> String {
+        snapshot
+            .roles
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+            .clone()
+    }
+
+    #[test]
+    fn the_organization_starts_empty_with_role_templates() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        assert_eq!(org.name, "Organization");
+        assert!(org.departments.is_empty() && org.positions.is_empty());
+        assert!(org.roles.iter().filter(|r| r.template).count() >= 10);
+        let runtimes: Vec<_> = org.runtimes.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(runtimes, ["claude-code", "codex"]);
+        let work: plenipo_workforce::WorkView = body(invoke(&main, "get_work"));
+        assert!(work.running.is_empty() && work.position_id.is_none());
+    }
+
+    #[test]
+    fn the_organization_is_built_and_changed_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let lead = |role: &str, title: &str| {
+            serde_json::json!({
+                "roleId": role_id(&org, role), "title": title, "runtimeId": "claude-code"
+            })
+        };
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "Builds the products",
+                "head": lead("Manager", "Development Manager"),
+            }}),
+        ));
+        let dept = s.departments[0].clone();
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_project",
+            serde_json::json!({ "input": {
+                "name": "Cloudline", "description": "",
+                "repositoryUrl": "https://github.com/example/cloudline",
+                "localPath": "D:\\projects\\cloudline",
+                "allowedRuntimes": ["claude-code", "codex"],
+                "capabilityProfile": "development",
+                "departmentId": dept.id,
+                "coordinator": lead("Supervisor", "Cloudline Supervisor"),
+            }}),
+        ));
+        let coordinator = s.projects[0].coordinator_position_id.clone().unwrap();
+        let hire = |title: &str, role: &str, to: &str, runtime: &str| {
+            let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+                &main,
+                "hire_position",
+                serde_json::json!({ "input": {
+                    "roleId": role_id(&org, role), "title": title,
+                    "reportsTo": to, "runtimeId": runtime,
+                }}),
+            ));
+            s.positions
+                .iter()
+                .find(|p| p.title == title)
+                .unwrap()
+                .id
+                .clone()
+        };
+        let dev = hire(
+            "Senior Developer",
+            "Senior Developer",
+            &coordinator,
+            "codex",
+        );
+        let head = dept.head_position_id.clone().unwrap();
+        let qa = hire("QA Engineer", "QA Engineer", &head, "claude-code");
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "assign_oversight",
+            serde_json::json!({ "overseerId": qa, "targetId": coordinator, "role": "qa" }),
+        ));
+        assert_eq!(s.oversight.len(), 1);
+        let oversight = s.oversight[0].id.clone();
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "update_position",
+            serde_json::json!({ "positionId": dev, "input": { "title": "Backend Developer" } }),
+        ));
+        assert!(s.positions.iter().any(|p| p.title == "Backend Developer"));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "move_position",
+            serde_json::json!({ "positionId": dev, "reportsTo": head }),
+        ));
+        let moved = s.positions.iter().find(|p| p.id == dev).unwrap();
+        assert_eq!(moved.reports_to.as_deref(), Some(head.as_str()));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "set_organization_titles",
+            serde_json::json!({ "titles": "marineCorps" }),
+        ));
+        assert_eq!(s.titles, plenipo_workforce::TitleTheme::MarineCorps);
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "rename_organization",
+            serde_json::json!({ "name": "8 West Ventures" }),
+        ));
+        assert_eq!(s.name, "8 West Ventures");
+        assert_eq!(
+            s.titles,
+            plenipo_workforce::TitleTheme::MarineCorps,
+            "renaming keeps the titles"
+        );
+        let work: plenipo_workforce::WorkView = body(invoke_json(
+            &main,
+            "get_work",
+            serde_json::json!({ "positionId": coordinator }),
+        ));
+        assert_eq!(work.position_id.as_deref(), Some(coordinator.as_str()));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "end_oversight",
+            serde_json::json!({ "oversightId": oversight }),
+        ));
+        assert!(s.oversight.is_empty());
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "archive_position",
+            serde_json::json!({ "positionId": qa }),
+        ));
+        assert!(!s.positions.iter().find(|p| p.id == qa).unwrap().active);
+        // The structure rules come back as clear refusals.
+        let err = invoke_json(
+            &main,
+            "archive_position",
+            serde_json::json!({ "positionId": coordinator }),
+        )
+        .expect_err("coordinates a project");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(err["message"]
+            .as_str()
+            .unwrap()
+            .contains("archive the project"));
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let events: Vec<String> = ledger
+            .recent_events(200)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for want in [
+            "org.department_created",
+            "org.project_created",
+            "org.position_created",
+            "org.position_moved",
+            "org.oversight_assigned",
+            "org.oversight_ended",
+            "org.settings_changed",
+        ] {
+            assert!(events.iter().any(|e| e == want), "{want}");
+        }
+    }
+
+    #[test]
+    fn workforce_commands_validate_input_and_accept_no_extra_fields() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let worker = role_id(&org, "Senior Developer");
+        for (cmd, args) in [
+            ("fill_position", serde_json::json!({ "positionId": "../x" })),
+            (
+                "get_work",
+                serde_json::json!({ "positionId": "C:\\Windows" }),
+            ),
+            (
+                "move_position",
+                serde_json::json!({ "positionId": SESSION, "reportsTo": "../x" }),
+            ),
+            (
+                "hire_position",
+                serde_json::json!({ "input": {
+                    "roleId": worker, "title": "x", "reportsTo": null, "runtimeId": "Claude Code"
+                }}),
+            ),
+            (
+                "hire_position",
+                serde_json::json!({ "input": {
+                    "roleId": worker, "title": "x".repeat(8_001), "reportsTo": null,
+                    "runtimeId": "codex"
+                }}),
+            ),
+            (
+                // Extra fields cannot smuggle in a command, path, or session.
+                "hire_position",
+                serde_json::json!({ "input": {
+                    "roleId": worker, "title": "x", "reportsTo": null, "runtimeId": "codex",
+                    "executable": "/bin/sh", "sessionId": SESSION
+                }}),
+            ),
+            (
+                "assign_oversight",
+                serde_json::json!({ "overseerId": SESSION, "targetId": SESSION, "role": "admin" }),
+            ),
+            (
+                "create_project",
+                serde_json::json!({ "input": {
+                    "name": "p", "description": "", "allowedRuntimes": ["../codex"]
+                }}),
+            ),
+            (
+                "give_objective",
+                serde_json::json!({ "positionId": "../x", "objective": "hi" }),
+            ),
+            // Only the known title themes.
+            (
+                "set_organization_titles",
+                serde_json::json!({ "titles": "starfleet" }),
+            ),
+            (
+                "give_objective",
+                serde_json::json!({ "positionId": SESSION, "objective": "x".repeat(40_001) }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone()).expect_err(cmd);
+            // Malformed arguments are refused before any command code runs.
+            assert!(
+                err["kind"] == "invalidInput" || err.is_string(),
+                "{cmd} {args}: {err}"
+            );
+        }
+        // Unknown positions are reported, not created.
+        let err = invoke_json(
+            &main,
+            "fill_position",
+            serde_json::json!({ "positionId": SESSION }),
+        )
+        .expect_err("unknown");
+        assert_eq!(err["kind"], "invalidInput");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        assert!(org.positions.is_empty());
+    }
+
+    #[test]
+    fn objectives_to_an_uninstalled_runtime_are_refused_and_record_nothing() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": { "roleId": role_id(&org, "Manager"),
+                          "title": "Development Manager", "runtimeId": "claude-code" },
+            }}),
+        ));
+        let head = s.departments[0].head_position_id.clone().unwrap();
+        let err = invoke_json(
+            &main,
+            "give_objective",
+            serde_json::json!({ "positionId": head, "objective": "Plan the quarter" }),
+        )
+        .expect_err("not installed");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(
+            err["message"].as_str().unwrap().contains("not available"),
+            "{err}"
+        );
+        let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
+        assert_eq!(status.task_count, 0, "a refused objective records nothing");
+    }
+
+    #[test]
+    fn workforce_commands_denied_for_ungranted_windows_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        for cmd in [
+            "get_organization",
+            "get_work",
+            "create_department",
+            "hire_position",
+            "move_position",
+            "assign_oversight",
+            "give_objective",
+        ] {
+            let args = serde_json::json!({ "positionId": SESSION, "objective": "x" });
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
     }
 }

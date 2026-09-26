@@ -196,12 +196,17 @@ fn harness() -> H {
     harness_with(&["claude", "codex"], None)
 }
 
-/// Wait until the session has `turns` turns and none is running.
+/// Wait until the session has `turns` turns, none is running, and the runtime has released the
+/// session. A turn reads as finished as soon as its result is recorded, a moment before its slot
+/// is released; a follow-up sent in that moment is refused as "already running".
 async fn settled(rt: &AgentRuntime, session_id: &str, turns: usize) -> AgentSessionDetail {
     let deadline = Instant::now() + WAIT;
     loop {
         let detail = rt.session(session_id).await.unwrap();
-        if detail.turns.len() >= turns && detail.turns.iter().all(|t| !t.running) {
+        if detail.turns.len() >= turns
+            && detail.turns.iter().all(|t| !t.running)
+            && detail.session.active_task_id.is_none()
+        {
             return detail;
         }
         assert!(
@@ -931,6 +936,34 @@ impl TurnHook for SnapshotHook {
     }
 }
 
+/// A [`WaitHook`] that cancels the turn from inside the hook: after its wait is recorded (the
+/// turn already reads as waiting) and before the runtime moves its slot from running to waiting.
+struct CancelHook {
+    wait: WaitHook,
+    rt: OnceLock<AgentRuntime>,
+    cancel: Mutex<Option<tokio::task::JoinHandle<Result<AgentSessionDetail, RuntimeError>>>>,
+}
+
+impl TurnHook for CancelHook {
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        let disposition = self.wait.turn_ended(end);
+        if disposition != TurnDisposition::Finish {
+            let rt = self.rt.get().expect("runtime set").clone();
+            let id = end.session.id.clone();
+            let cancel =
+                tokio::runtime::Handle::current().spawn(async move { rt.cancel_turn(&id).await });
+            *self.cancel.lock().unwrap() = Some(cancel);
+            // Let the cancel find the turn still holding its slot as running.
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        disposition
+    }
+
+    fn released(&self) {
+        self.wait.released();
+    }
+}
+
 fn with_hook(h: &H) -> Arc<WaitHook> {
     let hook = Arc::new(WaitHook {
         store: h.store.clone(),
@@ -961,14 +994,27 @@ async fn turn_where(
     }
 }
 
+/// Start a turn that waits, and wait until the runtime holds it as waiting. It reads as waiting as
+/// soon as its wait is recorded, a moment before the runtime moves its slot there; a continuation
+/// sent in that moment is told to try again.
 async fn waiting_turn(h: &H, runtime: &str) -> (String, String) {
     let started =
         h.rt.start_session(runtime, "plan it [wait]", None)
             .await
             .unwrap();
     let id = started.session.id.clone();
-    let detail = turn_where(&h.rt, &id, 1, |t| t.waiting).await;
-    (id, detail.turns[0].task_id.clone())
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let detail = h.rt.session(&id).await.unwrap();
+        if let Some(task) = detail.session.waiting_task_id.clone() {
+            return (id, task);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the turn never waited: {detail:#?}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1085,8 +1131,16 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
         assert!(seqs.iter().any(|s| *s > STEP_SEQ) && seqs[0] < STEP_SEQ);
         let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
-        assert!(exec.label.ends_with("turn 1 · step 2"), "{}", exec.label);
-        assert!(hook.released.load(Ordering::SeqCst) >= 2);
+        assert!(exec.label.ends_with("task 1 · step 2"), "{}", exec.label);
+        // The hook hears of each release once the slot is freed, just after the result is recorded.
+        let deadline = Instant::now() + WAIT;
+        while hook.released.load(Ordering::SeqCst) < 2 {
+            assert!(
+                Instant::now() < deadline,
+                "{runtime}: a release was never reported"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 }
 
@@ -1111,6 +1165,45 @@ async fn cancelling_a_waiting_turn_ends_it_and_frees_the_session() {
             .await
             .unwrap_err();
     assert!(matches!(err, RuntimeError::NotWaiting(_)), "{err}");
+    h.rt.resume_session(&id, "next").await.unwrap();
+    settled(&h.rt, &id, 2).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_as_a_turn_starts_waiting_ends_the_wait() {
+    let h = harness();
+    let hook = Arc::new(CancelHook {
+        wait: WaitHook {
+            store: h.store.clone(),
+            released: AtomicUsize::new(0),
+        },
+        rt: OnceLock::new(),
+        cancel: Mutex::new(None),
+    });
+    assert!(hook.rt.set(h.rt.clone()).is_ok());
+    h.rt.set_hook(hook.clone());
+    let started =
+        h.rt.start_session("codex", "plan it [wait]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    // The cancel came while the turn was moving into its wait: it ends the wait, not just the
+    // step that had already finished.
+    let deadline = Instant::now() + WAIT;
+    let cancel = loop {
+        if let Some(cancel) = hook.cancel.lock().unwrap().take() {
+            break cancel;
+        }
+        assert!(Instant::now() < deadline, "the hook never cancelled");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    let detail = cancel.await.unwrap().unwrap();
+    let turn = &detail.turns[0];
+    assert!(!turn.waiting && !turn.running, "{turn:#?}");
+    assert_eq!(outcome(turn), TurnOutcome::Cancelled);
+    assert!(detail.session.waiting_task_id.is_none());
+    assert!(detail.session.active_task_id.is_none());
+    // The session takes new work.
     h.rt.resume_session(&id, "next").await.unwrap();
     settled(&h.rt, &id, 2).await;
 }
@@ -1204,6 +1297,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
                 task: TurnTask::New {
                     requested_by: "agent:tester".into(),
                     metadata: serde_json::json!({ "extra": 1 }),
+                    project_id: None,
                 },
             },
         )

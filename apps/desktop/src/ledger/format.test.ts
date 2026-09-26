@@ -1,7 +1,7 @@
 import type { LedgerEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
-import { describeEvent } from "./format";
+import { describeEvent, sourceLabel } from "./format";
 
 const event = (eventType: string, payload: Record<string, unknown>): LedgerEvent => ({
   seq: 1,
@@ -19,7 +19,7 @@ describe("describeEvent (Phase 3 agent events)", () => {
   it("describes agent activity and results in plain language", () => {
     expect(
       describeEvent(event("agent.session_bound", { providerSessionId: "p-1", model: "m" })),
-    ).toBe("Provider session p-1 · model m");
+    ).toBe("Conversation p-1 · model m");
     expect(describeEvent(event("agent.message", { text: "\nHello there\nsecond line" }))).toBe(
       "Agent: Hello there",
     );
@@ -35,8 +35,13 @@ describe("describeEvent (Phase 3 agent events)", () => {
       describeEvent(event("agent.result", { outcome: "usageLimited", summary: "Try later" })),
     ).toBe("Result: Usage limit reached — Try later");
     expect(describeEvent(event("session.opened", { runtime: "codex" }))).toBe(
-      "Worker session opened on codex",
+      "Worker conversation opened on codex",
     );
+    expect(sourceLabel("runtime", { capitalize: true })).toBe("Plenipo");
+    expect(sourceLabel("owner")).toBe("you");
+    expect(sourceLabel("owner", { capitalize: true })).toBe("You");
+    expect(sourceLabel("agent:claude-code")).toBe("Claude Code");
+    expect(sourceLabel("agent:gemini")).toBe("gemini");
     expect(describeEvent(event("agent.message", { text: "x".repeat(500) })).length).toBeLessThan(
       170,
     );
@@ -91,6 +96,35 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     ).toBe("Handoff reply discarded: stopped");
     expect(describeEvent(event("liaison.reply_refused", { reason: "wrong workflow" }))).toBe(
       "Reply refused: wrong workflow",
+    );
+  });
+});
+
+describe("describeEvent (Phase 5 organization events)", () => {
+  it("describes changes to the organization and its workers", () => {
+    expect(describeEvent(event("org.position_created", { title: "QA Engineer" }))).toBe(
+      "Position created: QA Engineer",
+    );
+    expect(
+      describeEvent(
+        event("org.oversight_assigned", {
+          kind: "security",
+          overseer: "Security Auditor",
+          target: "Website Coordinator",
+        }),
+      ),
+    ).toBe("Security Auditor is now the security auditor for Website Coordinator's team");
+    expect(describeEvent(event("org.worker_spawned", { title: "Senior Developer" }))).toBe(
+      "Worker brought in for Senior Developer",
+    );
+    expect(describeEvent(event("org.worker_retired", { lifecycle: "failed" }))).toBe(
+      "Worker failed and left the organization",
+    );
+    expect(describeEvent(event("org.position_moved", { title: "Designer", to: null }))).toBe(
+      "Designer now reports to you",
+    );
+    expect(describeEvent(event("org.project_archived", { name: "Q4 Campaign" }))).toBe(
+      "Project archived with its team: Q4 Campaign",
     );
   });
 });

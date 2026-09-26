@@ -98,10 +98,12 @@ pub enum SessionChange {
 /// What a turn works on.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TurnTask {
-    /// Record a new task. `metadata` (a JSON object, or null) is added to the turn's own.
+    /// Record a new task. `metadata` (a JSON object, or null) is added to the turn's own;
+    /// `project_id` makes the task part of a project (an organization's work, ADR-009).
     New {
         requested_by: String,
         metadata: serde_json::Value,
+        project_id: Option<String>,
     },
     /// Run a task recorded earlier (for example a handoff's child task) as this turn.
     Existing { task_id: String },
@@ -127,6 +129,7 @@ impl TurnInput {
             task: TurnTask::New {
                 requested_by: OWNER.into(),
                 metadata: serde_json::Value::Null,
+                project_id: None,
             },
         }
     }
@@ -554,7 +557,7 @@ impl AgentRuntime {
         let not_checked = AuthStatus {
             state: AuthState::Unknown,
             method: None,
-            detail: Some("Not checked: the runtime is not installed.".into()),
+            detail: Some("Not checked: the AI tool is not installed.".into()),
         };
         let executable = match locate(adapter, host) {
             Located::Found(path) => path,
@@ -839,7 +842,7 @@ impl AgentRuntime {
         }
         let adapter = self.adapter(&session.runtime_id).ok_or_else(|| {
             RuntimeError::NotReady(format!(
-                "The runtime {:?} is not available in this build.",
+                "The AI tool {:?} is not available in this version of Plenipo.",
                 session.runtime_id
             ))
         })?;
@@ -925,7 +928,7 @@ impl AgentRuntime {
         };
         let Some(adapter) = self.adapter(&session.runtime_id) else {
             let e = RuntimeError::NotReady(format!(
-                "The runtime {:?} is not available in this build.",
+                "The AI tool {:?} is not available in this version of Plenipo.",
                 session.runtime_id
             ));
             self.end_waiting(
@@ -1063,7 +1066,7 @@ impl AgentRuntime {
     /// is recorded.
     pub async fn cancel_turn(&self, session_id: &str) -> Result<AgentSessionDetail, RuntimeError> {
         enum Target {
-            Running(String, watch::Receiver<bool>),
+            Running(String, Option<String>, watch::Receiver<bool>),
             Waiting(String),
         }
         let target = {
@@ -1090,33 +1093,45 @@ impl AgentRuntime {
                             "The turn is still starting; try again in a moment.".into(),
                         )
                     })?;
-                    Target::Running(execution, active.done.clone())
+                    Target::Running(execution, active.task_id.clone(), active.done.clone())
                 }
             }
         };
-        match target {
-            Target::Running(execution, mut done) => {
+        let waiting = match target {
+            Target::Running(execution, task, mut done) => {
                 self.inner.supervisor.cancel(&execution).await?;
                 let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+                // The step may have ended just before the cancel, with the turn going on to wait
+                // for handoff replies (it already reads as waiting): end that wait as well. It is
+                // claimed for the cancel in the same look, so a continuation cannot start first.
+                let mut state = self.lock();
+                match state.active.get_mut(session_id) {
+                    Some(active) if active.claim == Claim::Wait && active.task_id == task => {
+                        active.claim = Claim::Close;
+                        task
+                    }
+                    _ => None,
+                }
             }
-            Target::Waiting(task_id) => {
-                let id = session_id.to_owned();
-                let session = self
-                    .with_store(move |s| s.session(&id))
-                    .await
-                    .ok()
-                    .flatten();
-                let (done, _) = watch::channel(false);
-                self.end_waiting(
-                    session_id,
-                    &task_id,
-                    session.as_ref(),
-                    TurnOutcome::Cancelled,
-                    &RuntimeError::NotReady("cancelled".into()),
-                    done,
-                )
-                .await;
-            }
+            Target::Waiting(task_id) => Some(task_id),
+        };
+        if let Some(task_id) = waiting {
+            let id = session_id.to_owned();
+            let session = self
+                .with_store(move |s| s.session(&id))
+                .await
+                .ok()
+                .flatten();
+            let (done, _) = watch::channel(false);
+            self.end_waiting(
+                session_id,
+                &task_id,
+                session.as_ref(),
+                TurnOutcome::Cancelled,
+                &RuntimeError::NotReady("cancelled".into()),
+                done,
+            )
+            .await;
         }
         self.session(session_id).await
     }
@@ -1273,9 +1288,9 @@ impl AgentRuntime {
             ProviderSession::New { preassigned } => preassigned.clone(),
         };
         let label = if step == 1 {
-            format!("{} · turn {number}", adapter.label())
+            format!("{} · task {number}", adapter.label())
         } else {
-            format!("{} · turn {number} · step {step}", adapter.label())
+            format!("{} · task {number} · step {step}", adapter.label())
         };
         let spec = LaunchSpec {
             profile_id: format!("agent.{}", adapter.id()),
@@ -1872,6 +1887,7 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
         TurnTask::New {
             requested_by,
             metadata,
+            project_id,
         } => {
             let requested_by = requested_by.trim().to_owned();
             if requested_by.is_empty() || requested_by.len() > 200 {
@@ -1879,9 +1895,17 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
                     "requested_by must be 1–200 characters".into(),
                 ));
             }
+            let project_ok = |id: &String| {
+                (1..=64).contains(&id.len())
+                    && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            };
+            if project_id.as_ref().is_some_and(|id| !project_ok(id)) {
+                return Err(RuntimeError::InvalidInput("invalid project id".into()));
+            }
             TurnTask::New {
                 requested_by,
                 metadata: object_or_empty("turn metadata", metadata)?,
+                project_id,
             }
         }
         TurnTask::Existing { task_id } => {
@@ -1976,7 +2000,8 @@ mod tests {
             ok.task,
             TurnTask::New {
                 requested_by: OWNER.into(),
-                metadata: serde_json::json!({})
+                metadata: serde_json::json!({}),
+                project_id: None,
             }
         );
         for bad in [
@@ -1988,6 +2013,7 @@ mod tests {
                 task: TurnTask::New {
                     requested_by: " ".into(),
                     metadata: serde_json::Value::Null,
+                    project_id: None,
                 },
                 ..TurnInput::owner("x")
             },
@@ -1995,6 +2021,15 @@ mod tests {
                 task: TurnTask::New {
                     requested_by: "owner".into(),
                     metadata: serde_json::json!([1]),
+                    project_id: None,
+                },
+                ..TurnInput::owner("x")
+            },
+            TurnInput {
+                task: TurnTask::New {
+                    requested_by: "owner".into(),
+                    metadata: serde_json::Value::Null,
+                    project_id: Some("../etc".into()),
                 },
                 ..TurnInput::owner("x")
             },

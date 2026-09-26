@@ -1,16 +1,21 @@
 # Plenipo
 
 Plenipo is a local-first desktop control plane for an AI workforce. You hand an outcome to
-a persistent management hierarchy; Plenipo routes the work to coordinators and specialist
-worker agents, grants only the capabilities each task needs, supervises execution, and keeps
-a complete audit trail.
+your AI organization — VPs, managers, and supervisors that stay on the job — and Plenipo routes
+the work to supervisors and specialist workers, grants only the permissions each task needs,
+watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 4 — Liaison handoffs between workers (accepted, v0.5.0). The **Workers** view runs tasks on your own
-> signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing), with live
-> activity, normalized results, resume, and cancel. With handoffs allowed, a worker can ask a
-> worker on the other runtime for help — for example Codex asking Claude Code for a review —
-> and continues with the reply; every step is recorded in the durable local Ledger. Workers
-> cannot change files yet, and there are no departments yet. See
+> **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
+> acceptance, so the version stays 0.5.0). The **Organization** view is a live topology map of
+> your AI workforce: create departments and projects (each comes with its manager or
+> supervisor), drag roles from the hire palette onto a lead to build its team, drag positions
+> to change who they report to or to make them a team's reviewer, QA evaluator, or security
+> auditor, and give a supervisor an objective — its workers appear under it while they work
+> and leave when done, with every step in the durable local Ledger. The chain of command reads
+> Worker → Supervisor → Manager → VP → President (you); **Settings → Personalization → Titles**
+> can rename the ranks after a U.S. military branch or the Mafia. Agents run on your own
+> signed-in Claude Code and Codex (subscription sign-ins only, no API billing). Workers cannot
+> change files yet (permissions arrive with Guard in Phase 7). See
 > [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
@@ -67,6 +72,8 @@ crates/liaison/          Plenipo Liaison: handoff protocol, context packets, rep
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
                          agent runtime adapters (Claude Code, Codex) and sessions
+crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
+                         role templates), live snapshot, role routing for Liaison
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
@@ -76,7 +83,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`workforce`, `guard`, …) are added when the
+Further crates from the plan (`router`, `guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation
@@ -86,5 +93,6 @@ phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layou
 - [Configuration conventions](docs/development/configuration.md)
 - [Versioning](docs/development/versioning.md)
 - [Architecture Decision Records](docs/adr/README.md)
+- [Plain words: the words the app uses](docs/design/vocabulary.md)
 - [Phase checklists and acceptance reports](docs/phases/)
 - [Rollout plan](ROLLOUT_PLAN.md)

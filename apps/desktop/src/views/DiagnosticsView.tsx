@@ -19,7 +19,7 @@ export function DiagnosticsView({
     <section className="view" aria-labelledby="diagnostics-title">
       <h1 id="diagnostics-title">Diagnostics</h1>
 
-      <dl className="facts" aria-label="Runtime details">
+      <dl className="facts" aria-label="App details">
         <div>
           <dt>Core</dt>
           <dd className={info ? "ok" : undefined}>{info ? "Connected" : "Connecting…"}</dd>
@@ -42,7 +42,7 @@ export function DiagnosticsView({
 
       <LiaisonPanel />
 
-      <h2>Runtime notices</h2>
+      <h2>Program notices</h2>
       {state.notices.length === 0 ? (
         <p className="muted">None.</p>
       ) : (
@@ -53,11 +53,11 @@ export function DiagnosticsView({
         </ul>
       )}
 
-      <h2>Recent runtime events</h2>
+      <h2>Recent program events</h2>
       {state.eventLog.length === 0 ? (
-        <p className="muted">No events received in this session.</p>
+        <p className="muted">No events since Plenipo started.</p>
       ) : (
-        <ol className="event-log" aria-label="Recent runtime events">
+        <ol className="event-log" aria-label="Recent program events">
           {state.eventLog.map(({ at, event }, i) => (
             <li key={`${at}-${i}`}>
               <time>{formatTime(at)}</time>{" "}

@@ -48,6 +48,7 @@ interface Navigation {
   canOpen: (sessionId: string) => boolean;
   onOpenSession: (sessionId: string) => void;
   onShowExecution: (executionId: string) => void;
+  onOpenPosition?: ((positionId: string) => void) | undefined;
 }
 
 export function WorkersView({
@@ -55,11 +56,14 @@ export function WorkersView({
   onSelectSession,
   onShowExecution,
   onOpenRuntimes,
+  onOpenPosition,
 }: {
   selectedSessionId: string | null;
   onSelectSession: (id: string | null) => void;
   onShowExecution: (executionId: string) => void;
   onOpenRuntimes: () => void;
+  /** Show an organization position (for sessions that work for one). */
+  onOpenPosition?: (positionId: string) => void;
 }) {
   const { state, start, resume, cancel, close, loadSession, refresh } = useAgents();
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
@@ -128,17 +132,18 @@ export function WorkersView({
     canOpen: (id) => id in state.sessions,
     onOpenSession: onSelectSession,
     onShowExecution,
+    onOpenPosition,
   };
 
   return (
     <section className="view" aria-labelledby="workers-title">
       <h1 id="workers-title">Workers</h1>
       <p className="view__lead">
-        Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex
-        command-line tool, supervised by Plenipo, and every turn is recorded in the Ledger. In this
-        phase workers cannot change files or use the network: Claude Code has no tools, and Codex
-        runs in its read-only sandbox. With handoffs allowed, a worker can ask a worker on another
-        runtime for help through Plenipo Liaison.
+        Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex,
+        watched over by Plenipo, and every step is recorded in the Ledger. For now workers cannot
+        change files or use the internet: Claude Code gets no tools, and Codex runs read-only. With
+        handoffs allowed, a worker can ask a worker on another AI tool for help through Plenipo
+        Liaison.
       </p>
 
       {state.status === "error" && (
@@ -159,7 +164,7 @@ export function WorkersView({
       <form className="panel" aria-label="New task" onSubmit={submitNew}>
         <h2>New task</h2>
         <fieldset className="choices">
-          <legend>Runtime</legend>
+          <legend>AI tool</legend>
           {state.runtimes.map((r) => {
             const status = runtimeStatus(r);
             return (
@@ -176,7 +181,7 @@ export function WorkersView({
               </label>
             );
           })}
-          {state.runtimes.length === 0 && <p className="muted">Loading runtimes…</p>}
+          {state.runtimes.length === 0 && <p className="muted">Loading AI tools…</p>}
         </fieldset>
 
         <label className="field">
@@ -198,9 +203,9 @@ export function WorkersView({
           <span>
             Allow handoffs to other workers
             <span className="check__hint">
-              The worker may ask a worker on another runtime — for example Codex asking Claude Code
+              The worker may ask a worker on another AI tool — for example Codex asking Claude Code
               for a review — through Plenipo Liaison. Handoffs are limited in depth and number, use
-              only your signed-in runtimes, and are all recorded in the Ledger.
+              only your signed-in AI tools, and are all recorded in the Ledger.
             </span>
           </span>
         </label>
@@ -211,7 +216,7 @@ export function WorkersView({
             <input
               value={model}
               maxLength={64}
-              placeholder="Runtime default"
+              placeholder="The AI tool's default"
               onChange={(e) => setModel(e.target.value)}
             />
           </label>
@@ -221,7 +226,7 @@ export function WorkersView({
           <p className="hint" role="note">
             <strong>{chosen.label} is not ready.</strong> {hint}{" "}
             <button type="button" className="link" onClick={onOpenRuntimes}>
-              Open Runtimes
+              Open AI tools
             </button>{" "}
             <button
               type="button"
@@ -252,11 +257,11 @@ export function WorkersView({
 
       <div className="split">
         <div className="split__list">
-          <h2>Sessions</h2>
+          <h2>Conversations</h2>
           {state.order.length === 0 ? (
-            <p className="muted">No sessions yet. Start a task above.</p>
+            <p className="muted">No conversations yet. Start a task above.</p>
           ) : (
-            <ul className="executions" aria-label="Sessions">
+            <ul className="executions" aria-label="Conversations">
               {state.order.map((id) => {
                 const s = state.sessions[id];
                 if (!s) return null;
@@ -274,9 +279,10 @@ export function WorkersView({
                       </span>
                       <SessionBadge session={s} />
                       <span className="execution__meta">
-                        {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} turn
+                        {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} task
                         {s.turnCount === 1 ? "" : "s"} · {formatTime(s.updatedAt)}
                         {liaisonInfo(s).origin === "handoff" && " · handoff worker"}
+                        {liaisonInfo(s).origin === "member" && " · organization member"}
                       </span>
                     </button>
                   </li>
@@ -299,8 +305,8 @@ export function WorkersView({
                   </div>
                   <div className="card__meta">
                     {session.providerSessionConfirmed && session.providerSessionId
-                      ? `Provider session ${session.providerSessionId}`
-                      : "Provider session not started yet"}
+                      ? `${runtimeLabel(state.runtimes, session.runtimeId)} conversation ${session.providerSessionId}`
+                      : `Not started in ${runtimeLabel(state.runtimes, session.runtimeId)} yet`}
                   </div>
                   <LiaisonLine info={info} nav={nav} />
                 </div>
@@ -312,7 +318,7 @@ export function WorkersView({
                       disabled={pending !== null}
                       onClick={() => void run("cancel", () => cancel(session.id))}
                     >
-                      {pending === "cancel" ? "Cancelling…" : "Cancel turn"}
+                      {pending === "cancel" ? "Cancelling…" : "Cancel task"}
                     </button>
                   )}
                   {!running && !waiting && session.state === "open" && (
@@ -322,7 +328,7 @@ export function WorkersView({
                       disabled={pending !== null}
                       onClick={() => void run("close", () => close(session.id))}
                     >
-                      Close session
+                      Close conversation
                     </button>
                   )}
                 </div>
@@ -330,12 +336,12 @@ export function WorkersView({
 
               {waiting && (
                 <p className="hint" role="status">
-                  This turn is waiting for replies to its handoffs and continues by itself when they
+                  This task is waiting for replies to its handoffs and continues by itself when they
                   are in. Cancelling it also stops the handoffs it is waiting for.
                 </p>
               )}
 
-              <ol className="turns" aria-label="Turns">
+              <ol className="turns" aria-label="Tasks">
                 {turns.map((t) => (
                   <TurnCard
                     key={t.taskId}
@@ -353,10 +359,19 @@ export function WorkersView({
                   This worker was started by Plenipo Liaison for another worker&apos;s request; it
                   takes work only through Liaison.
                 </p>
+              ) : info.origin === "member" ? (
+                <p className="muted">
+                  This agent holds a position in the organization. Give it objectives from the
+                  Organization view, where its team and oversight are set.
+                </p>
               ) : session.state === "open" ? (
-                <form className="followup" aria-label="Continue session" onSubmit={submitFollowUp}>
+                <form
+                  className="followup"
+                  aria-label="Continue the conversation"
+                  onSubmit={submitFollowUp}
+                >
                   <label className="field">
-                    <span>Continue this session</span>
+                    <span>Continue this conversation</span>
                     <textarea
                       value={followUp}
                       maxLength={MAX_OBJECTIVE}
@@ -374,11 +389,11 @@ export function WorkersView({
                   </button>
                 </form>
               ) : (
-                <p className="muted">This session is closed.</p>
+                <p className="muted">This conversation is closed.</p>
               )}
             </>
           ) : (
-            <p className="muted">Select a session to see its turns and live activity.</p>
+            <p className="muted">Select a conversation to see its tasks and live activity.</p>
           )}
         </div>
       </div>
@@ -388,6 +403,16 @@ export function WorkersView({
 
 /** Where a session stands with Liaison, for its header. */
 function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation }) {
+  const position = info.positionId;
+  const openPosition = position && nav.onOpenPosition && (
+    <>
+      {" "}
+      ·{" "}
+      <button type="button" className="link" onClick={() => nav.onOpenPosition?.(position)}>
+        Open in Organization
+      </button>
+    </>
+  );
   if (info.origin === "handoff") {
     const parent = info.parentSessionId;
     return (
@@ -399,10 +424,20 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
             {" "}
             ·{" "}
             <button type="button" className="link" onClick={() => nav.onOpenSession(parent)}>
-              Open requester session
+              Open requester conversation
             </button>
           </>
         )}
+        {openPosition}
+      </div>
+    );
+  }
+  if (info.origin === "member") {
+    return (
+      <div className="card__meta">
+        <span className="pill pill--ok">Organization member</span> Hands work to its team through
+        Liaison
+        {openPosition}
       </div>
     );
   }
@@ -506,7 +541,7 @@ function TurnCard({
       data-outcome={result?.outcome}
     >
       <div className="turn__header">
-        <span className="turn__number">Turn {turn.number}</span>
+        <span className="turn__number">Task {turn.number}</span>
         <span className="turn__objective">{turn.objective}</span>
         {turn.running ? (
           <span className="badge badge--task-running">Working…</span>
@@ -529,7 +564,7 @@ function TurnCard({
       )}
 
       {stepped ? (
-        <ol className="steps" aria-label={`Turn ${turn.number} steps`}>
+        <ol className="steps" aria-label={`Task ${turn.number} steps`}>
           {stepsOf(turn, activity).map((step) => {
             const items = activityItems(activity.filter((a) => stepOf(a.seq) === step.number));
             const asked = sent.filter((h) => h.step === step.number);
@@ -548,7 +583,7 @@ function TurnCard({
                     {items.length === 1 ? "" : "s"})
                   </summary>
                   <ActivityLog
-                    label={`Turn ${turn.number} step ${step.number} activity`}
+                    label={`Task ${turn.number} step ${step.number} activity`}
                     items={items}
                     running={step.running}
                   />
@@ -582,7 +617,7 @@ function TurnCard({
           <details className="turn__activity" open={turn.running}>
             <summary>Live activity ({activityItems(activity).length})</summary>
             <ActivityLog
-              label={`Turn ${turn.number} activity`}
+              label={`Task ${turn.number} activity`}
               items={activityItems(activity)}
               running={turn.running}
             />
@@ -591,7 +626,7 @@ function TurnCard({
       )}
 
       {result && (
-        <div className="turn__result" aria-label={`Turn ${turn.number} result`}>
+        <div className="turn__result" aria-label={`Task ${turn.number} result`}>
           {result.outcome === "completed" && result.text ? (
             <div className="turn__text">{result.text}</div>
           ) : (

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
+import { emptyOrganization } from "./test/orgFixtures";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -29,6 +30,9 @@ vi.mock("./api/commands", async (importOriginal) => {
     cancelAgentTurn: vi.fn(),
     closeAgentSession: vi.fn(),
     getLiaisonOverview: vi.fn(),
+    getOrganization: vi.fn(),
+    getWork: vi.fn(),
+    setOrganizationTitles: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -114,6 +118,7 @@ beforeEach(() => {
   api.listTasks.mockResolvedValue([]);
   api.listRecentEvents.mockResolvedValue([]);
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
+  api.getOrganization.mockResolvedValue(emptyOrganization());
   api.getLiaisonOverview.mockResolvedValue({
     protocol: "plenipo-liaison/1",
     contextFormat: "plenipo-context/1",
@@ -133,7 +138,7 @@ beforeEach(() => {
 
 async function openRuntimes() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: /^Runtimes/ }));
+  await user.click(screen.getByRole("button", { name: /^AI tools/ }));
   await screen.findByRole("button", { name: "Start Echo test" });
   return user;
 }
@@ -146,7 +151,7 @@ describe("App shell", () => {
     for (const label of [
       "Organization",
       "Workers",
-      "Runtimes",
+      "AI tools",
       "Activity",
       "Settings",
       "Diagnostics",
@@ -195,9 +200,32 @@ describe("App shell", () => {
     expect(screen.queryByLabelText(/api key|password|token/i)).not.toBeInTheDocument();
   });
 
-  it("does not hard-code departments", () => {
+  it("lets the owner choose what the ranks are called, in Settings", async () => {
+    api.setOrganizationTitles.mockImplementation((titles) =>
+      Promise.resolve({ ...emptyOrganization(), titles }),
+    );
     render(<App />);
-    expect(screen.getByText("No departments configured yet")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const pick = await screen.findByRole("combobox", { name: "Titles" });
+    await waitFor(() => expect(pick).toBeEnabled());
+    const chain = screen.getByRole("list", { name: "Chain of command" });
+    expect(chain).toHaveTextContent(/^President — youVPManagerSupervisorWorker$/);
+    await user.selectOptions(pick, "navy");
+    expect(api.setOrganizationTitles).toHaveBeenCalledWith("navy");
+    expect(await screen.findByRole("status")).toHaveTextContent("U.S. Navy titles");
+    expect(chain).toHaveTextContent("Admiral — President · you");
+    expect(chain).toHaveTextContent("Chief Petty Officer — Supervisor");
+  });
+
+  it("does not hard-code departments: the organization comes from Core", async () => {
+    render(<App />);
+    expect(await screen.findByText("Build your organization")).toBeInTheDocument();
+    expect(api.getOrganization).toHaveBeenCalled();
+    const map = screen.getByRole("region", { name: "Organization topology" });
+    expect(
+      within(map).getAllByRole("button", { name: /^You, President$|, organization$/ }),
+    ).toHaveLength(2);
     for (const name of ["Development", "Sales", "Marketing", "Westy"]) {
       expect(screen.queryByText(new RegExp(name))).not.toBeInTheDocument();
     }
@@ -228,7 +256,7 @@ describe("Ledger notices", () => {
   });
 });
 
-describe("Runtimes", () => {
+describe("AI tools page", () => {
   it("starts a profile and shows live stdout, stderr, and the final state", async () => {
     render(<App />);
     const user = await openRuntimes();
@@ -317,7 +345,7 @@ describe("Runtimes", () => {
 
     await user.click(screen.getByRole("button", { name: "Activity" }));
     expect(await screen.findByRole("heading", { name: "Activity" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Runtimes/ }));
+    await user.click(screen.getByRole("button", { name: /^AI tools/ }));
     expect(screen.getByText("kept across views")).toBeInTheDocument();
     expect(api.getRuntimeOverview).toHaveBeenCalledTimes(1);
   });

@@ -1,0 +1,911 @@
+//! Phase 5 Workforce tests: the real Workforce, Liaison, agent runtime, supervisor, adapters,
+//! and a file-backed Ledger, driving `plenipo-fake-agent` installed as `claude` and `codex`.
+//! Every plan test is covered, and the acceptance scenario end to end. No network, no
+//! accounts.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+
+use plenipo_ledger::{AgentLifecycle, Ledger, Task, TaskState, DB_FILE_NAME};
+use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
+use plenipo_liaison::{Liaison, LiaisonConfig};
+use plenipo_runtime::agent::{
+    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, TurnResult,
+};
+use plenipo_runtime::{
+    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
+};
+use plenipo_workforce::{
+    DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionInfo, PositionKind,
+    PositionStatus, ProjectInput, RoleInput, Staffing, Workforce, WorkforceError,
+};
+
+const WAIT: Duration = Duration::from_secs(60);
+const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+
+fn exe_name(stem: &str) -> String {
+    if cfg!(windows) {
+        format!("{stem}.exe")
+    } else {
+        stem.to_owned()
+    }
+}
+
+/// One copy of the fake CLIs per test process, ready to execute (hard links later never open
+/// a write handle, which avoids ETXTBSY while other tests fork).
+fn fake_clis() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("workforce-fake-agents-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for stem in ["claude", "codex"] {
+            let path = dir.join(exe_name(stem));
+            std::fs::copy(env!("CARGO_BIN_EXE_plenipo-fake-agent-workforce"), &path).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while let Err(e) = std::process::Command::new(&path).arg("--version").output() {
+                assert!(Instant::now() < deadline, "fake CLI never runnable: {e}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        dir
+    })
+}
+
+fn install_fake(bin: &Path, stem: &str) {
+    let source = fake_clis().join(exe_name(stem));
+    let target = bin.join(exe_name(stem));
+    if std::fs::hard_link(&source, &target).is_err() {
+        std::fs::copy(&source, &target).unwrap();
+    }
+}
+
+struct NoOutput;
+
+impl EventSink for NoOutput {
+    fn emit(&self, _: RuntimeEvent) {}
+}
+
+struct NoUpdates;
+
+impl AgentSink for NoUpdates {
+    fn emit(&self, _: AgentUpdate) {}
+}
+
+struct H {
+    ledger: Arc<Ledger>,
+    rt: AgentRuntime,
+    sup: Supervisor,
+    liaison: Liaison,
+    workforce: Workforce,
+    run: tokio::task::JoinHandle<()>,
+    dir: tempfile::TempDir,
+}
+
+/// Everything above the Ledger, as the desktop app wires it.
+async fn stack(dir: &Path) -> (Arc<Ledger>, AgentRuntime, Supervisor, Liaison, Workforce) {
+    let ledger = Arc::new(Ledger::open(&dir.join("ledger").join(DB_FILE_NAME)).unwrap());
+    let sup = Supervisor::new(
+        SupervisorConfig::default(),
+        ExecutablePolicy::default(),
+        ProfileRegistry::default(),
+        Arc::new(LedgerExecutionStore(Arc::clone(&ledger))),
+        Arc::new(NoOutput),
+        vec![],
+    );
+    let mut config = AgentConfig::new(dir.join("workspaces"));
+    config.extra_env = vec![(HOME_VAR.into(), dir.join("home").display().to_string())];
+    config.turn_timeout = Duration::from_secs(120);
+    let rt = AgentRuntime::new(
+        config,
+        builtin_adapters(),
+        sup.clone(),
+        Arc::new(LedgerSessionStore(Arc::clone(&ledger))),
+        Arc::new(NoUpdates),
+        HostEnv::new(
+            Some(dir.join("bin").into_os_string()),
+            Some(dir.join("home")),
+            None,
+        ),
+    );
+    rt.refresh().await;
+    let liaison = Liaison::new(
+        Arc::clone(&ledger),
+        rt.clone(),
+        LiaisonConfig {
+            tick: Duration::from_millis(200),
+            ..LiaisonConfig::default()
+        },
+    );
+    let workforce = Workforce::new(Arc::clone(&ledger), rt.clone(), liaison.clone());
+    (ledger, rt, sup, liaison, workforce)
+}
+
+async fn harness() -> H {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(dir.path().join("home").join(".plenipo-fake-agent")).unwrap();
+    for stem in ["claude", "codex"] {
+        install_fake(&bin, stem);
+    }
+    let (ledger, rt, sup, liaison, workforce) = stack(dir.path()).await;
+    let run = tokio::spawn(liaison.clone().run());
+    H {
+        ledger,
+        rt,
+        sup,
+        liaison,
+        workforce,
+        run,
+        dir,
+    }
+}
+
+/// The organization most tests use: Development (headed by a Development Manager on Claude
+/// Code) with the project Cloudline (coordinator on Claude Code), a Senior Developer on Codex
+/// on the coordinator's team, and a QA Engineer on Claude Code under the manager, assigned as
+/// Cloudline's QA evaluator.
+struct Org {
+    department: String,
+    project: String,
+    head: String,
+    coordinator: String,
+    developer: String,
+    qa: String,
+}
+
+fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
+    LeadInput {
+        role_id: role_id.into(),
+        title: title.into(),
+        runtime_id: runtime.into(),
+        model: None,
+        vacant: None,
+    }
+}
+
+fn project_input(name: &str, runtimes: &[&str]) -> ProjectInput {
+    ProjectInput {
+        name: name.into(),
+        description: format!("The {name} product"),
+        repository_url: Some(format!(
+            "https://github.com/example/{}",
+            name.to_lowercase()
+        )),
+        local_path: Some(format!("D:\\projects\\{}", name.to_lowercase())),
+        allowed_runtimes: runtimes.iter().map(|r| (*r).to_owned()).collect(),
+        capability_profile: Some("development".into()),
+        department_id: None,
+        coordinator: None,
+    }
+}
+
+impl H {
+    fn snapshot(&self) -> OrgSnapshot {
+        self.workforce.snapshot().unwrap()
+    }
+
+    fn role(&self, name: &str) -> String {
+        self.snapshot()
+            .roles
+            .into_iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("no role {name}"))
+            .id
+    }
+
+    fn position(&self, id: &str) -> PositionInfo {
+        self.snapshot()
+            .positions
+            .into_iter()
+            .find(|p| p.id == id)
+            .unwrap()
+    }
+
+    fn id_of(s: &OrgSnapshot, title: &str) -> String {
+        s.positions
+            .iter()
+            .find(|p| p.title == title && p.active)
+            .unwrap_or_else(|| panic!("no position {title}"))
+            .id
+            .clone()
+    }
+
+    fn hire(&self, role: &str, title: &str, reports_to: &str, runtime: &str) -> String {
+        let s = self
+            .workforce
+            .hire(&HireInput {
+                role_id: self.role(role),
+                title: title.into(),
+                reports_to: Some(reports_to.into()),
+                runtime_id: runtime.into(),
+                model: None,
+                vacant: None,
+            })
+            .unwrap();
+        Self::id_of(&s, title)
+    }
+
+    fn department(&self, name: &str, head_title: &str, runtime: &str) -> (String, String) {
+        let s = self
+            .workforce
+            .create_department(&DepartmentInput {
+                name: name.into(),
+                description: format!("{name} work"),
+                head: Some(lead(&self.role("Manager"), head_title, runtime)),
+                reports_to: None,
+                active: None,
+            })
+            .unwrap();
+        let d = s.departments.iter().find(|d| d.name == name).unwrap();
+        (d.id.clone(), d.head_position_id.clone().unwrap())
+    }
+
+    fn development(&self) -> Org {
+        let (department, head) =
+            self.department("Development", "Development Manager", "claude-code");
+        let s = self
+            .workforce
+            .create_project(&ProjectInput {
+                department_id: Some(department.clone()),
+                coordinator: Some(lead(
+                    &self.role("Supervisor"),
+                    "Cloudline Coordinator",
+                    "claude-code",
+                )),
+                ..project_input("Cloudline", &["claude-code", "codex"])
+            })
+            .unwrap();
+        let project = s.projects.iter().find(|p| p.name == "Cloudline").unwrap();
+        let coordinator = project.coordinator_position_id.clone().unwrap();
+        let developer = self.hire(
+            "Senior Developer",
+            "Senior Developer",
+            &coordinator,
+            "codex",
+        );
+        let qa = self.hire("QA Engineer", "QA Engineer", &head, "claude-code");
+        self.workforce
+            .assign_oversight(&qa, &coordinator, OversightRole::Qa)
+            .unwrap();
+        Org {
+            department,
+            project: project.id.clone(),
+            head,
+            coordinator,
+            developer,
+            qa,
+        }
+    }
+
+    /// Give `position` an objective; returns the turn's task ID.
+    async fn objective(&self, position: &str, objective: &str) -> String {
+        let d = self
+            .workforce
+            .give_objective(position, objective)
+            .await
+            .unwrap();
+        d.turns.last().unwrap().task_id.clone()
+    }
+
+    fn task(&self, id: &str) -> Task {
+        self.ledger.task(id).unwrap().unwrap()
+    }
+
+    /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
+    /// recorded as finished a moment before the runtime releases the session; a follow-up sent
+    /// in that moment is refused as "already running".
+    async fn finished(&self, id: &str) -> Task {
+        let deadline = Instant::now() + WAIT;
+        let task = loop {
+            let task = self.task(id);
+            if task.state.is_terminal() {
+                break task;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "task {id} never finished: {task:#?}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        if let Some(session) = task.metadata["sessionId"].as_str() {
+            while let Ok(detail) = self.rt.session(session).await {
+                if detail.session.active_task_id.as_deref() != Some(id) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "task {id} never released its session"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+        task
+    }
+
+    /// Wait until the snapshot satisfies `pred`; returns that snapshot.
+    async fn until(&self, what: &str, pred: impl Fn(&OrgSnapshot) -> bool) -> OrgSnapshot {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let s = self.snapshot();
+            if pred(&s) {
+                return s;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    fn text(&self, id: &str) -> String {
+        let e = self
+            .ledger
+            .last_task_event(id, "agent.result")
+            .unwrap()
+            .expect("a result");
+        serde_json::from_value::<TurnResult>(e.payload)
+            .unwrap()
+            .text
+            .unwrap_or_default()
+    }
+
+    fn types(&self, id: &str) -> Vec<String> {
+        self.ledger
+            .events_for_task(id)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect()
+    }
+
+    fn rejections(&self, task_id: &str) -> Vec<String> {
+        self.ledger
+            .liaison_messages_for_task(task_id)
+            .unwrap()
+            .into_iter()
+            .filter_map(|m| m.envelope["rejection"].as_str().map(str::to_owned))
+            .collect()
+    }
+}
+
+fn refusal<T: std::fmt::Debug>(r: Result<T, WorkforceError>) -> String {
+    match r {
+        Err(e) if e.is_caller_error() => e.to_string(),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// `expected` occurs in `types` in this order (other events may come between).
+fn assert_in_order(types: &[String], expected: &[&str]) {
+    let mut rest = types.iter();
+    for want in expected {
+        assert!(
+            rest.any(|t| t == want),
+            "{want} missing or out of order in {types:#?}"
+        );
+    }
+}
+
+// ---- Plan tests -----------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_create_department_role_manager_and_project_coordinator() {
+    let h = harness().await;
+    // Create role: a custom, on-demand worker role next to the seeded templates.
+    let s = h
+        .workforce
+        .create_role(&RoleInput {
+            name: "Release Manager".into(),
+            description: "Runs releases.".into(),
+            kind: PositionKind::Worker,
+            staffing: Staffing::OnDemand,
+        })
+        .unwrap();
+    let role = s
+        .roles
+        .iter()
+        .find(|r| r.name == "Release Manager")
+        .unwrap();
+    assert!(!role.template && role.staffing == Staffing::OnDemand);
+    assert_eq!(role.purpose, ["Runs releases"]);
+    assert!(s.roles.iter().filter(|r| r.template).count() >= 10);
+    assert!(refusal(h.workforce.create_role(&RoleInput {
+        name: "Floating Manager".into(),
+        description: String::new(),
+        kind: PositionKind::DepartmentManager,
+        staffing: Staffing::OnDemand,
+    }))
+    .contains("full-time"));
+
+    // Create department, with its head position still vacant.
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Development".into(),
+            description: "Builds the products".into(),
+            head: Some(LeadInput {
+                vacant: Some(true),
+                ..lead(&h.role("Manager"), "Development Manager", "claude-code")
+            }),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let dept = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Development")
+        .unwrap();
+    let head_id = dept.head_position_id.clone().unwrap();
+    let head = h.position(&head_id);
+    assert_eq!(head.status, PositionStatus::Vacant);
+    assert_eq!(head.kind, PositionKind::DepartmentManager);
+    assert_eq!(head.heads_department_id.as_deref(), Some(dept.id.as_str()));
+
+    // Assign manager: hire an agent into the head position.
+    let s = h.workforce.fill(&head_id).unwrap();
+    let head = s.positions.iter().find(|p| p.id == head_id).unwrap();
+    assert_eq!(head.status, PositionStatus::Idle);
+    let agent = head.agent.clone().unwrap();
+    assert_eq!(agent.runtime_id, "claude-code");
+    assert!(agent.session_id.is_none(), "no objective yet");
+
+    // Create project coordinator: the project comes with its coordinator under the head.
+    let s = h
+        .workforce
+        .create_project(&ProjectInput {
+            department_id: Some(dept.id.clone()),
+            coordinator: Some(lead(
+                &h.role("Supervisor"),
+                "Cloudline Coordinator",
+                "claude-code",
+            )),
+            ..project_input("Cloudline", &["claude-code", "codex"])
+        })
+        .unwrap();
+    let project = s.projects.iter().find(|p| p.name == "Cloudline").unwrap();
+    assert_eq!(project.department_id.as_deref(), Some(dept.id.as_str()));
+    assert_eq!(project.allowed_runtimes, ["claude-code", "codex"]);
+    assert_eq!(project.capability_profile.as_deref(), Some("development"));
+    assert_eq!(
+        project.local_path.as_deref(),
+        Some("D:\\projects\\cloudline")
+    );
+    let coordinator = s
+        .positions
+        .iter()
+        .find(|p| Some(&p.id) == project.coordinator_position_id.as_ref())
+        .unwrap();
+    assert_eq!(coordinator.reports_to.as_deref(), Some(head_id.as_str()));
+    assert_eq!(coordinator.department_id.as_deref(), Some(dept.id.as_str()));
+    assert_eq!(coordinator.status, PositionStatus::Idle);
+    assert_eq!(
+        (s.stats.departments, s.stats.projects, s.stats.staffed),
+        (1, 1, 2)
+    );
+    // Only runtimes this build has are accepted.
+    assert!(refusal(h.workforce.hire(&HireInput {
+        role_id: h.role("Senior Developer"),
+        title: "Gemini Developer".into(),
+        reports_to: Some(coordinator.id.clone()),
+        runtime_id: "gemini".into(),
+        model: None,
+        vacant: None,
+    }))
+    .contains("no AI tool named"));
+    let events: Vec<String> = h
+        .ledger
+        .recent_events(200)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    for want in [
+        "org.role_created",
+        "org.department_created",
+        "org.agent_hired",
+        "org.project_created",
+    ] {
+        assert!(events.iter().any(|e| e == want), "{want}");
+    }
+}
+
+/// The Phase 5 acceptance criterion: view Development, select a project, give its coordinator
+/// an objective, and watch workers appear under the coordinator and leave the active
+/// workforce when they finish, while their history remains.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn acceptance_workers_appear_under_the_coordinator_and_leave_when_done() {
+    let h = harness().await;
+    let o = h.development();
+    let s = h.snapshot();
+    let development = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Development")
+        .unwrap();
+    assert_eq!(development.project_ids, std::slice::from_ref(&o.project));
+    let cloudline = s.projects.iter().find(|p| p.id == o.project).unwrap();
+    assert_eq!(
+        cloudline.coordinator_position_id.as_deref(),
+        Some(o.coordinator.as_str())
+    );
+
+    let root = h
+        .objective(
+            &o.coordinator,
+            "Ship the Cloudline sign-in page [handoff:role:Senior Developer+delay:2000] \
+             [handoff:role:QA Engineer+delay:2000]",
+        )
+        .await;
+
+    // Two workers appear: one under each position of the coordinator's team.
+    let busy = h
+        .until("both workers to appear", |s| {
+            let workers = |id: &str| {
+                s.positions
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map_or(0, |p| p.workers.len())
+            };
+            workers(&o.developer) == 1 && workers(&o.qa) == 1
+        })
+        .await;
+    assert_eq!(busy.stats.active_workers, 2);
+    let position = |id: &str| busy.positions.iter().find(|p| p.id == id).unwrap().clone();
+    let coordinator = position(&o.coordinator);
+    assert_eq!(coordinator.status, PositionStatus::Waiting);
+    assert_eq!(coordinator.current_task.as_ref().unwrap().id, root);
+    for id in [&o.developer, &o.qa] {
+        let worker = &position(id).workers[0];
+        assert_eq!(worker.parent_task_id.as_deref(), Some(root.as_str()));
+        assert_eq!(worker.objective, "Review the answer above [delay:2000]");
+    }
+    assert_eq!(position(&o.developer).workers[0].runtime_id, "codex");
+    assert_eq!(position(&o.qa).workers[0].runtime_id, "claude-code");
+    let children: Vec<String> = [&o.developer, &o.qa]
+        .iter()
+        .map(|id| position(id).workers[0].task_id.clone())
+        .collect();
+
+    // The coordinator continues with both replies and finishes.
+    let done = h.finished(&root).await;
+    assert_eq!(done.state, TaskState::Succeeded, "{:#?}", h.types(&root));
+    assert!(
+        h.text(&root).starts_with("Turn 2: received 2 replies:"),
+        "{}",
+        h.text(&root)
+    );
+
+    // The workers left the active workforce...
+    let after = h
+        .until("the workers to leave", |s| s.stats.active_workers == 0)
+        .await;
+    for id in [&o.developer, &o.qa] {
+        let p = after.positions.iter().find(|p| &p.id == id).unwrap();
+        assert!(p.workers.is_empty());
+        assert_eq!(p.history.retired, 1, "{}", p.title);
+        assert!(p.history.last_retired_at.is_some());
+    }
+    assert!(after.stats.completed_24h >= 3);
+
+    // ...while their history remains: agents, tasks, and trails.
+    for (position_id, child) in [(&o.developer, &children[0]), (&o.qa, &children[1])] {
+        let agents = h.ledger.position_agents(position_id, 10).unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].lifecycle_state, AgentLifecycle::Retired);
+        assert_eq!(agents[0].task_id.as_deref(), Some(child.as_str()));
+        let task = h.task(child);
+        assert_eq!(task.state, TaskState::Succeeded);
+        assert_eq!(task.project_id.as_deref(), Some(o.project.as_str()));
+        assert_in_order(
+            &h.types(child),
+            &[
+                "task.created",
+                "org.worker_spawned",
+                "liaison.dispatched",
+                "org.worker_started",
+                "agent.result",
+                "org.worker_retired",
+                "liaison.reply_sent",
+            ],
+        );
+        let work = h.workforce.work(Some(position_id)).unwrap();
+        assert_eq!(work.recent.len(), 1);
+        assert_eq!(&work.recent[0].id, child);
+    }
+    assert_eq!(done.project_id.as_deref(), Some(o.project.as_str()));
+    let coordinator_work = h.workforce.work(Some(&o.coordinator)).unwrap();
+    assert_eq!(coordinator_work.recent[0].id, root);
+    assert!(coordinator_work.team.is_empty(), "no team work left");
+    let org_work = h.workforce.work(None).unwrap();
+    assert!(org_work.recent.iter().any(|t| t.id == root));
+    assert!(org_work.running.is_empty() && org_work.queued.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_persistent_coordinator_survives_restart() {
+    let h = harness().await;
+    let o = h.development();
+    let first = h.objective(&o.coordinator, "Remember the plan").await;
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    let before = h.position(&o.coordinator).agent.unwrap();
+    let session = before.session_id.clone().expect("its session");
+
+    // Restart: everything above the Ledger stops; a new stack opens the same Ledger file.
+    h.liaison.shutdown();
+    h.run.abort();
+    h.rt.shutdown(Duration::from_secs(10)).await;
+    h.sup.shutdown(Duration::from_secs(10)).await;
+    let (ledger, rt, sup, liaison, workforce) = stack(h.dir.path()).await;
+    let run = tokio::spawn(liaison.clone().run());
+    let h = H {
+        ledger,
+        rt,
+        sup,
+        liaison,
+        workforce,
+        run,
+        dir: h.dir,
+    };
+    let coordinator = h.position(&o.coordinator);
+    let after = coordinator.agent.clone().unwrap();
+    assert_eq!(after.id, before.id, "the same agent holds the position");
+    assert_eq!(after.session_id.as_deref(), Some(session.as_str()));
+    assert_eq!(coordinator.status, PositionStatus::Idle);
+    assert_eq!(coordinator.history.retired, 0);
+
+    // Its conversation continues in the same provider session.
+    let second = h.objective(&o.coordinator, "What was the plan?").await;
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    assert_eq!(
+        h.task(&second).metadata["sessionId"],
+        serde_json::json!(session)
+    );
+    let text = h.text(&second);
+    assert!(
+        text.starts_with(
+            "Turn 2: you said \"What was the plan?\". Previous: Some(\"Remember the plan\")"
+        ),
+        "{text}"
+    );
+    h.run.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_department_and_project_reassignment() {
+    let h = harness().await;
+    let o = h.development();
+    let (operations, ops_head) = h.department("Operations", "Operations Manager", "codex");
+    // Moving the coordinator under Operations' head moves the project to Operations.
+    let s = h
+        .workforce
+        .move_position(&o.coordinator, Some(&ops_head))
+        .unwrap();
+    let project = s.projects.iter().find(|p| p.id == o.project).unwrap();
+    assert_eq!(project.department_id.as_deref(), Some(operations.as_str()));
+    let dept_of = |s: &OrgSnapshot, id: &str| {
+        s.positions
+            .iter()
+            .find(|p| p.id == id)
+            .unwrap()
+            .department_id
+            .clone()
+    };
+    assert_eq!(
+        dept_of(&s, &o.coordinator).as_deref(),
+        Some(operations.as_str())
+    );
+    assert_eq!(
+        dept_of(&s, &o.developer).as_deref(),
+        Some(operations.as_str()),
+        "its team moves with it"
+    );
+    let development = s.departments.iter().find(|d| d.id == o.department).unwrap();
+    assert!(development.project_ids.is_empty());
+    // A worker moves to another team: out of the project, into that department.
+    let s = h
+        .workforce
+        .move_position(&o.developer, Some(&o.head))
+        .unwrap();
+    let dev = s.positions.iter().find(|p| p.id == o.developer).unwrap();
+    assert_eq!(dev.project_id, None);
+    assert_eq!(dev.department_id.as_deref(), Some(o.department.as_str()));
+    let events: Vec<String> = h
+        .ledger
+        .recent_events(100)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    assert!(events.iter().any(|e| e == "org.project_reassigned"));
+    assert!(events.iter().filter(|e| *e == "org.position_moved").count() == 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_orphan_prevention() {
+    let h = harness().await;
+    let o = h.development();
+    assert!(refusal(h.workforce.archive_position(&o.coordinator)).contains("archive the project"));
+    assert!(refusal(h.workforce.archive_position(&o.head)).contains("heads Development"));
+    // A persistent specialist with an on-demand report cannot leave it without a supervisor.
+    h.workforce
+        .create_role(&RoleInput {
+            name: "Tech Lead".into(),
+            description: "Leads implementation.".into(),
+            kind: PositionKind::Worker,
+            staffing: Staffing::Persistent,
+        })
+        .unwrap();
+    let tech_lead = h.hire("Tech Lead", "Tech Lead", &o.coordinator, "claude-code");
+    let intern = h.hire("Senior Developer", "Junior Developer", &tech_lead, "codex");
+    assert!(refusal(h.workforce.archive_position(&tech_lead)).contains("without a supervisor"));
+    // No cycles; only persistent positions supervise; heads report to the owner or a
+    // superintendent.
+    assert!(
+        refusal(h.workforce.move_position(&o.head, Some(&o.coordinator)))
+            .contains("cannot report to it")
+    );
+    let (_, ops_head) = h.department("Operations", "Operations Manager", "codex");
+    assert!(refusal(h.workforce.move_position(&ops_head, Some(&o.head))).contains("to a VP"));
+    assert!(refusal(h.workforce.move_position(&tech_lead, Some(&intern))).contains("on-call"));
+    assert!(refusal(
+        h.workforce
+            .move_position(&o.coordinator, Some(&o.developer))
+    )
+    .contains("on-call"));
+    assert!(refusal(h.workforce.remove_department(&o.department)).contains("project"));
+
+    // An agent with unfinished work cannot be let go.
+    let busy = h
+        .objective(&o.coordinator, "Take your time [delay:3000]")
+        .await;
+    h.until("the coordinator to work", |s| {
+        s.positions
+            .iter()
+            .any(|p| p.id == o.coordinator && p.status == PositionStatus::Working)
+    })
+    .await;
+    assert!(refusal(h.workforce.vacate(&o.coordinator)).contains("unfinished task"));
+    assert!(refusal(h.workforce.archive_project(&o.project)).contains("unfinished task"));
+    h.finished(&busy).await;
+    let s = h.workforce.vacate(&o.coordinator).unwrap();
+    let coordinator = s.positions.iter().find(|p| p.id == o.coordinator).unwrap();
+    assert_eq!(coordinator.status, PositionStatus::Vacant);
+    assert_eq!(coordinator.history.retired, 1);
+    assert!(refusal(h.workforce.give_objective(&o.coordinator, "hello").await).contains("vacant"));
+
+    // Archiving the project archives its whole team and ends the QA assignment for it.
+    let s = h.workforce.archive_project(&o.project).unwrap();
+    for id in [&o.coordinator, &o.developer, &tech_lead, &intern] {
+        let p = s.positions.iter().find(|p| &p.id == id).unwrap();
+        assert!(!p.active, "{} archived", p.title);
+    }
+    assert!(s.oversight.is_empty());
+    assert!(
+        s.positions.iter().any(|p| p.id == o.qa && p.active),
+        "the QA engineer stays"
+    );
+    assert!(
+        !s.projects
+            .iter()
+            .find(|p| p.id == o.project)
+            .unwrap()
+            .active
+    );
+}
+
+// ---- Routing -------------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn requests_outside_the_team_are_refused_and_explained() {
+    let h = harness().await;
+    let o = h.development();
+    let root = h
+        .objective(
+            &o.coordinator,
+            "Ask around [handoff:role:Designer] [handoff:codex]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(
+        h.ledger.child_tasks(&root).unwrap().is_empty(),
+        "nothing started"
+    );
+    let reasons = h.rejections(&root);
+    assert!(
+        reasons[0].contains(
+            "\"Designer\" is not on your team; address one of: role:Senior Developer, role:QA Engineer"
+        ),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons[1].contains("hand work to a member of your team, not to an AI tool"),
+        "{reasons:?}"
+    );
+    // A runtime the project no longer allows is refused, never switched.
+    let mut settings = project_input("Cloudline", &["claude-code"]);
+    settings.description = "Claude Code only".into();
+    h.workforce.update_project(&o.project, &settings).unwrap();
+    let root = h
+        .objective(&o.coordinator, "Build it [handoff:role:Senior Developer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&root).unwrap().is_empty());
+    let reasons = h.rejections(&root);
+    assert!(
+        reasons[0].contains("Cloudline does not allow Codex workers"),
+        "{reasons:?}"
+    );
+    assert_eq!(
+        h.position(&o.developer).status,
+        PositionStatus::Unavailable,
+        "the canvas says why"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn objectives_go_only_to_staffed_persistent_positions() {
+    let h = harness().await;
+    let o = h.development();
+    assert!(refusal(h.workforce.give_objective(&o.developer, "x").await).contains("on-call"));
+    assert!(h
+        .workforce
+        .give_objective("0f8fad5b-d9cb-469f-a165-70867728950e", "x")
+        .await
+        .is_err());
+    // The project's allowed runtimes bind its coordinator too.
+    h.workforce
+        .update_project(&o.project, &project_input("Cloudline", &["codex"]))
+        .unwrap();
+    assert!(
+        refusal(h.workforce.give_objective(&o.coordinator, "x").await).contains("does not allow")
+    );
+    // A member session cannot be continued from the Workers view.
+    h.workforce
+        .update_project(
+            &o.project,
+            &project_input("Cloudline", &["claude-code", "codex"]),
+        )
+        .unwrap();
+    let t = h.objective(&o.coordinator, "Hello").await;
+    h.finished(&t).await;
+    let session = h
+        .position(&o.coordinator)
+        .agent
+        .unwrap()
+        .session_id
+        .unwrap();
+    assert!(h
+        .liaison
+        .resume_session(&session, "sneak in")
+        .await
+        .is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on() {
+    let h = harness().await;
+    let o = h.development();
+    let root = h
+        .objective(
+            &o.coordinator,
+            "Build it [handoff:role:Senior Developer+crash]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(
+        h.text(&root)
+            .starts_with("Turn 2: received 1 reply: Codex: crashed"),
+        "{}",
+        h.text(&root)
+    );
+    let s = h
+        .until("the worker to leave", |s| s.stats.active_workers == 0)
+        .await;
+    let dev = s.positions.iter().find(|p| p.id == o.developer).unwrap();
+    assert_eq!((dev.history.retired, dev.history.failed), (0, 1));
+    let agents = h.ledger.position_agents(&o.developer, 10).unwrap();
+    assert_eq!(agents[0].lifecycle_state, AgentLifecycle::Failed);
+    assert!(s.stats.failed_24h >= 1);
+}

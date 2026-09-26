@@ -200,9 +200,27 @@ impl H {
         }
     }
 
+    /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
+    /// recorded as finished a moment before the runtime releases the session; a follow-up sent
+    /// in that moment is refused as "already running".
     async fn finished(&self, id: &str) -> Task {
-        self.until_task(id, "finished", |t| t.state.is_terminal())
-            .await
+        let task = self
+            .until_task(id, "finished", |t| t.state.is_terminal())
+            .await;
+        if let Some(session) = task.metadata["sessionId"].as_str() {
+            let deadline = Instant::now() + WAIT;
+            while let Ok(detail) = self.rt.session(session).await {
+                if detail.session.active_task_id.as_deref() != Some(id) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "task {id} never released its session"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+        task
     }
 
     async fn until(&self, what: &str, pred: impl Fn(&H) -> bool) {
@@ -548,7 +566,7 @@ async fn missing_destinations_are_refused_and_the_requester_is_told() {
         .map(|r| r.envelope["rejection"].as_str().unwrap())
         .collect();
     assert!(
-        reasons[0].contains("no worker runtime named \"gemini\""),
+        reasons[0].contains("no AI tool named \"gemini\""),
         "{reasons:?}"
     );
     assert!(reasons[1].contains("role \"Code Reviewer\""), "{reasons:?}");
@@ -1099,4 +1117,295 @@ async fn a_restart_interrupts_workflows_in_flight_and_resumes_nothing() {
     h.sup.shutdown(Duration::from_secs(10)).await;
     drop(liaison);
     drop(rt);
+}
+
+// ---- Members of an organization (Phase 5, ADR-009) ------------------------------------------
+
+use plenipo_ledger::{NewPosition, NewWorker, Position, RoleTemplate, RoleType};
+use plenipo_liaison::context::Destination;
+use plenipo_liaison::{Directory, Placement, Team};
+use plenipo_runtime::agent::SessionStart;
+use serde_json::{json, Value};
+
+/// A directory over real Ledger positions: a lead with a team whose members are placed by
+/// title. (The Workforce engine provides the real one.)
+struct TeamDirectory {
+    lead: Position,
+    members: Vec<Position>,
+}
+
+impl Directory for TeamDirectory {
+    fn team(&self, workforce: &Value) -> Option<Team> {
+        let position = workforce["positionId"].as_str()?;
+        let me = std::iter::once(&self.lead)
+            .chain(&self.members)
+            .find(|p| p.id == position)?;
+        Some(Team {
+            identity: format!("You are {}, supervised by Plenipo.", me.title),
+            members: self
+                .members
+                .iter()
+                .map(|m| Destination {
+                    address: format!("role:{}", m.title),
+                    label: format!("{} on {}", m.title, m.runtime_id),
+                    ready: true,
+                })
+                .collect(),
+        })
+    }
+
+    fn place(&self, _: &Value, requester: &Task, name: &str) -> Result<Placement, String> {
+        let m = self
+            .members
+            .iter()
+            .find(|m| m.title.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("\"{name}\" is not on your team"))?;
+        let agent_id = uuid::Uuid::new_v4().to_string();
+        Ok(Placement {
+            address: format!("role:{}", m.title),
+            label: format!("{} ({})", m.title, m.runtime_id),
+            runtime_id: m.runtime_id.clone(),
+            model: m.model.clone(),
+            worker: NewWorker {
+                agent_id: agent_id.clone(),
+                position_id: m.id.clone(),
+                role_id: m.role_id.clone(),
+                runtime_id: m.runtime_id.clone(),
+                runtime_provider: None,
+                model: m.model.clone(),
+                project_id: requester.project_id.clone(),
+            },
+            workforce: json!({ "positionId": m.id, "agentId": agent_id }),
+            identity: format!("You are working as {} for {}.", m.title, self.lead.title),
+            project_id: requester.project_id.clone(),
+        })
+    }
+}
+
+/// An organization with a lead (staffed, on Codex) and two on-demand members: a Reviewer on
+/// Claude Code (with a model) and a Builder on Codex. Returns (lead workforce record, members).
+fn organization(h: &H) -> (Value, Vec<Position>) {
+    let l = &h.ledger;
+    let roles = l
+        .ensure_roles(
+            &[
+                RoleTemplate {
+                    name: "Department Manager",
+                    description: "",
+                    role_type: RoleType::DepartmentManager,
+                    persistent: true,
+                    metadata: Value::Null,
+                    formerly: &[],
+                },
+                RoleTemplate {
+                    name: "Specialist",
+                    description: "",
+                    role_type: RoleType::Worker,
+                    persistent: false,
+                    metadata: Value::Null,
+                    formerly: &[],
+                },
+            ],
+            "plenipo",
+        )
+        .unwrap();
+    let role = |n: &str| roles.iter().find(|r| r.name == n).unwrap().id.clone();
+    let (_, lead) = l
+        .create_department_with_head(
+            "Development",
+            "",
+            &NewPosition {
+                title: "Development Manager".into(),
+                role_id: role("Department Manager"),
+                runtime_id: "codex".into(),
+                staffed: true,
+                ..NewPosition::default()
+            },
+            "owner",
+        )
+        .unwrap();
+    let member = |title: &str, runtime: &str, model: Option<&str>| {
+        l.create_position(
+            &NewPosition {
+                title: title.into(),
+                role_id: role("Specialist"),
+                reports_to: Some(lead.id.clone()),
+                runtime_id: runtime.into(),
+                model: model.map(str::to_owned),
+                ..NewPosition::default()
+            },
+            "owner",
+        )
+        .unwrap()
+        .0
+    };
+    let members = vec![
+        member("Reviewer", "claude-code", Some("fake-model-x")),
+        member("Builder", "codex", None),
+    ];
+    let agent = l.position_incumbent(&lead.id).unwrap().unwrap();
+    let workforce = json!({ "positionId": lead.id, "agentId": agent.id });
+    h.liaison.set_directory(Arc::new(TeamDirectory {
+        lead,
+        members: members.clone(),
+    }));
+    (workforce, members)
+}
+
+impl H {
+    /// Start the lead's session with `objective`; returns (session ID, task ID).
+    async fn start_member(&self, workforce: &Value, objective: &str) -> (String, String) {
+        let d = self
+            .liaison
+            .start_member_session(
+                SessionStart {
+                    runtime_id: "codex".into(),
+                    ..SessionStart::default()
+                },
+                objective,
+                workforce.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        (d.session.id.clone(), d.turns[0].task_id.clone())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
+    let h = harness().await;
+    let (lead, members) = organization(&h);
+    let reviewer = &members[0];
+    let (session, root) = h
+        .start_member(&lead, "Plan the release [handoff:role:Reviewer]")
+        .await;
+    let done = h.finished(&root).await;
+    assert_eq!(done.state, TaskState::Succeeded, "{:#?}", h.types(&root));
+    assert_eq!(
+        done.metadata["workforce"], lead,
+        "the turn names its member"
+    );
+
+    // The child went to the Reviewer position: its runtime and model, recorded under it.
+    let child = h.only_child(&root);
+    assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
+    assert_eq!(
+        child.metadata["workforce"]["positionId"],
+        json!(reviewer.id)
+    );
+    let agent_id = child.metadata["workforce"]["agentId"].as_str().unwrap();
+    let request = &h.requests(&root)[0];
+    assert_eq!(request.destination, "role:Reviewer");
+    assert_eq!(
+        request.envelope["destinationLabel"],
+        "Reviewer (claude-code)"
+    );
+    let child_session = child.metadata["sessionId"].as_str().unwrap();
+    let worker_session = h.rt.session(child_session).await.unwrap().session;
+    assert_eq!(
+        worker_session.metadata["workforce"]["agentId"],
+        json!(agent_id)
+    );
+    assert_eq!(worker_session.runtime_id, "claude-code");
+    assert_eq!(
+        worker_session.model.as_deref(),
+        Some("fake-model-x"),
+        "the position's model"
+    );
+
+    // The worker was in the workforce while it ran and left when its task ended; its
+    // history remains.
+    assert_in_order(
+        &h.types(&child.id),
+        &[
+            "task.created",
+            "liaison.handoff_received",
+            "org.worker_spawned",
+            "liaison.dispatched",
+            "task.state_changed",
+            "org.worker_started",
+            "agent.result",
+            "task.state_changed",
+            "org.worker_retired",
+        ],
+    );
+    let agents = h.ledger.position_agents(&reviewer.id, 10).unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].id, agent_id);
+    assert_eq!(
+        agents[0].lifecycle_state,
+        plenipo_ledger::AgentLifecycle::Retired
+    );
+    assert!(h
+        .ledger
+        .org_records()
+        .unwrap()
+        .agents
+        .iter()
+        .all(|a| a.id != agent_id));
+
+    // The lead continued with the reply in its own session.
+    assert!(h
+        .text(&root)
+        .starts_with("Turn 2: received 1 reply: Claude Code: completed"));
+    let view = h.liaison.task_handoffs(&root).unwrap();
+    assert_eq!(view.sent[0].destination_label, "Reviewer (claude-code)");
+    // A member session takes objectives only through the organization.
+    let err = h
+        .liaison
+        .resume_session(&session, "more")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("Organization view"), "{err}");
+    let stranger = json!({ "positionId": reviewer.id, "agentId": "someone-else" });
+    assert!(h
+        .liaison
+        .resume_member_session(&session, "more", stranger, None)
+        .await
+        .is_err());
+    let next = h
+        .liaison
+        .resume_member_session(&session, "One more thing", lead.clone(), None)
+        .await
+        .unwrap();
+    let second = next.turns[1].task_id.clone();
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    assert!(h
+        .text(&second)
+        .starts_with("Turn 3: you said \"One more thing\""));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn members_address_their_team_by_role_and_never_a_raw_runtime() {
+    let h = harness().await;
+    let (lead, _) = organization(&h);
+    let (_, root) = h
+        .start_member(
+            &lead,
+            "Ask around [handoff:claude-code] [handoff:role:Stranger]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.children(&root).is_empty(), "nothing was created");
+    let reasons: Vec<String> = h
+        .requests(&root)
+        .iter()
+        .map(|r| r.envelope["rejection"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        reasons[0].contains(
+            "hand work to a member of your team, not to an AI tool: role:Reviewer, role:Builder"
+        ),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons[1].contains("\"Stranger\" is not on your team"),
+        "{reasons:?}"
+    );
+    // No worker was recorded.
+    assert!(
+        h.ledger.org_records().unwrap().agents.len() == 1,
+        "only the lead"
+    );
 }

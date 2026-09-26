@@ -74,7 +74,7 @@ fn migrations_apply_roll_back_and_reapply_cleanly() {
 
 /// A synthetic migration one past the newest real one (simulates a future Plenipo).
 const NEXT: Migration = Migration {
-    version: 4,
+    version: 5,
     name: "test_add_column",
     up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
     down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",
@@ -200,7 +200,7 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
         (t.id, s.id)
     };
     let l = Ledger::open(&path).unwrap();
-    assert_eq!(l.schema_version().unwrap(), 3);
+    assert_eq!(l.schema_version().unwrap(), migrate::latest(MIGRATIONS));
     assert!(l
         .status()
         .unwrap()
@@ -216,13 +216,76 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
 }
 
 #[test]
+fn phase4_ledger_upgrades_to_the_workforce() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let task_id = {
+        let v3 = Ledger::open_with(&path, &MIGRATIONS[..3]).unwrap();
+        assert_eq!(v3.schema_version().unwrap(), 3);
+        new_task(&v3, "from Phase 4").id
+    };
+    // Organization rows as a Phase 4 build wrote them (its own column set).
+    let (role_id, department_id, project_id, agent_id) = ("r-1", "d-1", "p-1", "a-1");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "INSERT INTO roles (id, name, role_type, persistent, created_at)
+                 VALUES ('r-1', 'Development Superintendent', 'superintendent', 1, 1);
+             INSERT INTO departments (id, name, manager_role_id, created_at)
+                 VALUES ('d-1', 'Development', 'r-1', 1);
+             INSERT INTO projects (id, name, department_id, created_at)
+                 VALUES ('p-1', 'Cloudline', 'd-1', 1);
+             INSERT INTO agent_instances (id, role_id, project_id, lifecycle_state, created_at, last_seen_at)
+                 VALUES ('a-1', 'r-1', 'p-1', 'active', 1, 1);",
+        )
+        .unwrap();
+    }
+    let l = Ledger::open(&path).unwrap();
+    assert_eq!(l.schema_version().unwrap(), 4);
+    assert!(l
+        .status()
+        .unwrap()
+        .notices
+        .iter()
+        .any(|n| n.contains("upgraded from version 3")));
+    // Earlier records are intact, with the new columns at their defaults.
+    let records = l.org_records().unwrap();
+    let dept = records
+        .departments
+        .iter()
+        .find(|d| d.id == department_id)
+        .unwrap();
+    assert_eq!(dept.manager_role_id.as_deref(), Some(role_id));
+    assert_eq!(dept.head_position_id, None);
+    let project = records
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .unwrap();
+    assert_eq!(project.status, "active");
+    assert!(
+        project.allowed_runtimes.is_empty(),
+        "no runtime is allowed until chosen"
+    );
+    assert_eq!(project.coordinator_position_id, None);
+    let agent = l.agent_instance(agent_id).unwrap().unwrap();
+    assert_eq!(
+        (agent.position_id, agent.task_id, agent.retired_at),
+        (None, None, None)
+    );
+    assert!(records.positions.is_empty() && records.oversight.is_empty());
+    assert_eq!(l.events_for_task(&task_id).unwrap().len(), 1);
+    assert!(l.integrity_check().unwrap().ok);
+}
+
+#[test]
 fn newer_schema_is_refused_and_left_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let path = db_path(dir.path());
     drop(Ledger::open_with(&path, &with_next()).unwrap());
     let before = std::fs::read(&path).unwrap();
     match Ledger::open(&path) {
-        Err(LedgerError::NewerSchema { db: 4, app: 3 }) => {}
+        Err(LedgerError::NewerSchema { db: 5, app: 4 }) => {}
         other => panic!("expected NewerSchema, got {:?}", other.map(|_| ())),
     }
     assert!(path.exists(), "not quarantined");
@@ -249,8 +312,8 @@ fn edited_or_skipped_migrations_are_detected() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO schema_migrations VALUES (4, 'test_add_column', ?1, 0)",
-        [NEXT.checksum()],
+        "INSERT INTO schema_migrations VALUES (?1, 'test_add_column', ?2, 0)",
+        rusqlite::params![NEXT.version, NEXT.checksum()],
     )
     .unwrap();
     assert!(matches!(

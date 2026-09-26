@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-give-objective"
+description = "Enables the give_objective command without any pre-configured scope."
+commands.allow = ["give_objective"]
+
+[[permission]]
+identifier = "deny-give-objective"
+description = "Denies the give_objective command without any pre-configured scope."
+commands.deny = ["give_objective"]

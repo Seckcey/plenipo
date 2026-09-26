@@ -12,19 +12,28 @@ import type {
   BackupInfo,
   CommandError,
   CommandErrorKind,
+  DepartmentInput,
   ExecutionOutput,
   ExecutionRecord,
   ExportInfo,
+  HireInput,
   IntegrityReport,
   LedgerEvent,
   LedgerStatus,
   LiaisonOverview,
+  OrgSnapshot,
+  OversightRole,
+  PositionPatchInput,
+  ProjectInput,
+  RoleInput,
   RuntimeOverview,
   SyntheticTaskAction,
   Task,
   TaskHandoffs,
   TaskTimeline,
   TaskTree,
+  TitleTheme,
+  WorkView,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -213,4 +222,114 @@ export function getTaskTree(taskId: string): Promise<TaskTree> {
 /** Liaison's protocol, limits, destinations, open handoffs, and notices. */
 export function getLiaisonOverview(): Promise<LiaisonOverview> {
   return call<LiaisonOverview>("get_liaison_overview");
+}
+
+// ---- Workforce (Phase 5) ------------------------------------------------------------------
+// Every change returns the organization as it is afterwards. The Ledger enforces the
+// structure; a refused change rejects with the reason.
+
+/** Departments, projects, positions with live status, oversight, and stats. */
+export function getOrganization(): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("get_organization");
+}
+
+/** The work a position owns and its team's unfinished work; omit the ID for the organization. */
+export function getWork(positionId?: string): Promise<WorkView> {
+  return call<WorkView>("get_work", { positionId: positionId ?? null });
+}
+
+export function renameOrganization(name: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("rename_organization", { name });
+}
+
+/** Choose what the app calls the ranks. Display only: agents keep the plain titles. */
+export function setOrganizationTitles(titles: TitleTheme): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("set_organization_titles", { titles });
+}
+
+export function createRole(input: RoleInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("create_role", { input });
+}
+
+/** Create a department with its head position. */
+export function createDepartment(input: DepartmentInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("create_department", { input });
+}
+
+export function updateDepartment(
+  departmentId: string,
+  input: DepartmentInput,
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("update_department", { departmentId, input });
+}
+
+/** Delete a department that has no projects (its head position is archived). */
+export function removeDepartment(departmentId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("remove_department", { departmentId });
+}
+
+/** Create a project with its coordinator position. */
+export function createProject(input: ProjectInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("create_project", { input });
+}
+
+export function updateProject(projectId: string, input: ProjectInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("update_project", { projectId, input });
+}
+
+/** Archive a project and its whole team. */
+export function archiveProject(projectId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("archive_project", { projectId });
+}
+
+/** Hire into a team: a new position (and, for a persistent one, its agent). */
+export function hirePosition(input: HireInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("hire_position", { input });
+}
+
+/** Hire an agent into a vacant persistent position. */
+export function fillPosition(positionId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("fill_position", { positionId });
+}
+
+/** Let a persistent position's agent go; the position stays, vacant. */
+export function vacatePosition(positionId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("vacate_position", { positionId });
+}
+
+export function updatePosition(
+  positionId: string,
+  input: PositionPatchInput,
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("update_position", { positionId, input });
+}
+
+/** Make a position report to another (`null`: the owner). */
+export function movePosition(positionId: string, reportsTo: string | null): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("move_position", { positionId, reportsTo });
+}
+
+export function archivePosition(positionId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("archive_position", { positionId });
+}
+
+/** Assign an on-demand position to review, QA, or security-audit a team. */
+export function assignOversight(
+  overseerId: string,
+  targetId: string,
+  role: OversightRole,
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("assign_oversight", { overseerId, targetId, role });
+}
+
+export function endOversight(oversightId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("end_oversight", { oversightId });
+}
+
+/**
+ * Give a staffed persistent position's agent an objective. Core builds its instructions and
+ * chooses its session; the UI names only the position.
+ */
+export function giveObjective(positionId: string, objective: string): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("give_objective", { positionId, objective });
 }

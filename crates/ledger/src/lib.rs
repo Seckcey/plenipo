@@ -16,6 +16,7 @@ mod records;
 mod rows;
 mod sessions;
 mod tasks;
+pub mod workforce;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
@@ -26,6 +27,7 @@ use rusqlite::{Connection, ErrorCode};
 pub use dto::*;
 pub use error::{LedgerError, Result};
 pub use migrate::{Migration, MIGRATIONS};
+pub use workforce::RoleTemplate;
 
 /// Called after every committed event (e.g. to stream it to the UI).
 pub type Listener = Arc<dyn Fn(&LedgerEvent) + Send + Sync>;

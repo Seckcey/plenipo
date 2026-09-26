@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppInfo } from "@plenipo/types";
 
 import {
@@ -101,6 +101,7 @@ function Shell({ core }: { core: CoreState }) {
   const [selectedTask, setSelectedTask] = useState<string | null>(() =>
     readSession(SELECTED_TASK_KEY),
   );
+  const [orgFocus, setOrgFocus] = useState<string | null>(null);
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
@@ -139,6 +140,19 @@ function Shell({ core }: { core: CoreState }) {
     select(id);
     navigate("runtimes");
   };
+  const openSession = (id: string) => {
+    selectSession(id);
+    navigate("workers");
+  };
+  const openTask = (id: string) => {
+    selectTask(id);
+    navigate("activity");
+  };
+  const openPosition = (id: string) => {
+    setOrgFocus(id);
+    navigate("organization");
+  };
+  const clearOrgFocus = useCallback(() => setOrgFocus(null), []);
   const severe = ledgerNotices.some(isSevere);
 
   return (
@@ -160,7 +174,10 @@ function Shell({ core }: { core: CoreState }) {
           activeCount={activeCount}
           workingCount={workingCount}
         />
-        <main className="shell__main" ref={main}>
+        <main
+          className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
+          ref={main}
+        >
           {ledgerNotices.length > 0 && !noticesDismissed && (
             <div
               className={`banner${severe ? " banner--severe" : ""}`}
@@ -184,13 +201,21 @@ function Shell({ core }: { core: CoreState }) {
               Plenipo Core is unavailable: {core.error.message}
             </p>
           )}
-          {view === "organization" && <OrganizationView />}
+          {view === "organization" && (
+            <OrganizationView
+              onOpenSession={openSession}
+              onOpenTask={openTask}
+              focusId={orgFocus}
+              onFocusHandled={clearOrgFocus}
+            />
+          )}
           {view === "workers" && (
             <WorkersView
               selectedSessionId={selectedSession}
               onSelectSession={selectSession}
               onShowExecution={showExecution}
               onOpenRuntimes={() => navigate("runtimes")}
+              onOpenPosition={openPosition}
             />
           )}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
@@ -204,8 +229,8 @@ function Shell({ core }: { core: CoreState }) {
 
       <footer className="shell__footer">
         {activeCount > 0
-          ? `${activeCount} process${activeCount === 1 ? "" : "es"} running`
-          : "No providers or credentials required"}
+          ? `${activeCount} program${activeCount === 1 ? "" : "s"} running`
+          : "Ready · uses your own signed-in AI tools and never asks for passwords"}
       </footer>
     </div>
   );

@@ -17,7 +17,7 @@ export const OUTCOME_LABEL: Record<TurnOutcome, string> = {
   usageLimited: "Usage limit reached",
   authRequired: "Sign-in required",
   billingNotAllowed: "Blocked: API billing",
-  providerUnavailable: "Provider unavailable",
+  providerUnavailable: "AI tool unavailable",
   malformedOutput: "Unreadable output",
   crashed: "Crashed",
   interrupted: "Interrupted",
@@ -108,10 +108,10 @@ export function runtimeStatus(r: AgentRuntimeInfo): {
   return { text: AUTH_LABEL[r.auth.state], tone: "warn" };
 }
 
-/** Why a runtime cannot take work, with what to do about it. `null` when ready. */
+/** Why an AI tool cannot take work, with what to do about it. `null` when ready. */
 export function notReadyHint(r: AgentRuntimeInfo): string | null {
   if (r.ready) return null;
-  if (r.installation.state === "checking") return "Still checking this runtime…";
+  if (r.installation.state === "checking") return "Still checking this AI tool…";
   if (r.installation.state !== "installed") {
     return [r.installation.detail, r.installHint].filter(Boolean).join(" ");
   }
@@ -132,9 +132,12 @@ export function describeActivity(e: AgentEvent): {
   switch (e.type) {
     case "sessionStarted":
       return {
-        label: "Session",
+        label: "Conversation",
         text:
-          [e.model && `model ${e.model}`, e.providerSessionId && `session ${e.providerSessionId}`]
+          [
+            e.model && `model ${e.model}`,
+            e.providerSessionId && `conversation ${e.providerSessionId}`,
+          ]
             .filter(Boolean)
             .join(" · ") || "started",
       };

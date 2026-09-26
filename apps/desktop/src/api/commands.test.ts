@@ -8,6 +8,7 @@ import {
   getTaskHandoffs,
   getTaskTree,
   PlenipoCommandError,
+  setOrganizationTitles,
   startAgentSession,
   toCommandError,
 } from "./commands";
@@ -61,6 +62,12 @@ describe("command client", () => {
     expect(mockedInvoke).toHaveBeenLastCalledWith("get_task_tree", { taskId: "t-2" });
     await getLiaisonOverview();
     expect(mockedInvoke).toHaveBeenLastCalledWith("get_liaison_overview", undefined);
+  });
+
+  it("sets the organization's titles", async () => {
+    mockedInvoke.mockResolvedValue({});
+    await setOrganizationTitles("navy");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("set_organization_titles", { titles: "navy" });
   });
 
   it("converts a structured backend error", async () => {

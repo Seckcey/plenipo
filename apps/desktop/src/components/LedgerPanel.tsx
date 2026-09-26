@@ -78,7 +78,7 @@ export function LedgerPanel({ onTaskCreated }: { onTaskCreated: (taskId: string)
             <dd>{status.eventCount}</dd>
           </div>
           <div>
-            <dt>Executions</dt>
+            <dt>Runs</dt>
             <dd>{status.executionCount}</dd>
           </div>
           <div>

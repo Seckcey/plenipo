@@ -374,7 +374,11 @@ impl Ledger {
                     ),
                 )?);
                 match r.decision {
-                    HandoffDecision::Accept { child, received } => {
+                    HandoffDecision::Accept {
+                        child,
+                        received,
+                        worker,
+                    } => {
                         if child.parent_task_id.as_deref() != Some(task_id) {
                             return Err(LedgerError::InvalidInput(
                                 "a handoff's child task must name the requesting task as its parent"
@@ -413,6 +417,9 @@ impl Ledger {
                                 ),
                             ),
                         )?);
+                        if let Some(worker) = &worker {
+                            crate::workforce::insert_worker(tx, out, worker, &child.id, actor)?;
+                        }
                         recorded.push(message);
                         children.push(tasks::require(tx, &child.id)?);
                     }
@@ -939,6 +946,7 @@ mod tests {
                     ..NewTask::default()
                 },
                 received: json!({ "depth": 1 }),
+                worker: None,
             },
         }
     }
