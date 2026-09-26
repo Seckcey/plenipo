@@ -686,6 +686,27 @@ async fn acceptance_a_sensitive_request_waits_for_approval_even_when_allowed() {
     assert_eq!(used[0]["approvalId"], card.id.as_str());
 }
 
+/// Make `link` lead to `target`; false if this computer does not allow it.
+fn link_out(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).unwrap();
+        true
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|o| o.status.success())
+            && link.exists()
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plan_path_traversal_attempts_are_refused() {
     let h = harness().await;
@@ -703,12 +724,17 @@ async fn plan_path_traversal_attempts_are_refused() {
         .map(|p| tool("read_file", serde_json::json!({ "path": p })))
         .collect::<Vec<_>>()
         .join(" ");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(h.dir.path(), h.folder.join("up")).unwrap();
-    let work = format!(
-        "{work} {}",
-        tool("read_file", serde_json::json!({ "path": "up/outside.txt" }))
-    );
+    // A link inside the folder that leads out: a symbolic link, or on Windows a directory
+    // junction (which needs no administrator rights).
+    let linked = link_out(h.dir.path(), &h.folder.join("up"));
+    let work = if linked {
+        format!(
+            "{work} {}",
+            tool("read_file", serde_json::json!({ "path": "up/outside.txt" }))
+        )
+    } else {
+        work
+    };
     let task = h.objective(&work).await;
     assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
     let text = h.text(&task);
@@ -717,7 +743,11 @@ async fn plan_path_traversal_attempts_are_refused() {
         "nothing outside was read: {text}"
     );
     let refusals = lines_of(&text, "Tool read_file failed: Blocked");
-    assert_eq!(refusals.len(), attempts.len() + 1, "{text}");
+    assert_eq!(
+        refusals.len(),
+        attempts.len() + usize::from(linked),
+        "{text}"
+    );
     for e in h.events(&task, "guard.denied") {
         assert_eq!(e["layer"], "target", "{e}");
     }
