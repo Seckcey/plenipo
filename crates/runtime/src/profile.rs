@@ -44,9 +44,10 @@ pub struct LaunchSpec {
     /// Longest line delivered to `observer` (lines shown in the UI keep the configured cap).
     /// `None`: the supervisor's configured per-line limit.
     pub max_line_bytes: Option<usize>,
-    /// Receives every output line, in order, with its full text. The receiver must be
-    /// drained until it closes (after the process's output ends), or output stalls.
-    pub observer: Option<tokio::sync::mpsc::Sender<crate::dto::OutputLine>>,
+    /// Receives every output line, in order, with its full text; closes after the process's
+    /// output ends. Unbounded on purpose: a slow observer must never stall reading the
+    /// child's pipes (which would trip the drain timeout and lose the final lines).
+    pub observer: Option<tokio::sync::mpsc::UnboundedSender<crate::dto::OutputLine>>,
     pub agent: Option<Box<crate::dto::AgentAttribution>>,
 }
 

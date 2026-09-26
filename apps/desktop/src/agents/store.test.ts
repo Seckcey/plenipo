@@ -147,6 +147,24 @@ describe("agent store", () => {
     expect(state.turns.s1?.[0]?.running).toBe(false);
   });
 
+  it("marks a session loaded only when its full history arrives", () => {
+    let state = agentReducer(initialAgentState, {
+      type: "update",
+      update: { kind: "turn", ...turn("t3", { number: 3 }) },
+    });
+    expect(state.loaded.s1).toBeUndefined();
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1"),
+        turns: [turn("t1"), turn("t2", { number: 2 }), turn("t3", { number: 3 })],
+        activity: [],
+      },
+    });
+    expect(state.loaded.s1).toBe(true);
+    expect(state.turns.s1?.map((t) => t.number)).toEqual([1, 2, 3]);
+  });
+
   it("joins streamed text and replaces it with the complete message", () => {
     const items = activityItems([
       activity("t", 1, { type: "sessionStarted", providerSessionId: "p", model: "m" }),

@@ -23,6 +23,8 @@ export interface AgentState {
   order: string[];
   /** Turns by session ID, in turn order. */
   turns: Record<string, AgentTurn[]>;
+  /** Sessions whose full history has been fetched (live updates alone are partial). */
+  loaded: Record<string, true>;
   /** Activity by task ID, in `seq` order. */
   activity: Record<string, AgentActivity[]>;
   notices: string[];
@@ -35,6 +37,7 @@ export const initialAgentState: AgentState = {
   sessions: {},
   order: [],
   turns: {},
+  loaded: {},
   activity: {},
   notices: [],
 };
@@ -84,7 +87,11 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       for (const live of known) {
         if (!merged.some((t) => t.taskId === live.taskId)) merged.push(live);
       }
-      next = { ...next, turns: { ...next.turns, [session.id]: sortTurns(merged) } };
+      next = {
+        ...next,
+        turns: { ...next.turns, [session.id]: sortTurns(merged) },
+        loaded: { ...next.loaded, [session.id]: true },
+      };
       const active = merged.find((t) => t.taskId === session.activeTaskId);
       if (active && !active.running) {
         next = {

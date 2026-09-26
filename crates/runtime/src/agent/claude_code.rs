@@ -145,6 +145,8 @@ impl RuntimeAdapter for ClaudeCode {
         Box::new(Parser {
             state: TurnState::new(LABEL),
             expected,
+            billing_confirmed: request.billing_confirmed,
+            init_seen: false,
         })
     }
 }
@@ -259,10 +261,30 @@ struct Parser {
     state: TurnState,
     /// The session ID Plenipo asked for (new or resumed).
     expected: Option<String>,
+    /// The sign-in check confirmed a subscription before the turn.
+    billing_confirmed: bool,
+    init_seen: bool,
 }
 
 impl Parser {
+    /// Stop the turn: billing could not be confirmed before or during it (ADR-007 §4).
+    fn unconfirmed_billing(&mut self) -> Parsed {
+        let stop = Stop {
+            outcome: TurnOutcome::BillingNotAllowed,
+            reason: "Claude Code did not report which credential it uses, and its sign-in could \
+                     not be confirmed as a subscription, so the turn was stopped (API billing is \
+                     disabled). Check `claude auth status`."
+                .into(),
+        };
+        self.state.stop = Some(stop.clone());
+        Parsed {
+            events: Vec::new(),
+            stop: Some(stop),
+        }
+    }
+
     fn init(&mut self, v: &Value) -> Parsed {
+        self.init_seen = true;
         let session = v
             .get("session_id")
             .and_then(Value::as_str)
@@ -284,7 +306,13 @@ impl Parser {
         }
         self.state.provider_session_id = session.or(self.state.provider_session_id.take());
         self.state.model = model.or(self.state.model.take());
-        if let Some(source) = v.get("apiKeySource").and_then(Value::as_str) {
+        let source = v.get("apiKeySource").and_then(Value::as_str);
+        if source.is_none() && !self.billing_confirmed {
+            let mut stopped = self.unconfirmed_billing();
+            stopped.events.append(&mut parsed.events);
+            return stopped;
+        }
+        if let Some(source) = source {
             if source != SUBSCRIPTION_SOURCE {
                 let stop = Stop {
                     outcome: TurnOutcome::BillingNotAllowed,
@@ -400,10 +428,15 @@ impl TurnParser for Parser {
             return self.state.malformed_line(truncated);
         };
         let kind = v.get("type").and_then(Value::as_str);
+        let is_init =
+            kind == Some("system") && v.get("subtype").and_then(Value::as_str) == Some("init");
+        // Without a confirmed subscription, nothing may happen before the credential check.
+        if !is_init && !self.init_seen && !self.billing_confirmed && self.state.stop.is_none() {
+            self.state.understood += 1;
+            return self.unconfirmed_billing();
+        }
         let parsed = match kind {
-            Some("system") if v.get("subtype").and_then(Value::as_str) == Some("init") => {
-                self.init(&v)
-            }
+            Some("system") if is_init => self.init(&v),
             Some("stream_event") => {
                 let delta = v.pointer("/event/delta");
                 match (
@@ -476,6 +509,7 @@ mod tests {
                 preassigned: Some("11111111-1111-4111-8111-111111111111".into()),
             },
             model: None,
+            billing_confirmed: true,
         }
     }
 
@@ -501,6 +535,7 @@ mod tests {
         let resume = ClaudeCode.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "abc".into() },
             model: Some("sonnet".into()),
+            billing_confirmed: true,
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
@@ -613,6 +648,37 @@ mod tests {
     }
 
     #[test]
+    fn missing_credential_source_needs_a_confirmed_subscription() {
+        let init = json!({"type":"system","subtype":"init","session_id":"s"}).to_string();
+        // Confirmed by `auth status`: fine.
+        let mut p = ClaudeCode.parser(&new_request());
+        assert!(p.line(&init, false).stop.is_none());
+
+        // Unconfirmed sign-in and no credential source in the stream: stop.
+        let unconfirmed = TurnRequest {
+            billing_confirmed: false,
+            ..new_request()
+        };
+        let mut p = ClaudeCode.parser(&unconfirmed);
+        let parsed = p.line(&init, false);
+        assert_eq!(parsed.stop.unwrap().outcome, TurnOutcome::BillingNotAllowed);
+        let r = p.finish(&end(ExecutionState::Cancelled, None));
+        assert_eq!(r.outcome, TurnOutcome::BillingNotAllowed);
+
+        // Unconfirmed, but the stream reports a subscription credential: fine.
+        let mut p = ClaudeCode.parser(&unconfirmed);
+        let ok = json!({"type":"system","subtype":"init","session_id":"s","apiKeySource":"none"});
+        assert!(p.line(&ok.to_string(), false).stop.is_none());
+
+        // Unconfirmed and output before any credential report: stop before it counts.
+        let mut p = ClaudeCode.parser(&unconfirmed);
+        let early = json!({"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}});
+        let parsed = p.line(&early.to_string(), false);
+        assert!(parsed.stop.is_some());
+        assert!(parsed.events.is_empty());
+    }
+
+    #[test]
     fn error_results_are_classified() {
         for (text, want) in [
             (
@@ -661,6 +727,7 @@ mod tests {
         let mut p = ClaudeCode.parser(&TurnRequest {
             session: ProviderSession::Resume { id: "old".into() },
             model: None,
+            billing_confirmed: true,
         });
         let events = feed(
             p.as_mut(),

@@ -57,13 +57,11 @@ export function WorkersView({
     () => (selectedSessionId ? (state.turns[selectedSessionId] ?? []) : []),
     [selectedSessionId, state.turns],
   );
-  const loaded = selectedSessionId ? selectedSessionId in state.turns : true;
-
+  // Fetch the full history whenever a session is selected: live updates alone only carry the
+  // turns that changed while this view was open.
   useEffect(() => {
-    if (selectedSessionId && !loaded) {
-      loadSession(selectedSessionId).catch(() => undefined);
-    }
-  }, [selectedSessionId, loaded, loadSession]);
+    if (selectedSessionId) loadSession(selectedSessionId).catch(() => undefined);
+  }, [selectedSessionId, loadSession]);
 
   async function run(key: string, action: () => Promise<void>) {
     setPending(key);

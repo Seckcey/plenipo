@@ -513,7 +513,7 @@ struct Run {
     max_runtime: Duration,
     /// Longest line read from the child (observer lines); display lines are capped separately.
     read_limit: usize,
-    observer: Option<mpsc::Sender<OutputLine>>,
+    observer: Option<mpsc::UnboundedSender<OutputLine>>,
 }
 
 enum Outcome {
@@ -688,7 +688,7 @@ async fn aggregate(
     inner: Arc<Inner>,
     id: String,
     mut rx: mpsc::Receiver<RawLine>,
-    mut observer: Option<mpsc::Sender<OutputLine>>,
+    mut observer: Option<mpsc::UnboundedSender<OutputLine>>,
 ) {
     let config = &inner.config;
     let mut batch: Vec<OutputLine> = Vec::new();
@@ -700,7 +700,7 @@ async fn aggregate(
                 Some(raw) => {
                     if let Some((line, full)) = inner.push_output(&id, raw, observer.is_some()) {
                         if let (Some(tx), Some(full)) = (&observer, full) {
-                            if tx.send(full).await.is_err() {
+                            if tx.send(full).is_err() {
                                 observer = None; // the observer went away; keep capturing
                             }
                         }

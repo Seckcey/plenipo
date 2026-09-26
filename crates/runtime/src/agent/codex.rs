@@ -449,6 +449,7 @@ mod tests {
         TurnRequest {
             session: ProviderSession::New { preassigned: None },
             model: None,
+            billing_confirmed: true,
         }
     }
 
@@ -474,6 +475,7 @@ mod tests {
         let resume = Codex.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "t-1".into() },
             model: Some("gpt-x".into()),
+            billing_confirmed: true,
         });
         assert_eq!(
             resume,

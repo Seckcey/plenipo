@@ -89,6 +89,7 @@ afterEach(() => {
 describe("Workers view", () => {
   it("starts a task on a ready runtime and streams its activity to a normalized result", async () => {
     api.startAgentSession.mockResolvedValue(detail());
+    api.getAgentSession.mockResolvedValue(detail());
     render(<Harness />);
     const user = userEvent.setup();
     const form = await screen.findByRole("form", { name: "New task" });
@@ -205,6 +206,35 @@ describe("Workers view", () => {
     await waitFor(() => expect(within(turns).getByText("Try again")).toBeInTheDocument());
     // One turn at a time: Send is disabled while turn 2 runs.
     expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("loads a session's full history when selected, even after partial live updates", async () => {
+    const full = detail({
+      session: session("s1", { title: "Say hello", turnCount: 2 }),
+      turns: [
+        turn("t1", { running: false, result: completed("First answer") }),
+        turn("t2", {
+          number: 2,
+          objective: "Second",
+          running: false,
+          result: completed("Second answer"),
+        }),
+      ],
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      sessions: [full.session],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue(full);
+    render(<Harness />);
+    await screen.findByRole("list", { name: "Sessions" });
+    // A live update for the latest turn arrives before the session is ever opened.
+    send({ kind: "turn", ...full.turns[1]! });
+    await userEvent.setup().click(screen.getByRole("button", { name: /Say hello/ }));
+    expect(api.getAgentSession).toHaveBeenCalledWith("s1");
+    expect(await screen.findByText("First answer")).toBeInTheDocument();
+    expect(screen.getByText("Second answer")).toBeInTheDocument();
   });
 
   it("shows normalized failures with their explanation", async () => {

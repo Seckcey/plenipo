@@ -567,7 +567,7 @@ fn spec(id: &str, scenario: Scenario, dir: &Path) -> plenipo_runtime::LaunchSpec
 }
 
 async fn drain(
-    mut rx: tokio::sync::mpsc::Receiver<plenipo_runtime::OutputLine>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<plenipo_runtime::OutputLine>,
 ) -> Vec<plenipo_runtime::OutputLine> {
     let mut lines = vec![];
     while let Some(line) = rx.recv().await {
@@ -579,7 +579,7 @@ async fn drain(
 #[tokio::test]
 async fn launch_writes_stdin_and_the_observer_sees_every_line_in_order() {
     let h = harness();
-    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
     let input = "first line\nsecond \"quoted\" line; & | > ok\n";
     s.stdin = Some(input.as_bytes().to_vec());
@@ -629,7 +629,7 @@ async fn without_stdin_the_child_reads_end_of_file() {
 #[tokio::test]
 async fn observer_gets_full_long_lines_while_the_ui_stream_stays_capped() {
     let h = harness();
-    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let mut s = spec("burst", Scenario::Burst, h.dir.path());
     s.max_line_bytes = Some(256 * 1024);
     s.observer = Some(tx);
@@ -653,11 +653,15 @@ async fn observer_gets_full_long_lines_while_the_ui_stream_stays_capped() {
 #[tokio::test]
 async fn launch_requires_the_executable_to_be_allowed_by_core() {
     let h = harness();
-    let copy = h
-        .dir
+    // A hard link: a second path to the same file, without the ETXTBSY race a fresh copy has
+    // on Linux while other tests fork.
+    let links = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let copy = links
         .path()
         .join(if cfg!(windows) { "agent.exe" } else { "agent" });
-    std::fs::copy(diag_exe(), &copy).unwrap();
+    if std::fs::hard_link(diag_exe(), &copy).is_err() {
+        std::fs::copy(diag_exe(), &copy).unwrap();
+    }
     let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
     s.executable = copy.clone();
     assert!(matches!(
@@ -792,4 +796,36 @@ async fn annotate_updates_agent_attribution_and_persists_it() {
         .is_none());
     assert!(h.sup.annotate("nope", |_| {}).is_err());
     assert!(h.sup.wait("nope").await.is_err());
+}
+
+#[tokio::test]
+async fn a_slow_observer_neither_stalls_reading_nor_loses_output() {
+    // Consuming takes longer than the drain timeout (2 s) after the process exits. Reading the
+    // pipes must not wait for the observer, or the tail of the output would be cut off.
+    let h = harness();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut s = spec("burst", Scenario::Burst, h.dir.path());
+    s.max_line_bytes = Some(256 * 1024);
+    s.observer = Some(tx);
+    let started = h.sup.launch(s).await.unwrap();
+    let slow = tokio::spawn(async move {
+        let mut n = 0;
+        while let Some(line) = rx.recv().await {
+            n += 1;
+            if n % 2 == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            if line.text == "burst done" {
+                return n;
+            }
+        }
+        n
+    });
+    let done = h.sup.wait(&started.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Succeeded);
+    assert_eq!(done.detail, None, "no descendants were terminated");
+    assert_eq!(
+        tokio::time::timeout(WAIT, slow).await.unwrap().unwrap(),
+        5002
+    );
 }

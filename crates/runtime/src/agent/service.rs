@@ -123,6 +123,16 @@ struct Active {
     task_id: Option<String>,
     execution_id: Option<String>,
     done: watch::Receiver<bool>,
+    /// Held by `close_session`, not by a turn.
+    closing: bool,
+}
+
+/// Why a session's slot is claimed. Claims are exclusive, so a close and a new turn can never
+/// interleave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Claim {
+    Turn,
+    Close,
 }
 
 #[derive(Default)]
@@ -158,6 +168,8 @@ pub struct AgentRuntime {
 struct Ready {
     executable: PathBuf,
     env: Vec<(String, String)>,
+    /// The sign-in check confirmed a subscription.
+    billing_confirmed: bool,
 }
 
 impl AgentRuntime {
@@ -426,7 +438,12 @@ impl AgentRuntime {
         let out = run_probe(&executable, &adapter.auth_args(), &env, &workdir, timeout).await;
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
-        let ready = info.ready.then_some(Ready { executable, env });
+        let billing_confirmed = info.auth.state == AuthState::Subscription;
+        let ready = info.ready.then_some(Ready {
+            executable,
+            env,
+            billing_confirmed,
+        });
         (info, ready)
     }
 
@@ -520,7 +537,7 @@ impl AgentRuntime {
             .adapter(runtime_id)
             .ok_or_else(|| RuntimeError::InvalidInput(format!("unknown runtime: {runtime_id}")))?;
         let session_id = uuid::Uuid::new_v4().to_string();
-        let reservation = self.reserve(&session_id)?;
+        let reservation = self.reserve(&session_id, Claim::Turn)?;
         let ready = self.preflight(adapter.as_ref()).await?;
 
         let working_dir = self.inner.config.workspace_root.join(&session_id);
@@ -557,6 +574,9 @@ impl AgentRuntime {
         objective: &str,
     ) -> Result<AgentSessionDetail, RuntimeError> {
         let objective = validate_objective(objective)?;
+        // Claim first, then read: a concurrent close either finished before (we see it closed)
+        // or cannot start until this turn ends.
+        let reservation = self.reserve(session_id, Claim::Turn)?;
         let id = session_id.to_owned();
         let session = self
             .with_store(move |s| s.session(&id))
@@ -573,7 +593,6 @@ impl AgentRuntime {
                 session.runtime_id
             ))
         })?;
-        let reservation = self.reserve(session_id)?;
         let ready = self.preflight(adapter.as_ref()).await?;
         self.run_turn(session, adapter, ready, objective, reservation)
             .await
@@ -583,9 +602,13 @@ impl AgentRuntime {
     pub async fn cancel_turn(&self, session_id: &str) -> Result<AgentSessionDetail, RuntimeError> {
         let (execution, mut done) = {
             let state = self.lock();
-            let active = state.active.get(session_id).ok_or_else(|| {
-                RuntimeError::NotReady("No turn is running in this session.".into())
-            })?;
+            let active = state
+                .active
+                .get(session_id)
+                .filter(|a| !a.closing)
+                .ok_or_else(|| {
+                    RuntimeError::NotReady("No turn is running in this session.".into())
+                })?;
             let execution = active.execution_id.clone().ok_or_else(|| {
                 RuntimeError::NotReady("The turn is still starting; try again in a moment.".into())
             })?;
@@ -598,11 +621,7 @@ impl AgentRuntime {
 
     /// closeSession: no further turns. The provider keeps its own transcript.
     pub async fn close_session(&self, session_id: &str) -> Result<AgentSession, RuntimeError> {
-        if self.lock().active.contains_key(session_id) {
-            return Err(RuntimeError::NotReady(
-                "A turn is running in this session. Cancel it first.".into(),
-            ));
-        }
+        let _claim = self.reserve(session_id, Claim::Close)?;
         let id = session_id.to_owned();
         let mut session = self
             .with_store(move |s| s.session(&id))
@@ -640,22 +659,28 @@ impl AgentRuntime {
 
     // ---- Turns --------------------------------------------------------------------------
 
-    /// Claim `session_id` for one turn. Released when the guard drops, unless the turn was
-    /// launched (then the turn's consumer releases it).
-    fn reserve(&self, session_id: &str) -> Result<Reservation, RuntimeError> {
+    /// Claim `session_id` for one turn (or a close). Released when the guard drops, unless a
+    /// turn was launched (then the turn's consumer releases it).
+    fn reserve(&self, session_id: &str, claim: Claim) -> Result<Reservation, RuntimeError> {
         let mut state = self.lock();
         if state.shutting_down {
             return Err(RuntimeError::ShuttingDown);
         }
-        if state.active.contains_key(session_id) {
-            return Err(RuntimeError::NotReady(
-                "A turn is already running in this session. Wait for it or cancel it.".into(),
-            ));
+        if let Some(existing) = state.active.get(session_id) {
+            return Err(RuntimeError::NotReady(match (existing.closing, claim) {
+                (true, _) => "This session is being closed.".into(),
+                (false, Claim::Close) => {
+                    "A turn is running in this session. Cancel it first.".into()
+                }
+                (false, Claim::Turn) => {
+                    "A turn is already running in this session. Wait for it or cancel it.".into()
+                }
+            }));
         }
-        if state.active.len() >= self.inner.config.max_active_turns {
+        let turns = state.active.values().filter(|a| !a.closing).count();
+        if claim == Claim::Turn && turns >= self.inner.config.max_active_turns {
             return Err(RuntimeError::NotReady(format!(
-                "{} agent turns are already running; wait for one to finish.",
-                state.active.len()
+                "{turns} agent turns are already running; wait for one to finish."
             )));
         }
         let (done_tx, done_rx) = watch::channel(false);
@@ -665,6 +690,7 @@ impl AgentRuntime {
                 task_id: None,
                 execution_id: None,
                 done: done_rx,
+                closing: claim == Claim::Close,
             },
         );
         Ok(Reservation {
@@ -698,6 +724,7 @@ impl AgentRuntime {
                 },
             },
             model: session.model.clone(),
+            billing_confirmed: ready.billing_confirmed,
         };
         let (s, text) = (session.clone(), objective.clone());
         let task_id = self
@@ -709,7 +736,7 @@ impl AgentRuntime {
             active.task_id = Some(task_id.clone());
         }
 
-        let (tx, rx) = mpsc::channel::<OutputLine>(256);
+        let (tx, rx) = mpsc::unbounded_channel::<OutputLine>();
         let provider_session = match &request.session {
             ProviderSession::Resume { id } => Some(id.clone()),
             ProviderSession::New { preassigned } => preassigned.clone(),
@@ -874,11 +901,14 @@ impl TurnContext {
     async fn consume(
         mut self,
         mut parser: Box<dyn TurnParser>,
-        mut rx: mpsc::Receiver<OutputLine>,
+        mut rx: mpsc::UnboundedReceiver<OutputLine>,
         done: Option<watch::Sender<bool>>,
     ) {
         let mut stopping = false;
         while let Some(line) = rx.recv().await {
+            if stopping {
+                continue; // stopped by policy: drain, but record nothing more from this turn
+            }
             if line.stream == OutputStream::Stderr {
                 parser.stderr(&line.text);
                 continue;

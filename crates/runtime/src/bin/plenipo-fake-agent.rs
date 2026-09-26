@@ -5,9 +5,9 @@
 //! the provider's JSON-lines stream format with the prompt read from stdin.
 //!
 //! State lives in `<HOME or USERPROFILE>/.plenipo-fake-agent/`:
-//! - `auth` (optional): `subscription` (default), `api-key`, `signed-out`, `cloud`,
-//!   `unknown-status`, or `stream-api-key` (status says subscription; Claude's stream reports
-//!   an API key);
+//! - `auth` (optional, comma-separated flags): `subscription` (default), `api-key`,
+//!   `signed-out`, `cloud`, `unknown-status`, `stream-api-key` (status says subscription;
+//!   Claude's stream reports an API key), `no-key-source` (Claude's stream omits it);
 //! - `sessions/<id>.json`: prompts per session, so resume can be verified;
 //! - `last-args.json`, `last-env.txt`: what the last turn received.
 //!
@@ -50,10 +50,22 @@ fn state_dir() -> PathBuf {
     dir
 }
 
-fn auth_mode() -> String {
+fn auth_flags() -> Vec<String> {
     std::fs::read_to_string(state_dir().join("auth"))
-        .map(|s| s.trim().to_owned())
-        .unwrap_or_else(|_| "subscription".into())
+        .map(|s| s.split(',').map(|f| f.trim().to_owned()).collect())
+        .unwrap_or_default()
+}
+
+fn auth_has(flag: &str) -> bool {
+    auth_flags().iter().any(|f| f == flag)
+}
+
+/// The sign-in the status command reports.
+fn auth_mode() -> &'static str {
+    ["signed-out", "api-key", "cloud", "unknown-status"]
+        .into_iter()
+        .find(|m| auth_has(m))
+        .unwrap_or("subscription")
 }
 
 fn out(v: &Value) {
@@ -142,7 +154,7 @@ fn claude(args: &[String]) -> i32 {
 }
 
 fn claude_auth() -> i32 {
-    let (body, code) = match auth_mode().as_str() {
+    let (body, code) = match auth_mode() {
         "signed-out" => (json!({ "loggedIn": false }), 1),
         "api-key" => (
             json!({ "loggedIn": true, "authMethod": "api_key", "apiProvider": "firstParty" }),
@@ -203,15 +215,19 @@ fn claude_turn(args: &[String]) -> i32 {
         return 0;
     }
     let (n, previous) = remember(&id, &prompt);
-    let key_source = if auth_mode() == "stream-api-key" {
+    let key_source = if auth_has("stream-api-key") {
         "ANTHROPIC_API_KEY"
     } else {
         "none"
     };
-    out(&json!({
+    let mut init = json!({
         "type": "system", "subtype": "init", "session_id": id, "model": model,
         "apiKeySource": key_source, "tools": [], "cwd": cwd, "claude_code_version": "2.1.999"
-    }));
+    });
+    if auth_has("no-key-source") {
+        init.as_object_mut().map(|o| o.remove("apiKeySource"));
+    }
+    out(&init);
     let delta = |text: &str| {
         out(&json!({
             "type": "stream_event", "session_id": id,
@@ -294,7 +310,7 @@ fn codex(args: &[String]) -> i32 {
 }
 
 fn codex_auth() -> i32 {
-    match auth_mode().as_str() {
+    match auth_mode() {
         "signed-out" => {
             eprintln!("Not logged in");
             1

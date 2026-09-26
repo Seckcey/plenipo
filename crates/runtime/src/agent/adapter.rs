@@ -68,6 +68,9 @@ pub struct TurnRequest {
     pub session: ProviderSession,
     /// Validated model name, or `None` for the runtime's default.
     pub model: Option<String>,
+    /// The sign-in check confirmed a subscription. When false, a runtime that checks billing
+    /// per turn must see a subscription credential in the stream, or stop the turn.
+    pub billing_confirmed: bool,
 }
 
 /// Why a parser asks Plenipo to stop the process immediately.

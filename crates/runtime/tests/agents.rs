@@ -3,7 +3,7 @@
 //! runtimes. No network, no accounts.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
@@ -29,6 +29,46 @@ fn exe_name(stem: &str) -> String {
         format!("{stem}.exe")
     } else {
         stem.to_owned()
+    }
+}
+
+/// Test scratch space on the same filesystem as the shared fake CLIs (for hard links).
+fn scratch() -> tempfile::TempDir {
+    tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
+}
+
+/// One copy of the fake CLIs per test process, ready to execute.
+///
+/// Copying an executable while other tests fork is racy on Linux: a forked child can briefly
+/// inherit the copy's write handle, and exec then fails with ETXTBSY. So copy once, wait until
+/// the copies run, and give each harness hard links (which never open a write handle).
+fn fake_clis() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("fake-agents-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for stem in ["claude", "codex"] {
+            let path = dir.join(exe_name(stem));
+            std::fs::copy(fake_exe(), &path).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while let Err(e) = std::process::Command::new(&path).arg("--version").output() {
+                assert!(
+                    Instant::now() < deadline,
+                    "fake CLI never became runnable: {e}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        dir
+    })
+}
+
+fn install_fake(bin: &Path, stem: &str) {
+    let source = fake_clis().join(exe_name(stem));
+    let target = bin.join(exe_name(stem));
+    if std::fs::hard_link(&source, &target).is_err() {
+        std::fs::copy(&source, &target).unwrap();
     }
 }
 
@@ -98,13 +138,13 @@ impl H {
 }
 
 fn harness_with(installed: &[&str], auth: Option<&str>) -> H {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let bin = dir.path().join("bin");
     let home = dir.path().join("home");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(&home).unwrap();
     for stem in installed {
-        std::fs::copy(fake_exe(), bin.join(exe_name(stem))).unwrap();
+        install_fake(&bin, stem);
     }
     let sup = Supervisor::new(
         SupervisorConfig::default(),
@@ -336,6 +376,21 @@ async fn claude_code_turn_is_stopped_when_it_reports_api_billing() {
     let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
     assert_eq!(exec.state, ExecutionState::Cancelled);
     assert_eq!(exec.detail.as_deref(), Some("Stopped by Plenipo policy"));
+}
+
+#[tokio::test]
+async fn unconfirmed_sign_in_without_a_reported_credential_source_is_stopped() {
+    // `auth status` gives nothing usable and the stream does not say which credential it uses:
+    // nothing confirms a subscription, so the turn must not run (ADR-007 §4).
+    let h = harness_with(&["claude"], Some("unknown-status,no-key-source"));
+    let (_, turn) = run(&h, "claude-code", "hello").await;
+    assert_eq!(outcome(&turn), TurnOutcome::BillingNotAllowed);
+    assert!(turn.result.unwrap().summary.contains("did not report"));
+
+    // A subscription confirmed by `auth status` does not depend on the stream reporting it.
+    let h = harness_with(&["claude"], Some("no-key-source"));
+    let (_, turn) = run(&h, "claude-code", "hello").await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed);
 }
 
 // ---- Turns ----------------------------------------------------------------------------------
@@ -656,6 +711,32 @@ async fn one_turn_per_session_and_closing() {
 }
 
 #[tokio::test]
+async fn close_and_follow_up_never_interleave() {
+    for _ in 0..10 {
+        let h = harness();
+        let (detail, _) = run(&h, "codex", "first").await;
+        let id = detail.session.id.clone();
+        let (closed, resumed) =
+            tokio::join!(h.rt.close_session(&id), h.rt.resume_session(&id, "second"));
+        match (closed, resumed) {
+            // The close won: the follow-up was refused and nothing ran.
+            (Ok(s), Err(e)) => {
+                assert_eq!(s.state, SessionState::Closed);
+                assert!(matches!(e, RuntimeError::NotReady(_)), "{e}");
+                assert_eq!(h.store.turns(&id).unwrap().len(), 1);
+            }
+            // The follow-up won: the close was refused while it runs.
+            (Err(e), Ok(_)) => {
+                assert!(e.to_string().contains("Cancel it first"), "{e}");
+                let detail = settled(&h.rt, &id, 2).await;
+                assert_eq!(detail.session.state, SessionState::Open);
+            }
+            other => panic!("exactly one must win: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
 async fn invalid_requests_are_rejected() {
     let h = harness();
     for (runtime, objective, model) in [
@@ -701,7 +782,7 @@ async fn model_choice_is_passed_and_recorded() {
 
 #[tokio::test]
 async fn restart_marks_unfinished_turns_interrupted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = scratch();
     let store = Arc::new(MemorySessionStore::default());
     store.insert_turn(AgentTurn {
         task_id: "t-1".into(),
