@@ -17,7 +17,7 @@ Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [the reason in the Ledger's trail](evidence/phase-6/routing-trail.png) ·
 [a usage limit holding work back](evidence/phase-6/models-usage-limit.png).
 
-Test totals: **409 Rust** (Linux) · **116 frontend** · **35 end-to-end**
+Test totals: **411 Rust** (Linux) · **116 frontend** · **35 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5 + 5
 Phase 6).
 
@@ -150,7 +150,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | ------------------------------------------------------------------------- | ---------------------------------------------- |
 | `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 116 frontend tests                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                           |
-| `cargo test --workspace`                                                  | Pass — 409 tests                               |
+| `cargo test --workspace`                                                  | Pass — 411 tests                               |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 35 of 35, including the 5 Phase 6 tests |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)    |
 | GitHub CI on the PR                                                       | Linked from the PR                             |
