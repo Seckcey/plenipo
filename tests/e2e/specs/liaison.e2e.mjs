@@ -53,10 +53,12 @@ function turns(browser) {
   }, TURNS);
 }
 
-/** Screenshot with the selected session's turns in view. */
+/** Screenshot with the selected session's turns in view. (A DOM scroll: WebKit's WebDriver
+ * rejects wheel actions inside the app's scroll area.) */
 async function screenshotTurns(browser, name) {
-  const list = await browser.$(TURNS);
-  if (await list.isExisting()) await list.scrollIntoView();
+  await browser.execute((selector) => {
+    document.querySelector(selector)?.scrollIntoView({ block: "start" });
+  }, TURNS);
   await screenshot(browser, name);
 }
 

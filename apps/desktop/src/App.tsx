@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppInfo } from "@plenipo/types";
 
 import {
@@ -103,6 +103,12 @@ function Shell({ core }: { core: CoreState }) {
   );
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
+  const main = useRef<HTMLElement>(null);
+
+  // Every view shares one scroll area: open each view at its top, not where the last one was.
+  useLayoutEffect(() => {
+    if (main.current) main.current.scrollTop = 0;
+  }, [view]);
 
   useEffect(() => {
     getLedgerStatus()
@@ -154,7 +160,7 @@ function Shell({ core }: { core: CoreState }) {
           activeCount={activeCount}
           workingCount={workingCount}
         />
-        <main className="shell__main">
+        <main className="shell__main" ref={main}>
           {ledgerNotices.length > 0 && !noticesDismissed && (
             <div
               className={`banner${severe ? " banner--severe" : ""}`}
