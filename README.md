@@ -5,8 +5,7 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 7 — Permissions, Guard, and your approval (implemented; awaiting owner
-> acceptance, so the version stays 0.7.0). Workers can now work on your computer — only inside
+> **Status:** Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
 > their project's folder, and only as far as you allow. **Settings → Permissions** gives each
 > role a permission set (read files, change files, run programs, save to git…, each Allowed,
 > Ask me, or Blocked), lets a project or department narrow it, lists the programs workers may

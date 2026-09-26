@@ -1,7 +1,8 @@
 # Phase 7 — Implementation Checklist
 
-**Status:** implemented on `claude/phase-7` ([PR #14](https://github.com/Seckcey/plenipo/pull/14));
-awaiting owner acceptance. Report: [phase-7-acceptance-report.md](phase-7-acceptance-report.md).
+**Status:** accepted by the owner on 2026-09-26; released as v0.8.0
+([PR #14](https://github.com/Seckcey/plenipo/pull/14)). The owner check on Windows below is still
+recommended with the real AI tools. Report: [phase-7-acceptance-report.md](phase-7-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 7 — Capability Broker, Guard, and Human Approval. Phase 6 is
 accepted and released as v0.7.0 ([PR #9](https://github.com/Seckcey/plenipo/pull/9)); the owner

@@ -1,12 +1,12 @@
 # Phase 7 — Acceptance Report
 
-|              |                                                                                                                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Phase**    | 7 — Capability Broker, Guard, and Human Approval                                                                                                                         |
-| **Branch**   | `claude/phase-7` ([PR #14](https://github.com/Seckcey/plenipo/pull/14))                                                                                                  |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #14.                                  |
-| **Date**     | 2026-09-26                                                                                                                                                               |
-| **Result**   | **All three Phase 7 acceptance criteria pass end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2). |
+|              |                                                                                                                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 7 — Capability Broker, Guard, and Human Approval                                                                                                                                                              |
+| **Branch**   | `claude/phase-7` ([PR #14](https://github.com/Seckcey/plenipo/pull/14), merged)                                                                                                                               |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #14.                                                                       |
+| **Date**     | 2026-09-26                                                                                                                                                                                                    |
+| **Result**   | **Accepted by the owner on 2026-09-26** and released as **v0.8.0**. All three acceptance criteria pass end to end against fake CLIs in CI; the owner's Windows check with the real CLIs is deferred (§7, O2). |
 
 Screenshots: [Settings → Permissions: who may do what](evidence/phase-7/permissions-settings.png)
 · [programs workers may run](evidence/phase-7/permissions-commands.png) ·
@@ -136,14 +136,14 @@ banner, and the trail text. All earlier phases' tests pass.
 
 ## 7. Owner items
 
-| ID  | Item                                                                                                                                                                                                                                                                                             | Recommendation                                                         |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| O1  | ADR-013 (how Plenipo lets workers use your computer safely) — **Accepted** by the owner on 2026-09-26: workers use only Plenipo's own tools, inside their project's folder; sensitive actions always ask (or are blocked); secrets live in Windows Credential Manager, never in Plenipo's files. | Done.                                                                  |
-| O2  | Windows check with the **real** CLIs (~25 min): the steps in [phase-7-checklist.md](phase-7-checklist.md#owner-check-on-windows-25-minutes). Use a scratch folder, and a made-up secret. Report anything odd.                                                                                    | Required for acceptance.                                               |
-| O3  | Codex workers can still read (not change) files outside their folder through Codex's own read-only commands. Claude Code workers cannot.                                                                                                                                                         | Accept for now, or use Claude Code for positions near sensitive files. |
-| O4  | The approved-command list is the main safeguard: `npm run *` and similar run the project's own scripts without asking.                                                                                                                                                                           | Trim it to the commands you use.                                       |
-| O5  | Version stays **0.7.0** (Phase 6, accepted); Phase 7 acceptance brings 0.8.0.                                                                                                                                                                                                                    | Bump after acceptance.                                                 |
-| O6  | Phase 8 (Development Department MVP) builds on these permissions.                                                                                                                                                                                                                                | Say "start Phase 8" after O1–O2.                                       |
+| ID  | Item                                                                                                                                                                                                                                                                                                | Recommendation                                                         |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| O1  | ADR-013 (how Plenipo lets workers use your computer safely) — **Accepted** by the owner on 2026-09-26: workers use only Plenipo's own tools, inside their project's folder; sensitive actions always ask (or are blocked); secrets live in Windows Credential Manager, never in Plenipo's files.    | Done.                                                                  |
+| O2  | Windows check with the **real** CLIs (~25 min): the steps in [phase-7-checklist.md](phase-7-checklist.md#owner-check-on-windows-25-minutes). Use a scratch folder, and a made-up secret. The owner accepted Phase 7 before running it (away from the PC); anything odd is fixed in a patch release. | Recommended with v0.8.0.                                               |
+| O3  | Codex workers can still read (not change) files outside their folder through Codex's own read-only commands. Claude Code workers cannot.                                                                                                                                                            | Accept for now, or use Claude Code for positions near sensitive files. |
+| O4  | The approved-command list is the main safeguard: `npm run *` and similar run the project's own scripts without asking.                                                                                                                                                                              | Trim it to the commands you use.                                       |
+| O5  | Version **0.8.0** (Phase 7 accepted).                                                                                                                                                                                                                                                               | Done.                                                                  |
+| O6  | Phase 8 (Development Department MVP) builds on these permissions.                                                                                                                                                                                                                                   | The owner starts it in a new branch.                                   |
 
 ## 8. Verification
 
@@ -158,5 +158,5 @@ banner, and the trail text. All earlier phases' tests pass.
 
 ## 9. Phase boundary
 
-Phase 7 is implemented and verified against fake CLIs. It is complete once the owner accepts it
-(§7). Phase 8 has not been started.
+Phase 7 was accepted by the owner on 2026-09-26 and released as v0.8.0; the Windows check with
+the real CLIs (§7, O2) is recommended with this release. Phase 8 has not been started.
