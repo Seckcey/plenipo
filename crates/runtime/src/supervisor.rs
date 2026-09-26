@@ -64,6 +64,8 @@ impl Default for SupervisorConfig {
 enum CancelReason {
     User,
     Shutdown,
+    /// Core stopped it (e.g. an agent runtime reported a billing source that is not allowed).
+    Policy,
 }
 
 impl CancelReason {
@@ -71,6 +73,7 @@ impl CancelReason {
         match self {
             Self::User => "Cancelled by user",
             Self::Shutdown => "Cancelled because Plenipo was shutting down",
+            Self::Policy => "Stopped by Plenipo policy",
         }
     }
 }
@@ -376,6 +379,16 @@ impl Supervisor {
     /// Terminate an execution's process tree and wait for its final record.
     /// Cancelling an execution that already finished returns its record unchanged.
     pub async fn cancel(&self, id: &str) -> Result<ExecutionRecord, RuntimeError> {
+        self.stop(id, CancelReason::User).await
+    }
+
+    /// Like [`Supervisor::cancel`], but recorded as stopped by Plenipo policy rather than by
+    /// the user.
+    pub async fn terminate(&self, id: &str) -> Result<ExecutionRecord, RuntimeError> {
+        self.stop(id, CancelReason::Policy).await
+    }
+
+    async fn stop(&self, id: &str, reason: CancelReason) -> Result<ExecutionRecord, RuntimeError> {
         let mut done = {
             let mut state = self.inner.lock();
             let record = state
@@ -388,7 +401,7 @@ impl Supervisor {
                 return Ok(record);
             };
             if let Some(tx) = live.cancel.take() {
-                let _ = tx.send(CancelReason::User);
+                let _ = tx.send(reason);
             }
             live.done.clone()
         };
@@ -448,14 +461,26 @@ fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {
 }
 
 fn build_command(spec: &LaunchSpec, executable: &Path, working_dir: &Path) -> CommandWrap {
-    let env = build_child_env(&spec.env);
     let stdin = if spec.stdin.is_some() {
         Stdio::piped()
     } else {
         Stdio::null()
     };
+    wrapped_command(executable, &spec.args, &spec.env, working_dir, stdin)
+}
+
+/// A command in its own process tree with a cleared environment (baseline + `declared`),
+/// piped stdout/stderr, and kill-on-drop. Shared by launches and short probes.
+pub(crate) fn wrapped_command(
+    executable: &Path,
+    args: &[String],
+    declared: &[(String, String)],
+    working_dir: &Path,
+    stdin: Stdio,
+) -> CommandWrap {
+    let env = build_child_env(declared);
     let mut command = CommandWrap::with_new(executable, |c| {
-        c.args(&spec.args)
+        c.args(args)
             .current_dir(working_dir)
             .env_clear()
             .envs(env)

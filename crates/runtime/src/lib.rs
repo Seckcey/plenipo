@@ -10,6 +10,7 @@
 //! (Windows Job Object with kill-on-close / Unix process group) so terminating it never
 //! leaves descendants behind.
 
+pub mod agent;
 pub mod diagnostic;
 pub mod dto;
 pub mod error;
