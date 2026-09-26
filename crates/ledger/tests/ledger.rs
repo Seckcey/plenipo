@@ -298,6 +298,33 @@ fn concurrent_writers_on_separate_connections() {
     assert_ordered_per_writer(&Ledger::open(&path).unwrap(), &id, 4, 100);
 }
 
+#[test]
+fn writers_wait_out_a_lock_held_longer_than_the_busy_timeout() {
+    // Another connection holds the write lock for longer than SQLite's 5 s busy timeout
+    // (e.g. a slow disk flush under contention). The ledger must wait, not fail.
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let l = Ledger::open(&path).unwrap();
+    let t = new_task(&l, "patient");
+    let blocker = Connection::open(&path).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(6_500));
+        blocker.execute_batch("COMMIT").unwrap();
+    });
+    let started = std::time::Instant::now();
+    l.append_event(NewEvent {
+        task_id: Some(t.id.clone()),
+        source: "writer".into(),
+        event_type: "synthetic.tick".into(),
+        ..NewEvent::default()
+    })
+    .expect("write must succeed once the lock is released");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(6));
+    release.join().unwrap();
+    assert_eq!(l.events_for_task(&t.id).unwrap().len(), 2);
+}
+
 fn assert_ordered_per_writer(l: &Ledger, task_id: &str, writers: u64, each: u64) {
     let ticks: Vec<_> = l
         .events_for_task(task_id)

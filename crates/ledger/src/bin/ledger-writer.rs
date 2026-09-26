@@ -28,7 +28,7 @@ fn main() {
     let mut out = std::io::stdout().lock();
     writeln!(out, "task:{}", task.id).unwrap();
     out.flush().unwrap();
-    for n in 1u64.. {
+    for n in 1u64..=u64::MAX {
         ledger
             .append_event(NewEvent {
                 task_id: Some(task.id.clone()),

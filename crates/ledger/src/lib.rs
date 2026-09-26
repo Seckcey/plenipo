@@ -17,9 +17,9 @@ mod tasks;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, ErrorCode};
 
 pub use dto::*;
 pub use error::{LedgerError, Result};
@@ -30,6 +30,10 @@ pub type Listener = Arc<dyn Fn(&LedgerEvent) + Send + Sync>;
 
 pub const DB_FILE_NAME: &str = "plenipo.db";
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Total time a write waits for the write lock. SQLite's busy handler is not fair between
+/// connections, so a writer can lose several 5 s rounds under contention (notably on Windows,
+/// where every `synchronous=FULL` commit flushes to disk). Keep retrying, then give up loudly.
+const WRITE_LOCK_WAIT: Duration = Duration::from_secs(60);
 
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
@@ -142,17 +146,24 @@ impl Ledger {
     }
 
     /// Run `f` in an IMMEDIATE transaction; notify the listener of its events after commit.
+    /// Any error rolls the whole transaction back.
     fn write<T>(
         &self,
-        f: impl FnOnce(&Transaction<'_>, &mut Vec<LedgerEvent>) -> Result<T>,
+        f: impl FnOnce(&Connection, &mut Vec<LedgerEvent>) -> Result<T>,
     ) -> Result<T> {
         let mut events = Vec::new();
         let value = {
-            let mut conn = self.conn();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let value = f(&tx, &mut events)?;
-            tx.commit()?;
-            value
+            let conn = self.conn();
+            begin_immediate(&conn)?;
+            let outcome = f(&conn, &mut events)
+                .and_then(|v| conn.execute_batch("COMMIT").map(|()| v).map_err(Into::into));
+            match outcome {
+                Ok(value) => value,
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return Err(e);
+                }
+            }
         };
         let listener = self
             .listener
@@ -169,6 +180,28 @@ impl Ledger {
 
     fn read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         f(&self.conn())
+    }
+}
+
+/// Take the write lock, retrying with backoff while another connection holds it.
+fn begin_immediate(conn: &Connection) -> Result<()> {
+    // A panic inside a previous write could have left a transaction open on this connection.
+    if !conn.is_autocommit() {
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+    let deadline = Instant::now() + WRITE_LOCK_WAIT;
+    let mut attempt: u64 = 0;
+    loop {
+        match conn.execute_batch("BEGIN IMMEDIATE") {
+            Ok(()) => return Ok(()),
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == ErrorCode::DatabaseBusy && Instant::now() < deadline =>
+            {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(10 * attempt.min(20)));
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
 }
 

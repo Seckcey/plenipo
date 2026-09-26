@@ -31,8 +31,9 @@ Open a **new** terminal afterwards so `PATH` updates, then verify:
 rustc --version; cargo --version; node --version; corepack enable; pnpm --version
 ```
 
-The repository's `rust-toolchain.toml` makes rustup install the correct toolchain plus
-`rustfmt` and `clippy` automatically on first build.
+The repository's `rust-toolchain.toml` pins the Rust version (currently **1.98**) and makes
+rustup install it plus `rustfmt` and `clippy` automatically on first build, so local builds and
+CI always use the same compiler and lints. Upgrading Rust is a deliberate one-line change there.
 
 ## 2. Clone, install, run
 

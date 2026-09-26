@@ -51,6 +51,17 @@ pub struct MigrationReport {
 }
 
 fn ensure_history_table(conn: &Connection) -> Result<()> {
+    // Check first (a read) so opening an up-to-date ledger never competes for the write lock.
+    let exists: Option<String> = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exists.is_some() {
+        return Ok(());
+    }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
              version    INTEGER PRIMARY KEY,
