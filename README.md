@@ -5,18 +5,17 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
-> acceptance, so the version stays 0.5.0). The **Organization** view is a live topology map of
-> your AI workforce: create departments and projects (each comes with its manager or
-> supervisor), drag roles from the hire palette onto a lead to build its team, drag positions
-> to change who they report to or to make them a team's reviewer, QA evaluator, or security
-> auditor, and give a supervisor an objective — its workers appear under it while they work
-> and leave when done, with every step in the durable local Ledger. The chain of command reads
-> Worker → Supervisor → Manager → VP → President (you); **Settings → Personalization → Titles**
-> can rename the ranks after a U.S. military branch or the Mafia. Agents run on your own
-> signed-in Claude Code and Codex (subscription sign-ins only, no API billing). Workers cannot
-> change files yet (permissions arrive with Guard in Phase 7). See
-> [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> **Status:** Phase 5 — Workforce and organization engine (accepted, v0.6.0). The
+> **Organization** view is a live topology map of your AI workforce: create departments and
+> projects (each comes with its manager or supervisor), drag roles from the hire palette onto a
+> lead to build its team, drag positions to change who they report to or to make them a team's
+> reviewer, QA evaluator, or security auditor, and give a supervisor an objective — its workers
+> appear under it while they work and leave when done, with every step in the durable local
+> Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
+> **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
+> the Mafia. Agents run on your own signed-in Claude Code and Codex (subscription sign-ins only,
+> no API billing). Workers cannot change files yet (permissions arrive with Guard in Phase 7).
+> See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -42,7 +41,7 @@ pnpm dev          # run the desktop app with hot reload
 
 No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
 install and sign in to Claude Code and/or Codex — see the
-[setup guide](docs/development/setup.md#3-agent-runtimes-phase-3-optional).
+[setup guide](docs/development/setup.md#3-ai-tools-claude-code-and-codex-phase-3-optional).
 
 ## Common commands
 
