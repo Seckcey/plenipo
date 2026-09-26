@@ -1,6 +1,6 @@
 # ADR-013: Plenipo Guard, the capability broker, and human approval
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 7
 

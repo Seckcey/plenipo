@@ -1,8 +1,10 @@
-//! Test double for the Claude Code and Codex CLIs (ADR-007). Never shipped.
+//! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
-//! Copy or link this binary as `claude` / `codex` (`.exe` on Windows); it answers like the
-//! real CLI named by its file stem: `--version`, the sign-in status command, and one turn in
-//! the provider's JSON-lines stream format with the prompt read from stdin.
+//! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`;
+//! `.exe` on Windows); it answers like the real CLI named by its file stem: `--version`, the
+//! sign-in status command, and one turn in the provider's JSON-lines stream format with the
+//! prompt read from stdin. Under any other name, `--personas` lists the persona names, one per
+//! line, so test helpers install every persona without naming them.
 //!
 //! State lives in `<HOME or USERPROFILE>/.plenipo-fake-agent/`:
 //! - `auth` (optional, comma-separated flags): `subscription` (default), `api-key`,
@@ -42,6 +44,13 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+/// How a persona answers its arguments: the process's exit code.
+type Answer = fn(&[String]) -> i32;
+
+/// Each AI tool this double stands in for: its executable name and how it answers. A new AI
+/// tool adds its persona here (docs/development/adding-an-ai-tool.md).
+const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex)];
+
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
     let persona = args
@@ -50,12 +59,17 @@ pub fn main() {
         .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let rest = &args[1..];
-    let code = match persona.as_str() {
-        "claude" => claude(rest),
-        "codex" => codex(rest),
-        other => {
+    let names: Vec<&str> = PERSONAS.iter().map(|(name, _)| *name).collect();
+    let code = match PERSONAS.iter().find(|(name, _)| *name == persona) {
+        Some((_, answer)) => answer(rest),
+        None if rest == ["--personas"] => {
+            println!("{}", names.join("\n"));
+            0
+        }
+        None => {
             eprintln!(
-                "plenipo-fake-agent: unknown persona {other:?} (name the file claude or codex)"
+                "plenipo-fake-agent: unknown persona {persona:?} (name the file one of: {})",
+                names.join(", ")
             );
             64
         }

@@ -258,6 +258,10 @@ Decision record: [ADR-007](../adr/ADR-007-runtime-adapters.md).
   `interrupted`. A usage limit never switches provider. Turns running when Plenipo stopped are
   recorded as interrupted on the next start.
 - **Tests** run against `plenipo-fake-agent`, a test double that speaks both stream formats.
+- **Adding an AI tool** ([ADR-014](../adr/ADR-014-adding-ai-tools.md), adding AI tools ahead of
+  Phase 15): the [adapter guide](../development/adding-an-ai-tool.md) is the contract, and
+  `crates/runtime/tests/contract.rs` checks it for every adapter in `builtin_adapters()`. The
+  fake CLI has one persona per AI tool; test helpers install every persona it lists.
 
 ## 7. Liaison (Phase 4)
 

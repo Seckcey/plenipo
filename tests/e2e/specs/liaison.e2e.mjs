@@ -5,12 +5,13 @@
 // (see the Phase 4 checklist).
 
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  installFakeTools,
   launch,
   makeHome,
   nav,
@@ -20,20 +21,8 @@ import {
   waitUntil,
 } from "../lib/app.mjs";
 
-const root = resolve(import.meta.dirname, "../../..");
-const exe = (name) => (process.platform === "win32" ? `${name}.exe` : name);
-const FAKE = resolve(
-  process.env.PLENIPO_FAKE_AGENT ?? join(root, "target", "release", exe("plenipo-fake-agent")),
-);
-
 const home = makeHome();
-const bin = join(home, "bin");
-mkdirSync(bin, { recursive: true });
-for (const name of ["claude", "codex"]) {
-  copyFileSync(FAKE, join(bin, exe(name)));
-  chmodSync(join(bin, exe(name)), 0o755);
-}
-const env = { PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` };
+const env = installFakeTools(home);
 mkdirSync(join(home, ".plenipo-fake-agent"), { recursive: true });
 writeFileSync(join(home, ".plenipo-fake-agent", "auth"), "subscription");
 

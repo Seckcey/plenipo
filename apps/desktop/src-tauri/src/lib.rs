@@ -726,6 +726,14 @@ mod ipc_boundary_tests {
 
     const SESSION: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
+    /// The AI tools this version ships, in display order.
+    fn tool_ids() -> Vec<&'static str> {
+        plenipo_runtime::agent::builtin_adapters()
+            .iter()
+            .map(|a| a.id())
+            .collect()
+    }
+
     #[test]
     fn agent_overview_lists_runtimes_without_starting_anything() {
         let app = app();
@@ -733,7 +741,7 @@ mod ipc_boundary_tests {
         let overview: plenipo_runtime::agent::AgentOverview =
             body(invoke(&main, "get_agent_overview"));
         let ids: Vec<_> = overview.runtimes.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(ids, ["claude-code", "codex"]);
+        assert_eq!(ids, tool_ids());
         assert!(overview.sessions.is_empty());
         assert!(overview.runtimes.iter().all(|r| !r.ready));
     }
@@ -769,7 +777,7 @@ mod ipc_boundary_tests {
         let main = window(&app, "main");
         for args in [
             serde_json::json!({ "runtimeId": "../claude", "objective": "x" }),
-            serde_json::json!({ "runtimeId": "gemini", "objective": "x" }),
+            serde_json::json!({ "runtimeId": "no-such-tool", "objective": "x" }),
             serde_json::json!({ "runtimeId": "codex", "objective": "   " }),
             serde_json::json!({ "runtimeId": "codex", "objective": "x".repeat(40_001) }),
             serde_json::json!({ "runtimeId": "codex", "objective": "x", "model": "--yolo" }),
@@ -829,7 +837,7 @@ mod ipc_boundary_tests {
             .iter()
             .map(|d| d.address.as_str())
             .collect();
-        assert_eq!(addresses, ["claude-code", "codex"]);
+        assert_eq!(addresses, tool_ids());
         assert!(overview.destinations.iter().all(|d| !d.ready));
         assert_eq!(overview.open_handoffs, 0);
     }
@@ -974,7 +982,7 @@ mod ipc_boundary_tests {
         assert!(org.departments.is_empty() && org.positions.is_empty());
         assert!(org.roles.iter().filter(|r| r.template).count() >= 10);
         let runtimes: Vec<_> = org.runtimes.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(runtimes, ["claude-code", "codex"]);
+        assert_eq!(runtimes, tool_ids());
         let work: plenipo_workforce::WorkView = body(invoke(&main, "get_work"));
         assert!(work.running.is_empty() && work.position_id.is_none());
     }

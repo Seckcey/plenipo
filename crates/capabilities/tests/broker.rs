@@ -38,6 +38,22 @@ fn exe_name(stem: &str) -> String {
     }
 }
 
+/// Every AI tool the fake CLI stands in for (`plenipo-fake-agent --personas`).
+fn personas() -> &'static [&'static str] {
+    static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_plenipo-fake-agent-capabilities"))
+            .arg("--personas")
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .leak()
+            .lines()
+            .collect()
+    })
+}
+
 /// One copy of the fake CLIs per test process, ready to execute.
 fn fake_clis() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -45,7 +61,7 @@ fn fake_clis() -> &'static Path {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("capabilities-fake-agents-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for stem in ["claude", "codex"] {
+        for stem in personas() {
             let path = dir.join(exe_name(stem));
             std::fs::copy(env!("CARGO_BIN_EXE_plenipo-fake-agent-capabilities"), &path).unwrap();
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -119,7 +135,7 @@ async fn harness() -> H {
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(dir.path().join("home").join(".plenipo-fake-agent")).unwrap();
-    for stem in ["claude", "codex"] {
+    for stem in personas() {
         install_fake(&bin, stem);
     }
     let folder = dir.path().join("website");
