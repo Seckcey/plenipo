@@ -12,4 +12,4 @@ envVar?: string,
 /**
  * Program names that receive it, e.g. `gh`.
  */
-programs: Array<string>, createdAt: bigint, updatedAt: bigint, };
+programs: Array<string>, createdAt: number, updatedAt: number, };

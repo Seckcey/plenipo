@@ -1,5 +1,6 @@
 import { useAgents } from "../agents/useAgents";
 import { ModelSettings } from "../components/models/ModelSettings";
+import { PermissionSettings } from "../components/permissions/PermissionSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
@@ -10,8 +11,8 @@ export function SettingsView() {
     <section className="view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
       <p className="view__lead">
-        Personalization and the AI models your roles use can be changed here. The rest is shown for
-        reference and becomes editable in later phases.
+        Personalization, the AI models your roles use, and what workers may do on this computer can
+        be changed here. The rest is shown for reference and becomes editable in later phases.
       </p>
 
       <h2>Personalization</h2>
@@ -19,6 +20,9 @@ export function SettingsView() {
 
       <h2>AI models</h2>
       <ModelSettings />
+
+      <h2>Permissions</h2>
+      <PermissionSettings />
 
       <h2>AI tools</h2>
       <ul className="settings">
@@ -33,14 +37,17 @@ export function SettingsView() {
           billing. Reaching a usage limit never moves work to another AI company.
         </li>
         <li>
-          <strong>Permissions:</strong> Claude Code workers get no tools and no add-ons (MCP
-          servers); Codex workers run read-only, without internet access. Each conversation works in
-          its own empty folder. Permission to do more arrives with Plenipo Guard.
+          <strong>Permissions:</strong> workers never get their AI tool&apos;s own tools or your
+          add-ons (MCP servers); Codex&apos;s own commands stay read-only, without internet access.
+          Workers of your organization with permissions (above) get Plenipo&apos;s own tools
+          instead, confined to their project&apos;s folder and checked by Plenipo Guard. Tasks you
+          start yourself in Workers get no tools.
         </li>
         <li>
           <strong>Your keys and secrets:</strong> API keys and other secrets on this computer are
           never passed to a worker. Only proxy settings and the tools&apos; own settings folders
-          are.
+          are. Secrets you store under Permissions go only to the programs you name, and are hidden
+          wherever they would appear.
         </li>
         <li>
           <strong>Model:</strong> organization workers get the model their role&apos;s choices pick
@@ -52,9 +59,9 @@ export function SettingsView() {
           a worker on another AI tool for help through Plenipo Liaison — workers never contact each
           other directly. Liaison records a sub-task, passes on only the context the worker chose
           (up to a limit), and brings the reply back to the same piece of work. Limits: 3 levels
-          deep, 3 requests per answer, 5 reply rounds per task, 12 handoffs per piece of work.
-          Handoff workers get the same permissions as any worker; requests for more permissions are
-          recorded but never granted before Plenipo Guard.
+          deep, 3 requests per answer, 5 reply rounds per task, 12 handoffs per piece of work. A
+          worker&apos;s permissions come from your settings for its role and project; a request for
+          more permissions is recorded but never grants anything.
         </li>
       </ul>
 
@@ -65,8 +72,9 @@ export function SettingsView() {
           {state.profiles.map((p) => p.label).join(", ") || "none"}
         </li>
         <li>
-          <strong>Only these:</strong> Plenipo itself (built-in checks) and the Claude Code and
-          Codex it finds. Nothing on screen can supply a command, path, or argument.
+          <strong>Only these:</strong> Plenipo itself (built-in checks), the Claude Code and Codex
+          it finds, and programs a worker runs with your permission (Permissions above). Nothing on
+          screen can supply a command, path, or argument.
         </li>
         <li>
           <strong>Environment:</strong> programs get the operating system&apos;s basics plus

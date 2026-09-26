@@ -45,7 +45,6 @@ pub struct PermissionSet {
     pub name: String,
     pub description: String,
     /// Capabilities not listed are blocked.
-    #[ts(type = "Partial<Record<Capability, Level>>")]
     pub levels: BTreeMap<Capability, Level>,
     /// Shipped with Plenipo: can be changed but not removed.
     pub built_in: bool,
@@ -66,7 +65,6 @@ pub struct PermissionSetInput {
     pub id: Option<String>,
     pub name: String,
     pub description: String,
-    #[ts(type = "Partial<Record<Capability, Level>>")]
     pub levels: BTreeMap<Capability, Level>,
 }
 
@@ -188,7 +186,9 @@ pub struct SecretInfo {
     pub env_var: Option<String>,
     /// Program names that receive it, e.g. `gh`.
     pub programs: Vec<String>,
+    #[ts(type = "number")]
     pub created_at: u64,
+    #[ts(type = "number")]
     pub updated_at: u64,
 }
 

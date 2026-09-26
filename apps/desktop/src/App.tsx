@@ -16,7 +16,9 @@ import { VIEWS, type ViewId } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
+import { useApprovals } from "./guard/usePermissions";
 import { ActivityView } from "./views/ActivityView";
+import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
 import { OrganizationView } from "./views/OrganizationView";
 import { RuntimesView } from "./views/RuntimesView";
@@ -116,6 +118,8 @@ function Shell({ core }: { core: CoreState }) {
       .then((status) => setLedgerNotices(status.notices))
       .catch(() => undefined);
   }, []);
+  const approvals = useApprovals();
+  const waiting = approvals.queue?.pending ?? [];
   const activeCount = Object.values(state.executions).filter(isActive).length;
   const workingCount = Object.values(agents.state.sessions).filter(isRunning).length;
   const info = core.status === "ready" ? core.info : null;
@@ -173,6 +177,7 @@ function Shell({ core }: { core: CoreState }) {
           onNavigate={navigate}
           activeCount={activeCount}
           workingCount={workingCount}
+          approvalCount={waiting.length}
         />
         <main
           className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
@@ -193,6 +198,25 @@ function Shell({ core }: { core: CoreState }) {
               </div>
               <button type="button" className="link" onClick={() => setNoticesDismissed(true)}>
                 Dismiss
+              </button>
+            </div>
+          )}
+          {waiting.length > 0 && view !== "approvals" && (
+            <div className="banner banner--approval" role="status">
+              <div>
+                <strong>
+                  {waiting.length === 1
+                    ? `${waiting[0]?.worker ?? "A worker"} is waiting for your approval`
+                    : `${waiting.length} requests are waiting for your approval`}
+                </strong>
+                {waiting.length === 1 && <div className="muted">{waiting[0]?.summary}</div>}
+              </div>
+              <button
+                type="button"
+                className="button button--small"
+                onClick={() => navigate("approvals")}
+              >
+                Review
               </button>
             </div>
           )}
@@ -218,6 +242,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenPosition={openPosition}
             />
           )}
+          {view === "approvals" && <ApprovalsView onOpenTask={openTask} />}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />

@@ -524,22 +524,16 @@ function PositionPanel({
                 <dd>{project.repositoryUrl}</dd>
               </>
             )}
-            {project.localPath && (
-              <>
-                <dt>Local folder</dt>
-                <dd>
-                  {project.localPath} <span className="pill">Recorded only</span>
-                </dd>
-              </>
-            )}
-            {project.capabilityProfile && (
-              <>
-                <dt>Capabilities</dt>
-                <dd>
-                  {project.capabilityProfile} <span className="pill">Recorded only</span>
-                </dd>
-              </>
-            )}
+            <dt>Folder</dt>
+            <dd>
+              {project.localPath ? (
+                <span className="path">{project.localPath}</span>
+              ) : (
+                "None — its workers get no file, program, or git tools"
+              )}
+            </dd>
+            <dt>Permission limit</dt>
+            <dd>{project.capabilityProfile ?? "No limit"}</dd>
           </dl>
           {project.active && (
             <div className="actions">

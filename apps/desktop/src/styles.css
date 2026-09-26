@@ -2495,3 +2495,111 @@ button {
     transition: none;
   }
 }
+
+/* ---- Approvals and permissions (Phase 7) ---------------------------------------------------- */
+
+.banner--approval {
+  align-items: center;
+  border-color: var(--warn);
+}
+
+.banner--approval strong {
+  color: var(--warn);
+}
+
+.approvals {
+  display: grid;
+  gap: 12px;
+}
+
+.approval {
+  padding: 14px 16px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.approval__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.approval__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.approval__meta,
+.approval__why,
+.approval__tags {
+  margin: 6px 0;
+}
+
+.approval__meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.approval__detail {
+  margin: 8px 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-outcomes,
+.blocked {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.approval-outcome,
+.blocked__item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.blocked__item .link {
+  margin-left: 8px;
+}
+
+.permissions {
+  display: grid;
+  gap: 8px;
+}
+
+.permissions__editor {
+  display: grid;
+  gap: 4px;
+  max-width: 760px;
+  padding: 8px 0 12px;
+}
+
+.permissions__grid td {
+  text-align: center;
+}
+
+.permissions__rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.permissions__rules .actions,
+.permissions__rules .form-error {
+  grid-column: 1 / -1;
+}
+
+.permissions__rules textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
