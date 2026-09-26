@@ -8,6 +8,7 @@ import * as events from "../api/events";
 import { initialCamera, worldToScreen } from "../org/camera";
 import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { sampleRouting } from "../test/routingFixtures";
 import { OrganizationView } from "./OrganizationView";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     ...actual,
     getOrganization: vi.fn(),
     getWork: vi.fn(),
+    getRouting: vi.fn(),
     renameOrganization: vi.fn(),
     createRole: vi.fn(),
     createDepartment: vi.fn(),
@@ -96,6 +98,7 @@ function release(to: { clientX: number; clientY: number }) {
 beforeEach(() => {
   sessionStorage.clear();
   api.getWork.mockImplementation((id) => Promise.resolve(noWork(id ?? null)));
+  api.getRouting.mockResolvedValue(sampleRouting());
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
     emitLedger = handler;
     return Promise.resolve(() => undefined);
@@ -175,15 +178,120 @@ describe("Organization view", () => {
     expect(within(dialog).getByRole("combobox", { name: "Reports to" })).toHaveDisplayValue(
       "Website Supervisor",
     );
+    // New positions follow their role's model choices unless you fix an AI tool.
+    expect(within(dialog).getByRole("combobox", { name: /AI tool/ })).toHaveDisplayValue(
+      "Automatic (the role's model choices)",
+    );
+    expect(within(dialog).queryByRole("textbox", { name: /Model/ })).not.toBeInTheDocument();
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "Hire" }));
     expect(api.hirePosition).toHaveBeenCalledWith({
       roleId: "r-research",
       title: "Researcher",
       reportsTo: "p-web",
-      runtimeId: "claude-code",
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Hired Researcher.")).toBeInTheDocument();
+  });
+
+  it("explains an automatic position's model and lets you fix an AI tool instead", async () => {
+    const org = sampleOrganization();
+    const dev = org.positions.find((x) => x.id === "p-dev")!;
+    Object.assign(dev, {
+      automatic: true,
+      runtimeId: "codex",
+      model: null,
+      route: {
+        choice: {
+          modelId: "m-codex",
+          runtimeId: "codex",
+          runtimeLabel: "Codex",
+          company: "openai",
+          model: null,
+          label: "Codex (default model)",
+        },
+        reason:
+          "Codex (default model) is Senior Developer's second choice: Opus (Claude Code) was skipped because Claude Code is not signed in.",
+        rank: 2,
+        candidates: [
+          {
+            modelId: "m-opus",
+            label: "Opus (Claude Code)",
+            verdict: "skipped",
+            note: "Claude Code is not signed in",
+          },
+          { modelId: "m-codex", label: "Codex (default model)", verdict: "chosen", note: "" },
+        ],
+        fixed: false,
+      },
+    });
+    show(org);
+    api.updatePosition.mockResolvedValue(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Senior Developer, / }));
+    const details = screen.getByRole("complementary", { name: "Details: Senior Developer" });
+    expect(
+      within(details).getByText("Automatic: Senior Developer model choices"),
+    ).toBeInTheDocument();
+    expect(within(details).getByTestId("route-reason")).toHaveTextContent(
+      "Opus (Claude Code) was skipped because Claude Code is not signed in",
+    );
+    expect(within(details).getByText(/Claude Code is not signed in$/)).toBeInTheDocument();
+    // Fix it to Codex with a named model.
+    await user.click(within(details).getByText("Edit title or AI model"));
+    const form = within(details).getByRole("form", { name: "Edit position" });
+    const tool = within(form).getByRole("combobox", { name: "AI tool" });
+    expect(tool).toHaveDisplayValue("Automatic (the role's model choices)");
+    await user.selectOptions(tool, "codex");
+    // A name Codex does not list: type it.
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: "Model" }),
+      "Type another name…",
+    );
+    await user.type(
+      within(form).getByRole("textbox", { name: /Model name the AI tool accepts/ }),
+      "gpt-x",
+    );
+    await user.click(within(form).getByRole("button", { name: "Save changes" }));
+    expect(api.updatePosition).toHaveBeenCalledWith("p-dev", {
+      runtimeId: "codex",
+      model: "gpt-x",
+    });
+  });
+
+  it("hires a position fixed to an AI tool and model", async () => {
+    const org = sampleOrganization();
+    show(org);
+    api.hirePosition.mockResolvedValue(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Website Supervisor, / }));
+    const details = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
+    await user.click(within(details).getByRole("button", { name: "Hire into team" }));
+    const dialog = screen.getByRole("dialog", { name: "Hire" });
+    await user.selectOptions(
+      within(dialog).getByRole("combobox", { name: /AI tool/ }),
+      "claude-code",
+    );
+    // Claude Code's own models, your models, and the models seen in use.
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    await within(model).findByRole("option", { name: "sonnet" });
+    expect(
+      within(model)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([
+      "The AI tool's default",
+      "fable",
+      "opus",
+      "sonnet",
+      "haiku",
+      "claude-opus-5-5",
+      "Type another name…",
+    ]);
+    await user.selectOptions(model, "sonnet");
+    await user.click(within(dialog).getByRole("button", { name: "Hire" }));
+    expect(api.hirePosition).toHaveBeenCalledWith(
+      expect.objectContaining({ reportsTo: "p-web", runtimeId: "claude-code", model: "sonnet" }),
+    );
   });
 
   it("drags a position onto a lead to reassign it or make it that team's auditor", async () => {
@@ -312,7 +420,7 @@ describe("Organization view", () => {
     expect(api.createDepartment).toHaveBeenCalledWith({
       name: "Research",
       description: "",
-      head: { roleId: "r-manager", title: "Research Manager", runtimeId: "claude-code" },
+      head: { roleId: "r-manager", title: "Research Manager" },
     });
     // The snapshot the command returns is shown straight away.
     expect(

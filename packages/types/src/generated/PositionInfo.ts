@@ -3,6 +3,7 @@ import type { AgentInfo } from "./AgentInfo";
 import type { PositionHistory } from "./PositionHistory";
 import type { PositionKind } from "./PositionKind";
 import type { PositionStatus } from "./PositionStatus";
+import type { RouteDecision } from "./RouteDecision";
 import type { Staffing } from "./Staffing";
 import type { TaskBrief } from "./TaskBrief";
 import type { WorkCounts } from "./WorkCounts";
@@ -20,7 +21,24 @@ departmentId: string | null,
 /**
  * Its project: the nearest coordinator at or above it.
  */
-projectId: string | null, headsDepartmentId: string | null, coordinatesProjectId: string | null, runtimeId: string, model: string | null, active: boolean, sortKey: number, 
+projectId: string | null, headsDepartmentId: string | null, coordinatesProjectId: string | null, 
+/**
+ * Its AI tool: the fixed one, its agent's conversation's, or the one its next worker would
+ * get; `None` when no model can take its work now.
+ */
+runtimeId: string | null, 
+/**
+ * Its model (`None`: the AI tool's default), picked the same way.
+ */
+model: string | null, 
+/**
+ * Follows its role's model policy (vs. an AI tool and model the owner fixed).
+ */
+automatic: boolean, 
+/**
+ * Where its next worker (or a new agent) would go, and why.
+ */
+route: RouteDecision | null, active: boolean, sortKey: number, 
 /**
  * The incumbent of a persistent position.
  */

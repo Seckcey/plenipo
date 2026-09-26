@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-role-policy"
+description = "Enables the set_role_policy command without any pre-configured scope."
+commands.allow = ["set_role_policy"]
+
+[[permission]]
+identifier = "deny-set-role-policy"
+description = "Denies the set_role_policy command without any pre-configured scope."
+commands.deny = ["set_role_policy"]

@@ -25,6 +25,8 @@ import {
   type LiaisonSessionInfo,
 } from "../agents/store";
 import { useAgents } from "../agents/useAgents";
+import { ModelPicker } from "../components/models/ModelPicker";
+import { useRoutingOnce } from "../routing/useRouting";
 import { openHandoffs, useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
 import { HandoffCard, ReceivedHandoff } from "../components/Handoffs";
 import { formatTime } from "../runtime/format";
@@ -69,6 +71,7 @@ export function WorkersView({
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
   const [objective, setObjective] = useState("");
   const [model, setModel] = useState("");
+  const routing = useRoutingOnce();
   const [handoffs, setHandoffs] = useState(false);
   const [followUp, setFollowUp] = useState("");
   const [pending, setPending] = useState<string | null>(null);
@@ -174,7 +177,10 @@ export function WorkersView({
                   name="runtime"
                   value={r.id}
                   checked={chosen?.id === r.id}
-                  onChange={() => setRuntimeId(r.id)}
+                  onChange={() => {
+                    setRuntimeId(r.id);
+                    setModel("");
+                  }}
                 />
                 <span className="choice__label">{r.label}</span>
                 <span className={`pill pill--${status.tone}`}>{status.text}</span>
@@ -211,15 +217,14 @@ export function WorkersView({
         </label>
         <details className="advanced">
           <summary>Advanced</summary>
-          <label className="field">
-            <span>Model (optional)</span>
-            <input
+          {chosen && (
+            <ModelPicker
+              routing={routing}
+              runtimeId={chosen.id}
               value={model}
-              maxLength={64}
-              placeholder="The AI tool's default"
-              onChange={(e) => setModel(e.target.value)}
+              onChange={setModel}
             />
-          </label>
+          )}
         </details>
 
         {hint && chosen && (

@@ -9,6 +9,11 @@
 > with "AI tool" for runtime and "full-time" / "on call" for persistent / on-demand. This ADR
 > keeps the rollout plan's names, which are also the names in the code.
 
+> **Phase 6** ([ADR-011](ADR-011-model-policy-routing.md), how Plenipo picks each worker's AI
+> model — proposed): amends §8. A position's runtime becomes optional; a position without one is
+> _Automatic_ — its role's model policy picks each worker's runtime and model — and positions from
+> before Phase 6 keep the runtime they had.
+
 ## Context
 
 Phase 5 represents the company as departments, managers, coordinators, roles, projects, and

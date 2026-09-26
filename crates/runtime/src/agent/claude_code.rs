@@ -15,11 +15,20 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
+    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
+    TurnOutcome, TurnResult,
 };
 use crate::dto::TokenUsage;
 
 pub const ID: &str = "claude-code";
+/// `claude --effort`'s levels, which its current Fable, Opus, and Sonnet models all accept.
+const FRONTIER_EFFORT: &[Effort] = &[
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::XHigh,
+    Effort::Max,
+];
 const LABEL: &str = "Claude Code";
 
 /// Credential source Claude Code reports when it uses a subscription (OAuth) sign-in.
@@ -55,6 +64,17 @@ impl RuntimeAdapter for ClaudeCode {
             tool_posture: "Conversation only: no built-in tools and no MCP servers until \
                            Plenipo Guard grants capabilities (Phase 7)."
                 .into(),
+            // `claude --effort <level>`.
+            effort_levels: FRONTIER_EFFORT.to_vec(),
+            // The model families `claude --model` accepts as aliases, each for its latest model
+            // (Claude Code 2.1.283: Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5; Haiku has no effort
+            // setting).
+            known_models: vec![
+                KnownModel::new("fable", "Fable", FRONTIER_EFFORT),
+                KnownModel::new("opus", "Opus", FRONTIER_EFFORT),
+                KnownModel::new("sonnet", "Sonnet", FRONTIER_EFFORT),
+                KnownModel::new("haiku", "Haiku", &[]),
+            ],
         }
     }
 
@@ -126,6 +146,9 @@ impl RuntimeAdapter for ClaudeCode {
         .to_vec();
         if let Some(model) = &request.model {
             args.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(effort) = request.effort {
+            args.extend(["--effort".into(), effort.as_str().into()]);
         }
         match &request.session {
             ProviderSession::New {
@@ -509,8 +532,31 @@ mod tests {
                 preassigned: Some("11111111-1111-4111-8111-111111111111".into()),
             },
             model: None,
+            effort: None,
             billing_confirmed: true,
         }
+    }
+
+    #[test]
+    fn known_models_are_valid_names_with_their_own_effort_levels() {
+        let caps = ClaudeCode.capabilities();
+        let names: Vec<&str> = caps.known_models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["fable", "opus", "sonnet", "haiku"]);
+        for m in &caps.known_models {
+            assert_eq!(
+                crate::agent::service::validate_model(&m.name).unwrap(),
+                m.name
+            );
+            assert!(m
+                .effort_levels
+                .iter()
+                .all(|e| caps.effort_levels.contains(e)));
+        }
+        assert_eq!(caps.effort_levels_for(Some("fable")), FRONTIER_EFFORT);
+        assert!(caps.effort_levels_for(Some("haiku")).is_empty());
+        // A model it does not know, or its default model: the CLI's own levels.
+        assert_eq!(caps.effort_levels_for(Some("claude-x")), FRONTIER_EFFORT);
+        assert_eq!(caps.effort_levels_for(None), FRONTIER_EFFORT);
     }
 
     #[test]
@@ -535,11 +581,15 @@ mod tests {
         let resume = ClaudeCode.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "abc".into() },
             model: Some("sonnet".into()),
+            effort: Some(Effort::XHigh),
             billing_confirmed: true,
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
         assert_eq!(resume[m + 1], "sonnet");
+        let e = resume.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(resume[e + 1], "xhigh");
+        assert!(!args.iter().any(|a| a == "--effort"));
     }
 
     #[test]
@@ -727,6 +777,7 @@ mod tests {
         let mut p = ClaudeCode.parser(&TurnRequest {
             session: ProviderSession::Resume { id: "old".into() },
             model: None,
+            effort: None,
             billing_confirmed: true,
         });
         let events = feed(

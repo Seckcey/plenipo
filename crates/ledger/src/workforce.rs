@@ -23,13 +23,18 @@ use crate::Ledger;
 const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_id, model, state, sort_key, \
     metadata, created_at, updated_at, archived_at";
 
+/// Stored as a position's `runtime_id` when the position is automatic: its role's model policy
+/// chooses the runtime (Phase 6, ADR-011). No runtime may use this ID.
+pub const AUTOMATIC: &str = "auto";
+
 fn position_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Position> {
+    let runtime: String = r.get(4)?;
     Ok(Position {
         id: r.get(0)?,
         title: r.get(1)?,
         role_id: r.get(2)?,
         reports_to: r.get(3)?,
-        runtime_id: r.get(4)?,
+        runtime_id: (runtime != AUTOMATIC).then_some(runtime),
         model: r.get(5)?,
         state: parse_enum(6, r.get(6)?, PositionState::parse)?,
         sort_key: r.get(7)?,
@@ -115,11 +120,12 @@ fn clean_text(what: &str, value: &str, max: usize) -> Result<String> {
     Ok(value.to_owned())
 }
 
-/// `[a-z0-9][a-z0-9-]{0,31}`: a runtime (adapter) ID.
+/// `[a-z0-9][a-z0-9-]{0,31}`: a runtime (adapter) ID (never [`AUTOMATIC`]).
 pub fn clean_runtime_id(id: &str) -> Result<String> {
     let id = id.trim();
     let mut chars = id.chars();
     let ok = (1..=32).contains(&id.len())
+        && id != AUTOMATIC
         && chars
             .next()
             .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
@@ -261,15 +267,33 @@ fn clean_position(new: &NewPosition) -> Result<NewPosition> {
         title: clean_line("the title", &new.title, 80)?,
         role_id: new.role_id.clone(),
         reports_to: new.reports_to.clone(),
-        runtime_id: clean_runtime_id(&new.runtime_id)?,
+        runtime_id: new
+            .runtime_id
+            .as_deref()
+            .map(clean_runtime_id)
+            .transpose()?,
         runtime_provider: new
             .runtime_provider
             .as_deref()
+            .filter(|_| new.runtime_id.is_some())
             .map(|p| clean_line("the provider", p, 64))
             .transpose()?,
-        model: clean_optional_model(new.model.as_deref())?,
+        model: fixed_model(new.runtime_id.as_deref(), new.model.as_deref())?,
         staffed: new.staffed,
     })
+}
+
+/// A position's model: only a fixed runtime has one (an automatic position's model comes from
+/// its role's model policy).
+fn fixed_model(runtime_id: Option<&str>, model: Option<&str>) -> Result<Option<String>> {
+    let model = clean_optional_model(model)?;
+    if runtime_id.is_none() && model.is_some() {
+        return Err(invalid(
+            "an automatic position gets its model from its role's model choices; choose an AI \
+             tool to set a model",
+        ));
+    }
+    Ok(model)
 }
 
 fn role_type_label(t: RoleType) -> &'static str {
@@ -526,8 +550,16 @@ impl Org {
         }
     }
 
-    /// `runtime_id` must be allowed by `project` (when the position belongs to one).
-    fn check_runtime(project: Option<&Project>, runtime_id: &str, title: &str) -> Result<()> {
+    /// A fixed `runtime_id` must be allowed by `project` (when the position belongs to one). An
+    /// automatic position is routed within the project's runtimes when it takes work.
+    fn check_runtime(
+        project: Option<&Project>,
+        runtime_id: Option<&str>,
+        title: &str,
+    ) -> Result<()> {
+        let Some(runtime_id) = runtime_id else {
+            return Ok(());
+        };
         match project {
             Some(p) if !p.allowed_runtimes.iter().any(|r| r == runtime_id) => {
                 Err(invalid(format!(
@@ -598,7 +630,7 @@ fn insert_position(
             new.title,
             new.role_id,
             reports_to,
-            new.runtime_id,
+            new.runtime_id.as_deref().unwrap_or(AUTOMATIC),
             new.model,
             next_sort_key(tx, reports_to)?,
             now
@@ -616,6 +648,7 @@ fn insert_position(
             "roleId": new.role_id,
             "reportsTo": reports_to,
             "runtimeId": new.runtime_id,
+            "automatic": new.runtime_id.is_none(),
             "model": new.model,
         }),
     )?;
@@ -636,7 +669,8 @@ fn incumbent(c: &Connection, position_id: &str) -> Result<Option<AgentInstance>>
     .optional()?)
 }
 
-/// Hire an incumbent into a persistent position.
+/// Hire an incumbent into a persistent position. An automatic position's agent has no runtime
+/// until its first conversation is routed ([`Ledger::route_agent`]).
 fn hire(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
@@ -654,7 +688,7 @@ fn hire(
         params![
             id,
             position.role_id,
-            runtime_provider,
+            runtime_provider.filter(|_| position.runtime_id.is_some()),
             project_id,
             now,
             position.id,
@@ -673,6 +707,7 @@ fn hire(
             "positionId": position.id,
             "title": position.title,
             "runtimeId": position.runtime_id,
+            "automatic": position.runtime_id.is_none(),
             "model": position.model,
         }),
     )?;
@@ -922,6 +957,7 @@ pub(crate) fn insert_worker(
                 "title": position.title,
                 "runtimeId": runtime_id,
                 "model": model,
+                "routing": worker.routing,
             }),
             ..NewEvent::default()
         },
@@ -1427,10 +1463,14 @@ impl Ledger {
                 )));
             }
             org.check_title(&coordinator.title, Some(&head.id), None)?;
-            if !settings.allowed_runtimes.contains(&coordinator.runtime_id) {
+            if let Some(runtime) = coordinator
+                .runtime_id
+                .as_ref()
+                .filter(|r| !settings.allowed_runtimes.contains(r))
+            {
                 return Err(invalid(format!(
-                    "the supervisor's AI tool ({}) must be one of the project's allowed AI tools",
-                    coordinator.runtime_id
+                    "the supervisor's AI tool ({runtime}) must be one of the project's allowed AI \
+                     tools"
                 )));
             }
             let id = uuid::Uuid::new_v4().to_string();
@@ -1637,7 +1677,7 @@ impl Ledger {
             org.check_supervisor(tx, role, None, new.reports_to.as_deref())?;
             org.check_title(&new.title, new.reports_to.as_deref(), None)?;
             let project = new.reports_to.as_deref().and_then(|l| org.project_of(l));
-            Org::check_runtime(project, &new.runtime_id, &new.title)?;
+            Org::check_runtime(project, new.runtime_id.as_deref(), &new.title)?;
             let position = insert_position(tx, out, &new, new.reports_to.as_deref(), actor)?;
             let agent = if role.persistent && new.staffed {
                 Some(hire(
@@ -1675,7 +1715,7 @@ impl Ledger {
                 return Err(invalid(format!("{} is already staffed", position.title)));
             }
             let project = org.project_of(id);
-            Org::check_runtime(project, &position.runtime_id, &position.title)?;
+            Org::check_runtime(project, position.runtime_id.as_deref(), &position.title)?;
             hire(
                 tx,
                 out,
@@ -1714,13 +1754,17 @@ impl Ledger {
         let runtime = patch
             .runtime
             .as_ref()
-            .map(|(r, p)| -> Result<(String, Option<String>)> {
-                Ok((
-                    clean_runtime_id(r)?,
-                    p.as_deref()
-                        .map(|p| clean_line("the provider", p, 64))
-                        .transpose()?,
-                ))
+            .map(|r| -> Result<Option<(String, Option<String>)>> {
+                r.as_ref()
+                    .map(|(r, p)| -> Result<(String, Option<String>)> {
+                        Ok((
+                            clean_runtime_id(r)?,
+                            p.as_deref()
+                                .map(|p| clean_line("the provider", p, 64))
+                                .transpose()?,
+                        ))
+                    })
+                    .transpose()
             })
             .transpose()?;
         let model = patch
@@ -1744,12 +1788,21 @@ impl Ledger {
             }
             let new_runtime = runtime
                 .as_ref()
-                .map(|(r, _)| r.clone())
+                .map(|r| r.as_ref().map(|(r, _)| r.clone()))
                 .filter(|r| *r != position.runtime_id);
-            let new_model = model.clone().filter(|m| *m != position.model);
+            let runtime_after = new_runtime
+                .clone()
+                .unwrap_or_else(|| position.runtime_id.clone());
+            let mut new_model = model.clone().filter(|m| *m != position.model);
+            if runtime_after.is_none() {
+                // An automatic position has no model of its own.
+                fixed_model(None, new_model.clone().flatten().as_deref())?;
+                new_model = position.model.is_some().then_some(None);
+            }
             if let Some(r) = &new_runtime {
-                Org::check_runtime(org.project_of(id), r, &position.title)?;
+                Org::check_runtime(org.project_of(id), r.as_deref(), &position.title)?;
                 changes.insert("runtimeId".into(), json!(r));
+                changes.insert("automatic".into(), json!(r.is_none()));
             }
             if let Some(m) = &new_model {
                 changes.insert("model".into(), json!(m));
@@ -1769,7 +1822,7 @@ impl Ledger {
                 params![
                     id,
                     title.as_ref().unwrap_or(&position.title),
-                    new_runtime.as_ref().unwrap_or(&position.runtime_id),
+                    runtime_after.as_deref().unwrap_or(AUTOMATIC),
                     new_model.as_ref().unwrap_or(&position.model),
                     now()
                 ],
@@ -1780,7 +1833,7 @@ impl Ledger {
             let updated = get_position(tx, id)?;
             let agent = if replace {
                 retire_incumbent(tx, out, &updated, "AI tool or model changed", actor)?;
-                let provider = runtime.as_ref().and_then(|(_, p)| p.as_deref());
+                let provider = runtime.as_ref().and_then(|r| r.as_ref()?.1.as_deref());
                 Some(hire(
                     tx,
                     out,
@@ -1828,7 +1881,7 @@ impl Ledger {
             }
             for pid in moved.subtree(id) {
                 if let Some(p) = moved.positions.get(&pid) {
-                    Org::check_runtime(moved.project_of(&pid), &p.runtime_id, &p.title)?;
+                    Org::check_runtime(moved.project_of(&pid), p.runtime_id.as_deref(), &p.title)?;
                 }
             }
             tx.execute(
@@ -1967,7 +2020,7 @@ impl Ledger {
             org.check_title(&overseer.title, Some(target_id), Some(overseer_id))?;
             Org::check_runtime(
                 org.project_of(target_id),
-                &overseer.runtime_id,
+                overseer.runtime_id.as_deref(),
                 &overseer.title,
             )?;
             let id = uuid::Uuid::new_v4().to_string();
@@ -2017,6 +2070,160 @@ impl Ledger {
                 [id],
                 oversight_row,
             )?)
+        })
+    }
+
+    // ---- Routing (Phase 6, ADR-011) -------------------------------------------------------------
+
+    /// Record the runtime and model an automatic position's agent starts its conversation on,
+    /// with the Router's reasons (`org.agent_routed`). The agent must be the active incumbent of
+    /// an active, automatic position.
+    pub fn route_agent(
+        &self,
+        agent_id: &str,
+        route: &AgentRoute,
+        actor: &str,
+    ) -> Result<AgentInstance> {
+        let runtime_id = clean_runtime_id(&route.runtime_id)?;
+        let model = clean_optional_model(route.model.as_deref())?;
+        let provider = route
+            .runtime_provider
+            .as_deref()
+            .map(|p| clean_line("the provider", p, 64))
+            .transpose()?;
+        self.write(|tx, out| {
+            let agent = tx
+                .query_row(
+                    &format!("SELECT {AGENT_COLS} FROM agent_instances WHERE id = ?1"),
+                    [agent_id],
+                    agent_row,
+                )
+                .optional()?
+                .ok_or_else(|| LedgerError::NotFound(format!("agent {agent_id}")))?;
+            let position_id = agent
+                .position_id
+                .as_deref()
+                .filter(|_| agent.task_id.is_none() && agent.is_active())
+                .ok_or_else(|| invalid("only a position's current agent can be routed"))?;
+            let position = get_position(tx, position_id)?;
+            if position.state != PositionState::Active || position.runtime_id.is_some() {
+                return Err(invalid(format!(
+                    "{} does not choose its AI tool automatically",
+                    position.title
+                )));
+            }
+            tx.execute(
+                "UPDATE agent_instances SET runtime_id = ?2, runtime_provider = ?3, model = ?4,
+                     last_seen_at = ?5
+                 WHERE id = ?1",
+                params![agent_id, runtime_id, provider, model, now()],
+            )?;
+            org_event(
+                out,
+                tx,
+                actor,
+                "agent_routed",
+                json!({
+                    "agentId": agent_id,
+                    "positionId": position.id,
+                    "title": position.title,
+                    "runtimeId": runtime_id,
+                    "model": model,
+                    "routing": route.routing,
+                }),
+            )?;
+            Ok(tx.query_row(
+                &format!("SELECT {AGENT_COLS} FROM agent_instances WHERE id = ?1"),
+                [agent_id],
+                agent_row,
+            )?)
+        })
+    }
+
+    /// Replace the setting `key` with what `change` makes of its current value (`Null` when
+    /// unset), in one transaction, and record `event_type` with the payload `change` returns.
+    /// `change` refusing leaves the setting as it was. Returns the new value.
+    pub fn update_setting(
+        &self,
+        key: &str,
+        event_type: &str,
+        actor: &str,
+        change: impl FnOnce(Value) -> Result<(Value, Value)>,
+    ) -> Result<Value> {
+        let key = clean_line("the setting key", key, 64)?;
+        self.write(|tx, out| {
+            let current = tx
+                .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()?
+                .map_or(Value::Null, parse_json);
+            let (value, payload) = change(current)?;
+            tx.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![key, value.to_string(), now()],
+            )?;
+            out.push(events::insert(
+                tx,
+                NewEvent {
+                    source: actor.into(),
+                    event_type: event_type.into(),
+                    payload,
+                    ..NewEvent::default()
+                },
+            )?);
+            Ok(value)
+        })
+    }
+
+    /// Agent turn results that hit a usage limit or completed, for runs started at or after
+    /// `since` (ms), newest first.
+    pub fn recent_turn_outcomes(&self, since: u64) -> Result<Vec<TurnOutcomeRecord>> {
+        self.read(|c| {
+            all(
+                c,
+                "SELECT x.runtime, x.model, json_extract(e.payload, '$.outcome'),
+                        json_extract(e.payload, '$.error'), json_extract(e.payload, '$.summary'),
+                        e.created_at
+                 FROM executions x JOIN events e ON e.execution_id = x.id
+                 WHERE x.started_at >= ?1 AND e.event_type = 'agent.result'
+                   AND json_extract(e.payload, '$.outcome') IN ('usageLimited', 'completed')
+                 ORDER BY e.seq DESC",
+                [i64::try_from(since).unwrap_or(i64::MAX)],
+                |r| {
+                    Ok(TurnOutcomeRecord {
+                        runtime: r.get(0)?,
+                        model: r.get(1)?,
+                        outcome: r.get(2)?,
+                        error: r.get(3)?,
+                        summary: r.get(4)?,
+                        at: u64_of(r.get(5)?),
+                    })
+                },
+            )
+        })
+    }
+
+    /// Models runtimes ran (as reported by the provider, or as asked), most recently used
+    /// first.
+    pub fn models_seen(&self, limit: u32) -> Result<Vec<SeenModel>> {
+        self.read(|c| {
+            all(
+                c,
+                "SELECT runtime, model, COUNT(*), MAX(started_at) FROM executions
+                 WHERE model IS NOT NULL AND model != ''
+                 GROUP BY runtime, model ORDER BY MAX(started_at) DESC LIMIT ?1",
+                [limit.clamp(1, 500)],
+                |r| {
+                    Ok(SeenModel {
+                        runtime: r.get(0)?,
+                        model: r.get(1)?,
+                        runs: r.get(2)?,
+                        last_used: u64_of(r.get(3)?),
+                    })
+                },
+            )
         })
     }
 }
@@ -2072,7 +2279,7 @@ mod tests {
             title: title.into(),
             role_id: role.into(),
             reports_to: reports_to.map(str::to_owned),
-            runtime_id: runtime.into(),
+            runtime_id: Some(runtime.into()),
             runtime_provider: Some("provider".into()),
             model: None,
             staffed: true,
@@ -2751,6 +2958,7 @@ mod tests {
                 runtime_provider: Some("openai".into()),
                 model: None,
                 project_id: Some(project.id.clone()),
+                routing: json!({ "reason": "test" }),
             };
             l.write(|tx, out| insert_worker(tx, out, &worker, &task.id, "liaison"))
                 .unwrap();
@@ -2827,6 +3035,7 @@ mod tests {
             runtime_provider: None,
             model: None,
             project_id: None,
+            routing: Value::Null,
         };
         assert!(l
             .write(|tx, out| insert_worker(tx, out, &stranger, &task.id, "liaison"))
@@ -2842,6 +3051,7 @@ mod tests {
             runtime_provider: None,
             model: None,
             project_id: None,
+            routing: Value::Null,
         };
         assert!(l
             .write(|tx, out| insert_worker(tx, out, &again, &task.id, "liaison"))
@@ -2859,14 +3069,14 @@ mod tests {
                 &coordinator.id,
                 &PositionPatch {
                     title: Some("Cloudline Lead".into()),
-                    runtime: Some(("codex".into(), Some("openai".into()))),
+                    runtime: Some(Some(("codex".into(), Some("openai".into())))),
                     model: Some(Some("model-x".into())),
                 },
                 "owner",
             )
             .unwrap();
         assert_eq!(updated.title, "Cloudline Lead");
-        assert_eq!(updated.runtime_id, "codex");
+        assert_eq!(updated.runtime_id.as_deref(), Some("codex"));
         assert_eq!(updated.model.as_deref(), Some("model-x"));
         let replacement = replacement.unwrap();
         assert_ne!(replacement.id, first.id);
@@ -2904,7 +3114,7 @@ mod tests {
         assert!(err(l.update_position(
             &coordinator.id,
             &PositionPatch {
-                runtime: Some(("claude-code".into(), None)),
+                runtime: Some(Some(("claude-code".into(), None))),
                 ..PositionPatch::default()
             },
             "owner"
@@ -3094,5 +3304,281 @@ mod tests {
         // Seeding again changes nothing.
         let before = l.list_roles().unwrap();
         assert_eq!(l.ensure_roles(&renamed, "plenipo").unwrap(), before);
+    }
+
+    fn automatic(role: &str, title: &str, reports_to: Option<&str>) -> NewPosition {
+        NewPosition {
+            runtime_id: None,
+            runtime_provider: None,
+            ..position(role, title, reports_to, "unused")
+        }
+    }
+
+    #[test]
+    fn automatic_positions_are_routed_not_fixed() {
+        let (l, roles) = setup();
+        let (_, _, project, coordinator) = development(&l, &roles);
+        // No runtime may use the automatic marker as its ID.
+        assert!(clean_runtime_id(AUTOMATIC).is_err());
+        // An automatic worker position is not bound by the project's runtimes when hired (the
+        // Router routes within them when it takes work), and has no model of its own.
+        let (dev, agent) = l
+            .create_position(
+                &automatic(
+                    roles["Senior Developer"].as_str(),
+                    "Senior Developer",
+                    Some(&coordinator.id),
+                ),
+                "owner",
+            )
+            .unwrap();
+        assert!(agent.is_none());
+        assert_eq!(
+            (dev.runtime_id.as_deref(), dev.model.as_deref()),
+            (None, None)
+        );
+        let stored: String = l
+            .conn()
+            .query_row(
+                "SELECT runtime_id FROM positions WHERE id = ?1",
+                [&dev.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, AUTOMATIC);
+        let with_model = NewPosition {
+            model: Some("model-x".into()),
+            ..automatic(roles["QA Engineer"].as_str(), "QA", Some(&coordinator.id))
+        };
+        assert!(err(l.create_position(&with_model, "owner")).contains("automatic position"));
+        l.update_project_settings(&project.id, &settings("Cloudline", &["codex"]), "owner")
+            .unwrap();
+        assert!(l.position(&dev.id).unwrap().unwrap().runtime_id.is_none());
+
+        // An automatic full-time position's agent has no runtime until its conversation is
+        // routed; routing records why, once per call, only for an automatic incumbent.
+        let (staff, agent) = l
+            .create_position(
+                &automatic(roles["Superintendent"].as_str(), "VP", None),
+                "owner",
+            )
+            .unwrap();
+        let agent = agent.unwrap();
+        assert_eq!(
+            (
+                agent.runtime_id.as_deref(),
+                agent.runtime_provider.as_deref()
+            ),
+            (None, None)
+        );
+        let route = AgentRoute {
+            runtime_id: "codex".into(),
+            runtime_provider: Some("openai".into()),
+            model: Some("model-x".into()),
+            routing: json!({ "reason": "first choice" }),
+        };
+        let routed = l.route_agent(&agent.id, &route, "owner").unwrap();
+        assert_eq!(routed.runtime_id.as_deref(), Some("codex"));
+        assert_eq!(routed.model.as_deref(), Some("model-x"));
+        assert_eq!(routed.runtime_provider.as_deref(), Some("openai"));
+        let event = l.recent_events(1).unwrap().remove(0);
+        assert_eq!(event.event_type, "org.agent_routed");
+        assert_eq!(event.payload["positionId"], json!(staff.id));
+        assert_eq!(event.payload["routing"]["reason"], "first choice");
+        let fixed = l.position_incumbent(&coordinator.id).unwrap().unwrap();
+        assert!(err(l.route_agent(&fixed.id, &route, "owner")).contains("automatically"));
+        l.vacate_position(&staff.id, "owner").unwrap();
+        assert!(err(l.route_agent(&agent.id, &route, "owner")).contains("current agent"));
+        assert!(l
+            .route_agent(
+                &agent.id,
+                &AgentRoute {
+                    runtime_id: AUTOMATIC.into(),
+                    ..route
+                },
+                "owner"
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn a_position_switches_between_fixed_and_automatic() {
+        let (l, roles) = setup();
+        let (_, _, _, coordinator) = development(&l, &roles);
+        l.update_position(
+            &coordinator.id,
+            &PositionPatch {
+                model: Some(Some("model-x".into())),
+                ..PositionPatch::default()
+            },
+            "owner",
+        )
+        .unwrap();
+        let first = l.position_incumbent(&coordinator.id).unwrap().unwrap();
+        // Automatic: the model goes with the fixed runtime, and a new agent is hired.
+        let (updated, replacement) = l
+            .update_position(
+                &coordinator.id,
+                &PositionPatch {
+                    runtime: Some(None),
+                    ..PositionPatch::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        assert_eq!((updated.runtime_id, updated.model), (None, None));
+        let replacement = replacement.unwrap();
+        assert_ne!(replacement.id, first.id);
+        assert_eq!(replacement.runtime_id, None);
+        let event = l
+            .recent_events(10)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event_type == "org.position_updated")
+            .unwrap();
+        assert_eq!(event.payload["automatic"], true);
+        // An automatic position takes no model.
+        assert!(err(l.update_position(
+            &coordinator.id,
+            &PositionPatch {
+                model: Some(Some("model-y".into())),
+                ..PositionPatch::default()
+            },
+            "owner"
+        ))
+        .contains("automatic position"));
+        // Back to fixed: the runtime must be one the project allows.
+        let (fixed, _) = l
+            .update_position(
+                &coordinator.id,
+                &PositionPatch {
+                    runtime: Some(Some(("codex".into(), Some("openai".into())))),
+                    model: Some(Some("model-y".into())),
+                    ..PositionPatch::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        assert_eq!(fixed.runtime_id.as_deref(), Some("codex"));
+        assert_eq!(fixed.model.as_deref(), Some("model-y"));
+        assert!(err(l.update_position(
+            &coordinator.id,
+            &PositionPatch {
+                runtime: Some(Some(("other-tool".into(), None))),
+                ..PositionPatch::default()
+            },
+            "owner"
+        ))
+        .contains("does not allow"));
+    }
+
+    #[test]
+    fn settings_update_atomically_with_their_event() {
+        let l = ledger();
+        let add = |n: i64| {
+            move |v: Value| -> Result<(Value, Value)> {
+                let total = v["total"].as_i64().unwrap_or(0) + n;
+                Ok((json!({ "total": total }), json!({ "added": n })))
+            }
+        };
+        assert_eq!(
+            l.update_setting("counter", "router.test", "owner", add(2))
+                .unwrap()["total"],
+            2
+        );
+        assert_eq!(
+            l.update_setting("counter", "router.test", "owner", add(3))
+                .unwrap()["total"],
+            5
+        );
+        let event = l.recent_events(1).unwrap().remove(0);
+        assert_eq!(
+            (event.event_type.as_str(), &event.payload),
+            ("router.test", &json!({ "added": 3 }))
+        );
+        // A refusal changes nothing and records nothing.
+        let before = l.recent_events(10).unwrap().len();
+        assert!(l
+            .update_setting("counter", "router.test", "owner", |_| Err(invalid("no")))
+            .is_err());
+        assert_eq!(l.setting("counter").unwrap().unwrap()["total"], 5);
+        assert_eq!(l.recent_events(10).unwrap().len(), before);
+    }
+
+    #[test]
+    fn turn_outcomes_and_models_seen_come_from_the_executions() {
+        let l = ledger();
+        let run = |id: &str, runtime: &str, model: Option<&str>, at: u64, outcome: Option<&str>| {
+            l.upsert_execution(
+                &ExecutionRow {
+                    id: id.into(),
+                    task_id: None,
+                    runtime: runtime.into(),
+                    provider: None,
+                    model: model.map(str::to_owned),
+                    session_id: None,
+                    process_id: None,
+                    profile_id: None,
+                    label: "turn".into(),
+                    executable: None,
+                    args: vec![],
+                    working_dir: None,
+                    state: "succeeded".into(),
+                    exit_code: Some(0),
+                    detail: None,
+                    started_at: at,
+                    ended_at: Some(at + 1),
+                    usage_metadata: json!({}),
+                },
+                "test",
+            )
+            .unwrap();
+            if let Some(outcome) = outcome {
+                l.append_event(NewEvent {
+                    execution_id: Some(id.into()),
+                    source: format!("agent:{runtime}"),
+                    event_type: "agent.result".into(),
+                    payload: json!({ "outcome": outcome, "error": "limit|1760000000", "summary": "s" }),
+                    ..NewEvent::default()
+                })
+                .unwrap();
+            }
+        };
+        run("a", "claude-code", Some("opus"), 1_000, Some("completed"));
+        run(
+            "b",
+            "claude-code",
+            Some("opus"),
+            2_000,
+            Some("usageLimited"),
+        );
+        run("c", "codex", None, 3_000, Some("failed"));
+        run("d", "codex", Some("gpt-x"), 50, Some("usageLimited"));
+        let outcomes = l.recent_turn_outcomes(500).unwrap();
+        let seen: Vec<(&str, &str)> = outcomes
+            .iter()
+            .map(|o| (o.runtime.as_str(), o.outcome.as_str()))
+            .collect();
+        // Newest first; other outcomes and older runs are left out.
+        assert_eq!(
+            seen,
+            [
+                ("claude-code", "usageLimited"),
+                ("claude-code", "completed")
+            ]
+        );
+        assert_eq!(outcomes[0].error.as_deref(), Some("limit|1760000000"));
+        assert_eq!(outcomes[0].model.as_deref(), Some("opus"));
+        let models = l.models_seen(10).unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(
+            (
+                models[0].model.as_str(),
+                models[0].runs,
+                models[0].last_used
+            ),
+            ("opus", 2, 2_000)
+        );
+        assert_eq!(models[1].model, "gpt-x");
     }
 }

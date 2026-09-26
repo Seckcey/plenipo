@@ -7,9 +7,9 @@ use plenipo_ledger::{
     AgentInstance, OrgRecords, OversightKind, Position, PositionState, RoleType, RuntimeSession,
     Task, TaskState,
 };
-use plenipo_runtime::agent::{AgentRuntimeInfo, InstallState};
+use plenipo_router::Planner;
 
-use crate::directory::allowed;
+use crate::directory::{allowed, decide};
 use crate::dto::*;
 use crate::templates::default_glyph;
 use crate::view::OrgView;
@@ -22,7 +22,8 @@ pub(crate) struct Inputs<'a> {
     pub finished_recent: &'a [Task],
     /// Open sessions of members and workers.
     pub sessions: &'a [RuntimeSession],
-    pub runtimes: &'a [AgentRuntimeInfo],
+    /// Routing configuration and the AI tools' live state.
+    pub planner: &'a Planner,
     pub name: String,
     pub titles: TitleTheme,
     pub notices: Vec<String>,
@@ -85,26 +86,6 @@ pub(crate) fn brief(task: &Task, titles: &HashMap<&str, &str>) -> TaskBrief {
     }
 }
 
-/// Why a runtime cannot take work, if it cannot.
-fn unavailable(runtimes: &[AgentRuntimeInfo], runtime_id: &str) -> Option<String> {
-    let Some(info) = runtimes.iter().find(|r| r.id == runtime_id) else {
-        return Some(format!(
-            "The AI tool {runtime_id} is not available in this version of Plenipo"
-        ));
-    };
-    if info.ready {
-        return None;
-    }
-    Some(match info.installation.state {
-        InstallState::Checking => format!("{} is still being checked", info.label),
-        InstallState::Installed => format!(
-            "{} is not signed in with a subscription; open AI tools",
-            info.label
-        ),
-        _ => format!("{} is not installed; open AI tools", info.label),
-    })
-}
-
 fn counts(tasks: &[&Task]) -> WorkCounts {
     let mut c = WorkCounts::default();
     for t in tasks {
@@ -121,7 +102,7 @@ fn counts(tasks: &[&Task]) -> WorkCounts {
 pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
     let records = inputs.records;
     let view = OrgView::new(records);
-    let runtimes = inputs.runtimes;
+    let planner = inputs.planner;
     let titles: HashMap<&str, &str> = records
         .positions
         .iter()
@@ -177,8 +158,15 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                         objective: first_line(&task.objective, 200),
                         state: task.state,
                         session_id: task.metadata["sessionId"].as_str().map(str::to_owned),
-                        runtime_id: a.runtime_id.clone().unwrap_or_else(|| p.runtime_id.clone()),
+                        runtime_id: a
+                            .runtime_id
+                            .clone()
+                            .or_else(|| p.runtime_id.clone())
+                            .unwrap_or_default(),
                         model: a.model.clone(),
+                        routing: task.metadata["workforce"]["routing"]["reason"]
+                            .as_str()
+                            .map(str::to_owned),
                         parent_task_id: task.parent_task_id.clone(),
                         spawned_at: a.created_at,
                         started_at: task.started_at,
@@ -187,16 +175,36 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 .collect()
         };
         let c = counts(&own);
-        let blocked_by_policy = (!allowed(project, &p.runtime_id)).then(|| {
-            format!(
+        let active = p.state == PositionState::Active;
+        // Where its next worker (or a new agent) would go.
+        let route = active.then(|| decide(planner, p, project, &[]));
+        // A full-time agent keeps the AI tool of the conversation it has.
+        let conversation = agent
+            .filter(|a| session_of(a).is_some())
+            .and_then(|a| a.runtime_id.clone().map(|r| (r, a.model.clone())));
+        let (runtime_id, model) = match (&conversation, &route) {
+            (Some((r, m)), _) => (Some(r.clone()), m.clone()),
+            _ if p.runtime_id.is_some() => (p.runtime_id.clone(), p.model.clone()),
+            (None, Some(d)) => d.choice.as_ref().map_or((None, None), |c| {
+                (Some(c.runtime_id.clone()), c.model.clone())
+            }),
+            (None, None) => (None, None),
+        };
+        let tool_label = |id: &str| {
+            planner
+                .tool(id)
+                .map_or_else(|| id.to_owned(), |t| t.info.label.clone())
+        };
+        let detail = match (&runtime_id, &route) {
+            (Some(r), _) if !allowed(project, r) => Some(format!(
                 "{} does not allow {}",
                 project.map_or("The project", |x| x.name.as_str()),
-                crate::prompt::runtime_label(runtimes, &p.runtime_id)
-            )
-        });
-        let detail = blocked_by_policy
-            .clone()
-            .or_else(|| unavailable(runtimes, &p.runtime_id));
+                tool_label(r)
+            )),
+            (Some(r), _) => planner.unavailable(r),
+            (None, Some(d)) => Some(d.reason.clone()),
+            (None, None) => None,
+        };
         let status = if p.state == PositionState::Archived {
             PositionStatus::Archived
         } else if persistent && agent.is_none() {
@@ -241,13 +249,15 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             project_id: project.map(|x| x.id.clone()),
             heads_department_id: view.heads(&p.id).map(|d| d.id.clone()),
             coordinates_project_id: view.coordinates(&p.id).map(|x| x.id.clone()),
-            runtime_id: p.runtime_id.clone(),
-            model: p.model.clone(),
-            active: p.state == PositionState::Active,
+            runtime_id,
+            model,
+            automatic: p.runtime_id.is_none(),
+            route,
+            active,
             sort_key: p.sort_key,
             agent: agent.map(|a| AgentInfo {
                 id: a.id.clone(),
-                runtime_id: a.runtime_id.clone().unwrap_or_else(|| p.runtime_id.clone()),
+                runtime_id: a.runtime_id.clone().or_else(|| p.runtime_id.clone()),
                 model: a.model.clone(),
                 session_id: session_of(a),
                 hired_at: a.created_at,
@@ -401,12 +411,13 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             })
             .collect(),
         stats,
-        runtimes: runtimes
+        runtimes: planner
+            .tools
             .iter()
-            .map(|r| RuntimeBrief {
-                id: r.id.clone(),
-                label: r.label.clone(),
-                ready: r.ready,
+            .map(|t| RuntimeBrief {
+                id: t.info.id.clone(),
+                label: t.info.label.clone(),
+                ready: t.info.ready,
             })
             .collect(),
         notices: inputs.notices.clone(),
@@ -473,8 +484,12 @@ pub(crate) fn work_view(
 mod tests {
     use super::*;
     use plenipo_ledger::{Ledger, NewPosition, NewTask, OversightKind, ProjectSettings};
-    use plenipo_runtime::agent::{AuthState, AuthStatus, Installation, RuntimeCapabilities};
+    use plenipo_router::Router;
+    use plenipo_runtime::agent::{
+        AgentRuntimeInfo, AuthState, AuthStatus, InstallState, Installation, RuntimeCapabilities,
+    };
     use serde_json::json;
+    use std::sync::Arc;
 
     fn runtime(id: &str, ready: bool) -> AgentRuntimeInfo {
         AgentRuntimeInfo {
@@ -509,6 +524,8 @@ mod tests {
                 structured_results: true,
                 billing_checked_per_turn: true,
                 tool_posture: String::new(),
+                effort_levels: Vec::new(),
+                known_models: Vec::new(),
             },
             install_hint: String::new(),
             login_hint: String::new(),
@@ -518,7 +535,7 @@ mod tests {
     }
 
     struct Org {
-        l: Ledger,
+        l: Arc<Ledger>,
         head: String,
         coordinator: String,
         developer: String,
@@ -529,7 +546,7 @@ mod tests {
     /// Development (staffed manager) → Cloudline coordinator (staffed) → Senior Developer (on
     /// demand, Codex); a QA Engineer under the manager oversees Cloudline's team.
     fn org() -> Org {
-        let l = Ledger::open_in_memory().unwrap();
+        let l = Arc::new(Ledger::open_in_memory().unwrap());
         let roles = l
             .ensure_roles(&crate::templates::role_templates(), "plenipo")
             .unwrap();
@@ -538,7 +555,7 @@ mod tests {
             title: title.into(),
             role_id,
             reports_to: to.map(str::to_owned),
-            runtime_id: runtime.into(),
+            runtime_id: Some(runtime.into()),
             staffed: true,
             ..NewPosition::default()
         };
@@ -655,12 +672,16 @@ mod tests {
                             objective: objective.into(),
                             metadata: json!({
                                 "sessionId": "s-2",
-                                "workforce": { "positionId": dev.id, "agentId": agent_id },
+                                "workforce": {
+                                    "positionId": dev.id,
+                                    "agentId": agent_id,
+                                    "routing": { "reason": "Codex is the first choice." },
+                                },
                             }),
                             ..NewTask::default()
                         },
                         received: json!({}),
-                        worker: Some(NewWorker {
+                        worker: Some(Box::new(NewWorker {
                             agent_id,
                             position_id: dev.id.clone(),
                             role_id: dev.role_id.clone(),
@@ -668,7 +689,8 @@ mod tests {
                             runtime_provider: None,
                             model: None,
                             project_id: Some(o.project.clone()),
-                        }),
+                            routing: json!({ "reason": "Codex is the first choice." }),
+                        })),
                     },
                 }],
                 "waiting for 1 handoff reply",
@@ -678,7 +700,11 @@ mod tests {
         suspended.children[0].clone()
     }
 
-    fn snapshot(l: &Ledger, runtimes: &[AgentRuntimeInfo]) -> OrgSnapshot {
+    fn snapshot(l: &Arc<Ledger>, runtimes: &[AgentRuntimeInfo]) -> OrgSnapshot {
+        let tools = runtimes.to_vec();
+        let planner = Router::with_tools(Arc::clone(l), Arc::new(move || tools.clone()))
+            .planner()
+            .unwrap();
         let records = l.org_records().unwrap();
         let open = l.open_workforce_tasks().unwrap();
         let finished = l.finished_workforce_tasks(0, 1000).unwrap();
@@ -687,7 +713,7 @@ mod tests {
             open_tasks: &open,
             finished_recent: &finished,
             sessions: &[],
-            runtimes,
+            planner: &planner,
             name: "8 West".into(),
             titles: TitleTheme::Army,
             notices: vec![],

@@ -25,4 +25,5 @@ architecture must be recorded here.
 | [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs   | Accepted |
 | [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas | Accepted |
 | [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks    | Accepted |
+| [011](ADR-011-model-policy-routing.md)       | Router: model registry, role policies, routing    | Accepted |
 | [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Proposed |

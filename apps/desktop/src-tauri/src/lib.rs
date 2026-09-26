@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use plenipo_liaison::{Liaison, LiaisonConfig};
+use plenipo_router::Router;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use plenipo_workforce::Workforce;
@@ -109,11 +110,15 @@ pub fn configure<R: Runtime>(
             // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
             let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
             tauri::async_runtime::spawn(liaison.clone().run());
-            // Workforce (Phase 5): the organization, and Liaison's directory for its members.
-            let workforce = Workforce::new(ledger, agents.clone(), liaison.clone());
+            // Router (Phase 6): model registry and role model policies.
+            let router = Router::new(ledger.clone(), agents.clone());
+            // Workforce (Phase 5): the organization, and Liaison's directory for its members,
+            // whose workers the Router places.
+            let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
             app.manage(supervisor);
             app.manage(agents);
             app.manage(liaison);
+            app.manage(router);
             app.manage(workforce);
             quit_on_termination_signal(app.handle().clone());
             if options.tray {
@@ -183,7 +188,13 @@ pub fn configure<R: Runtime>(
             commands::archive_position,
             commands::assign_oversight,
             commands::end_oversight,
-            commands::give_objective
+            commands::give_objective,
+            commands::get_routing,
+            commands::save_model,
+            commands::remove_model,
+            commands::set_role_policy,
+            commands::set_routing_options,
+            commands::clear_usage_limit,
         ])
 }
 
@@ -314,10 +325,12 @@ mod ipc_boundary_tests {
         );
         // Queries only: the reconciliation loop is not needed without running workers.
         let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
-        let workforce = Workforce::new(ledger, agents.clone(), liaison.clone());
+        let router = Router::new(ledger.clone(), agents.clone());
+        let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
         app.manage(supervisor);
         app.manage(agents);
         app.manage(liaison);
+        app.manage(router);
         app.manage(workforce);
         app
     }
@@ -1193,6 +1206,12 @@ mod ipc_boundary_tests {
             "move_position",
             "assign_oversight",
             "give_objective",
+            "get_routing",
+            "save_model",
+            "remove_model",
+            "set_role_policy",
+            "set_routing_options",
+            "clear_usage_limit",
         ] {
             let args = serde_json::json!({ "positionId": SESSION, "objective": "x" });
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
@@ -1201,5 +1220,261 @@ mod ipc_boundary_tests {
                 "{cmd}"
             );
         }
+    }
+
+    // ---- Model policy and routing (Phase 6) ----------------------------------------------
+
+    fn model_id(s: &plenipo_router::RoutingSnapshot, label: &str) -> String {
+        s.models
+            .iter()
+            .find(|m| m.label == label)
+            .unwrap()
+            .id
+            .clone()
+    }
+
+    #[test]
+    fn model_policy_is_configured_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
+        // Each AI tool's default model is listed; nothing is signed in, so nothing is chosen.
+        let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Claude Code (default model)", "Codex (default model)"]
+        );
+        assert!(s.tools.iter().all(|t| !t.available));
+        assert!(!s.api_billing);
+        let designer = s.roles.iter().find(|r| r.role_name == "Designer").unwrap();
+        assert_eq!(
+            designer.policy.needs.len(),
+            2,
+            "the template's starting policy"
+        );
+        assert!(designer.next.choice.is_none());
+        let s: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "save_model",
+            serde_json::json!({ "input": {
+                "runtimeId": "claude-code", "name": "opus", "label": "Opus",
+                "features": ["vision"], "contextTokens": 200000, "cost": "premium",
+            }}),
+        ));
+        let opus = model_id(&s, "Opus");
+        let codex = model_id(&s, "Codex (default model)");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let dev = role_id(&org, "Senior Developer");
+        let s: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "set_role_policy",
+            serde_json::json!({ "roleId": dev, "policy": {
+                "models": [opus, codex], "needs": [], "minContextTokens": null,
+                "neverCompanies": ["openai"], "cost": "any", "crossCompany": "prefer",
+            }}),
+        ));
+        let view = s.roles.iter().find(|r| r.role_id == dev).unwrap();
+        assert_eq!(view.policy.models.len(), 2);
+        assert!(view
+            .next
+            .reason
+            .starts_with("No model can take Senior Developer's work now"));
+        let s: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "set_routing_options",
+            serde_json::json!({ "options": { "onUsageLimit": "nextChoice" } }),
+        ));
+        assert_eq!(
+            s.options.on_usage_limit,
+            plenipo_router::LimitBehavior::NextChoice
+        );
+        let _: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "clear_usage_limit",
+            serde_json::json!({ "runtimeId": "codex" }),
+        ));
+        let s: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "remove_model",
+            serde_json::json!({ "modelId": opus }),
+        ));
+        assert_eq!(
+            s.roles
+                .iter()
+                .find(|r| r.role_id == dev)
+                .unwrap()
+                .policy
+                .models,
+            std::slice::from_ref(&codex)
+        );
+        // Built-in entries stay; the refusal says why.
+        let err = invoke_json(
+            &main,
+            "remove_model",
+            serde_json::json!({ "modelId": codex }),
+        )
+        .expect_err("built in");
+        assert_eq!(err["kind"], "invalidInput");
+        // Positions hired without an AI tool follow their role's policy; "" makes one automatic.
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": { "roleId": role_id(&org, "Manager"), "title": "Development Manager" },
+            }}),
+        ));
+        let head = s.positions[0].clone();
+        assert!(head.automatic && head.runtime_id.is_none());
+        assert!(head.route.unwrap().choice.is_none(), "nothing is signed in");
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "hire_position",
+            serde_json::json!({ "input": {
+                "roleId": dev, "title": "Fixed Developer", "reportsTo": head.id,
+                "runtimeId": "codex",
+            }}),
+        ));
+        let fixed = s
+            .positions
+            .iter()
+            .find(|p| p.title == "Fixed Developer")
+            .unwrap();
+        assert!(!fixed.automatic);
+        assert!(fixed.route.as_ref().unwrap().fixed);
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "update_position",
+            serde_json::json!({ "positionId": fixed.id, "input": { "runtimeId": "" } }),
+        ));
+        assert!(
+            s.positions
+                .iter()
+                .find(|p| p.id == fixed.id)
+                .unwrap()
+                .automatic
+        );
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let events: Vec<String> = ledger
+            .recent_events(200)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for want in [
+            "router.models_added",
+            "router.policies_added",
+            "router.model_saved",
+            "router.policy_changed",
+            "router.options_changed",
+            "router.limit_cleared",
+            "router.model_removed",
+        ] {
+            assert!(events.iter().any(|e| e == want), "{want}");
+        }
+    }
+
+    #[test]
+    fn routing_commands_validate_input_and_accept_no_extra_fields() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let dev = role_id(&org, "Senior Developer");
+        let model = |extra: serde_json::Value| {
+            let mut input = serde_json::json!({
+                "runtimeId": "codex", "name": "gpt-x", "label": "GPT",
+                "features": [], "cost": "standard",
+            });
+            for (k, v) in extra.as_object().unwrap() {
+                input[k] = v.clone();
+            }
+            serde_json::json!({ "input": input })
+        };
+        let policy = |extra: serde_json::Value| {
+            let mut p = serde_json::json!({ "models": [] });
+            for (k, v) in extra.as_object().unwrap() {
+                p[k] = v.clone();
+            }
+            serde_json::json!({ "roleId": dev, "policy": p })
+        };
+        for (cmd, args) in [
+            (
+                "save_model",
+                model(serde_json::json!({ "runtimeId": "../codex" })),
+            ),
+            (
+                "save_model",
+                model(serde_json::json!({ "runtimeId": "gemini" })),
+            ),
+            (
+                "save_model",
+                model(serde_json::json!({ "name": "--dangerously-skip" })),
+            ),
+            (
+                "save_model",
+                model(serde_json::json!({ "name": "C:\\model" })),
+            ),
+            (
+                "save_model",
+                model(serde_json::json!({ "features": ["mindReading"] })),
+            ),
+            ("save_model", model(serde_json::json!({ "id": "../x" }))),
+            // Extra fields cannot smuggle in an executable or arguments.
+            (
+                "save_model",
+                model(serde_json::json!({ "executable": "/bin/sh" })),
+            ),
+            ("remove_model", serde_json::json!({ "modelId": "../x" })),
+            ("remove_model", serde_json::json!({ "modelId": SESSION })),
+            (
+                "set_role_policy",
+                policy(serde_json::json!({ "models": ["../x"] })),
+            ),
+            (
+                "set_role_policy",
+                policy(serde_json::json!({ "models": [SESSION] })),
+            ),
+            (
+                "set_role_policy",
+                policy(serde_json::json!({ "neverCompanies": ["Open AI"] })),
+            ),
+            (
+                "set_role_policy",
+                policy(serde_json::json!({ "runtimeId": "codex" })),
+            ),
+            (
+                "set_role_policy",
+                serde_json::json!({ "roleId": SESSION, "policy": { "models": [] } }),
+            ),
+            (
+                "set_routing_options",
+                serde_json::json!({ "options": { "onUsageLimit": "useApiBilling" } }),
+            ),
+            (
+                "set_routing_options",
+                serde_json::json!({ "options": { "apiBilling": true } }),
+            ),
+            (
+                "clear_usage_limit",
+                serde_json::json!({ "runtimeId": "Claude Code" }),
+            ),
+            (
+                "clear_usage_limit",
+                serde_json::json!({ "runtimeId": "gemini" }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone()).expect_err(cmd);
+            assert!(
+                err["kind"] == "invalidInput" || err.is_string(),
+                "{cmd} {args}: {err}"
+            );
+        }
+        // Nothing was changed by the refusals.
+        let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
+        assert_eq!(s.models.len(), 2);
+        assert_eq!(
+            s.options.on_usage_limit,
+            plenipo_router::LimitBehavior::Wait
+        );
     }
 }

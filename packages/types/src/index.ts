@@ -88,3 +88,25 @@ export type { TitleTheme } from "./generated/TitleTheme";
 export type { WorkCounts } from "./generated/WorkCounts";
 export type { WorkView } from "./generated/WorkView";
 export type { WorkerInfo } from "./generated/WorkerInfo";
+
+// Model policy and routing (Phase 6)
+export type { CandidateNote } from "./generated/CandidateNote";
+export type { CandidateVerdict } from "./generated/CandidateVerdict";
+export type { CostClass } from "./generated/CostClass";
+export type { CostPreference } from "./generated/CostPreference";
+export type { CrossCompany } from "./generated/CrossCompany";
+export type { LimitBehavior } from "./generated/LimitBehavior";
+export type { ModelFeature } from "./generated/ModelFeature";
+export type { Effort } from "./generated/Effort";
+export type { KnownModel } from "./generated/KnownModel";
+export type { ModelInfo } from "./generated/ModelInfo";
+export type { ModelInput } from "./generated/ModelInput";
+export type { ModelSeen } from "./generated/ModelSeen";
+export type { RolePolicy } from "./generated/RolePolicy";
+export type { RolePolicyView } from "./generated/RolePolicyView";
+export type { RouteChoice } from "./generated/RouteChoice";
+export type { RouteDecision } from "./generated/RouteDecision";
+export type { RoutingOptions } from "./generated/RoutingOptions";
+export type { RoutingSnapshot } from "./generated/RoutingSnapshot";
+export type { ToolInfo } from "./generated/ToolInfo";
+export type { UsageLimit } from "./generated/UsageLimit";

@@ -21,11 +21,15 @@ import type {
   LedgerEvent,
   LedgerStatus,
   LiaisonOverview,
+  ModelInput,
   OrgSnapshot,
   OversightRole,
   PositionPatchInput,
   ProjectInput,
   RoleInput,
+  RolePolicy,
+  RoutingOptions,
+  RoutingSnapshot,
   RuntimeOverview,
   SyntheticTaskAction,
   Task,
@@ -332,4 +336,34 @@ export function endOversight(oversightId: string): Promise<OrgSnapshot> {
  */
 export function giveObjective(positionId: string, objective: string): Promise<AgentSessionDetail> {
   return call<AgentSessionDetail>("give_objective", { positionId, objective });
+}
+
+// ---- Model policy and routing (Phase 6) ---------------------------------------------------
+
+/** Models, AI tools, every role's model choices with where its next worker would go. */
+export function getRouting(): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("get_routing");
+}
+
+/** Add a model (no `id`) or change one. */
+export function saveModel(input: ModelInput): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("save_model", { input });
+}
+
+/** Remove a model you added; it leaves every role's list. */
+export function removeModel(modelId: string): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("remove_model", { modelId });
+}
+
+export function setRolePolicy(roleId: string, policy: RolePolicy): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("set_role_policy", { roleId, policy });
+}
+
+export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("set_routing_options", { options });
+}
+
+/** Try an AI tool again now, although it reported a usage limit. */
+export function clearUsageLimit(runtimeId: string): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("clear_usage_limit", { runtimeId });
 }

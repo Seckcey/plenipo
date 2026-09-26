@@ -1,21 +1,29 @@
 //! The organization's directory for Liaison (ADR-009 §5): a member's team, and where its
-//! `role:<name>` requests go.
+//! `role:<name>` requests go. An automatic position's worker gets the AI tool and model its
+//! role's model policy picks at that moment (Phase 6, ADR-011); a fixed position's worker gets
+//! the ones the owner set.
 
 use std::sync::Arc;
 
-use plenipo_ledger::{Ledger, NewWorker, Project, Task};
+use plenipo_ledger::{Ledger, NewWorker, Position, Project, Task};
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::{Directory, Placement, Team};
-use plenipo_runtime::agent::{AgentRuntime, AgentRuntimeInfo};
+use plenipo_router::{Planner, RouteDecision, RouteRequest, Router};
 use serde_json::{json, Value};
 
-use crate::prompt::{member_identity, member_label, runtime_label, worker_identity};
+use crate::prompt::{member_identity, member_label, worker_identity};
 use crate::service::org_name;
 use crate::view::{OrgView, TeamMember};
 
 pub struct WorkforceDirectory {
-    pub(crate) ledger: Arc<Ledger>,
-    pub(crate) runtime: AgentRuntime,
+    ledger: Arc<Ledger>,
+    router: Router,
+}
+
+impl WorkforceDirectory {
+    pub fn new(ledger: Arc<Ledger>, router: Router) -> Self {
+        Self { ledger, router }
+    }
 }
 
 /// The project allows `runtime_id` (a position outside any project may use any runtime).
@@ -23,8 +31,23 @@ pub(crate) fn allowed(project: Option<&Project>, runtime_id: &str) -> bool {
     project.is_none_or(|p| p.allowed_runtimes.iter().any(|r| r == runtime_id))
 }
 
-fn ready(runtimes: &[AgentRuntimeInfo], runtime_id: &str) -> bool {
-    runtimes.iter().any(|r| r.id == runtime_id && r.ready)
+/// Where a new worker of `position` would go now, and why: the owner's fixed choice, or its
+/// role's model policy within `project`'s AI tools. `reviewed`: the runtimes whose work it
+/// would review.
+pub(crate) fn decide(
+    planner: &Planner,
+    position: &Position,
+    project: Option<&Project>,
+    reviewed: &[String],
+) -> RouteDecision {
+    match &position.runtime_id {
+        Some(runtime) => planner.fixed(&position.title, runtime, position.model.as_deref()),
+        None => planner.route(&RouteRequest {
+            role_id: &position.role_id,
+            project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
+            reviewed,
+        }),
+    }
 }
 
 /// The team member `name` refers to: by title, or by role name when that is unambiguous.
@@ -83,18 +106,28 @@ impl Directory for WorkforceDirectory {
         let records = self.ledger.org_records().ok()?;
         let view = OrgView::new(&records);
         let me = view.position(position_id)?;
-        let runtimes = self.runtime.runtimes();
+        let planner = self.router.planner().ok()?;
         let lead = view.lead_of(position_id);
         let members = lead.map(|l| view.team(&l.id)).unwrap_or_default();
         // Work for a team belongs to the team's project, whose runtimes then apply.
         let project = lead.and_then(|l| view.project_of(&l.id));
         let destinations: Vec<Destination> = members
             .iter()
-            .map(|m| Destination {
-                address: format!("role:{}", m.position.title),
-                label: member_label(&view, &runtimes, m),
-                ready: ready(&runtimes, &m.position.runtime_id)
-                    && allowed(project, &m.position.runtime_id),
+            .map(|m| {
+                let decision = decide(&planner, m.position, project, &[]);
+                let ready = decision.choice.as_ref().is_some_and(|c| {
+                    allowed(project, &c.runtime_id) && planner.unavailable(&c.runtime_id).is_none()
+                });
+                let tool = decision
+                    .choice
+                    .as_ref()
+                    .filter(|_| decision.fixed)
+                    .map(|c| c.runtime_label.as_str());
+                Destination {
+                    address: format!("role:{}", m.position.title),
+                    label: member_label(&view, tool, m),
+                    ready,
+                }
             })
             .collect();
         let name = org_name(&self.ledger);
@@ -109,7 +142,13 @@ impl Directory for WorkforceDirectory {
         })
     }
 
-    fn place(&self, workforce: &Value, _requester: &Task, name: &str) -> Result<Placement, String> {
+    fn place(
+        &self,
+        workforce: &Value,
+        _requester: &Task,
+        name: &str,
+        reviewed: &[String],
+    ) -> Result<Placement, String> {
         let position_id = workforce["positionId"]
             .as_str()
             .ok_or_else(|| "this worker is not part of the organization".to_owned())?;
@@ -124,52 +163,56 @@ impl Directory for WorkforceDirectory {
         let team = view.team(&lead.id);
         let member = find(&view, &team, name)?;
         let target = member.position;
-        let runtimes = self.runtime.runtimes();
-        let info = runtimes
-            .iter()
-            .find(|r| r.id == target.runtime_id)
-            .ok_or_else(|| {
-                format!(
-                    "{}'s AI tool ({}) is not available in this version of Plenipo",
-                    target.title, target.runtime_id
-                )
-            })?;
+        let planner = self.router.planner().map_err(|e| e.to_string())?;
         // The work is the lead's team's: its project, and that project's runtimes, apply
         // (also to an overseer from outside the project).
         let project = view.project_of(&lead.id);
-        if !allowed(project, &target.runtime_id) {
+        let decision = decide(&planner, target, project, reviewed);
+        let Some(choice) = decision.choice.clone() else {
+            return Err(format!(
+                "{} cannot take work now: {} The owner can change this in Plenipo's settings",
+                target.title, decision.reason
+            ));
+        };
+        let tool = planner.tool(&choice.runtime_id).ok_or_else(|| {
+            format!(
+                "{}'s AI tool ({}) is not available in this version of Plenipo",
+                target.title, choice.runtime_id
+            )
+        })?;
+        if !allowed(project, &choice.runtime_id) {
             return Err(format!(
                 "{} does not allow {} workers, so {} cannot take work; the owner can change the \
                  project's allowed AI tools or the position's AI tool",
                 project.map_or("the project", |p| p.name.as_str()),
-                info.label,
+                tool.info.label,
                 target.title
             ));
         }
         let agent_id = uuid::Uuid::new_v4().to_string();
         let project_id = project.map(|p| p.id.clone());
+        let routing = json!(decision);
         Ok(Placement {
             address: format!("role:{}", target.title),
-            label: format!(
-                "{} ({})",
-                target.title,
-                runtime_label(&runtimes, &target.runtime_id)
-            ),
-            runtime_id: target.runtime_id.clone(),
-            model: target.model.clone(),
+            label: format!("{} ({})", target.title, choice.label),
+            runtime_id: choice.runtime_id.clone(),
+            model: choice.model.clone(),
+            effort: choice.effort,
             worker: NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: target.id.clone(),
                 role_id: target.role_id.clone(),
-                runtime_id: target.runtime_id.clone(),
-                runtime_provider: Some(info.provider.clone()),
-                model: target.model.clone(),
+                runtime_id: choice.runtime_id.clone(),
+                runtime_provider: Some(tool.info.provider.clone()),
+                model: choice.model.clone(),
                 project_id: project_id.clone(),
+                routing: routing.clone(),
             },
             workforce: json!({
                 "positionId": target.id,
                 "agentId": agent_id,
                 "projectId": project_id,
+                "routing": routing,
             }),
             identity: worker_identity(
                 &view,

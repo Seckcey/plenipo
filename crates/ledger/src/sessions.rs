@@ -15,7 +15,8 @@ use crate::Ledger;
 const SESSION_COLUMNS: &str = "s.id, s.runtime, s.provider, s.provider_session_id, \
     s.provider_session_confirmed, s.model, s.title, s.working_dir, s.state, s.metadata, \
     s.created_at, s.updated_at, s.closed_at, \
-    (SELECT COUNT(*) FROM tasks t WHERE json_extract(t.metadata, '$.sessionId') = +s.id)";
+    (SELECT COUNT(*) FROM tasks t WHERE json_extract(t.metadata, '$.sessionId') = +s.id), \
+    s.effort";
 
 /// Expression matching the `tasks_by_session` index.
 const TASK_SESSION: &str = "json_extract(metadata, '$.sessionId')";
@@ -36,6 +37,7 @@ fn session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RuntimeSession> {
         updated_at: u64_of(r.get(11)?),
         closed_at: opt_u64(r.get(12)?),
         turn_count: r.get(13)?,
+        effort: r.get(14)?,
     })
 }
 
@@ -98,8 +100,8 @@ impl Ledger {
             let now = crate::now_ms() as i64;
             tx.execute(
                 "INSERT INTO runtime_sessions (id, runtime, provider, model, title, working_dir,
-                     state, metadata, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7, ?8, ?8)",
+                     state, metadata, created_at, updated_at, effort)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7, ?8, ?8, ?9)",
                 params![
                     new.id,
                     new.runtime,
@@ -108,7 +110,8 @@ impl Ledger {
                     new.title,
                     new.working_dir,
                     metadata,
-                    now
+                    now,
+                    new.effort
                 ],
             )
             .map_err(|e| match e {
@@ -129,6 +132,7 @@ impl Ledger {
                         "runtime": new.runtime,
                         "provider": new.provider,
                         "model": new.model,
+                        "effort": new.effort,
                         "workingDir": new.working_dir,
                     }),
                 ),
@@ -327,6 +331,7 @@ mod tests {
             runtime: "claude-code".into(),
             provider: "anthropic".into(),
             model: None,
+            effort: Some("high".into()),
             title: "Say hello".into(),
             working_dir: "/work/s1".into(),
             metadata: serde_json::Value::Null,

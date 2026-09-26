@@ -55,6 +55,7 @@ export const worker = (agentId: string, patch: Partial<WorkerInfo> = {}): Worker
   sessionId: `session-${agentId}`,
   runtimeId: "claude-code",
   model: null,
+  routing: null,
   parentTaskId: null,
   spawnedAt: T0 - 5 * 60_000,
   startedAt: T0 - 4 * 60_000,
@@ -84,6 +85,8 @@ export const position = (
     coordinatesProjectId: null,
     runtimeId: "claude-code",
     model: null,
+    automatic: false,
+    route: null,
     active: true,
     sortKey: 0,
     agent: persistent

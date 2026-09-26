@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsProvider } from "../agents/AgentsProvider";
 import { activity, runtime, session, turn } from "../test/agentFixtures";
+import { sampleRouting } from "../test/routingFixtures";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { WorkersView } from "./WorkersView";
@@ -29,6 +30,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     cancelAgentTurn: vi.fn(),
     closeAgentSession: vi.fn(),
     getTaskHandoffs: vi.fn(),
+    getRouting: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -106,6 +108,22 @@ afterEach(() => {
 });
 
 describe("Workers view", () => {
+  it("starts a task on a model chosen from the AI tool's models", async () => {
+    api.getRouting.mockResolvedValue(sampleRouting());
+    api.startAgentSession.mockResolvedValue(detail());
+    api.getAgentSession.mockResolvedValue(detail());
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Say hello");
+    await user.click(within(form).getByText("Advanced"));
+    const model = within(form).getByRole("combobox", { name: "Model" });
+    await within(model).findByRole("option", { name: "haiku" });
+    await user.selectOptions(model, "haiku");
+    await user.click(within(form).getByRole("button", { name: "Start task" }));
+    expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say hello", "haiku", false);
+  });
+
   it("starts a task on a ready AI tool and streams its activity to a normalized result", async () => {
     api.startAgentSession.mockResolvedValue(detail());
     api.getAgentSession.mockResolvedValue(detail());

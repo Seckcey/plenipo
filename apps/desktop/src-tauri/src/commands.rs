@@ -7,7 +7,9 @@
 //! workers (Phase 4) are requested by the workers themselves and checked by Liaison; the UI
 //! can only allow them for a new session, read them, and cancel a waiting turn. The
 //! organization (Phase 5) is changed only through validated Workforce operations; the Ledger
-//! enforces its structure, and no command names a session, a prompt, or a path to open.
+//! enforces its structure, and no command names a session, a prompt, or a path to open. Model
+//! policy (Phase 6) is configuration: the UI names AI tools, model names (validated like every
+//! model name), roles, and choices; it never selects a worker's AI tool directly.
 
 use std::sync::Arc;
 
@@ -17,6 +19,9 @@ use plenipo_ledger::{
     NewTask, Task, TaskState, TaskTimeline,
 };
 use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
+use plenipo_router::{
+    ModelInput, RolePolicy, Router, RouterError, RoutingOptions, RoutingSnapshot,
+};
 use plenipo_runtime::agent::{
     AgentOverview, AgentRuntime, AgentRuntimeInfo, AgentSession, AgentSessionDetail,
 };
@@ -467,7 +472,9 @@ fn validate_runtimes(ids: &[String]) -> Result<(), CommandError> {
 fn validate_lead(lead: &LeadInput) -> Result<(), CommandError> {
     validate_id("role", &lead.role_id)?;
     bounded("the title", &lead.title)?;
-    validate_runtime_id(&lead.runtime_id)?;
+    lead.runtime_id
+        .as_deref()
+        .map_or(Ok(()), validate_runtime_id)?;
     bounded_optional("the model", lead.model.as_deref())
 }
 
@@ -613,7 +620,10 @@ pub async fn hire_position(
     validate_id("role", &input.role_id)?;
     bounded("the title", &input.title)?;
     validate_optional_id("position", input.reports_to.as_deref())?;
-    validate_runtime_id(&input.runtime_id)?;
+    input
+        .runtime_id
+        .as_deref()
+        .map_or(Ok(()), validate_runtime_id)?;
     bounded_optional("the model", input.model.as_deref())?;
     with_workforce(&workforce, move |w| w.hire(&input)).await
 }
@@ -646,7 +656,8 @@ pub async fn update_position(
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
     bounded_optional("the title", input.title.as_deref())?;
-    if let Some(r) = input.runtime_id.as_deref() {
+    // An empty AI tool makes the position automatic.
+    if let Some(r) = input.runtime_id.as_deref().filter(|r| !r.is_empty()) {
         validate_runtime_id(r)?;
     }
     bounded_optional("the model", input.model.as_deref())?;
@@ -716,6 +727,92 @@ pub async fn give_objective(
         .give_objective(&position_id, &objective)
         .await
         .map_err(workforce_error)
+}
+
+// ---- Model policy and routing (Phase 6) --------------------------------------------------------
+
+fn router_error(e: RouterError) -> CommandError {
+    if e.is_caller_error() {
+        CommandError::invalid_input(e.to_string())
+    } else {
+        CommandError::internal(e.to_string())
+    }
+}
+
+/// Run Router work (Ledger reads and writes) off the main thread.
+async fn with_router<T: Send + 'static>(
+    router: &Router,
+    f: impl FnOnce(&Router) -> Result<T, RouterError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let router = router.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&router))
+        .await
+        .map_err(|e| CommandError::internal(format!("router task failed: {e}")))?
+        .map_err(router_error)
+}
+
+/// Models, AI tools (with usage limits), every role's model choices with the model its next
+/// worker would get, models seen in use, and options.
+#[tauri::command]
+pub async fn get_routing(router: State<'_, Router>) -> Result<RoutingSnapshot, CommandError> {
+    with_router(&router, Router::snapshot).await
+}
+
+/// Add a model to the registry (no `id`) or change one.
+#[tauri::command]
+pub async fn save_model(
+    router: State<'_, Router>,
+    input: ModelInput,
+) -> Result<RoutingSnapshot, CommandError> {
+    validate_optional_id("model", input.id.as_deref())?;
+    validate_runtime_id(&input.runtime_id)?;
+    bounded_optional("the model name", input.name.as_deref())?;
+    bounded("the label", &input.label)?;
+    with_router(&router, move |r| r.save_model(&input)).await
+}
+
+/// Remove a model the owner added; it leaves every role's list.
+#[tauri::command]
+pub async fn remove_model(
+    router: State<'_, Router>,
+    model_id: String,
+) -> Result<RoutingSnapshot, CommandError> {
+    validate_id("model", &model_id)?;
+    with_router(&router, move |r| r.remove_model(&model_id)).await
+}
+
+/// Replace a role's model policy.
+#[tauri::command]
+pub async fn set_role_policy(
+    router: State<'_, Router>,
+    role_id: String,
+    policy: RolePolicy,
+) -> Result<RoutingSnapshot, CommandError> {
+    validate_id("role", &role_id)?;
+    for id in &policy.models {
+        validate_id("model", id)?;
+    }
+    validate_runtimes(&policy.never_companies)?;
+    with_router(&router, move |r| r.set_policy(&role_id, &policy)).await
+}
+
+/// Choices for every role (what a usage limit does).
+#[tauri::command]
+pub async fn set_routing_options(
+    router: State<'_, Router>,
+    options: RoutingOptions,
+) -> Result<RoutingSnapshot, CommandError> {
+    with_router(&router, move |r| r.set_options(options)).await
+}
+
+/// Try an AI tool again now, although it reported a usage limit.
+#[tauri::command]
+pub async fn clear_usage_limit(
+    router: State<'_, Router>,
+    runtime_id: String,
+) -> Result<RoutingSnapshot, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    with_router(&router, move |r| r.clear_limit(&runtime_id)).await
 }
 
 fn app_info_for(version: &str) -> AppInfo {

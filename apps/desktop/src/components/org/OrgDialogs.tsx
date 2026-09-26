@@ -23,6 +23,8 @@ import {
   supervisorChoices,
 } from "../../org/rules";
 import { RANKS, rankName, roleLabel, titlesOf, withArticle, type TitleSet } from "../../org/titles";
+import { useRoutingOnce } from "../../routing/useRouting";
+import { ModelPicker } from "../models/ModelPicker";
 import { Modal } from "./Modal";
 
 /** Resolves with the refusal to show, or `null` once done. */
@@ -122,6 +124,7 @@ function Field({
   );
 }
 
+/** The AI tool choice: "" (automatic: the role's model choices) or a fixed AI tool. */
 function RuntimeField({
   snapshot,
   value,
@@ -133,7 +136,7 @@ function RuntimeField({
   onChange: (id: string) => void;
   project: ProjectInfo | null;
 }) {
-  const refused = project !== null && !project.allowedRuntimes.includes(value);
+  const refused = value !== "" && project !== null && !project.allowedRuntimes.includes(value);
   return (
     <Field
       label="AI tool"
@@ -146,10 +149,13 @@ function RuntimeField({
               : "; it allows none yet"}
             .
           </span>
+        ) : value === "" ? (
+          "Plenipo picks the AI tool and model for each worker from the role's model choices (Settings → AI models) and says why."
         ) : undefined
       }
     >
-      <select value={value} onChange={(e) => onChange(e.target.value)} required>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Automatic (the role&apos;s model choices)</option>
         {snapshot.runtimes.map((r) => (
           <option key={r.id} value={r.id}>
             {runtimeChoiceLabel(snapshot, r.id)}
@@ -160,9 +166,15 @@ function RuntimeField({
   );
 }
 
-function withModel<T extends object>(input: T, model: string): T & { model?: string } {
+/** A fixed AI tool and its model (if named); automatic when `runtimeId` is "". */
+function withRuntime<T extends object>(
+  input: T,
+  runtimeId: string,
+  model: string,
+): T & { runtimeId?: string; model?: string } {
+  if (runtimeId === "") return input;
   const m = model.trim();
-  return m ? { ...input, model: m } : input;
+  return m ? { ...input, runtimeId, model: m } : { ...input, runtimeId };
 }
 
 // ---- Hire -----------------------------------------------------------------------------------
@@ -202,12 +214,11 @@ export function HireDialog({
     pickSupervisor(firstRole, initialSupervisor),
   );
   const project = projectOf(snapshot, reportsTo);
-  const [runtimeId, setRuntimeId] = useState(() =>
-    defaultRuntime(snapshot, project?.allowedRuntimes ?? null),
-  );
+  const [runtimeId, setRuntimeId] = useState("");
   const [model, setModel] = useState("");
   const [vacant, setVacant] = useState(false);
   const { pending, error, run } = useSubmit();
+  const routing = useRoutingOnce();
 
   const choices = role ? supervisorChoices(snapshot, role) : [];
   const wantedRefusal =
@@ -226,14 +237,18 @@ export function HireDialog({
   const changeSupervisor = (id: string | null) => {
     setReportsTo(id);
     const allowed = projectOf(snapshot, id)?.allowedRuntimes ?? null;
-    if (allowed && !allowed.includes(runtimeId)) setRuntimeId(defaultRuntime(snapshot, allowed));
+    if (runtimeId !== "" && allowed && !allowed.includes(runtimeId)) {
+      setRuntimeId(defaultRuntime(snapshot, allowed));
+      setModel("");
+    }
   };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!role) return;
-    const input: HireInput = withModel(
-      { roleId: role.id, title: title.trim(), reportsTo, runtimeId },
+    const input: HireInput = withRuntime(
+      { roleId: role.id, title: title.trim(), reportsTo },
+      runtimeId,
       model,
     );
     void run(() => onSubmit(vacant ? { ...input, vacant: true } : input));
@@ -315,12 +330,15 @@ export function HireDialog({
         <RuntimeField
           snapshot={snapshot}
           value={runtimeId}
-          onChange={setRuntimeId}
+          onChange={(id) => {
+            setRuntimeId(id);
+            setModel("");
+          }}
           project={project}
         />
-        <Field label="Model (optional)" hint="Leave blank for the AI tool's default model.">
-          <input value={model} maxLength={100} onChange={(e) => setModel(e.target.value)} />
-        </Field>
+        {runtimeId !== "" && (
+          <ModelPicker routing={routing} runtimeId={runtimeId} value={model} onChange={setModel} />
+        )}
         {role?.staffing === "persistent" && (
           <label className="check">
             <input type="checkbox" checked={vacant} onChange={(e) => setVacant(e.target.checked)} />
@@ -365,6 +383,7 @@ function LeadFields({
 }) {
   const roles = leadRoles(snapshot, kind);
   const t = titlesOf(snapshot);
+  const routing = useRoutingOnce();
   return (
     <fieldset className="fieldset">
       <legend>{what}</legend>
@@ -388,16 +407,17 @@ function LeadFields({
       <RuntimeField
         snapshot={snapshot}
         value={lead.runtimeId}
-        onChange={(runtimeId) => onChange({ runtimeId })}
+        onChange={(runtimeId) => onChange({ runtimeId, model: "" })}
         project={project}
       />
-      <Field label="Model (optional)">
-        <input
+      {lead.runtimeId !== "" && (
+        <ModelPicker
+          routing={routing}
+          runtimeId={lead.runtimeId}
           value={lead.model}
-          maxLength={100}
-          onChange={(e) => onChange({ model: e.target.value })}
+          onChange={(model) => onChange({ model })}
         />
-      </Field>
+      )}
       <label className="check">
         <input
           type="checkbox"
@@ -422,26 +442,26 @@ interface LeadState {
   vacant: boolean;
 }
 
-function newLead(snapshot: OrgSnapshot, kind: PositionKind, allowed: string[] | null): LeadState {
+function newLead(snapshot: OrgSnapshot, kind: PositionKind): LeadState {
   const roles = leadRoles(snapshot, kind);
   const role = roles.find((r) => r.template) ?? roles[0];
   return {
     roleId: role?.id ?? "",
     title: "",
     titleEdited: false,
-    runtimeId: defaultRuntime(snapshot, allowed),
+    runtimeId: "",
     model: "",
     vacant: false,
   };
 }
 
 function leadInput(lead: LeadState, fallbackTitle: string): LeadInput {
-  const input: LeadInput = withModel(
+  const input: LeadInput = withRuntime(
     {
       roleId: lead.roleId,
       title: (lead.titleEdited ? lead.title : lead.title || fallbackTitle).trim(),
-      runtimeId: lead.runtimeId,
     },
+    lead.runtimeId,
     lead.model,
   );
   return lead.vacant ? { ...input, vacant: true } : input;
@@ -466,7 +486,7 @@ export function NewDepartmentDialog({
   const [reportsTo, setReportsTo] = useState<string | null>(
     superintendents.some((p) => p.id === initialSupervisor) ? initialSupervisor : null,
   );
-  const [lead, setLead] = useState(() => newLead(snapshot, "departmentManager", null));
+  const [lead, setLead] = useState(() => newLead(snapshot, "departmentManager"));
   const { pending, error, run } = useSubmit();
   const fallbackTitle = `${name.trim() || "Department"} Manager`;
   const shownLead = lead.titleEdited ? lead : { ...lead, title: fallbackTitle };
@@ -704,9 +724,7 @@ export function NewProjectDialog({
     allowedRuntimes: readyRuntimes.length > 0 ? readyRuntimes : snapshot.runtimes.map((r) => r.id),
     capabilityProfile: "",
   });
-  const [lead, setLead] = useState(() =>
-    newLead(snapshot, "projectCoordinator", settings.allowedRuntimes),
-  );
+  const [lead, setLead] = useState(() => newLead(snapshot, "projectCoordinator"));
   const { pending, error, run } = useSubmit();
   const t = titlesOf(snapshot);
   const supervisor = rankName(t, "projectCoordinator");

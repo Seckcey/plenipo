@@ -2,6 +2,7 @@
 //! data values; no vendor appears in a type.
 
 use plenipo_ledger::TaskState;
+use plenipo_router::RouteDecision;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -136,7 +137,9 @@ pub struct ProjectInfo {
 #[ts(export)]
 pub struct AgentInfo {
     pub id: String,
-    pub runtime_id: String,
+    /// The runtime of its conversation; `None` for an automatic position's agent before its
+    /// first objective (the Router picks one then).
+    pub runtime_id: Option<String>,
     pub model: Option<String>,
     /// Its open runtime session (its conversation), once it has had an objective.
     pub session_id: Option<String>,
@@ -158,6 +161,8 @@ pub struct WorkerInfo {
     pub session_id: Option<String>,
     pub runtime_id: String,
     pub model: Option<String>,
+    /// Why it got this runtime and model (the Router's explanation).
+    pub routing: Option<String>,
     /// The task that delegated to it.
     pub parent_task_id: Option<String>,
     #[ts(type = "number")]
@@ -226,8 +231,15 @@ pub struct PositionInfo {
     pub project_id: Option<String>,
     pub heads_department_id: Option<String>,
     pub coordinates_project_id: Option<String>,
-    pub runtime_id: String,
+    /// Its AI tool: the fixed one, its agent's conversation's, or the one its next worker would
+    /// get; `None` when no model can take its work now.
+    pub runtime_id: Option<String>,
+    /// Its model (`None`: the AI tool's default), picked the same way.
     pub model: Option<String>,
+    /// Follows its role's model policy (vs. an AI tool and model the owner fixed).
+    pub automatic: bool,
+    /// Where its next worker (or a new agent) would go, and why.
+    pub route: Option<RouteDecision>,
     pub active: bool,
     #[ts(type = "number")]
     pub sort_key: i64,
@@ -337,7 +349,10 @@ pub struct HireInput {
     pub title: String,
     /// The supervisor; `null` reports to the owner.
     pub reports_to: Option<String>,
-    pub runtime_id: String,
+    /// A fixed AI tool; absent: automatic (the role's model policy picks).
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
+    /// A fixed model (only with a fixed AI tool).
     #[ts(optional)]
     pub model: Option<String>,
     /// Leave a persistent position vacant (hire later).
@@ -352,7 +367,9 @@ pub struct HireInput {
 pub struct LeadInput {
     pub role_id: String,
     pub title: String,
-    pub runtime_id: String,
+    /// A fixed AI tool; absent: automatic.
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
     #[ts(optional)]
     pub model: Option<String>,
     #[ts(optional)]
@@ -403,6 +420,7 @@ pub struct ProjectInput {
 pub struct PositionPatchInput {
     #[ts(optional)]
     pub title: Option<String>,
+    /// A fixed AI tool; an empty string makes the position automatic.
     #[ts(optional)]
     pub runtime_id: Option<String>,
     /// An empty string clears the model.

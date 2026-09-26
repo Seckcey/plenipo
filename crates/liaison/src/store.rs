@@ -9,8 +9,8 @@ use plenipo_ledger::{
     RuntimeSessionState, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    AgentEvent, AgentSession, AgentTurn, SessionChange, SessionState, SessionStore, StepNote,
-    TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
+    AgentEvent, AgentSession, AgentTurn, Effort, SessionChange, SessionState, SessionStore,
+    StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
 };
 use plenipo_runtime::store::Loaded;
 use plenipo_runtime::{
@@ -152,6 +152,7 @@ fn to_session(s: RuntimeSession) -> AgentSession {
         provider_session_id: s.provider_session_id,
         provider_session_confirmed: s.provider_session_confirmed,
         model: s.model,
+        effort: s.effort.as_deref().and_then(Effort::parse),
         title: s.title,
         state: match s.state {
             RuntimeSessionState::Open => SessionState::Open,
@@ -302,6 +303,7 @@ impl SessionStore for LedgerSessionStore {
                     runtime: session.runtime_id.clone(),
                     provider: session.provider.clone(),
                     model: session.model.clone(),
+                    effort: session.effort.map(|e| e.as_str().to_owned()),
                     title: session.title.clone(),
                     working_dir: session.working_dir.clone(),
                     metadata: session.metadata.clone(),
@@ -563,6 +565,7 @@ mod tests {
             provider_session_id: None,
             provider_session_confirmed: false,
             model: None,
+            effort: None,
             title: "Say hello".into(),
             state: SessionState::Open,
             working_dir: "/w/s".into(),

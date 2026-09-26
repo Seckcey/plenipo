@@ -1,7 +1,7 @@
-//! Phase 5 Workforce tests: the real Workforce, Liaison, agent runtime, supervisor, adapters,
-//! and a file-backed Ledger, driving `plenipo-fake-agent` installed as `claude` and `codex`.
-//! Every plan test is covered, and the acceptance scenario end to end. No network, no
-//! accounts.
+//! Phase 5 Workforce and Phase 6 routing tests: the real Workforce, Router, Liaison, agent
+//! runtime, supervisor, adapters, and a file-backed Ledger, driving `plenipo-fake-agent`
+//! installed as `claude` and `codex`. Every plan test is covered, and the acceptance scenarios
+//! end to end. No network, no accounts.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -9,13 +9,17 @@ use std::time::{Duration, Instant};
 
 use plenipo_ledger::{AgentLifecycle, Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
+use plenipo_liaison::Directory as _;
 use plenipo_liaison::{Liaison, LiaisonConfig};
+use plenipo_router::{CrossCompany, LimitBehavior, ModelInput, Router, RoutingOptions};
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, TurnResult,
+    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, Effort, HostEnv,
+    TurnResult,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
 };
+use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::{
     DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionInfo, PositionKind,
     PositionStatus, ProjectInput, RoleInput, Staffing, Workforce, WorkforceError,
@@ -78,13 +82,23 @@ struct H {
     rt: AgentRuntime,
     sup: Supervisor,
     liaison: Liaison,
+    router: Router,
     workforce: Workforce,
     run: tokio::task::JoinHandle<()>,
     dir: tempfile::TempDir,
 }
 
 /// Everything above the Ledger, as the desktop app wires it.
-async fn stack(dir: &Path) -> (Arc<Ledger>, AgentRuntime, Supervisor, Liaison, Workforce) {
+async fn stack(
+    dir: &Path,
+) -> (
+    Arc<Ledger>,
+    AgentRuntime,
+    Supervisor,
+    Liaison,
+    Router,
+    Workforce,
+) {
     let ledger = Arc::new(Ledger::open(&dir.join("ledger").join(DB_FILE_NAME)).unwrap());
     let sup = Supervisor::new(
         SupervisorConfig::default(),
@@ -118,8 +132,14 @@ async fn stack(dir: &Path) -> (Arc<Ledger>, AgentRuntime, Supervisor, Liaison, W
             ..LiaisonConfig::default()
         },
     );
-    let workforce = Workforce::new(Arc::clone(&ledger), rt.clone(), liaison.clone());
-    (ledger, rt, sup, liaison, workforce)
+    let router = Router::new(Arc::clone(&ledger), rt.clone());
+    let workforce = Workforce::new(
+        Arc::clone(&ledger),
+        rt.clone(),
+        liaison.clone(),
+        router.clone(),
+    );
+    (ledger, rt, sup, liaison, router, workforce)
 }
 
 async fn harness() -> H {
@@ -130,13 +150,14 @@ async fn harness() -> H {
     for stem in ["claude", "codex"] {
         install_fake(&bin, stem);
     }
-    let (ledger, rt, sup, liaison, workforce) = stack(dir.path()).await;
+    let (ledger, rt, sup, liaison, router, workforce) = stack(dir.path()).await;
     let run = tokio::spawn(liaison.clone().run());
     H {
         ledger,
         rt,
         sup,
         liaison,
+        router,
         workforce,
         run,
         dir,
@@ -160,7 +181,7 @@ fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
     LeadInput {
         role_id: role_id.into(),
         title: title.into(),
-        runtime_id: runtime.into(),
+        runtime_id: Some(runtime.into()),
         model: None,
         vacant: None,
     }
@@ -220,7 +241,7 @@ impl H {
                 role_id: self.role(role),
                 title: title.into(),
                 reports_to: Some(reports_to.into()),
-                runtime_id: runtime.into(),
+                runtime_id: Some(runtime.into()),
                 model: None,
                 vacant: None,
             })
@@ -448,7 +469,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
     let head = s.positions.iter().find(|p| p.id == head_id).unwrap();
     assert_eq!(head.status, PositionStatus::Idle);
     let agent = head.agent.clone().unwrap();
-    assert_eq!(agent.runtime_id, "claude-code");
+    assert_eq!(agent.runtime_id.as_deref(), Some("claude-code"));
     assert!(agent.session_id.is_none(), "no objective yet");
 
     // Create project coordinator: the project comes with its coordinator under the head.
@@ -489,7 +510,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         role_id: h.role("Senior Developer"),
         title: "Gemini Developer".into(),
         reports_to: Some(coordinator.id.clone()),
-        runtime_id: "gemini".into(),
+        runtime_id: Some("gemini".into()),
         model: None,
         vacant: None,
     }))
@@ -637,13 +658,14 @@ async fn plan_persistent_coordinator_survives_restart() {
     h.run.abort();
     h.rt.shutdown(Duration::from_secs(10)).await;
     h.sup.shutdown(Duration::from_secs(10)).await;
-    let (ledger, rt, sup, liaison, workforce) = stack(h.dir.path()).await;
+    let (ledger, rt, sup, liaison, router, workforce) = stack(h.dir.path()).await;
     let run = tokio::spawn(liaison.clone().run());
     let h = H {
         ledger,
         rt,
         sup,
         liaison,
+        router,
         workforce,
         run,
         dir: h.dir,
@@ -908,4 +930,458 @@ async fn a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on() {
     let agents = h.ledger.position_agents(&o.developer, 10).unwrap();
     assert_eq!(agents[0].lifecycle_state, AgentLifecycle::Failed);
     assert!(s.stats.failed_24h >= 1);
+}
+
+// ---- Phase 6: model policy and role routing -------------------------------------------------
+
+impl H {
+    /// Hire an automatic position (its role's model policy picks each worker's AI tool).
+    fn hire_auto(&self, role: &str, title: &str, reports_to: &str) -> String {
+        let s = self
+            .workforce
+            .hire(&HireInput {
+                role_id: self.role(role),
+                title: title.into(),
+                reports_to: Some(reports_to.into()),
+                runtime_id: None,
+                model: None,
+                vacant: None,
+            })
+            .unwrap();
+        Self::id_of(&s, title)
+    }
+
+    fn model(&self, label: &str) -> String {
+        self.router
+            .snapshot()
+            .unwrap()
+            .models
+            .into_iter()
+            .find(|m| m.label == label)
+            .unwrap_or_else(|| panic!("no model {label}"))
+            .id
+    }
+
+    /// Set a role's ordered model list, keeping the rest of its policy.
+    fn prefer(&self, role: &str, labels: &[&str]) {
+        let mut policy = self.policy(role);
+        policy.models = labels.iter().map(|l| self.model(l)).collect();
+        self.router.set_policy(&self.role(role), &policy).unwrap();
+    }
+
+    fn policy(&self, role: &str) -> plenipo_router::RolePolicy {
+        let role = self.role(role);
+        self.router
+            .snapshot()
+            .unwrap()
+            .roles
+            .into_iter()
+            .find(|r| r.role_id == role)
+            .unwrap()
+            .policy
+    }
+
+    /// The only child task `root` created in its latest round.
+    fn last_child(&self, root: &str) -> Task {
+        self.ledger
+            .child_tasks(root)
+            .unwrap()
+            .into_iter()
+            .max_by_key(|t| t.created_at)
+            .expect("a child task")
+    }
+
+    /// What Liaison writes into a member's instructions: who it is and its team.
+    fn briefing(&self, position: &str) -> (String, Vec<(String, String, bool)>) {
+        let team = WorkforceDirectory::new(Arc::clone(&self.ledger), self.router.clone())
+            .team(&serde_json::json!({ "positionId": position }))
+            .unwrap();
+        let members = team
+            .members
+            .into_iter()
+            .map(|d| (d.address, d.label, d.ready))
+            .collect();
+        (team.identity, members)
+    }
+}
+
+fn reason(task: &Task) -> String {
+    task.metadata["workforce"]["routing"]["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The Phase 6 acceptance criteria: changing a role's model preference in Settings changes the
+/// next worker Plenipo launches, without touching the coordinator or its instructions, and
+/// every choice is explained.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
+    let h = harness().await;
+    let o = h.development();
+    let backend = h.hire_auto("Senior Developer", "Backend Developer", &o.coordinator);
+    let s = h
+        .router
+        .save_model(&ModelInput {
+            id: None,
+            runtime_id: "claude-code".into(),
+            name: Some("fake-fast".into()),
+            label: "Fast".into(),
+            features: vec![],
+            context_tokens: None,
+            cost: plenipo_router::CostClass::Economical,
+            effort: Some(Effort::High),
+        })
+        .unwrap();
+    assert_eq!(
+        s.models.len(),
+        3,
+        "two built-in defaults and the owner's model"
+    );
+
+    // Senior Developer: Codex's default model first.
+    h.prefer("Senior Developer", &["Codex (default model)"]);
+    let p = h.position(&backend);
+    assert!(p.automatic);
+    assert_eq!(
+        p.runtime_id.as_deref(),
+        Some("codex"),
+        "the next worker's AI tool"
+    );
+    assert_eq!(
+        p.route.as_ref().unwrap().reason,
+        "Codex (default model) is Senior Developer's first choice and is ready."
+    );
+    let first = h
+        .objective(&o.coordinator, "Build it [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    let child = h.last_child(&first);
+    assert_eq!(child.assigned_to.as_deref(), Some("codex"));
+    assert_eq!(
+        reason(&child),
+        "Codex (default model) is Senior Developer's first choice and is ready."
+    );
+    let spawned = h
+        .ledger
+        .events_for_task(&child.id)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.event_type == "org.worker_spawned")
+        .unwrap();
+    assert_eq!(spawned.payload["runtimeId"], "codex");
+    assert_eq!(spawned.payload["routing"]["rank"], 1);
+    assert!(
+        h.text(&first).contains("Codex: completed"),
+        "{}",
+        h.text(&first)
+    );
+
+    // The owner changes the preference in Settings: the next worker uses the new first choice.
+    h.prefer("Senior Developer", &["Fast", "Codex (default model)"]);
+    let second = h
+        .objective(
+            &o.coordinator,
+            "Now the API [handoff:role:Backend Developer]",
+        )
+        .await;
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    let child = h.last_child(&second);
+    assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
+    assert_eq!(
+        reason(&child),
+        "Fast (Claude Code) is Senior Developer's first choice and is ready. It runs at high \
+         effort (its setting)."
+    );
+    let worker =
+        h.rt.session(child.metadata["sessionId"].as_str().unwrap())
+            .await
+            .unwrap()
+            .session;
+    assert_eq!(
+        worker.model.as_deref(),
+        Some("fake-fast"),
+        "the chosen model"
+    );
+    assert_eq!(worker.effort, Some(Effort::High), "the model's effort");
+    let history = h.ledger.position_agents(&backend, 10).unwrap();
+    let runtimes: Vec<Option<&str>> = history.iter().map(|a| a.runtime_id.as_deref()).collect();
+    assert_eq!(
+        runtimes,
+        [Some("claude-code"), Some("codex")],
+        "newest first"
+    );
+
+    // A position the owner fixed keeps its AI tool whatever the role's policy says.
+    let third = h
+        .objective(&o.coordinator, "Review [handoff:role:Senior Developer]")
+        .await;
+    assert_eq!(h.finished(&third).await.state, TaskState::Succeeded);
+    let child = h.last_child(&third);
+    assert_eq!(child.assigned_to.as_deref(), Some("codex"));
+    assert_eq!(
+        reason(&child),
+        "You set Senior Developer to always use Codex (default model)."
+    );
+
+    // Nothing about the coordinator changed: same position, same conversation, and the same
+    // instructions (the team list names no AI tool for automatic members).
+    let events: Vec<String> = h
+        .ledger
+        .recent_events(1000)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    assert!(!events.iter().any(|e| e == "org.position_updated"));
+    let turns = h.ledger.position_tasks(&o.coordinator, 10).unwrap();
+    assert!(turns
+        .iter()
+        .all(|t| t.metadata["sessionId"] == turns[0].metadata["sessionId"]));
+    let (identity, members) = h.briefing(&o.coordinator);
+    let backend_member = members
+        .iter()
+        .find(|(address, _, _)| address == "role:Backend Developer")
+        .unwrap();
+    assert_eq!(
+        backend_member.1,
+        "Senior Developer, a new worker for each request"
+    );
+    h.prefer("Senior Developer", &["Codex (default model)"]);
+    assert_eq!(h.briefing(&o.coordinator), (identity, members));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
+    let h = harness().await;
+    let o = h.development();
+    let backend = h.hire_auto("Senior Developer", "Backend Developer", &o.coordinator);
+    h.prefer(
+        "Senior Developer",
+        &["Codex (default model)", "Claude Code (default model)"],
+    );
+    // The worker on Codex reports a usage limit.
+    let root = h
+        .objective(
+            &o.coordinator,
+            "Go [handoff:role:Backend Developer+usage-limit]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.text(&root).contains("usageLimited"), "{}", h.text(&root));
+    let tools = h.router.snapshot().unwrap().tools;
+    let codex = tools.iter().find(|t| t.runtime_id == "codex").unwrap();
+    assert!(codex.ready && !codex.available);
+    let limit = codex.usage_limit.as_ref().unwrap();
+    assert!(limit.detail.contains("usage limit"), "{limit:?}");
+    assert_eq!(limit.until, limit.since + plenipo_router::limits::HOLD_MS);
+    let p = h.position(&backend);
+    assert_eq!(p.status, PositionStatus::Unavailable);
+    assert!(
+        p.status_detail
+            .as_deref()
+            .unwrap()
+            .contains("waits for it rather than moving work to another AI company"),
+        "{p:?}"
+    );
+
+    // Wait (the default): the next request is refused and explained; nothing switches.
+    let held = h
+        .objective(&o.coordinator, "Again [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&held).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&held).unwrap().is_empty());
+    let why = h.rejections(&held);
+    assert!(
+        why[0].contains("Codex reached its usage limit, and Senior Developer waits for it"),
+        "{why:?}"
+    );
+
+    // Next choice: the owner allows moving on, and says so in the explanation.
+    h.router
+        .set_options(RoutingOptions {
+            on_usage_limit: LimitBehavior::NextChoice,
+        })
+        .unwrap();
+    let moved = h
+        .objective(&o.coordinator, "Once more [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&moved).await.state, TaskState::Succeeded);
+    let child = h.last_child(&moved);
+    assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
+    assert!(
+        reason(&child).starts_with(
+            "Claude Code (default model) is Senior Developer's second choice: Codex (default \
+             model) was skipped because Codex reached its usage limit"
+        ),
+        "{}",
+        reason(&child)
+    );
+
+    // The owner tries Codex again: the first choice is back.
+    h.router.clear_limit("codex").unwrap();
+    let back = h
+        .objective(&o.coordinator, "Last [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&back).await.state, TaskState::Succeeded);
+    assert_eq!(h.last_child(&back).assigned_to.as_deref(), Some("codex"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it() {
+    let h = harness().await;
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Research".into(),
+            description: String::new(),
+            head: Some(LeadInput {
+                runtime_id: None,
+                ..lead(&h.role("Manager"), "Research Manager", "unused")
+            }),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let head = H::id_of(&s, "Research Manager");
+    let p = h.position(&head);
+    assert!(p.automatic);
+    assert_eq!(p.agent.as_ref().unwrap().runtime_id, None, "not routed yet");
+    assert_eq!(p.status, PositionStatus::Idle);
+    h.prefer("Manager", &["Codex (default model)"]);
+    // The Manager runs Codex's default model at low effort.
+    let mut policy = h.policy("Manager");
+    policy
+        .efforts
+        .insert(h.model("Codex (default model)"), Effort::Low);
+    h.router.set_policy(&h.role("Manager"), &policy).unwrap();
+
+    let first = h.objective(&head, "Plan the quarter").await;
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    let turn = h.task(&first);
+    assert_eq!(turn.assigned_to.as_deref(), Some("codex"));
+    assert_eq!(
+        reason(&turn),
+        "Codex (default model) is Manager's first choice and is ready. It runs at low \
+         effort (Manager's setting for it)."
+    );
+    let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        h.rt.session(&conversation).await.unwrap().session.effort,
+        Some(Effort::Low)
+    );
+    let routed = h
+        .ledger
+        .recent_events(200)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.event_type == "org.agent_routed")
+        .unwrap();
+    assert_eq!(routed.payload["runtimeId"], "codex");
+    let p = h.position(&head);
+    let agent = p.agent.clone().unwrap();
+    assert_eq!(agent.runtime_id.as_deref(), Some("codex"));
+    let session = agent.session_id.unwrap();
+
+    // A new preference does not move an ongoing conversation; a new agent follows it.
+    h.prefer("Manager", &["Claude Code (default model)"]);
+    let p = h.position(&head);
+    assert_eq!(
+        p.runtime_id.as_deref(),
+        Some("codex"),
+        "its conversation's AI tool"
+    );
+    assert_eq!(
+        p.route.unwrap().choice.unwrap().runtime_id,
+        "claude-code",
+        "what a new agent would get"
+    );
+    let second = h.objective(&head, "And next quarter?").await;
+    h.finished(&second).await;
+    assert_eq!(h.task(&second).metadata["sessionId"], session.as_str());
+    h.workforce.vacate(&head).unwrap();
+    h.workforce.fill(&head).unwrap();
+    let third = h.objective(&head, "Start fresh").await;
+    assert_eq!(h.finished(&third).await.state, TaskState::Succeeded);
+    assert_eq!(h.task(&third).assigned_to.as_deref(), Some("claude-code"));
+    assert_ne!(h.task(&third).metadata["sessionId"], session.as_str());
+
+    // No model can take the work: the objective is refused with the reason.
+    h.prefer("Manager", &[]);
+    let mut policy = h.policy("Manager");
+    policy.needs = vec![plenipo_router::ModelFeature::ComputerUse];
+    h.router.set_policy(&h.role("Manager"), &policy).unwrap();
+    h.workforce.vacate(&head).unwrap();
+    h.workforce.fill(&head).unwrap();
+    let why = refusal(h.workforce.give_objective(&head, "Anything").await);
+    assert!(
+        why.starts_with("Research Manager cannot start: No model can take Manager's work now"),
+        "{why}"
+    );
+    assert!(
+        why.contains("not marked as able to use a computer"),
+        "{why}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() {
+    let h = harness().await;
+    let o = h.development();
+    // The coordinator works on Claude Code (Anthropic). The Code Reviewer template prefers
+    // another AI company than the work it reviews.
+    let reviewer = h.hire_auto("Code Reviewer", "Reviewer", &o.coordinator);
+    h.prefer(
+        "Code Reviewer",
+        &["Claude Code (default model)", "Codex (default model)"],
+    );
+    let policy = h
+        .router
+        .snapshot()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|r| r.role_name == "Code Reviewer")
+        .unwrap()
+        .policy;
+    assert_eq!(
+        policy.cross_company,
+        CrossCompany::Prefer,
+        "the template's default"
+    );
+    // Nothing reviewed yet: the list order.
+    assert_eq!(
+        h.position(&reviewer).runtime_id.as_deref(),
+        Some("claude-code")
+    );
+    let root = h
+        .objective(&o.coordinator, "Check my plan [handoff:role:Reviewer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    assert_eq!(child.assigned_to.as_deref(), Some("codex"));
+    assert!(
+        reason(&child).ends_with(
+            "It comes from a different AI company than the work it reviews (Anthropic)."
+        ),
+        "{}",
+        reason(&child)
+    );
+
+    // The Designer template needs a model that sees and makes images; none is marked so.
+    h.hire_auto("Designer", "Designer", &o.coordinator);
+    let root = h
+        .objective(&o.coordinator, "A logo [handoff:role:Designer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&root).unwrap().is_empty());
+    let why = h.rejections(&root);
+    assert!(
+        why[0].starts_with("Designer cannot take work now: No model can take Designer's work now"),
+        "{why:?}"
+    );
+    assert!(
+        why[0].contains("not marked as able to see images"),
+        "{why:?}"
+    );
 }

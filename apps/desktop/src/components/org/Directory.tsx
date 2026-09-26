@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { OrgSnapshot, PositionStatus } from "@plenipo/types";
 
-import { STAFFING_LABEL, STATUS_LABEL, runtimeLabel } from "../../org/format";
+import { STAFFING_LABEL, STATUS_LABEL, positionToolLabel, runtimeLabel } from "../../org/format";
 import { positionMap } from "../../org/rules";
 import { positionSearchText } from "../../org/search";
 import { rankName, titlesOf } from "../../org/titles";
@@ -143,7 +143,7 @@ export function Directory({
                     </td>
                     <td>{snapshot.projects.find((x) => x.id === p.projectId)?.name ?? "—"}</td>
                     <td>
-                      {runtimeLabel(snapshot, p.runtimeId)}
+                      {positionToolLabel(snapshot, p)}
                       {p.model ? ` · ${p.model}` : ""}
                     </td>
                     <td>

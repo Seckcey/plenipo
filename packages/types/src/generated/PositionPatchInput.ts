@@ -3,7 +3,11 @@
 /**
  * Changes to a position; absent fields stay as they are.
  */
-export type PositionPatchInput = { title?: string, runtimeId?: string, 
+export type PositionPatchInput = { title?: string, 
+/**
+ * A fixed AI tool; an empty string makes the position automatic.
+ */
+runtimeId?: string, 
 /**
  * An empty string clears the model.
  */

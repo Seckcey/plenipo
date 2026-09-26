@@ -81,6 +81,8 @@ export function describeEvent(e: LedgerEvent): string {
   }
   const org = describeOrgEvent(e.eventType, p);
   if (org !== null) return org;
+  const router = describeRouterEvent(e.eventType, p);
+  if (router !== null) return router;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -92,6 +94,46 @@ const OVERSIGHT_WORD: Record<string, string> = {
   qa: "QA evaluator",
   security: "security auditor",
 };
+
+/** "Claude Code · opus", from an event's `runtimeId` and `model`. */
+function tool(p: Record<string, unknown>): string {
+  const id = str(p.runtimeId) ?? "";
+  const name = TOOL_NAMES[id] ?? id;
+  return str(p.model) ? `${name} · ${str(p.model)}` : name;
+}
+
+/** " — <why this model>" when the event carries the Router's explanation. */
+function routed(p: Record<string, unknown>): string {
+  const routing = p.routing;
+  if (typeof routing !== "object" || routing === null) return "";
+  const reason = str((routing as Record<string, unknown>).reason);
+  return reason ? ` — ${reason}` : "";
+}
+
+/** Phase 6: the model settings. */
+function describeRouterEvent(type: string, p: Record<string, unknown>): string | null {
+  const model = (typeof p.model === "object" && p.model !== null ? p.model : {}) as Record<
+    string,
+    unknown
+  >;
+  switch (type) {
+    case "router.model_saved":
+      return `Model saved: ${str(model.label) ?? "a model"}`;
+    case "router.model_removed":
+      return `Model removed: ${str(model.label) ?? "a model"}`;
+    case "router.models_added":
+      return "Each AI tool's default model was added to your models";
+    case "router.policy_changed":
+      return `Model choices changed for ${str(p.role) ?? "a role"}`;
+    case "router.policies_added":
+      return "Built-in roles got their starting model choices";
+    case "router.options_changed":
+      return "Usage-limit setting changed";
+    case "router.limit_cleared":
+      return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;
+  }
+  return null;
+}
 
 /** Phase 5: the organization's structure, its agents, and the workers it spawns. */
 function describeOrgEvent(type: string, p: Record<string, unknown>): string | null {
@@ -112,7 +154,9 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
     case "org.agent_retired":
       return `Agent retired from ${title}${why}`;
     case "org.worker_spawned":
-      return `Worker brought in for ${title}`;
+      return `Worker brought in for ${title}${routed(p)}`;
+    case "org.agent_routed":
+      return `${title}'s agent starts its conversation on ${tool(p)}${routed(p)}`;
     case "org.worker_started":
       return "Worker started";
     case "org.worker_retired":

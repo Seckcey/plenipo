@@ -4,13 +4,16 @@ import type { OrgSnapshot } from "@plenipo/types";
 import { getOrganization, toCommandError } from "../api/commands";
 import { subscribeAgentUpdates, subscribeLedgerEvents } from "../api/events";
 
-/** Ledger events after which the organization may look different. */
+/** Ledger events after which the organization may look different (model choices and usage
+ * limits change where each position's next worker would go). */
 export function affectsOrganization(eventType: string): boolean {
   return (
     eventType.startsWith("org.") ||
     eventType.startsWith("task.") ||
     eventType.startsWith("liaison.") ||
-    eventType.startsWith("session.")
+    eventType.startsWith("session.") ||
+    eventType.startsWith("router.") ||
+    eventType === "agent.result"
   );
 }
 

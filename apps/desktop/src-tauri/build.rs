@@ -47,6 +47,12 @@ const COMMANDS: &[&str] = &[
     "assign_oversight",
     "end_oversight",
     "give_objective",
+    "get_routing",
+    "save_model",
+    "remove_model",
+    "set_role_policy",
+    "set_routing_options",
+    "clear_usage_limit",
 ];
 
 fn main() {

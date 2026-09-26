@@ -1,4 +1,5 @@
 import { useAgents } from "../agents/useAgents";
+import { ModelSettings } from "../components/models/ModelSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
@@ -9,12 +10,15 @@ export function SettingsView() {
     <section className="view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
       <p className="view__lead">
-        Personalization can be changed here. The rest is shown for reference and becomes editable in
-        later phases.
+        Personalization and the AI models your roles use can be changed here. The rest is shown for
+        reference and becomes editable in later phases.
       </p>
 
       <h2>Personalization</h2>
       <TitlesSetting />
+
+      <h2>AI models</h2>
+      <ModelSettings />
 
       <h2>AI tools</h2>
       <ul className="settings">
@@ -39,8 +43,9 @@ export function SettingsView() {
           are.
         </li>
         <li>
-          <strong>Model:</strong> the AI tool&apos;s default unless you name one for a new task.
-          Automatic model choice arrives with role policies.
+          <strong>Model:</strong> organization workers get the model their role&apos;s choices pick
+          (above), unless you fixed an AI tool on the position. Tasks you start yourself in Workers
+          use the AI tool&apos;s default unless you name a model.
         </li>
         <li>
           <strong>Handoffs:</strong> off unless you allow them for a new task. A worker may then ask

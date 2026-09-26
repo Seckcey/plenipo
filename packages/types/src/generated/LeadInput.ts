@@ -3,4 +3,8 @@
 /**
  * The head of a new department, or the coordinator of a new project.
  */
-export type LeadInput = { roleId: string, title: string, runtimeId: string, model?: string, vacant?: boolean, };
+export type LeadInput = { roleId: string, title: string, 
+/**
+ * A fixed AI tool; absent: automatic.
+ */
+runtimeId?: string, model?: string, vacant?: boolean, };

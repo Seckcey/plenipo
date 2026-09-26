@@ -8,6 +8,7 @@ import {
   WORKER_STATE_LABEL,
   ago,
   plural,
+  positionToolLabel,
 } from "../../org/format";
 import type { LayoutNode } from "../../org/layout";
 import { nodeLabel, workerStatus, type DropState, type NodeContext } from "../../org/nodes";
@@ -161,7 +162,7 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
         </span>
         <span className="topo-node__foot">
           <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
-          <span className="topo-node__runtime">{ctx.runtime(p.runtimeId)}</span>
+          <span className="topo-node__runtime">{positionToolLabel(ctx.snapshot, p)}</span>
           {p.staffing === "onDemand" && live > 0 && (
             <span className="topo-node__count">{plural(live, "live worker")}</span>
           )}

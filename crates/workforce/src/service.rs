@@ -6,17 +6,21 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use plenipo_ledger::{
-    Ledger, NewPosition, OversightKind, PositionPatch, PositionState, ProjectSettings, RoleType,
+    AgentRoute, Ledger, NewPosition, OversightKind, PositionPatch, PositionState, ProjectSettings,
+    RoleType,
 };
 use plenipo_liaison::Liaison;
-use plenipo_runtime::agent::{AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, SessionStart};
+use plenipo_router::Router;
+use plenipo_runtime::agent::{
+    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, Effort, InstallState, SessionStart,
+};
 use serde_json::{json, Value};
 
-use crate::directory::{allowed, WorkforceDirectory};
+use crate::directory::{allowed, decide, WorkforceDirectory};
 use crate::dto::*;
 use crate::error::{Result, WorkforceError};
 use crate::snapshot::{self, Inputs};
-use crate::templates::{default_glyph, role_templates};
+use crate::templates::{default_glyph, role_templates, template_policies};
 use crate::view::OrgView;
 
 /// Actor recorded for the owner's changes.
@@ -57,6 +61,7 @@ struct Inner {
     ledger: Arc<Ledger>,
     runtime: AgentRuntime,
     liaison: Liaison,
+    router: Router,
     notices: Mutex<Vec<String>>,
 }
 
@@ -67,21 +72,44 @@ pub struct Workforce {
 }
 
 impl Workforce {
-    /// Create the service: seed missing role templates and install the organization's
-    /// directory in Liaison, so members address their teams by role.
-    pub fn new(ledger: Arc<Ledger>, runtime: AgentRuntime, liaison: Liaison) -> Self {
+    /// Create the service: seed missing role templates (and their starting model policies)
+    /// and install the organization's directory in Liaison, so members address their teams by
+    /// role and each new worker is routed by its role's model policy.
+    pub fn new(
+        ledger: Arc<Ledger>,
+        runtime: AgentRuntime,
+        liaison: Liaison,
+        router: Router,
+    ) -> Self {
         let this = Self {
             inner: Arc::new(Inner {
                 ledger: Arc::clone(&ledger),
-                runtime: runtime.clone(),
+                runtime,
                 liaison: liaison.clone(),
+                router: router.clone(),
                 notices: Mutex::new(Vec::new()),
             }),
         };
-        if let Err(e) = ledger.ensure_roles(&role_templates(), PLENIPO) {
-            this.notice(format!("Could not add the built-in role templates: {e}"));
+        match ledger.ensure_roles(&role_templates(), PLENIPO) {
+            Ok(roles) => {
+                let defaults: Vec<_> = template_policies()
+                    .into_iter()
+                    .filter_map(|(name, policy)| {
+                        roles
+                            .iter()
+                            .find(|r| r.name == name && r.metadata["template"] == true)
+                            .map(|r| (r.id.clone(), policy))
+                    })
+                    .collect();
+                if let Err(e) = router.seed_policies(&defaults) {
+                    this.notice(format!(
+                        "Could not add the built-in roles' model choices: {e}"
+                    ));
+                }
+            }
+            Err(e) => this.notice(format!("Could not add the built-in role templates: {e}")),
         }
-        liaison.set_directory(Arc::new(WorkforceDirectory { ledger, runtime }));
+        liaison.set_directory(Arc::new(WorkforceDirectory::new(ledger, router)));
         this
     }
 
@@ -123,13 +151,13 @@ impl Workforce {
         let open_tasks = l.open_workforce_tasks()?;
         let finished_recent = l.finished_workforce_tasks(now.saturating_sub(DAY_MS), 1000)?;
         let sessions = l.open_workforce_sessions()?;
-        let runtimes = self.runtimes();
+        let planner = self.inner.router.planner()?;
         Ok(snapshot::build(&Inputs {
             records: &records,
             open_tasks: &open_tasks,
             finished_recent: &finished_recent,
             sessions: &sessions,
-            runtimes: &runtimes,
+            planner: &planner,
             name: org_name(l),
             titles: org_titles(l),
             notices: self.notices().clone(),
@@ -223,14 +251,25 @@ impl Workforce {
         self.snapshot()
     }
 
+    /// A fixed runtime and its provider, or `(None, None)`: automatic.
+    fn fixed_runtime(&self, id: Option<&str>) -> Result<(Option<String>, Option<String>)> {
+        match id {
+            Some(id) => {
+                let r = self.runtime(id)?;
+                Ok((Some(r.id), Some(r.provider)))
+            }
+            None => Ok((None, None)),
+        }
+    }
+
     fn lead(&self, input: &LeadInput, reports_to: Option<String>) -> Result<NewPosition> {
-        let runtime = self.runtime(&input.runtime_id)?;
+        let (runtime_id, runtime_provider) = self.fixed_runtime(input.runtime_id.as_deref())?;
         Ok(NewPosition {
             title: input.title.clone(),
             role_id: input.role_id.clone(),
             reports_to,
-            runtime_id: runtime.id,
-            runtime_provider: Some(runtime.provider),
+            runtime_id,
+            runtime_provider,
             model: input.model.clone(),
             staffed: !input.vacant.unwrap_or(false),
         })
@@ -319,14 +358,14 @@ impl Workforce {
 
     /// Hire into a team: a new position (and, for a persistent one, its agent).
     pub fn hire(&self, input: &HireInput) -> Result<OrgSnapshot> {
-        let runtime = self.runtime(&input.runtime_id)?;
+        let (runtime_id, runtime_provider) = self.fixed_runtime(input.runtime_id.as_deref())?;
         self.ledger().create_position(
             &NewPosition {
                 title: input.title.clone(),
                 role_id: input.role_id.clone(),
                 reports_to: input.reports_to.clone(),
-                runtime_id: runtime.id,
-                runtime_provider: Some(runtime.provider),
+                runtime_id,
+                runtime_provider,
                 model: input.model.clone(),
                 staffed: !input.vacant.unwrap_or(false),
             },
@@ -342,9 +381,9 @@ impl Workforce {
                 "position {position_id}"
             )))
         })?;
-        let runtime = self.runtime(&position.runtime_id)?;
+        let (_, provider) = self.fixed_runtime(position.runtime_id.as_deref())?;
         self.ledger()
-            .fill_position(position_id, Some(&runtime.provider), OWNER)?;
+            .fill_position(position_id, provider.as_deref(), OWNER)?;
         self.snapshot()
     }
 
@@ -355,10 +394,14 @@ impl Workforce {
     }
 
     pub fn update_position(&self, id: &str, input: &PositionPatchInput) -> Result<OrgSnapshot> {
+        // An empty runtime makes the position automatic.
         let runtime = input
             .runtime_id
             .as_deref()
-            .map(|r| self.runtime(r))
+            .map(|r| match r.trim() {
+                "" => Ok(None),
+                r => self.runtime(r).map(|r| Some((r.id, Some(r.provider)))),
+            })
             .transpose()?;
         let model = input.model.as_deref().map(|m| {
             let m = m.trim();
@@ -368,7 +411,7 @@ impl Workforce {
             id,
             &PositionPatch {
                 title: input.title.clone(),
-                runtime: runtime.map(|r| (r.id, Some(r.provider))),
+                runtime,
                 model,
             },
             OWNER,
@@ -412,12 +455,23 @@ impl Workforce {
 
     /// Give a staffed persistent position's agent an objective: its session continues (or
     /// starts), with its team named in its instructions. Workers it delegates to appear under
-    /// its team's positions and leave the workforce when they finish.
+    /// its team's positions and leave the workforce when they finish. An agent starting a
+    /// conversation gets the AI tool and model its position's role policy picks now (Phase 6);
+    /// it keeps them for the whole conversation.
     pub async fn give_objective(
         &self,
         position_id: &str,
         objective: &str,
     ) -> Result<AgentSessionDetail> {
+        // Routing needs to know which AI tools are ready: finish detecting them first.
+        let runtime = &self.inner.runtime;
+        if runtime
+            .runtimes()
+            .iter()
+            .any(|r| r.installation.state == InstallState::Checking)
+        {
+            runtime.refresh().await;
+        }
         let this = self.clone();
         let id = position_id.to_owned();
         let plan = tokio::task::spawn_blocking(move || this.plan_objective(&id))
@@ -437,6 +491,7 @@ impl Workforce {
                             id: None,
                             runtime_id: plan.runtime_id,
                             model: plan.model,
+                            effort: plan.effort,
                             title: Some(plan.title),
                             metadata: Value::Null,
                         },
@@ -450,7 +505,8 @@ impl Workforce {
         Ok(detail)
     }
 
-    /// Check that `position_id` can take an objective and find its agent's session.
+    /// Check that `position_id` can take an objective and find its agent's session — or, for a
+    /// new conversation, the AI tool and model to start it on.
     fn plan_objective(&self, position_id: &str) -> Result<ObjectivePlan> {
         let l = self.ledger();
         let records = l.org_records()?;
@@ -475,36 +531,87 @@ impl Workforce {
                 position.title
             ))
         })?;
-        let runtime_id = agent
-            .runtime_id
-            .clone()
-            .unwrap_or_else(|| position.runtime_id.clone());
         let project = view.project_of(position_id);
-        if !allowed(project, &runtime_id) {
-            return Err(invalid(format!(
-                "{} does not allow the {runtime_id} runtime; change the project's allowed \
-                 runtimes or the position's runtime",
-                project.map_or("The project", |p| p.name.as_str())
-            )));
-        }
-        let session_id = l
-            .agent_sessions(&agent.id)?
-            .into_iter()
-            .find(|s| {
-                s.state == plenipo_ledger::RuntimeSessionState::Open && s.runtime == runtime_id
-            })
-            .map(|s| s.id);
         let project_id = project.map(|p| p.id.clone());
-        Ok(ObjectivePlan {
-            session_id,
-            runtime_id,
-            model: agent.model.clone(),
-            title: position.title.clone(),
-            workforce: json!({
-                "positionId": position_id,
-                "agentId": agent.id,
-                "projectId": project_id,
+        let planner = self.inner.router.planner()?;
+        let mut workforce = json!({
+            "positionId": position_id,
+            "agentId": agent.id,
+            "projectId": project_id,
+        });
+        let not_allowed = |runtime_id: &str| {
+            invalid(format!(
+                "{} does not allow the {runtime_id} AI tool; change the project's allowed AI \
+                 tools or the position's AI tool",
+                project.map_or("The project", |p| p.name.as_str())
+            ))
+        };
+        // Its conversation continues on the AI tool it started on.
+        let conversation = match agent.runtime_id.as_deref() {
+            Some(runtime_id) => l.agent_sessions(&agent.id)?.into_iter().find(|s| {
+                s.state == plenipo_ledger::RuntimeSessionState::Open && s.runtime == runtime_id
             }),
+            None => None,
+        };
+        if let Some(session) = conversation {
+            if !allowed(project, &session.runtime) {
+                return Err(not_allowed(&session.runtime));
+            }
+            if let Some((t, limit)) = planner
+                .tool(&session.runtime)
+                .and_then(|t| t.limit.as_ref().map(|l| (t, l)))
+            {
+                return Err(invalid(format!(
+                    "{}'s conversation is on {}, which {}. Give the objective again then, or hire \
+                     a new agent into the position to use another model",
+                    position.title,
+                    t.info.label,
+                    plenipo_router::engine::limit_words(limit, planner.now)
+                )));
+            }
+            return Ok(ObjectivePlan {
+                session_id: Some(session.id),
+                runtime_id: session.runtime,
+                model: agent.model.clone(),
+                // A resumed conversation keeps its session's effort.
+                effort: None,
+                title: position.title.clone(),
+                workforce,
+                project_id,
+            });
+        }
+        // A new conversation: the owner's fixed choice, or what the role's policy picks now.
+        let decision = decide(&planner, position, project, &[]);
+        let Some(choice) = decision.choice.clone() else {
+            return Err(invalid(format!(
+                "{} cannot start: {}",
+                position.title, decision.reason
+            )));
+        };
+        if !allowed(project, &choice.runtime_id) {
+            return Err(not_allowed(&choice.runtime_id));
+        }
+        let routing = json!(decision);
+        if position.runtime_id.is_none() {
+            l.route_agent(
+                &agent.id,
+                &AgentRoute {
+                    runtime_id: choice.runtime_id.clone(),
+                    runtime_provider: Some(choice.company.clone()).filter(|c| !c.is_empty()),
+                    model: choice.model.clone(),
+                    routing: routing.clone(),
+                },
+                PLENIPO,
+            )?;
+        }
+        workforce["routing"] = routing;
+        Ok(ObjectivePlan {
+            session_id: None,
+            runtime_id: choice.runtime_id,
+            model: choice.model,
+            effort: choice.effort,
+            title: position.title.clone(),
+            workforce,
             project_id,
         })
     }
@@ -514,6 +621,7 @@ struct ObjectivePlan {
     session_id: Option<String>,
     runtime_id: String,
     model: Option<String>,
+    effort: Option<Effort>,
     title: String,
     workforce: Value,
     project_id: Option<String>,

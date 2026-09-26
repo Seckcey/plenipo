@@ -7,6 +7,7 @@
 //! organization behave as before.
 
 use plenipo_ledger::{NewWorker, Task};
+use plenipo_runtime::agent::Effort;
 use serde_json::Value;
 
 use crate::context::Destination;
@@ -29,10 +30,13 @@ pub struct Placement {
     pub label: String,
     pub runtime_id: String,
     pub model: Option<String>,
+    /// The effort level the worker runs at (`None`: the runtime's default).
+    pub effort: Option<Effort>,
     /// The worker recorded with the child task, in the same transaction.
     pub worker: NewWorker,
     /// The child's `workforce` record (its task's and its session's metadata). It must name
-    /// `worker` (`agentId`, `positionId`).
+    /// `worker` (`agentId`, `positionId`), and may say why its runtime and model were chosen
+    /// (`routing`).
     pub workforce: Value,
     /// Who the child worker is, for its instructions.
     pub identity: String,
@@ -47,6 +51,14 @@ pub trait Directory: Send + Sync + 'static {
     fn team(&self, workforce: &Value) -> Option<Team>;
 
     /// Place a request for `role:<name>` made by the member described by `workforce` while
-    /// working on `requester`. `Err` is the refusal reason, which the requester is told.
-    fn place(&self, workforce: &Value, requester: &Task, name: &str) -> Result<Placement, String>;
+    /// working on `requester`. `reviewed` are the runtimes that did the work the request is
+    /// about (the tasks it references, or else the requester's own), for cross-company review
+    /// (Phase 6). `Err` is the refusal reason, which the requester is told.
+    fn place(
+        &self,
+        workforce: &Value,
+        requester: &Task,
+        name: &str,
+        reviewed: &[String],
+    ) -> Result<Placement, String>;
 }

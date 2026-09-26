@@ -19,9 +19,9 @@ use plenipo_ledger::{
     MessageState, NewEvent, NewHandoffRequest, NewReply, NewTask, OpenRequest, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    unavailable_outcome, AgentRuntime, AgentSessionDetail, InstallState, SessionStart, StepNote,
-    TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnTask,
-    OWNER,
+    unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState, SessionStart,
+    StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult,
+    TurnTask, OWNER,
 };
 use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
@@ -402,6 +402,7 @@ impl Liaison {
                     id: None,
                     runtime_id: runtime_id.into(),
                     model: model.map(str::to_owned),
+                    effort: None,
                     title: None,
                     metadata: json!({ "liaison": {
                         "enabled": true,
@@ -731,6 +732,32 @@ impl Liaison {
         Ok(Some(reason))
     }
 
+    /// The runtimes that did the work a request is about: those of the same workflow's tasks
+    /// it references, or else the requester's own (for cross-company review, Phase 6).
+    fn reviewed_work(&self, d: &Directive, task: &Task, correlation: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for c in &d.context {
+            let ContextRequest::Task { task_id } = c else {
+                continue;
+            };
+            let Ok(Some(t)) = self.inner.ledger.task(task_id) else {
+                continue;
+            };
+            if task_info(&t.metadata).correlation_id.as_deref() != Some(correlation) {
+                continue;
+            }
+            if let Some(r) = t.metadata["runtimeId"].as_str() {
+                if !out.iter().any(|x| x == r) {
+                    out.push(r.to_owned());
+                }
+            }
+        }
+        if out.is_empty() {
+            out.extend(task.metadata["runtimeId"].as_str().map(str::to_owned));
+        }
+        out
+    }
+
     /// Validate an accepted directive against the workflow; `Err` is the refusal reason.
     #[allow(clippy::too_many_arguments)]
     fn accept(
@@ -765,7 +792,8 @@ impl Liaison {
                 let directory = self
                     .directory()
                     .ok_or_else(|| "the organization's directory is unavailable".to_owned())?;
-                let p = directory.place(member.unwrap_or(&Value::Null), task, &name)?;
+                let reviewed = self.reviewed_work(d, task, correlation);
+                let p = directory.place(member.unwrap_or(&Value::Null), task, &name, &reviewed)?;
                 let runtime_id = p.runtime_id.clone();
                 placement = Some(p);
                 runtime_id
@@ -1025,6 +1053,10 @@ impl Liaison {
                     if let Some(model) = &p.model {
                         metadata["model"] = json!(model);
                     }
+                    if let Some(effort) = p.effort {
+                        envelope["effort"] = json!(effort);
+                        metadata["effort"] = json!(effort);
+                    }
                     project_id = p.project_id.clone();
                 }
                 HandoffDecision::Accept {
@@ -1039,7 +1071,7 @@ impl Liaison {
                         metadata,
                     },
                     received,
-                    worker: placement.map(|p| p.worker),
+                    worker: placement.map(|p| Box::new(p.worker)),
                 }
             }
             Err(reason) => {
@@ -1258,6 +1290,7 @@ impl Liaison {
             id: Some(session_id.into()),
             runtime_id: runtime_id.into(),
             model: child.metadata["model"].as_str().map(str::to_owned),
+            effort: child.metadata["effort"].as_str().and_then(Effort::parse),
             title: Some(child.objective.clone()),
             metadata,
         };
