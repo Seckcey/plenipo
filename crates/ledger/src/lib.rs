@@ -8,6 +8,7 @@
 pub mod dto;
 pub mod error;
 mod events;
+mod liaison;
 mod maintenance;
 pub mod migrate;
 mod org;
@@ -47,7 +48,7 @@ pub fn now_ms() -> u64 {
 pub struct Ledger {
     conn: Mutex<Connection>,
     path: Option<PathBuf>,
-    listener: RwLock<Option<Listener>>,
+    listeners: RwLock<Vec<Listener>>,
     notices: Mutex<Vec<String>>,
     last_integrity: Mutex<Option<IntegrityReport>>,
     last_backup: Mutex<Option<BackupInfo>>,
@@ -113,7 +114,7 @@ impl Ledger {
         Self {
             conn: Mutex::new(conn),
             path,
-            listener: RwLock::new(None),
+            listeners: RwLock::new(Vec::new()),
             notices: Mutex::new(notices),
             last_integrity: Mutex::new(None),
             last_backup: Mutex::new(None),
@@ -129,8 +130,13 @@ impl Ledger {
         self.path.as_deref().map(backups_dir)
     }
 
-    pub fn set_listener(&self, listener: Listener) {
-        *self.listener.write().unwrap_or_else(|p| p.into_inner()) = Some(listener);
+    /// Add a listener called after every committed event, in commit order. Listeners run on
+    /// the writing thread after the transaction and its lock are released: keep them quick.
+    pub fn add_listener(&self, listener: Listener) {
+        self.listeners
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(listener);
     }
 
     /// Add a notice for the user (shown with the ledger status).
@@ -146,7 +152,7 @@ impl Ledger {
         lock(&self.conn)
     }
 
-    /// Run `f` in an IMMEDIATE transaction; notify the listener of its events after commit.
+    /// Run `f` in an IMMEDIATE transaction; notify the listeners of its events after commit.
     /// Any error rolls the whole transaction back.
     fn write<T>(
         &self,
@@ -166,13 +172,13 @@ impl Ledger {
                 }
             }
         };
-        let listener = self
-            .listener
+        let listeners = self
+            .listeners
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .clone();
-        if let Some(listener) = listener {
-            for event in &events {
+        for event in &events {
+            for listener in &listeners {
                 listener(event);
             }
         }

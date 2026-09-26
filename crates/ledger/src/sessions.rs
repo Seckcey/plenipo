@@ -237,6 +237,21 @@ impl Ledger {
         })
     }
 
+    /// Open sessions whose metadata marks them as handoff workers (`liaison.origin`).
+    pub fn open_handoff_sessions(&self) -> Result<Vec<RuntimeSession>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "SELECT {SESSION_COLUMNS} FROM runtime_sessions s
+                 WHERE s.state = 'open' AND json_extract(s.metadata, '$.liaison.origin') = 'handoff'
+                 ORDER BY s.created_at, s.rowid"
+            ))?;
+            let rows = stmt
+                .query_map([], session_row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
     /// A session's turns (tasks), oldest first.
     pub fn session_tasks(&self, session_id: &str) -> Result<Vec<Task>> {
         self.read(|c| {
@@ -380,6 +395,32 @@ mod tests {
             .map(|s| s.id)
             .collect();
         assert_eq!(listed, ["s-1", "s-2"]);
+    }
+
+    #[test]
+    fn handoff_worker_sessions_are_found_by_their_metadata() {
+        let l = ledger();
+        l.open_runtime_session(new_session("s-owner"), "owner")
+            .unwrap();
+        let mut worker = new_session("s-worker");
+        worker.metadata = json!({ "liaison": { "enabled": true, "origin": "handoff" } });
+        l.open_runtime_session(worker, "liaison").unwrap();
+        let mut root = new_session("s-root");
+        root.metadata = json!({ "liaison": { "enabled": true, "origin": "owner" } });
+        l.open_runtime_session(root, "owner").unwrap();
+        let open: Vec<_> = l
+            .open_handoff_sessions()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(open, ["s-worker"]);
+        assert_eq!(
+            l.runtime_session("s-worker").unwrap().unwrap().metadata["liaison"]["origin"],
+            "handoff"
+        );
+        l.close_runtime_session("s-worker", "liaison").unwrap();
+        assert!(l.open_handoff_sessions().unwrap().is_empty());
     }
 
     #[test]

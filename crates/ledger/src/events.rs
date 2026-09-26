@@ -114,6 +114,32 @@ impl Ledger {
         })
     }
 
+    /// The task's most recent event of `event_type`.
+    pub fn last_task_event(&self, task_id: &str, event_type: &str) -> Result<Option<LedgerEvent>> {
+        self.read(|c| {
+            Ok(c.query_row(
+                &format!(
+                    "SELECT {EVENT_COLUMNS} FROM events WHERE task_id = ?1 AND event_type = ?2
+                     ORDER BY seq DESC LIMIT 1"
+                ),
+                [task_id, event_type],
+                rows::event,
+            )
+            .optional()?)
+        })
+    }
+
+    /// How many events of `event_type` the task's trail holds.
+    pub fn count_task_events(&self, task_id: &str, event_type: &str) -> Result<u32> {
+        self.read(|c| {
+            Ok(c.query_row(
+                "SELECT COUNT(*) FROM events WHERE task_id = ?1 AND event_type = ?2",
+                [task_id, event_type],
+                |r| r.get(0),
+            )?)
+        })
+    }
+
     /// Most recent events across the whole ledger, newest first.
     pub fn recent_events(&self, limit: u32) -> Result<Vec<LedgerEvent>> {
         self.read(|c| {
@@ -185,6 +211,31 @@ mod tests {
     }
 
     #[test]
+    fn latest_and_counted_events_of_a_type() {
+        let l = ledger();
+        let t = task(&l, "typed");
+        assert!(l
+            .last_task_event(&t.id, "synthetic.tick")
+            .unwrap()
+            .is_none());
+        for n in 0..3 {
+            l.append_event(NewEvent {
+                task_id: Some(t.id.clone()),
+                source: "test".into(),
+                event_type: "synthetic.tick".into(),
+                payload: json!({ "n": n }),
+                ..NewEvent::default()
+            })
+            .unwrap();
+        }
+        let last = l.last_task_event(&t.id, "synthetic.tick").unwrap().unwrap();
+        assert_eq!(last.payload["n"], 2);
+        assert_eq!(l.count_task_events(&t.id, "synthetic.tick").unwrap(), 3);
+        assert_eq!(l.count_task_events(&t.id, "task.created").unwrap(), 1);
+        assert_eq!(l.count_task_events("missing", "task.created").unwrap(), 0);
+    }
+
+    #[test]
     fn events_for_unknown_task_are_rejected() {
         let l = ledger();
         let err = l
@@ -215,7 +266,7 @@ mod tests {
         let l = ledger();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = seen.clone();
-        l.set_listener(Arc::new(move |e: &LedgerEvent| {
+        l.add_listener(Arc::new(move |e: &LedgerEvent| {
             sink.lock().unwrap().push(e.event_type.clone())
         }));
         let t = task(&l, "listened");

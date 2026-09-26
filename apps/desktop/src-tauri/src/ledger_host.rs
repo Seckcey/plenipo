@@ -39,7 +39,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Arc<Led
     };
     let ledger = Arc::new(ledger);
     let handle = app.clone();
-    ledger.set_listener(Arc::new(move |event: &LedgerEvent| {
+    ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         if let Err(e) = handle.emit_to("main", LEDGER_EVENT, event) {
             eprintln!("[plenipo] failed to emit ledger event: {e}");
         }

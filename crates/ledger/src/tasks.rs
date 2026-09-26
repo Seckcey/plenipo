@@ -3,7 +3,7 @@
 use rusqlite::{params, Connection, OptionalExtension as _};
 use serde_json::json;
 
-use crate::dto::{NewEvent, NewTask, Task, TaskState, TaskTimeline};
+use crate::dto::{LedgerEvent, NewEvent, NewTask, Task, TaskState, TaskTimeline};
 use crate::error::{LedgerError, Result};
 use crate::events;
 use crate::rows::{self, TASK_COLUMNS};
@@ -19,85 +19,134 @@ pub(crate) fn get(conn: &Connection, id: &str) -> Result<Option<Task>> {
         .optional()?)
 }
 
-fn require(conn: &Connection, id: &str) -> Result<Task> {
+pub(crate) fn require(conn: &Connection, id: &str) -> Result<Task> {
     get(conn, id)?.ok_or_else(|| LedgerError::NotFound(format!("task {id}")))
+}
+
+/// Create a task in `queued` inside an open transaction, recording `task.created` (and
+/// `task.child_created` on its parent).
+pub(crate) fn insert(
+    tx: &Connection,
+    out: &mut Vec<LedgerEvent>,
+    new: NewTask,
+    actor: &str,
+) -> Result<Task> {
+    let objective = new.objective.trim().to_owned();
+    if objective.is_empty() || objective.len() > 10_000 {
+        return Err(LedgerError::InvalidInput(
+            "objective must be 1–10,000 characters".into(),
+        ));
+    }
+    if new.requested_by.trim().is_empty() {
+        return Err(LedgerError::InvalidInput("requested_by is required".into()));
+    }
+    if new.priority > 4 {
+        return Err(LedgerError::InvalidInput("priority must be 0–4".into()));
+    }
+    let metadata = rows::metadata_text(&new.metadata)?;
+    if let Some(parent_id) = &new.parent_task_id {
+        let parent = require(tx, parent_id)?;
+        if parent.state.is_terminal() {
+            return Err(LedgerError::InvalidInput(format!(
+                "parent task {parent_id} is already {}",
+                parent.state.as_str()
+            )));
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = crate::now_ms() as i64;
+    tx.execute(
+        "INSERT INTO tasks (id, parent_task_id, requested_by, assigned_to, project_id,
+             objective, acceptance_criteria, priority, state, metadata, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'queued', ?9, ?10, ?10)",
+        params![
+            id,
+            new.parent_task_id,
+            new.requested_by,
+            new.assigned_to,
+            new.project_id,
+            objective,
+            new.acceptance_criteria,
+            new.priority,
+            metadata,
+            now
+        ],
+    )?;
+    out.push(events::insert(
+        tx,
+        NewEvent {
+            task_id: Some(id.clone()),
+            source: actor.into(),
+            event_type: "task.created".into(),
+            payload: json!({
+                "objective": objective,
+                "parentTaskId": new.parent_task_id,
+                "requestedBy": new.requested_by,
+                "assignedTo": new.assigned_to,
+                "priority": new.priority,
+            }),
+            ..NewEvent::default()
+        },
+    )?);
+    if let Some(parent_id) = &new.parent_task_id {
+        out.push(events::insert(
+            tx,
+            NewEvent {
+                task_id: Some(parent_id.clone()),
+                source: actor.into(),
+                event_type: "task.child_created".into(),
+                payload: json!({ "childTaskId": id, "objective": objective }),
+                ..NewEvent::default()
+            },
+        )?);
+    }
+    require(tx, &id)
+}
+
+/// Move a task to `to` inside an open transaction and record `task.state_changed`. An
+/// illegal transition returns [`LedgerError::InvalidTransition`] and writes nothing.
+pub(crate) fn transition(
+    tx: &Connection,
+    out: &mut Vec<LedgerEvent>,
+    id: &str,
+    to: TaskState,
+    actor: &str,
+    reason: Option<&str>,
+) -> Result<Task> {
+    let task = require(tx, id)?;
+    if !task.state.can_transition_to(to) {
+        return Err(LedgerError::InvalidTransition {
+            entity: "task",
+            id: id.to_owned(),
+            from: task.state.as_str().into(),
+            to: to.as_str().into(),
+        });
+    }
+    let now = crate::now_ms() as i64;
+    tx.execute(
+        "UPDATE tasks SET state = ?2, updated_at = ?3,
+             started_at = CASE WHEN ?2 = 'running' AND started_at IS NULL THEN ?3 ELSE started_at END,
+             completed_at = CASE WHEN ?4 THEN ?3 ELSE completed_at END
+         WHERE id = ?1",
+        params![id, to.as_str(), now, to.is_terminal()],
+    )?;
+    out.push(events::insert(
+        tx,
+        NewEvent {
+            task_id: Some(id.into()),
+            source: actor.into(),
+            event_type: "task.state_changed".into(),
+            payload: json!({ "from": task.state, "to": to, "reason": reason }),
+            ..NewEvent::default()
+        },
+    )?);
+    require(tx, id)
 }
 
 impl Ledger {
     /// Create a task in `queued` and record `task.created`.
     pub fn create_task(&self, new: NewTask, actor: &str) -> Result<Task> {
-        let objective = new.objective.trim().to_owned();
-        if objective.is_empty() || objective.len() > 10_000 {
-            return Err(LedgerError::InvalidInput(
-                "objective must be 1–10,000 characters".into(),
-            ));
-        }
-        if new.requested_by.trim().is_empty() {
-            return Err(LedgerError::InvalidInput("requested_by is required".into()));
-        }
-        if new.priority > 4 {
-            return Err(LedgerError::InvalidInput("priority must be 0–4".into()));
-        }
-        let metadata = rows::metadata_text(&new.metadata)?;
-        self.write(|tx, out| {
-            if let Some(parent_id) = &new.parent_task_id {
-                let parent = require(tx, parent_id)?;
-                if parent.state.is_terminal() {
-                    return Err(LedgerError::InvalidInput(format!(
-                        "parent task {parent_id} is already {}",
-                        parent.state.as_str()
-                    )));
-                }
-            }
-            let id = uuid::Uuid::new_v4().to_string();
-            let now = crate::now_ms() as i64;
-            tx.execute(
-                "INSERT INTO tasks (id, parent_task_id, requested_by, assigned_to, project_id,
-                     objective, acceptance_criteria, priority, state, metadata, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'queued', ?9, ?10, ?10)",
-                params![
-                    id,
-                    new.parent_task_id,
-                    new.requested_by,
-                    new.assigned_to,
-                    new.project_id,
-                    objective,
-                    new.acceptance_criteria,
-                    new.priority,
-                    metadata,
-                    now
-                ],
-            )?;
-            out.push(events::insert(
-                tx,
-                NewEvent {
-                    task_id: Some(id.clone()),
-                    source: actor.into(),
-                    event_type: "task.created".into(),
-                    payload: json!({
-                        "objective": objective,
-                        "parentTaskId": new.parent_task_id,
-                        "requestedBy": new.requested_by,
-                        "assignedTo": new.assigned_to,
-                        "priority": new.priority,
-                    }),
-                    ..NewEvent::default()
-                },
-            )?);
-            if let Some(parent_id) = &new.parent_task_id {
-                out.push(events::insert(
-                    tx,
-                    NewEvent {
-                        task_id: Some(parent_id.clone()),
-                        source: actor.into(),
-                        event_type: "task.child_created".into(),
-                        payload: json!({ "childTaskId": id, "objective": objective }),
-                        ..NewEvent::default()
-                    },
-                )?);
-            }
-            require(tx, &id)
-        })
+        self.write(|tx, out| insert(tx, out, new, actor))
     }
 
     pub fn task(&self, id: &str) -> Result<Option<Task>> {
@@ -133,11 +182,7 @@ impl Ledger {
     /// The whole subtree under `root_id` (excluding the root) with depth (children = 1).
     pub fn descendant_tasks(&self, root_id: &str) -> Result<Vec<(Task, u32)>> {
         self.read(|c| {
-            let prefixed = TASK_COLUMNS
-                .split(", ")
-                .map(|col| format!("t.{}", col.trim()))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let prefixed = rows::prefixed(TASK_COLUMNS, "t");
             let mut stmt = c.prepare(&format!(
                 "WITH RECURSIVE tree(id, depth) AS (
                      SELECT id, 1 FROM tasks WHERE parent_task_id = ?1
@@ -151,6 +196,27 @@ impl Ledger {
                 .query_map([root_id], |r| Ok((rows::task(r)?, r.get::<_, u32>(14)?)))?
                 .collect::<rusqlite::Result<_>>()?;
             Ok(rows)
+        })
+    }
+
+    /// The top of `id`'s parent chain (the task itself when it has no parent).
+    pub fn task_root(&self, id: &str) -> Result<Task> {
+        self.read(|c| {
+            let root: Option<String> = c
+                .query_row(
+                    "WITH RECURSIVE up(id, parent, depth) AS (
+                         SELECT id, parent_task_id, 0 FROM tasks WHERE id = ?1
+                         UNION ALL
+                         SELECT t.id, t.parent_task_id, up.depth + 1
+                         FROM tasks t JOIN up ON t.id = up.parent WHERE up.depth < 10000
+                     )
+                     SELECT id FROM up ORDER BY depth DESC LIMIT 1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let root = root.ok_or_else(|| LedgerError::NotFound(format!("task {id}")))?;
+            require(c, &root)
         })
     }
 
@@ -207,40 +273,37 @@ impl Ledger {
                     },
                 )?);
             }
-            let now = crate::now_ms() as i64;
-            tx.execute(
-                "UPDATE tasks SET state = ?2, updated_at = ?3,
-                     started_at = CASE WHEN ?2 = 'running' AND started_at IS NULL THEN ?3 ELSE started_at END,
-                     completed_at = CASE WHEN ?4 THEN ?3 ELSE completed_at END
-                 WHERE id = ?1",
-                params![id, to.as_str(), now, to.is_terminal()],
-            )?;
-            out.push(events::insert(
-                tx,
-                NewEvent {
+            transition(tx, out, id, to, actor, reason)
+        });
+        self.record_rejection(id, actor, reason, &result);
+        result
+    }
+
+    /// Best effort: a rejected transition is itself part of the audit trail.
+    pub(crate) fn record_rejection<T>(
+        &self,
+        id: &str,
+        actor: &str,
+        reason: Option<&str>,
+        result: &Result<T>,
+    ) {
+        if let Err(LedgerError::InvalidTransition {
+            entity: "task",
+            id: task_id,
+            from,
+            to,
+        }) = result
+        {
+            if task_id == id {
+                let _ = self.append_event(NewEvent {
                     task_id: Some(id.into()),
                     source: actor.into(),
-                    event_type: "task.state_changed".into(),
-                    payload: json!({ "from": task.state, "to": to, "reason": reason }),
+                    event_type: "task.transition_rejected".into(),
+                    payload: json!({ "from": from, "to": to, "reason": reason }),
                     ..NewEvent::default()
-                },
-            )?);
-            require(tx, id)
-        });
-        if let Err(LedgerError::InvalidTransition {
-            from, to: target, ..
-        }) = &result
-        {
-            // Best effort: the rejection itself is part of the audit trail.
-            let _ = self.append_event(NewEvent {
-                task_id: Some(id.into()),
-                source: actor.into(),
-                event_type: "task.transition_rejected".into(),
-                payload: json!({ "from": from, "to": target, "reason": reason }),
-                ..NewEvent::default()
-            });
+                });
+            }
         }
-        result
     }
 
     /// Assign (or unassign) a task and record `task.assigned`.
