@@ -1,7 +1,7 @@
 import type { LedgerEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
-import { describeEvent } from "./format";
+import { describeEvent, sourceLabel } from "./format";
 
 const event = (eventType: string, payload: Record<string, unknown>): LedgerEvent => ({
   seq: 1,
@@ -37,6 +37,11 @@ describe("describeEvent (Phase 3 agent events)", () => {
     expect(describeEvent(event("session.opened", { runtime: "codex" }))).toBe(
       "Worker conversation opened on codex",
     );
+    expect(sourceLabel("runtime", { capitalize: true })).toBe("Plenipo");
+    expect(sourceLabel("owner")).toBe("you");
+    expect(sourceLabel("owner", { capitalize: true })).toBe("You");
+    expect(sourceLabel("agent:claude-code")).toBe("Claude Code");
+    expect(sourceLabel("agent:gemini")).toBe("gemini");
     expect(describeEvent(event("agent.message", { text: "x".repeat(500) })).length).toBeLessThan(
       170,
     );

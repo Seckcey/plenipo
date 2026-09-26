@@ -13,6 +13,7 @@ import {
   ACTIONS_FOR,
   describeEvent,
   isRejection,
+  sourceLabel,
   TASK_STATE_LABEL,
 } from "../ledger/format";
 import { useLedgerFeed } from "../ledger/useLedgerFeed";
@@ -37,7 +38,9 @@ function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
       </span>
       <time>{formatTime(event.createdAt)}</time>
       <span className="trail__text">{describeEvent(event)}</span>
-      <span className="trail__source">{event.source}</span>
+      <span className="trail__source" title={event.source}>
+        {sourceLabel(event.source, { capitalize: true })}
+      </span>
     </li>
   );
 }
@@ -218,7 +221,7 @@ export function ActivityView({
                       </span>
                       <TaskBadge task={t} />
                       <span className="execution__meta">
-                        {formatTime(t.createdAt)} · by {t.requestedBy}
+                        {formatTime(t.createdAt)} · by {sourceLabel(t.requestedBy)}
                       </span>
                     </button>
                   </li>
@@ -234,7 +237,7 @@ export function ActivityView({
                   <div>
                     <h2>{task.objective}</h2>
                     <div className="card__meta">
-                      <TaskBadge task={task} /> · requested by {task.requestedBy}
+                      <TaskBadge task={task} /> · requested by {sourceLabel(task.requestedBy)}
                       {task.startedAt !== null && <> · started {formatTime(task.startedAt)}</>}
                       {task.completedAt !== null && <> · finished {formatTime(task.completedAt)}</>}
                     </div>

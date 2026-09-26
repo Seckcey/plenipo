@@ -147,6 +147,23 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
   return null;
 }
 
+const TOOL_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex" };
+
+/**
+ * Who recorded an event or asked for a task, in plain words: Plenipo's own parts are "Plenipo",
+ * the owner is "you", and an agent is named by its AI tool (`agent:codex` → "Codex").
+ */
+export function sourceLabel(source: string, { capitalize = false } = {}): string {
+  if (source === "owner") return capitalize ? "You" : "you";
+  if (source === "runtime" || source === "plenipo" || source === "core") return "Plenipo";
+  if (source === "liaison") return "Liaison";
+  if (source.startsWith("agent:")) {
+    const id = source.slice("agent:".length);
+    return TOOL_NAMES[id] ?? id;
+  }
+  return source;
+}
+
 /** First line of agent-provided text, kept short for the trail. */
 function brief(v: unknown, max = 160): string {
   const line = (str(v) ?? "").split("\n").find((l) => l.trim() !== "") ?? "";
