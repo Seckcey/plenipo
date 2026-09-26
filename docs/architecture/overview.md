@@ -338,6 +338,9 @@ Decision record: [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR
   every turn (Claude Code `--effort`, Codex `-c model_reasoning_effort=`). A model has an optional
   effort; a role can set its own for any model. The decision carries it, the reason says it, and
   the runtime session stores it (Ledger schema 5) so a conversation keeps it.
+- **Model menus.** Every place a model is chosen offers the AI tool's default, the short names
+  its adapter lists (`model_aliases`), the owner's models, and models seen in use, with a typed
+  name as a last resort; short names are never added to the registry on the owner's behalf.
 - **Usage limits** come from the Ledger's turn results (reported reset time, or an hour; lifted by
   a later success or "try again now"), so they survive restarts.
 - **Where it applies.** Automatic on-call positions: every handoff, in the directory, recorded

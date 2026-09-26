@@ -72,6 +72,8 @@ impl RuntimeAdapter for Codex {
                 Effort::High,
                 Effort::XHigh,
             ],
+            // Codex documents no short model names.
+            model_aliases: Vec::new(),
         }
     }
 

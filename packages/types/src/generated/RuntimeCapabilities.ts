@@ -24,4 +24,9 @@ toolPosture: string,
 /**
  * Effort levels the runtime accepts, lowest first; empty when it has no effort setting.
  */
-effortLevels: Array<Effort>, };
+effortLevels: Array<Effort>, 
+/**
+ * Short model names the CLI itself accepts for its model option (aliases for its latest
+ * models), offered as choices; empty when it documents none.
+ */
+modelAliases: Array<string>, };

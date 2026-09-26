@@ -441,6 +441,7 @@ mod tests {
                     billing_checked_per_turn: false,
                     tool_posture: String::new(),
                     effort_levels: vec![Effort::Low, Effort::High],
+                    model_aliases: Vec::new(),
                 },
                 install_hint: String::new(),
                 login_hint: String::new(),

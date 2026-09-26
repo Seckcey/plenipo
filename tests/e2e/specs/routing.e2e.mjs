@@ -241,6 +241,30 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     assert.match(await roleRow(browser, "Designer"), /not marked as able to see images/);
     await scrollTo(browser, "#role-choices-title");
     await screenshot(browser, "models-settings");
+
+    // Adding a model: the AI tool's models are a menu (its short names first), not typing.
+    await clickButton(browser, "Add a model");
+    const form = 'form[aria-label="Add a model"]';
+    await (await browser.$(form)).waitForExist({ timeout: 10_000 });
+    const menu = await browser.$(
+      `//form[@aria-label="Add a model"]//label[.//span[normalize-space()="Model"]]//select`,
+    );
+    const options = await browser.execute((el) => [...el.options].map((o) => o.textContent), menu);
+    assert.deepEqual(options.slice(0, 4), [
+      "The AI tool's default (already in your list)",
+      "opus",
+      "sonnet",
+      "haiku",
+    ]);
+    await menu.selectByAttribute("value", "sonnet");
+    await waitUntil(
+      async () =>
+        (await (await field(browser, "Add a model", "Your name for it")).getValue()) === "Sonnet",
+      "the new model to be named Sonnet",
+    );
+    await screenshot(browser, "models-add-menu");
+    await submit(browser, form);
+    await waitForText(browser, '[aria-labelledby="models-title"]', "Sonnet");
   });
 
   it("builds a team whose positions follow their roles' model choices", async () => {

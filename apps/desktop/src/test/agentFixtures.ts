@@ -24,6 +24,7 @@ export const runtime = (id: string, ready = true): AgentRuntimeInfo => ({
     billingCheckedPerTurn: id !== "codex",
     toolPosture: "Conversation only",
     effortLevels: [],
+    modelAliases: id === "claude-code" ? ["opus", "sonnet", "haiku"] : [],
   },
   installHint: "Install it.",
   loginHint: "Run the login command.",

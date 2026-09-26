@@ -26,4 +26,9 @@ available: boolean,
 /**
  * Effort levels the AI tool accepts, lowest first (empty: none).
  */
-effortLevels: Array<Effort>, };
+effortLevels: Array<Effort>, 
+/**
+ * Short model names the AI tool itself accepts (offered as choices, never assumed to be in
+ * the owner's list).
+ */
+modelAliases: Array<string>, };

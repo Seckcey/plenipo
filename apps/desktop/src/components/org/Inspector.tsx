@@ -13,6 +13,8 @@ import type {
 import { getWork, toCommandError } from "../../api/commands";
 import { TASK_STATE_LABEL } from "../../ledger/format";
 import { choiceLabel } from "../../routing/format";
+import { useRoutingOnce } from "../../routing/useRouting";
+import { ModelPicker } from "../models/ModelPicker";
 import {
   OVERSIGHT_LABEL,
   OVERSIGHT_NOUN,
@@ -790,6 +792,7 @@ function ManagePanel({
   const fixedModel = p.automatic ? "" : (p.model ?? "");
   const [runtimeId, setRuntimeId] = useState(fixedRuntime);
   const [model, setModel] = useState(fixedModel);
+  const routing = useRoutingOnce();
   const { pending, error, go } = run;
   const leads = p.staffing === "persistent";
   const automatic = runtimeId === "";
@@ -913,7 +916,13 @@ function ManagePanel({
           </label>
           <label className="field">
             <span>AI tool</span>
-            <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
+            <select
+              value={runtimeId}
+              onChange={(e) => {
+                setRuntimeId(e.target.value);
+                setModel(e.target.value === fixedRuntime ? fixedModel : "");
+              }}
+            >
               <option value="">Automatic (the role&apos;s model choices)</option>
               {snapshot.runtimes.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -929,15 +938,12 @@ function ManagePanel({
               → AI models, and says why.
             </p>
           ) : (
-            <label className="field">
-              <span>Model</span>
-              <input
-                value={model}
-                maxLength={100}
-                placeholder="The AI tool's default"
-                onChange={(e) => setModel(e.target.value)}
-              />
-            </label>
+            <ModelPicker
+              routing={routing}
+              runtimeId={runtimeId}
+              value={model}
+              onChange={setModel}
+            />
           )}
           {replacesAgent && (
             <p className="hint">

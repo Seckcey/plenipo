@@ -21,6 +21,7 @@ import {
 } from "../../routing/format";
 import { Modal } from "../org/Modal";
 import { useChange, type Apply } from "../../routing/useChange";
+import { ModelPicker } from "./ModelPicker";
 import { Refusal } from "./shared";
 
 /** A model to add, or one to change. */
@@ -160,6 +161,8 @@ function ModelDialog({
   );
   const [name, setName] = useState(existing?.name ?? add.name ?? "");
   const [label, setLabel] = useState(existing?.label ?? add.label ?? "");
+  // Until the owner names it, the model's name follows the one chosen ("sonnet" → "Sonnet").
+  const [labelEdited, setLabelEdited] = useState(existing !== null);
   const [features, setFeatures] = useState<ModelFeature[]>(
     existing?.features ?? add.features ?? [],
   );
@@ -173,6 +176,21 @@ function ModelDialog({
   const levels = effortLevels(snapshot, runtimeId);
   // A level the chosen AI tool does not accept falls back to its default.
   const chosenEffort = effort !== "" && levels.includes(effort) ? effort : "";
+
+  const tool = snapshot.tools.find((t) => t.runtimeId === runtimeId);
+  const chooseName = (next: string) => {
+    setName(next);
+    if (labelEdited) return;
+    const alias = tool?.modelAliases.includes(next) ?? false;
+    setLabel(alias ? next.charAt(0).toUpperCase() + next.slice(1) : next);
+  };
+  // A model already in your list (other than this one) cannot be added again.
+  const inYourList = (n: string) =>
+    snapshot.models.some(
+      (m) => m.id !== existing?.id && m.runtimeId === runtimeId && (m.name ?? "") === n,
+    )
+      ? "already in your list"
+      : null;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -201,7 +219,10 @@ function ModelDialog({
           <select
             value={runtimeId}
             disabled={builtIn}
-            onChange={(e) => setRuntimeId(e.target.value)}
+            onChange={(e) => {
+              setRuntimeId(e.target.value);
+              chooseName("");
+            }}
           >
             {snapshot.tools.map((t) => (
               <option key={t.runtimeId} value={t.runtimeId}>
@@ -210,23 +231,26 @@ function ModelDialog({
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>Model name the AI tool accepts</span>
-          <input
-            value={builtIn ? "" : name}
-            disabled={builtIn}
-            maxLength={64}
-            placeholder="Blank: the AI tool's default model"
-            onChange={(e) => setName(e.target.value)}
-          />
-          <small className="field__hint">
-            Exactly as the AI tool&apos;s own model option takes it (for example an alias such as
-            &quot;opus&quot;, or a full model name).
-          </small>
-        </label>
+        <ModelPicker
+          routing={snapshot}
+          runtimeId={runtimeId}
+          value={builtIn ? "" : name}
+          onChange={chooseName}
+          yours={false}
+          unavailable={inYourList}
+          disabled={builtIn}
+        />
         <label className="field">
           <span>Your name for it</span>
-          <input value={label} maxLength={80} required onChange={(e) => setLabel(e.target.value)} />
+          <input
+            value={label}
+            maxLength={80}
+            required
+            onChange={(e) => {
+              setLabel(e.target.value);
+              setLabelEdited(true);
+            }}
+          />
         </label>
         <fieldset className="fieldset">
           <legend>It can also</legend>

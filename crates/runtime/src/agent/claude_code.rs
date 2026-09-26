@@ -64,6 +64,8 @@ impl RuntimeAdapter for ClaudeCode {
                 Effort::XHigh,
                 Effort::Max,
             ],
+            // Aliases in `claude --model`'s own list (Claude Code 2.1.283).
+            model_aliases: ["opus", "sonnet", "haiku"].map(String::from).to_vec(),
         }
     }
 
@@ -523,6 +525,15 @@ mod tests {
             model: None,
             effort: None,
             billing_confirmed: true,
+        }
+    }
+
+    #[test]
+    fn short_model_names_pass_model_validation() {
+        let aliases = ClaudeCode.capabilities().model_aliases;
+        assert_eq!(aliases, ["opus", "sonnet", "haiku"]);
+        for a in &aliases {
+            assert_eq!(&crate::agent::service::validate_model(a).unwrap(), a);
         }
     }
 

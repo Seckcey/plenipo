@@ -1,6 +1,7 @@
 # ADR-011: Plenipo Router — model registry, role model policies, and explained routing
 
-- **Status:** Accepted (owner, 2026-09-26), with effort selection added (§15)
+- **Status:** Accepted (owner, 2026-09-26), with effort selection (§15) and model menus (§16)
+  added at the owner's request
 - **Date:** 2026-09-26
 - **Phase:** 6
 
@@ -43,7 +44,8 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
    default model — which can be described but not removed. The non-interactive CLIs Plenipo uses
    (ADR-007) do not list models, so no model name is ever assumed: Plenipo shows the models each
    AI tool **reported running** (from the executions) as "seen in use", and the owner adds them.
-   Capabilities are the owner's statement; an unmarked model is treated as unable.
+   Capabilities are the owner's statement; an unmarked model is treated as unable. (Amended by
+   §16: model names are chosen from a menu that also offers the short names a CLI documents.)
 4. **Provider Registry** is the AI tools this build has adapters for, with their company,
    installation, sign-in, billing method, and usage-limit state (`ToolInfo`).
 5. **Role policy** (every field the plan lists): an ordered model list (first choice, then the
@@ -106,6 +108,20 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
     This is the building block for organization-wide policies that assign models and effort to
     jobs, which a later phase can offer as presets over role policies.
 
+16. **Model menus** (added after acceptance, at the owner's request). Wherever the owner chooses a
+    model — adding one to the list, fixing a position (hire, a new department's or project's
+    lead, the details panel), or starting a conversation from Workers — the model is picked from a
+    menu of the chosen AI tool's models instead of typed: the AI tool's default first, then the
+    short names the CLI itself documents for its model option (`RuntimeCapabilities::model_aliases`,
+    shown as "<AI tool>'s short names"; Claude Code 2.1.283: `opus`, `sonnet`, `haiku`, from
+    `claude --model`'s own alias list; Codex documents none), then the owner's models (outside
+    the Add dialog), then the models seen in use; "Type another name…" remains as a last resort.
+    The short names are **offered, never added**: nothing enters the model list unless the owner
+    adds it, so §3's rule that no model is assumed to exist in the owner's list still holds, and a
+    short name that a CLI stops accepting fails that worker's task with the CLI's own message.
+    Names already in the list are shown but not offered in the Add dialog. The adapters keep the
+    vendor knowledge; the Router passes it on (`ToolInfo.model_aliases`).
+
 ## Consequences
 
 - The owner changes which model a role's workers get in Settings, and the next worker follows,
@@ -135,7 +151,8 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
 - **Routing a full-time agent on every objective** — would break its conversation whenever a
   policy or a tool's state changed.
 - **Seeding named models (aliases such as "opus")** — the plan forbids assuming marketing names;
-  the owner adds the names their tools accept.
+  the owner adds the names their tools accept. (§16 offers a CLI's documented short names in the
+  model menus, but still adds nothing on the owner's behalf.)
 - **Switching company on a usage limit by default** — the plan's own option is to pause, and
   earlier phases promised that a usage limit never moves work to another AI company.
 - **Effort as part of the model entry only** — the same model often suits several jobs at

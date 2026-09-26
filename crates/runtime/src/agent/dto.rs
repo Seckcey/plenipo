@@ -81,6 +81,9 @@ pub struct RuntimeCapabilities {
     pub tool_posture: String,
     /// Effort levels the runtime accepts, lowest first; empty when it has no effort setting.
     pub effort_levels: Vec<Effort>,
+    /// Short model names the CLI itself accepts for its model option (aliases for its latest
+    /// models), offered as choices; empty when it documents none.
+    pub model_aliases: Vec<String>,
 }
 
 /// How much reasoning a model spends on a turn. Each runtime accepts some of these levels

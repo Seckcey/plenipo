@@ -19,6 +19,7 @@ export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo
     runtimeId === "codex"
       ? ["minimal", "low", "medium", "high", "xhigh"]
       : ["low", "medium", "high", "xhigh", "max"],
+  modelAliases: runtimeId === "codex" ? [] : ["opus", "sonnet", "haiku"],
   ...patch,
 });
 

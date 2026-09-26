@@ -8,6 +8,7 @@ import * as events from "../api/events";
 import { initialCamera, worldToScreen } from "../org/camera";
 import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { sampleRouting } from "../test/routingFixtures";
 import { OrganizationView } from "./OrganizationView";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     ...actual,
     getOrganization: vi.fn(),
     getWork: vi.fn(),
+    getRouting: vi.fn(),
     renameOrganization: vi.fn(),
     createRole: vi.fn(),
     createDepartment: vi.fn(),
@@ -96,6 +98,7 @@ function release(to: { clientX: number; clientY: number }) {
 beforeEach(() => {
   sessionStorage.clear();
   api.getWork.mockImplementation((id) => Promise.resolve(noWork(id ?? null)));
+  api.getRouting.mockResolvedValue(sampleRouting());
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
     emitLedger = handler;
     return Promise.resolve(() => undefined);
@@ -239,7 +242,15 @@ describe("Organization view", () => {
     const tool = within(form).getByRole("combobox", { name: "AI tool" });
     expect(tool).toHaveDisplayValue("Automatic (the role's model choices)");
     await user.selectOptions(tool, "codex");
-    await user.type(within(form).getByRole("textbox", { name: "Model" }), "gpt-x");
+    // Codex has no short names or models seen in use: type one.
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: "Model" }),
+      "Type another name…",
+    );
+    await user.type(
+      within(form).getByRole("textbox", { name: /Model name the AI tool accepts/ }),
+      "gpt-x",
+    );
     await user.click(within(form).getByRole("button", { name: "Save changes" }));
     expect(api.updatePosition).toHaveBeenCalledWith("p-dev", {
       runtimeId: "codex",
@@ -256,11 +267,29 @@ describe("Organization view", () => {
     const details = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
     await user.click(within(details).getByRole("button", { name: "Hire into team" }));
     const dialog = screen.getByRole("dialog", { name: "Hire" });
-    await user.selectOptions(within(dialog).getByRole("combobox", { name: /AI tool/ }), "codex");
-    await user.type(within(dialog).getByRole("textbox", { name: /Model/ }), "gpt-x");
+    await user.selectOptions(
+      within(dialog).getByRole("combobox", { name: /AI tool/ }),
+      "claude-code",
+    );
+    // Claude Code's short names, your models, and the models seen in use.
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    await within(model).findByRole("option", { name: "sonnet" });
+    expect(
+      within(model)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([
+      "The AI tool's default",
+      "opus",
+      "sonnet",
+      "haiku",
+      "claude-opus-5-5",
+      "Type another name…",
+    ]);
+    await user.selectOptions(model, "sonnet");
     await user.click(within(dialog).getByRole("button", { name: "Hire" }));
     expect(api.hirePosition).toHaveBeenCalledWith(
-      expect.objectContaining({ reportsTo: "p-web", runtimeId: "codex", model: "gpt-x" }),
+      expect.objectContaining({ reportsTo: "p-web", runtimeId: "claude-code", model: "sonnet" }),
     );
   });
 

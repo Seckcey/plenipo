@@ -34,6 +34,54 @@ export function effortLevels(snapshot: RoutingSnapshot, runtimeId: string): Effo
   return snapshot.tools.find((t) => t.runtimeId === runtimeId)?.effortLevels ?? [];
 }
 
+/** One group of model names an AI tool can run, in the order the model menus show them. */
+export interface ModelGroup {
+  label: string;
+  options: { name: string; label: string }[];
+}
+
+/**
+ * The model names to offer for `runtimeId`, after "the AI tool's default": the tool's own short
+ * names, then (with `yours`) the owner's models, then the names it reported running. Each name
+ * appears once.
+ */
+export function modelGroups(
+  snapshot: RoutingSnapshot | null,
+  runtimeId: string,
+  { yours = true }: { yours?: boolean } = {},
+): ModelGroup[] {
+  if (!snapshot) return [];
+  const tool = snapshot.tools.find((t) => t.runtimeId === runtimeId);
+  const shown = new Set<string>();
+  const group = (label: string, options: { name: string; label: string }[]): ModelGroup => ({
+    label,
+    options: options.filter((o) => !shown.has(o.name) && shown.add(o.name)),
+  });
+  const groups = [
+    group(
+      `${tool?.label ?? "The AI tool"}'s short names`,
+      (tool?.modelAliases ?? []).map((name) => ({ name, label: name })),
+    ),
+    group(
+      "Your models",
+      yours
+        ? snapshot.models.flatMap((m) =>
+            m.runtimeId === runtimeId && m.name
+              ? [{ name: m.name, label: m.label === m.name ? m.name : `${m.label} — ${m.name}` }]
+              : [],
+          )
+        : [],
+    ),
+    group(
+      "Seen in use",
+      snapshot.seen
+        .filter((s) => s.runtimeId === runtimeId)
+        .map((s) => ({ name: s.name, label: s.name })),
+    ),
+  ];
+  return groups.filter((g) => g.options.length > 0);
+}
+
 /** "Opus (Claude Code) · high effort". */
 export function choiceLabel(choice: RouteChoice): string {
   return choice.effort

@@ -23,6 +23,8 @@ import {
   supervisorChoices,
 } from "../../org/rules";
 import { RANKS, rankName, roleLabel, titlesOf, withArticle, type TitleSet } from "../../org/titles";
+import { useRoutingOnce } from "../../routing/useRouting";
+import { ModelPicker } from "../models/ModelPicker";
 import { Modal } from "./Modal";
 
 /** Resolves with the refusal to show, or `null` once done. */
@@ -216,6 +218,7 @@ export function HireDialog({
   const [model, setModel] = useState("");
   const [vacant, setVacant] = useState(false);
   const { pending, error, run } = useSubmit();
+  const routing = useRoutingOnce();
 
   const choices = role ? supervisorChoices(snapshot, role) : [];
   const wantedRefusal =
@@ -236,6 +239,7 @@ export function HireDialog({
     const allowed = projectOf(snapshot, id)?.allowedRuntimes ?? null;
     if (runtimeId !== "" && allowed && !allowed.includes(runtimeId)) {
       setRuntimeId(defaultRuntime(snapshot, allowed));
+      setModel("");
     }
   };
 
@@ -326,13 +330,14 @@ export function HireDialog({
         <RuntimeField
           snapshot={snapshot}
           value={runtimeId}
-          onChange={setRuntimeId}
+          onChange={(id) => {
+            setRuntimeId(id);
+            setModel("");
+          }}
           project={project}
         />
         {runtimeId !== "" && (
-          <Field label="Model (optional)" hint="Leave blank for the AI tool's default model.">
-            <input value={model} maxLength={100} onChange={(e) => setModel(e.target.value)} />
-          </Field>
+          <ModelPicker routing={routing} runtimeId={runtimeId} value={model} onChange={setModel} />
         )}
         {role?.staffing === "persistent" && (
           <label className="check">
@@ -378,6 +383,7 @@ function LeadFields({
 }) {
   const roles = leadRoles(snapshot, kind);
   const t = titlesOf(snapshot);
+  const routing = useRoutingOnce();
   return (
     <fieldset className="fieldset">
       <legend>{what}</legend>
@@ -401,17 +407,16 @@ function LeadFields({
       <RuntimeField
         snapshot={snapshot}
         value={lead.runtimeId}
-        onChange={(runtimeId) => onChange({ runtimeId })}
+        onChange={(runtimeId) => onChange({ runtimeId, model: "" })}
         project={project}
       />
       {lead.runtimeId !== "" && (
-        <Field label="Model (optional)">
-          <input
-            value={lead.model}
-            maxLength={100}
-            onChange={(e) => onChange({ model: e.target.value })}
-          />
-        </Field>
+        <ModelPicker
+          routing={routing}
+          runtimeId={lead.runtimeId}
+          value={lead.model}
+          onChange={(model) => onChange({ model })}
+        />
       )}
       <label className="check">
         <input

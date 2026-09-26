@@ -55,6 +55,10 @@ coordinators.
   and each role can set its own for any model; the AI tool gets it on every turn (Claude Code
   `--effort`, Codex `model_reasoning_effort`), the reason says it, and a conversation keeps it
   (Ledger schema 5).
+- **Model menus** (added at the owner's review, ADR-011 §16): wherever a model is chosen, a menu
+  of the AI tool's models — its default, the short names its CLI documents (Claude Code: opus,
+  sonnet, haiku), your models, and models seen in use — with typing a name as a last resort.
+  Short names are offered, never added to your list.
 - **Template defaults** (plan examples): Designer needs a model that sees and makes images;
   Code Reviewer and Security Auditor prefer another AI company; Documentation Writer prefers
   economical models; Senior Developer prefers premium ones. Seeded once per template role; the
@@ -76,6 +80,7 @@ coordinators.
       usage-limit behavior)
 - [x] Automatic and Fixed positions on the Organization canvas
 - [x] Effort per model and per role choice (owner request)
+- [x] Model menus wherever a model is chosen (owner request)
 - [x] ADR-011 (how Plenipo picks each worker's AI model); architecture, README, vocabulary,
       setup updated
 
@@ -111,9 +116,13 @@ Code Reviewer). Positions created before Phase 6 keep the AI tool you gave them 
    (default model)_; _AI tools_ shows both "Yes"; _Pay-per-use API billing: Off_. Every role shows
    the model its next worker would get and why (the Designer shows "None right now": no model is
    marked as able to see and make images).
-3. **Add a model** → AI tool _Claude Code_, model name `sonnet`, your name _Sonnet_, Effort
-   _Medium_ → **Add model**. (Use any name your Claude Code accepts for its `--model` option; do
-   the same for Codex if you like.) The table shows its effort.
+3. **Add a model** → AI tool _Claude Code_ → **Model**: the menu lists _The AI tool's default
+   (already in your list)_, then Claude Code's short names (_opus_, _sonnet_, _haiku_) and any
+   models seen in use. Choose _sonnet_ (your name for it fills in as _Sonnet_), Effort _Medium_ →
+   **Add model**. The table shows its effort. (For Codex, pick a model seen in use, or **Type
+   another name…** with any name your Codex accepts.) The same menu appears wherever you choose a
+   model: hiring a fixed position, a new department's or project's lead, **Edit title or AI
+   model**, and Workers → Advanced.
 4. **Organization** → select _Website Supervisor_ → **Hire into team** → Role _Senior Developer_,
    Title _Backend Developer_, AI tool **Automatic** → **Hire**. Its node reads "Auto · Claude Code".
 5. **Settings** → **AI models** → _Senior Developer_ → **Change** → add _Codex (default model)_ →

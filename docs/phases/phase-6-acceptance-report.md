@@ -11,13 +11,14 @@
 Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [a role's model choice changed](evidence/phase-6/models-role-choices.png) ·
 [a role's effort for a model](evidence/phase-6/models-effort.png) ·
+[choosing a model from the menu](evidence/phase-6/models-add-menu.png) ·
 [why the next worker gets its model](evidence/phase-6/routing-why.png) ·
 [the worker on Codex](evidence/phase-6/routing-worker-codex.png) ·
 [after the change: the worker on Claude Code](evidence/phase-6/routing-worker-claude.png) ·
 [the reason in the Ledger's trail](evidence/phase-6/routing-trail.png) ·
 [a usage limit holding work back](evidence/phase-6/models-usage-limit.png).
 
-Test totals: **411 Rust** (Linux) · **116 frontend** · **35 end-to-end**
+Test totals: **412 Rust** (Linux) · **118 frontend** · **35 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5 + 5
 Phase 6).
 
@@ -27,6 +28,13 @@ the AI tool on every turn of the conversation (Claude Code `--effort`, Codex
 `model_reasoning_effort`) and says it in the reason ("It runs at high effort (Senior Developer's
 setting for it)."). This is ADR-011 §15; organization-wide presets that assign models and effort
 to jobs can build on it later.
+
+**Model menus (added at the owner's review).** Wherever a model is chosen — adding one to your
+list, hiring a fixed position, a new department's or project's lead, a position's **Edit title or
+AI model**, and Workers → Advanced — the model is picked from a menu of the AI tool's models: its
+default first, then the short names its CLI documents (Claude Code: opus, sonnet, haiku; Codex
+has none), your models, and the models seen in use, with **Type another name…** as a last resort.
+Short names are offered, never added to your list (ADR-011 §16).
 
 On screen, model policies are "model choices", the preferred model the "first choice", fallbacks
 "backups", a position that follows its role's policy "Automatic", and providers "AI companies"
@@ -101,6 +109,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | Automatic and fixed positions | Ledger (`AUTOMATIC`, `route_agent`), Workforce directory and objectives, dialogs and details panel (`components/org/*`)                                          |
 | Commands                      | `get_routing`, `save_model`, `remove_model`, `set_role_policy`, `set_routing_options`, `clear_usage_limit` (architecture overview §3), each granted by name      |
 | Effort per model and per role | `RuntimeCapabilities.effortLevels` and each adapter's flag; `ModelInfo.effort`, `RolePolicy.efforts`, `RouteChoice.effort`; `runtime_sessions.effort` (schema 5) |
+| Model menus                   | `components/models/ModelPicker.tsx` (every place a model is chosen); short names from `RuntimeCapabilities.modelAliases` via `ToolInfo.modelAliases`             |
 | Decision record               | [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR-011-model-policy-routing.md)                                                                     |
 
 ## 5. Security notes
@@ -133,6 +142,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | Full-time agents are routed when their conversation starts, then keep it                                    | Conversation continuity (plan §1.6)                                                         | ADR-011 §10 |
 | Built-in roles get starting policies (images for Designer, another company for reviewers, cost preferences) | The plan's example policies, without model names                                            | ADR-011 §14 |
 | Effort per model and per role choice, stored with each conversation (Ledger schema 5)                       | The owner asked for it at review; the plan does not mention effort                          | ADR-011 §15 |
+| Model menus offer each CLI's documented short names (offered, never added to your list)                     | The owner asked for menus instead of typed names                                            | ADR-011 §16 |
 
 ## 7. Owner items
 
@@ -148,9 +158,9 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 
 | Check                                                                     | Result                                         |
 | ------------------------------------------------------------------------- | ---------------------------------------------- |
-| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 116 frontend tests                      |
+| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 118 frontend tests                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                           |
-| `cargo test --workspace`                                                  | Pass — 411 tests                               |
+| `cargo test --workspace`                                                  | Pass — 412 tests                               |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 35 of 35, including the 5 Phase 6 tests |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)    |
 | GitHub CI on the PR                                                       | Linked from the PR                             |

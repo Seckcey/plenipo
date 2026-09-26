@@ -70,3 +70,27 @@ export function useRouting() {
 
   return { snapshot, error, reload, apply };
 }
+
+/**
+ * The model settings loaded once, for a form that offers model choices outside Settings (a hire,
+ * a position's AI model, a new conversation). `null` until loaded, or if they cannot be read: the
+ * form then offers only the AI tool's default and a typed name.
+ */
+export function useRoutingOnce(): RoutingSnapshot | null {
+  const [snapshot, setSnapshot] = useState<RoutingSnapshot | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(getRouting)
+      .then(
+        (s) => {
+          if (live) setSnapshot(s);
+        },
+        () => undefined,
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return snapshot;
+}

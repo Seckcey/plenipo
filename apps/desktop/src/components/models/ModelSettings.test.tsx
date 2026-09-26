@@ -148,9 +148,7 @@ describe("Settings → AI models", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add to your models" }));
     let dialog = screen.getByRole("dialog", { name: "Add a model" });
-    expect(within(dialog).getByRole("textbox", { name: /Model name/ })).toHaveValue(
-      "claude-opus-5-5",
-    );
+    expect(within(dialog).getByRole("combobox", { name: "Model" })).toHaveValue("claude-opus-5-5");
     const label = within(dialog).getByRole("textbox", { name: "Your name for it" });
     await user.clear(label);
     await user.type(label, "Opus 5.5");
@@ -184,6 +182,68 @@ describe("Settings → AI models", () => {
     expect(screen.queryByRole("button", { name: "Remove Codex (default model)" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Remove Opus" }));
     expect(api.removeModel).toHaveBeenCalledWith("m-opus");
+  });
+
+  it("adds a model from a menu of the AI tool's models, or by a typed name", async () => {
+    render(<ModelSettings />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add a model" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a model" });
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    // The AI tool's default first, then Claude Code's short names and the models seen in use;
+    // ones already in your list are shown but not offered.
+    expect(
+      within(model)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([
+      "The AI tool's default (already in your list)",
+      "opus (already in your list)",
+      "sonnet",
+      "haiku",
+      "claude-opus-5-5",
+      "Type another name…",
+    ]);
+    expect(
+      within(model)
+        .getAllByRole("group")
+        .map((g) => g.getAttribute("label")),
+    ).toEqual(["Claude Code's short names", "Seen in use"]);
+    expect(
+      within(model).getByRole("option", { name: "opus (already in your list)" }),
+    ).toBeDisabled();
+    // Choosing a short name also names the model, until you name it yourself.
+    await user.selectOptions(model, "sonnet");
+    const label = within(dialog).getByRole("textbox", { name: "Your name for it" });
+    expect(label).toHaveValue("Sonnet");
+    expect(
+      within(dialog).queryByRole("textbox", { name: /Model name the AI tool accepts/ }),
+    ).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Add model" }));
+    expect(api.saveModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtimeId: "claude-code", name: "sonnet", label: "Sonnet" }),
+    );
+
+    // As a last resort, a name typed by hand; Codex offers no short names.
+    await user.click(await screen.findByRole("button", { name: "Add a model" }));
+    const next = screen.getByRole("dialog", { name: "Add a model" });
+    await user.selectOptions(within(next).getByRole("combobox", { name: "AI tool" }), "codex");
+    const codexModel = within(next).getByRole("combobox", { name: "Model" });
+    expect(
+      within(codexModel)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["The AI tool's default (already in your list)", "Type another name…"]);
+    await user.selectOptions(codexModel, "Type another name…");
+    await user.type(
+      within(next).getByRole("textbox", { name: /Model name the AI tool accepts/ }),
+      "gpt-x",
+    );
+    expect(within(next).getByRole("textbox", { name: "Your name for it" })).toHaveValue("gpt-x");
+    await user.click(within(next).getByRole("button", { name: "Add model" }));
+    expect(api.saveModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtimeId: "codex", name: "gpt-x", label: "gpt-x" }),
+    );
   });
 
   it("chooses what a usage limit does, and follows the Ledger", async () => {
