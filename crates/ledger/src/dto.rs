@@ -406,8 +406,10 @@ pub struct Position {
     pub role_id: String,
     /// The supervisor; `None` means the position reports to the owner.
     pub reports_to: Option<String>,
-    /// The runtime (adapter ID) that fills it.
-    pub runtime_id: String,
+    /// The runtime (adapter ID) the owner fixed for it, or `None`: automatic — its role's model
+    /// policy picks the runtime and model for each worker or agent (Phase 6, ADR-011).
+    pub runtime_id: Option<String>,
+    /// The fixed model (`None`: the runtime's default). Always `None` for an automatic position.
     pub model: Option<String>,
     pub state: PositionState,
     pub sort_key: i64,
@@ -472,7 +474,8 @@ pub struct NewPosition {
     /// `None`: reports to the owner. Ignored for a department head created with its department
     /// when set by the caller, and for a coordinator (it reports to its department's head).
     pub reports_to: Option<String>,
-    pub runtime_id: String,
+    /// A fixed runtime, or `None`: automatic (see [`Position::runtime_id`]).
+    pub runtime_id: Option<String>,
     /// The runtime's provider, recorded with agent instances.
     pub runtime_provider: Option<String>,
     pub model: Option<String>,
@@ -495,9 +498,9 @@ pub struct ProjectSettings {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PositionPatch {
     pub title: Option<String>,
-    /// A new runtime (with its provider). For a staffed persistent position the incumbent is
-    /// replaced: a runtime session belongs to one runtime.
-    pub runtime: Option<(String, Option<String>)>,
+    /// A new runtime (with its provider), or `Some(None)`: automatic. For a staffed persistent
+    /// position the incumbent is replaced: a runtime session belongs to one runtime.
+    pub runtime: Option<Option<(String, Option<String>)>>,
     /// `Some(None)` clears the model.
     pub model: Option<Option<String>>,
 }
@@ -513,6 +516,41 @@ pub struct NewWorker {
     pub runtime_provider: Option<String>,
     pub model: Option<String>,
     pub project_id: Option<String>,
+    /// Why the Router chose this runtime and model (recorded with `org.worker_spawned`), or null.
+    pub routing: Value,
+}
+
+/// The runtime and model an automatic position's agent starts its conversation on, and why
+/// (Phase 6, ADR-011).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentRoute {
+    pub runtime_id: String,
+    pub runtime_provider: Option<String>,
+    pub model: Option<String>,
+    /// The Router's decision, recorded with `org.agent_routed`.
+    pub routing: Value,
+}
+
+/// The latest usage-limit or success result of agent turns (usage/capacity state, Phase 6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnOutcomeRecord {
+    pub runtime: String,
+    pub model: Option<String>,
+    /// `usageLimited` or `completed`.
+    pub outcome: String,
+    pub error: Option<String>,
+    pub summary: Option<String>,
+    /// When the result was recorded (ms).
+    pub at: u64,
+}
+
+/// A model a runtime reported running (or was asked to run), from the executions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeenModel {
+    pub runtime: String,
+    pub model: String,
+    pub runs: u32,
+    pub last_used: u64,
 }
 
 /// The whole organization as recorded: everything a snapshot is built from, in one read.
@@ -888,7 +926,7 @@ pub enum HandoffDecision {
     Accept {
         child: NewTask,
         received: Value,
-        worker: Option<NewWorker>,
+        worker: Option<Box<NewWorker>>,
     },
     /// Refuse the request. The requester learns why through `reply`, which is recorded as
     /// pending with the request.
