@@ -3,7 +3,14 @@
 // never `@tauri-apps/api/core` directly (enforced by ESLint).
 
 import { invoke } from "@tauri-apps/api/core";
-import type { AppInfo, CommandError, CommandErrorKind } from "@plenipo/types";
+import type {
+  AppInfo,
+  CommandError,
+  CommandErrorKind,
+  ExecutionOutput,
+  ExecutionRecord,
+  RuntimeOverview,
+} from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
 export class PlenipoCommandError extends Error {
@@ -50,4 +57,24 @@ export function getAppInfo(): Promise<AppInfo> {
 /** Signals that the shell rendered. Used by the launch smoke test; a no-op otherwise. */
 export function frontendReady(): Promise<void> {
   return call<void>("frontend_ready");
+}
+
+/** Launch profiles, execution history (newest first), active count, and notices. */
+export function getRuntimeOverview(): Promise<RuntimeOverview> {
+  return call<RuntimeOverview>("get_runtime_overview");
+}
+
+/** Start an approved launch profile. The UI can never supply a command or path. */
+export function startExecution(profileId: string): Promise<ExecutionRecord> {
+  return call<ExecutionRecord>("start_execution", { profileId });
+}
+
+/** Terminate an execution's process tree; resolves with its final record. */
+export function cancelExecution(executionId: string): Promise<ExecutionRecord> {
+  return call<ExecutionRecord>("cancel_execution", { executionId });
+}
+
+/** Buffered output, used to rebuild the view after navigation or a reload. */
+export function getExecutionOutput(executionId: string): Promise<ExecutionOutput> {
+  return call<ExecutionOutput>("get_execution_output", { executionId });
 }

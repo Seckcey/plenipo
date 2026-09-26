@@ -12,13 +12,14 @@
   "scripts": {
     "dev": "pnpm --filter @plenipo/desktop tauri dev",
     "build": "pnpm --filter @plenipo/desktop tauri build",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "versions:check": "node scripts/check-versions.mjs",
-    "bindings": "cargo test -p plenipo-core export_bindings",
+    "bindings": "cargo test -p plenipo-core -p plenipo-runtime --lib export_bindings",
+    "e2e": "pnpm --filter @plenipo/e2e e2e",
     "check": "pnpm versions:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

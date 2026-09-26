@@ -45,18 +45,31 @@ export default tseslint.config(
               importNames: ["invoke"],
               message: "Use the typed wrappers in src/api/commands.ts instead of raw invoke().",
             },
+            {
+              name: "@tauri-apps/api/event",
+              message: "Subscribe through src/api/events.ts instead of calling listen() directly.",
+            },
           ],
         },
       ],
     },
   },
   {
-    files: ["apps/desktop/src/api/commands.ts", "**/*.test.{ts,tsx}"],
+    files: [
+      "apps/desktop/src/api/commands.ts",
+      "apps/desktop/src/api/events.ts",
+      "**/*.test.{ts,tsx}",
+    ],
     rules: { "no-restricted-imports": "off" },
   },
   {
     files: ["**/*.{js,mjs}"],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: { globals: globals.node },
+  },
+  {
+    // E2E specs run in Node, but browser.execute() callbacks run inside the webview.
+    files: ["tests/e2e/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 );

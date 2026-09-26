@@ -3,26 +3,62 @@ import type { AppInfo } from "@plenipo/types";
 
 import { frontendReady, getAppInfo, type PlenipoCommandError } from "./api/commands";
 import { BrandMark } from "./components/BrandMark";
+import { Sidebar } from "./components/Sidebar";
+import { VIEWS, type ViewId } from "./components/views";
+import { RuntimeProvider } from "./runtime/RuntimeProvider";
+import { isActive } from "./runtime/store";
+import { useRuntime } from "./runtime/useRuntime";
+import { ActivityView } from "./views/ActivityView";
+import { DiagnosticsView } from "./views/DiagnosticsView";
+import { OrganizationView } from "./views/OrganizationView";
+import { RuntimesView } from "./views/RuntimesView";
+import { SettingsView } from "./views/SettingsView";
 
-type LoadState =
+type CoreState =
   | { status: "loading" }
   | { status: "ready"; info: AppInfo }
   | { status: "error"; error: PlenipoCommandError };
 
+// UI position survives a webview reload (the backend owns everything else).
+const VIEW_KEY = "plenipo.view";
+const SELECTED_KEY = "plenipo.selectedExecution";
+
+function readSession(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(key: string, value: string | null) {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable: navigation simply isn't restored after a reload.
+  }
+}
+
+function initialView(): ViewId {
+  const saved = readSession(VIEW_KEY);
+  return VIEWS.find((v) => v.id === saved)?.id ?? "organization";
+}
+
 export function App() {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [core, setCore] = useState<CoreState>({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
     getAppInfo()
       .then((info) => {
         if (cancelled) return;
-        setState({ status: "ready", info });
+        setCore({ status: "ready", info });
         // Best effort: only meaningful in smoke-test mode.
         frontendReady().catch(() => undefined);
       })
       .catch((error: PlenipoCommandError) => {
-        if (!cancelled) setState({ status: "error", error });
+        if (!cancelled) setCore({ status: "error", error });
       });
     return () => {
       cancelled = true;
@@ -30,60 +66,60 @@ export function App() {
   }, []);
 
   return (
+    <RuntimeProvider>
+      <Shell core={core} />
+    </RuntimeProvider>
+  );
+}
+
+function Shell({ core }: { core: CoreState }) {
+  const { state } = useRuntime();
+  const [view, setView] = useState<ViewId>(initialView);
+  const [selected, setSelected] = useState<string | null>(() => readSession(SELECTED_KEY));
+  const activeCount = Object.values(state.executions).filter(isActive).length;
+  const info = core.status === "ready" ? core.info : null;
+
+  const navigate = (next: ViewId) => {
+    setView(next);
+    writeSession(VIEW_KEY, next);
+  };
+  const select = (id: string | null) => {
+    setSelected(id);
+    writeSession(SELECTED_KEY, id);
+  };
+
+  return (
     <div className="shell">
       <header className="shell__header">
         <BrandMark />
         <span className="shell__wordmark">Plenipo</span>
-        {state.status === "ready" && (
+        {info && (
           <span className="shell__version" aria-label="Application version">
-            v{state.info.version}
+            v{info.version}
           </span>
         )}
       </header>
 
-      <main className="shell__main">
-        <section className="panel" aria-labelledby="welcome-title">
-          <h1 id="welcome-title">Your AI workforce control plane</h1>
-          <p className="panel__lead">
-            Plenipo routes outcomes to managers, coordinators, and specialist workers — with
-            explicit permissions and a complete audit trail.
-          </p>
-
-          {state.status === "loading" && <p className="status">Connecting to Plenipo Core…</p>}
-
-          {state.status === "error" && (
+      <div className="shell__body">
+        <Sidebar current={view} onNavigate={navigate} activeCount={activeCount} />
+        <main className="shell__main">
+          {core.status === "error" && (
             <p className="status status--error" role="alert">
-              Plenipo Core is unavailable: {state.error.message}
+              Plenipo Core is unavailable: {core.error.message}
             </p>
           )}
-
-          {state.status === "ready" && (
-            <dl className="facts" aria-label="Runtime details">
-              <div>
-                <dt>Core</dt>
-                <dd className="ok">Connected</dd>
-              </div>
-              <div>
-                <dt>Build</dt>
-                <dd className="capitalize">{state.info.buildProfile}</dd>
-              </div>
-              <div>
-                <dt>Platform</dt>
-                <dd>
-                  {state.info.os} / {state.info.arch}
-                </dd>
-              </div>
-              <div>
-                <dt>Providers</dt>
-                <dd>None configured</dd>
-              </div>
-            </dl>
-          )}
-        </section>
-      </main>
+          {view === "organization" && <OrganizationView />}
+          {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
+          {view === "activity" && <ActivityView />}
+          {view === "settings" && <SettingsView />}
+          {view === "diagnostics" && <DiagnosticsView info={info} />}
+        </main>
+      </div>
 
       <footer className="shell__footer">
-        Foundation build · no providers or credentials required
+        {activeCount > 0
+          ? `${activeCount} process${activeCount === 1 ? "" : "es"} running`
+          : "No providers or credentials required"}
       </footer>
     </div>
   );
