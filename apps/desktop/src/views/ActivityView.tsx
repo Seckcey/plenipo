@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
-import type { LedgerEvent, Task, TaskTimeline } from "@plenipo/types";
+import type { LedgerEvent, Task, TaskTimeline, TaskTree } from "@plenipo/types";
 
-import { advanceSyntheticTask, getTaskTimeline, toCommandError } from "../api/commands";
+import { HANDOFF_OUTCOME_LABEL } from "../agents/format";
+import {
+  advanceSyntheticTask,
+  getTaskTimeline,
+  getTaskTree,
+  toCommandError,
+} from "../api/commands";
 import {
   ACTION_LABEL,
   ACTIONS_FOR,
@@ -36,6 +42,56 @@ function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
   );
 }
 
+/** The task belongs to a Liaison workflow (it carries `metadata.liaison`). */
+function inWorkflow(task: Task | undefined): boolean {
+  const l = task?.metadata?.liaison;
+  return typeof l === "object" && l !== null;
+}
+
+/** A Liaison workflow's tasks: the owner's task and every handoff below it. */
+function DelegationTree({
+  tree,
+  selectedTaskId,
+  onSelectTask,
+}: {
+  tree: TaskTree;
+  selectedTaskId: string;
+  onSelectTask: (id: string) => void;
+}) {
+  return (
+    <>
+      <h3>Delegation</h3>
+      <p className="muted">
+        One workflow
+        {tree.correlationId && <> ({tree.correlationId.slice(0, 8)})</>}: the owner&apos;s task and
+        the handoffs between workers, in order.
+      </p>
+      <ol className="tree" aria-label="Delegation tree">
+        {tree.nodes.map((n) => (
+          <li
+            key={n.task.id}
+            className="tree__node"
+            style={{ paddingLeft: `${n.depth * 20}px` }}
+            aria-current={n.task.id === selectedTaskId ? "true" : undefined}
+          >
+            {n.depth > 0 && <span aria-hidden="true">↳</span>}
+            <button type="button" className="link" onClick={() => onSelectTask(n.task.id)}>
+              {n.task.objective}
+            </button>
+            <TaskBadge task={n.task} />
+            <span className="muted">
+              {n.runtimeLabel ?? n.handoff?.destinationLabel ?? n.task.requestedBy}
+              {n.handoff?.replyOutcome && (
+                <> · reply: {HANDOFF_OUTCOME_LABEL[n.handoff.replyOutcome]}</>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
 export function ActivityView({
   selectedTaskId,
   onSelectTask,
@@ -46,6 +102,7 @@ export function ActivityView({
   const feed = useLedgerFeed();
   const [tab, setTab] = useState<Tab>("tasks");
   const [timeline, setTimeline] = useState<TaskTimeline | null>(null);
+  const [tree, setTree] = useState<TaskTree | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -77,6 +134,20 @@ export function ActivityView({
   const current = timeline && timeline.task.id === selectedTaskId ? timeline : null;
   const task = current?.task;
   const synthetic = task?.metadata?.synthetic === true;
+  const workflow = inWorkflow(task);
+
+  useEffect(() => {
+    if (!selectedTaskId || !workflow) return;
+    let cancelled = false;
+    getTaskTree(selectedTaskId)
+      .then((t) => !cancelled && setTree(t))
+      .catch(() => !cancelled && setTree(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTaskId, workflow, feed.revision]);
+  const delegation =
+    workflow && tree && tree.focusId === selectedTaskId && tree.nodes.length > 1 ? tree : null;
 
   return (
     <section className="view" aria-labelledby="activity-title">
@@ -200,7 +271,15 @@ export function ActivityView({
                   </p>
                 )}
 
-                {current.children.length > 0 && (
+                {delegation && selectedTaskId && (
+                  <DelegationTree
+                    tree={delegation}
+                    selectedTaskId={selectedTaskId}
+                    onSelectTask={onSelectTask}
+                  />
+                )}
+
+                {!delegation && current.children.length > 0 && (
                   <>
                     <h3>Sub-tasks</h3>
                     <ul className="children">

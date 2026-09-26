@@ -58,11 +58,14 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "runtimesLoaded", runtimes: await refreshAgentRuntimes() });
   }, []);
 
-  const start = useCallback(async (runtimeId: string, objective: string, model?: string) => {
-    const detail = await startAgentSession(runtimeId, objective, model);
-    dispatch({ type: "sessionLoaded", detail });
-    return detail.session.id;
-  }, []);
+  const start = useCallback(
+    async (runtimeId: string, objective: string, model?: string, handoffs = false) => {
+      const detail = await startAgentSession(runtimeId, objective, model, handoffs);
+      dispatch({ type: "sessionLoaded", detail });
+      return detail.session.id;
+    },
+    [],
+  );
 
   const resume = useCallback(async (sessionId: string, objective: string) => {
     dispatch({ type: "sessionLoaded", detail: await resumeAgentSession(sessionId, objective) });

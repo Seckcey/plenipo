@@ -2,6 +2,8 @@ import type {
   AgentEvent,
   AgentRuntimeInfo,
   AuthState,
+  HandoffOutcome,
+  HandoffState,
   InstallState,
   TokenUsage,
   TurnOutcome,
@@ -37,6 +39,43 @@ export function outcomeTone(
       return "blocked";
     default:
       return "failed";
+  }
+}
+
+export const HANDOFF_OUTCOME_LABEL: Record<HandoffOutcome, string> = {
+  ...OUTCOME_LABEL,
+  rejected: "Refused by Liaison",
+};
+
+export function handoffOutcomeTone(
+  outcome: HandoffOutcome,
+): "succeeded" | "failed" | "blocked" | "cancelled" {
+  return outcome === "rejected" ? "blocked" : outcomeTone(outcome);
+}
+
+export const HANDOFF_STATE_LABEL: Record<HandoffState, string> = {
+  accepted: "Waiting for a worker",
+  dispatched: "Worker running",
+  answered: "Answered",
+  cancelled: "Cancelled",
+  rejected: "Refused",
+};
+
+/** Badge style for a handoff's state (reuses the task badge palette). */
+export function handoffStateTone(
+  state: HandoffState,
+): "queued" | "running" | "succeeded" | "blocked" | "cancelled" {
+  switch (state) {
+    case "accepted":
+      return "queued";
+    case "dispatched":
+      return "running";
+    case "answered":
+      return "succeeded";
+    case "cancelled":
+      return "cancelled";
+    case "rejected":
+      return "blocked";
   }
 }
 

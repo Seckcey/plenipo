@@ -99,7 +99,7 @@ pub struct Task {
 }
 
 /// Input for [`crate::Ledger::create_task`].
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct NewTask {
     pub parent_task_id: Option<String>,
     pub requested_by: String,
@@ -557,4 +557,193 @@ pub struct NewRuntimeSession {
     pub title: String,
     pub working_dir: String,
     pub metadata: Value,
+}
+
+// ---- Liaison messages (Phase 4, ADR-008) --------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MessageKind {
+    /// Asks for a child task on another worker.
+    Request,
+    /// Carries the child's result (or Liaison's refusal) back to the requesting task.
+    Reply,
+}
+
+impl MessageKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Reply => "reply",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Request, Self::Reply]
+            .into_iter()
+            .find(|k| k.as_str() == s)
+    }
+}
+
+/// Message lifecycle.
+///
+/// ```text
+/// request:  accepted ──▶ dispatched ──▶ answered        rejected (refused on arrival)
+///               └──────────┴──────▶ cancelled
+/// reply:    pending ──▶ delivered | discarded
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MessageState {
+    Accepted,
+    Dispatched,
+    Answered,
+    Cancelled,
+    Rejected,
+    Pending,
+    Delivered,
+    Discarded,
+}
+
+impl MessageState {
+    pub const ALL: [Self; 8] = [
+        Self::Accepted,
+        Self::Dispatched,
+        Self::Answered,
+        Self::Cancelled,
+        Self::Rejected,
+        Self::Pending,
+        Self::Delivered,
+        Self::Discarded,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Dispatched => "dispatched",
+            Self::Answered => "answered",
+            Self::Cancelled => "cancelled",
+            Self::Rejected => "rejected",
+            Self::Pending => "pending",
+            Self::Delivered => "delivered",
+            Self::Discarded => "discarded",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.as_str() == s)
+    }
+
+    /// A request still waiting for its reply.
+    pub fn is_open(self) -> bool {
+        matches!(self, Self::Accepted | Self::Dispatched)
+    }
+}
+
+/// One persisted Liaison message. Everything but `state` and `updated_at` is immutable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiaisonMessage {
+    pub id: String,
+    /// Shared by every message of one workflow.
+    pub correlation_id: String,
+    pub kind: MessageKind,
+    /// For a reply: the request it answers.
+    pub in_reply_to: Option<String>,
+    /// The requesting task (for a reply: the task it is addressed to).
+    pub task_id: String,
+    /// The child task created for a request (for a reply: the child that answered, if any).
+    pub child_task_id: Option<String>,
+    /// Address of the sender, e.g. `session:<id>`, or `liaison` for Plenipo's own replies.
+    pub source: String,
+    /// Address of the receiver, e.g. `runtime:claude-code` or `session:<id>`.
+    pub destination: String,
+    pub state: MessageState,
+    pub dedupe_key: String,
+    /// The full envelope (JSON object).
+    pub envelope: Value,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+/// A request recorded by [`crate::Ledger::suspend_for_handoffs`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewHandoffRequest {
+    pub message_id: String,
+    pub correlation_id: String,
+    /// Identical requests share a key: recording one twice changes nothing.
+    pub dedupe_key: String,
+    pub source: String,
+    pub destination: String,
+    /// The request envelope (JSON object).
+    pub envelope: Value,
+    /// Payload of `liaison.handoff_requested` on the requesting task (JSON object).
+    pub summary: Value,
+    pub decision: HandoffDecision,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HandoffDecision {
+    /// Create `child` (queued) under the requesting task. `received` is the payload of
+    /// `liaison.handoff_received` on the child (JSON object).
+    Accept { child: NewTask, received: Value },
+    /// Refuse the request. The requester learns why through `reply`, which is recorded as
+    /// pending with the request.
+    Reject { reason: String, reply: NewReply },
+}
+
+/// A reply to a request. Its claimed correlation, request, and child must match the recorded
+/// request, or it is refused.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewReply {
+    pub message_id: String,
+    pub correlation_id: String,
+    pub in_reply_to: String,
+    /// The child task that answered (`None` for Liaison's own replies, e.g. a refusal).
+    pub child_task_id: Option<String>,
+    pub source: String,
+    /// The reply envelope (JSON object).
+    pub envelope: Value,
+    /// Extra payload for `liaison.reply_sent` / `liaison.reply_received` (JSON object).
+    pub summary: Value,
+}
+
+/// What [`crate::Ledger::suspend_for_handoffs`] recorded.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suspended {
+    pub task: Task,
+    /// The requests, in order (found rather than created when replayed).
+    pub requests: Vec<LiaisonMessage>,
+    /// Child tasks created by this call.
+    pub children: Vec<Task>,
+    /// Every request had already been recorded: nothing changed.
+    pub replayed: bool,
+}
+
+/// What [`crate::Ledger::answer_request`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReplyOutcome {
+    Recorded(LiaisonMessage),
+    /// The request was already answered by this reply.
+    AlreadyAnswered(LiaisonMessage),
+    /// The request no longer takes replies (it was cancelled or rejected).
+    NotOpen(MessageState),
+}
+
+/// What [`crate::Ledger::cancel_request`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CancelOutcome {
+    /// The request was no longer open: nothing changed.
+    NotOpen,
+    /// The request is cancelled. `child` is its child task as it is now: a child that had not
+    /// started is cancelled with it; a running or waiting one must be stopped by its runtime.
+    Cancelled { child: Option<Box<Task>> },
+}
+
+/// An open request with the current states of its tasks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenRequest {
+    pub message: LiaisonMessage,
+    pub parent_state: TaskState,
+    pub child: Option<Task>,
 }

@@ -45,3 +45,19 @@ export type { RuntimesUpdate } from "./generated/RuntimesUpdate";
 export type { SessionState } from "./generated/SessionState";
 export type { TurnOutcome } from "./generated/TurnOutcome";
 export type { TurnResult } from "./generated/TurnResult";
+export type { TurnStep } from "./generated/TurnStep";
+
+// Liaison (Phase 4)
+export type { ContextSummary } from "./generated/ContextSummary";
+export type { DestinationInfo } from "./generated/DestinationInfo";
+export type { HandoffBrief } from "./generated/HandoffBrief";
+export type { HandoffOutcome } from "./generated/HandoffOutcome";
+export type { HandoffState } from "./generated/HandoffState";
+export type { HandoffView } from "./generated/HandoffView";
+export type { LiaisonLimits } from "./generated/LiaisonLimits";
+export type { LiaisonOverview } from "./generated/LiaisonOverview";
+export type { ReplyState } from "./generated/ReplyState";
+export type { ReplyView } from "./generated/ReplyView";
+export type { TaskHandoffs } from "./generated/TaskHandoffs";
+export type { TaskTree } from "./generated/TaskTree";
+export type { TaskTreeNode } from "./generated/TaskTreeNode";

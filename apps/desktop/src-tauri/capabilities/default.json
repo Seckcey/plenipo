@@ -26,6 +26,9 @@
     "allow-start-agent-session",
     "allow-resume-agent-session",
     "allow-cancel-agent-turn",
-    "allow-close-agent-session"
+    "allow-close-agent-session",
+    "allow-get-task-handoffs",
+    "allow-get-task-tree",
+    "allow-get-liaison-overview"
   ]
 }

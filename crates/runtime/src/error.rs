@@ -16,6 +16,12 @@ pub enum RuntimeError {
     /// The message says what to do.
     #[error("{0}")]
     NotReady(String),
+    /// No worker slot is free right now (the global turn cap); try again later.
+    #[error("{0}")]
+    Busy(String),
+    /// The session is not waiting to continue that turn.
+    #[error("{0}")]
+    NotWaiting(String),
     #[error("unknown session: {0}")]
     UnknownSession(String),
     /// Persisting agent session state failed.

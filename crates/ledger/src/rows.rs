@@ -40,22 +40,36 @@ pub(crate) fn parse_enum<T>(
 }
 
 pub(crate) fn task(r: &Row<'_>) -> rusqlite::Result<Task> {
+    task_at(r, 0)
+}
+
+/// A task whose [`TASK_COLUMNS`] start at column `base`.
+pub(crate) fn task_at(r: &Row<'_>, base: usize) -> rusqlite::Result<Task> {
     Ok(Task {
-        id: r.get(0)?,
-        parent_task_id: r.get(1)?,
-        requested_by: r.get(2)?,
-        assigned_to: r.get(3)?,
-        project_id: r.get(4)?,
-        objective: r.get(5)?,
-        acceptance_criteria: r.get(6)?,
-        priority: r.get(7)?,
-        state: parse_enum(8, r.get(8)?, TaskState::parse)?,
-        metadata: json(r.get(9)?),
-        created_at: u64_of(r.get(10)?),
-        updated_at: u64_of(r.get(11)?),
-        started_at: opt_u64(r.get(12)?),
-        completed_at: opt_u64(r.get(13)?),
+        id: r.get(base)?,
+        parent_task_id: r.get(base + 1)?,
+        requested_by: r.get(base + 2)?,
+        assigned_to: r.get(base + 3)?,
+        project_id: r.get(base + 4)?,
+        objective: r.get(base + 5)?,
+        acceptance_criteria: r.get(base + 6)?,
+        priority: r.get(base + 7)?,
+        state: parse_enum(base + 8, r.get(base + 8)?, TaskState::parse)?,
+        metadata: json(r.get(base + 9)?),
+        created_at: u64_of(r.get(base + 10)?),
+        updated_at: u64_of(r.get(base + 11)?),
+        started_at: opt_u64(r.get(base + 12)?),
+        completed_at: opt_u64(r.get(base + 13)?),
     })
+}
+
+/// `columns` (comma-separated) with each name prefixed by `alias.`.
+pub(crate) fn prefixed(columns: &str, alias: &str) -> String {
+    columns
+        .split(',')
+        .map(|col| format!("{alias}.{}", col.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub(crate) fn event(r: &Row<'_>) -> rusqlite::Result<LedgerEvent> {

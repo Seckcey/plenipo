@@ -37,6 +37,15 @@ export function SettingsView() {
           <strong>Model:</strong> the runtime&apos;s default unless you name one for a new task.
           Automatic model selection arrives with role policies.
         </li>
+        <li>
+          <strong>Handoffs:</strong> off unless you allow them for a new task. A worker may then ask
+          a worker on another runtime for help through Plenipo Liaison — workers never contact each
+          other directly. Liaison creates a recorded sub-task, passes only the context the worker
+          chose (capped), and returns the reply to the same workflow. Limits: depth 3, 3 requests
+          per answer, 5 reply rounds per task, 12 handoffs per workflow. Handoff workers get the
+          same permissions as any worker; capability requests are recorded but never granted before
+          Plenipo Guard.
+        </li>
       </ul>
 
       <h2>Runtime policy</h2>

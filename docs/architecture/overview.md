@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 3) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 4) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -26,6 +26,10 @@ This document is the architectural contract for Plenipo. It describes what exist
 │   ▲ events: plenipo://agents               │  - agent runtimes: adapters (Claude  │   │
 │   └────────────────────────────────────────│    Code, Codex), sessions, turns     │   │
 │                                            │  - persists via Ledger               │   │
+│                                            │ Plenipo Liaison (crates/liaison)     │   │
+│                                            │  - handoffs between workers: checks, │   │
+│                                            │    child tasks, replies, all in the  │   │
+│                                            │    Ledger; reconciles from it        │   │
 │                                            └──────────────┬───────────────────────┘   │
 └───────────────────────────────────────────────────────────┼───────────────────────────┘
                                                             │ spawns approved profiles and
@@ -71,30 +75,33 @@ from `@plenipo/types`.
 
 Current commands:
 
-| Command                  | Input                              | Returns              | Purpose                                                    |
-| ------------------------ | ---------------------------------- | -------------------- | ---------------------------------------------------------- |
-| `get_app_info`           | —                                  | `AppInfo`            | Name, version, build profile, OS, arch                     |
-| `frontend_ready`         | —                                  | `()`                 | UI signals successful render; only acts in smoke-test mode |
-| `get_runtime_overview`   | —                                  | `RuntimeOverview`    | Profiles, executions (newest first), active count, notices |
-| `start_execution`        | `profileId`                        | `ExecutionRecord`    | Launch an **approved profile**; no command or path input   |
-| `cancel_execution`       | `executionId`                      | `ExecutionRecord`    | Terminate the process tree; returns the final record       |
-| `get_execution_output`   | `executionId`                      | `ExecutionOutput`    | Buffered output, used to rebuild the view after a reload   |
-| `get_ledger_status`      | —                                  | `LedgerStatus`       | Location, schema, counts, notices, last check/backup       |
-| `list_tasks`             | —                                  | `Task[]`             | Tasks, newest first                                        |
-| `get_task_timeline`      | `taskId`                           | `TaskTimeline`       | A task's complete ordered trail and direct children        |
-| `list_recent_events`     | —                                  | `LedgerEvent[]`      | Most recent ledger events, newest first                    |
-| `create_synthetic_task`  | —                                  | `Task`               | Diagnostics: create a synthetic task                       |
-| `advance_synthetic_task` | `taskId`, `action`                 | `Task`               | Diagnostics: act on a **synthetic** task only              |
-| `run_integrity_check`    | —                                  | `IntegrityReport`    | Full SQLite integrity + foreign-key check                  |
-| `create_ledger_backup`   | —                                  | `BackupInfo`         | Verified backup; **Core chooses the path**                 |
-| `export_ledger`          | —                                  | `ExportInfo`         | JSON export; **Core chooses the path**                     |
-| `get_agent_overview`     | —                                  | `AgentOverview`      | Agent runtimes (install, sign-in, capabilities), sessions  |
-| `refresh_agent_runtimes` | —                                  | `AgentRuntimeInfo[]` | Re-detect installation and sign-in                         |
-| `get_agent_session`      | `sessionId`                        | `AgentSessionDetail` | A session's turns and recent live activity                 |
-| `start_agent_session`    | `runtimeId`, `objective`, `model?` | `AgentSessionDetail` | New session + first turn; objective goes to **stdin**      |
-| `resume_agent_session`   | `sessionId`, `objective`           | `AgentSessionDetail` | Next turn in the same provider session                     |
-| `cancel_agent_turn`      | `sessionId`                        | `AgentSessionDetail` | Kill the running turn's tree; resolves once recorded       |
-| `close_agent_session`    | `sessionId`                        | `AgentSession`       | No further turns                                           |
+| Command                  | Input                                           | Returns              | Purpose                                                                                         |
+| ------------------------ | ----------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| `get_app_info`           | —                                               | `AppInfo`            | Name, version, build profile, OS, arch                                                          |
+| `frontend_ready`         | —                                               | `()`                 | UI signals successful render; only acts in smoke-test mode                                      |
+| `get_runtime_overview`   | —                                               | `RuntimeOverview`    | Profiles, executions (newest first), active count, notices                                      |
+| `start_execution`        | `profileId`                                     | `ExecutionRecord`    | Launch an **approved profile**; no command or path input                                        |
+| `cancel_execution`       | `executionId`                                   | `ExecutionRecord`    | Terminate the process tree; returns the final record                                            |
+| `get_execution_output`   | `executionId`                                   | `ExecutionOutput`    | Buffered output, used to rebuild the view after a reload                                        |
+| `get_ledger_status`      | —                                               | `LedgerStatus`       | Location, schema, counts, notices, last check/backup                                            |
+| `list_tasks`             | —                                               | `Task[]`             | Tasks, newest first                                                                             |
+| `get_task_timeline`      | `taskId`                                        | `TaskTimeline`       | A task's complete ordered trail and direct children                                             |
+| `list_recent_events`     | —                                               | `LedgerEvent[]`      | Most recent ledger events, newest first                                                         |
+| `create_synthetic_task`  | —                                               | `Task`               | Diagnostics: create a synthetic task                                                            |
+| `advance_synthetic_task` | `taskId`, `action`                              | `Task`               | Diagnostics: act on a **synthetic** task only                                                   |
+| `run_integrity_check`    | —                                               | `IntegrityReport`    | Full SQLite integrity + foreign-key check                                                       |
+| `create_ledger_backup`   | —                                               | `BackupInfo`         | Verified backup; **Core chooses the path**                                                      |
+| `export_ledger`          | —                                               | `ExportInfo`         | JSON export; **Core chooses the path**                                                          |
+| `get_agent_overview`     | —                                               | `AgentOverview`      | Agent runtimes (install, sign-in, capabilities), sessions                                       |
+| `refresh_agent_runtimes` | —                                               | `AgentRuntimeInfo[]` | Re-detect installation and sign-in                                                              |
+| `get_agent_session`      | `sessionId`                                     | `AgentSessionDetail` | A session's turns and recent live activity                                                      |
+| `start_agent_session`    | `runtimeId`, `objective`, `model?`, `handoffs?` | `AgentSessionDetail` | New session + first turn; objective goes to **stdin**; `handoffs` lets the worker use Liaison   |
+| `resume_agent_session`   | `sessionId`, `objective`                        | `AgentSessionDetail` | Next turn in the same provider session (not for handoff workers)                                |
+| `cancel_agent_turn`      | `sessionId`                                     | `AgentSessionDetail` | Kill the running turn's tree, or end a turn waiting for handoff replies; resolves once recorded |
+| `close_agent_session`    | `sessionId`                                     | `AgentSession`       | No further turns                                                                                |
+| `get_task_handoffs`      | `taskId`                                        | `TaskHandoffs`       | The handoff that created a task and those it made, with replies                                 |
+| `get_task_tree`          | `taskId`                                        | `TaskTree`           | The task's whole delegation tree, depth-first from its root                                     |
+| `get_liaison_overview`   | —                                               | `LiaisonOverview`    | Protocol, limits, destinations, open handoffs, notices                                          |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -168,7 +175,45 @@ Decision record: [ADR-007](../adr/ADR-007-runtime-adapters.md).
   recorded as interrupted on the next start.
 - **Tests** run against `plenipo-fake-agent`, a test double that speaks both stream formats.
 
-## 7. Launch smoke test
+## 7. Liaison (Phase 4)
+
+Decision record: [ADR-008](../adr/ADR-008-liaison.md).
+
+- **Workers never control each other.** In a session the owner started with handoffs allowed,
+  a worker asks for help by ending its answer with fenced `plenipo-handoff` JSON blocks
+  (`to`, `objective`, `acceptanceCriteria`, `context`, `artifacts`, `capabilities`,
+  `priority`; protocol `plenipo-liaison/1`). Liaison parses them as untrusted input: unknown
+  or identity fields (sender, IDs, correlation) are refused; the sender is whoever Plenipo's
+  own records say is running that turn.
+- **Destinations are runtimes** (`claude-code`, `codex`, or `runtime:<id>`). Roles are refused
+  as a missing destination until the Workforce and Router phases; another worker's session can
+  never be addressed. A request never falls back to another provider.
+- **One transaction per decision.** At the end of the answer's step, the step's result, each
+  request (accepted with a queued child task, or refused with a reply that says why), and the
+  requester's move to `blocked` are written together (`liaison_messages`, migration 0003,
+  immutable except for state). A duplicate block in one answer creates one child; replaying the
+  same answer creates nothing.
+- **Handoff workers** are new sessions on the destination runtime, with the same least-
+  privilege posture as any worker. They receive a context packet (`plenipo-context/1`): the
+  objective, acceptance criteria, and only the context the requester referenced (its answer,
+  excerpts, or tasks and artifacts of the same workflow), capped and delimited with a nonce the
+  requester cannot know. Capability requests are recorded and never granted before Guard.
+- **Replies** carry the child's normalized result. When all of a task's replies are in, the
+  task continues as a new step of the same turn in the same provider session. Replies to a
+  task that stopped waiting are discarded, never delivered.
+- **Correlation.** Each owner objective starts a workflow with a new correlation ID; every
+  child task, message, and `liaison.*` event carries it. Replies must match their request's
+  correlation and child, or they are refused and recorded.
+- **Reconciliation.** Liaison reacts to Ledger events (and a 2 s tick): answer finished
+  children, cancel handoffs whose requester ended (stopping their workers, down the tree),
+  dispatch accepted handoffs when a worker slot is free, deliver replies, retire finished
+  handoff workers. Every action is guarded by recorded state, so repeating it changes nothing.
+- **Limits.** Depth 3, 3 requests per answer, 5 reply rounds per task, 12 handoffs per
+  workflow. Beyond a limit the request is refused and the worker told to do it itself.
+- **Restarts.** Waiting and running turns are recorded as interrupted on the next start; their
+  handoffs are answered or cancelled, and nothing is resumed automatically.
+
+## 8. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
 has rendered **and** successfully called Core, and the process exits 0. If that does not
@@ -176,10 +221,10 @@ happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The 
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
 
-## 8. Target component map
+## 9. Target component map
 
 From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent runtime
-adapters), and **Ledger** exist today.
+adapters), **Ledger**, and **Liaison** exist today.
 
 | Component    | Responsibility                                 | Introduced |
 | ------------ | ---------------------------------------------- | ---------- |
@@ -187,7 +232,7 @@ adapters), and **Ledger** exist today.
 | Core         | Orchestration and domain logic, shared DTOs    | Phase 0    |
 | Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅ | Phase 1, 3 |
 | Ledger       | SQLite system of record ✅                     | Phase 2    |
-| Liaison      | Task/message/event bus                         | Phase 4    |
+| Liaison      | Task/message/event bus ✅                      | Phase 4    |
 | Workforce    | Departments, roles, coordinators, workers      | Phase 5    |
 | Router       | Role → provider/model selection                | Phase 6    |
 | Capabilities | Filesystem, shell, Git, SSH, browser, MCP      | Phase 7    |
@@ -195,7 +240,7 @@ adapters), and **Ledger** exist today.
 | Vault        | Credential references (OS-protected storage)   | Phase 7    |
 | Integrations | Paperclip, GitHub, CrewOS                      | Phase 8+   |
 
-## 9. Invariants every phase must keep
+## 10. Invariants every phase must keep
 
 - **Local-first** ([ADR-002](../adr/ADR-002-local-first-architecture.md)): the desktop app owns
   execution; remote surfaces never become the privileged runtime.

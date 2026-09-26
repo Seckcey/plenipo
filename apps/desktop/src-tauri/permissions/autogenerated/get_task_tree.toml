@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-task-tree"
+description = "Enables the get_task_tree command without any pre-configured scope."
+commands.allow = ["get_task_tree"]
+
+[[permission]]
+identifier = "deny-get-task-tree"
+description = "Denies the get_task_tree command without any pre-configured scope."
+commands.deny = ["get_task_tree"]

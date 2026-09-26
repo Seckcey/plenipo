@@ -22,6 +22,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     createLedgerBackup: vi.fn(),
     exportLedger: vi.fn(),
     createSyntheticTask: vi.fn(),
+    getTaskTree: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({ subscribeLedgerEvents: vi.fn() }));
@@ -211,5 +212,106 @@ describe("Ledger panel", () => {
     render(<LedgerPanel onTaskCreated={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("temporary ledger");
     expect(screen.getByRole("button", { name: "Create backup" })).toBeDisabled();
+  });
+});
+
+describe("Delegation tree (Phase 4)", () => {
+  const liaison = (depth: number) => ({
+    liaison: { correlationId: "c0ffee00-1111", depth, protocol: "plenipo-liaison/1" },
+  });
+  const root = task({
+    objective: "Write a parser",
+    requestedBy: "owner",
+    state: "succeeded",
+    metadata: { ...liaison(0), sessionId: "s1", runtimeId: "codex" },
+  });
+  const review = task({
+    id: "t2",
+    parentTaskId: "t1",
+    objective: "Review the parser",
+    requestedBy: "agent:codex",
+    state: "succeeded",
+    metadata: { ...liaison(1), sessionId: "w1", runtimeId: "claude-code" },
+  });
+
+  it("shows a workflow's tasks across workers and selects one", async () => {
+    api.listTasks.mockResolvedValue([review, root]);
+    api.getTaskTimeline.mockImplementation((id) =>
+      Promise.resolve({
+        task: id === "t2" ? review : root,
+        children: id === "t2" ? [] : [review],
+        events: [
+          ev("liaison.handoff_requested", {
+            destination: "runtime:claude-code",
+            objective: "Review the parser",
+          }),
+        ],
+      }),
+    );
+    api.getTaskTree.mockImplementation((id) =>
+      Promise.resolve({
+        rootId: "t1",
+        focusId: id,
+        correlationId: "c0ffee00-1111",
+        nodes: [
+          {
+            task: root,
+            depth: 0,
+            runtimeId: "codex",
+            runtimeLabel: "Codex",
+            sessionId: "s1",
+            handoff: null,
+          },
+          {
+            task: review,
+            depth: 1,
+            runtimeId: "claude-code",
+            runtimeLabel: "Claude Code",
+            sessionId: "w1",
+            handoff: {
+              messageId: "m1",
+              state: "answered",
+              destinationLabel: "Claude Code",
+              replyOutcome: "completed",
+            },
+          },
+        ],
+      }),
+    );
+    render(<Harness />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Write a parser — Succeeded/ }));
+
+    const tree = await screen.findByRole("list", { name: "Delegation tree" });
+    const nodes = within(tree).getAllByRole("listitem");
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0]).toHaveAttribute("aria-current", "true");
+    expect(nodes[1]).toHaveTextContent("Review the parser");
+    expect(nodes[0]).toHaveTextContent("Codex");
+    expect(nodes[1]).toHaveTextContent("Claude Code · reply: Completed");
+    expect(screen.getByText(/One workflow \(c0ffee00\)/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "Activity trail" })).getByText(
+        "Handoff requested → claude-code: Review the parser",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(within(nodes[1]!).getByRole("button", { name: "Review the parser" }));
+    await waitFor(() => expect(api.getTaskTree).toHaveBeenLastCalledWith("t2"));
+    const again = await screen.findByRole("list", { name: "Delegation tree" });
+    await waitFor(() =>
+      expect(within(again).getAllByRole("listitem")[1]).toHaveAttribute("aria-current", "true"),
+    );
+  });
+
+  it("is not fetched for tasks outside a workflow", async () => {
+    api.getTaskTimeline.mockResolvedValue({ task: task(), children: [], events: [] });
+    render(<Harness />);
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: /Synthetic diagnostic task #1/ }));
+    await screen.findByRole("list", { name: "Activity trail" });
+    expect(api.getTaskTree).not.toHaveBeenCalled();
+    expect(screen.queryByRole("list", { name: "Delegation tree" })).toBeNull();
   });
 });

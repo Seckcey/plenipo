@@ -28,6 +28,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     resumeAgentSession: vi.fn(),
     cancelAgentTurn: vi.fn(),
     closeAgentSession: vi.fn(),
+    getLiaisonOverview: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -113,6 +114,17 @@ beforeEach(() => {
   api.listTasks.mockResolvedValue([]);
   api.listRecentEvents.mockResolvedValue([]);
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
+  api.getLiaisonOverview.mockResolvedValue({
+    protocol: "plenipo-liaison/1",
+    contextFormat: "plenipo-context/1",
+    limits: { maxDepth: 3, maxRequestsPerAnswer: 3, maxRounds: 5, maxWorkflowHandoffs: 12 },
+    destinations: [
+      { address: "claude-code", runtimeId: "claude-code", label: "Claude Code", ready: true },
+      { address: "codex", runtimeId: "codex", label: "Codex", ready: false },
+    ],
+    openHandoffs: 1,
+    notices: [],
+  });
   subscribe.mockImplementation((handler) => {
     emit = handler;
     return Promise.resolve(() => undefined);
@@ -150,6 +162,14 @@ describe("App shell", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Diagnostics" }));
     expect(await screen.findByText("Connected")).toBeInTheDocument();
     expect(screen.getByText("windows / x86_64")).toBeInTheDocument();
+    const liaison = await screen.findByLabelText("Liaison details");
+    expect(within(liaison).getByText("plenipo-liaison/1")).toBeInTheDocument();
+    expect(
+      within(liaison).getByText(/depth 3 · 3 per answer · 5 reply rounds · 12 per workflow/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Claude Code \(claude-code, ready\) · Codex \(codex, not ready\)/),
+    ).toBeInTheDocument();
   });
 
   it("shows an error and does not report ready when Core is unavailable", async () => {

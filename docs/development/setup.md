@@ -73,6 +73,13 @@ Notes:
 - In Phase 3 workers cannot change anything: Claude Code runs with no tools (conversation
   only), Codex in its read-only sandbox, each session in its own empty folder under
   `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.
+- Handoffs (Phase 4) need both runtimes Ready. In **Workers**, tick **Allow handoffs to other
+  workers**, then give an objective that invites a second opinion — for example, on Codex:
+  _"Write a function that parses ISO dates. Before you finish, ask claude-code to review it."_
+  The turn shows **Waiting for replies** while the Claude Code worker runs, then continues with
+  its review as step 2. **Open worker session** shows the reviewer's own session; **Activity**
+  shows the delegation tree and the full trail. Handoff workers get the same permissions as
+  any worker.
 
 ## 4. Build a release and installer
 
@@ -120,9 +127,9 @@ xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
 Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
-it never touches your real Plenipo data. The Phase 3 tests put `plenipo-fake-agent` (a test
-double that speaks the Claude Code and Codex stream formats) on `PATH` as `claude` and `codex`;
-they never start a real CLI or use an account.
+it never touches your real Plenipo data. The Phase 3 and 4 tests put `plenipo-fake-agent` (a
+test double that speaks the Claude Code and Codex stream formats and Liaison's handoff
+protocol) on `PATH` as `claude` and `codex`; they never start a real CLI or use an account.
 
 ## 7. Linux (development / CI only)
 

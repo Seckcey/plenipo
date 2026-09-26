@@ -42,3 +42,55 @@ describe("describeEvent (Phase 3 agent events)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 4 Liaison events)", () => {
+  it("describes a handoff's whole trail in plain language", () => {
+    expect(
+      describeEvent(
+        event("liaison.handoff_requested", {
+          destination: "runtime:claude-code",
+          objective: "Review the parser\nin detail",
+        }),
+      ),
+    ).toBe("Handoff requested → claude-code: Review the parser");
+    expect(
+      describeEvent(event("liaison.handoff_received", { depth: 1, objective: "Review it" })),
+    ).toBe("Received as a handoff (depth 1): Review it");
+    expect(describeEvent(event("liaison.dispatched", {}))).toBe("Handoff worker started");
+    expect(
+      describeEvent(event("liaison.reply_sent", { outcome: "completed", summary: "Looks right" })),
+    ).toBe("Reply sent: Completed — Looks right");
+    expect(
+      describeEvent(event("liaison.reply_received", { outcome: "rejected", summary: "No such" })),
+    ).toBe("Reply received: Refused by Liaison — No such");
+    expect(describeEvent(event("liaison.replies_delivered", { messageIds: ["a", "b"] }))).toBe(
+      "Continued with 2 handoff replies",
+    );
+    expect(describeEvent(event("liaison.replies_delivered", { messageIds: ["a"] }))).toBe(
+      "Continued with 1 handoff reply",
+    );
+  });
+
+  it("explains refusals, cancellations, and failures with their reason", () => {
+    expect(
+      describeEvent(
+        event("liaison.handoff_rejected", { reason: "the handoff depth limit (3) is reached" }),
+      ),
+    ).toBe("Handoff refused: the handoff depth limit (3) is reached");
+    expect(
+      describeEvent(event("liaison.handoff_cancelled", { reason: "the requesting task failed" })),
+    ).toBe("Handoff cancelled: the requesting task failed");
+    expect(
+      describeEvent(event("liaison.dispatch_failed", { reason: "Codex is not available." })),
+    ).toBe("Handoff worker could not start: Codex is not available.");
+    expect(describeEvent(event("liaison.duplicate_ignored", {}))).toBe(
+      "Duplicate handoff request ignored",
+    );
+    expect(
+      describeEvent(event("liaison.reply_discarded", { messageIds: ["a"], reason: "stopped" })),
+    ).toBe("Handoff reply discarded: stopped");
+    expect(describeEvent(event("liaison.reply_refused", { reason: "wrong workflow" }))).toBe(
+      "Reply refused: wrong workflow",
+    );
+  });
+});

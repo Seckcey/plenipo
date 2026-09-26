@@ -61,7 +61,7 @@ Plenipo's bundle identifier is `com.eightwest.plenipo`. Tauri resolves:
 | Ledger backups and exports           | `%LOCALAPPDATA%\com.eightwest.plenipo\ledger\backups\`                              |
 | Quarantined damaged ledgers          | `%LOCALAPPDATA%\com.eightwest.plenipo\ledger\plenipo.db.corrupt-<timestamp>`        |
 | Diagnostic profile working directory | `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\diagnostics-workspace\`               |
-| Agent session workspaces (Phase 3)   | `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\<session-id>\`       |
+| Agent session workspaces (Phase 3+)  | `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\<session-id>\`       |
 | Phase 1 history after import         | `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\executions.json.imported-<timestamp>` |
 
 The ledger lives in **Local** (not Roaming) app data on purpose: roaming profiles can copy a
