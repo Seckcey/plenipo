@@ -1,7 +1,9 @@
 # Kimi (Moonshot AI) — AI tool checklist
 
 **Status:** step 0 (checking the real CLI) done on `claude/ai-tools-kimi`: Kimi passes through ACP.
-Next: the owner accepts ADR-015 (AI tools connected through ACP), then the adapter.
+ADR-016 (Kimi over ACP, with its file reads and writes going through Plenipo) accepted by the owner
+on 2026-09-26. The adapter waits for the Grok branch, which brings ADR-015 (running AI tools over
+ACP) and the shared ACP driver.
 
 Adds Kimi Code, Moonshot AI's official coding CLI, as an AI tool under ADR-014 (the rules for
 adding AI tools ahead of Phase 15). The owner checked the real CLI on Windows 11 with a Kimi
@@ -23,13 +25,22 @@ subscription. The raw outputs are in
 | Least privilege        | **Prompt mode wrote a file without asking**, and `--plan` cannot be combined with `-p`. In ACP (mode `default`, "manual approvals"), with the client offering file access: every read, inside or outside the folder, came to the client as `fs/read_text_file` (refused, and not worked around); a write and a command (`echo`) each waited for `session/request_permission` (refused; nothing written or run). Modes: `default`, `plan` (read-only), `auto`, `yolo`. | —        | Pass (ACP)  |
 | Credentials in the env | No `KIMI*` or `MOONSHOT*` variables set; the subscription token lives in `%USERPROFILE%\.kimi-code` (never read by Plenipo).                                                                                                                                                                                                                                                                                                                                          | 3        | Pass so far |
 
-## Decisions this needs
+## Decisions
 
-- **ADR-015 (AI tools connected through ACP, with Plenipo answering their permission requests)**,
-  Proposed. Kimi runs through ACP instead of prompt mode: Plenipo sends the prompt as a message,
-  keeps the tool's input open during the turn, and answers its file requests and permission
-  requests through Guard. Kimi's own shell commands are refused in favor of Plenipo's
-  `run_command`. Grok's branch needs the same.
+- **ADR-015 (running AI tools over ACP)**, from the Grok branch: one supervised program per task,
+  the prompt as a message on stdin, one shared ACP driver.
+- **ADR-016 (Kimi over ACP, with its file reads and writes going through Plenipo)**, accepted:
+  Kimi's built-in tools cannot be switched off, so Plenipo offers file access and answers every
+  file request through Guard; Kimi's own shell commands are refused in favor of Plenipo's
+  `run_command`; model and thinking level are set with `session/set_config_option`; only the Kimi
+  subscription provider (`managed:kimi-code`, `source=oauth`) is used.
+
+## Next
+
+1. The Grok branch merges (ADR-015 and the shared ACP driver).
+2. Merge `main` into this branch, then build the Kimi adapter on the driver, with the two driver
+   options ADR-016 adds, a Kimi ACP persona in the fake CLI, and tests.
+3. The owner's final check with the real Kimi on Windows.
 
 ## Still to check
 
