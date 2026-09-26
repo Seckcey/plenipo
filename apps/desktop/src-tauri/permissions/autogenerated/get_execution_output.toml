@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-execution-output"
+description = "Enables the get_execution_output command without any pre-configured scope."
+commands.allow = ["get_execution_output"]
+
+[[permission]]
+identifier = "deny-get-execution-output"
+description = "Denies the get_execution_output command without any pre-configured scope."
+commands.deny = ["get_execution_output"]

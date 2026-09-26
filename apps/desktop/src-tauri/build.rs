@@ -1,5 +1,15 @@
 use std::path::PathBuf;
 
+/// Every app command. Each must also be granted in capabilities/default.json.
+const COMMANDS: &[&str] = &[
+    "get_app_info",
+    "frontend_ready",
+    "get_runtime_overview",
+    "start_execution",
+    "cancel_execution",
+    "get_execution_output",
+];
+
 fn main() {
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
@@ -19,9 +29,7 @@ fn main() {
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .windows_attributes(windows_attributes)
-            .app_manifest(
-                tauri_build::AppManifest::new().commands(&["get_app_info", "frontend_ready"]),
-            ),
+            .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
     )
     .expect("failed to run tauri-build");
 

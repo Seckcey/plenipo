@@ -2313,10 +2313,12 @@ name = "plenipo-desktop"
 version = "0.1.0"
 dependencies = [
  "plenipo-core",
+ "plenipo-runtime",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tokio",
 ]
 
 [[package]]
