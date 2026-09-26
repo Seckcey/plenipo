@@ -1,0 +1,15 @@
+{
+  "name": "@plenipo/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end tests driving the real Plenipo desktop app through tauri-driver.",
+  "type": "module",
+  "scripts": {
+    "e2e": "node --test --test-concurrency=1 --test-timeout=300000 \"specs/**/*.e2e.mjs\"",
+    "typecheck": "echo \"@plenipo/e2e: plain ESM, checked by ESLint\"",
+    "test": "echo \"@plenipo/e2e: run with 'pnpm e2e' (needs a built app and tauri-driver)\""
+  },
+  "devDependencies": {
+    "webdriverio": "^9.32.0"
+  }
+}

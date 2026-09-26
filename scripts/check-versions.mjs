@@ -14,6 +14,7 @@ const found = {
   "package.json": expected,
   "apps/desktop/package.json": JSON.parse(read("apps/desktop/package.json")).version,
   "packages/types/package.json": JSON.parse(read("packages/types/package.json")).version,
+  "tests/e2e/package.json": JSON.parse(read("tests/e2e/package.json")).version,
   "Cargo.toml [workspace.package]": read("Cargo.toml").match(
     /\[workspace\.package\][^[]*?\nversion\s*=\s*"([^"]+)"/,
   )?.[1],
