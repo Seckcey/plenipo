@@ -294,14 +294,18 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await clickButton(browser, "Give objective");
 
     // One worker under each position it handed work to, while the coordinator waits on them.
-    const developer = await waitForNode(
-      browser,
-      "Worker for Senior Developer: Review the answer above",
-      30_000,
-    );
-    await waitForNode(browser, "Worker for Code Reviewer: Review the answer above");
+    // One worker under each position it handed work to — queued for a moment, then working —
+    // while the coordinator waits on them.
+    const working = (label) =>
+      waitUntil(
+        async () =>
+          (await nodes(browser)).some((l) => l.startsWith(label) && l.endsWith(", Working")),
+        `"${label}" working`,
+        30_000,
+      );
+    await working("Worker for Senior Developer: Review the answer above");
+    await working("Worker for Code Reviewer: Review the answer above");
     await waitForNode(browser, "Website Coordinator, Waiting on team");
-    assert.match(developer, /Working$/);
     assert.match(await glance(browser), /live workers 2/);
     assert.ok((await chips(browser)).includes("Claude Code"), "the workers' runtime chips");
     await closeDetails(browser);
