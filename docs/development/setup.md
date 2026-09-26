@@ -47,9 +47,34 @@ pnpm dev
 The first `pnpm dev` compiles the Rust backend (several minutes); later runs are incremental.
 A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
-No `.env` file, API keys, or provider logins are required.
+No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. Build a release and installer
+## 3. Agent runtimes (Phase 3, optional)
+
+The **Workers** view runs tasks on the Claude Code and Codex command-line tools that are already
+installed **and signed in with your subscription** on this computer. Plenipo never asks for a
+password or API key, and refuses API-key sign-ins (no API billing). The desktop apps do not need
+to be open.
+
+| Runtime     | Install (PowerShell)                                      | Sign in (once, in a terminal)                    |
+| ----------- | --------------------------------------------------------- | ------------------------------------------------ |
+| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account |
+| Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**  |
+
+Then open **Runtimes** in Plenipo and choose **Re-check**: each runtime should show **Ready**
+with its version and "Signed in (subscription)". If a card says what is missing (not installed,
+not signed in, API key), follow the hint on the card.
+
+Notes:
+
+- On Windows, Plenipo runs only native `.exe` builds. An npm-installed Claude Code (`claude.cmd`)
+  is reported as unsupported — install the native build above. For Codex, Plenipo uses the
+  native binary inside the npm package automatically.
+- In Phase 3 workers cannot change anything: Claude Code runs with no tools (conversation
+  only), Codex in its read-only sandbox, each session in its own empty folder under
+  `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.
+
+## 4. Build a release and installer
 
 ```powershell
 pnpm build
@@ -63,7 +88,7 @@ Outputs:
 
 The installer is not code-signed yet (planned for Phase 13), so Windows SmartScreen may warn.
 
-## 4. Verify everything locally (same as CI)
+## 5. Verify everything locally (same as CI)
 
 ```powershell
 pnpm check
@@ -80,7 +105,7 @@ $p = Start-Process target\release\plenipo-desktop.exe -PassThru; $null = $p.Hand
 Remove-Item Env:PLENIPO_SMOKE_TEST
 ```
 
-## 5. End-to-end tests
+## 6. End-to-end tests
 
 `pnpm e2e` drives the real release build through WebDriver. It runs in CI on Linux; locally:
 
@@ -90,13 +115,16 @@ sudo apt-get install -y webkit2gtk-driver xvfb
 cargo install tauri-driver --locked
 # each run
 pnpm --filter @plenipo/desktop tauri build --no-bundle
+cargo build --release -p plenipo-runtime --bin plenipo-fake-agent
 xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
 Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
-it never touches your real Plenipo data.
+it never touches your real Plenipo data. The Phase 3 tests put `plenipo-fake-agent` (a test
+double that speaks the Claude Code and Codex stream formats) on `PATH` as `claude` and `codex`;
+they never start a real CLI or use an account.
 
-## 6. Linux (development / CI only)
+## 7. Linux (development / CI only)
 
 ```bash
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
