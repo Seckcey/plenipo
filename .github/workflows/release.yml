@@ -1,11 +1,15 @@
 name: Release
 
-# Pushing a tag `vX.Y.Z` builds the Windows installer from that commit and publishes a GitHub
-# release with it attached. See docs/development/versioning.md → Releasing.
+# Builds the Windows installer and publishes a GitHub release with it attached, in either of two
+# ways (docs/development/versioning.md → Releasing):
+# - Actions → Release → Run workflow (on `main`): releases the version in package.json. The tag
+#   `vX.Y.Z` is created on that commit only after the installer builds.
+# - Pushing a tag `vX.Y.Z`: releases that commit.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,6 +23,12 @@ jobs:
     name: Build Windows installer and publish release
     runs-on: windows-latest
     steps:
+      - name: Run workflow releases `main` only
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          echo "::error::Run the Release workflow on main (it was started on $GITHUB_REF_NAME)"
+          exit 1
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -31,17 +41,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Tag matches the product version, and release notes exist
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           pnpm versions:check
           version=$(node -p "require('./package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the product version $version"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="v$version"
+            if gh release view "$tag" > /dev/null 2>&1; then
+              echo "::error::$tag is already released; bump the version first"
+              exit 1
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::error::The tag $tag already exists; push it again to release it, or bump the version"
+              exit 1
+            fi
+          else
+            tag="$GITHUB_REF_NAME"
+            if [ "v$version" != "$tag" ]; then
+              echo "::error::Tag $tag does not match the product version $version"
+              exit 1
+            fi
+          fi
+          if [ ! -f "docs/releases/$tag.md" ]; then
+            echo "::error::Missing release notes: docs/releases/$tag.md"
             exit 1
           fi
-          if [ ! -f "docs/releases/$GITHUB_REF_NAME.md" ]; then
-            echo "::error::Missing release notes: docs/releases/$GITHUB_REF_NAME.md"
-            exit 1
-          fi
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
       - name: Build release app and NSIS installer
         run: pnpm build
       - name: Publish GitHub release
@@ -49,17 +75,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="docs/releases/$GITHUB_REF_NAME.md"
+          notes="docs/releases/$RELEASE_TAG.md"
           title=$(head -n 1 "$notes" | sed 's/^# *//')
           tail -n +2 "$notes" > "$RUNNER_TEMP/release-notes.md"
           prerelease=()
-          case "$GITHUB_REF_NAME" in
+          case "$RELEASE_TAG" in
             v0.* | *-*) prerelease=(--prerelease) ;;
           esac
+          # A pushed tag must already exist; Run workflow creates it on the built commit.
+          tag_source=(--verify-tag)
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag_source=(--target "$GITHUB_SHA")
+          fi
           installer=(target/release/bundle/nsis/*-setup.exe)
           test -f "${installer[0]}"
-          gh release create "$GITHUB_REF_NAME" "${installer[@]}" \
-            --verify-tag \
+          gh release create "$RELEASE_TAG" "${installer[@]}" \
+            "${tag_source[@]}" \
             --title "$title" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             "${prerelease[@]}"

@@ -42,13 +42,17 @@ The **minor** version increases by one each time a rollout phase is accepted, un
 1. Update the version in the files above (and `Cargo.lock`: `cargo update --workspace`).
 2. Run `pnpm versions:check`.
 3. Add release notes at `docs/releases/vX.Y.Z.md` (first line `# <release title>`).
-4. Commit as `chore(release): vX.Y.Z`, merge to `main`, then tag the merge commit `vX.Y.Z` and
-   push the tag.
+4. Commit as `chore(release): vX.Y.Z` and merge to `main`.
+5. Start the release, either way:
+   - **Run workflow (no tag push needed):** GitHub → **Actions** → **Release** → **Run workflow**
+     on `main`. It releases the version in `package.json`: it checks the version and release
+     notes, builds the installer, and only then creates the tag `vX.Y.Z` on that commit and
+     publishes the release. It refuses a version that is already tagged or released.
+   - **Tag push:** tag the merge commit `vX.Y.Z` and push the tag.
 
-Pushing a `v*` tag runs `.github/workflows/release.yml` on Windows: it checks that the tag matches
-the product version and that release notes exist, builds the NSIS installer, and publishes a
-GitHub release with the installer attached. `0.x` versions and SemVer pre-releases are published
-as GitHub pre-releases.
+`.github/workflows/release.yml` runs on Windows: it checks that the version matches and that
+release notes exist, builds the NSIS installer, and publishes a GitHub release with the installer
+attached. `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
 
 ## Commit messages
 
