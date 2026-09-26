@@ -587,8 +587,18 @@ impl Mcp {
         }
     }
 
+    /// Close the connection like a real AI tool: end the server's input, give it a moment to
+    /// exit, then stop it (never wait on it forever).
     fn finish(mut self) {
         drop(self.stdin);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if !matches!(self.child.try_wait(), Ok(None)) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }

@@ -40,6 +40,9 @@ fn fail(message: &str) -> i32 {
     1
 }
 
+/// How long the relay waits for Plenipo's last answers after the AI tool closes its input.
+const LINGER: Duration = Duration::from_secs(3);
+
 /// Relay stdin/stdout for the ticket at `ticket_path`.
 pub fn run(ticket_path: &Path) -> i32 {
     let ticket: Ticket = match std::fs::read_to_string(ticket_path)
@@ -75,7 +78,9 @@ pub fn run(ticket_path: &Path) -> i32 {
         return fail("could not introduce itself to Plenipo");
     }
     // Plenipo → stdout.
-    let reader = std::thread::spawn(move || {
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let _done = done;
         let mut from = BufReader::new(stream);
         let mut out = std::io::stdout().lock();
         let mut line = Vec::new();
@@ -108,8 +113,10 @@ pub fn run(ticket_path: &Path) -> i32 {
             }
         }
     }
+    // The AI tool closed its side: let Plenipo's last answers through, but never linger (on
+    // Windows another program can hold the connection open by inheriting it).
     let _ = writer.shutdown(std::net::Shutdown::Write);
-    let _ = reader.join();
+    let _ = finished.recv_timeout(LINGER);
     0
 }
 
