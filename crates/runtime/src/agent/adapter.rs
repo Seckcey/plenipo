@@ -19,6 +19,7 @@ use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
     AgentEvent, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
+use crate::agent::tools::ToolServer;
 use crate::dto::{ExecutionState, TokenUsage};
 
 /// Longest final answer kept in a result.
@@ -73,6 +74,8 @@ pub struct TurnRequest {
     /// The sign-in check confirmed a subscription. When false, a runtime that checks billing
     /// per turn must see a subscription credential in the stream, or stop the turn.
     pub billing_confirmed: bool,
+    /// Plenipo's tool server for this step (Phase 7), if the worker has permissions.
+    pub tools: Option<ToolServer>,
 }
 
 /// Why a parser asks Plenipo to stop the process immediately.
@@ -177,6 +180,10 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         false
     }
     fn turn_args(&self, request: &TurnRequest) -> Vec<String>;
+    /// Variables this turn's process gets in addition (for example tool-call time limits).
+    fn turn_env(&self, _request: &TurnRequest) -> Vec<(String, String)> {
+        Vec::new()
+    }
     fn parser(&self, request: &TurnRequest) -> Box<dyn TurnParser>;
 }
 

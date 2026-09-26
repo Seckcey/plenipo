@@ -1,9 +1,10 @@
 //! Claude Code adapter (ADR-007).
 //!
 //! One turn = `claude -p --output-format stream-json …` with the objective on stdin. New
-//! sessions get a Plenipo-chosen `--session-id`; follow-ups use `--resume`. Phase 3 grants no
-//! tools (`--tools ""`) and no MCP servers. The `init` event's credential source is checked on
-//! every turn: anything but a subscription sign-in stops the turn.
+//! sessions get a Plenipo-chosen `--session-id`; follow-ups use `--resume`. It never gets its
+//! built-in tools (`--tools ""`) or the owner's MCP servers (`--strict-mcp-config`); a worker with
+//! permissions gets Plenipo's own tool server (Phase 7). The `init` event's credential source is
+//! checked on every turn: anything but a subscription sign-in stops the turn.
 
 use std::path::PathBuf;
 
@@ -61,8 +62,9 @@ impl RuntimeAdapter for ClaudeCode {
             cancel: true,
             structured_results: true,
             billing_checked_per_turn: true,
-            tool_posture: "Conversation only: no built-in tools and no MCP servers until \
-                           Plenipo Guard grants capabilities (Phase 7)."
+            tool_posture: "No built-in tools and none of your MCP servers. A worker with \
+                           permissions gets Plenipo's file, program, and git tools, each \
+                           checked by Plenipo Guard."
                 .into(),
             // `claude --effort <level>`.
             effort_levels: FRONTIER_EFFORT.to_vec(),
@@ -150,6 +152,16 @@ impl RuntimeAdapter for ClaudeCode {
         if let Some(effort) = request.effort {
             args.extend(["--effort".into(), effort.as_str().into()]);
         }
+        if let Some(tools) = &request.tools {
+            // Plenipo's tool server only (Phase 7): its tools need no prompt from Claude Code,
+            // because Plenipo checks every call itself.
+            args.extend([
+                "--mcp-config".into(),
+                tools.config_file.display().to_string(),
+                "--allowedTools".into(),
+                format!("mcp__{}", tools.name),
+            ]);
+        }
         match &request.session {
             ProviderSession::New {
                 preassigned: Some(id),
@@ -158,6 +170,20 @@ impl RuntimeAdapter for ClaudeCode {
             ProviderSession::Resume { id } => args.extend(["--resume".into(), id.clone()]),
         }
         args
+    }
+
+    fn turn_env(&self, request: &TurnRequest) -> Vec<(String, String)> {
+        match &request.tools {
+            // A tool call may wait for the owner's approval; the server starts quickly.
+            Some(tools) => vec![
+                (
+                    "MCP_TOOL_TIMEOUT".into(),
+                    tools.call_timeout.as_millis().max(1).to_string(),
+                ),
+                ("MCP_TIMEOUT".into(), "30000".into()),
+            ],
+            None => Vec::new(),
+        }
     }
 
     fn parser(&self, request: &TurnRequest) -> Box<dyn TurnParser> {
@@ -534,6 +560,7 @@ mod tests {
             model: None,
             effort: None,
             billing_confirmed: true,
+            tools: None,
         }
     }
 
@@ -583,6 +610,7 @@ mod tests {
             model: Some("sonnet".into()),
             effort: Some(Effort::XHigh),
             billing_confirmed: true,
+            tools: None,
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
@@ -590,6 +618,41 @@ mod tests {
         let e = resume.iter().position(|a| a == "--effort").unwrap();
         assert_eq!(resume[e + 1], "xhigh");
         assert!(!args.iter().any(|a| a == "--effort"));
+    }
+
+    #[test]
+    fn plenipo_tools_come_only_from_plenipo() {
+        use crate::agent::tools::ToolServer;
+        let tools = ToolServer {
+            name: "plenipo".into(),
+            command: "/opt/plenipo/plenipo-desktop".into(),
+            args: vec!["--plenipo-tools=/data/t.json".into()],
+            config_file: "/data/t.mcp.json".into(),
+            call_timeout: std::time::Duration::from_secs(3600),
+        };
+        let request = TurnRequest {
+            tools: Some(tools),
+            ..new_request()
+        };
+        let args = ClaudeCode.turn_args(&request);
+        // Still no built-in tools and none of the owner's MCP servers…
+        let t = args.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(args[t + 1], "");
+        assert!(args.contains(&"--strict-mcp-config".to_owned()));
+        // …only Plenipo's server, whose tools need no prompt from Claude Code.
+        let m = args.iter().position(|a| a == "--mcp-config").unwrap();
+        assert_eq!(args[m + 1], "/data/t.mcp.json");
+        let a = args.iter().position(|a| a == "--allowedTools").unwrap();
+        assert_eq!(args[a + 1], "mcp__plenipo");
+        assert!(!args
+            .iter()
+            .any(|a| a.contains("dangerously") || a == "--permission-mode"));
+        let env = ClaudeCode.turn_env(&request);
+        assert!(env.contains(&("MCP_TOOL_TIMEOUT".into(), "3600000".into())));
+        assert!(ClaudeCode.turn_env(&new_request()).is_empty());
+        assert!(!ClaudeCode
+            .turn_args(&new_request())
+            .contains(&"--mcp-config".to_owned()));
     }
 
     #[test]
@@ -707,6 +770,7 @@ mod tests {
         // Unconfirmed sign-in and no credential source in the stream: stop.
         let unconfirmed = TurnRequest {
             billing_confirmed: false,
+            tools: None,
             ..new_request()
         };
         let mut p = ClaudeCode.parser(&unconfirmed);
@@ -779,6 +843,7 @@ mod tests {
             model: None,
             effort: None,
             billing_confirmed: true,
+            tools: None,
         });
         let events = feed(
             p.as_mut(),

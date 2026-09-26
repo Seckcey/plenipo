@@ -28,6 +28,7 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
+use crate::agent::tools::{with_note, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, OutputLine, OutputStream};
 use crate::error::RuntimeError;
 use crate::profile::LaunchSpec;
@@ -271,6 +272,10 @@ struct Inner {
     store: Arc<dyn SessionStore>,
     sink: Arc<dyn AgentSink>,
     hook: RwLock<Option<Arc<dyn TurnHook>>>,
+    /// Plenipo's tools for turn steps (Phase 7).
+    tools: RwLock<Option<Arc<dyn ToolProvider>>>,
+    /// Hides secrets in activity and results (Phase 7).
+    filter: RwLock<Option<TextFilter>>,
     host: HostEnv,
     state: Mutex<State>,
 }
@@ -321,6 +326,8 @@ impl AgentRuntime {
                 store,
                 sink,
                 hook: RwLock::new(None),
+                tools: RwLock::new(None),
+                filter: RwLock::new(None),
                 host,
                 state: Mutex::new(State {
                     runtimes,
@@ -335,6 +342,61 @@ impl AgentRuntime {
     /// Install the hook consulted when a turn step ends (at most one; replaces any earlier).
     pub fn set_hook(&self, hook: Arc<dyn TurnHook>) {
         *self.inner.hook.write().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    /// Install the provider of Plenipo's tools for turn steps (at most one).
+    pub fn set_tools(&self, provider: Arc<dyn ToolProvider>) {
+        *self.inner.tools.write().unwrap_or_else(|p| p.into_inner()) = Some(provider);
+    }
+
+    /// Install the filter that hides secrets in activity and results before they are shown,
+    /// recorded, or passed on.
+    pub fn set_filter(&self, filter: TextFilter) {
+        *self.inner.filter.write().unwrap_or_else(|p| p.into_inner()) = Some(filter);
+    }
+
+    fn filter(&self) -> Option<TextFilter> {
+        self.inner
+            .filter
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    fn tool_provider(&self) -> Option<Arc<dyn ToolProvider>> {
+        self.inner
+            .tools
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// The step's tools, if the provider gives it any.
+    async fn open_tools(
+        &self,
+        session: &AgentSession,
+        task_id: &str,
+        step: u32,
+    ) -> Option<StepTools> {
+        let provider = self.tool_provider()?;
+        let (session, task_id) = (session.clone(), task_id.to_owned());
+        tokio::task::spawn_blocking(move || {
+            provider.open(&StepInfo {
+                session: &session,
+                task_id: &task_id,
+                step,
+            })
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// End a step's grant (before its result is recorded).
+    async fn close_tools(&self, grant_id: String) {
+        if let Some(provider) = self.tool_provider() {
+            let _ = tokio::task::spawn_blocking(move || provider.close(&grant_id)).await;
+        }
     }
 
     fn hook(&self) -> Option<Arc<dyn TurnHook>> {
@@ -1283,7 +1345,7 @@ impl AgentRuntime {
         session: AgentSession,
         adapter: Arc<dyn RuntimeAdapter>,
         ready: Ready,
-        request: TurnRequest,
+        mut request: TurnRequest,
         launch: StepLaunch,
         done: Option<watch::Sender<bool>>,
     ) -> Result<AgentSessionDetail, RuntimeError> {
@@ -1293,6 +1355,18 @@ impl AgentRuntime {
             step,
             prompt,
         } = launch;
+        // Plenipo's tools for this step (Phase 7), when the worker has permissions.
+        let tools = self.open_tools(&session, &task_id, step).await;
+        let grant = tools.as_ref().map(|t| t.grant_id.clone());
+        let prompt = match &tools {
+            Some(t) => {
+                request.tools = Some(t.server.clone());
+                with_note(&t.note, &prompt)
+            }
+            None => prompt,
+        };
+        let mut env = ready.env;
+        env.extend(adapter.turn_env(&request));
         let session_id = session.id.clone();
         let (tx, rx) = mpsc::unbounded_channel::<OutputLine>();
         let provider_session = match &request.session {
@@ -1309,7 +1383,7 @@ impl AgentRuntime {
             label,
             executable: ready.executable,
             args: adapter.turn_args(&request),
-            env: ready.env,
+            env,
             working_dir: PathBuf::from(&session.working_dir),
             max_runtime: self.inner.config.turn_timeout,
             stdin: Some(prompt.into_bytes()),
@@ -1334,6 +1408,7 @@ impl AgentRuntime {
             execution_id: None,
             seq: u64::from(step.saturating_sub(1)) * STEP_SEQ,
             stored: 0,
+            grant,
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
@@ -1431,6 +1506,7 @@ fn turn_request(
         model: session.model.clone(),
         effort: session.effort,
         billing_confirmed,
+        tools: None,
     }
 }
 
@@ -1468,6 +1544,8 @@ struct TurnContext {
     execution_id: Option<String>,
     seq: u64,
     stored: u32,
+    /// The step's grant of Plenipo's tools, closed when the step ends.
+    grant: Option<String>,
 }
 
 impl TurnContext {
@@ -1536,6 +1614,10 @@ impl TurnContext {
 
     async fn event(&mut self, event: AgentEvent) {
         let runtime = self.runtime.clone();
+        let event = match runtime.filter() {
+            Some(f) => filtered(&f, event),
+            None => event,
+        };
         self.seq += 1;
         let activity = AgentActivity {
             session_id: self.session.id.clone(),
@@ -1636,6 +1718,15 @@ impl TurnContext {
 
     async fn complete(mut self, result: TurnResult, done: Option<watch::Sender<bool>>) {
         let runtime = self.runtime.clone();
+        // The step's program has ended: its grant ends before anything else is recorded (a
+        // pending approval would otherwise hold its task).
+        if let Some(grant) = self.grant.take() {
+            runtime.close_tools(grant).await;
+        }
+        let result = match runtime.filter() {
+            Some(f) => filtered_result(&f, result),
+            None => result,
+        };
         if let Some(id) = &self.execution_id {
             let (pid, model, usage) = (
                 result.provider_session_id.clone(),
@@ -1723,6 +1814,41 @@ impl TurnContext {
         runtime.emit_session(self.session);
         runtime.released();
     }
+}
+
+/// `event` with secrets hidden in its text.
+fn filtered(f: &TextFilter, event: AgentEvent) -> AgentEvent {
+    match event {
+        AgentEvent::TextDelta { text } => AgentEvent::TextDelta { text: f(&text) },
+        AgentEvent::Message { text } => AgentEvent::Message { text: f(&text) },
+        AgentEvent::Reasoning { text } => AgentEvent::Reasoning { text: f(&text) },
+        AgentEvent::ToolUse { tool, summary } => AgentEvent::ToolUse {
+            tool,
+            summary: f(&summary),
+        },
+        AgentEvent::ToolResult {
+            tool,
+            is_error,
+            summary,
+        } => AgentEvent::ToolResult {
+            tool,
+            is_error,
+            summary: f(&summary),
+        },
+        AgentEvent::Notice { level, text } => AgentEvent::Notice {
+            level,
+            text: f(&text),
+        },
+        other => other,
+    }
+}
+
+/// `result` with secrets hidden in its text.
+fn filtered_result(f: &TextFilter, mut result: TurnResult) -> TurnResult {
+    result.summary = f(&result.summary);
+    result.text = result.text.map(|t| f(&t));
+    result.error = result.error.map(|e| f(&e));
+    result
 }
 
 /// A result recorded without a step of its own.
