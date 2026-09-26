@@ -1,7 +1,14 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import type { AgentSessionDetail, AgentUpdate, TurnResult } from "@plenipo/types";
+import type {
+  AgentSessionDetail,
+  AgentUpdate,
+  HandoffView,
+  LedgerEvent,
+  TaskHandoffs,
+  TurnResult,
+} from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsProvider } from "../agents/AgentsProvider";
@@ -21,12 +28,17 @@ vi.mock("../api/commands", async (importOriginal) => {
     resumeAgentSession: vi.fn(),
     cancelAgentTurn: vi.fn(),
     closeAgentSession: vi.fn(),
+    getTaskHandoffs: vi.fn(),
   };
 });
-vi.mock("../api/events", () => ({ subscribeAgentUpdates: vi.fn() }));
+vi.mock("../api/events", () => ({
+  subscribeAgentUpdates: vi.fn(),
+  subscribeLedgerEvents: vi.fn(),
+}));
 
 const api = vi.mocked(commands);
 let emit: (update: AgentUpdate) => void = () => undefined;
+let emitLedger: (event: LedgerEvent) => void = () => undefined;
 const showExecution = vi.fn();
 const openRuntimes = vi.fn();
 
@@ -77,6 +89,10 @@ beforeEach(() => {
   });
   vi.mocked(events.subscribeAgentUpdates).mockImplementation((handler) => {
     emit = handler;
+    return Promise.resolve(() => undefined);
+  });
+  vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
+    emitLedger = handler;
     return Promise.resolve(() => undefined);
   });
 });
@@ -263,5 +279,329 @@ describe("Workers view", () => {
     expect(await screen.findByText("Usage limit reached")).toBeInTheDocument();
     expect(screen.getByText(/resume this session later/)).toBeInTheDocument();
     expect(screen.getByText("Claude AI usage limit reached")).toBeInTheDocument();
+    // Sessions without handoffs never ask Liaison for any.
+    expect(api.getTaskHandoffs).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Phase 4: handoffs through Liaison ------------------------------------------------------
+
+const REQUESTER = "s1";
+const WORKER = "w1";
+
+const liaisonOwner = { liaison: { enabled: true, origin: "owner", protocol: "plenipo-liaison/1" } };
+const liaisonWorker = {
+  liaison: {
+    enabled: true,
+    origin: "handoff",
+    parentTaskId: "t1",
+    parentSessionId: REQUESTER,
+    depth: 1,
+  },
+};
+
+const handoff = (patch: Partial<HandoffView> = {}): HandoffView => ({
+  messageId: "m1",
+  correlationId: "c1",
+  state: "answered",
+  requesterTaskId: "t1",
+  requester: `session:${REQUESTER}`,
+  requesterRuntimeId: "codex",
+  step: 1,
+  destination: "runtime:claude-code",
+  destinationLabel: "Claude Code",
+  objective: "Review the parser",
+  acceptanceCriteria: "Say whether it is correct.",
+  priority: 2,
+  depth: 1,
+  context: [{ kind: "answer", title: "The requester's answer", chars: 120 }],
+  artifacts: [],
+  capabilitiesRequested: [],
+  rejection: null,
+  childTaskId: "c-task",
+  childSessionId: WORKER,
+  childState: "succeeded",
+  reply: {
+    messageId: "r1",
+    state: "delivered",
+    outcome: "completed",
+    summary: "Looks correct",
+    text: "The parser looks correct.",
+    error: null,
+    source: `session:${WORKER}`,
+    createdAt: 5,
+  },
+  createdAt: 2,
+  updatedAt: 5,
+  ...patch,
+});
+
+const handoffs = (patch: Partial<TaskHandoffs> = {}): TaskHandoffs => ({
+  taskId: "t1",
+  correlationId: "c1",
+  depth: 0,
+  received: null,
+  sent: [],
+  ...patch,
+});
+
+const step = (number: number, result: TurnResult | null, running = false) => ({
+  number,
+  executionId: `e${number}`,
+  running,
+  result,
+  startedAt: number,
+  endedAt: result ? number + 1 : null,
+});
+
+function ledgerEvent(eventType: string, taskId = "t1"): LedgerEvent {
+  return {
+    seq: 1,
+    id: "ev",
+    taskId,
+    executionId: null,
+    source: "liaison",
+    destination: null,
+    eventType,
+    payload: {},
+    createdAt: 1,
+  };
+}
+
+describe("Workers view — handoffs", () => {
+  it("starts a task with handoffs only when the owner allows them", async () => {
+    api.startAgentSession.mockResolvedValue(detail());
+    api.getAgentSession.mockResolvedValue(detail());
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    await within(form).findByText("Ready");
+    const allow = within(form).getByRole("checkbox", { name: /Allow handoffs/ });
+    expect(allow).not.toBeChecked();
+    await user.click(allow);
+    await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Write a parser");
+    await user.click(within(form).getByRole("button", { name: "Start task" }));
+    expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Write a parser", "", true);
+  });
+
+  it("shows a waiting turn's handoffs and lets the owner cancel it, but not send more", async () => {
+    const waiting = detail({
+      session: session(REQUESTER, {
+        runtimeId: "codex",
+        title: "Write a parser",
+        waitingTaskId: "t1",
+        metadata: liaisonOwner,
+      }),
+      turns: [
+        turn("t1", {
+          objective: "Write a parser",
+          running: false,
+          waiting: true,
+          steps: [step(1, completed("Here is the parser.\n```plenipo-handoff\n{}\n```"))],
+        }),
+      ],
+      activity: [activity("t1", 1, { type: "message", text: "Here is the parser." })],
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex")],
+      sessions: [waiting.session],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue(waiting);
+    api.getTaskHandoffs.mockResolvedValue(
+      handoffs({ sent: [handoff({ state: "dispatched", childState: "running", reply: null })] }),
+    );
+    api.cancelAgentTurn.mockResolvedValue(
+      detail({
+        session: session(REQUESTER, { runtimeId: "codex", metadata: liaisonOwner }),
+        turns: [
+          turn("t1", {
+            running: false,
+            result: { ...completed(""), outcome: "cancelled", summary: "Cancelled", text: null },
+          }),
+        ],
+      }),
+    );
+    render(<Harness initial={REQUESTER} />);
+    const user = userEvent.setup();
+
+    const turns = await screen.findByRole("list", { name: "Turns" });
+    expect(await within(turns).findByText("Waiting for replies")).toBeInTheDocument();
+    expect(screen.getByText("Handoffs allowed")).toBeInTheDocument();
+    expect(screen.getAllByText("Waiting").length).toBeGreaterThan(0);
+    const card = await within(turns).findByRole("listitem", {
+      name: "Handoff to Claude Code: Review the parser",
+    });
+    expect(within(card).getByText("Worker running")).toBeInTheDocument();
+    expect(within(card).getByText(/Context: The requester's answer/)).toBeInTheDocument();
+    expect(within(turns).getByText("Waiting for 1 handoff reply…")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("waiting for replies to its handoffs");
+
+    // No follow-up while waiting; the owner can cancel.
+    const followUp = screen.getByRole("form", { name: "Continue session" });
+    await user.type(within(followUp).getByRole("textbox"), "More");
+    expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel turn" }));
+    expect(api.cancelAgentTurn).toHaveBeenCalledWith(REQUESTER);
+  });
+
+  it("shows each step, the reply it continued with, and opens the worker's session", async () => {
+    const done = detail({
+      session: session(REQUESTER, {
+        runtimeId: "codex",
+        title: "Write a parser",
+        metadata: liaisonOwner,
+      }),
+      turns: [
+        turn("t1", {
+          objective: "Write a parser",
+          running: false,
+          result: completed("Final parser, reviewed."),
+          steps: [
+            step(1, completed("Draft parser.\n```plenipo-handoff\n{}\n```")),
+            step(2, completed("Final parser, reviewed.")),
+          ],
+          endedAt: 9,
+        }),
+      ],
+      activity: [
+        activity("t1", 1, { type: "message", text: "Draft parser." }),
+        activity("t1", 1_000_001, { type: "message", text: "Final parser, reviewed." }),
+      ],
+    });
+    const worker = session(WORKER, {
+      title: "Review the parser",
+      metadata: liaisonWorker,
+      state: "closed",
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex")],
+      sessions: [done.session, worker],
+      notices: [],
+    });
+    api.getAgentSession.mockImplementation((id) =>
+      Promise.resolve(
+        id === WORKER
+          ? detail({
+              session: worker,
+              turns: [
+                turn("c-task", {
+                  sessionId: WORKER,
+                  objective: "Review the parser",
+                  running: false,
+                  result: completed("The parser looks correct."),
+                }),
+              ],
+            })
+          : done,
+      ),
+    );
+    api.getTaskHandoffs.mockImplementation((taskId) =>
+      Promise.resolve(
+        taskId === "c-task"
+          ? handoffs({ taskId: "c-task", depth: 1, received: handoff() })
+          : handoffs({ sent: [handoff()] }),
+      ),
+    );
+    render(<Harness initial={REQUESTER} />);
+    const user = userEvent.setup();
+
+    const steps = await screen.findByRole("list", { name: "Turn 1 steps" });
+    expect(within(steps).getByText(/^Step 1/)).toBeInTheDocument();
+    expect(within(steps).getByText(/^Step 2 · continued with handoff replies/)).toBeInTheDocument();
+    // Each step's activity is shown under its own step.
+    expect(
+      within(screen.getByRole("list", { name: "Turn 1 step 2 activity" })).getByText(
+        "Final parser, reviewed.",
+      ),
+    ).toBeInTheDocument();
+    const card = await within(steps).findByRole("listitem", {
+      name: "Handoff to Claude Code: Review the parser",
+    });
+    expect(within(card).getByText("Answered")).toBeInTheDocument();
+    expect(within(card).getByText("The parser looks correct.")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Turn 1 result")).getByText("Final parser, reviewed."),
+    ).toBeInTheDocument();
+
+    // The worker's own session shows the request it was started for and links back.
+    await user.click(within(card).getByRole("button", { name: "Open worker session" }));
+    const request = await screen.findByRole("generic", { name: "Handoff request" });
+    expect(request).toHaveTextContent("Asked by Codex through Plenipo Liaison · depth 1");
+    expect(request).toHaveTextContent("Acceptance criteria: Say whether it is correct.");
+    expect(screen.getByText("Handoff worker")).toBeInTheDocument();
+    expect(screen.getByText(/takes work only through Liaison/)).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
+    await user.click(within(request).getByRole("button", { name: "Open requester session" }));
+    expect(await screen.findByRole("list", { name: "Turn 1 steps" })).toBeInTheDocument();
+  });
+
+  it("shows refusals with Liaison's reason", async () => {
+    const refused = detail({
+      session: session(REQUESTER, { runtimeId: "codex", metadata: liaisonOwner }),
+      turns: [
+        turn("t1", {
+          running: false,
+          result: completed("Did it myself."),
+          steps: [step(1, completed("```plenipo-handoff\n{}\n```")), step(2, completed("x"))],
+        }),
+      ],
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex")],
+      sessions: [refused.session],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue(refused);
+    api.getTaskHandoffs.mockResolvedValue(
+      handoffs({
+        sent: [
+          handoff({
+            state: "rejected",
+            destination: "runtime:gemini",
+            destinationLabel: "gemini",
+            rejection: 'missing destination: there is no worker runtime named "gemini"',
+            childTaskId: null,
+            childSessionId: null,
+            childState: null,
+            context: [],
+            reply: { ...handoff().reply!, source: "liaison", outcome: "rejected" },
+          }),
+        ],
+      }),
+    );
+    render(<Harness initial={REQUESTER} />);
+    const card = await screen.findByRole("listitem", { name: /Handoff to gemini/ });
+    expect(within(card).getByText("Refused")).toBeInTheDocument();
+    expect(within(card).getByText(/no worker runtime named "gemini"/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Open worker session" })).toBeNull();
+  });
+
+  it("refreshes handoffs when Liaison records progress, until they settle", async () => {
+    const waiting = detail({
+      session: session(REQUESTER, {
+        runtimeId: "codex",
+        waitingTaskId: "t1",
+        metadata: liaisonOwner,
+      }),
+      turns: [turn("t1", { running: false, waiting: true, steps: [step(1, completed("asked"))] })],
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex")],
+      sessions: [waiting.session],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue(waiting);
+    api.getTaskHandoffs.mockResolvedValueOnce(
+      handoffs({ sent: [handoff({ state: "accepted", childState: "queued", reply: null })] }),
+    );
+    api.getTaskHandoffs.mockResolvedValue(
+      handoffs({ sent: [handoff({ state: "dispatched", childState: "running", reply: null })] }),
+    );
+    render(<Harness initial={REQUESTER} />);
+    expect(await screen.findByText("Waiting for a worker")).toBeInTheDocument();
+    act(() => emitLedger(ledgerEvent("liaison.dispatched", "c-task")));
+    expect(await screen.findByText("Worker running")).toBeInTheDocument();
+    expect(api.getTaskHandoffs).toHaveBeenCalledWith("t1");
   });
 });

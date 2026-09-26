@@ -792,3 +792,119 @@ button {
   gap: 10px;
   align-items: end;
 }
+
+/* ---- Phase 4: handoffs through Liaison ------------------------------------------------ */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 3px;
+}
+
+.check__hint {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.turn[data-waiting="true"] {
+  border-color: #e0a100;
+}
+
+.steps {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step + .step {
+  margin-top: 6px;
+}
+
+.handoffs {
+  margin: 6px 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.handoff {
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.handoff[data-state="rejected"] {
+  border-left-color: #e0a100;
+}
+
+.handoff[data-state="cancelled"] {
+  border-left-color: var(--border);
+}
+
+.handoff--received {
+  margin-top: 8px;
+}
+
+.handoff__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.handoff__to {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.handoff__objective {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.handoff__refusal {
+  margin: 6px 0 0;
+  color: #e0a100;
+  font-size: 0.85rem;
+}
+
+.handoff__reply {
+  margin-top: 6px;
+}
+
+.handoff__reply summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.handoff__reply .turn__text {
+  margin-top: 6px;
+}
+
+.tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree__node {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tree__node[aria-current="true"] .link {
+  font-weight: 700;
+}

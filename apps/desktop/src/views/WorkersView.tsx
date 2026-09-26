@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { AgentRuntimeInfo, AgentSession, AgentTurn } from "@plenipo/types";
+import type {
+  AgentActivity,
+  AgentRuntimeInfo,
+  AgentSession,
+  AgentTurn,
+  TurnStep,
+} from "@plenipo/types";
 
 import { toCommandError } from "../api/commands";
 import {
@@ -10,8 +16,17 @@ import {
   outcomeTone,
   runtimeStatus,
 } from "../agents/format";
-import { activityItems, isRunning } from "../agents/store";
+import {
+  activityItems,
+  isRunning,
+  isWaiting,
+  liaisonInfo,
+  stepOf,
+  type LiaisonSessionInfo,
+} from "../agents/store";
 import { useAgents } from "../agents/useAgents";
+import { openHandoffs, useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
+import { HandoffCard, ReceivedHandoff } from "../components/Handoffs";
 import { formatTime } from "../runtime/format";
 
 const MAX_OBJECTIVE = 10_000;
@@ -22,8 +37,17 @@ function runtimeLabel(runtimes: AgentRuntimeInfo[], id: string): string {
 
 function SessionBadge({ session }: { session: AgentSession }) {
   if (isRunning(session)) return <span className="badge badge--task-running">Running</span>;
+  if (isWaiting(session)) return <span className="badge badge--task-blocked">Waiting</span>;
   if (session.state === "closed") return <span className="badge">Closed</span>;
   return <span className="badge badge--task-succeeded">Open</span>;
+}
+
+/** Selection helpers shared by the turn cards. */
+interface Navigation {
+  runtimes: AgentRuntimeInfo[];
+  canOpen: (sessionId: string) => boolean;
+  onOpenSession: (sessionId: string) => void;
+  onShowExecution: (executionId: string) => void;
 }
 
 export function WorkersView({
@@ -41,6 +65,7 @@ export function WorkersView({
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
   const [objective, setObjective] = useState("");
   const [model, setModel] = useState("");
+  const [handoffs, setHandoffs] = useState(false);
   const [followUp, setFollowUp] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +78,8 @@ export function WorkersView({
   const hint = chosen ? notReadyHint(chosen) : null;
 
   const session = selectedSessionId ? state.sessions[selectedSessionId] : undefined;
+  const info = liaisonInfo(session);
+  const liaisonRevision = useLiaisonRevision();
   const turns = useMemo(
     () => (selectedSessionId ? (state.turns[selectedSessionId] ?? []) : []),
     [selectedSessionId, state.turns],
@@ -79,7 +106,7 @@ export function WorkersView({
     e.preventDefault();
     if (!chosen) return;
     void run("start", async () => {
-      const id = await start(chosen.id, objective, model);
+      const id = await start(chosen.id, objective, model, handoffs);
       setObjective("");
       onSelectSession(id);
     });
@@ -95,6 +122,13 @@ export function WorkersView({
   }
 
   const running = isRunning(session);
+  const waiting = isWaiting(session);
+  const nav: Navigation = {
+    runtimes: state.runtimes,
+    canOpen: (id) => id in state.sessions,
+    onOpenSession: onSelectSession,
+    onShowExecution,
+  };
 
   return (
     <section className="view" aria-labelledby="workers-title">
@@ -103,7 +137,8 @@ export function WorkersView({
         Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex
         command-line tool, supervised by Plenipo, and every turn is recorded in the Ledger. In this
         phase workers cannot change files or use the network: Claude Code has no tools, and Codex
-        runs in its read-only sandbox.
+        runs in its read-only sandbox. With handoffs allowed, a worker can ask a worker on another
+        runtime for help through Plenipo Liaison.
       </p>
 
       {state.status === "error" && (
@@ -153,6 +188,21 @@ export function WorkersView({
             placeholder="What should the worker do?"
             onChange={(e) => setObjective(e.target.value)}
           />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={handoffs}
+            onChange={(e) => setHandoffs(e.target.checked)}
+          />
+          <span>
+            Allow handoffs to other workers
+            <span className="check__hint">
+              The worker may ask a worker on another runtime — for example Codex asking Claude Code
+              for a review — through Plenipo Liaison. Handoffs are limited in depth and number, use
+              only your signed-in runtimes, and are all recorded in the Ledger.
+            </span>
+          </span>
         </label>
         <details className="advanced">
           <summary>Advanced</summary>
@@ -218,11 +268,15 @@ export function WorkersView({
                       aria-current={id === selectedSessionId ? "true" : undefined}
                       onClick={() => onSelectSession(id)}
                     >
-                      <span className="execution__label">{s.title}</span>
+                      <span className="execution__label">
+                        {liaisonInfo(s).origin === "handoff" && <span aria-hidden="true">↳ </span>}
+                        {s.title}
+                      </span>
                       <SessionBadge session={s} />
                       <span className="execution__meta">
                         {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} turn
                         {s.turnCount === 1 ? "" : "s"} · {formatTime(s.updatedAt)}
+                        {liaisonInfo(s).origin === "handoff" && " · handoff worker"}
                       </span>
                     </button>
                   </li>
@@ -248,9 +302,10 @@ export function WorkersView({
                       ? `Provider session ${session.providerSessionId}`
                       : "Provider session not started yet"}
                   </div>
+                  <LiaisonLine info={info} nav={nav} />
                 </div>
                 <div className="actions">
-                  {running && (
+                  {(running || waiting) && (
                     <button
                       type="button"
                       className="button button--danger"
@@ -260,7 +315,7 @@ export function WorkersView({
                       {pending === "cancel" ? "Cancelling…" : "Cancel turn"}
                     </button>
                   )}
-                  {!running && session.state === "open" && (
+                  {!running && !waiting && session.state === "open" && (
                     <button
                       type="button"
                       className="button button--small button--quiet"
@@ -273,18 +328,32 @@ export function WorkersView({
                 </div>
               </div>
 
+              {waiting && (
+                <p className="hint" role="status">
+                  This turn is waiting for replies to its handoffs and continues by itself when they
+                  are in. Cancelling it also stops the handoffs it is waiting for.
+                </p>
+              )}
+
               <ol className="turns" aria-label="Turns">
                 {turns.map((t) => (
                   <TurnCard
                     key={t.taskId}
                     turn={t}
                     activity={state.activity[t.taskId] ?? []}
-                    onShowExecution={onShowExecution}
+                    liaison={info.enabled}
+                    liaisonRevision={liaisonRevision}
+                    nav={nav}
                   />
                 ))}
               </ol>
 
-              {session.state === "open" ? (
+              {info.origin === "handoff" ? (
+                <p className="muted">
+                  This worker was started by Plenipo Liaison for another worker&apos;s request; it
+                  takes work only through Liaison.
+                </p>
+              ) : session.state === "open" ? (
                 <form className="followup" aria-label="Continue session" onSubmit={submitFollowUp}>
                   <label className="field">
                     <span>Continue this session</span>
@@ -299,7 +368,7 @@ export function WorkersView({
                   <button
                     type="submit"
                     className="button"
-                    disabled={pending !== null || running || followUp.trim() === ""}
+                    disabled={pending !== null || running || waiting || followUp.trim() === ""}
                   >
                     {pending === "resume" ? "Sending…" : "Send"}
                   </button>
@@ -317,21 +386,123 @@ export function WorkersView({
   );
 }
 
+/** Where a session stands with Liaison, for its header. */
+function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation }) {
+  if (info.origin === "handoff") {
+    const parent = info.parentSessionId;
+    return (
+      <div className="card__meta">
+        <span className="pill">Handoff worker</span> Started by Plenipo Liaison
+        {info.depth !== null && <> · depth {info.depth}</>}
+        {parent && nav.canOpen(parent) && (
+          <>
+            {" "}
+            ·{" "}
+            <button type="button" className="link" onClick={() => nav.onOpenSession(parent)}>
+              Open requester session
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+  if (info.enabled) {
+    return (
+      <div className="card__meta">
+        <span className="pill pill--ok">Handoffs allowed</span> Each objective starts a new workflow
+      </div>
+    );
+  }
+  return null;
+}
+
+function ActivityLog({
+  label,
+  items,
+  running,
+}: {
+  label: string;
+  items: ReturnType<typeof activityItems>;
+  running: boolean;
+}) {
+  return (
+    <ol className="agent-log" aria-label={label}>
+      {items.map((item) => {
+        if (item.kind === "streaming") {
+          return (
+            <li key={item.key} className="agent-log__item agent-log__item--streaming">
+              <span className="agent-log__label">Agent</span>
+              <span className="agent-log__text">{item.text}</span>
+            </li>
+          );
+        }
+        const d = describeActivity(item.activity.event);
+        return (
+          <li
+            key={item.key}
+            className={`agent-log__item${d.tone ? ` agent-log__item--${d.tone}` : ""}`}
+            data-type={item.activity.event.type}
+          >
+            <span className="agent-log__label">{d.label}</span>
+            <span className="agent-log__text">{d.text}</span>
+          </li>
+        );
+      })}
+      {running && items.length === 0 && <li className="muted">Waiting for the worker…</li>}
+    </ol>
+  );
+}
+
+/** The steps a turn ran, from its record and its live activity. */
+function stepsOf(turn: AgentTurn, activity: AgentActivity[]): TurnStep[] {
+  const steps = [...turn.steps];
+  for (const a of activity) {
+    const n = stepOf(a.seq);
+    if (!steps.some((s) => s.number === n)) {
+      steps.push({
+        number: n,
+        executionId: null,
+        running: turn.running,
+        result: null,
+        startedAt: null,
+        endedAt: null,
+      });
+    }
+  }
+  return steps.sort((a, b) => a.number - b.number);
+}
+
 function TurnCard({
   turn,
   activity,
-  onShowExecution,
+  liaison,
+  liaisonRevision,
+  nav,
 }: {
   turn: AgentTurn;
-  activity: Parameters<typeof activityItems>[0];
-  onShowExecution: (executionId: string) => void;
+  activity: AgentActivity[];
+  /** The session uses Liaison: show the turn's handoffs. */
+  liaison: boolean;
+  liaisonRevision: number;
+  nav: Navigation;
 }) {
-  const items = activityItems(activity);
+  const handoffs = useTaskHandoffs(
+    liaison ? turn.taskId : null,
+    `${turn.steps.length}:${turn.waiting}:${turn.endedAt}`,
+    liaisonRevision,
+    turn.result !== null,
+  );
+
   const result = turn.result;
+  const sent = handoffs?.sent ?? [];
+  const stepped = turn.steps.length > 1 || turn.waiting || sent.length > 0;
+  const open = openHandoffs(handoffs);
+  const received = handoffs?.received;
   return (
     <li
       className="turn"
       data-running={turn.running ? "true" : undefined}
+      data-waiting={turn.waiting ? "true" : undefined}
       data-outcome={result?.outcome}
     >
       <div className="turn__header">
@@ -339,6 +510,8 @@ function TurnCard({
         <span className="turn__objective">{turn.objective}</span>
         {turn.running ? (
           <span className="badge badge--task-running">Working…</span>
+        ) : turn.waiting ? (
+          <span className="badge badge--task-blocked">Waiting for replies</span>
         ) : (
           result && (
             <span className={`badge badge--task-${outcomeTone(result.outcome)}`}>
@@ -348,36 +521,75 @@ function TurnCard({
         )}
       </div>
 
-      {(turn.running || items.length > 0) && (
-        <details className="turn__activity" open={turn.running}>
-          <summary>Live activity ({items.length})</summary>
-          <ol className="agent-log" aria-label={`Turn ${turn.number} activity`}>
-            {items.map((item) => {
-              if (item.kind === "streaming") {
-                return (
-                  <li key={item.key} className="agent-log__item agent-log__item--streaming">
-                    <span className="agent-log__label">Agent</span>
-                    <span className="agent-log__text">{item.text}</span>
-                  </li>
-                );
-              }
-              const d = describeActivity(item.activity.event);
-              return (
-                <li
-                  key={item.key}
-                  className={`agent-log__item${d.tone ? ` agent-log__item--${d.tone}` : ""}`}
-                  data-type={item.activity.event.type}
-                >
-                  <span className="agent-log__label">{d.label}</span>
-                  <span className="agent-log__text">{d.text}</span>
-                </li>
-              );
-            })}
-            {turn.running && items.length === 0 && (
-              <li className="muted">Waiting for the worker…</li>
-            )}
-          </ol>
-        </details>
+      {received && (
+        <ReceivedHandoff
+          view={received}
+          requesterLabel={runtimeLabel(nav.runtimes, received.requesterRuntimeId ?? "")}
+          canOpen={nav.canOpen}
+          onOpenSession={nav.onOpenSession}
+        />
+      )}
+
+      {stepped ? (
+        <ol className="steps" aria-label={`Turn ${turn.number} steps`}>
+          {stepsOf(turn, activity).map((step) => {
+            const items = activityItems(activity.filter((a) => stepOf(a.seq) === step.number));
+            const asked = sent.filter((h) => h.step === step.number);
+            const status = step.running
+              ? "working…"
+              : step.result
+                ? OUTCOME_LABEL[step.result.outcome]
+                : "";
+            return (
+              <li key={step.number} className="step">
+                <details className="turn__activity" open={step.running}>
+                  <summary>
+                    Step {step.number}
+                    {step.number > 1 && " · continued with handoff replies"}
+                    {status && <> · {status}</>} ({items.length} event
+                    {items.length === 1 ? "" : "s"})
+                  </summary>
+                  <ActivityLog
+                    label={`Turn ${turn.number} step ${step.number} activity`}
+                    items={items}
+                    running={step.running}
+                  />
+                  {step.result && asked.length > 0 && (
+                    <div className="turn__text">{step.result.text ?? step.result.summary}</div>
+                  )}
+                </details>
+                {asked.length > 0 && (
+                  <ul className="handoffs" aria-label={`Step ${step.number} handoffs`}>
+                    {asked.map((h) => (
+                      <HandoffCard
+                        key={h.messageId}
+                        view={h}
+                        canOpen={nav.canOpen}
+                        onOpenSession={nav.onOpenSession}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+          {turn.waiting && (
+            <li className="muted">
+              Waiting for {open} handoff repl{open === 1 ? "y" : "ies"}…
+            </li>
+          )}
+        </ol>
+      ) : (
+        (turn.running || activity.length > 0) && (
+          <details className="turn__activity" open={turn.running}>
+            <summary>Live activity ({activityItems(activity).length})</summary>
+            <ActivityLog
+              label={`Turn ${turn.number} activity`}
+              items={activityItems(activity)}
+              running={turn.running}
+            />
+          </details>
+        )
       )}
 
       {result && (
@@ -404,7 +616,7 @@ function TurnCard({
         <button
           type="button"
           className="link"
-          onClick={() => onShowExecution(turn.executionId as string)}
+          onClick={() => nav.onShowExecution(turn.executionId as string)}
         >
           Raw output
         </button>

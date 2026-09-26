@@ -2,7 +2,16 @@ import type { AgentEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
 import { activity, runtime, session, turn } from "../test/agentFixtures";
-import { activityItems, agentReducer, initialAgentState, isRunning } from "./store";
+import {
+  activityItems,
+  agentReducer,
+  initialAgentState,
+  isRunning,
+  isWaiting,
+  liaisonInfo,
+  STEP_SEQ,
+  stepOf,
+} from "./store";
 
 const delta = (text: string): AgentEvent => ({ type: "textDelta", text });
 
@@ -181,5 +190,112 @@ describe("agent store", () => {
     expect(
       items.map((i) => (i.kind === "streaming" ? `~${i.text}` : i.activity.event.type)),
     ).toEqual(["sessionStarted", "message", "toolUse", "~More"]);
+  });
+});
+
+describe("agent store — waiting turns and steps (Phase 4)", () => {
+  const done = (text: string) => ({
+    outcome: "completed" as const,
+    summary: text,
+    text,
+    error: null,
+    providerSessionId: "p",
+    model: null,
+    usage: null,
+    durationMs: 1,
+    ignoredLines: 0,
+  });
+  const step1 = {
+    number: 1,
+    executionId: "e1",
+    running: false,
+    result: done("asked"),
+    startedAt: 1,
+    endedAt: 2,
+  };
+  const step2 = { ...step1, number: 2, executionId: "e2", running: true, result: null };
+
+  function loaded() {
+    return agentReducer(initialAgentState, {
+      type: "overviewLoaded",
+      overview: { runtimes: [], sessions: [session("s1", { activeTaskId: "t1" })], notices: [] },
+    });
+  }
+
+  it("numbers activity by step", () => {
+    expect([1, STEP_SEQ, STEP_SEQ + 1, 2 * STEP_SEQ + 5].map(stepOf)).toEqual([1, 1, 2, 3]);
+  });
+
+  it("tracks a turn that waits, continues, and finishes", () => {
+    let state = loaded();
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...turn("t1", { running: false, waiting: true, steps: [step1] }) },
+    });
+    expect(isRunning(state.sessions.s1)).toBe(false);
+    expect(isWaiting(state.sessions.s1)).toBe(true);
+
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...turn("t1", { running: true, steps: [step1, step2] }) },
+    });
+    expect(isRunning(state.sessions.s1)).toBe(true);
+    expect(isWaiting(state.sessions.s1)).toBe(false);
+
+    state = agentReducer(state, {
+      type: "update",
+      update: {
+        kind: "turn",
+        ...turn("t1", {
+          running: false,
+          result: done("final"),
+          steps: [step1, { ...step2, running: false, result: done("final") }],
+        }),
+      },
+    });
+    expect(isRunning(state.sessions.s1) || isWaiting(state.sessions.s1)).toBe(false);
+  });
+
+  it("never lets an older snapshot move a turn backwards", () => {
+    let state = loaded();
+    // Live: the turn already continued with step 2.
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...turn("t1", { running: true, steps: [step1, step2] }) },
+    });
+    // A snapshot taken while it was still waiting arrives late.
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { waitingTaskId: "t1" }),
+        turns: [turn("t1", { running: false, waiting: true, steps: [step1] })],
+        activity: [],
+      },
+    });
+    const t1 = state.turns.s1?.[0];
+    expect(t1?.steps).toHaveLength(2);
+    expect(t1?.running).toBe(true);
+    expect(isWaiting(state.sessions.s1)).toBe(false);
+    expect(isRunning(state.sessions.s1)).toBe(true);
+  });
+
+  it("reads Liaison settings from session metadata", () => {
+    expect(liaisonInfo(session("a")).enabled).toBe(false);
+    expect(
+      liaisonInfo(
+        session("w", {
+          metadata: {
+            liaison: { enabled: true, origin: "handoff", parentSessionId: "s1", depth: 2 },
+          },
+        }),
+      ),
+    ).toEqual({
+      enabled: true,
+      origin: "handoff",
+      parentTaskId: null,
+      parentSessionId: "s1",
+      depth: 2,
+    });
+    expect(liaisonInfo(session("x", { metadata: { liaison: "nonsense" } })).origin).toBeNull();
   });
 });

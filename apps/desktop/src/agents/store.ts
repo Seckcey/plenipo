@@ -14,6 +14,14 @@ import type {
 /** Live activity items kept per turn in the UI. */
 export const MAX_ACTIVITY = 1000;
 
+/** Activity of step `n` of a turn is numbered from `(n - 1) * STEP_SEQ + 1` (mirrors Core). */
+export const STEP_SEQ = 1_000_000;
+
+/** The step (1, 2, …) an activity sequence number belongs to. */
+export function stepOf(seq: number): number {
+  return Math.floor((Math.max(seq, 1) - 1) / STEP_SEQ) + 1;
+}
+
 export interface AgentState {
   status: "loading" | "ready" | "error";
   error: string | null;
@@ -53,6 +61,53 @@ export function isRunning(session: AgentSession | undefined): boolean {
   return Boolean(session?.activeTaskId);
 }
 
+/** A turn is waiting to continue, e.g. for handoff replies. It holds no worker slot. */
+export function isWaiting(session: AgentSession | undefined): boolean {
+  return Boolean(session?.waitingTaskId);
+}
+
+/** Liaison settings Core stored with a session (`metadata.liaison`). */
+export interface LiaisonSessionInfo {
+  /** The worker may hand off work through Liaison. */
+  enabled: boolean;
+  /** `owner` for sessions the owner started, `handoff` for handoff workers. */
+  origin: "owner" | "handoff" | null;
+  parentTaskId: string | null;
+  parentSessionId: string | null;
+  depth: number | null;
+}
+
+export function liaisonInfo(session: AgentSession | undefined): LiaisonSessionInfo {
+  const raw = session?.metadata?.liaison;
+  const l = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const text = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+  const origin = text(l.origin);
+  return {
+    enabled: l.enabled === true,
+    origin: origin === "owner" || origin === "handoff" ? origin : null,
+    parentTaskId: text(l.parentTaskId),
+    parentSessionId: text(l.parentSessionId),
+    depth: typeof l.depth === "number" ? l.depth : null,
+  };
+}
+
+/** How far a turn has got; it only ever moves forward. Steps run, wait, run again, finish. */
+function progress(turn: AgentTurn): number {
+  if (turn.result) return Number.MAX_SAFE_INTEGER;
+  const done = turn.steps.filter((s) => s.result).length;
+  return done * 2 + (turn.running ? 1 : 0);
+}
+
+/** A session's running / waiting markers follow its newest known turns. */
+function syncSession(session: AgentSession, turns: AgentTurn[]): AgentSession {
+  if (turns.length === 0) return session;
+  const activeTaskId = turns.find((t) => t.running)?.taskId ?? null;
+  const waitingTaskId = turns.find((t) => !t.running && t.waiting)?.taskId ?? null;
+  return activeTaskId === session.activeTaskId && waitingTaskId === session.waitingTaskId
+    ? session
+    : { ...session, activeTaskId, waitingTaskId };
+}
+
 export function agentReducer(state: AgentState, action: AgentAction): AgentState {
   switch (action.type) {
     case "overviewLoaded": {
@@ -82,23 +137,17 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       // A turn update may have arrived while the snapshot was in flight: keep the newer one.
       const merged = turns.map((t) => {
         const live = known.find((k) => k.taskId === t.taskId);
-        return live && t.running && !live.running ? live : t;
+        return live && progress(live) > progress(t) ? live : t;
       });
       for (const live of known) {
         if (!merged.some((t) => t.taskId === live.taskId)) merged.push(live);
       }
       next = {
         ...next,
+        sessions: { ...next.sessions, [session.id]: syncSession(session, merged) },
         turns: { ...next.turns, [session.id]: sortTurns(merged) },
         loaded: { ...next.loaded, [session.id]: true },
       };
-      const active = merged.find((t) => t.taskId === session.activeTaskId);
-      if (active && !active.running) {
-        next = {
-          ...next,
-          sessions: { ...next.sessions, [session.id]: { ...session, activeTaskId: null } },
-        };
-      }
       // The snapshot is authoritative up to its newest `seq` for each turn (the backend
       // coalesces streamed text); keep only live items that are newer.
       const byTask = new Map<string, AgentActivity[]>();
@@ -121,12 +170,28 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         case "turn": {
           const list = state.turns[u.sessionId] ?? [];
           const rest = list.filter((t) => t.taskId !== u.taskId);
-          const turn = { ...u } as AgentTurn;
+          const turn = stripKind({ ...u }) as AgentTurn;
           const owner = state.sessions[u.sessionId];
-          const sessions =
-            !turn.running && owner?.activeTaskId === turn.taskId
-              ? { ...state.sessions, [u.sessionId]: { ...owner, activeTaskId: null } }
-              : state.sessions;
+          let sessions = state.sessions;
+          if (owner) {
+            const next = { ...owner };
+            if (turn.running) {
+              next.activeTaskId = turn.taskId;
+              if (next.waitingTaskId === turn.taskId) next.waitingTaskId = null;
+            } else if (turn.waiting) {
+              next.waitingTaskId = turn.taskId;
+              if (next.activeTaskId === turn.taskId) next.activeTaskId = null;
+            } else {
+              if (next.activeTaskId === turn.taskId) next.activeTaskId = null;
+              if (next.waitingTaskId === turn.taskId) next.waitingTaskId = null;
+            }
+            if (
+              next.activeTaskId !== owner.activeTaskId ||
+              next.waitingTaskId !== owner.waitingTaskId
+            ) {
+              sessions = { ...state.sessions, [u.sessionId]: next };
+            }
+          }
           return {
             ...state,
             sessions,

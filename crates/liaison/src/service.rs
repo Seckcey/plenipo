@@ -462,6 +462,7 @@ impl Liaison {
                 "liaison.sender_rejected",
                 json!({
                     "sessionId": end.session.id,
+                    "correlationId": task_info(&task.metadata).correlation_id,
                     "reason": "the requests did not come from this task's running turn",
                 }),
             ))?;
@@ -1175,6 +1176,7 @@ impl Liaison {
             &self.destinations(),
         );
         let ids: Vec<String> = replies.iter().map(|r| r.id.clone()).collect();
+        let correlation = replies[0].correlation_id.clone();
         let note = StepNote {
             reason: format!(
                 "delivering {} handoff repl{}",
@@ -1200,7 +1202,11 @@ impl Liaison {
                         TaskState::Failed,
                         ACTOR,
                         Some("its worker session is no longer waiting for these replies"),
-                        task_event(&tid, "liaison.delivery_failed", json!({ "reason": why })),
+                        task_event(
+                            &tid,
+                            "liaison.delivery_failed",
+                            json!({ "correlationId": correlation, "reason": why }),
+                        ),
                     )?;
                     Ok(())
                 })
@@ -1213,7 +1219,7 @@ impl Liaison {
                     l.append_event(task_event(
                         &tid,
                         "liaison.delivery_failed",
-                        json!({ "reason": why }),
+                        json!({ "correlationId": correlation, "reason": why }),
                     ))?;
                     Ok(())
                 })

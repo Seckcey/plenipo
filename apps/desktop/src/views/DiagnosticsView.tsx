@@ -1,6 +1,7 @@
 import type { AppInfo } from "@plenipo/types";
 
 import { LedgerPanel } from "../components/LedgerPanel";
+import { LiaisonPanel } from "../components/LiaisonPanel";
 import { formatTime } from "../runtime/format";
 import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
@@ -38,6 +39,8 @@ export function DiagnosticsView({
       </dl>
 
       <LedgerPanel onTaskCreated={onTaskCreated} />
+
+      <LiaisonPanel />
 
       <h2>Runtime notices</h2>
       {state.notices.length === 0 ? (

@@ -1,6 +1,12 @@
-import type { LedgerEvent, SyntheticTaskAction, TaskState, TurnOutcome } from "@plenipo/types";
+import type {
+  HandoffOutcome,
+  LedgerEvent,
+  SyntheticTaskAction,
+  TaskState,
+  TurnOutcome,
+} from "@plenipo/types";
 
-import { OUTCOME_LABEL } from "../agents/format";
+import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
 
 export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
@@ -66,6 +72,8 @@ export function describeEvent(e: LedgerEvent): string {
   }
   const agent = describeAgentEvent(e.eventType, p);
   if (agent !== null) return agent;
+  const liaison = describeLiaisonEvent(e.eventType, p);
+  if (liaison !== null) return liaison;
   if (e.eventType.startsWith("execution.")) {
     const label = str(p.label) ?? "Process";
     const code = typeof p.exitCode === "number" ? ` · exit ${p.exitCode}` : "";
@@ -110,6 +118,61 @@ function describeAgentEvent(type: string, p: Record<string, unknown>): string | 
       return `Worker session bound to provider session ${str(p.providerSessionId) ?? "?"}`;
     case "session.closed":
       return "Worker session closed";
+  }
+  return null;
+}
+
+/** `runtime:codex` → `codex`; other addresses as written. */
+function address(v: unknown): string {
+  const a = str(v) ?? "?";
+  return a.startsWith("runtime:") ? a.slice("runtime:".length) : a;
+}
+
+function handoffOutcome(v: unknown): string {
+  const o = str(v);
+  return o && o in HANDOFF_OUTCOME_LABEL ? HANDOFF_OUTCOME_LABEL[o as HandoffOutcome] : (o ?? "?");
+}
+
+function count(v: unknown): number {
+  return Array.isArray(v) ? v.length : 0;
+}
+
+/** Phase 4: handoffs between workers through Plenipo Liaison. */
+function describeLiaisonEvent(type: string, p: Record<string, unknown>): string | null {
+  const why = str(p.reason) ? `: ${brief(p.reason, 200)}` : "";
+  switch (type) {
+    case "liaison.handoff_requested":
+      return `Handoff requested → ${address(p.destination)}: ${brief(p.objective)}`;
+    case "liaison.handoff_received":
+      return `Received as a handoff${
+        typeof p.depth === "number" ? ` (depth ${p.depth})` : ""
+      }: ${brief(p.objective)}`;
+    case "liaison.handoff_rejected":
+      return `Handoff refused${why}`;
+    case "liaison.duplicate_ignored":
+      return "Duplicate handoff request ignored";
+    case "liaison.dispatched":
+      return "Handoff worker started";
+    case "liaison.dispatch_failed":
+      return `Handoff worker could not start${why}`;
+    case "liaison.reply_sent":
+      return `Reply sent: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+    case "liaison.reply_received":
+      return `Reply received: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+    case "liaison.replies_delivered": {
+      const n = count(p.messageIds);
+      return `Continued with ${n} handoff repl${n === 1 ? "y" : "ies"}`;
+    }
+    case "liaison.reply_discarded":
+      return `Handoff repl${count(p.messageIds) === 1 ? "y" : "ies"} discarded${why}`;
+    case "liaison.handoff_cancelled":
+      return `Handoff cancelled${why}`;
+    case "liaison.reply_refused":
+      return `Reply refused${why}`;
+    case "liaison.sender_rejected":
+      return `Handoff requests ignored${why}`;
+    case "liaison.delivery_failed":
+      return `Handoff replies could not be delivered${why}`;
   }
   return null;
 }
