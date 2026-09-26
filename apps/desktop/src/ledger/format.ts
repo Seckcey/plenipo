@@ -75,7 +75,7 @@ export function describeEvent(e: LedgerEvent): string {
   const liaison = describeLiaisonEvent(e.eventType, p);
   if (liaison !== null) return liaison;
   if (e.eventType.startsWith("execution.")) {
-    const label = str(p.label) ?? "Process";
+    const label = str(p.label) ?? "Program";
     const code = typeof p.exitCode === "number" ? ` · exit ${p.exitCode}` : "";
     return `${label}: ${e.eventType.slice("execution.".length).replace(/_/g, " ")}${code}`;
   }
@@ -104,7 +104,7 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
     case "org.position_updated":
       return str(p.title) ? `Position renamed to ${title}` : "Position's AI tool or model changed";
     case "org.position_moved":
-      return `${title} now reports to ${p.to === null ? "the owner" : "a new supervisor"}`;
+      return `${title} now reports to ${p.to === null ? "you" : "a new lead"}`;
     case "org.position_archived":
       return `Position archived: ${title}${why}`;
     case "org.agent_hired":
@@ -157,7 +157,7 @@ function brief(v: unknown, max = 160): string {
 function describeAgentEvent(type: string, p: Record<string, unknown>): string | null {
   switch (type) {
     case "agent.session_bound":
-      return `Provider session ${str(p.providerSessionId) ?? "started"}${
+      return `Conversation ${str(p.providerSessionId) ?? "started"}${
         str(p.model) ? ` · model ${str(p.model)}` : ""
       }`;
     case "agent.message":

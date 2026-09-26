@@ -257,11 +257,11 @@ export function WorkersView({
 
       <div className="split">
         <div className="split__list">
-          <h2>Sessions</h2>
+          <h2>Conversations</h2>
           {state.order.length === 0 ? (
-            <p className="muted">No sessions yet. Start a task above.</p>
+            <p className="muted">No conversations yet. Start a task above.</p>
           ) : (
-            <ul className="executions" aria-label="Sessions">
+            <ul className="executions" aria-label="Conversations">
               {state.order.map((id) => {
                 const s = state.sessions[id];
                 if (!s) return null;
@@ -279,7 +279,7 @@ export function WorkersView({
                       </span>
                       <SessionBadge session={s} />
                       <span className="execution__meta">
-                        {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} turn
+                        {runtimeLabel(state.runtimes, s.runtimeId)} · {s.turnCount} task
                         {s.turnCount === 1 ? "" : "s"} · {formatTime(s.updatedAt)}
                         {liaisonInfo(s).origin === "handoff" && " · handoff worker"}
                         {liaisonInfo(s).origin === "member" && " · organization member"}
@@ -305,8 +305,8 @@ export function WorkersView({
                   </div>
                   <div className="card__meta">
                     {session.providerSessionConfirmed && session.providerSessionId
-                      ? `Provider session ${session.providerSessionId}`
-                      : "Provider session not started yet"}
+                      ? `${runtimeLabel(state.runtimes, session.runtimeId)} conversation ${session.providerSessionId}`
+                      : `Not started in ${runtimeLabel(state.runtimes, session.runtimeId)} yet`}
                   </div>
                   <LiaisonLine info={info} nav={nav} />
                 </div>
@@ -318,7 +318,7 @@ export function WorkersView({
                       disabled={pending !== null}
                       onClick={() => void run("cancel", () => cancel(session.id))}
                     >
-                      {pending === "cancel" ? "Cancelling…" : "Cancel turn"}
+                      {pending === "cancel" ? "Cancelling…" : "Cancel task"}
                     </button>
                   )}
                   {!running && !waiting && session.state === "open" && (
@@ -328,7 +328,7 @@ export function WorkersView({
                       disabled={pending !== null}
                       onClick={() => void run("close", () => close(session.id))}
                     >
-                      Close session
+                      Close conversation
                     </button>
                   )}
                 </div>
@@ -336,12 +336,12 @@ export function WorkersView({
 
               {waiting && (
                 <p className="hint" role="status">
-                  This turn is waiting for replies to its handoffs and continues by itself when they
+                  This task is waiting for replies to its handoffs and continues by itself when they
                   are in. Cancelling it also stops the handoffs it is waiting for.
                 </p>
               )}
 
-              <ol className="turns" aria-label="Turns">
+              <ol className="turns" aria-label="Tasks">
                 {turns.map((t) => (
                   <TurnCard
                     key={t.taskId}
@@ -365,9 +365,13 @@ export function WorkersView({
                   Organization view, where its team and oversight are set.
                 </p>
               ) : session.state === "open" ? (
-                <form className="followup" aria-label="Continue session" onSubmit={submitFollowUp}>
+                <form
+                  className="followup"
+                  aria-label="Continue the conversation"
+                  onSubmit={submitFollowUp}
+                >
                   <label className="field">
-                    <span>Continue this session</span>
+                    <span>Continue this conversation</span>
                     <textarea
                       value={followUp}
                       maxLength={MAX_OBJECTIVE}
@@ -385,11 +389,11 @@ export function WorkersView({
                   </button>
                 </form>
               ) : (
-                <p className="muted">This session is closed.</p>
+                <p className="muted">This conversation is closed.</p>
               )}
             </>
           ) : (
-            <p className="muted">Select a session to see its turns and live activity.</p>
+            <p className="muted">Select a conversation to see its tasks and live activity.</p>
           )}
         </div>
       </div>
@@ -420,7 +424,7 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
             {" "}
             ·{" "}
             <button type="button" className="link" onClick={() => nav.onOpenSession(parent)}>
-              Open requester session
+              Open requester conversation
             </button>
           </>
         )}
@@ -537,7 +541,7 @@ function TurnCard({
       data-outcome={result?.outcome}
     >
       <div className="turn__header">
-        <span className="turn__number">Turn {turn.number}</span>
+        <span className="turn__number">Task {turn.number}</span>
         <span className="turn__objective">{turn.objective}</span>
         {turn.running ? (
           <span className="badge badge--task-running">Working…</span>
@@ -560,7 +564,7 @@ function TurnCard({
       )}
 
       {stepped ? (
-        <ol className="steps" aria-label={`Turn ${turn.number} steps`}>
+        <ol className="steps" aria-label={`Task ${turn.number} steps`}>
           {stepsOf(turn, activity).map((step) => {
             const items = activityItems(activity.filter((a) => stepOf(a.seq) === step.number));
             const asked = sent.filter((h) => h.step === step.number);
@@ -579,7 +583,7 @@ function TurnCard({
                     {items.length === 1 ? "" : "s"})
                   </summary>
                   <ActivityLog
-                    label={`Turn ${turn.number} step ${step.number} activity`}
+                    label={`Task ${turn.number} step ${step.number} activity`}
                     items={items}
                     running={step.running}
                   />
@@ -613,7 +617,7 @@ function TurnCard({
           <details className="turn__activity" open={turn.running}>
             <summary>Live activity ({activityItems(activity).length})</summary>
             <ActivityLog
-              label={`Turn ${turn.number} activity`}
+              label={`Task ${turn.number} activity`}
               items={activityItems(activity)}
               running={turn.running}
             />
@@ -622,7 +626,7 @@ function TurnCard({
       )}
 
       {result && (
-        <div className="turn__result" aria-label={`Turn ${turn.number} result`}>
+        <div className="turn__result" aria-label={`Task ${turn.number} result`}>
           {result.outcome === "completed" && result.text ? (
             <div className="turn__text">{result.text}</div>
           ) : (

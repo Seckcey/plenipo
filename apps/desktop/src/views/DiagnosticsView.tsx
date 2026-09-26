@@ -55,7 +55,7 @@ export function DiagnosticsView({
 
       <h2>Recent program events</h2>
       {state.eventLog.length === 0 ? (
-        <p className="muted">No events received in this session.</p>
+        <p className="muted">No events since Plenipo started.</p>
       ) : (
         <ol className="event-log" aria-label="Recent program events">
           {state.eventLog.map(({ at, event }, i) => (

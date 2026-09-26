@@ -66,7 +66,7 @@ export function AgentRuntimeCards() {
                 </dd>
                 {r.installation.executable && (
                   <>
-                    <dt>Executable</dt>
+                    <dt>Program file</dt>
                     <dd className="path">{r.installation.executable}</dd>
                   </>
                 )}
@@ -75,14 +75,14 @@ export function AgentRuntimeCards() {
                   {AUTH_LABEL[r.auth.state]}
                   {r.auth.method && ` · ${r.auth.method}`}
                 </dd>
-                <dt>Capabilities</dt>
+                <dt>What it can do</dt>
                 <dd>
                   {[
-                    r.capabilities.streamingText && "streaming text",
-                    r.capabilities.resume && "resume",
+                    r.capabilities.streamingText && "live text",
+                    r.capabilities.resume && "continue conversations",
                     r.capabilities.cancel && "cancel",
-                    r.capabilities.structuredResults && "structured results",
-                    r.capabilities.billingCheckedPerTurn && "billing checked every turn",
+                    r.capabilities.structuredResults && "clear results",
+                    r.capabilities.billingCheckedPerTurn && "billing checked on every task",
                   ]
                     .filter(Boolean)
                     .join(" · ")}

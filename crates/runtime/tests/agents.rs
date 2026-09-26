@@ -1090,7 +1090,7 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
         assert!(seqs.iter().any(|s| *s > STEP_SEQ) && seqs[0] < STEP_SEQ);
         let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
-        assert!(exec.label.ends_with("turn 1 · step 2"), "{}", exec.label);
+        assert!(exec.label.ends_with("task 1 · step 2"), "{}", exec.label);
         // The hook hears of each release once the slot is freed, just after the result is recorded.
         let deadline = Instant::now() + WAIT;
         while hook.released.load(Ordering::SeqCst) < 2 {

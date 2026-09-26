@@ -1276,9 +1276,9 @@ impl AgentRuntime {
             ProviderSession::New { preassigned } => preassigned.clone(),
         };
         let label = if step == 1 {
-            format!("{} · turn {number}", adapter.label())
+            format!("{} · task {number}", adapter.label())
         } else {
-            format!("{} · turn {number} · step {step}", adapter.label())
+            format!("{} · task {number} · step {step}", adapter.label())
         };
         let spec = LaunchSpec {
             profile_id: format!("agent.{}", adapter.id()),

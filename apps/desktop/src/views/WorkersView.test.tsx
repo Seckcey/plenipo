@@ -119,7 +119,7 @@ describe("Workers view", () => {
     expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say hello", "", false);
 
     // The new session is selected and shows its running turn.
-    const turns = await screen.findByRole("list", { name: "Turns" });
+    const turns = await screen.findByRole("list", { name: "Tasks" });
     expect(within(turns).getByText("Working…")).toBeInTheDocument();
 
     send({
@@ -128,7 +128,7 @@ describe("Workers view", () => {
     });
     send({ kind: "activity", ...activity("t1", 2, { type: "textDelta", text: "Hel" }) });
     send({ kind: "activity", ...activity("t1", 3, { type: "textDelta", text: "lo!" }) });
-    const log = screen.getByRole("list", { name: "Turn 1 activity" });
+    const log = screen.getByRole("list", { name: "Task 1 activity" });
     expect(within(log).getByText("Hello!")).toBeInTheDocument();
 
     send({ kind: "activity", ...activity("t1", 4, { type: "message", text: "Hello!" }) });
@@ -145,11 +145,11 @@ describe("Workers view", () => {
       }),
     });
 
-    const result = await screen.findByLabelText("Turn 1 result");
+    const result = await screen.findByLabelText("Task 1 result");
     expect(within(result).getByText("Hello!")).toBeInTheDocument();
     expect(within(result).getByText(/1,200 in \(200 cached\) · 34 out/)).toBeInTheDocument();
     expect(within(turns).getByText("Completed")).toBeInTheDocument();
-    expect(screen.getByText("Provider session p-1")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code conversation p-1")).toBeInTheDocument();
 
     await user.click(within(turns).getByRole("button", { name: "Raw output" }));
     expect(showExecution).toHaveBeenCalledWith("e1");
@@ -213,15 +213,15 @@ describe("Workers view", () => {
     render(<Harness initial="s1" />);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Cancel turn" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel task" }));
     expect(api.cancelAgentTurn).toHaveBeenCalledWith("s1");
     expect(await screen.findByText("Cancelled by user")).toBeInTheDocument();
 
-    const followUp = screen.getByRole("form", { name: "Continue session" });
+    const followUp = screen.getByRole("form", { name: "Continue the conversation" });
     await user.type(within(followUp).getByRole("textbox"), "Try again");
     await user.click(within(followUp).getByRole("button", { name: "Send" }));
     expect(api.resumeAgentSession).toHaveBeenCalledWith("s1", "Try again");
-    const turns = screen.getByRole("list", { name: "Turns" });
+    const turns = screen.getByRole("list", { name: "Tasks" });
     await waitFor(() => expect(within(turns).getByText("Try again")).toBeInTheDocument());
     // One turn at a time: Send is disabled while turn 2 runs.
     expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled();
@@ -247,7 +247,7 @@ describe("Workers view", () => {
     });
     api.getAgentSession.mockResolvedValue(full);
     render(<Harness />);
-    await screen.findByRole("list", { name: "Sessions" });
+    await screen.findByRole("list", { name: "Conversations" });
     // A live update for the latest turn arrives before the session is ever opened.
     send({ kind: "turn", ...full.turns[1]! });
     await userEvent.setup().click(screen.getByRole("button", { name: /Say hello/ }));
@@ -282,7 +282,7 @@ describe("Workers view", () => {
     expect(await screen.findByText("Usage limit reached")).toBeInTheDocument();
     expect(screen.getByText(/resume this session later/)).toBeInTheDocument();
     expect(screen.getByText("Claude AI usage limit reached")).toBeInTheDocument();
-    // Sessions without handoffs never ask Liaison for any.
+    // Conversations without handoffs never ask Liaison for any.
     expect(api.getTaskHandoffs).not.toHaveBeenCalled();
   });
 });
@@ -428,7 +428,7 @@ describe("Workers view — handoffs", () => {
     render(<Harness initial={REQUESTER} />);
     const user = userEvent.setup();
 
-    const turns = await screen.findByRole("list", { name: "Turns" });
+    const turns = await screen.findByRole("list", { name: "Tasks" });
     expect(await within(turns).findByText("Waiting for replies")).toBeInTheDocument();
     expect(screen.getByText("Handoffs allowed")).toBeInTheDocument();
     expect(screen.getAllByText("Waiting").length).toBeGreaterThan(0);
@@ -441,10 +441,10 @@ describe("Workers view — handoffs", () => {
     expect(screen.getByRole("status")).toHaveTextContent("waiting for replies to its handoffs");
 
     // No follow-up while waiting; the owner can cancel.
-    const followUp = screen.getByRole("form", { name: "Continue session" });
+    const followUp = screen.getByRole("form", { name: "Continue the conversation" });
     await user.type(within(followUp).getByRole("textbox"), "More");
     expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Cancel turn" }));
+    await user.click(screen.getByRole("button", { name: "Cancel task" }));
     expect(api.cancelAgentTurn).toHaveBeenCalledWith(REQUESTER);
   });
 
@@ -509,12 +509,12 @@ describe("Workers view — handoffs", () => {
     render(<Harness initial={REQUESTER} />);
     const user = userEvent.setup();
 
-    const steps = await screen.findByRole("list", { name: "Turn 1 steps" });
+    const steps = await screen.findByRole("list", { name: "Task 1 steps" });
     expect(within(steps).getByText(/^Step 1/)).toBeInTheDocument();
     expect(within(steps).getByText(/^Step 2 · continued with handoff replies/)).toBeInTheDocument();
     // Each step's activity is shown under its own step.
     expect(
-      within(screen.getByRole("list", { name: "Turn 1 step 2 activity" })).getByText(
+      within(screen.getByRole("list", { name: "Task 1 step 2 activity" })).getByText(
         "Final parser, reviewed.",
       ),
     ).toBeInTheDocument();
@@ -524,19 +524,21 @@ describe("Workers view — handoffs", () => {
     expect(within(card).getByText("Answered")).toBeInTheDocument();
     expect(within(card).getByText("The parser looks correct.")).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText("Turn 1 result")).getByText("Final parser, reviewed."),
+      within(screen.getByLabelText("Task 1 result")).getByText("Final parser, reviewed."),
     ).toBeInTheDocument();
 
     // The worker's own session shows the request it was started for and links back.
-    await user.click(within(card).getByRole("button", { name: "Open worker session" }));
+    await user.click(within(card).getByRole("button", { name: "Open worker conversation" }));
     const request = await screen.findByRole("generic", { name: "Handoff request" });
     expect(request).toHaveTextContent("Asked by Codex through Plenipo Liaison · depth 1");
     expect(request).toHaveTextContent("Acceptance criteria: Say whether it is correct.");
     expect(screen.getByText("Handoff worker")).toBeInTheDocument();
     expect(screen.getByText(/takes work only through Liaison/)).toBeInTheDocument();
-    expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open requester session" }));
-    expect(await screen.findByRole("list", { name: "Turn 1 steps" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("form", { name: "Continue the conversation" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open requester conversation" }));
+    expect(await screen.findByRole("list", { name: "Task 1 steps" })).toBeInTheDocument();
   });
 
   it("marks an organization member's session and sends the owner to the Organization view", async () => {
@@ -562,9 +564,13 @@ describe("Workers view — handoffs", () => {
     render(<Harness initial="m1" />);
 
     expect(await screen.findByText("Organization member")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Sessions" })).toHaveTextContent("organization member");
+    expect(screen.getByRole("list", { name: "Conversations" })).toHaveTextContent(
+      "organization member",
+    );
     // Its objectives come from its position, not from here.
-    expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("form", { name: "Continue the conversation" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/Give it objectives from the/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Open in Organization" }));
     expect(openPosition).toHaveBeenCalledWith("p-web");
@@ -608,7 +614,7 @@ describe("Workers view — handoffs", () => {
     const card = await screen.findByRole("listitem", { name: /Handoff to gemini/ });
     expect(within(card).getByText("Refused")).toBeInTheDocument();
     expect(within(card).getByText(/no AI tool named "gemini"/)).toBeInTheDocument();
-    expect(within(card).queryByRole("button", { name: "Open worker session" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Open worker conversation" })).toBeNull();
   });
 
   it("refreshes handoffs when Liaison records progress, until they settle", async () => {

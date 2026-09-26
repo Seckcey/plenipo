@@ -150,7 +150,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
     await item.waitForExist({ timeout: 10_000 });
     await item.click();
     await waitForText(b, DETAIL, "Cancelled because Plenipo was shutting down");
-    await waitForText(b, LOG, "Output from a previous Plenipo session is not retained");
+    await waitForText(b, LOG, "Output from before Plenipo last started is not kept");
     // Earlier executions are still in history.
     await screenshot(b, "runtimes-history-after-restart");
     const history = await b.$$(".executions button").map((e) => e.getAttribute("aria-label"));

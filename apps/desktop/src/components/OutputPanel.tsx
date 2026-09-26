@@ -35,7 +35,7 @@ export function OutputPanel({
         <div className="output__note">{output.dropped} earlier lines not shown</div>
       )}
       {output && !output.available && (
-        <div className="output__note">Output from a previous Plenipo session is not retained.</div>
+        <div className="output__note">Output from before Plenipo last started is not kept.</div>
       )}
       {output?.lines.map((line) => (
         <div

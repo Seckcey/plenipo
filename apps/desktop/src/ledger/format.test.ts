@@ -19,7 +19,7 @@ describe("describeEvent (Phase 3 agent events)", () => {
   it("describes agent activity and results in plain language", () => {
     expect(
       describeEvent(event("agent.session_bound", { providerSessionId: "p-1", model: "m" })),
-    ).toBe("Provider session p-1 · model m");
+    ).toBe("Conversation p-1 · model m");
     expect(describeEvent(event("agent.message", { text: "\nHello there\nsecond line" }))).toBe(
       "Agent: Hello there",
     );
@@ -116,7 +116,7 @@ describe("describeEvent (Phase 5 organization events)", () => {
       "Worker failed and left the organization",
     );
     expect(describeEvent(event("org.position_moved", { title: "Designer", to: null }))).toBe(
-      "Designer now reports to the owner",
+      "Designer now reports to you",
     );
     expect(describeEvent(event("org.project_archived", { name: "Q4 Campaign" }))).toBe(
       "Project archived with its team: Q4 Campaign",

@@ -40,7 +40,7 @@ const setAuth = (mode) => {
   writeFileSync(join(stateDir, "auth"), mode);
 };
 
-const TURNS = '[aria-label="Turns"]';
+const TURNS = '[aria-label="Tasks"]';
 const NEW_TASK = 'form[aria-label="New task"]';
 
 /** Snapshot the turns of the selected session in one in-page read. */
@@ -83,14 +83,16 @@ async function startTask(browser, runtimeLabel, objective) {
 
 async function openSession(browser, title) {
   await nav(browser, "Workers");
-  const item = await browser.$(`//ul[@aria-label="Sessions"]//button[contains(., "${title}")]`);
+  const item = await browser.$(
+    `//ul[@aria-label="Conversations"]//button[contains(., "${title}")]`,
+  );
   await item.waitForExist({ timeout: 10_000 });
   await item.click();
   await waitForText(browser, ".detail__header", title);
 }
 
 async function followUp(browser, objective) {
-  const box = await browser.$('form[aria-label="Continue session"] textarea');
+  const box = await browser.$('form[aria-label="Continue the conversation"] textarea');
   await box.setValue(objective);
   await clickButton(browser, "Send");
 }
@@ -138,11 +140,11 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await startTask(browser, "Claude Code", "Say hello");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Claude result");
     assert.match(t.text, /Turn 1: you said "Say hello"\. Previous: None\./);
-    await waitForText(browser, ".detail__header", "Provider session");
+    await waitForText(browser, ".detail__header", "Claude Code conversation");
     // Finished sessions are not shown as running (the start response can arrive after the
     // live "finished" update for a fast turn).
     await waitUntil(
-      async () => !(await textOf(browser, '[aria-label="Sessions"]')).includes("Running"),
+      async () => !(await textOf(browser, '[aria-label="Conversations"]')).includes("Running"),
       "no session shown as running",
     );
     await screenshot(browser, "worker-result");
@@ -170,7 +172,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     // Live: streamed ticks appear while the turn is still running.
     await waitForTurn(browser, 1, (t) => t.running && /tick 3/.test(t.text), "live ticks", 20_000);
     await screenshot(browser, "worker-live");
-    await clickButton(browser, "Cancel turn");
+    await clickButton(browser, "Cancel task");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "cancelled");
     assert.match(t.text, /Cancelled/);
     // The session stays usable: resume after cancel.
@@ -188,15 +190,15 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForText(browser, trail, "Result: Completed");
     const text = await textOf(browser, trail);
     assert.match(text, /Task created: Say hello/);
-    assert.match(text, /Provider session /);
-    assert.match(text, /Claude Code · turn 1: running/);
-    assert.match(text, /Claude Code · turn 1: succeeded · exit 0/);
+    assert.match(text, /Conversation /);
+    assert.match(text, /Claude Code · task 1: running/);
+    assert.match(text, /Claude Code · task 1: succeeded · exit 0/);
     assert.match(text, /Agent: Turn 1: you said/);
     await screenshot(browser, "worker-ledger-trail");
     // Raw provider output stays available for diagnostics.
     await nav(browser, "AI tools");
     await (
-      await browser.$('//button[contains(@aria-label, "Codex · turn 1 — Succeeded")]')
+      await browser.$('//button[contains(@aria-label, "Codex · task 1 — Succeeded")]')
     ).waitForExist({ timeout: 10_000 });
   });
 
