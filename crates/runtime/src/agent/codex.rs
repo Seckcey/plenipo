@@ -244,16 +244,19 @@ fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
 }
 
 /// Codex passes some service errors on as the service's own JSON body, for example
-/// `{"type":"error","status":400,"error":{"message":"The 'x' model is not supported…"}}`.
-/// Show the sentence inside it instead of the raw JSON.
+/// `{"type":"error","status":400,"error":{"message":"The 'x' model is not supported…"}}`,
+/// sometimes with text before or after it. Show the sentence inside it instead of the raw JSON.
 fn readable(message: &str) -> String {
-    let inner = serde_json::from_str::<Value>(message.trim())
-        .ok()
-        .and_then(|v| {
-            ["/error/message", "/message", "/detail"]
-                .iter()
-                .find_map(|p| v.pointer(p).and_then(Value::as_str).map(str::to_owned))
-        });
+    let inner = message.find('{').and_then(|start| {
+        // The first JSON value from the brace on; anything after it is ignored.
+        let v = serde_json::Deserializer::from_str(&message[start..])
+            .into_iter::<Value>()
+            .next()?
+            .ok()?;
+        ["/error/message", "/message", "/detail"]
+            .iter()
+            .find_map(|p| v.pointer(p).and_then(Value::as_str).map(str::to_owned))
+    });
     match inner {
         Some(m) if !m.trim().is_empty() => readable(&m),
         _ => message.to_owned(),
@@ -641,9 +644,19 @@ mod tests {
         assert_eq!(r.summary, format!("Codex reported an error: {plain}"));
         assert_eq!(r.error.as_deref(), Some(plain));
 
+        // Text around the body does not hide the sentence.
+        for wrapped in [
+            format!("unexpected status 400 Bad Request: {body}"),
+            format!("{body} (request id: req_123)"),
+            format!("{body}\nretrying"),
+        ] {
+            assert_eq!(readable(&wrapped), plain, "{wrapped}");
+        }
+
         // Plain messages and JSON without a message stay as they are.
         assert_eq!(readable("stream disconnected"), "stream disconnected");
         assert_eq!(readable(r#"{"status":500}"#), r#"{"status":500}"#);
+        assert_eq!(readable("expected '{' at line 3"), "expected '{' at line 3");
     }
 
     #[test]

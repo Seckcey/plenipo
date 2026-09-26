@@ -5,7 +5,7 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 5 — Workforce and organization engine (accepted, v0.6.0). The
+> **Status:** Phase 5 — Workforce and organization engine (accepted, v0.6.1). The
 > **Organization** view is a live topology map of your AI workforce: create departments and
 > projects (each comes with its manager or supervisor), drag roles from the hire palette onto a
 > lead to build its team, drag positions to change who they report to or to make them a team's
