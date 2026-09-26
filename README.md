@@ -5,8 +5,16 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
-> acceptance, so the version stays 0.5.0). The **Organization** view is a live topology map of
+> **Status:** Phase 6 — Model policy and role routing (implemented; awaiting owner acceptance,
+> so the version stays 0.5.0). **Settings → AI models** says which AI model each role's workers
+> get: list your models (each AI tool's default is built in), give each role its model choices —
+> first choice, backups, what the model must be able to do, AI companies it never uses, and
+> reviews by a different AI company — and see, for every role, the model its next worker would
+> get and why. New positions follow their role's choices ("Auto" on the map); you can still fix
+> a position to one AI tool. A usage limit never moves work to another AI company unless you
+> allow it, and every worker's reason is kept in the Ledger.
+>
+> Phase 5 — Workforce and organization engine: the **Organization** view is a live topology map of
 > your AI workforce: create departments and projects (each comes with its manager or
 > supervisor), drag roles from the hire palette onto a lead to build its team, drag positions
 > to change who they report to or to make them a team's reviewer, QA evaluator, or security
@@ -74,6 +82,8 @@ crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, p
                          agent runtime adapters (Claude Code, Codex) and sessions
 crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
                          role templates), live snapshot, role routing for Liaison
+crates/router/           Plenipo Router: model registry, role model policies, explained
+                         choice of AI tool and model, usage limits
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
@@ -83,7 +93,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`router`, `guard`, …) are added when the
+Further crates from the plan (`guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation

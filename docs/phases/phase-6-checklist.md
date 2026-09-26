@@ -1,6 +1,7 @@
 # Phase 6 — Implementation Checklist
 
-**Status:** in progress on `claude/phase-6`.
+**Status:** implemented on `claude/phase-6`; awaiting owner acceptance (see the
+[acceptance report](phase-6-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 6 — Model Policy and Intelligent Role Routing. Phase 5 is
 implemented and merged ([PR #7](https://github.com/Seckcey/plenipo/pull/7)); the owner asked to
@@ -57,31 +58,31 @@ coordinators.
 
 ## Deliverables
 
-- [ ] Model Registry (built-in defaults, owner models with aliases and capabilities, models seen
+- [x] Model Registry (built-in defaults, owner models with aliases and capabilities, models seen
       in use)
-- [ ] Provider Registry (AI tools, companies, install, sign-in, billing, usage limits)
-- [ ] Model Policy Engine (pure, explained, every candidate's verdict)
-- [ ] Preferred models by role
-- [ ] Fallback models
-- [ ] Capability requirements
-- [ ] Provider availability checks
-- [ ] Usage/capacity state
-- [ ] Routing explanation (recorded and shown)
-- [ ] Settings UI (models, AI tools, role model choices with a live "next worker" preview,
+- [x] Provider Registry (AI tools, companies, install, sign-in, billing, usage limits)
+- [x] Model Policy Engine (pure, explained, every candidate's verdict)
+- [x] Preferred models by role
+- [x] Fallback models
+- [x] Capability requirements
+- [x] Provider availability checks
+- [x] Usage/capacity state
+- [x] Routing explanation (recorded and shown)
+- [x] Settings UI (models, AI tools, role model choices with a live "next worker" preview,
       usage-limit behavior)
-- [ ] Automatic and Fixed positions on the Organization canvas
-- [ ] ADR-011; architecture, README, vocabulary, setup updated
+- [x] Automatic and Fixed positions on the Organization canvas
+- [x] ADR-011; architecture, README, vocabulary, setup updated
 
 ## Phase 6 tests (from plan)
 
-- [ ] Preferred model available
-- [ ] Preferred unavailable → fallback
-- [ ] Provider unauthenticated
-- [ ] Usage cap reached
-- [ ] Capability requirement mismatch
-- [ ] API fallback disabled
-- [ ] No eligible model
-- [ ] Cross-provider reviewer rule
+- [x] Preferred model available
+- [x] Preferred unavailable → fallback
+- [x] Provider unauthenticated
+- [x] Usage cap reached
+- [x] Capability requirement mismatch
+- [x] API fallback disabled
+- [x] No eligible model
+- [x] Cross-provider reviewer rule
 
 Also: disallowed companies, project AI tool rules, cost preference, minimum context, removed
 models, usage limits recovered after a restart and cleared by a success, Fixed positions
@@ -90,9 +91,44 @@ new command, frontend tests, end to end through the real app.
 
 ## Acceptance criteria (from plan)
 
-- [ ] Changing a role's model preference in Settings changes the next worker Plenipo launches
+- [x] Changing a role's model preference in Settings changes the next worker Plenipo launches
       without modifying coordinator prompts or source code.
-- [ ] Plenipo clearly explains why a particular provider/model was selected.
+- [x] Plenipo clearly explains why a particular provider/model was selected.
+
+### Owner check on Windows (~20 minutes)
+
+Uses the organization from the Phase 5 check (Development → Website, with its Senior Developer and
+Code Reviewer). Positions created before Phase 6 keep the AI tool you gave them ("Fixed").
+
+1. **AI tools** → **Re-check**: Claude Code and Codex both **Ready**.
+2. **Settings** → **AI models**. _Your models_ lists _Claude Code (default model)_ and _Codex
+   (default model)_; _AI tools_ shows both "Yes"; _Pay-per-use API billing: Off_. Every role shows
+   the model its next worker would get and why (the Designer shows "None right now": no model is
+   marked as able to see and make images).
+3. **Add a model** → AI tool _Claude Code_, model name `sonnet`, your name _Sonnet_ → **Add
+   model**. (Use any name your Claude Code accepts for its `--model` option; do the same for Codex
+   if you like.)
+4. **Organization** → select _Website Supervisor_ → **Hire into team** → Role _Senior Developer_,
+   Title _Backend Developer_, AI tool **Automatic** → **Hire**. Its node reads "Auto · Claude Code".
+5. **Settings** → **AI models** → _Senior Developer_ → **Change** → add _Codex (default model)_ →
+   **Save model choices**. The row now reads "Codex (default model) is Senior Developer's first
+   choice and is ready."
+6. **Organization** → _Website Supervisor_ → objective: _"Ask the Backend Developer to write a
+   Python function that reverses a string, then give me the result."_ Expected: a worker appears
+   under _Backend Developer_ with a **Codex** chip; select _Backend Developer_ → **Why the next
+   worker gets this model** explains it. (Acceptance criterion 1 and 2.)
+7. **Settings** → _Senior Developer_ → **Change** → remove Codex, add _Sonnet_ → **Save**. Give the
+   supervisor the same objective again: this worker runs on **Claude Code** with model `sonnet`
+   (the worker's details show "Claude Code · sonnet" and why). The supervisor and its instructions
+   did not change.
+8. **Activity** → the objective's task → the worker's child task: "Worker brought in for Backend
+   Developer — Sonnet (Claude Code) is Senior Developer's first choice and is ready."
+9. Optional: select the Phase 5 _Senior Developer_ (fixed) → **Why this AI model** says you set
+   it; **Edit title or AI model** → AI tool **Automatic** makes it follow the role's choices.
+
+Things only real CLIs can confirm (report anything odd): that each model name you add is one
+your CLI accepts (a wrong name fails that worker's task with the CLI's own message), and how a
+real usage limit reads (Claude Code reports its reset time; Plenipo then shows "resets in …").
 
 ## Out of scope
 

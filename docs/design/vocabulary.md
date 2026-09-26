@@ -40,24 +40,37 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 
 ## Say this, not that
 
-| Say                                      | Not                                      |
-| ---------------------------------------- | ---------------------------------------- |
-| AI tool (Claude Code, Codex)             | runtime, agent runtime, provider         |
-| full-time (one agent holds the position) | persistent                               |
-| on call (a new worker for each task)     | on-demand, ephemeral                     |
-| brought in (a worker)                    | spawned                                  |
-| rank                                     | class, kind                              |
-| supervisor, manager, VP                  | coordinator, superintendent, head        |
-| you                                      | the owner (in text written to the owner) |
-| conversation                             | session                                  |
-| task (one objective and its answer)      | turn                                     |
-| run (of a program)                       | execution                                |
-| approved program                         | launch profile                           |
-| program                                  | process                                  |
-| time limit                               | maximum runtime                          |
-| this version of Plenipo                  | this build                               |
-| permissions                              | capabilities                             |
-| what it can do                           | capabilities (of an AI tool)             |
+| Say                                          | Not                                      |
+| -------------------------------------------- | ---------------------------------------- |
+| AI tool (Claude Code, Codex)                 | runtime, agent runtime, provider         |
+| full-time (one agent holds the position)     | persistent                               |
+| on call (a new worker for each task)         | on-demand, ephemeral                     |
+| brought in (a worker)                        | spawned                                  |
+| rank                                         | class, kind                              |
+| supervisor, manager, VP                      | coordinator, superintendent, head        |
+| you                                          | the owner (in text written to the owner) |
+| conversation                                 | session                                  |
+| task (one objective and its answer)          | turn                                     |
+| run (of a program)                           | execution                                |
+| approved program                             | launch profile                           |
+| program                                      | process                                  |
+| time limit                                   | maximum runtime                          |
+| this version of Plenipo                      | this build                               |
+| permissions                                  | capabilities                             |
+| what it can do                               | capabilities (of an AI tool)             |
+| AI model, model                              | model (fine as is)                       |
+| model choices (of a role)                    | model policy                             |
+| first choice                                 | preferred model                          |
+| backups (tried in order)                     | fallback models                          |
+| Automatic (follows the role's choices)       | policy-routed, routing: policy           |
+| fixed (an AI tool you set)                   | pinned                                   |
+| AI company (OpenAI, Anthropic)               | provider (when the company is meant)     |
+| a different AI company                       | cross-provider                           |
+| usage limit                                  | usage cap, rate limit, capacity          |
+| pay-per-use API billing                      | API fallback, API billing                |
+| sees images / makes images / uses a computer | vision / image generation / computer use |
+| context size (tokens are pieces of words)    | context window                           |
+| why this model                               | routing explanation                      |
 
 ## Where technical words may stay
 
@@ -71,7 +84,8 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 
 ## Known leftovers
 
-None known on the main screens (Organization, Workers, AI tools, Activity, Settings); the
+None known on the main screens (Organization, Workers, AI tools, Activity, Settings, including
+AI models); the
 Diagnostics page and raw output keep technical details on purpose. Some refusal messages from
 earlier phases can still use an engineering word in rare error cases. Report any technical word
 you find on a screen, and fix it with this list.

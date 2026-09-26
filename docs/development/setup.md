@@ -138,12 +138,14 @@ xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
 Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
-it never touches your real Plenipo data. The Phase 3–5 tests put `plenipo-fake-agent` (a
+it never touches your real Plenipo data. The Phase 3–6 tests put `plenipo-fake-agent` (a
 test double that speaks the Claude Code and Codex stream formats and Liaison's handoff
 protocol) on `PATH` as `claude` and `codex`; they never start a real CLI or use an account.
 The Phase 5 tests build an organization on the canvas and give its supervisor objectives such
 as `[handoff:role:Senior Developer+delay:6000]`, which make the fake supervisor hand that
-position a task whose worker takes six seconds.
+position a task whose worker takes six seconds. The Phase 6 tests set a role's model choices in
+Settings → AI models and check that the next worker follows them (`+usage-limit` makes a worker
+report a usage limit).
 
 ## 7. Linux (development / CI only)
 
