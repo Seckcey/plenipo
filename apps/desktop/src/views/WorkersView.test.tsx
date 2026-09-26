@@ -532,7 +532,7 @@ describe("Workers view — handoffs", () => {
     expect(screen.getByText("Handoff worker")).toBeInTheDocument();
     expect(screen.getByText(/takes work only through Liaison/)).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Continue session" })).not.toBeInTheDocument();
-    await user.click(within(request).getByRole("button", { name: "Open requester session" }));
+    await user.click(screen.getByRole("button", { name: "Open requester session" }));
     expect(await screen.findByRole("list", { name: "Turn 1 steps" })).toBeInTheDocument();
   });
 

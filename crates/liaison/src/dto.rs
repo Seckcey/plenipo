@@ -189,7 +189,9 @@ pub struct TaskTreeNode {
     pub task: Task,
     /// 0 for the root.
     pub depth: u32,
+    /// The runtime that worked on the task, when an agent did.
     pub runtime_id: Option<String>,
+    pub runtime_label: Option<String>,
     pub session_id: Option<String>,
     pub handoff: Option<HandoffBrief>,
 }

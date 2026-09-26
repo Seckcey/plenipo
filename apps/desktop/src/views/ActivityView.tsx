@@ -80,7 +80,7 @@ function DelegationTree({
             </button>
             <TaskBadge task={n.task} />
             <span className="muted">
-              {n.handoff?.destinationLabel ?? n.runtimeId ?? n.task.requestedBy}
+              {n.runtimeLabel ?? n.handoff?.destinationLabel ?? n.task.requestedBy}
               {n.handoff?.replyOutcome && (
                 <> · reply: {HANDOFF_OUTCOME_LABEL[n.handoff.replyOutcome]}</>
               )}

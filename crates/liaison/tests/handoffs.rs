@@ -454,6 +454,7 @@ async fn review_round_trip(requester: &str, reviewer: &str, reviewer_label: &str
     assert_eq!(tree.root_id, root);
     assert_eq!(tree.nodes.len(), 2);
     assert_eq!(tree.nodes[1].depth, 1);
+    assert_eq!(tree.nodes[1].runtime_label.as_deref(), Some(reviewer_label));
     assert_eq!(
         tree.nodes[1].handoff.as_ref().unwrap().reply_outcome,
         Some(HandoffOutcome::Completed)

@@ -6,4 +6,8 @@ export type TaskTreeNode = { task: Task,
 /**
  * 0 for the root.
  */
-depth: number, runtimeId: string | null, sessionId: string | null, handoff: HandoffBrief | null, };
+depth: number, 
+/**
+ * The runtime that worked on the task, when an agent did.
+ */
+runtimeId: string | null, runtimeLabel: string | null, sessionId: string | null, handoff: HandoffBrief | null, };

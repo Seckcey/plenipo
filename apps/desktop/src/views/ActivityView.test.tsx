@@ -254,11 +254,19 @@ describe("Delegation tree (Phase 4)", () => {
         focusId: id,
         correlationId: "c0ffee00-1111",
         nodes: [
-          { task: root, depth: 0, runtimeId: "codex", sessionId: "s1", handoff: null },
+          {
+            task: root,
+            depth: 0,
+            runtimeId: "codex",
+            runtimeLabel: "Codex",
+            sessionId: "s1",
+            handoff: null,
+          },
           {
             task: review,
             depth: 1,
             runtimeId: "claude-code",
+            runtimeLabel: "Claude Code",
             sessionId: "w1",
             handoff: {
               messageId: "m1",
@@ -279,6 +287,7 @@ describe("Delegation tree (Phase 4)", () => {
     expect(nodes).toHaveLength(2);
     expect(nodes[0]).toHaveAttribute("aria-current", "true");
     expect(nodes[1]).toHaveTextContent("Review the parser");
+    expect(nodes[0]).toHaveTextContent("Codex");
     expect(nodes[1]).toHaveTextContent("Claude Code · reply: Completed");
     expect(screen.getByText(/One workflow \(c0ffee00\)/)).toBeInTheDocument();
     expect(

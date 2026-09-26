@@ -7,11 +7,6 @@ import {
   handoffStateTone,
 } from "../agents/format";
 
-/** `session:<id>` → `<id>`. */
-function sessionOf(address: string): string | null {
-  return address.startsWith("session:") ? address.slice("session:".length) : null;
-}
-
 function contextText(view: HandoffView): string {
   return view.context.length > 0
     ? `Context: ${view.context.map((c) => c.title).join(" · ")}`
@@ -81,19 +76,14 @@ export function HandoffCard({
   );
 }
 
-/** The request a handoff worker was started for. */
+/** The request a handoff worker was started for (its session header links to the requester). */
 export function ReceivedHandoff({
   view,
   requesterLabel,
-  canOpen,
-  onOpenSession,
 }: {
   view: HandoffView;
   requesterLabel: string;
-  canOpen: (sessionId: string) => boolean;
-  onOpenSession: (sessionId: string) => void;
 }) {
-  const requester = sessionOf(view.requester);
   const caps = capabilitiesText(view);
   return (
     <div className="handoff handoff--received" aria-label="Handoff request">
@@ -107,11 +97,6 @@ export function ReceivedHandoff({
         {contextText(view)}
         {caps && <> · {caps}</>}
       </div>
-      {requester && canOpen(requester) && (
-        <button type="button" className="link" onClick={() => onOpenSession(requester)}>
-          Open requester session
-        </button>
-      )}
     </div>
   );
 }

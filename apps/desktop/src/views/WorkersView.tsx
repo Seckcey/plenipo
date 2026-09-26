@@ -525,8 +525,6 @@ function TurnCard({
         <ReceivedHandoff
           view={received}
           requesterLabel={runtimeLabel(nav.runtimes, received.requesterRuntimeId ?? "")}
-          canOpen={nav.canOpen}
-          onOpenSession={nav.onOpenSession}
         />
       )}
 

@@ -1391,8 +1391,10 @@ impl Liaison {
                 }
                 None => None,
             };
+            let runtime_id = task.metadata["runtimeId"].as_str().map(str::to_owned);
             nodes.push(TaskTreeNode {
-                runtime_id: task.metadata["runtimeId"].as_str().map(str::to_owned),
+                runtime_label: runtime_id.as_deref().map(|id| self.runtime_label(id)),
+                runtime_id,
                 session_id: task.metadata["sessionId"].as_str().map(str::to_owned),
                 handoff,
                 depth,
