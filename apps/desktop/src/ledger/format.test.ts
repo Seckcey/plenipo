@@ -128,3 +128,35 @@ describe("describeEvent (Phase 5 organization events)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 6 routing)", () => {
+  it("says which model a worker or agent got, and why", () => {
+    const routing = {
+      reason: "Opus (Claude Code) is Senior Developer's first choice and is ready.",
+    };
+    expect(describeEvent(event("org.worker_spawned", { title: "Senior Developer", routing }))).toBe(
+      "Worker brought in for Senior Developer — Opus (Claude Code) is Senior Developer's first choice and is ready.",
+    );
+    expect(
+      describeEvent(
+        event("org.agent_routed", {
+          title: "Website Supervisor",
+          runtimeId: "codex",
+          model: "gpt-x",
+          routing: { reason: "Codex is Supervisor's first choice and is ready." },
+        }),
+      ),
+    ).toBe(
+      "Website Supervisor's agent starts its conversation on Codex · gpt-x — Codex is Supervisor's first choice and is ready.",
+    );
+    expect(describeEvent(event("router.policy_changed", { role: "Designer" }))).toBe(
+      "Model choices changed for Designer",
+    );
+    expect(describeEvent(event("router.model_saved", { model: { label: "Opus" } }))).toBe(
+      "Model saved: Opus",
+    );
+    expect(describeEvent(event("router.limit_cleared", { label: "Codex" }))).toBe(
+      "You asked to try Codex again after its usage limit",
+    );
+  });
+});

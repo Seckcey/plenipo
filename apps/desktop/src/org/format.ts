@@ -1,6 +1,7 @@
 import type {
   OrgSnapshot,
   OversightRole,
+  PositionInfo,
   PositionStatus,
   Staffing,
   TaskState,
@@ -63,6 +64,13 @@ export function runtimeLabel(snapshot: OrgSnapshot, id: string): string {
 
 export function runtimeReady(snapshot: OrgSnapshot, id: string): boolean {
   return snapshot.runtimes.find((r) => r.id === id)?.ready ?? false;
+}
+
+/** The AI tool a position uses, or its next worker would get; "Auto · …" when its role's model
+ * choices pick it. */
+export function positionToolLabel(snapshot: OrgSnapshot, p: PositionInfo): string {
+  const tool = p.runtimeId === null ? "No model available" : runtimeLabel(snapshot, p.runtimeId);
+  return p.automatic ? `Auto · ${tool}` : tool;
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 d ago". */

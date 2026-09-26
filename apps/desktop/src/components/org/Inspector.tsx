@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  CandidateNote,
   OrgSnapshot,
   OversightRole,
   PositionInfo,
@@ -371,13 +372,19 @@ function PositionPanel({
         <dd>{rankName(t, p.kind)}</dd>
         <dt>AI tool</dt>
         <dd>
-          {runtimeLabel(snapshot, p.runtimeId)}{" "}
-          {!runtimeReady(snapshot, p.runtimeId) && (
+          {p.runtimeId ? runtimeLabel(snapshot, p.runtimeId) : "None available now"}{" "}
+          {p.runtimeId && !runtimeReady(snapshot, p.runtimeId) && (
             <span className="pill pill--warn">Not ready</span>
           )}
         </dd>
         <dt>Model</dt>
-        <dd>{p.model ?? "The AI tool's default"}</dd>
+        <dd>{p.runtimeId ? (p.model ?? "The AI tool's default") : "—"}</dd>
+        <dt>Chosen by</dt>
+        <dd>
+          {p.automatic
+            ? `Automatic: ${role?.name ?? p.roleName} model choices`
+            : "You (fixed for this position)"}
+        </dd>
         <dt>Department</dt>
         <dd>{department?.name ?? "—"}</dd>
         <dt>Project</dt>
@@ -413,6 +420,8 @@ function PositionPanel({
           </>
         )}
       </dl>
+
+      {p.active && p.route && <RouteSection p={p} snapshot={snapshot} />}
 
       {p.currentTask && (
         <Section title="Current objective">
@@ -565,7 +574,7 @@ function PositionPanel({
 
       {p.active && (
         <ManagePanel
-          key={`${p.title}|${p.runtimeId}|${p.model ?? ""}`}
+          key={`${p.title}|${p.automatic ? "auto" : `${p.runtimeId}|${p.model ?? ""}`}`}
           p={p}
           snapshot={snapshot}
           actions={actions}
@@ -775,21 +784,25 @@ function ManagePanel({
   const choices = moveChoices(snapshot, p);
   const [moveTo, setMoveTo] = useState<string>("");
   const [title, setTitle] = useState(p.title);
-  const [runtimeId, setRuntimeId] = useState(p.runtimeId);
-  const [model, setModel] = useState(p.model ?? "");
+  // "" means automatic: the role's model choices pick the AI tool and model.
+  const fixedRuntime = p.automatic ? "" : (p.runtimeId ?? "");
+  const fixedModel = p.automatic ? "" : (p.model ?? "");
+  const [runtimeId, setRuntimeId] = useState(fixedRuntime);
+  const [model, setModel] = useState(fixedModel);
   const { pending, error, go } = run;
   const leads = p.staffing === "persistent";
+  const automatic = runtimeId === "";
 
   const save = (e: FormEvent) => {
     e.preventDefault();
     const patch: PositionPatchInput = {};
     if (title.trim() !== p.title) patch.title = title.trim();
-    if (runtimeId !== p.runtimeId) patch.runtimeId = runtimeId;
-    if (model.trim() !== (p.model ?? "")) patch.model = model.trim();
+    if (runtimeId !== fixedRuntime) patch.runtimeId = runtimeId;
+    if (!automatic && model.trim() !== fixedModel) patch.model = model.trim();
     if (Object.keys(patch).length > 0) void go(() => actions.api.update(p.id, patch));
   };
   const replacesAgent =
-    p.agent !== null && (runtimeId !== p.runtimeId || model.trim() !== (p.model ?? ""));
+    p.agent !== null && (runtimeId !== fixedRuntime || (!automatic && model.trim() !== fixedModel));
 
   return (
     <Section title="Manage">
@@ -891,7 +904,7 @@ function ManagePanel({
       </form>
 
       <details className="advanced">
-        <summary>Edit title, AI tool, or model</summary>
+        <summary>Edit title or AI model</summary>
         <form aria-label="Edit position" onSubmit={save}>
           <label className="field">
             <span>Title</span>
@@ -900,6 +913,7 @@ function ManagePanel({
           <label className="field">
             <span>AI tool</span>
             <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
+              <option value="">Automatic (the role&apos;s model choices)</option>
               {snapshot.runtimes.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label}
@@ -908,15 +922,22 @@ function ManagePanel({
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>Model</span>
-            <input
-              value={model}
-              maxLength={100}
-              placeholder="The AI tool's default"
-              onChange={(e) => setModel(e.target.value)}
-            />
-          </label>
+          {automatic ? (
+            <p className="hint">
+              Plenipo picks the AI tool and model from {p.roleName}&apos;s model choices in Settings
+              → AI models, and says why.
+            </p>
+          ) : (
+            <label className="field">
+              <span>Model</span>
+              <input
+                value={model}
+                maxLength={100}
+                placeholder="The AI tool's default"
+                onChange={(e) => setModel(e.target.value)}
+              />
+            </label>
+          )}
           {replacesAgent && (
             <p className="hint">
               Changing the AI tool or model hires a new agent for this position; the current one
@@ -1039,6 +1060,52 @@ function TaskRow({
   );
 }
 
+// ---- Routing (Phase 6) ----------------------------------------------------------------------
+
+const VERDICT_TEXT: Record<CandidateNote["verdict"], string> = {
+  chosen: "chosen",
+  skipped: "skipped",
+  notNeeded: "not needed",
+};
+
+/** Where the position's next worker (or a new agent) goes, and why. */
+function RouteSection({ p, snapshot }: { p: PositionInfo; snapshot: OrgSnapshot }) {
+  const route = p.route;
+  if (!route) return null;
+  const persistent = p.staffing === "persistent";
+  const conversation =
+    persistent && p.agent?.sessionId && p.agent.runtimeId ? p.agent.runtimeId : null;
+  return (
+    <Section title={persistent ? "Why this AI model" : "Why the next worker gets this model"}>
+      {conversation && p.automatic && (
+        <p className="muted inspector__note">
+          Its conversation stays on {runtimeLabel(snapshot, conversation)}. A new agent for this
+          position would get: {route.choice?.label ?? "no model now"}.
+        </p>
+      )}
+      <p className="inspector__detail" data-testid="route-reason">
+        {route.reason}
+      </p>
+      {route.candidates.length > 1 && (
+        <details className="advanced">
+          <summary>Every model considered</summary>
+          <ul className="inspector__list">
+            {route.candidates.map((c) => (
+              <li key={c.modelId}>
+                <strong>{c.label}</strong>: {VERDICT_TEXT[c.verdict]}
+                {c.note ? ` — ${c.note}` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {p.automatic && (
+        <p className="muted inspector__note">Change the model choices in Settings → AI models.</p>
+      )}
+    </Section>
+  );
+}
+
 // ---- Workers --------------------------------------------------------------------------------
 
 function WorkerPanel({
@@ -1070,6 +1137,12 @@ function WorkerPanel({
           {runtimeLabel(snapshot, worker.runtimeId)}
           {worker.model ? ` · ${worker.model}` : ""}
         </dd>
+        {worker.routing && (
+          <>
+            <dt>Why</dt>
+            <dd>{worker.routing}</dd>
+          </>
+        )}
         <dt>Brought in</dt>
         <dd>{ago(worker.spawnedAt)}</dd>
         {worker.startedAt && (

@@ -1,13 +1,13 @@
 import type { OrgSnapshot, PositionInfo } from "@plenipo/types";
 
-import { runtimeLabel } from "./format";
+import { positionToolLabel } from "./format";
 import { ORG_ID, OWNER_ID, workerNodeId } from "./layout";
 
 /** Lower-cased text a search matches for a position. */
 export function positionSearchText(snapshot: OrgSnapshot, p: PositionInfo): string {
   const department = snapshot.departments.find((d) => d.id === p.departmentId)?.name ?? "";
   const project = snapshot.projects.find((x) => x.id === p.projectId)?.name ?? "";
-  return `${p.title} ${p.roleName} ${department} ${project} ${runtimeLabel(snapshot, p.runtimeId)}`.toLowerCase();
+  return `${p.title} ${p.roleName} ${department} ${project} ${positionToolLabel(snapshot, p)}`.toLowerCase();
 }
 
 /**
