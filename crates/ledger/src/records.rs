@@ -528,7 +528,10 @@ mod tests {
                 "worker",
             )
             .unwrap();
-        assert_eq!(l.artifacts_for_task(&t.id).unwrap(), [a.clone()]);
+        assert_eq!(
+            l.artifacts_for_task(&t.id).unwrap(),
+            std::slice::from_ref(&a)
+        );
         assert_eq!(l.artifact(&a.id).unwrap(), Some(a));
         assert!(l.artifact("missing").unwrap().is_none());
         assert!(l

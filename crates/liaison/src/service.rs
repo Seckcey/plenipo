@@ -391,12 +391,15 @@ impl Liaison {
         if !info.enabled {
             return runtime.resume_session(session_id, objective).await;
         }
+        // Each objective restates the instructions: the provider may have compacted the first
+        // turn away, and destinations may have changed since.
+        let prompt = context::root_prompt(objective, &self.destinations(), self.limits());
         runtime
             .resume_session_with(
                 session_id,
                 TurnInput {
                     objective: objective.into(),
-                    prompt: None,
+                    prompt: Some(prompt),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),

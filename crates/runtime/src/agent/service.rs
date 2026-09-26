@@ -882,7 +882,12 @@ impl AgentRuntime {
                             .into(),
                     ))
                 }
-                Claim::Close => return Err(not_waiting()),
+                // Being cancelled: the caller sees the turn end on its next look.
+                Claim::Close => {
+                    return Err(RuntimeError::Busy(
+                        "The turn is being cancelled; it will not continue.".into(),
+                    ))
+                }
             }
             if running >= self.inner.config.max_active_turns {
                 return Err(RuntimeError::Busy(format!(

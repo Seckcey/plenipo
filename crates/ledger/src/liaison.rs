@@ -220,13 +220,9 @@ fn set_state(
 }
 
 /// Record a reply to `request` (inside a transaction), after checking that its claims match.
-fn insert_reply(
-    tx: &Connection,
-    out: &mut Vec<LedgerEvent>,
-    request: &LiaisonMessage,
-    reply: &NewReply,
-    actor: &str,
-) -> Result<LiaisonMessage> {
+/// A reply must name its request, carry the request's correlation ID, and come from the
+/// request's child task (or from none, for a request that has no child).
+fn check_claims(request: &LiaisonMessage, reply: &NewReply) -> Result<()> {
     if reply.in_reply_to != request.id {
         return Err(LedgerError::InvalidInput(format!(
             "reply {} names request {:?}, not {}",
@@ -239,12 +235,23 @@ fn insert_reply(
             reply.message_id, reply.correlation_id, request.id, request.correlation_id
         )));
     }
-    if reply.child_task_id.is_some() && reply.child_task_id != request.child_task_id {
+    if reply.child_task_id != request.child_task_id {
         return Err(LedgerError::InvalidInput(format!(
-            "reply {} comes from task {:?}, not from the request's child task",
-            reply.message_id, reply.child_task_id
+            "reply {} comes from task {:?}, not from the request's child task {:?}",
+            reply.message_id, reply.child_task_id, request.child_task_id
         )));
     }
+    Ok(())
+}
+
+fn insert_reply(
+    tx: &Connection,
+    out: &mut Vec<LedgerEvent>,
+    request: &LiaisonMessage,
+    reply: &NewReply,
+    actor: &str,
+) -> Result<LiaisonMessage> {
+    check_claims(request, reply)?;
     let message = insert_message(
         tx,
         &reply.message_id,
@@ -559,6 +566,8 @@ impl Ledger {
                     request.id
                 )));
             }
+            // Claims first: a mismatched reply is refused even when the request is settled.
+            check_claims(&request, &reply)?;
             if let Some(existing) = reply_to(tx, &request.id)? {
                 return Ok(ReplyOutcome::AlreadyAnswered(existing));
             }
