@@ -51,10 +51,12 @@ async function waitForPortFree(port, timeoutMs = 20_000) {
   throw new Error(`port ${port} is still in use`);
 }
 
-/** Start tauri-driver + the app with `home` as its data root. */
-export async function launch(home) {
+/** Start tauri-driver + the app with `home` as its data root. `extraEnv` overrides variables
+ * (e.g. a PATH that puts fake agent CLIs first). */
+export async function launch(home, extraEnv = {}) {
   const env = {
     ...process.env,
+    ...extraEnv,
     HOME: home,
     XDG_DATA_HOME: join(home, ".local", "share"),
     XDG_CONFIG_HOME: join(home, ".config"),

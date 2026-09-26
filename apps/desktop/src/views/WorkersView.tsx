@@ -104,7 +104,8 @@ export function WorkersView({
       <p className="view__lead">
         Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex
         command-line tool, supervised by Plenipo, and every turn is recorded in the Ledger. In this
-        phase workers can converse and read, but not change files.
+        phase workers cannot change files or use the network: Claude Code has no tools, and Codex
+        runs in its read-only sandbox.
       </p>
 
       {state.status === "error" && (
@@ -330,7 +331,11 @@ function TurnCard({
   const items = activityItems(activity);
   const result = turn.result;
   return (
-    <li className="turn" data-running={turn.running ? "true" : undefined}>
+    <li
+      className="turn"
+      data-running={turn.running ? "true" : undefined}
+      data-outcome={result?.outcome}
+    >
       <div className="turn__header">
         <span className="turn__number">Turn {turn.number}</span>
         <span className="turn__objective">{turn.objective}</span>
