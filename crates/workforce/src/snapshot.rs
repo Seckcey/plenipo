@@ -394,6 +394,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 capability_profile: p.capability_profile.clone(),
                 coordinator_position_id: p.coordinator_position_id.clone(),
                 active: p.status == "active",
+                branch_per_objective: p.branch_per_objective,
                 created_at: p.created_at,
             })
             .collect(),

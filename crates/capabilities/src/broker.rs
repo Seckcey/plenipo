@@ -16,7 +16,10 @@ use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
     Level, PathRefusal, Resolved, Risk, SensitiveKind, Verdict, Workspace,
 };
-use plenipo_ledger::{Approval, ApprovalState, Ledger, NewEvent};
+use plenipo_ledger::{
+    Approval, ApprovalState, Ledger, NewEvent, NewWorkspace, Workspace as WorkingCopy,
+    WorkspaceState,
+};
 use plenipo_runtime::agent::tools::{
     StepInfo, StepTools, TextFilter, ToolProvider, ToolServer, SERVER_NAME,
 };
@@ -32,6 +35,7 @@ use crate::programs::{self, Run};
 use crate::relay::{Ticket, ARG};
 use crate::tools::{self, Action, ToolDef, TOOLS};
 use crate::vault::{self, SecretStore};
+use crate::worktrees::{self, Git};
 
 /// Source of Guard's own events.
 const GUARD: &str = "guard";
@@ -46,6 +50,8 @@ pub struct BrokerConfig {
     pub relay_args: Vec<String>,
     /// Where tickets and MCP configuration files are written (Plenipo's private folder).
     pub tickets_dir: PathBuf,
+    /// Where objectives' working copies are made (Phase 8, ADR-016).
+    pub workspaces_dir: PathBuf,
     /// Longest one tool call may take (an approval waits inside a call).
     pub call_timeout: Duration,
     /// A program's time limit when the worker names none.
@@ -59,6 +65,7 @@ impl BrokerConfig {
         Self {
             relay_command,
             relay_args: Vec::new(),
+            workspaces_dir: tickets_dir.with_file_name("workspaces"),
             tickets_dir,
             call_timeout: Duration::from_secs(60 * 60),
             command_timeout: Duration::from_secs(10 * 60),
@@ -102,6 +109,8 @@ struct Grant {
     worker: String,
     scope: Scope,
     workspace: Option<Workspace>,
+    /// The objective's working copy the grant works in, when it has one (Phase 8).
+    place: Option<Place>,
     levels: BTreeMap<Capability, Level>,
     tools: Vec<&'static str>,
     opened_at: u64,
@@ -147,9 +156,23 @@ impl Grant {
     }
 }
 
+/// A grant's place in an objective's working copy.
+#[derive(Debug, Clone)]
+struct Place {
+    workspace_id: String,
+    /// The working copy's top folder and branch.
+    path: PathBuf,
+    branch: String,
+    base_commit: String,
+    /// It holds the working copy as the one worker changing files there.
+    writer: bool,
+}
+
 #[derive(Default)]
 struct State {
     grants: HashMap<String, Grant>,
+    /// Working copy ID → the grant of the worker changing files there (one at a time).
+    writers: HashMap<String, String>,
     /// Ticket → grant ID.
     tickets: HashMap<String, String>,
     /// Approval ID → the tool call waiting for it.
@@ -166,6 +189,11 @@ struct Inner {
     state: Mutex<State>,
     redactor: Arc<RwLock<Redactor>>,
     notices: Mutex<Vec<String>>,
+    /// Git for working copies (`None`: not installed; workers use the project folder).
+    git: Option<Git>,
+    /// Held while a grant opens (and while a working copy is removed), so an objective gets
+    /// exactly one working copy and its writer is known before the next grant looks.
+    making: Mutex<()>,
 }
 
 /// Cheap to clone; clones share state.
@@ -274,12 +302,14 @@ impl Broker {
                 guard,
                 supervisor,
                 store,
-                config,
                 port: Mutex::new(None),
                 handle: Mutex::new(None),
                 state: Mutex::new(State::default()),
                 redactor: Arc::new(RwLock::new(Redactor::default())),
                 notices: Mutex::new(Vec::new()),
+                git: Git::find(config.workspaces_dir.join(".no-hooks")),
+                making: Mutex::new(()),
+                config,
             }),
         };
         match this
@@ -417,6 +447,29 @@ impl Broker {
                 }),
             ),
         };
+        // An objective works in its own working copy of the project's repository (Phase 8).
+        // Grants open one at a time, so a working copy's writer is registered before the next
+        // grant looks.
+        let _opening = lock(&self.inner.making);
+        let grant_id = uuid::Uuid::new_v4().to_string();
+        let writer = permitted(Capability::FilesystemWrite) || permitted(Capability::GitWrite);
+        let (workspace, place, problem) = match (workspace, &scope.project) {
+            (Some(folder), Some(project)) => {
+                match self.place_for(step, project, &folder, writer, &grant_id) {
+                    Ok(Some((w, place, note))) => (Some(w), Some(place), note),
+                    Ok(None) => (Some(folder), None, problem),
+                    Err(e) => (
+                        Some(folder),
+                        None,
+                        Some(format!(
+                            "Plenipo could not make this objective's working copy ({e}), so this \
+                             worker works in the project folder itself"
+                        )),
+                    ),
+                }
+            }
+            (workspace, _) => (workspace, None, problem),
+        };
         let offered: Vec<&'static str> = TOOLS
             .iter()
             .filter(|t| {
@@ -430,6 +483,7 @@ impl Broker {
             .and_then(|id| self.ledger().position(id).ok().flatten())
             .map_or_else(|| scope.role_name.clone(), |p| p.title);
         if offered.is_empty() {
+            self.release_writer(place.as_ref(), &grant_id);
             if let (Some(problem), true) = (&problem, TOOLS.iter().any(|t| permitted(t.capability)))
             {
                 // It has permissions it cannot use: say so where the owner will look.
@@ -447,13 +501,13 @@ impl Broker {
             return Ok(None);
         }
         let Some(port) = *lock(&self.inner.port) else {
+            self.release_writer(place.as_ref(), &grant_id);
             self.notice("Plenipo's tool server is not running, so workers get no tools.".into());
             return Ok(None);
         };
         let dir = &self.inner.config.tickets_dir;
         std::fs::create_dir_all(dir)
             .map_err(|e| BrokerError::Invalid(format!("tickets folder: {e}")))?;
-        let grant_id = uuid::Uuid::new_v4().to_string();
         let ticket = new_ticket();
         let ticket_path = dir.join(format!("{grant_id}.ticket.json"));
         let config_path = dir.join(format!("{grant_id}.mcp.json"));
@@ -503,13 +557,24 @@ impl Broker {
                 "role": scope.role_name,
                 "project": scope.project.as_ref().map(|p| &p.name),
                 "folder": folder,
+                "workspace": place.as_ref().map(|p| json!({
+                    "id": p.workspace_id,
+                    "branch": p.branch,
+                    "changesFiles": p.writer,
+                })),
                 "permissions": permissions,
                 "tools": offered,
                 "note": problem,
             }),
             ..NewEvent::default()
         })?;
-        let note = note_for(&scope, workspace.as_ref(), &levels, problem.as_deref());
+        let note = note_for(
+            &scope,
+            workspace.as_ref(),
+            place.as_ref(),
+            &levels,
+            problem.as_deref(),
+        );
         let grant = Grant {
             id: grant_id.clone(),
             ticket: ticket.clone(),
@@ -522,6 +587,7 @@ impl Broker {
             worker,
             scope,
             workspace,
+            place,
             levels,
             tools: offered,
             opened_at: plenipo_ledger::now_ms(),
@@ -550,6 +616,230 @@ impl Broker {
         }))
     }
 
+    /// The objective's working copy for a step of `project` (Phase 8, ADR-016): found, or made
+    /// from the project's current commit the first time a worker of the objective needs it.
+    /// A worker that can change files holds it; while it does, another such worker of the same
+    /// objective gets a second working copy made from it. `Ok(None)`: the project works in its
+    /// folder (turned off, git missing, or the folder is not a git repository).
+    fn place_for(
+        &self,
+        step: &StepInfo<'_>,
+        project: &plenipo_guard::engine::ScopeProject,
+        folder: &Workspace,
+        writer: bool,
+        grant_id: &str,
+    ) -> std::result::Result<Option<(Workspace, Place, Option<String>)>, String> {
+        let Some(git) = &self.inner.git else {
+            return Ok(None);
+        };
+        let l = self.ledger();
+        let settings = l
+            .project(&project.id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("the project {} no longer exists", project.name))?;
+        if !settings.branch_per_objective {
+            return Ok(None);
+        }
+        let task = l
+            .task(step.task_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("task {} does not exist", step.task_id))?;
+        let root = l.task_root(&task.id).map_err(|e| e.to_string())?;
+        let correlation = task.metadata["liaison"]["correlationId"]
+            .as_str()
+            .map_or_else(|| root.id.clone(), str::to_owned);
+        let usable =
+            |w: &WorkingCopy| w.state == WorkspaceState::Active && Path::new(&w.path).is_dir();
+        let main = match l
+            .objective_workspace(&project.id, &correlation)
+            .map_err(|e| e.to_string())?
+        {
+            Some(w) if usable(&w) => w,
+            Some(w) => return Err(format!("its working copy {} was removed", w.path)),
+            None => {
+                let Some(repo) = git.repository(folder.root()) else {
+                    return Ok(None);
+                };
+                let branch = worktrees::branch_name(&root.objective, &correlation);
+                let path = self.inner.config.workspaces_dir.join(format!(
+                    "{}-{}",
+                    worktrees::short_id(&project.id),
+                    worktrees::short_id(&correlation)
+                ));
+                git.add_worktree(&repo.top, &path, &branch, &repo.head)?;
+                l.create_workspace(
+                    &NewWorkspace {
+                        project_id: project.id.clone(),
+                        correlation_id: correlation.clone(),
+                        root_task_id: Some(root.id.clone()),
+                        parent_id: None,
+                        repository: repo.top.display().to_string(),
+                        subfolder: repo.subfolder.clone(),
+                        path: path.display().to_string(),
+                        branch,
+                        base_ref: repo.branch.clone(),
+                        base_commit: repo.head.clone(),
+                    },
+                    &task.id,
+                    GUARD,
+                )
+                .map_err(|e| e.to_string())?
+            }
+        };
+        let taken =
+            |s: &State, id: &str| s.writers.get(id).is_some_and(|g| s.grants.contains_key(g));
+        let mut note = None;
+        let chosen = if writer && taken(&self.state(), &main.id) {
+            // Another worker of this objective is changing files there: this one gets its own
+            // working copy, made from the first one's current commit.
+            let all = l
+                .workflow_workspaces(&correlation)
+                .map_err(|e| e.to_string())?;
+            let seconds: Vec<&WorkingCopy> = all
+                .iter()
+                .filter(|w| w.parent_id.as_deref() == Some(main.id.as_str()))
+                .collect();
+            let free = {
+                let s = self.state();
+                seconds
+                    .iter()
+                    .find(|w| usable(w) && !taken(&s, &w.id))
+                    .map(|w| (*w).clone())
+            };
+            let second = match free {
+                Some(w) => w,
+                None => {
+                    let n = seconds.len() + 2;
+                    let head = git.head(Path::new(&main.path))?;
+                    let branch = format!("{}-{n}", main.branch);
+                    let path = format!("{}-{n}", main.path);
+                    git.add_worktree(
+                        Path::new(&main.repository),
+                        Path::new(&path),
+                        &branch,
+                        &head,
+                    )?;
+                    l.create_workspace(
+                        &NewWorkspace {
+                            project_id: project.id.clone(),
+                            correlation_id: correlation.clone(),
+                            root_task_id: main.root_task_id.clone(),
+                            parent_id: Some(main.id.clone()),
+                            repository: main.repository.clone(),
+                            subfolder: main.subfolder.clone(),
+                            path,
+                            branch,
+                            base_ref: Some(main.branch.clone()),
+                            base_commit: head,
+                        },
+                        &task.id,
+                        GUARD,
+                    )
+                    .map_err(|e| e.to_string())?
+                }
+            };
+            note = Some(format!(
+                "Another worker of this objective is changing files on its branch {}, so this \
+                 worker has its own working copy on branch {}. Its work must be merged into {} \
+                 when both are done.",
+                main.branch, second.branch, main.branch
+            ));
+            second
+        } else {
+            main
+        };
+        let opened = Workspace::open(&chosen.folder().display().to_string()).map_err(|e| {
+            format!("{e} in the working copy (is the project folder committed to git?)")
+        })?;
+        if writer {
+            self.state()
+                .writers
+                .insert(chosen.id.clone(), grant_id.to_owned());
+        }
+        Ok(Some((
+            opened,
+            Place {
+                workspace_id: chosen.id,
+                path: PathBuf::from(chosen.path),
+                branch: chosen.branch,
+                base_commit: chosen.base_commit,
+                writer,
+            },
+            note,
+        )))
+    }
+
+    /// Let go of a working copy a grant held as its writer.
+    fn release_writer(&self, place: Option<&Place>, grant_id: &str) {
+        if let Some(place) = place.filter(|p| p.writer) {
+            let mut s = self.state();
+            if s.writers.get(&place.workspace_id).map(String::as_str) == Some(grant_id) {
+                s.writers.remove(&place.workspace_id);
+            }
+        }
+    }
+
+    /// Record what is on a working copy's branch after a step used it.
+    fn record_facts(&self, place: &Place, task_id: &str) {
+        let Some(git) = &self.inner.git else { return };
+        match git.facts(
+            &place.path,
+            &place.base_commit,
+            &place.branch,
+            plenipo_ledger::now_ms(),
+        ) {
+            Ok(facts) => {
+                if let Err(e) = self.ledger().update_workspace_facts(
+                    &place.workspace_id,
+                    &facts,
+                    task_id,
+                    GUARD,
+                ) {
+                    self.notice(format!("Could not record branch {}: {e}", place.branch));
+                }
+            }
+            Err(e) => self.notice(format!("Could not read branch {}: {e}", place.branch)),
+        }
+    }
+
+    /// Remove a finished objective's working copy (its branch stays in the repository).
+    pub fn remove_workspace(&self, id: &str, actor: &str) -> Result<WorkingCopy> {
+        let l = self.ledger();
+        let w = l
+            .workspace(id)?
+            .ok_or_else(|| BrokerError::Invalid("that working copy does not exist".into()))?;
+        if w.state == WorkspaceState::Removed {
+            return Ok(w);
+        }
+        if self
+            .state()
+            .grants
+            .values()
+            .any(|g| g.place.as_ref().is_some_and(|p| p.workspace_id == w.id))
+        {
+            return Err(BrokerError::Invalid(
+                "a worker is using this working copy now".into(),
+            ));
+        }
+        if let Some(root) = &w.root_task_id {
+            if l.task(root)?.is_some_and(|t| !t.state.is_terminal()) {
+                return Err(BrokerError::Invalid(
+                    "its objective is not finished yet".into(),
+                ));
+            }
+        }
+        let _making = lock(&self.inner.making);
+        if let Some(git) = &self.inner.git {
+            git.remove_worktree(Path::new(&w.repository), Path::new(&w.path))
+                .map_err(|e| BrokerError::Invalid(format!("git could not remove it: {e}")))?;
+        } else if Path::new(&w.path).exists() {
+            return Err(BrokerError::Invalid(
+                "git is not installed, so Plenipo cannot remove it".into(),
+            ));
+        }
+        Ok(l.remove_workspace(id, actor)?)
+    }
+
     /// The grant a ticket belongs to, while it is open.
     pub fn grant_for_ticket(&self, ticket: &str) -> Option<String> {
         self.state().tickets.get(ticket).cloned()
@@ -567,6 +857,10 @@ impl Broker {
         let Some(grant) = removed else { return };
         for f in &grant.files {
             let _ = std::fs::remove_file(f);
+        }
+        if let Some(place) = &grant.place {
+            self.release_writer(Some(place), &grant.id);
+            self.record_facts(place, &grant.task_id);
         }
         for execution in grant.running.clone() {
             let sup = self.inner.supervisor.clone();
@@ -670,7 +964,13 @@ impl Broker {
     pub fn instructions(&self, grant_id: &str) -> String {
         let s = self.state();
         s.grants.get(grant_id).map_or_else(String::new, |g| {
-            note_for(&g.scope, g.workspace.as_ref(), &g.levels, None)
+            note_for(
+                &g.scope,
+                g.workspace.as_ref(),
+                g.place.as_ref(),
+                &g.levels,
+                None,
+            )
         })
     }
 
@@ -718,10 +1018,12 @@ impl Broker {
                     g.task_id.clone(),
                     g.runtime_id.clone(),
                     g.worker.clone(),
+                    g.place.as_ref().map(|p| p.branch.clone()),
                 )
             })
         };
-        let Some((scope, workspace, grant_level, revoked, task_id, runtime_id, worker)) = context
+        let Some((scope, workspace, grant_level, revoked, task_id, runtime_id, worker, branch)) =
+            context
         else {
             return CallResult::error("This task step has ended; its tools are closed.");
         };
@@ -741,6 +1043,7 @@ impl Broker {
             tool,
             action,
             workspace.as_ref(),
+            branch.as_deref(),
             self.inner.config.command_timeout,
         ) {
             Ok(p) => p,
@@ -1385,6 +1688,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 fn note_for(
     scope: &Scope,
     workspace: Option<&Workspace>,
+    place: Option<&Place>,
     levels: &BTreeMap<Capability, Level>,
     problem: Option<&str>,
 ) -> String {
@@ -1398,12 +1702,31 @@ fn note_for(
          to open or change its files, run programs, or use git; your AI tool's own tools are not \
          available for this."
     ));
-    match workspace {
-        Some(w) => lines.push(format!(
-            "The project folder is {}. Give paths relative to it; nothing outside it can be used.",
-            w.root().display()
-        )),
-        None => lines.push(format!(
+    match (workspace, place) {
+        (Some(w), Some(p)) => {
+            lines.push(format!(
+                "The project folder is {}, this objective's own working copy on branch {}. Give \
+                 paths relative to it; nothing outside it can be used. The other workers of this \
+                 objective use it too and see what you change; commit finished work there with \
+                 a clear message, and stay on this branch.",
+                w.root().display(),
+                p.branch
+            ));
+            if let Some(problem) = problem {
+                lines.push(problem.to_owned());
+            }
+        }
+        (Some(w), None) => {
+            lines.push(format!(
+                "The project folder is {}. Give paths relative to it; nothing outside it can be \
+                 used.",
+                w.root().display()
+            ));
+            if let Some(problem) = problem {
+                lines.push(format!("Note: {problem}."));
+            }
+        }
+        (None, _) => lines.push(format!(
             "You have no project folder ({}), so file, program, and git tools are not available.",
             problem.unwrap_or("none is set")
         )),
@@ -1499,11 +1822,13 @@ fn program_path(
     Ok((found, program.to_owned()))
 }
 
-/// Read a call into what Guard checks and what Plenipo then does.
+/// Read a call into what Guard checks and what Plenipo then does. `branch`: the objective's
+/// branch when the worker works in its working copy (Phase 8), which git tools must stay on.
 fn prepare(
     tool: &ToolDef,
     action: Action,
     ws: Option<&Workspace>,
+    branch: Option<&str>,
     default_timeout: Duration,
 ) -> std::result::Result<Prepared, Refused> {
     let base = |summary: String, detail: String, files: Vec<Resolved>, work: Work| {
@@ -1754,6 +2079,19 @@ fn prepare(
                     vec!["commit".into(), "-m".into(), message],
                 ),
                 Action::GitBranch { name, create } => {
+                    if let Some(own) = branch {
+                        return Err(Refused {
+                            layer: Layer::Target,
+                            reason: format!(
+                                "this objective's work stays on its own branch {own}; workers do \
+                                 not switch or create branches in it."
+                            ),
+                            summary: format!(
+                                "git switch {}{name}",
+                                if create { "-c " } else { "" }
+                            ),
+                        });
+                    }
                     let op = if create {
                         vec!["switch".into(), "-c".into(), name.clone()]
                     } else {
@@ -1764,13 +2102,38 @@ fn prepare(
                         op,
                     )
                 }
-                Action::GitPush { remote, branch } => {
+                Action::GitPush {
+                    remote,
+                    branch: asked,
+                } => {
                     inherent = Some((SensitiveKind::Outbound, "it sends commits to a server"));
-                    let mut op = vec!["push".to_owned(), remote.clone()];
-                    if let Some(b) = &branch {
-                        op.push(b.clone());
-                    }
-                    (format!("git push {}", op[1..].join(" ")), op)
+                    let op = match (branch, &asked) {
+                        // In a working copy, only the objective's own branch is pushed.
+                        (Some(own), Some(b)) if b != own && b != "HEAD" => {
+                            return Err(Refused {
+                                layer: Layer::Target,
+                                reason: format!(
+                                    "only this objective's branch {own} can be pushed from its \
+                                     working copy, not {b}."
+                                ),
+                                summary: format!("git push {remote} {b}"),
+                            });
+                        }
+                        (Some(own), _) => vec![
+                            "push".to_owned(),
+                            "-u".into(),
+                            remote.clone(),
+                            own.to_owned(),
+                        ],
+                        (None, Some(b)) => vec!["push".to_owned(), remote.clone(), b.clone()],
+                        (None, None) => vec!["push".to_owned(), remote.clone()],
+                    };
+                    let shown: Vec<&str> = op[1..]
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|a| *a != "-u")
+                        .collect();
+                    (format!("git push {}", shown.join(" ")), op)
                 }
                 _ => unreachable!("file and program actions are handled above"),
             };

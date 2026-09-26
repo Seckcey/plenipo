@@ -294,6 +294,9 @@ pub struct Project {
     pub capability_profile: Option<String>,
     /// `active` or `archived`.
     pub status: String,
+    /// Each objective gets its own branch and working copy when the folder is a git repository
+    /// (Phase 8, ADR-016).
+    pub branch_per_objective: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -493,6 +496,9 @@ pub struct ProjectSettings {
     pub local_path: Option<String>,
     pub allowed_runtimes: Vec<String>,
     pub capability_profile: Option<String>,
+    /// A branch and working copy per objective (Phase 8); `None`: on for a new project,
+    /// unchanged for an existing one.
+    pub branch_per_objective: Option<bool>,
 }
 
 /// Changes to a position; `None` leaves a field as it is.
@@ -519,6 +525,134 @@ pub struct NewWorker {
     pub project_id: Option<String>,
     /// Why the Router chose this runtime and model (recorded with `org.worker_spawned`), or null.
     pub routing: Value,
+}
+
+/// A working copy of a project's repository (a git worktree) on its own branch, made for one
+/// objective (Phase 8, ADR-016).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Workspace {
+    pub id: String,
+    pub project_id: String,
+    /// The objective's workflow (Liaison's correlation ID).
+    pub correlation_id: String,
+    /// The objective's own task.
+    pub root_task_id: Option<String>,
+    /// Set for a second working copy, made from this one for a worker that changed files while
+    /// another held it.
+    pub parent_id: Option<String>,
+    /// The repository's top folder (the owner's checkout).
+    pub repository: String,
+    /// Where the project folder is inside the repository (`""`: its top).
+    pub subfolder: String,
+    /// The working copy's top folder.
+    pub path: String,
+    pub branch: String,
+    /// The branch it was made from, if the checkout was on one.
+    pub base_ref: Option<String>,
+    pub base_commit: String,
+    pub state: WorkspaceState,
+    /// The branch as last seen.
+    pub facts: WorkspaceFacts,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+    #[ts(type = "number | null")]
+    pub removed_at: Option<u64>,
+}
+
+impl Workspace {
+    /// The project folder inside the working copy.
+    pub fn folder(&self) -> std::path::PathBuf {
+        let mut path = std::path::PathBuf::from(&self.path);
+        for part in self.subfolder.split('/').filter(|p| !p.is_empty()) {
+            path.push(part);
+        }
+        path
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum WorkspaceState {
+    Active,
+    /// Its folder was removed; the branch stays in the repository.
+    Removed,
+}
+
+impl WorkspaceState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Removed => "removed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(Self::Active),
+            "removed" => Some(Self::Removed),
+            _ => None,
+        }
+    }
+}
+
+/// What is on a working copy's branch: its commits since it was made and the files changed,
+/// committed or not.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct WorkspaceFacts {
+    pub head: Option<String>,
+    /// Newest first.
+    pub commits: Vec<CommitInfo>,
+    pub files: Vec<FileChange>,
+    /// Files changed but not committed.
+    pub uncommitted: u32,
+    /// The branch has been pushed to the remote server.
+    pub pushed: bool,
+    #[ts(type = "number | null")]
+    pub checked_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitInfo {
+    /// Short hash.
+    pub hash: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileChange {
+    /// Relative to the repository's top folder, with `/`.
+    pub path: String,
+    /// Lines added and removed (`None` for a binary file or one not yet in git).
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+    /// In a commit on the branch; otherwise only in the working copy.
+    pub committed: bool,
+}
+
+/// Input for [`crate::Ledger::create_workspace`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewWorkspace {
+    pub project_id: String,
+    pub correlation_id: String,
+    pub root_task_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub repository: String,
+    pub subfolder: String,
+    pub path: String,
+    pub branch: String,
+    pub base_ref: Option<String>,
+    pub base_commit: String,
 }
 
 /// The conversation that runs a task delegated to a full-time member of the organization

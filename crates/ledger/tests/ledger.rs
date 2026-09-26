@@ -74,7 +74,7 @@ fn migrations_apply_roll_back_and_reapply_cleanly() {
 
 /// A synthetic migration one past the newest real one (simulates a future Plenipo).
 const NEXT: Migration = Migration {
-    version: 6,
+    version: 7,
     name: "test_add_column",
     up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
     down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",
@@ -241,7 +241,7 @@ fn phase4_ledger_upgrades_to_the_workforce() {
         .unwrap();
     }
     let l = Ledger::open(&path).unwrap();
-    assert_eq!(l.schema_version().unwrap(), 5);
+    assert_eq!(l.schema_version().unwrap(), migrate::latest(MIGRATIONS));
     assert!(l
         .status()
         .unwrap()
@@ -268,6 +268,10 @@ fn phase4_ledger_upgrades_to_the_workforce() {
         "no runtime is allowed until chosen"
     );
     assert_eq!(project.coordinator_position_id, None);
+    assert!(
+        project.branch_per_objective,
+        "on unless the owner turns it off"
+    );
     let agent = l.agent_instance(agent_id).unwrap().unwrap();
     assert_eq!(
         (agent.position_id, agent.task_id, agent.retired_at),
@@ -285,7 +289,8 @@ fn newer_schema_is_refused_and_left_untouched() {
     drop(Ledger::open_with(&path, &with_next()).unwrap());
     let before = std::fs::read(&path).unwrap();
     match Ledger::open(&path) {
-        Err(LedgerError::NewerSchema { db: 6, app: 5 }) => {}
+        Err(LedgerError::NewerSchema { db, app })
+            if db == NEXT.version && app == migrate::latest(MIGRATIONS) => {}
         other => panic!("expected NewerSchema, got {:?}", other.map(|_| ())),
     }
     assert!(path.exists(), "not quarantined");

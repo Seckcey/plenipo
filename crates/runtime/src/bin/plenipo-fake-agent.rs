@@ -35,6 +35,15 @@
 //!
 //! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
 //!
+//! Scripts (Phase 8): with `script.json` in the state folder — an object from a position's
+//! title to a list of steps — a worker whose instructions name that position (its identity
+//! line, or its conversation's) answers each turn with the next unused step instead of the
+//! markers:
+//! `{"say": "text", "tools": [["write_file", {…}], …], "review": {…}, "handoffs": [{"to":
+//! "role:…", "objective": "…", "context": […]}], "delay": MS, "crash": true, "usageLimit":
+//! true}` (every field optional). `review` is written as a `plenipo-review` block. Steps are
+//! claimed with files in `script-used/`, so workers running at once never share one.
+//!
 //! Plenipo's tools (Phase 7): the note Plenipo puts before a prompt is set aside, and markers
 //! `<<tool:NAME {json arguments}>>` in the objective call the Plenipo tool server given on the
 //! command line (Claude Code `--mcp-config`, Codex `-c mcp_servers.plenipo.*`) over MCP, in
@@ -425,6 +434,114 @@ fn slow_ticks(mut tick: impl FnMut(u32)) {
     }
 }
 
+// ---- Scripts (Phase 8) ----------------------------------------------------------------------
+
+/// One scripted answer.
+#[derive(Debug, Clone, Default)]
+struct Step {
+    say: String,
+    tools: Vec<(String, Value)>,
+    review: Option<Value>,
+    handoffs: Vec<Value>,
+    delay: Option<u64>,
+    crash: bool,
+    usage_limit: bool,
+}
+
+impl Step {
+    fn read(v: &Value) -> Self {
+        Self {
+            say: v["say"].as_str().unwrap_or("Done.").to_owned(),
+            tools: v["tools"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| Some((t[0].as_str()?.to_owned(), t[1].clone())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            review: v.get("review").filter(|r| !r.is_null()).cloned(),
+            handoffs: v["handoffs"].as_array().cloned().unwrap_or_default(),
+            delay: v["delay"].as_u64(),
+            crash: v["crash"].as_bool().unwrap_or(false),
+            usage_limit: v["usageLimit"].as_bool().unwrap_or(false),
+        }
+    }
+
+    /// The behavior markers this step stands for.
+    fn markers(&self) -> String {
+        let mut m = String::new();
+        if self.crash {
+            m.push_str("[crash] ");
+        }
+        if self.usage_limit {
+            m.push_str("[usage-limit] ");
+        }
+        if let Some(ms) = self.delay {
+            m.push_str(&format!("[delay:{ms}] "));
+        }
+        m
+    }
+
+    /// The answer: what it says, its review block, and its handoff blocks.
+    fn answer(&self) -> String {
+        let mut parts = vec![self.say.clone()];
+        if let Some(review) = &self.review {
+            parts.push(format!("```plenipo-review\n{review}\n```"));
+        }
+        for h in &self.handoffs {
+            parts.push(handoff_block(h));
+        }
+        parts.join("\n\n")
+    }
+}
+
+/// The position a prompt's identity line names ("Your position: X, the …" or "You are working
+/// as X (…").
+fn identity_title(prompt: &str) -> Option<String> {
+    for line in prompt.lines() {
+        if let Some(rest) = line.strip_prefix("Your position: ") {
+            return rest.split_once(", the ").map(|(t, _)| t.trim().to_owned());
+        }
+        if let Some(rest) = line.strip_prefix("You are working as ") {
+            return rest.split_once(" (").map(|(t, _)| t.trim().to_owned());
+        }
+    }
+    None
+}
+
+/// The next unused scripted step for the position this turn works as, if a script names it.
+fn script_step(prompt: &str, session: &str) -> Option<Step> {
+    let dir = state_dir();
+    let script: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("script.json")).ok()?).ok()?;
+    let title_file = dir.join("sessions").join(format!("{session}.title"));
+    let title = match identity_title(prompt) {
+        Some(t) => {
+            let _ = std::fs::write(&title_file, &t);
+            t
+        }
+        None => std::fs::read_to_string(&title_file).ok()?,
+    };
+    let steps = script[title.as_str()].as_array()?;
+    let used = dir.join("script-used");
+    let _ = std::fs::create_dir_all(&used);
+    let key: String = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    for (i, step) in steps.iter().enumerate() {
+        let claim = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(used.join(format!("{key}.{i}")));
+        if claim.is_ok() {
+            return Some(Step::read(step));
+        }
+    }
+    None
+}
+
 // ---- Plenipo's tools (MCP) ------------------------------------------------------------------
 
 const NOTE_START: &str = "[Plenipo tools]";
@@ -790,8 +907,13 @@ fn claude_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
-    // Markers inside a `{{handoff:…}}` are that request's worker's, not this one's.
-    let own = outside_braces(&said);
+    // A script step (Phase 8) stands in for markers; markers inside a `{{handoff:…}}` are that
+    // request's worker's, not this one's.
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
 
     if own.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
@@ -855,7 +977,10 @@ fn claude_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
     delay(&own);
-    let calls = tool_calls(&said);
+    let calls = match &scripted {
+        Some(step) => step.tools.clone(),
+        None => tool_calls(&said),
+    };
     let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
@@ -880,7 +1005,9 @@ fn claude_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if own.contains("[big]") {
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)
@@ -972,8 +1099,13 @@ fn codex_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
-    // Markers inside a `{{handoff:…}}` are that request's worker's, not this one's.
-    let own = outside_braces(&said);
+    // A script step (Phase 8) stands in for markers; markers inside a `{{handoff:…}}` are that
+    // request's worker's, not this one's.
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
     if own.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");
@@ -1020,7 +1152,10 @@ fn codex_turn(args: &[String]) -> i32 {
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": 0, "status": "completed" } }));
-    let calls = tool_calls(&said);
+    let calls = match &scripted {
+        Some(step) => step.tools.clone(),
+        None => tool_calls(&said),
+    };
     let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
@@ -1040,7 +1175,9 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if own.contains("[big]") {
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)

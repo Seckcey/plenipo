@@ -214,6 +214,7 @@ fn project_input(name: &str, runtimes: &[&str]) -> ProjectInput {
         local_path: Some(format!("D:\\projects\\{}", name.to_lowercase())),
         allowed_runtimes: runtimes.iter().map(|r| (*r).to_owned()).collect(),
         capability_profile: Some("development".into()),
+        branch_per_objective: None,
         department_id: None,
         coordinator: None,
     }

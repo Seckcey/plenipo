@@ -319,6 +319,7 @@ impl Workforce {
             local_path: input.local_path.clone(),
             allowed_runtimes: input.allowed_runtimes.clone(),
             capability_profile: input.capability_profile.clone(),
+            branch_per_objective: input.branch_per_objective,
         })
     }
 

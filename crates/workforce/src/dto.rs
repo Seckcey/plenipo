@@ -129,6 +129,9 @@ pub struct ProjectInfo {
     pub capability_profile: Option<String>,
     pub coordinator_position_id: Option<String>,
     pub active: bool,
+    /// Each objective gets its own branch and working copy when the folder is a git repository
+    /// (Phase 8).
+    pub branch_per_objective: bool,
     #[ts(type = "number")]
     pub created_at: u64,
 }
@@ -408,6 +411,10 @@ pub struct ProjectInput {
     pub allowed_runtimes: Vec<String>,
     #[ts(optional)]
     pub capability_profile: Option<String>,
+    /// A branch and working copy per objective (Phase 8); absent: on for a new project,
+    /// unchanged for an existing one.
+    #[ts(optional)]
+    pub branch_per_objective: Option<bool>,
     /// Creating only: the department and the coordinator.
     #[ts(optional)]
     pub department_id: Option<String>,

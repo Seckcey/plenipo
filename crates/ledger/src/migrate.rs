@@ -62,6 +62,12 @@ pub const MIGRATIONS: &[Migration] = &[
         up: include_str!("../migrations/0005_effort.up.sql"),
         down: include_str!("../migrations/0005_effort.down.sql"),
     },
+    Migration {
+        version: 6,
+        name: "workspaces",
+        up: include_str!("../migrations/0006_workspaces.up.sql"),
+        down: include_str!("../migrations/0006_workspaces.down.sql"),
+    },
 ];
 
 /// Highest version in `migrations` (0 if none).

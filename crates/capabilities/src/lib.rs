@@ -18,6 +18,7 @@ pub mod relay;
 mod server;
 pub mod tools;
 pub mod vault;
+pub mod worktrees;
 
 pub use broker::{Broker, BrokerConfig, CallResult};
 pub use dto::*;
