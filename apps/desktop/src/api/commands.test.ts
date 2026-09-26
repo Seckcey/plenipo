@@ -2,7 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assignPermissions,
   frontendReady,
+  resolveApproval,
+  saveSecret,
   getAppInfo,
   getLiaisonOverview,
   getTaskHandoffs,
@@ -82,5 +85,29 @@ describe("command client", () => {
     expect(toCommandError(new Error("boom"))).toMatchObject({ kind: "internal", message: "boom" });
     expect(toCommandError(42)).toMatchObject({ kind: "internal", message: "Unknown error" });
     expect(toCommandError({ kind: "shellExec", message: "x" })).toMatchObject({ kind: "internal" });
+  });
+
+  it("sends permissions, approvals, and secrets by name only", async () => {
+    mockedInvoke.mockResolvedValue({});
+    await assignPermissions("role", "r-1", null);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("assign_permissions", {
+      target: "role",
+      id: "r-1",
+    });
+    await assignPermissions("department", "d-1", "read-only");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("assign_permissions", {
+      target: "department",
+      id: "d-1",
+      setId: "read-only",
+    });
+    await resolveApproval("a-1", false);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("resolve_approval", {
+      approvalId: "a-1",
+      approve: false,
+    });
+    await saveSecret({ name: "Token", programs: [], value: "v" });
+    expect(mockedInvoke).toHaveBeenLastCalledWith("save_secret", {
+      input: { name: "Token", programs: [], value: "v" },
+    });
   });
 });

@@ -57,6 +57,23 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | time limit                                   | maximum runtime                          |
 | this version of Plenipo                      | this build                               |
 | permissions                                  | capabilities                             |
+| permission set                               | capability profile                       |
+| Allowed / Ask me / Blocked                   | allow / require approval / deny          |
+| permission limit (of a project, department)  | project policy, department policy        |
+| permissions in use (a worker's, now)         | runtime grant                            |
+| waiting for your approval                    | pending approval, awaiting approval      |
+| Approve / Deny                               | accept / reject                          |
+| Not approved (a request)                     | rejected                                 |
+| Revoke (a worker's permissions)              | revoke grant                             |
+| approved (programs that run without asking)  | allowlisted commands                     |
+| Never run / never open                       | deny rules, denylist                     |
+| sensitive action                             | high-risk action, risk class             |
+| project folder                               | workspace, working directory             |
+| Plenipo's tools                              | MCP server, tool server, broker          |
+| secret                                       | credential, secret reference             |
+| Windows Credential Manager (where it's kept) | Vault, keyring, credential store         |
+| hidden by Plenipo                            | redacted                                 |
+| Blocked: … tried to …                        | denied, policy violation                 |
 | what it can do                               | capabilities (of an AI tool)             |
 | AI model, model                              | model (fine as is)                       |
 | model choices (of a role)                    | model policy                             |
@@ -82,14 +99,15 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
   troubleshooting (rollout plan, Phase 12: "raw diagnostics remain available").
 - **Code and developer documents:** identifiers, Ledger event types (`org.worker_spawned`),
   ADRs, and architecture notes keep the rollout plan's terms. The mapping above is the bridge.
-- **Product names:** Plenipo Ledger, Liaison, and Guard.
+- **Product names:** Plenipo Ledger, Liaison, and Guard. "Guard" names the part of Plenipo
+  that decides; the owner sees "permissions" and "approvals".
 - **The owner's own words:** objective, handoff, QA evaluator, security auditor, oversight.
 - **Agent-facing protocol:** handoff addresses such as `codex` and `role:Senior Developer`.
 
 ## Known leftovers
 
-None known on the main screens (Organization, Workers, AI tools, Activity, Settings, including
-AI models); the
+None known on the main screens (Organization, Workers, AI tools, Activity, Approvals, Settings,
+including AI models and Permissions); the
 Diagnostics page and raw output keep technical details on purpose. Some refusal messages from
 earlier phases can still use an engineering word in rare error cases. Report any technical word
 you find on a screen, and fix it with this list.

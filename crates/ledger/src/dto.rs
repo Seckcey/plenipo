@@ -289,7 +289,8 @@ pub struct Project {
     pub coordinator_position_id: Option<String>,
     /// Runtime IDs the project's workers may use; empty allows none.
     pub allowed_runtimes: Vec<String>,
-    /// Default capability profile, granted by Guard from Phase 7 (recorded only until then).
+    /// The permission set (Guard, Phase 7) that limits what the project's workers may do;
+    /// `None`: no limit.
     pub capability_profile: Option<String>,
     /// `active` or `archived`.
     pub status: String,

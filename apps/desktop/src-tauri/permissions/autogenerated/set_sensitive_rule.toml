@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-sensitive-rule"
+description = "Enables the set_sensitive_rule command without any pre-configured scope."
+commands.allow = ["set_sensitive_rule"]
+
+[[permission]]
+identifier = "deny-set-sensitive-rule"
+description = "Denies the set_sensitive_rule command without any pre-configured scope."
+commands.deny = ["set_sensitive_rule"]

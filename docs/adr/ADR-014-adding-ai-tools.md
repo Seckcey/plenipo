@@ -1,6 +1,6 @@
 # ADR-014: Adding AI tools ahead of Phase 15
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 15 (adapter parts pulled forward, after v0.7.0)
 

@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, first_line, Parsed, ProbeOutput, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
-    TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
+    cap, first_line, tool_summary, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
+    RuntimeAdapter, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
 };
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
@@ -78,9 +78,9 @@ impl RuntimeAdapter for Codex {
             cancel: true,
             structured_results: true,
             billing_checked_per_turn: false,
-            tool_posture: "Read-only sandbox: Codex may run read-only commands but cannot \
-                           write files or use the network until Plenipo Guard grants \
-                           capabilities (Phase 7)."
+            tool_posture: "Read-only sandbox: Codex's own commands can read but not write or \
+                           use the network. A worker with permissions gets Plenipo's file, \
+                           program, and git tools, each checked by Plenipo Guard."
                 .into(),
             // `codex exec -c model_reasoning_effort=<level>`: every level one of its models
             // accepts. Codex passes any value on, so Plenipo keeps to these.
@@ -205,6 +205,32 @@ impl RuntimeAdapter for Codex {
                 format!("model_reasoning_effort={}", effort.as_str()),
             ]);
         }
+        if let Some(tools) = &request.tools {
+            // Plenipo's tool server (Phase 7), as TOML values Codex parses.
+            let key = format!("mcp_servers.{}", tools.name);
+            let list = tools
+                .args
+                .iter()
+                .map(|a| toml_string(a))
+                .collect::<Vec<_>>()
+                .join(", ");
+            args.extend([
+                "-c".into(),
+                format!(
+                    "{key}.command={}",
+                    toml_string(&tools.command.display().to_string())
+                ),
+                "-c".into(),
+                format!("{key}.args=[{list}]"),
+                "-c".into(),
+                format!("{key}.startup_timeout_sec=30"),
+                "-c".into(),
+                format!(
+                    "{key}.tool_timeout_sec={}",
+                    tools.call_timeout.as_secs().max(1)
+                ),
+            ]);
+        }
         if let ProviderSession::Resume { id } = &request.session {
             args.extend(["resume".into(), id.clone()]);
         }
@@ -221,6 +247,21 @@ impl RuntimeAdapter for Codex {
             expected,
         })
     }
+}
+
+/// A TOML basic string (quoted, with `\\`, `"`, and control characters escaped).
+fn toml_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn parse_auth(out: &ProbeOutput) -> AuthStatus {
@@ -342,7 +383,7 @@ impl Parser {
                     &format!("{}/{}", str_of(item, "server"), str_of(item, "tool")),
                     80,
                 ),
-                summary: String::new(),
+                summary: tool_summary(item.get("arguments").unwrap_or(&Value::Null)),
             }),
             _ => Parsed::none(),
         }
@@ -513,6 +554,7 @@ mod tests {
             model: None,
             effort: None,
             billing_confirmed: true,
+            tools: None,
         }
     }
 
@@ -523,6 +565,50 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn plenipo_tools_are_passed_as_codex_settings() {
+        use crate::agent::tools::ToolServer;
+        let tools = ToolServer {
+            name: "plenipo".into(),
+            command: r#"C:\Program Files\Plenipo "x"\plenipo.exe"#.into(),
+            args: vec![r#"--plenipo-tools=C:\Users\me\t.json"#.into()],
+            config_file: "unused".into(),
+            call_timeout: std::time::Duration::from_secs(3600),
+        };
+        let args = Codex.turn_args(&TurnRequest {
+            session: ProviderSession::Resume { id: "t1".into() },
+            model: None,
+            effort: None,
+            billing_confirmed: true,
+            tools: Some(tools),
+        });
+        let settings: Vec<&String> = args
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i > 0 && args[i - 1] == "-c")
+            .map(|(_, a)| a)
+            .collect();
+        assert!(
+            settings.contains(
+                &&r#"mcp_servers.plenipo.command="C:\\Program Files\\Plenipo \"x\"\\plenipo.exe""#
+                    .to_owned()
+            ),
+            "{settings:?}"
+        );
+        assert!(
+            settings.contains(
+                &&r#"mcp_servers.plenipo.args=["--plenipo-tools=C:\\Users\\me\\t.json"]"#
+                    .to_owned()
+            ),
+            "{settings:?}"
+        );
+        assert!(settings.contains(&&"mcp_servers.plenipo.tool_timeout_sec=3600".to_owned()));
+        // Still its read-only sandbox, and the session comes last.
+        let s = args.iter().position(|a| a == "--sandbox").unwrap();
+        assert_eq!(args[s + 1], "read-only");
+        assert!(args.ends_with(&["resume".into(), "t1".into()]));
+        assert_eq!(toml_string("a\u{1}b"), "\"a\\u0001b\"");
+    }
     #[test]
     fn turn_arguments_match_the_sdk_shape() {
         assert_eq!(
@@ -540,6 +626,7 @@ mod tests {
             model: Some("gpt-x".into()),
             effort: Some(Effort::Ultra),
             billing_confirmed: true,
+            tools: None,
         });
         assert_eq!(
             resume,
@@ -599,6 +686,24 @@ mod tests {
         assert_eq!(
             parse_auth(&probe("error: unexpected argument", 2)).state,
             AuthState::Unknown
+        );
+    }
+
+    #[test]
+    fn plenipo_tool_calls_say_what_they_do() {
+        let mut p = Codex.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"item.started","item":{"id":"m1","type":"mcp_tool_call","server":"plenipo","tool":"run_command","arguments":{"program":"git","args":["--version"]},"status":"in_progress"}}),
+            ],
+        );
+        assert_eq!(
+            events,
+            [AgentEvent::ToolUse {
+                tool: "plenipo/run_command".into(),
+                summary: "git --version".into()
+            }]
         );
     }
 

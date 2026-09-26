@@ -26,5 +26,6 @@ architecture must be recorded here.
 | [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas | Accepted |
 | [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks    | Accepted |
 | [011](ADR-011-model-policy-routing.md)       | Router: model registry, role policies, routing    | Accepted |
-| [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Proposed |
-| [014](ADR-014-adding-ai-tools.md)            | Adding AI tools ahead of Phase 15                 | Proposed |
+| [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Accepted |
+| [013](ADR-013-guard-capability-broker.md)    | Guard, capability broker, and human approval      | Accepted |
+| [014](ADR-014-adding-ai-tools.md)            | Adding AI tools ahead of Phase 15                 | Accepted |

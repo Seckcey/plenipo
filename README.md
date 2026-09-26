@@ -5,7 +5,19 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 6 — Model policy and role routing (accepted, v0.7.0). **Settings → AI models** says which AI model each role's workers
+> **Status:** Phase 7 — Permissions, Guard, and your approval (implemented; awaiting owner
+> acceptance, so the version stays 0.7.0). Workers can now work on your computer — only inside
+> their project's folder, and only as far as you allow. **Settings → Permissions** gives each
+> role a permission set (read files, change files, run programs, save to git…, each Allowed,
+> Ask me, or Blocked), lets a project or department narrow it, lists the programs workers may
+> run without asking and the files they may never open, and keeps secrets in Windows Credential
+> Manager, where workers never see them. Anything outside a worker's permissions is blocked and
+> shown; sensitive actions — deploying, DNS, passwords, payments, publishing, running as
+> administrator — stop for your approval with a card that says exactly what will run. The
+> **Approvals** page lets you approve, deny, or revoke a worker's permissions at once, and
+> everything is recorded in the Ledger.
+>
+> Phase 6 — Model policy and role routing (accepted, v0.7.0). **Settings → AI models** says which AI model each role's workers
 > get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
 > first choice, backups, what the model must be able to do, AI companies it never uses, and
 > reviews by a different AI company — and see, for every role, the model its next worker would
@@ -22,8 +34,7 @@ watches over the work, and keeps a complete record of it.
 > Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
 > **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
 > the Mafia. Agents run on your own signed-in Claude Code and Codex (subscription sign-ins only,
-> no API billing). Workers cannot change files yet (permissions arrive with Guard in Phase 7).
-> See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> no API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -83,6 +94,10 @@ crates/workforce/        Plenipo Workforce: organization engine (positions, team
                          role templates), live snapshot, role routing for Liaison
 crates/router/           Plenipo Router: model registry, role model policies, explained
                          choice of AI tool and model, usage limits
+crates/guard/            Plenipo Guard: permission registry and sets, policy engine, folder
+                         confinement, command rules, sensitive actions, secret redaction
+crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
+                         program, and git tools, approvals, Vault (OS credential store)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
@@ -92,7 +107,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`guard`, …) are added when the
+Further crates from the plan are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation

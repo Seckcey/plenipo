@@ -19,6 +19,7 @@ use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
     AgentEvent, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
+use crate::agent::tools::ToolServer;
 use crate::dto::{ExecutionState, TokenUsage};
 
 /// Longest final answer kept in a result.
@@ -80,6 +81,8 @@ pub struct TurnRequest {
     /// The sign-in check confirmed a subscription. When false, a runtime that checks billing
     /// per turn must see a subscription credential in the stream, or stop the turn.
     pub billing_confirmed: bool,
+    /// Plenipo's tool server for this step (Phase 7), if the worker has permissions.
+    pub tools: Option<ToolServer>,
 }
 
 /// Why a parser asks Plenipo to stop the process immediately.
@@ -187,6 +190,10 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         false
     }
     fn turn_args(&self, request: &TurnRequest) -> Vec<String>;
+    /// Variables this turn's process gets in addition (for example tool-call time limits).
+    fn turn_env(&self, _request: &TurnRequest) -> Vec<(String, String)> {
+        Vec::new()
+    }
     fn parser(&self, request: &TurnRequest) -> Box<dyn TurnParser>;
 }
 
@@ -489,12 +496,30 @@ pub fn tool_summary(input: &serde_json::Value) -> String {
         "pattern",
         "url",
         "query",
+        "from",
+        "script",
+        "message",
         "description",
         "prompt",
     ];
-    let found = KEYS
-        .iter()
-        .find_map(|k| input.get(*k).and_then(serde_json::Value::as_str));
+    // Plenipo's run_command: a program and its arguments.
+    let program = input
+        .get("program")
+        .and_then(serde_json::Value::as_str)
+        .map(|p| {
+            let args = input
+                .get("args")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str);
+            std::iter::once(p).chain(args).collect::<Vec<_>>().join(" ")
+        });
+    let found = program.or_else(|| {
+        KEYS.iter()
+            .find_map(|k| input.get(*k).and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+    });
     found.map_or_else(String::new, |s| {
         first_line(&s.replace(['\r', '\n'], " "), MAX_SUMMARY)
     })
@@ -622,5 +647,9 @@ mod tests {
         let v = serde_json::json!({ "command": "ls -la\nrm x", "other": 1 });
         assert_eq!(tool_summary(&v), "ls -la rm x");
         assert_eq!(tool_summary(&serde_json::json!({})), "");
+        let run = serde_json::json!({ "program": "git", "args": ["--version"] });
+        assert_eq!(tool_summary(&run), "git --version");
+        let commit = serde_json::json!({ "message": "Fix the form\n\nDetails" });
+        assert_eq!(tool_summary(&commit), "Fix the form  Details");
     }
 }

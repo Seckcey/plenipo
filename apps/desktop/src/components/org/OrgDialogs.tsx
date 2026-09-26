@@ -23,6 +23,7 @@ import {
   supervisorChoices,
 } from "../../org/rules";
 import { RANKS, rankName, roleLabel, titlesOf, withArticle, type TitleSet } from "../../org/titles";
+import { usePermissionSets } from "../../guard/usePermissions";
 import { useRoutingOnce } from "../../routing/useRouting";
 import { ModelPicker } from "../models/ModelPicker";
 import { Modal } from "./Modal";
@@ -630,6 +631,7 @@ function ProjectSettingsFields({
   value: ProjectSettingsState;
   onChange: (patch: Partial<ProjectSettingsState>) => void;
 }) {
+  const sets = usePermissionSets();
   const toggle = (id: string, on: boolean) =>
     onChange({
       allowedRuntimes: on
@@ -677,24 +679,39 @@ function ProjectSettingsFields({
         />
       </Field>
       <Field
-        label="Local folder (optional)"
-        hint="Recorded only: workers get no folder access until Guard arrives (Phase 7)."
+        label="Project folder (optional)"
+        hint="Its workers' file, program, and git tools work only inside this folder. Without one they get none."
       >
         <input
           value={value.localPath}
           maxLength={1000}
+          placeholder="D:\\projects\\website"
           onChange={(e) => onChange({ localPath: e.target.value })}
         />
       </Field>
       <Field
-        label="Capability profile (optional)"
-        hint="Recorded only: Guard grants capabilities from Phase 7."
+        label="Permission limit"
+        hint="Narrows what every worker may do in this project; each role's own permissions still apply."
       >
-        <input
+        <select
           value={value.capabilityProfile}
-          maxLength={64}
           onChange={(e) => onChange({ capabilityProfile: e.target.value })}
-        />
+        >
+          <option value="">No limit</option>
+          {(sets ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+          {value.capabilityProfile !== "" &&
+            !(sets ?? []).some((s) => s.id === value.capabilityProfile) && (
+              <option value={value.capabilityProfile}>
+                {sets === null
+                  ? value.capabilityProfile
+                  : `${value.capabilityProfile} (not a permission set: its workers get nothing)`}
+              </option>
+            )}
+        </select>
       </Field>
     </>
   );

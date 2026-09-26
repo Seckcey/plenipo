@@ -16,6 +16,7 @@ glyph: string,
  */
 purpose: Array<string>, 
 /**
- * Capabilities the role will ask for once Guard exists (Phase 7). None are granted now.
+ * Capabilities the role's work calls for (its template). What a worker may actually do
+ * comes from the role's permission set in Guard (Phase 7).
  */
 defaultCapabilities: Array<string>, };

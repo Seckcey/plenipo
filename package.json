@@ -18,7 +18,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "versions:check": "node scripts/check-versions.mjs",
-    "bindings": "cargo test -p plenipo-core -p plenipo-ledger -p plenipo-runtime -p plenipo-liaison -p plenipo-router -p plenipo-workforce --lib export_bindings",
+    "bindings": "cargo test -p plenipo-core -p plenipo-ledger -p plenipo-runtime -p plenipo-liaison -p plenipo-router -p plenipo-workforce -p plenipo-guard -p plenipo-capabilities --lib export_bindings",
     "e2e": "pnpm --filter @plenipo/e2e e2e",
     "check": "pnpm versions:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
   },

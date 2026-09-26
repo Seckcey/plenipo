@@ -1,0 +1,54 @@
+[package]
+name = "plenipo-capabilities"
+description = "Plenipo capability broker: Plenipo's own tools for workers, approvals, grants, and the Vault."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+# Test helper: the runtime's fake Claude Code / Codex CLI, built here too so the broker's
+# integration tests can run it (copied as `claude` / `codex`). Never shipped.
+name = "plenipo-fake-agent-capabilities"
+path = "tests/support/fake_agent.rs"
+test = false
+
+[[bin]]
+# Test helper: the tool relay the AI tools start (the desktop app runs the same code as
+# `plenipo-desktop --plenipo-tools=<ticket>`). Never shipped.
+name = "plenipo-tool-relay"
+path = "tests/support/relay.rs"
+test = false
+
+[dependencies]
+dunce = "1"
+plenipo-guard = { path = "../guard" }
+plenipo-ledger = { path = "../ledger" }
+plenipo-runtime = { path = "../runtime" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+ts-rs = "11"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+# Windows Credential Manager.
+keyring = { version = "3.6", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The kernel keyring (no desktop secret service needed).
+keyring = { version = "3.6", features = ["linux-native"] }
+
+[dev-dependencies]
+plenipo-liaison = { path = "../liaison" }
+plenipo-router = { path = "../router" }
+plenipo-workforce = { path = "../workforce" }
+tempfile = "3"
+
+[lints]
+workspace = true
