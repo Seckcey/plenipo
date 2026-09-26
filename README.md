@@ -5,8 +5,7 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 4 — Liaison handoffs between workers (implemented; awaiting owner
-> acceptance, so the version stays 0.4.0). The **Workers** view runs tasks on your own
+> **Status:** Phase 4 — Liaison handoffs between workers (accepted, v0.5.0). The **Workers** view runs tasks on your own
 > signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing), with live
 > activity, normalized results, resume, and cancel. With handoffs allowed, a worker can ask a
 > worker on the other runtime for help — for example Codex asking Claude Code for a review —

@@ -1,12 +1,12 @@
 # Phase 4 — Acceptance Report
 
-|              |                                                                                                                                                                         |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 4 — Liaison Message Bus and Cross-Provider Handoffs                                                                                                                     |
-| **Branch**   | `claude/phase-4` ([PR #5](https://github.com/Seckcey/plenipo/pull/5))                                                                                                   |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — see PR #5. |
-| **Date**     | 2026-09-26                                                                                                                                                              |
-| **Result**   | **Both Phase 4 acceptance criteria pass end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2).     |
+|              |                                                                                                                                                                                           |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 4 — Liaison Message Bus and Cross-Provider Handoffs                                                                                                                                       |
+| **Branch**   | `claude/phase-4` ([PR #5](https://github.com/Seckcey/plenipo/pull/5))                                                                                                                     |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — see PR #5.                   |
+| **Date**     | 2026-09-26                                                                                                                                                                                |
+| **Result**   | **Accepted by the owner on 2026-09-26** and released as **v0.5.0**. Both acceptance criteria pass end to end against fake CLIs in CI, and the owner confirmed the build on Windows (§10). |
 
 Screenshots: [Codex → Claude Code review](evidence/phase-4/handoff-codex-to-claude.png) ·
 [the reviewer's session](evidence/phase-4/handoff-worker-session.png) ·
@@ -142,5 +142,15 @@ takes on real subscriptions.
 
 ## 9. Phase boundary
 
-Phase 4 is implemented and verified against fake CLIs. It is complete once the owner accepts
-it (§7). Phase 5 has not been started.
+Phase 4 is complete. Phase 5 (Workforce and organization engine) has not been started (§7, O4).
+
+## 10. Owner sign-off (2026-09-26)
+
+| Item                            | Outcome                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| O1 ADR-008                      | **Accepted** by owner                                                                                  |
+| O2 Windows check with the build | **Passed** — reported by owner ("everything looks and works great")                                    |
+| O3 Version                      | Bumped to **0.5.0**; released as `v0.5.0` (tag on the release merge commit) with the Windows installer |
+| O4 Phase 5                      | Awaiting the owner's go-ahead                                                                          |
+
+Phase 4 is **accepted**.
