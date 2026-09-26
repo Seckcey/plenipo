@@ -22,8 +22,9 @@ pub const PROTOCOL: &str = "plenipo-liaison/1";
 pub const FENCE_TAG: &str = "plenipo-handoff";
 /// Largest handoff block read (bytes).
 pub const MAX_BLOCK_BYTES: usize = 16 * 1024;
-pub const MAX_OBJECTIVE_CHARS: usize = 4_000;
-pub const MAX_CRITERIA_CHARS: usize = 2_000;
+/// Requests are short notes, not briefs (ADR-012, brief messages between agents).
+pub const MAX_OBJECTIVE_CHARS: usize = 1_000;
+pub const MAX_CRITERIA_CHARS: usize = 500;
 pub const MAX_CONTEXT_REFS: usize = 6;
 pub const MAX_EXCERPT_CHARS: usize = 8_000;
 pub const MAX_EXCERPT_TOTAL_BYTES: usize = 24 * 1024;
@@ -235,7 +236,9 @@ fn text_field(
         return Err(format!("\"{key}\" is required"));
     }
     if value.chars().count() > max {
-        return Err(format!("\"{key}\" is longer than {max} characters"));
+        return Err(format!(
+            "\"{key}\" is longer than {max} characters; keep it short"
+        ));
     }
     if value.contains('\0') {
         return Err(format!("\"{key}\" contains a NUL character"));
@@ -555,7 +558,15 @@ mod tests {
             r#"{{"to": "codex", "objective": "{}"}}"#,
             "x".repeat(MAX_OBJECTIVE_CHARS + 1)
         );
-        assert!(parse_directive(&long).unwrap_err().contains("longer than"));
+        assert!(parse_directive(&long)
+            .unwrap_err()
+            .contains("longer than 1000 characters; keep it short"));
+        // Requests are short notes (ADR-012): the limit itself is accepted.
+        let most = format!(
+            r#"{{"to": "codex", "objective": "{}"}}"#,
+            "x".repeat(MAX_OBJECTIVE_CHARS)
+        );
+        assert!(parse_directive(&most).is_ok());
         let huge = format!(
             r#"{{"to": "codex", "objective": "x", "context": [{{"kind": "excerpt", "text": "{}"}}]}}"#,
             "y".repeat(MAX_BLOCK_BYTES)
