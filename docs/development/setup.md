@@ -77,9 +77,10 @@ Notes:
   a model with `/model`. `codex exec --skip-git-repo-check "Say hi"` should then answer. You
   can also name a model for one position in Plenipo (details panel → **Edit title, AI tool, or
   model**).
-- In Phase 3 workers cannot change anything: Claude Code runs with no tools (conversation
-  only), Codex in its read-only sandbox, each conversation in its own empty folder under
-  `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.
+- Workers you start in **Workers** cannot change anything: Claude Code runs with no tools
+  (conversation only), Codex in its read-only sandbox, each conversation in its own empty folder
+  under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`. Organization
+  workers get Plenipo's own tools, within their permissions (below).
 - Handoffs (Phase 4) need both AI tools Ready. In **Workers**, tick **Allow handoffs to other
   workers**, then give an objective that invites a second opinion — for example, on Codex:
   _"Write a function that parses ISO dates. Before you finish, ask claude-code to review it."_
@@ -98,6 +99,15 @@ Notes:
   ends. Every position's AI tool is your choice (details panel → **Edit title, AI tool, or
   model**). **Settings → Personalization → Titles** renames the ranks (for example after the
   U.S. Army or the Mafia) without changing job titles.
+- Permissions (Phase 7). Give the project a **Project folder** (when you create it, or
+  **Edit project** in the details panel) — workers work only inside it. **Settings → Permissions** shows each role's permission
+  set (the Senior Developer starts with **Developer**: read and change files, run approved
+  programs, save to git; pushing asks you). Add the programs your team may run without asking
+  under **Approved** (for example `npm test *`). When a worker asks for something sensitive, a
+  banner appears on every page; **Review** opens **Approvals**, where the card says exactly what
+  will run. Secrets (for example a GitHub token for `gh`) go under **Secrets**: the value is
+  stored in Windows Credential Manager (look for `com.eightwest.plenipo` under **Windows
+  Credentials**), never in Plenipo's files, and is passed only to the programs you name.
 
 ## 4. Build a release and installer
 
@@ -152,7 +162,10 @@ The Phase 5 tests build an organization on the canvas and give its supervisor ob
 as `[handoff:role:Senior Developer+delay:6000]`, which make the fake supervisor hand that
 position a task whose worker takes six seconds. The Phase 6 tests set a role's model choices in
 Settings → AI models and check that the next worker follows them (`+usage-limit` makes a worker
-report a usage limit).
+report a usage limit). The Phase 7 tests give a project a folder and hand its Senior Developer
+tool calls such as `<<tool:read_file {"path":"README.md"}>>`, which the fake worker makes
+through Plenipo's real tool relay (`plenipo-desktop --plenipo-tools=…`), then approve the push
+that stops for approval.
 
 ## 7. Linux (development / CI only)
 

@@ -1,10 +1,11 @@
 # Phase 7 — Implementation Checklist
 
-**Status:** in progress on `claude/phase-7`.
+**Status:** implemented on `claude/phase-7` ([PR #14](https://github.com/Seckcey/plenipo/pull/14));
+awaiting owner acceptance. Report: [phase-7-acceptance-report.md](phase-7-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 7 — Capability Broker, Guard, and Human Approval. Phase 6 is
-implemented and merged ([PR #9](https://github.com/Seckcey/plenipo/pull/9)); the owner asked to
-begin Phase 7 on 2026-09-26. This checklist keeps the plan's words where it quotes the plan; the
+accepted and released as v0.7.0 ([PR #9](https://github.com/Seckcey/plenipo/pull/9)); the owner
+asked to begin Phase 7 on 2026-09-26. This checklist keeps the plan's words where it quotes the plan; the
 app uses the plain words in [`docs/design/vocabulary.md`](../design/vocabulary.md) ("permissions",
 not "capabilities").
 
@@ -85,40 +86,40 @@ logged, and revocable.
 
 ## Deliverables
 
-- [ ] Capability registry (the plan's 16 capabilities, with plain names and risk)
-- [ ] Capability profiles (permission sets)
-- [ ] Per-role permissions
-- [ ] Per-project permissions (folder and limit)
-- [ ] Per-department permissions (limit)
-- [ ] Runtime grants (per step, recorded, revocable)
-- [ ] Approval queue and approval cards
-- [ ] Deny rules (blocked commands and files; sensitive actions can be blocked)
-- [ ] Command/event logging (every call recorded, redacted)
-- [ ] Windows credential integration (Vault)
-- [ ] Secret-reference model
-- [ ] Plenipo's tools for workers (files, programs, git) through Guard
-- [ ] Settings → Permissions, the Approvals page, blocked requests visible
-- [ ] ADR-013; architecture, README, vocabulary, setup updated
+- [x] Capability registry (the plan's 16 capabilities, with plain names and risk)
+- [x] Capability profiles (permission sets)
+- [x] Per-role permissions
+- [x] Per-project permissions (folder and limit)
+- [x] Per-department permissions (limit)
+- [x] Runtime grants (per step, recorded, revocable)
+- [x] Approval queue and approval cards
+- [x] Deny rules (blocked commands and files; sensitive actions can be blocked)
+- [x] Command/event logging (every call recorded, redacted)
+- [x] Windows credential integration (Vault)
+- [x] Secret-reference model
+- [x] Plenipo's tools for workers (files, programs, git) through Guard
+- [x] Settings → Permissions, the Approvals page, blocked requests visible
+- [x] ADR-013; architecture, README, vocabulary, setup updated
 
 ## Phase 7 tests (from plan)
 
-- [ ] Allowed read
-- [ ] Denied write
-- [ ] Approval-required action
-- [ ] Approval accepted
-- [ ] Approval rejected
-- [ ] Expired approval
-- [ ] Path traversal attempt
-- [ ] Command allow/deny behavior
-- [ ] Secret redaction
-- [ ] Capability revocation during execution
+- [x] Allowed read
+- [x] Denied write
+- [x] Approval-required action
+- [x] Approval accepted
+- [x] Approval rejected
+- [x] Expired approval
+- [x] Path traversal attempt
+- [x] Command allow/deny behavior
+- [x] Secret redaction
+- [x] Capability revocation during execution
 
 ## Acceptance criteria (from plan)
 
-- [ ] A Development worker can read/write only its authorized workspace and run approved
+- [x] A Development worker can read/write only its authorized workspace and run approved
       development commands.
-- [ ] An unauthorized request is blocked and visible.
-- [ ] A sensitive request pauses, presents a clear approval card, and proceeds only after
+- [x] An unauthorized request is blocked and visible.
+- [x] A sensitive request pauses, presents a clear approval card, and proceeds only after
       approval.
 
 ## Out of scope
@@ -127,3 +128,72 @@ Blanket unrestricted administrator access, silent elevation, storing plaintext s
 SQLite, full enterprise RBAC (plan). Also: GitHub, browser, computer-use, SSH, and MCP-server
 tools (Phases 8, 10, 11), operating-system sandboxing of the programs an approved command starts,
 isolated worktrees for concurrent workers (Phase 8).
+
+## Owner check on Windows (~25 minutes)
+
+Uses the organization from the Phase 5 and 6 checks (Development → Website, with its Senior
+Developer). Use a scratch copy of a small git repository as the project folder — not real work —
+for example:
+
+```powershell
+git clone https://github.com/Seckcey/plenipo.git "$env:USERPROFILE\plenipo-guard-test"
+```
+
+1. Install this version and start Plenipo. **AI tools** → **Re-check**: Claude Code and Codex
+   both **Ready**.
+2. **Settings** → **Permissions**. _Who may do what_: Senior Developer → **Developer**, Code
+   Reviewer → **Reviewer**, Supervisor → **Read only**; the top says **Tools ready**, and
+   _Secrets_ says they are kept in Windows Credential Manager. If a project is listed as a
+   problem (its permission limit is not a permission set), fix it in step 3.
+3. **Organization** → select _Website Supervisor_ → **Edit project** → **Project
+   folder**: `%USERPROFILE%\plenipo-guard-test` (the full path) → **Permission limit**: _No
+   limit_ → **Save**. The details panel shows the folder and "No limit".
+4. **Settings** → **Permissions** → _Programs workers may run_ → add `git status *` to
+   **Approved** → **Save command lists**.
+5. Give _Website Supervisor_ the objective: _"Ask the Senior Developer to read README.md, create
+   notes/guard-test.txt with one line saying hello, run git status, and then try to read the
+   file outside.txt in the folder above the project."_ Expected: the file appears in the
+   folder; **Approvals** → _Recently blocked_ shows "Senior Developer tried to read …
+   outside.txt", and the worker says it was blocked (acceptance 1 and 2).
+6. Objective: _"Ask the Senior Developer to push the current branch with git_push."_ A banner
+   appears on every page ("Senior Developer is waiting for your approval — git push origin").
+   **Review** → the card says exactly what will run and why it needs you. Wait two minutes
+   (the AI tool must keep waiting), then **Deny**: the worker reports it was not approved and
+   nothing was pushed (acceptance 3). Repeat and **Approve**: the push runs (it may fail if
+   you cannot push to that repository — that is fine; it ran only after approval).
+7. **Revoke**: objective _"Ask the Senior Developer to run ping -n 30 127.0.0.1."_ Approve the
+   card, then under _Workers using permissions now_ choose **Revoke** → **Revoke now** while it
+   runs: the ping stops, and the worker reports that its permissions were revoked.
+8. Expiry: **Settings** → **Permissions** → _How long workers wait_ → **1** → **Save**. Repeat
+   step 6 and do not answer: after a minute the card moves to _Recent answers_ as **Expired**. Set it
+   back to 10.
+9. **Vault**: **Settings** → **Permissions** → **Secrets** → **Add a secret** → Name _Test
+   secret_, Value `plenipo-test-secret-8w` (a made-up value — never a real one for this test)
+   → **Store secret**. Windows **Credential Manager** → **Windows Credentials** lists an entry
+   for `com.eightwest.plenipo`. Then confirm Plenipo's own files do not contain it (no output
+   expected):
+
+   ```powershell
+   Get-ChildItem "$env:LOCALAPPDATA\com.eightwest.plenipo\ledger\plenipo.db*" |
+     Select-String -Pattern "plenipo-test-secret-8w" -SimpleMatch
+   ```
+
+   Remove the test secret afterwards.
+
+10. **Activity** → the objective's task → the Senior Developer's task: "Permissions given to
+    Senior Developer", each use, "Blocked: …", "Waiting for your approval: git push origin",
+    the answer, and "Permissions ended for Senior Developer".
+11. Optional, with Codex: **Edit title, AI tool, or model** on the Senior Developer → AI tool
+    _Codex_, then repeat step 5.
+
+Things only real CLIs can confirm (report anything odd):
+
+- Claude Code offers Plenipo's tools with `--tools ""` (built-in tools off) plus
+  `--mcp-config` and `--allowedTools mcp__plenipo`, never asks in the terminal, and waits for an
+  approval beyond its usual tool timeout (`MCP_TOOL_TIMEOUT`).
+- Codex accepts `-c mcp_servers.plenipo.*` in `codex exec`, runs Plenipo's tools without its own
+  prompt, and waits for an approval (`tool_timeout_sec`).
+- Plenipo's own program, started by the AI tool as the relay (`--plenipo-tools=…`), talks over
+  its standard input and output on Windows (the release build has no console window).
+- Codex's own read-only commands can still read files outside the folder (ADR-013,
+  Consequences); Claude Code workers cannot.

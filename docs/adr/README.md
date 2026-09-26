@@ -27,3 +27,4 @@ architecture must be recorded here.
 | [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks    | Accepted |
 | [011](ADR-011-model-policy-routing.md)       | Router: model registry, role policies, routing    | Accepted |
 | [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Proposed |
+| [013](ADR-013-guard-capability-broker.md)    | Guard, capability broker, and human approval      | Proposed |

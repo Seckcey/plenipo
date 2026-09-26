@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 6) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 7) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -37,16 +37,27 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │ Plenipo Router (crates/router)       │   │
 │                                            │  - model registry, role policies,    │   │
 │                                            │    explained choice of AI tool/model │   │
-│                                            └──────────────┬───────────────────────┘   │
-└───────────────────────────────────────────────────────────┼───────────────────────────┘
-                                                            │ spawns approved profiles and
-                                                            │ adapter-built turns only
-                                          ┌─────────────────▼─────────────────┐
-                                          │ child process tree                │
-                                          │ (Job Object / process group,      │
-                                          │  cleared env, stdin = objective,  │
-                                          │  stdout/stderr piped)             │
-                                          └───────────────────────────────────┘
+│                                            │ Plenipo Guard (crates/guard)         │   │
+│                                            │  - permission sets, rules, decisions │   │
+│                                            │ Capabilities (crates/capabilities)   │   │
+│                                            │  - broker: grants, tool server,      │   │
+│                                            │    approvals, file/program/git work, │   │
+│                                            │    Vault (OS credential store)       │   │
+│                                            │    ▲ 127.0.0.1, per-step ticket      │   │
+│                                            └────┼─────────────┬───────────────────┘   │
+└─────────────────────────────────────────────────┼─────────────┼───────────────────────┘
+                                                  │             │ spawns approved profiles,
+                                                  │             │ adapter-built turns, and
+                                                  │             │ Guard-approved programs only
+                                                  │   ┌─────────▼─────────────────────────┐
+                                                  │   │ child process tree                │
+                                                  │   │ (Job Object / process group,      │
+                                                  │   │  cleared env, stdin = objective,  │
+                                                  │   │  stdout/stderr piped)             │
+                                                  │   │   AI tool ──stdio MCP──▶ relay    │
+                                                  └───┼── (plenipo-desktop                │
+                                                      │    --plenipo-tools=<ticket file>) │
+                                                      └───────────────────────────────────┘
 ```
 
 ## 2. Trust boundary
@@ -70,8 +81,13 @@ operations itself. This is enforced by:
 capability configuration: granted commands succeed from `main`; unknown commands, OS plugin
 commands, remote origins, and windows without a grant are all rejected.
 
-Later phases add privileged operations (process supervision, filesystem, Git, …) **only** as
-validated Core operations behind this boundary, and later still, behind Plenipo Guard.
+Privileged operations (process supervision, filesystem, Git, …) exist **only** as validated
+Core operations behind this boundary. Workers reach files, programs, and git only through
+Plenipo Guard (§10); the UI configures Guard and answers approvals, and can never run a tool
+itself.
+
+A second, narrower door serves workers: Plenipo's tool server listens on `127.0.0.1` only and
+admits a connection only with the ticket of a step that is running now (§10).
 
 ## 3. Shared DTOs
 
@@ -148,6 +164,28 @@ Router commands (Phase 6). Every change returns the model settings as they are a
 | `set_routing_options` | `options` (`RoutingOptions`) | `RoutingSnapshot` | What a usage limit does: wait (default) or use the next choice                            |
 | `clear_usage_limit`   | `runtimeId`                  | `RoutingSnapshot` | Try an AI tool again now, although it reported a usage limit                              |
 
+Guard commands (Phase 7). Settings changes return `PermissionsSnapshot` as it is afterwards;
+Guard's input types reject unknown fields, and a refused change rejects with the reason.
+
+| Command                 | Input                                          | Returns               | Purpose                                                                                    |
+| ----------------------- | ---------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| `get_permissions`       | —                                              | `PermissionsSnapshot` | Sets, who has which, rules, secret references (never values), grants in use, recent blocks |
+| `save_permission_set`   | `input` (`PermissionSetInput`)                 | `PermissionsSnapshot` | Add a permission set (no `id`) or change one                                               |
+| `remove_permission_set` | `setId`                                        | `PermissionsSnapshot` | Remove a set nothing uses (built-in sets stay)                                             |
+| `assign_permissions`    | `target` (`role`/`department`), `id`, `setId?` | `PermissionsSnapshot` | A role's set (it grants) or a department's limit (it narrows); no `setId`: none / no limit |
+| `set_command_rules`     | `rules` (`CommandRules`)                       | `PermissionsSnapshot` | Approved, always-ask, and never-run command lists                                          |
+| `set_blocked_files`     | `patterns`                                     | `PermissionsSnapshot` | Files no worker may open (gitignore-style)                                                 |
+| `set_sensitive_rule`    | `kind`, `rule` (`ask`/`block`)                 | `PermissionsSnapshot` | What a kind of sensitive action does; never "allow"                                        |
+| `set_guard_options`     | `options` (`GuardOptions`)                     | `PermissionsSnapshot` | How long an approval waits (1–60 minutes)                                                  |
+| `save_secret`           | `input` (`SecretInput`)                        | `PermissionsSnapshot` | Store a secret: the value goes to the OS credential store, only the reference to Plenipo   |
+| `remove_secret`         | `secretId`                                     | `PermissionsSnapshot` | Remove a secret's value and its reference                                                  |
+| `get_approvals`         | —                                              | `ApprovalQueue`       | Approvals waiting (oldest first) and recent outcomes                                       |
+| `resolve_approval`      | `approvalId`, `approve`                        | `ApprovalQueue`       | Approve or refuse one waiting request                                                      |
+| `revoke_grant`          | `grantId`                                      | `PermissionsSnapshot` | End a worker's permissions now: stop its programs, refuse its waiting requests             |
+
+A project's permission limit is part of its settings (`create_project` / `update_project`
+`capabilityProfile`), checked against the permission sets.
+
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
 `{ kind: "lifecycle", record }`); `plenipo://ledger` carries each committed `LedgerEvent`;
@@ -209,8 +247,9 @@ Decision record: [ADR-007](../adr/ADR-007-runtime-adapters.md).
 - **Billing.** Sign-in is checked before every turn with the CLI's own status command; signed
   out, API-key, and third-party-cloud sign-ins are refused. Claude Code's reported credential
   source is checked again in each stream. API-key variables are never passed to children.
-- **Least privilege.** Claude Code: no tools, no MCP servers. Codex: read-only sandbox. Each
-  session has its own empty workspace. Capabilities arrive with Guard (Phase 7).
+- **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex:
+  read-only sandbox. Each session has its own empty workspace. Organization workers with
+  permissions get Plenipo's tools for each step (§10).
 - **Sessions.** `runtime_sessions` (migration 0002) maps Plenipo's session to the provider
   session ID. Each turn is a task (`metadata.sessionId`) with an execution, `agent.*` activity
   events, and an `agent.result` event written together with the task's final state.
@@ -243,7 +282,8 @@ Decision record: [ADR-008](../adr/ADR-008-liaison.md).
   privilege posture as any worker. They receive a context packet (`plenipo-context/1`): the
   objective, acceptance criteria, and only the context the requester referenced (its answer,
   excerpts, or tasks and artifacts of the same workflow), capped and delimited with a nonce the
-  requester cannot know. Capability requests are recorded and never granted before Guard.
+  requester cannot know. Capability requests are recorded for the owner and grant nothing:
+  a worker's permissions come only from the owner's settings (§10).
 - **Replies** carry the child's normalized result. When all of a task's replies are in, the
   task continues as a new step of the same turn in the same provider session. Replies to a
   task that stopped waiting are discarded, never delivered.
@@ -298,9 +338,9 @@ Decision records: [ADR-009](../adr/ADR-009-workforce.md) (the engine) and
   places the request: the worker is recorded with the child task in one transaction and runs on
   the position's runtime and model. Unknown roles, raw runtime addresses from members, and
   runtimes the project does not allow are refused with the reason.
-- **Policy.** Projects record allowed runtimes (explicit; none allows none), a local folder, and
-  a capability profile name; the folder and profile are recorded only — no capability is granted
-  before Guard (Phase 7). A position's runtime is either fixed by the owner or automatic (chosen
+- **Policy.** Projects record allowed runtimes (explicit; none allows none), a local folder (the
+  workers' workspace from Phase 7), and a permission limit (a Guard permission set). A position's
+  runtime is either fixed by the owner or automatic (chosen
   by the Router, §9). Delegation between persistent positions waits for Phase 8.
 - **Organization canvas** (`apps/desktop/src/org`, `components/org`): a topology map in the
   style of a network topology view — owner → organization → teams, left to right, with bus
@@ -353,7 +393,52 @@ Decision record: [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR
   the details panel, a worker's reason, the reason in the activity trail, and each role's next
   worker in Settings.
 
-## 10. Launch smoke test
+## 10. Guard, capabilities, and approvals (Phase 7)
+
+Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](../adr/ADR-013-guard-capability-broker.md).
+
+- **Words on screen.** Settings → **Permissions**: "permission set" (capability profile),
+  "Allowed / Ask me / Blocked" (levels), "permission limit" (project or department policy),
+  "Approved / Always ask me first / Never run" (command rules), "Secrets" (the Vault). The
+  **Approvals** page: "waiting for your approval", "Approve / Deny", "Revoke".
+- **Registry** (`crates/guard/src/registry.rs`): filesystem.read/write, shell.exec,
+  powershell.exec, git.read/write have tools now; github.\*, ssh.connect, browser.\*,
+  computer.\*, mcp.invoke, network.local, and process.manage are registered for later phases.
+- **Configuration** is the Ledger's `guard` setting: permission sets (7 built in), each role's
+  set, department limits, command rules, blocked files, the sensitive-action rules, options, and
+  secret references. Every change is a `guard.*` or `vault.*` event. Each built-in role template
+  gets its starting set once.
+- **Engine** (`crates/guard/src/engine.rs`, pure): the strictest of role set, project limit,
+  and department limit (an unknown limit fails closed); then the target (inside the folder,
+  blocked files, `.git` internals), blocked commands, sensitive actions (ask or block, never
+  allow), always-ask commands, an Ask level, and — for programs — the approved list. One plain
+  explanation and a note per layer.
+- **Broker** (`crates/capabilities`): the agent runtime's `ToolProvider` hook opens a grant for
+  each step of an organization worker's task (`guard.grant_opened`) and closes it when the step's
+  program ends (`guard.grant_closed`), stopping its programs and expiring its approvals. The AI
+  tool gets Plenipo's MCP server over stdio (Claude Code `--mcp-config` +
+  `--allowedTools mcp__plenipo`; Codex `-c mcp_servers.plenipo.*`), which is Plenipo's own
+  executable in relay mode (`--plenipo-tools=<ticket file>`, handled in `main()`). The relay
+  presents the step's ticket to the tool server on `127.0.0.1`.
+- **Tools**: list, read, search, write, edit, move, delete files; run a program (a name and
+  arguments, never a shell line); run a PowerShell script; git status, diff, log, add, commit,
+  branch, push. Programs run through the supervisor (`capability.program`: own process tree,
+  cleared environment, time limit).
+- **Approvals.** "Ask" pauses the call: the Ledger records the approval and moves the task to
+  `awaitingApproval` in one transaction, and back to `running` when it is answered. It expires
+  after the approval window (default 10 minutes), and approvals left pending at shutdown are
+  expired at startup. The UI shows a banner on every page, a sidebar count, and a card with
+  exactly what will run.
+- **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
+  calls; a settings change applies to the next call.
+- **Logging and redaction.** Every call is `capability.used`, `guard.denied`, or `approval.*`.
+  Known secret values and common key and token formats are hidden in results, recorded text, and
+  all AI tool activity (`[hidden by Plenipo: …]`).
+- **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
+  Plenipo stores only references and injects a value as an environment variable into the
+  programs the owner named.
+
+## 11. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
 has rendered **and** successfully called Core, and the process exits 0. If that does not
@@ -361,26 +446,27 @@ happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The 
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
 
-## 11. Target component map
+## 12. Target component map
 
 From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent runtime
-adapters), **Ledger**, **Liaison**, **Workforce**, and **Router** exist today.
+adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**, and
+**Vault** exist today.
 
-| Component    | Responsibility                                 | Introduced |
-| ------------ | ---------------------------------------------- | ---------- |
-| Desktop      | UI                                             | Phase 0    |
-| Core         | Orchestration and domain logic, shared DTOs    | Phase 0    |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅ | Phase 1, 3 |
-| Ledger       | SQLite system of record ✅                     | Phase 2    |
-| Liaison      | Task/message/event bus ✅                      | Phase 4    |
-| Workforce    | Departments, roles, coordinators, workers ✅   | Phase 5    |
-| Router       | Role → provider/model selection ✅             | Phase 6    |
-| Capabilities | Filesystem, shell, Git, SSH, browser, MCP      | Phase 7    |
-| Guard        | Permissions, approvals, policy enforcement     | Phase 7    |
-| Vault        | Credential references (OS-protected storage)   | Phase 7    |
-| Integrations | Paperclip, GitHub, CrewOS                      | Phase 8+   |
+| Component    | Responsibility                                  | Introduced |
+| ------------ | ----------------------------------------------- | ---------- |
+| Desktop      | UI                                              | Phase 0    |
+| Core         | Orchestration and domain logic, shared DTOs     | Phase 0    |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅  | Phase 1, 3 |
+| Ledger       | SQLite system of record ✅                      | Phase 2    |
+| Liaison      | Task/message/event bus ✅                       | Phase 4    |
+| Workforce    | Departments, roles, coordinators, workers ✅    | Phase 5    |
+| Router       | Role → provider/model selection ✅              | Phase 6    |
+| Capabilities | Filesystem ✅, shell ✅, Git ✅, SSH, browser   | Phase 7+   |
+| Guard        | Permissions, approvals, policy enforcement ✅   | Phase 7    |
+| Vault        | Credential references (OS-protected storage) ✅ | Phase 7    |
+| Integrations | Paperclip, GitHub, CrewOS                       | Phase 8+   |
 
-## 12. Invariants every phase must keep
+## 13. Invariants every phase must keep
 
 - **Local-first** ([ADR-002](../adr/ADR-002-local-first-architecture.md)): the desktop app owns
   execution; remote surfaces never become the privileged runtime.
