@@ -15,7 +15,8 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
+    AgentEvent, AuthState, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome,
+    TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -55,6 +56,14 @@ impl RuntimeAdapter for ClaudeCode {
             tool_posture: "Conversation only: no built-in tools and no MCP servers until \
                            Plenipo Guard grants capabilities (Phase 7)."
                 .into(),
+            // `claude --effort <level>`.
+            effort_levels: vec![
+                Effort::Low,
+                Effort::Medium,
+                Effort::High,
+                Effort::XHigh,
+                Effort::Max,
+            ],
         }
     }
 
@@ -126,6 +135,9 @@ impl RuntimeAdapter for ClaudeCode {
         .to_vec();
         if let Some(model) = &request.model {
             args.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(effort) = request.effort {
+            args.extend(["--effort".into(), effort.as_str().into()]);
         }
         match &request.session {
             ProviderSession::New {
@@ -509,6 +521,7 @@ mod tests {
                 preassigned: Some("11111111-1111-4111-8111-111111111111".into()),
             },
             model: None,
+            effort: None,
             billing_confirmed: true,
         }
     }
@@ -535,11 +548,15 @@ mod tests {
         let resume = ClaudeCode.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "abc".into() },
             model: Some("sonnet".into()),
+            effort: Some(Effort::XHigh),
             billing_confirmed: true,
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
         assert_eq!(resume[m + 1], "sonnet");
+        let e = resume.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(resume[e + 1], "xhigh");
+        assert!(!args.iter().any(|a| a == "--effort"));
     }
 
     #[test]
@@ -727,6 +744,7 @@ mod tests {
         let mut p = ClaudeCode.parser(&TurnRequest {
             session: ProviderSession::Resume { id: "old".into() },
             model: None,
+            effort: None,
             billing_confirmed: true,
         });
         let events = feed(

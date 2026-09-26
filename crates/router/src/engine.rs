@@ -16,7 +16,7 @@
 //!    models from other companies are skipped too: work waits rather than switching company.
 //! 5. The first model that passes is chosen. Every model gets a verdict and a note.
 
-use plenipo_runtime::agent::{AgentRuntimeInfo, AuthState, InstallState};
+use plenipo_runtime::agent::{AgentRuntimeInfo, AuthState, Effort, InstallState};
 
 use crate::dto::*;
 use crate::limits::duration_words;
@@ -266,6 +266,15 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             Some(why) => note(CandidateVerdict::Skipped, why),
             None => {
                 note(CandidateVerdict::Chosen, String::new());
+                // The role's effort for this model, else the model's; only a level the AI tool
+                // accepts.
+                let accepted = |e: &Effort| info.capabilities.effort_levels.contains(e);
+                let effort = policy
+                    .efforts
+                    .get(&m.id)
+                    .copied()
+                    .filter(accepted)
+                    .or(m.effort.filter(accepted));
                 chosen = Some((
                     RouteChoice {
                         model_id: m.id.clone(),
@@ -273,6 +282,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                         runtime_label: info.label.clone(),
                         company: info.provider.clone(),
                         model: m.name.clone(),
+                        effort,
                         label: label.clone(),
                     },
                     c.rank,
@@ -317,6 +327,14 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                     s
                 }
             };
+            if let Some(effort) = choice.effort {
+                let whose = if policy.efforts.contains_key(&choice.model_id) {
+                    format!("{}'s setting for it", input.role)
+                } else {
+                    "its setting".into()
+                };
+                reason.push_str(&format!(" It runs at {} effort ({whose}).", effort.label()));
+            }
             if cross != CrossCompany::Off {
                 let other = !reviewed.iter().any(|(c, _)| *c == choice.company);
                 if other {
@@ -422,6 +440,7 @@ mod tests {
                     structured_results: true,
                     billing_checked_per_turn: false,
                     tool_posture: String::new(),
+                    effort_levels: vec![Effort::Low, Effort::High],
                 },
                 install_hint: String::new(),
                 login_hint: String::new(),
@@ -441,6 +460,7 @@ mod tests {
             features: vec![],
             context_tokens: None,
             cost: CostClass::Standard,
+            effort: None,
             built_in: false,
         }
     }
@@ -522,6 +542,41 @@ mod tests {
         );
         use CandidateVerdict::*;
         assert_eq!(verdicts(&d), [Chosen, NotNeeded]);
+    }
+
+    #[test]
+    fn effort_comes_from_the_role_then_the_model() {
+        let mut w = world();
+        // No effort anywhere: the AI tool's default, and the reason says nothing about it.
+        let d = decide(&w, &prefer(&["opus"]));
+        assert_eq!(d.choice.as_ref().unwrap().effort, None);
+        assert!(!d.reason.contains("effort"));
+        // The model's own setting.
+        w.models[0].effort = Some(Effort::Low);
+        let d = decide(&w, &prefer(&["opus"]));
+        assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::Low));
+        assert!(
+            d.reason.ends_with("It runs at low effort (its setting)."),
+            "{}",
+            d.reason
+        );
+        // The role's setting for that model wins.
+        let mut policy = prefer(&["opus"]);
+        policy.efforts.insert("opus".into(), Effort::High);
+        let d = decide(&w, &policy);
+        assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::High));
+        assert!(
+            d.reason
+                .ends_with("It runs at high effort (Senior Developer's setting for it)."),
+            "{}",
+            d.reason
+        );
+        // A level the AI tool does not accept is never passed on.
+        policy.efforts.insert("opus".into(), Effort::Max);
+        assert_eq!(
+            decide(&w, &policy).choice.unwrap().effort,
+            Some(Effort::Low)
+        );
     }
 
     #[test]

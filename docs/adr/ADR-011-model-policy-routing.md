@@ -1,6 +1,6 @@
 # ADR-011: Plenipo Router — model registry, role model policies, and explained routing
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26), with effort selection added (§15)
 - **Date:** 2026-09-26
 - **Phase:** 6
 
@@ -91,6 +91,20 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
     needs a model that sees and makes images; Code Reviewer and Security Auditor prefer another AI
     company; Documentation Writer prefers economical models; Senior Developer premium ones. Given
     once to a template role that has no policy; the owner's policies are never replaced.
+15. **Effort per model and per role choice** (added at acceptance, at the owner's request).
+    Effort is how much reasoning a model spends on a turn. Each adapter lists the levels its CLI
+    accepts (`RuntimeCapabilities::effort_levels`) and passes the chosen one on every turn:
+    Claude Code `--effort <level>` (low, medium, high, xhigh, max), Codex
+    `-c model_reasoning_effort=<level>` (minimal, low, medium, high, xhigh). A model in the
+    registry has an optional effort (none: the tool's default); a role's policy can set its own
+    effort for any model (`efforts`, by model ID). The engine picks the role's effort, else the
+    model's, and only a level the tool accepts; the decision records it (`RouteChoice.effort`)
+    and says it in the reason ("It runs at high effort"). A runtime session stores its effort
+    (Ledger schema 5, `runtime_sessions.effort`) so every turn of a conversation, including a
+    resumed one, runs at the same level; the runtime refuses a level its adapter does not list
+    (Codex itself accepts any value). A fixed position runs its model at the model's effort.
+    This is the building block for organization-wide policies that assign models and effort to
+    jobs, which a later phase can offer as presets over role policies.
 
 ## Consequences
 
@@ -106,6 +120,9 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
   that stays limited without a reset time is tried again after an hour.
 - Pay-per-use API billing remains off; enabling it later needs adapter changes (ADR-007) as well
   as a setting.
+- Effort levels are the CLIs' own; a new CLI version that adds or drops a level needs its
+  adapter's list updated. A role's effort for a model that moves to another AI tool is dropped
+  when that tool does not accept it.
 
 ## Alternatives considered
 
@@ -121,3 +138,6 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
   the owner adds the names their tools accept.
 - **Switching company on a usage limit by default** — the plan's own option is to pause, and
   earlier phases promised that a usage limit never moves work to another AI company.
+- **Effort as part of the model entry only** — the same model often suits several jobs at
+  different efforts (a quick reviewer, a careful architect); a per-role setting avoids duplicate
+  registry entries.

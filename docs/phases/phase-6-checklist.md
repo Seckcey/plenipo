@@ -51,6 +51,10 @@ coordinators.
 - **Cross-company review.** The work under review is the tasks a request references, or else
   the requester's own work; a reviewer role that prefers (or requires) another AI company is
   routed away from those companies.
+- **Effort** (added at the owner's review, ADR-011 §15): each model has an optional effort level
+  and each role can set its own for any model; the AI tool gets it on every turn (Claude Code
+  `--effort`, Codex `model_reasoning_effort`), the reason says it, and a conversation keeps it
+  (Ledger schema 5).
 - **Template defaults** (plan examples): Designer needs a model that sees and makes images;
   Code Reviewer and Security Auditor prefer another AI company; Documentation Writer prefers
   economical models; Senior Developer prefers premium ones. Seeded once per template role; the
@@ -71,6 +75,7 @@ coordinators.
 - [x] Settings UI (models, AI tools, role model choices with a live "next worker" preview,
       usage-limit behavior)
 - [x] Automatic and Fixed positions on the Organization canvas
+- [x] Effort per model and per role choice (owner request)
 - [x] ADR-011 (how Plenipo picks each worker's AI model); architecture, README, vocabulary,
       setup updated
 
@@ -106,9 +111,9 @@ Code Reviewer). Positions created before Phase 6 keep the AI tool you gave them 
    (default model)_; _AI tools_ shows both "Yes"; _Pay-per-use API billing: Off_. Every role shows
    the model its next worker would get and why (the Designer shows "None right now": no model is
    marked as able to see and make images).
-3. **Add a model** → AI tool _Claude Code_, model name `sonnet`, your name _Sonnet_ → **Add
-   model**. (Use any name your Claude Code accepts for its `--model` option; do the same for Codex
-   if you like.)
+3. **Add a model** → AI tool _Claude Code_, model name `sonnet`, your name _Sonnet_, Effort
+   _Medium_ → **Add model**. (Use any name your Claude Code accepts for its `--model` option; do
+   the same for Codex if you like.) The table shows its effort.
 4. **Organization** → select _Website Supervisor_ → **Hire into team** → Role _Senior Developer_,
    Title _Backend Developer_, AI tool **Automatic** → **Hire**. Its node reads "Auto · Claude Code".
 5. **Settings** → **AI models** → _Senior Developer_ → **Change** → add _Codex (default model)_ →
@@ -118,17 +123,21 @@ Code Reviewer). Positions created before Phase 6 keep the AI tool you gave them 
    Python function that reverses a string, then give me the result."_ Expected: a worker appears
    under _Backend Developer_ with a **Codex** chip; select _Backend Developer_ → **Why the next
    worker gets this model** explains it. (Acceptance criterion 1 and 2.)
-7. **Settings** → _Senior Developer_ → **Change** → remove Codex, add _Sonnet_ → **Save**. Give the
+7. **Settings** → _Senior Developer_ → **Change** → remove Codex, add _Sonnet_, set its effort
+   to _High effort_ → **Save**. The row reads "Sonnet (Claude Code) · high effort". Give the
    supervisor the same objective again: this worker runs on **Claude Code** with model `sonnet`
-   (the worker's details show "Claude Code · sonnet" and why). The supervisor and its instructions
-   did not change.
+   at high effort (the worker's details show "Claude Code · sonnet" and why, ending "It runs at
+   high effort (Senior Developer's setting for it)."). The supervisor and its instructions did not
+   change.
 8. **Activity** → the objective's task → the worker's child task: "Worker brought in for Backend
-   Developer — Sonnet (Claude Code) is Senior Developer's first choice and is ready."
+   Developer — Sonnet (Claude Code) is Senior Developer's first choice and is ready. It runs at
+   high effort (Senior Developer's setting for it)."
 9. Optional: select the Phase 5 _Senior Developer_ (fixed) → **Why this AI model** says you set
    it; **Edit title or AI model** → AI tool **Automatic** makes it follow the role's choices.
 
-Things only real CLIs can confirm (report anything odd): that each model name you add is one
-your CLI accepts (a wrong name fails that worker's task with the CLI's own message), and how a
+Things only real CLIs can confirm (report anything odd): that each effort level runs (Plenipo
+offers only the levels each CLI lists; an older CLI without `--effort` fails the worker's task with
+its own message), that each model name you add is one your CLI accepts (a wrong name fails that worker's task with the CLI's own message), and how a
 real usage limit reads (Claude Code reports its reset time; Plenipo then shows "resets in …").
 
 ## Out of scope

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type {
   CostClass,
+  Effort,
   ModelFeature,
   ModelInfo,
   ModelInput,
@@ -9,7 +10,15 @@ import type {
 
 import { removeModel, saveModel } from "../../api/commands";
 import { ago } from "../../org/format";
-import { COSTS, COST_LABEL, FEATURES, FEATURE_LABEL, tokens } from "../../routing/format";
+import {
+  COSTS,
+  COST_LABEL,
+  EFFORT_LABEL,
+  FEATURES,
+  FEATURE_LABEL,
+  effortLevels,
+  tokens,
+} from "../../routing/format";
 import { Modal } from "../org/Modal";
 import { useChange, type Apply } from "../../routing/useChange";
 import { Refusal } from "./shared";
@@ -50,6 +59,7 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
             <th scope="col">Can also</th>
             <th scope="col">Context</th>
             <th scope="col">Cost</th>
+            <th scope="col">Effort</th>
             <th scope="col">
               <span className="visually-hidden">Actions</span>
             </th>
@@ -67,7 +77,8 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
               <td>{m.features.map((f) => FEATURE_LABEL[f]).join(", ") || "—"}</td>
               <td>{m.contextTokens ? tokens(m.contextTokens) : "—"}</td>
               <td>{COST_LABEL[m.cost]}</td>
-              <td className="actions">
+              <td>{m.effort ? EFFORT_LABEL[m.effort] : "Tool's default"}</td>
+              <td className="models__actions">
                 <button
                   type="button"
                   className="button button--small button--quiet"
@@ -156,8 +167,12 @@ function ModelDialog({
     (existing?.contextTokens ?? add.contextTokens)?.toString() ?? "",
   );
   const [cost, setCost] = useState<CostClass>(existing?.cost ?? add.cost ?? "standard");
+  const [effort, setEffort] = useState<Effort | "">(existing?.effort ?? add.effort ?? "");
   const { pending, error, run } = useChange(onApply);
   const builtIn = existing?.builtIn ?? false;
+  const levels = effortLevels(snapshot, runtimeId);
+  // A level the chosen AI tool does not accept falls back to its default.
+  const chosenEffort = effort !== "" && levels.includes(effort) ? effort : "";
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -169,6 +184,7 @@ function ModelDialog({
       ...(existing ? { id: existing.id } : {}),
       ...(name.trim() && !builtIn ? { name: name.trim() } : {}),
       ...(context.trim() ? { contextTokens: Number(context) } : {}),
+      ...(chosenEffort ? { effort: chosenEffort } : {}),
     };
     void run(() => saveModel(input));
   };
@@ -246,6 +262,25 @@ function ModelDialog({
               </option>
             ))}
           </select>
+        </label>
+        <label className="field">
+          <span>Effort</span>
+          <select
+            value={chosenEffort}
+            disabled={levels.length === 0}
+            onChange={(e) => setEffort(e.target.value as Effort | "")}
+          >
+            <option value="">The AI tool&apos;s default</option>
+            {levels.map((l) => (
+              <option key={l} value={l}>
+                {EFFORT_LABEL[l]}
+              </option>
+            ))}
+          </select>
+          <small className="field__hint">
+            How hard the model thinks before it answers. Higher is slower and uses more of your
+            plan. A role can choose its own effort for this model.
+          </small>
         </label>
         <Refusal error={error} />
         <footer className="modal__footer">

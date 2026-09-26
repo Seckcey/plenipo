@@ -1,7 +1,9 @@
 //! Router DTOs shared with the frontend (camelCase on the wire). AI tools (runtimes) and AI
 //! companies (providers) are data values; no vendor appears in a type.
 
-use plenipo_runtime::agent::AuthState;
+use std::collections::BTreeMap;
+
+use plenipo_runtime::agent::{AuthState, Effort};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -100,6 +102,9 @@ pub struct ModelInfo {
     pub context_tokens: Option<u32>,
     #[serde(default)]
     pub cost: CostClass,
+    /// The effort level it runs at unless a role says otherwise (`None`: the AI tool's default).
+    #[serde(default)]
+    pub effort: Option<Effort>,
     /// One per AI tool, added by Plenipo; it can be edited but not removed.
     #[serde(default)]
     pub built_in: bool,
@@ -121,6 +126,9 @@ pub struct ModelInput {
     #[ts(optional)]
     pub context_tokens: Option<u32>,
     pub cost: CostClass,
+    /// Absent: the AI tool's default effort.
+    #[ts(optional)]
+    pub effort: Option<Effort>,
 }
 
 /// A role's model policy.
@@ -139,6 +147,9 @@ pub struct RolePolicy {
     pub never_companies: Vec<String>,
     pub cost: CostPreference,
     pub cross_company: CrossCompany,
+    /// The effort level this role runs a model at, by model ID, when it differs from the
+    /// model's own setting.
+    pub efforts: BTreeMap<String, Effort>,
 }
 
 /// Choices that apply to every role.
@@ -186,6 +197,8 @@ pub struct ToolInfo {
     pub usage_limit: Option<UsageLimit>,
     /// Can take new work now (ready and not at a usage limit).
     pub available: bool,
+    /// Effort levels the AI tool accepts, lowest first (empty: none).
+    pub effort_levels: Vec<Effort>,
 }
 
 /// What happened to one model the router considered.
@@ -222,6 +235,8 @@ pub struct RouteChoice {
     pub company: String,
     /// The model name passed to the AI tool (`None`: its default).
     pub model: Option<String>,
+    /// The effort level passed to the AI tool (`None`: its default).
+    pub effort: Option<Effort>,
     /// e.g. "Opus (Claude Code)".
     pub label: String,
 }

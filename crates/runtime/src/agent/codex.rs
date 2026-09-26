@@ -15,7 +15,7 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, NoticeLevel, RuntimeCapabilities, TurnResult,
+    AgentEvent, AuthState, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -64,6 +64,14 @@ impl RuntimeAdapter for Codex {
                            write files or use the network until Plenipo Guard grants \
                            capabilities (Phase 7)."
                 .into(),
+            // `codex exec -c model_reasoning_effort=<level>`.
+            effort_levels: vec![
+                Effort::Minimal,
+                Effort::Low,
+                Effort::Medium,
+                Effort::High,
+                Effort::XHigh,
+            ],
         }
     }
 
@@ -162,6 +170,12 @@ impl RuntimeAdapter for Codex {
         .to_vec();
         if let Some(model) = &request.model {
             args.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(effort) = request.effort {
+            args.extend([
+                "-c".into(),
+                format!("model_reasoning_effort={}", effort.as_str()),
+            ]);
         }
         if let ProviderSession::Resume { id } = &request.session {
             args.extend(["resume".into(), id.clone()]);
@@ -466,6 +480,7 @@ mod tests {
         TurnRequest {
             session: ProviderSession::New { preassigned: None },
             model: None,
+            effort: None,
             billing_confirmed: true,
         }
     }
@@ -492,6 +507,7 @@ mod tests {
         let resume = Codex.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "t-1".into() },
             model: Some("gpt-x".into()),
+            effort: Some(Effort::Minimal),
             billing_confirmed: true,
         });
         assert_eq!(
@@ -504,6 +520,8 @@ mod tests {
                 "--skip-git-repo-check",
                 "--model",
                 "gpt-x",
+                "-c",
+                "model_reasoning_effort=minimal",
                 "resume",
                 "t-1"
             ]

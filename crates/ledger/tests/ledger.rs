@@ -74,7 +74,7 @@ fn migrations_apply_roll_back_and_reapply_cleanly() {
 
 /// A synthetic migration one past the newest real one (simulates a future Plenipo).
 const NEXT: Migration = Migration {
-    version: 5,
+    version: 6,
     name: "test_add_column",
     up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
     down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",
@@ -169,17 +169,13 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
     let (task_id, session_id) = {
         let v2 = Ledger::open_with(&path, &MIGRATIONS[..2]).unwrap();
         assert_eq!(v2.schema_version().unwrap(), 2);
-        let s = v2
-            .open_runtime_session(
-                plenipo_ledger::NewRuntimeSession {
-                    id: "s-1".into(),
-                    runtime: "codex".into(),
-                    provider: "openai".into(),
-                    title: "t".into(),
-                    working_dir: "/w".into(),
-                    ..Default::default()
-                },
-                "owner",
+        // A session as a Phase 3 build wrote it (its own column set).
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO runtime_sessions (id, runtime, provider, title, working_dir, state,
+                     created_at, updated_at)
+                 VALUES ('s-1', 'codex', 'openai', 't', '/w', 'open', 1, 1);",
             )
             .unwrap();
         let t = v2
@@ -187,7 +183,7 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
                 NewTask {
                     requested_by: "owner".into(),
                     objective: "a Phase 3 turn".into(),
-                    metadata: json!({ "sessionId": s.id, "turn": 1 }),
+                    metadata: json!({ "sessionId": "s-1", "turn": 1 }),
                     ..NewTask::default()
                 },
                 "owner",
@@ -197,7 +193,7 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
             .unwrap();
         v2.transition_task(&t.id, TaskState::Succeeded, "agent:codex", None)
             .unwrap();
-        (t.id, s.id)
+        (t.id, "s-1".to_owned())
     };
     let l = Ledger::open(&path).unwrap();
     assert_eq!(l.schema_version().unwrap(), migrate::latest(MIGRATIONS));
@@ -209,6 +205,10 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
         .any(|n| n.contains("upgraded from version 2")));
     // Phase 3 sessions and turns are intact and carry no Liaison messages.
     assert_eq!(l.session_tasks(&session_id).unwrap()[0].id, task_id);
+    assert_eq!(
+        l.runtime_session(&session_id).unwrap().unwrap().effort,
+        None
+    );
     assert_eq!(l.events_for_task(&task_id).unwrap().len(), 3);
     assert!(l.liaison_messages_for_task(&task_id).unwrap().is_empty());
     assert!(l.liaison_open_requests().unwrap().is_empty());
@@ -241,7 +241,7 @@ fn phase4_ledger_upgrades_to_the_workforce() {
         .unwrap();
     }
     let l = Ledger::open(&path).unwrap();
-    assert_eq!(l.schema_version().unwrap(), 4);
+    assert_eq!(l.schema_version().unwrap(), 5);
     assert!(l
         .status()
         .unwrap()
@@ -285,7 +285,7 @@ fn newer_schema_is_refused_and_left_untouched() {
     drop(Ledger::open_with(&path, &with_next()).unwrap());
     let before = std::fs::read(&path).unwrap();
     match Ledger::open(&path) {
-        Err(LedgerError::NewerSchema { db: 5, app: 4 }) => {}
+        Err(LedgerError::NewerSchema { db: 6, app: 5 }) => {}
         other => panic!("expected NewerSchema, got {:?}", other.map(|_| ())),
     }
     assert!(path.exists(), "not quarantined");

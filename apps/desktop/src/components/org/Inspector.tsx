@@ -12,6 +12,7 @@ import type {
 
 import { getWork, toCommandError } from "../../api/commands";
 import { TASK_STATE_LABEL } from "../../ledger/format";
+import { choiceLabel } from "../../routing/format";
 import {
   OVERSIGHT_LABEL,
   OVERSIGHT_NOUN,
@@ -1080,7 +1081,7 @@ function RouteSection({ p, snapshot }: { p: PositionInfo; snapshot: OrgSnapshot 
       {conversation && p.automatic && (
         <p className="muted inspector__note">
           Its conversation stays on {runtimeLabel(snapshot, conversation)}. A new agent for this
-          position would get: {route.choice?.label ?? "no model now"}.
+          position would get: {route.choice ? choiceLabel(route.choice) : "no model now"}.
         </p>
       )}
       <p

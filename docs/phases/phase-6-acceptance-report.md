@@ -10,15 +10,23 @@
 
 Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [a role's model choice changed](evidence/phase-6/models-role-choices.png) ·
+[a role's effort for a model](evidence/phase-6/models-effort.png) ·
 [why the next worker gets its model](evidence/phase-6/routing-why.png) ·
 [the worker on Codex](evidence/phase-6/routing-worker-codex.png) ·
 [after the change: the worker on Claude Code](evidence/phase-6/routing-worker-claude.png) ·
 [the reason in the Ledger's trail](evidence/phase-6/routing-trail.png) ·
 [a usage limit holding work back](evidence/phase-6/models-usage-limit.png).
 
-Test totals: **406 Rust** (Linux) · **116 frontend** · **35 end-to-end**
+Test totals: **409 Rust** (Linux) · **116 frontend** · **35 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5 + 5
 Phase 6).
+
+**Effort (added at the owner's review).** Each model has an optional effort level — how hard it
+thinks — and each role can set its own effort for any model in its choices. Plenipo passes it to
+the AI tool on every turn of the conversation (Claude Code `--effort`, Codex
+`model_reasoning_effort`) and says it in the reason ("It runs at high effort (Senior Developer's
+setting for it)."). This is ADR-011 §15; organization-wide presets that assign models and effort
+to jobs can build on it later.
 
 On screen, model policies are "model choices", the preferred model the "first choice", fallbacks
 "backups", a position that follows its role's policy "Automatic", and providers "AI companies"
@@ -73,6 +81,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | E2E (real app)     | In the Linux webview (WebKitGTK), after a model was added to a role's list, the "Add a model to the list" menu could keep showing the next model as selected; choosing it then did nothing, so a second model could not be added. | The menu is rebuilt after every change and always shows its prompt again.                                                                 |
 | Integration design | A supervisor's team list named each member's AI tool, so changing a role's model choice would have changed the supervisor's instructions (criterion 1 says it must not).                                                          | Automatic members are listed without an AI tool; the acceptance test compares the supervisor's briefing before and after a policy change. |
 | Clippy             | Recording the routing reason with each worker made the Ledger's handoff decision type large.                                                                                                                                      | The worker is boxed.                                                                                                                      |
+| Screenshot review  | In "Your models", each row's Edit and Remove buttons sat below the row (a flex layout on a table cell).                                                                                                                           | The buttons stay in their cell.                                                                                                           |
 | Screenshot review  | The explanation of a successful choice used the warning color.                                                                                                                                                                    | Warning color only when no model can take the work.                                                                                       |
 
 ## 4. Deliverables
@@ -91,6 +100,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | Settings UI                   | `apps/desktop/src/components/models/*` (Settings → AI models), `routing/*`                                                                                       |
 | Automatic and fixed positions | Ledger (`AUTOMATIC`, `route_agent`), Workforce directory and objectives, dialogs and details panel (`components/org/*`)                                          |
 | Commands                      | `get_routing`, `save_model`, `remove_model`, `set_role_policy`, `set_routing_options`, `clear_usage_limit` (architecture overview §3), each granted by name      |
+| Effort per model and per role | `RuntimeCapabilities.effortLevels` and each adapter's flag; `ModelInfo.effort`, `RolePolicy.efforts`, `RouteChoice.effort`; `runtime_sessions.effort` (schema 5) |
 | Decision record               | [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR-011-model-policy-routing.md)                                                                     |
 
 ## 5. Security notes
@@ -107,6 +117,9 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 - No capabilities are granted (Guard, Phase 7); capability marks on models describe the model,
   not permissions.
 - Agent-facing text changed only to leave automatic members' AI tools out of team lists.
+- Effort levels are a fixed list per adapter and are passed as a single argument. Codex accepts
+  any `model_reasoning_effort` value without complaint, so the runtime refuses a level its adapter
+  does not list before anything starts, and the Router refuses to save one.
 
 ## 6. Deviations from the plan
 
@@ -119,16 +132,17 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | Positions are Automatic or Fixed; positions from Phase 5 stay Fixed                                         | No silent provider switching on upgrade; owners can still pin a position                    | ADR-011 §9  |
 | Full-time agents are routed when their conversation starts, then keep it                                    | Conversation continuity (plan §1.6)                                                         | ADR-011 §10 |
 | Built-in roles get starting policies (images for Designer, another company for reviewers, cost preferences) | The plan's example policies, without model names                                            | ADR-011 §14 |
+| Effort per model and per role choice, stored with each conversation (Ledger schema 5)                       | The owner asked for it at review; the plan does not mention effort                          | ADR-011 §15 |
 
 ## 7. Owner items
 
-| ID  | Item                                                                                                                                                                                                                            | Recommendation                   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| O1  | ADR-011 (how Plenipo picks each worker's AI model) is **Proposed**. Accepting it confirms the design in §6: model choices per role, Automatic and fixed positions, usage limits that wait by default, and API billing kept off. | Accept or amend.                 |
-| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd.                                                               | Required for acceptance.         |
-| O3  | Version stays **0.5.0**; Phase 5 acceptance (0.6.0) and Phase 6 acceptance (0.7.0) are pending.                                                                                                                                 | Bump after acceptance.           |
-| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                                                                                   | Keep, or change its choices.     |
-| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                                                                                            | Say "start Phase 7" after O1–O2. |
+| ID  | Item                                                                                                                                                              | Recommendation                   |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| O1  | ADR-011 (how Plenipo picks each worker's AI model) — **Accepted** by the owner on 2026-09-26, with effort per model and per role choice added (§15).              | Done.                            |
+| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
+| O3  | Version stays **0.5.0**; Phase 5 acceptance (0.6.0) and Phase 6 acceptance (0.7.0) are pending.                                                                   | Bump after acceptance.           |
+| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                     | Keep, or change its choices.     |
+| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                              | Say "start Phase 7" after O1–O2. |
 
 ## 8. Verification
 
@@ -136,7 +150,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | ------------------------------------------------------------------------- | ---------------------------------------------- |
 | `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 116 frontend tests                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                           |
-| `cargo test --workspace`                                                  | Pass — 406 tests                               |
+| `cargo test --workspace`                                                  | Pass — 409 tests                               |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 35 of 35, including the 5 Phase 6 tests |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)    |
 | GitHub CI on the PR                                                       | Linked from the PR                             |

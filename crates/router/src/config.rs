@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use plenipo_ledger::workforce::{clean_line, clean_model, clean_runtime_id};
+use plenipo_runtime::agent::Effort;
 use serde::{Deserialize, Serialize};
 
 use crate::dto::*;
@@ -27,8 +28,22 @@ pub struct RoutingConfig {
     pub cleared_limits: BTreeMap<String, u64>,
 }
 
+/// The AI tools this build has (runtime IDs), with the effort levels each accepts.
+pub type ToolLevels = BTreeMap<String, Vec<Effort>>;
+
 fn invalid(message: impl Into<String>) -> RouterError {
     RouterError::Invalid(message.into())
+}
+
+/// Refuse an effort level the AI tool does not accept.
+fn check_effort(effort: Option<Effort>, runtime_id: &str, tools: &ToolLevels) -> Result<()> {
+    match effort {
+        Some(e) if !tools.get(runtime_id).is_some_and(|l| l.contains(&e)) => Err(invalid(format!(
+            "{runtime_id} has no {} effort level",
+            e.label()
+        ))),
+        _ => Ok(()),
+    }
 }
 
 impl RoutingConfig {
@@ -70,6 +85,7 @@ impl RoutingConfig {
                     features: Vec::new(),
                     context_tokens: None,
                     cost: CostClass::Standard,
+                    effort: None,
                     built_in: true,
                 };
                 self.models.push(m.clone());
@@ -79,12 +95,13 @@ impl RoutingConfig {
         added
     }
 
-    /// Add or change a model; `tools` are the runtime IDs this build has. Returns the model.
-    pub fn save_model(&mut self, input: &ModelInput, tools: &[String]) -> Result<ModelInfo> {
+    /// Add or change a model. Returns the model.
+    pub fn save_model(&mut self, input: &ModelInput, tools: &ToolLevels) -> Result<ModelInfo> {
         let runtime_id = clean_runtime_id(&input.runtime_id)?;
-        if !tools.contains(&runtime_id) {
+        if !tools.contains_key(&runtime_id) {
             return Err(invalid(format!("there is no AI tool named {runtime_id:?}")));
         }
+        check_effort(input.effort, &runtime_id, tools)?;
         let name = input
             .name
             .as_deref()
@@ -150,8 +167,16 @@ impl RoutingConfig {
             features,
             context_tokens: input.context_tokens,
             cost: input.cost,
+            effort: input.effort,
             built_in: existing.is_some_and(|i| self.models[i].built_in),
         };
+        // A role's effort for this model must still suit its (possibly new) AI tool.
+        let levels = tools.get(&model.runtime_id);
+        for policy in self.policies.values_mut() {
+            policy
+                .efforts
+                .retain(|id, e| *id != model.id || levels.is_some_and(|l| l.contains(e)));
+        }
         match existing {
             Some(i) => self.models[i] = model.clone(),
             None => {
@@ -183,6 +208,7 @@ impl RoutingConfig {
         for (role, policy) in &mut self.policies {
             let before = policy.models.len();
             policy.models.retain(|m| m != id);
+            policy.efforts.remove(id);
             if policy.models.len() != before {
                 changed.push(role.clone());
             }
@@ -191,7 +217,12 @@ impl RoutingConfig {
     }
 
     /// A validated policy for a role; `companies` are the provider IDs this build knows.
-    pub fn check_policy(&self, policy: &RolePolicy, companies: &[String]) -> Result<RolePolicy> {
+    pub fn check_policy(
+        &self,
+        policy: &RolePolicy,
+        companies: &[String],
+        tools: &ToolLevels,
+    ) -> Result<RolePolicy> {
         if policy.models.len() > MAX_ROLE_MODELS {
             return Err(invalid(format!(
                 "a role lists at most {MAX_ROLE_MODELS} models"
@@ -225,6 +256,12 @@ impl RoutingConfig {
                 never.push(c.clone());
             }
         }
+        for (id, effort) in &policy.efforts {
+            let model = self
+                .model(id)
+                .ok_or_else(|| invalid("a chosen model is no longer in your list"))?;
+            check_effort(Some(*effort), &model.runtime_id, tools)?;
+        }
         Ok(RolePolicy {
             models: policy.models.clone(),
             needs,
@@ -232,6 +269,13 @@ impl RoutingConfig {
             never_companies: never,
             cost: policy.cost,
             cross_company: policy.cross_company,
+            // The same as the model's own setting says nothing.
+            efforts: policy
+                .efforts
+                .iter()
+                .filter(|(id, e)| self.model(id).is_some_and(|m| m.effort != Some(**e)))
+                .map(|(id, e)| (id.clone(), *e))
+                .collect(),
         })
     }
 }
@@ -257,8 +301,11 @@ fn unique_label(config: &RoutingConfig, label: &str, except: Option<&str>) -> St
 mod tests {
     use super::*;
 
-    fn tools() -> Vec<String> {
-        vec!["alpha".into(), "beta".into()]
+    fn tools() -> ToolLevels {
+        ToolLevels::from([
+            ("alpha".into(), vec![Effort::Low, Effort::High]),
+            ("beta".into(), vec![]),
+        ])
     }
 
     fn input(runtime: &str, name: Option<&str>, label: &str) -> ModelInput {
@@ -270,6 +317,7 @@ mod tests {
             features: vec![ModelFeature::Vision, ModelFeature::Vision],
             context_tokens: Some(200_000),
             cost: CostClass::Premium,
+            effort: None,
         }
     }
 
@@ -321,6 +369,14 @@ mod tests {
                 context_tokens: Some(0),
                 ..input("alpha", Some("sonnet"), "Sonnet")
             },
+            ModelInput {
+                effort: Some(Effort::Max),
+                ..input("alpha", Some("sonnet"), "Sonnet")
+            },
+            ModelInput {
+                effort: Some(Effort::Low),
+                ..input("beta", Some("gpt"), "GPT")
+            },
         ] {
             assert!(c.save_model(&bad, &tools()).is_err(), "{bad:?}");
         }
@@ -346,6 +402,77 @@ mod tests {
             ..input("alpha", Some("x"), "X")
         };
         assert!(c.save_model(&ghost, &tools()).is_err());
+        // An effort level the AI tool accepts is kept with the model.
+        let high = c
+            .save_model(
+                &ModelInput {
+                    effort: Some(Effort::High),
+                    ..input("alpha", Some("haiku"), "Haiku")
+                },
+                &tools(),
+            )
+            .unwrap();
+        assert_eq!(high.effort, Some(Effort::High));
+    }
+
+    #[test]
+    fn role_efforts_are_validated_and_follow_their_model() {
+        let mut c = RoutingConfig::default();
+        let a = c
+            .save_model(
+                &ModelInput {
+                    effort: Some(Effort::High),
+                    ..input("alpha", Some("a"), "A")
+                },
+                &tools(),
+            )
+            .unwrap();
+        let b = c
+            .save_model(&input("alpha", Some("b"), "B"), &tools())
+            .unwrap();
+        let companies = ["acme".to_owned()];
+        let policy = |efforts: &[(&String, Effort)]| RolePolicy {
+            models: vec![a.id.clone(), b.id.clone()],
+            efforts: efforts.iter().map(|(id, e)| ((*id).clone(), *e)).collect(),
+            ..RolePolicy::default()
+        };
+        let ok = c
+            .check_policy(
+                &policy(&[(&a.id, Effort::High), (&b.id, Effort::Low)]),
+                &companies,
+                &tools(),
+            )
+            .unwrap();
+        // A's own setting is already high, so only B's differs.
+        assert_eq!(ok.efforts, BTreeMap::from([(b.id.clone(), Effort::Low)]));
+        for bad in [
+            policy(&[(&b.id, Effort::Max)]),
+            policy(&[(&"nope".to_owned(), Effort::Low)]),
+        ] {
+            assert!(
+                c.check_policy(&bad, &companies, &tools()).is_err(),
+                "{bad:?}"
+            );
+        }
+        // Moving B to an AI tool without effort levels drops the role's effort for it; removing
+        // a model drops it too.
+        c.policies.insert("dev".into(), ok);
+        c.save_model(
+            &ModelInput {
+                id: Some(b.id.clone()),
+                ..input("beta", Some("b"), "B")
+            },
+            &tools(),
+        )
+        .unwrap();
+        assert!(c.policies["dev"].efforts.is_empty());
+        c.policies
+            .get_mut("dev")
+            .unwrap()
+            .efforts
+            .insert(a.id.clone(), Effort::Low);
+        c.remove_model(&a.id).unwrap();
+        assert!(c.policies["dev"].efforts.is_empty());
     }
 
     #[test]
@@ -388,6 +515,7 @@ mod tests {
                     ..RolePolicy::default()
                 },
                 &companies,
+                &tools(),
             )
             .unwrap();
         assert_eq!(ok.needs, [ModelFeature::ComputerUse]);
@@ -410,7 +538,10 @@ mod tests {
                 ..RolePolicy::default()
             },
         ] {
-            assert!(c.check_policy(&bad, &companies).is_err(), "{bad:?}");
+            assert!(
+                c.check_policy(&bad, &companies, &tools()).is_err(),
+                "{bad:?}"
+            );
         }
     }
 

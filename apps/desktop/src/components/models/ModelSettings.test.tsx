@@ -84,6 +84,23 @@ describe("Settings → AI models", () => {
       within(form).getByRole("combobox", { name: "Add a model to the list" }),
       "Claude Code (default model)",
     );
+    // Codex's default model runs at high effort for this role; Opus keeps its own setting.
+    const codexEffort = within(form).getByRole("combobox", {
+      name: "Effort for Codex (default model)",
+    });
+    expect(
+      within(codexEffort)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([
+      "Its effort (the AI tool's default)",
+      "Minimal effort",
+      "Low effort",
+      "Medium effort",
+      "High effort",
+      "Extra high effort",
+    ]);
+    await user.selectOptions(codexEffort, "High effort");
     await user.click(within(form).getByRole("checkbox", { name: "Sees images" }));
     await user.type(
       within(form).getByRole("spinbutton", { name: /Context size, at least/ }),
@@ -102,6 +119,7 @@ describe("Settings → AI models", () => {
       neverCompanies: ["openai"],
       cost: "any",
       crossCompany: "prefer",
+      efforts: { "m-codex": "high" },
     });
     await waitFor(() =>
       expect(
@@ -138,6 +156,7 @@ describe("Settings → AI models", () => {
     await user.type(label, "Opus 5.5");
     await user.click(within(dialog).getByRole("checkbox", { name: "Makes images" }));
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Cost" }), "Premium");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: /^Effort/ }), "Max");
     await user.click(within(dialog).getByRole("button", { name: "Add model" }));
     expect(api.saveModel).toHaveBeenCalledWith({
       runtimeId: "claude-code",
@@ -145,6 +164,7 @@ describe("Settings → AI models", () => {
       label: "Opus 5.5",
       features: ["imageGeneration"],
       cost: "premium",
+      effort: "max",
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 

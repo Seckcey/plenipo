@@ -152,8 +152,11 @@ function listed(browser) {
   );
 }
 
-/** Set the Senior Developer's model list to `labels`, in order, in Settings → AI models. */
-async function preferForSeniorDeveloper(browser, labels) {
+/**
+ * Set the Senior Developer's model list to `labels`, in order, in Settings → AI models, with the
+ * role's effort for some of them (`efforts`: model label → option text).
+ */
+async function preferForSeniorDeveloper(browser, labels, efforts = {}) {
   await nav(browser, "Settings");
   await waitForText(browser, ROLES, "Senior Developer");
   await clickButton(browser, "Change Senior Developer's model choices");
@@ -176,6 +179,15 @@ async function preferForSeniorDeveloper(browser, labels) {
       async () => (await listed(browser))[i] === label,
       `${label} to be choice ${i + 1}`,
     );
+  }
+  for (const [label, effort] of Object.entries(efforts)) {
+    await (
+      await browser.$(`${DEV_CHOICES} select[aria-label="Effort for ${label}"]`)
+    ).selectByVisibleText(effort);
+  }
+  if (Object.keys(efforts).length > 0) {
+    await scrollTo(browser, DEV_CHOICES);
+    await screenshot(browser, "models-effort");
   }
   await submit(browser, DEV_CHOICES);
   await waitUntil(
@@ -278,11 +290,17 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     );
     await waitForNode(browser, "Website Supervisor, Idle", 30_000);
 
-    // The owner changes the preference; the next worker follows it. The supervisor is untouched.
-    await preferForSeniorDeveloper(browser, [
-      "Claude Code (default model)",
-      "Codex (default model)",
-    ]);
+    // The owner changes the preference, with the effort Claude Code runs at for this role; the
+    // next worker follows it. The supervisor is untouched.
+    await preferForSeniorDeveloper(
+      browser,
+      ["Claude Code (default model)", "Codex (default model)"],
+      { "Claude Code (default model)": "High effort" },
+    );
+    assert.match(
+      await roleRow(browser, "Senior Developer"),
+      /Claude Code \(default model\) · high effort/,
+    );
     const second = await delegate(
       browser,
       "Now the API [handoff:role:Senior Developer+delay:5000]",
@@ -316,7 +334,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(
       browser,
       trail,
-      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready.",
+      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort (Senior Developer's setting for it).",
     );
     await screenshot(browser, "routing-trail");
   });

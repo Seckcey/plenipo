@@ -7,6 +7,7 @@
 //! organization behave as before.
 
 use plenipo_ledger::{NewWorker, Task};
+use plenipo_runtime::agent::Effort;
 use serde_json::Value;
 
 use crate::context::Destination;
@@ -29,6 +30,8 @@ pub struct Placement {
     pub label: String,
     pub runtime_id: String,
     pub model: Option<String>,
+    /// The effort level the worker runs at (`None`: the runtime's default).
+    pub effort: Option<Effort>,
     /// The worker recorded with the child task, in the same transaction.
     pub worker: NewWorker,
     /// The child's `workforce` record (its task's and its session's metadata). It must name

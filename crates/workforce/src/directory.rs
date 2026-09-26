@@ -197,6 +197,7 @@ impl Directory for WorkforceDirectory {
             label: format!("{} ({})", target.title, choice.label),
             runtime_id: choice.runtime_id.clone(),
             model: choice.model.clone(),
+            effort: choice.effort,
             worker: NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: target.id.clone(),

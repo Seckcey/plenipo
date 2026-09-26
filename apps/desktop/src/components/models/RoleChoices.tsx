@@ -2,6 +2,7 @@ import { Fragment, useState, type FormEvent } from "react";
 import type {
   CostPreference,
   CrossCompany,
+  Effort,
   ModelFeature,
   RolePolicyView,
   RoutingSnapshot,
@@ -11,9 +12,12 @@ import { setRolePolicy } from "../../api/commands";
 import {
   COST_PREFERENCE_LABEL,
   CROSS_COMPANY_LABEL,
+  EFFORT_LABEL,
   FEATURES,
   FEATURE_LABEL,
+  choiceLabel,
   companies,
+  effortLevels,
   modelLabel,
 } from "../../routing/format";
 import { useChange, type Apply } from "../../routing/useChange";
@@ -54,7 +58,7 @@ export function RoleChoices({ snapshot, onApply }: { snapshot: RoutingSnapshot; 
                 </th>
                 <td>
                   {r.next.choice ? (
-                    r.next.choice.label
+                    choiceLabel(r.next.choice)
                   ) : (
                     <span className="pill pill--warn">None right now</span>
                   )}
@@ -110,6 +114,7 @@ function PolicyEditor({
   const [never, setNever] = useState(p.neverCompanies);
   const [cost, setCost] = useState<CostPreference>(p.cost);
   const [cross, setCross] = useState<CrossCompany>(p.crossCompany);
+  const [efforts, setEfforts] = useState<Partial<Record<string, Effort>>>(p.efforts);
   const { pending, error, run } = useChange(onApply);
   const byId = new Map(snapshot.models.map((m) => [m.id, m]));
   const label = (id: string) => {
@@ -138,6 +143,7 @@ function PolicyEditor({
         neverCompanies: never,
         cost,
         crossCompany: cross,
+        efforts,
       }),
     );
     if (ok) onDone();
@@ -162,6 +168,18 @@ function PolicyEditor({
               <li key={id}>
                 <span className="models__rank">{i === 0 ? "First choice" : `Backup ${i}`}</span>
                 <span className="models__name">{label(id)}</span>
+                <EffortPicker
+                  snapshot={snapshot}
+                  modelId={id}
+                  name={label(id)}
+                  value={efforts[id]}
+                  onChange={(e) => {
+                    const next = { ...efforts };
+                    if (e) next[id] = e;
+                    else delete next[id];
+                    setEfforts(next);
+                  }}
+                />
                 <button
                   type="button"
                   className="button button--small button--quiet"
@@ -288,5 +306,40 @@ function PolicyEditor({
         </button>
       </div>
     </form>
+  );
+}
+
+/** A role's effort for one model: the model's own setting, or a level its AI tool accepts. */
+function EffortPicker({
+  snapshot,
+  modelId,
+  name,
+  value,
+  onChange,
+}: {
+  snapshot: RoutingSnapshot;
+  modelId: string;
+  name: string;
+  value: Effort | undefined;
+  onChange: (effort: Effort | undefined) => void;
+}) {
+  const model = snapshot.models.find((m) => m.id === modelId);
+  const levels = model ? effortLevels(snapshot, model.runtimeId) : [];
+  if (!model || levels.length === 0) return null;
+  const own = model.effort ? EFFORT_LABEL[model.effort].toLowerCase() : "the AI tool's default";
+  return (
+    <select
+      className="models__effort"
+      aria-label={`Effort for ${name}`}
+      value={value && levels.includes(value) ? value : ""}
+      onChange={(e) => onChange((e.target.value || undefined) as Effort | undefined)}
+    >
+      <option value="">Its effort ({own})</option>
+      {levels.map((l) => (
+        <option key={l} value={l}>
+          {EFFORT_LABEL[l]} effort
+        </option>
+      ))}
+    </select>
   );
 }

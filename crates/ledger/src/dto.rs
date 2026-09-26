@@ -779,6 +779,8 @@ pub struct RuntimeSession {
     pub closed_at: Option<u64>,
     /// Number of turns (tasks) recorded for the session.
     pub turn_count: u32,
+    /// Effort level every turn runs at (`None`: the runtime's default).
+    pub effort: Option<String>,
 }
 
 /// Input for [`crate::Ledger::open_runtime_session`]. The caller chooses the ID (it also names
@@ -789,6 +791,7 @@ pub struct NewRuntimeSession {
     pub runtime: String,
     pub provider: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub title: String,
     pub working_dir: String,
     pub metadata: Value,

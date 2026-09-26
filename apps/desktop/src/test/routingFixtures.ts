@@ -15,6 +15,10 @@ export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo
   status: "Ready: signed in with a subscription",
   usageLimit: null,
   available: true,
+  effortLevels:
+    runtimeId === "codex"
+      ? ["minimal", "low", "medium", "high", "xhigh"]
+      : ["low", "medium", "high", "xhigh", "max"],
   ...patch,
 });
 
@@ -25,6 +29,7 @@ const empty: RolePolicy = {
   neverCompanies: [],
   cost: "any",
   crossCompany: "off",
+  efforts: {},
 };
 
 /** Two built-in defaults and the owner's "Opus"; Senior Developer prefers Opus, then Codex. */
@@ -42,6 +47,7 @@ export function sampleRouting(): RoutingSnapshot {
     runtimeLabel: "Claude Code",
     company: "anthropic",
     model: "opus",
+    effort: null,
     label: "Opus (Claude Code)",
   };
   return {
@@ -54,6 +60,7 @@ export function sampleRouting(): RoutingSnapshot {
         features: [],
         contextTokens: null,
         cost: "standard",
+        effort: null,
         builtIn: true,
       },
       {
@@ -64,6 +71,7 @@ export function sampleRouting(): RoutingSnapshot {
         features: [],
         contextTokens: null,
         cost: "standard",
+        effort: null,
         builtIn: true,
       },
       {
@@ -74,6 +82,7 @@ export function sampleRouting(): RoutingSnapshot {
         features: ["vision"],
         contextTokens: 200_000,
         cost: "premium",
+        effort: null,
         builtIn: false,
       },
     ],

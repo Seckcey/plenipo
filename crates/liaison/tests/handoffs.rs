@@ -1124,7 +1124,7 @@ async fn a_restart_interrupts_workflows_in_flight_and_resumes_nothing() {
 use plenipo_ledger::{NewPosition, NewWorker, Position, RoleTemplate, RoleType};
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::{Directory, Placement, Team};
-use plenipo_runtime::agent::SessionStart;
+use plenipo_runtime::agent::{Effort, SessionStart};
 use serde_json::{json, Value};
 
 /// A directory over real Ledger positions: a lead with a team whose members are placed by
@@ -1179,6 +1179,8 @@ impl Directory for TeamDirectory {
             label: format!("{} ({})", m.title, runtime_of(m)),
             runtime_id: runtime_of(m),
             model: m.model.clone(),
+            // A position with a model also sets an effort level (as the Router may).
+            effort: m.model.as_ref().map(|_| Effort::High),
             worker: NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: m.id.clone(),
@@ -1335,6 +1337,11 @@ async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
         worker_session.model.as_deref(),
         Some("fake-model-x"),
         "the position's model"
+    );
+    assert_eq!(
+        worker_session.effort,
+        Some(Effort::High),
+        "the placement's effort"
     );
 
     // The worker was in the workforce while it ran and left when its task ended; its

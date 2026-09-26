@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthStatus, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
+    AgentEvent, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
 use crate::dto::{ExecutionState, TokenUsage};
 
@@ -68,6 +68,8 @@ pub struct TurnRequest {
     pub session: ProviderSession,
     /// Validated model name, or `None` for the runtime's default.
     pub model: Option<String>,
+    /// One of the runtime's effort levels, or `None` for its default.
+    pub effort: Option<Effort>,
     /// The sign-in check confirmed a subscription. When false, a runtime that checks billing
     /// per turn must see a subscription credential in the stream, or stop the turn.
     pub billing_confirmed: bool,

@@ -97,6 +97,7 @@ export type { CostPreference } from "./generated/CostPreference";
 export type { CrossCompany } from "./generated/CrossCompany";
 export type { LimitBehavior } from "./generated/LimitBehavior";
 export type { ModelFeature } from "./generated/ModelFeature";
+export type { Effort } from "./generated/Effort";
 export type { ModelInfo } from "./generated/ModelInfo";
 export type { ModelInput } from "./generated/ModelInput";
 export type { ModelSeen } from "./generated/ModelSeen";

@@ -13,7 +13,8 @@ use plenipo_liaison::Directory as _;
 use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_router::{CrossCompany, LimitBehavior, ModelInput, Router, RoutingOptions};
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, TurnResult,
+    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, Effort, HostEnv,
+    TurnResult,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
@@ -963,18 +964,21 @@ impl H {
 
     /// Set a role's ordered model list, keeping the rest of its policy.
     fn prefer(&self, role: &str, labels: &[&str]) {
+        let mut policy = self.policy(role);
+        policy.models = labels.iter().map(|l| self.model(l)).collect();
+        self.router.set_policy(&self.role(role), &policy).unwrap();
+    }
+
+    fn policy(&self, role: &str) -> plenipo_router::RolePolicy {
         let role = self.role(role);
-        let mut policy = self
-            .router
+        self.router
             .snapshot()
             .unwrap()
             .roles
             .into_iter()
             .find(|r| r.role_id == role)
             .unwrap()
-            .policy;
-        policy.models = labels.iter().map(|l| self.model(l)).collect();
-        self.router.set_policy(&role, &policy).unwrap();
+            .policy
     }
 
     /// The only child task `root` created in its latest round.
@@ -1026,6 +1030,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
             features: vec![],
             context_tokens: None,
             cost: plenipo_router::CostClass::Economical,
+            effort: Some(Effort::High),
         })
         .unwrap();
     assert_eq!(
@@ -1085,7 +1090,8 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
     assert_eq!(
         reason(&child),
-        "Fast (Claude Code) is Senior Developer's first choice and is ready."
+        "Fast (Claude Code) is Senior Developer's first choice and is ready. It runs at high \
+         effort (its setting)."
     );
     let worker =
         h.rt.session(child.metadata["sessionId"].as_str().unwrap())
@@ -1097,6 +1103,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
         Some("fake-fast"),
         "the chosen model"
     );
+    assert_eq!(worker.effort, Some(Effort::High), "the model's effort");
     let history = h.ledger.position_agents(&backend, 10).unwrap();
     let runtimes: Vec<Option<&str>> = history.iter().map(|a| a.runtime_id.as_deref()).collect();
     assert_eq!(
@@ -1242,6 +1249,12 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(p.agent.as_ref().unwrap().runtime_id, None, "not routed yet");
     assert_eq!(p.status, PositionStatus::Idle);
     h.prefer("Manager", &["Codex (default model)"]);
+    // The Manager runs Codex's default model at minimal effort.
+    let mut policy = h.policy("Manager");
+    policy
+        .efforts
+        .insert(h.model("Codex (default model)"), Effort::Minimal);
+    h.router.set_policy(&h.role("Manager"), &policy).unwrap();
 
     let first = h.objective(&head, "Plan the quarter").await;
     assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
@@ -1249,7 +1262,13 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(turn.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&turn),
-        "Codex (default model) is Manager's first choice and is ready."
+        "Codex (default model) is Manager's first choice and is ready. It runs at minimal \
+         effort (Manager's setting for it)."
+    );
+    let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        h.rt.session(&conversation).await.unwrap().session.effort,
+        Some(Effort::Minimal)
     );
     let routed = h
         .ledger
@@ -1289,15 +1308,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
 
     // No model can take the work: the objective is refused with the reason.
     h.prefer("Manager", &[]);
-    let mut policy = h
-        .router
-        .snapshot()
-        .unwrap()
-        .roles
-        .into_iter()
-        .find(|r| r.role_name == "Manager")
-        .unwrap()
-        .policy;
+    let mut policy = h.policy("Manager");
     policy.needs = vec![plenipo_router::ModelFeature::ComputerUse];
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
     h.workforce.vacate(&head).unwrap();

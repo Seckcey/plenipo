@@ -399,6 +399,13 @@ fn claude_turn(args: &[String]) -> i32 {
         eprintln!("fake claude: expected --output-format stream-json");
         return 2;
     }
+    // Like the real CLI, which lists its choices.
+    if let Some(effort) = flag(args, "--effort") {
+        if !["low", "medium", "high", "xhigh", "max"].contains(&effort.as_str()) {
+            eprintln!("error: option '--effort <level>' argument '{effort}' is invalid.");
+            return 1;
+        }
+    }
     let prompt = read_prompt();
     let cwd = std::env::current_dir()
         .map(|d| d.display().to_string())

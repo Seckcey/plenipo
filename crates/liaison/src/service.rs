@@ -19,9 +19,9 @@ use plenipo_ledger::{
     MessageState, NewEvent, NewHandoffRequest, NewReply, NewTask, OpenRequest, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    unavailable_outcome, AgentRuntime, AgentSessionDetail, InstallState, SessionStart, StepNote,
-    TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnTask,
-    OWNER,
+    unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState, SessionStart,
+    StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult,
+    TurnTask, OWNER,
 };
 use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
@@ -401,6 +401,7 @@ impl Liaison {
                     id: None,
                     runtime_id: runtime_id.into(),
                     model: model.map(str::to_owned),
+                    effort: None,
                     title: None,
                     metadata: json!({ "liaison": {
                         "enabled": true,
@@ -1051,6 +1052,10 @@ impl Liaison {
                     if let Some(model) = &p.model {
                         metadata["model"] = json!(model);
                     }
+                    if let Some(effort) = p.effort {
+                        envelope["effort"] = json!(effort);
+                        metadata["effort"] = json!(effort);
+                    }
                     project_id = p.project_id.clone();
                 }
                 HandoffDecision::Accept {
@@ -1284,6 +1289,7 @@ impl Liaison {
             id: Some(session_id.into()),
             runtime_id: runtime_id.into(),
             model: child.metadata["model"].as_str().map(str::to_owned),
+            effort: child.metadata["effort"].as_str().and_then(Effort::parse),
             title: Some(child.objective.clone()),
             metadata,
         };

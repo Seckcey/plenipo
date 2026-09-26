@@ -142,6 +142,8 @@ pub struct SessionStart {
     pub id: Option<String>,
     pub runtime_id: String,
     pub model: Option<String>,
+    /// One of the runtime's effort levels; `None` for its default.
+    pub effort: Option<Effort>,
     /// Defaults to the objective's first line.
     pub title: Option<String>,
     /// Stored with the session (a JSON object, or null); opaque to the runtime.
@@ -765,6 +767,15 @@ impl AgentRuntime {
         let adapter = self.adapter(&start.runtime_id).ok_or_else(|| {
             RuntimeError::InvalidInput(format!("unknown runtime: {}", start.runtime_id))
         })?;
+        if let Some(effort) = start.effort {
+            if !adapter.capabilities().effort_levels.contains(&effort) {
+                return Err(RuntimeError::InvalidInput(format!(
+                    "{} has no {} effort level",
+                    adapter.label(),
+                    effort.label()
+                )));
+            }
+        }
         let metadata = object_or_empty("session metadata", start.metadata)?;
         let session_id = match start.id {
             Some(id) => validate_session_id(&id)?,
@@ -793,6 +804,7 @@ impl AgentRuntime {
             provider_session_id: None,
             provider_session_confirmed: false,
             model,
+            effort: start.effort,
             title,
             state: SessionState::Open,
             working_dir: working_dir.display().to_string(),
@@ -1417,6 +1429,7 @@ fn turn_request(
             },
         },
         model: session.model.clone(),
+        effort: session.effort,
         billing_confirmed,
     }
 }

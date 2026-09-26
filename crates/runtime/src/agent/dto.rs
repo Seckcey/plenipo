@@ -79,6 +79,53 @@ pub struct RuntimeCapabilities {
     pub billing_checked_per_turn: bool,
     /// Human-readable description of what the agent may do in this phase.
     pub tool_posture: String,
+    /// Effort levels the runtime accepts, lowest first; empty when it has no effort setting.
+    pub effort_levels: Vec<Effort>,
+}
+
+/// How much reasoning a model spends on a turn. Each runtime accepts some of these levels
+/// ([`RuntimeCapabilities::effort_levels`]); `None` elsewhere means the runtime's own default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Effort {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    #[serde(rename = "xhigh")]
+    XHigh,
+    Max,
+}
+
+impl Effort {
+    /// The value the CLIs accept (`--effort high`, `model_reasoning_effort=high`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Effort::Minimal => "minimal",
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::XHigh => "xhigh",
+            Effort::Max => "max",
+        }
+    }
+
+    /// Plain words for the screen.
+    pub fn label(self) -> &'static str {
+        match self {
+            Effort::Minimal => "minimal",
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::XHigh => "extra high",
+            Effort::Max => "max",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Effort> {
+        serde_json::from_value(serde_json::Value::String(value.into())).ok()
+    }
 }
 
 /// Provider diagnostics for one runtime.
@@ -243,6 +290,8 @@ pub struct AgentSession {
     /// The provider has reported `provider_session_id`, so it can be resumed.
     pub provider_session_confirmed: bool,
     pub model: Option<String>,
+    /// Effort level every turn runs at (`None`: the runtime's default).
+    pub effort: Option<Effort>,
     pub title: String,
     pub state: SessionState,
     pub working_dir: String,

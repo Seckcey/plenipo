@@ -2,9 +2,11 @@ import type {
   CostClass,
   CostPreference,
   CrossCompany,
+  Effort,
   LimitBehavior,
   ModelFeature,
   ModelInfo,
+  RouteChoice,
   RoutingSnapshot,
 } from "@plenipo/types";
 
@@ -16,6 +18,28 @@ export const FEATURE_LABEL: Record<ModelFeature, string> = {
 };
 
 export const FEATURES: ModelFeature[] = ["vision", "imageGeneration", "computerUse"];
+
+/** How hard a model thinks before it answers. */
+export const EFFORT_LABEL: Record<Effort, string> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** The effort levels an AI tool accepts (none: it has no effort setting). */
+export function effortLevels(snapshot: RoutingSnapshot, runtimeId: string): Effort[] {
+  return snapshot.tools.find((t) => t.runtimeId === runtimeId)?.effortLevels ?? [];
+}
+
+/** "Opus (Claude Code) · high effort". */
+export function choiceLabel(choice: RouteChoice): string {
+  return choice.effort
+    ? `${choice.label} · ${EFFORT_LABEL[choice.effort].toLowerCase()} effort`
+    : choice.label;
+}
 
 export const COST_LABEL: Record<CostClass, string> = {
   economical: "Economical",

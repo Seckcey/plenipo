@@ -12,7 +12,7 @@ use plenipo_ledger::{
 use plenipo_liaison::Liaison;
 use plenipo_router::Router;
 use plenipo_runtime::agent::{
-    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
+    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, Effort, InstallState, SessionStart,
 };
 use serde_json::{json, Value};
 
@@ -491,6 +491,7 @@ impl Workforce {
                             id: None,
                             runtime_id: plan.runtime_id,
                             model: plan.model,
+                            effort: plan.effort,
                             title: Some(plan.title),
                             metadata: Value::Null,
                         },
@@ -572,6 +573,8 @@ impl Workforce {
                 session_id: Some(session.id),
                 runtime_id: session.runtime,
                 model: agent.model.clone(),
+                // A resumed conversation keeps its session's effort.
+                effort: None,
                 title: position.title.clone(),
                 workforce,
                 project_id,
@@ -606,6 +609,7 @@ impl Workforce {
             session_id: None,
             runtime_id: choice.runtime_id,
             model: choice.model,
+            effort: choice.effort,
             title: position.title.clone(),
             workforce,
             project_id,
@@ -617,6 +621,7 @@ struct ObjectivePlan {
     session_id: Option<String>,
     runtime_id: String,
     model: Option<String>,
+    effort: Option<Effort>,
     title: String,
     workforce: Value,
     project_id: Option<String>,

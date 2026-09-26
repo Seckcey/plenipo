@@ -315,7 +315,7 @@ Decision records: [ADR-009](../adr/ADR-009-workforce.md) (the engine) and
 
 ## 9. Router (Phase 6)
 
-Decision record: [ADR-011](../adr/ADR-011-model-policy-routing.md).
+Decision record: [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR-011-model-policy-routing.md).
 
 - **Words on screen.** Settings → **AI models**: "model choices" (policy), "first choice" and
   "backups" (fallback order), "Automatic" (a position following its role's policy), "AI company"
@@ -334,6 +334,10 @@ Decision record: [ADR-011](../adr/ADR-011-model-policy-routing.md).
   capabilities, context, subscription sign-in, usage limit) → the first that passes, with one
   plain explanation and a verdict per model. With "wait" (default), a usage limit never moves work
   to another AI company.
+- **Effort.** Each adapter lists the effort levels its CLI accepts and passes the chosen one on
+  every turn (Claude Code `--effort`, Codex `-c model_reasoning_effort=`). A model has an optional
+  effort; a role can set its own for any model. The decision carries it, the reason says it, and
+  the runtime session stores it (Ledger schema 5) so a conversation keeps it.
 - **Usage limits** come from the Ledger's turn results (reported reset time, or an hour; lifted by
   a later success or "try again now"), so they survive restarts.
 - **Where it applies.** Automatic on-call positions: every handoff, in the directory, recorded

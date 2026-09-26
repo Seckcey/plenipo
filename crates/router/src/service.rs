@@ -8,7 +8,7 @@ use plenipo_ledger::{Ledger, LedgerError};
 use plenipo_runtime::agent::{AgentRuntime, AgentRuntimeInfo};
 use serde_json::{json, Value};
 
-use crate::config::RoutingConfig;
+use crate::config::{RoutingConfig, ToolLevels};
 use crate::dto::*;
 use crate::engine::{limit_words, not_ready, route, RouteInput, ToolState};
 use crate::error::{Result, RouterError};
@@ -104,14 +104,24 @@ impl Planner {
             .models
             .iter()
             .find(|m| m.runtime_id == runtime_id && m.name.as_deref() == model);
+        // The model's own effort setting, when it is in the owner's list.
+        let effort = listed.and_then(|m| m.effort).filter(|e| {
+            self.tool(runtime_id)
+                .is_some_and(|t| t.info.capabilities.effort_levels.contains(e))
+        });
+        let mut reason = format!("You set {title} to always use {label}.");
+        if let Some(e) = effort {
+            reason.push_str(&format!(" It runs at {} effort (its setting).", e.label()));
+        }
         RouteDecision {
-            reason: format!("You set {title} to always use {label}."),
+            reason,
             choice: Some(RouteChoice {
                 model_id: listed.map_or_else(String::new, |m| m.id.clone()),
                 runtime_id: runtime_id.to_owned(),
                 runtime_label,
                 company,
                 model: model.map(str::to_owned),
+                effort,
                 label,
             }),
             rank: None,
@@ -163,6 +173,14 @@ impl Router {
 
     fn tools(&self) -> Vec<AgentRuntimeInfo> {
         (self.inner.tools)()
+    }
+
+    /// Runtime IDs with the effort levels each accepts.
+    fn tool_levels(&self) -> ToolLevels {
+        self.tools()
+            .into_iter()
+            .map(|t| (t.id, t.capabilities.effort_levels))
+            .collect()
     }
 
     /// The stored configuration.
@@ -301,6 +319,7 @@ impl Router {
                     status,
                     usage_limit: t.limit.clone(),
                     available: not_ready.is_none() && t.limit.is_none(),
+                    effort_levels: t.info.capabilities.effort_levels.clone(),
                 }
             })
             .collect();
@@ -359,7 +378,7 @@ impl Router {
     // ---- The owner's changes ------------------------------------------------------------
 
     pub fn save_model(&self, input: &ModelInput) -> Result<RoutingSnapshot> {
-        let tools: Vec<String> = self.tools().into_iter().map(|t| t.id).collect();
+        let tools = self.tool_levels();
         self.update("router.model_saved", OWNER, |c| {
             let model = c.save_model(input, &tools)?;
             Ok(Some(json!({ "model": model })))
@@ -382,8 +401,9 @@ impl Router {
             .ok_or_else(|| RouterError::Invalid("that role no longer exists".into()))?;
         let mut companies: Vec<String> = self.tools().into_iter().map(|t| t.provider).collect();
         companies.dedup();
+        let tools = self.tool_levels();
         self.update("router.policy_changed", OWNER, |c| {
-            let policy = c.check_policy(policy, &companies)?;
+            let policy = c.check_policy(policy, &companies, &tools)?;
             c.policies.insert(role.id.clone(), policy.clone());
             Ok(Some(
                 json!({ "roleId": role.id, "role": role.name, "policy": policy }),
@@ -423,7 +443,7 @@ mod tests {
     use super::*;
     use plenipo_ledger::{ExecutionRow, NewEvent, RoleTemplate, RoleType};
     use plenipo_runtime::agent::{
-        AuthState, AuthStatus, InstallState, Installation, RuntimeCapabilities,
+        AuthState, AuthStatus, Effort, InstallState, Installation, RuntimeCapabilities,
     };
 
     fn info(id: &str, label: &str, company: &str, ready: bool) -> AgentRuntimeInfo {
@@ -454,6 +474,7 @@ mod tests {
                 structured_results: true,
                 billing_checked_per_turn: false,
                 tool_posture: String::new(),
+                effort_levels: vec![Effort::Low, Effort::High],
             },
             install_hint: String::new(),
             login_hint: String::new(),
@@ -498,6 +519,7 @@ mod tests {
             features: vec![],
             context_tokens: None,
             cost: CostClass::Standard,
+            effort: None,
         }
     }
 
