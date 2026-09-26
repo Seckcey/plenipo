@@ -91,7 +91,8 @@ pub struct RoleInfo {
     pub glyph: String,
     /// What the role is for; part of its workers' instructions.
     pub purpose: Vec<String>,
-    /// Capabilities the role will ask for once Guard exists (Phase 7). None are granted now.
+    /// Capabilities the role's work calls for (its template). What a worker may actually do
+    /// comes from the role's permission set in Guard (Phase 7).
     pub default_capabilities: Vec<String>,
 }
 
@@ -119,11 +120,12 @@ pub struct ProjectInfo {
     pub description: String,
     pub department_id: Option<String>,
     pub repository_url: Option<String>,
-    /// Recorded only: workers are not given this folder before Guard (Phase 7).
+    /// The folder the project's workers work in: Plenipo's tools are confined to it (Phase 7).
     pub local_path: Option<String>,
     /// Runtime IDs its workers may use; empty allows none.
     pub allowed_runtimes: Vec<String>,
-    /// Recorded only: granted by Guard from Phase 7.
+    /// The permission set that limits what the project's workers may do (Phase 7); `None`: no
+    /// limit.
     pub capability_profile: Option<String>,
     pub coordinator_position_id: Option<String>,
     pub active: bool,

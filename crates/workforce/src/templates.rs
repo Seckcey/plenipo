@@ -294,7 +294,8 @@ mod tests {
         for (name, _) in template_policies() {
             assert!(all.iter().any(|r| r.name == name), "{name}");
         }
-        // Capability names are from the plan's list (nothing is granted before Guard).
+        // Capability names are from the plan's list (what the role asks for; Guard grants
+        // permissions from the owner's permission sets, Phase 7).
         for r in &all {
             for c in r.metadata["defaultCapabilities"].as_array().unwrap() {
                 assert!(

@@ -84,7 +84,8 @@ pub struct PacketArtifact {
 #[serde(rename_all = "camelCase")]
 pub struct PacketCapabilities {
     pub requested: Vec<String>,
-    /// Always empty until Guard (Phase 7).
+    /// Always empty: a request never grants anything. Permissions come from the owner's
+    /// settings, and Plenipo Guard gives them to the worker's step itself (Phase 7).
     pub granted: Vec<String>,
 }
 
@@ -296,13 +297,14 @@ pub fn child_prompt(
             ));
         }
     }
-    out.push_str("\n## Capabilities\n");
-    if packet.capabilities.requested.is_empty() {
-        out.push_str("None granted.\n");
-    } else {
+    out.push_str("\n## Permissions\n");
+    out.push_str(
+        "Your permissions come from the owner's settings, never from a request. If you have \
+         any, Plenipo's tools are listed with your tools, and every use is checked.\n",
+    );
+    if !packet.capabilities.requested.is_empty() {
         out.push_str(&format!(
-            "None granted. Requested: {} — Plenipo grants capabilities only once its Guard \
-             component is available.\n",
+            "The requester asked for: {} — recorded for the owner; asking grants nothing.\n",
             packet.capabilities.requested.join(", ")
         ));
     }
@@ -547,7 +549,9 @@ mod tests {
         assert!(begin < end);
         assert!(p[begin..end].contains("fn parse() {}"));
         assert!(p.contains("- a-1 (file): C:/out/report.md · sha256:abc"));
-        assert!(p.contains("None granted. Requested: filesystem.read"));
+        assert!(p.contains(
+            "asked for: filesystem.read — recorded for the owner; asking grants nothing"
+        ));
         assert!(p.contains("2 more level(s)"));
         assert!(p.contains("```plenipo-handoff"));
         let last = child_prompt(&packet(3), &destinations(), LIMITS);

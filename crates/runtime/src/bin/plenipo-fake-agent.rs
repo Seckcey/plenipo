@@ -168,8 +168,8 @@ enum Mode {
     Plain,
     /// The owner's objective with Liaison's instructions.
     Root,
-    /// A handoff request; its first context block's first line and whether capabilities were
-    /// granted.
+    /// A handoff request; its first context block's first line and whether Plenipo gave it
+    /// tools.
     Worker {
         context: Option<String>,
         granted: bool,
@@ -215,8 +215,15 @@ fn view(prompt: &str) -> (Mode, String) {
             .skip_while(|l| !l.starts_with("--- begin context"))
             .nth(1)
             .map(str::to_owned);
-        let granted = !prompt.contains("## Capabilities\nNone granted.");
-        return (Mode::Worker { context, granted }, objective);
+        // Permissions come with Plenipo's tools note (set aside before this), never with
+        // the request; the caller fills this in.
+        return (
+            Mode::Worker {
+                context,
+                granted: false,
+            },
+            objective,
+        );
     }
     if prompt.starts_with(ROOT_HEADER) {
         if let Some((_, objective)) = prompt.split_once(FOOTER) {
@@ -747,8 +754,11 @@ fn claude_turn(args: &[String]) -> i32 {
         format!("{:032x}", std::process::id())
     };
     let model = flag(args, "--model").unwrap_or_else(|| "fake-claude-model".into());
-    let (_, prompt) = strip_note(&prompt);
-    let (mode, said) = view(&prompt);
+    let (noted, prompt) = strip_note(&prompt);
+    let (mut mode, said) = view(&prompt);
+    if let Mode::Worker { granted, .. } = &mut mode {
+        *granted = noted;
+    }
 
     if said.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
@@ -924,8 +934,11 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         None => format!("thread-{:08x}-{}", std::process::id(), prompt.len()),
     };
-    let (_, prompt) = strip_note(&prompt);
-    let (mode, said) = view(&prompt);
+    let (noted, prompt) = strip_note(&prompt);
+    let (mut mode, said) = view(&prompt);
+    if let Mode::Worker { granted, .. } = &mut mode {
+        *granted = noted;
+    }
     if said.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");

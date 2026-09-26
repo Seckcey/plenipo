@@ -184,8 +184,8 @@ fn clean_repository(url: &str) -> Result<String> {
     }
 }
 
-/// An absolute local folder path (Windows or Unix). Recorded only; workers are not given it
-/// before Guard (Phase 7).
+/// An absolute local folder path (Windows or Unix): the folder Plenipo's tools confine the
+/// project's workers to (Phase 7).
 fn clean_local_path(path: &str) -> Result<String> {
     let path = path.trim();
     let bytes = path.as_bytes();
