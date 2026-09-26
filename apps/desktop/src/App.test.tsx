@@ -7,6 +7,7 @@ import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
 import { emptyOrganization } from "./test/orgFixtures";
+import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -33,6 +34,9 @@ vi.mock("./api/commands", async (importOriginal) => {
     getOrganization: vi.fn(),
     getWork: vi.fn(),
     setOrganizationTitles: vi.fn(),
+    getApprovals: vi.fn(),
+    getPermissions: vi.fn(),
+    resolveApproval: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -119,6 +123,8 @@ beforeEach(() => {
   api.listRecentEvents.mockResolvedValue([]);
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
   api.getOrganization.mockResolvedValue(emptyOrganization());
+  api.getApprovals.mockResolvedValue({ pending: [], recent: [] });
+  api.getPermissions.mockResolvedValue(samplePermissions());
   api.getLiaisonOverview.mockResolvedValue({
     protocol: "plenipo-liaison/1",
     contextFormat: "plenipo-context/1",
@@ -151,6 +157,7 @@ describe("App shell", () => {
     for (const label of [
       "Organization",
       "Workers",
+      "Approvals",
       "AI tools",
       "Activity",
       "Settings",
@@ -379,5 +386,27 @@ describe("AI tools page", () => {
     });
     expect(within(log).getByText("heartbeat 8")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("shows requests waiting for approval on every page, with a count", async () => {
+    api.getApprovals.mockResolvedValue(sampleQueue());
+    api.resolveApproval.mockResolvedValue({ pending: [], recent: [] });
+    render(<App />);
+    const banner = await screen.findByText("Backend Developer is waiting for your approval");
+    expect(screen.getByText("git push origin")).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByLabelText("1 waiting for you")).toHaveTextContent("1");
+    const user = userEvent.setup();
+    await user.click(
+      within(banner.closest(".banner") as HTMLElement).getByRole("button", { name: "Review" }),
+    );
+    const card = await screen.findByRole("article", {
+      name: "Backend Developer wants to git push origin",
+    });
+    expect(screen.queryByText("Backend Developer is waiting for your approval")).toBeNull();
+    await user.click(within(card).getByRole("button", { name: "Approve" }));
+    expect(api.resolveApproval).toHaveBeenCalledWith("approval-1", true);
+    // The answer updates the sidebar count at once.
+    await waitFor(() => expect(within(nav).queryByLabelText("1 waiting for you")).toBeNull());
   });
 });

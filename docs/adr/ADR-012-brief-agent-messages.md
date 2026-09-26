@@ -1,6 +1,6 @@
 # ADR-012: Brief messages between agents
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 5 (follow-up, v0.6.1)
 

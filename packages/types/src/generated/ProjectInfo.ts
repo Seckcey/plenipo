@@ -2,7 +2,7 @@
 
 export type ProjectInfo = { id: string, name: string, description: string, departmentId: string | null, repositoryUrl: string | null, 
 /**
- * Recorded only: workers are not given this folder before Guard (Phase 7).
+ * The folder the project's workers work in: Plenipo's tools are confined to it (Phase 7).
  */
 localPath: string | null, 
 /**
@@ -10,6 +10,7 @@ localPath: string | null,
  */
 allowedRuntimes: Array<string>, 
 /**
- * Recorded only: granted by Guard from Phase 7.
+ * The permission set that limits what the project's workers may do (Phase 7); `None`: no
+ * limit.
  */
 capabilityProfile: string | null, coordinatorPositionId: string | null, active: boolean, createdAt: number, };

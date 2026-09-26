@@ -15,7 +15,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+plenipo-capabilities = { path = "../../../crates/capabilities" }
 plenipo-core = { path = "../../../crates/core" }
+plenipo-guard = { path = "../../../crates/guard" }
 plenipo-ledger = { path = "../../../crates/ledger" }
 plenipo-liaison = { path = "../../../crates/liaison" }
 plenipo-router = { path = "../../../crates/router" }

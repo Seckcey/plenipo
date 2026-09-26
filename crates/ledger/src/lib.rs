@@ -8,6 +8,7 @@
 pub mod dto;
 pub mod error;
 mod events;
+mod guard;
 mod liaison;
 mod maintenance;
 pub mod migrate;

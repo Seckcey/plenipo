@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ApprovalQueue,
   AgentOverview,
   AgentRuntimeInfo,
   AgentSession,
@@ -11,6 +12,8 @@ import type {
   AppInfo,
   BackupInfo,
   CommandError,
+  CommandRules,
+  GuardOptions,
   CommandErrorKind,
   DepartmentInput,
   ExecutionOutput,
@@ -24,6 +27,8 @@ import type {
   ModelInput,
   OrgSnapshot,
   OversightRole,
+  PermissionSetInput,
+  PermissionsSnapshot,
   PositionPatchInput,
   ProjectInput,
   RoleInput,
@@ -31,6 +36,9 @@ import type {
   RoutingOptions,
   RoutingSnapshot,
   RuntimeOverview,
+  SecretInput,
+  SensitiveKind,
+  SensitiveRule,
   SyntheticTaskAction,
   Task,
   TaskHandoffs,
@@ -366,4 +374,73 @@ export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnaps
 /** Try an AI tool again now, although it reported a usage limit. */
 export function clearUsageLimit(runtimeId: string): Promise<RoutingSnapshot> {
   return call<RoutingSnapshot>("clear_usage_limit", { runtimeId });
+}
+
+// ---- Permissions, approvals, and the Vault (Phase 7) --------------------------------------
+
+/** Permission sets, who has which, the rules, secret references, and workers using
+ * permissions now. */
+export function getPermissions(): Promise<PermissionsSnapshot> {
+  return call("get_permissions");
+}
+
+/** Add a permission set (no `id`) or change one. */
+export function savePermissionSet(input: PermissionSetInput): Promise<PermissionsSnapshot> {
+  return call("save_permission_set", { input });
+}
+
+export function removePermissionSet(setId: string): Promise<PermissionsSnapshot> {
+  return call("remove_permission_set", { setId });
+}
+
+/** Give a role a permission set, or limit a department to one (`null`: none / no limit). */
+export function assignPermissions(
+  target: "role" | "department",
+  id: string,
+  setId: string | null,
+): Promise<PermissionsSnapshot> {
+  return call("assign_permissions", setId === null ? { target, id } : { target, id, setId });
+}
+
+export function setCommandRules(rules: CommandRules): Promise<PermissionsSnapshot> {
+  return call("set_command_rules", { rules });
+}
+
+export function setBlockedFiles(patterns: string[]): Promise<PermissionsSnapshot> {
+  return call("set_blocked_files", { patterns });
+}
+
+export function setSensitiveRule(
+  kind: SensitiveKind,
+  rule: SensitiveRule,
+): Promise<PermissionsSnapshot> {
+  return call("set_sensitive_rule", { kind, rule });
+}
+
+export function setGuardOptions(options: GuardOptions): Promise<PermissionsSnapshot> {
+  return call("set_guard_options", { options });
+}
+
+/** Store a secret. Its value goes to the operating system's protected storage and is never
+ * returned. */
+export function saveSecret(input: SecretInput): Promise<PermissionsSnapshot> {
+  return call("save_secret", { input });
+}
+
+export function removeSecret(secretId: string): Promise<PermissionsSnapshot> {
+  return call("remove_secret", { secretId });
+}
+
+/** Approvals waiting for an answer and recent outcomes. */
+export function getApprovals(): Promise<ApprovalQueue> {
+  return call("get_approvals");
+}
+
+export function resolveApproval(approvalId: string, approve: boolean): Promise<ApprovalQueue> {
+  return call("resolve_approval", { approvalId, approve });
+}
+
+/** End a worker's permissions now. */
+export function revokeGrant(grantId: string): Promise<PermissionsSnapshot> {
+  return call("revoke_grant", { grantId });
 }

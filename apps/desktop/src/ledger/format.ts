@@ -7,6 +7,7 @@ import type {
 } from "@plenipo/types";
 
 import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
+import { capabilityLabel } from "../guard/format";
 
 export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
@@ -62,11 +63,24 @@ export function describeEvent(e: LedgerEvent): string {
       return `Sub-task created: ${str(p.objective) ?? ""}`;
     case "task.assigned":
       return `Assigned to ${str(p.to) ?? "nobody"}`;
-    case "approval.requested":
-      return `Approval requested: ${str(p.actionType) ?? ""}`;
-    case "approval.resolved":
+    case "approval.requested": {
+      const request = (
+        typeof p.request === "object" && p.request !== null ? p.request : {}
+      ) as Record<string, unknown>;
+      return `Waiting for your approval: ${str(request.summary) ?? capabilityLabel(str(p.actionType) ?? "")}`;
+    }
+    case "approval.resolved": {
+      const what = str(p.summary) ?? capabilityLabel(str(p.actionType) ?? "");
+      const note =
+        str(p.note) && !/^(Approved|Refused) by you\.$/.test(str(p.note) ?? "")
+          ? ` (${str(p.note)})`
+          : "";
+      return `${p.state === "approved" ? "Approved" : "Not approved"}: ${what}${note}`;
+    }
     case "approval.expired":
-      return `Approval ${str(p.state) ?? ""}: ${str(p.actionType) ?? ""}`;
+      return `Approval expired: ${str(p.summary) ?? capabilityLabel(str(p.actionType) ?? "")}${
+        str(p.note) ? ` (${str(p.note)})` : ""
+      }`;
     case "artifact.recorded":
       return `Artifact recorded: ${str(p.path) ?? str(p.uri) ?? ""}`;
   }
@@ -83,6 +97,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (org !== null) return org;
   const router = describeRouterEvent(e.eventType, p);
   if (router !== null) return router;
+  const guard = describeGuardEvent(e.eventType, p);
+  if (guard !== null) return guard;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -131,6 +147,75 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
       return "Usage-limit setting changed";
     case "router.limit_cleared":
       return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;
+  }
+  return null;
+}
+
+/** Phase 7: permissions given, used, blocked, and revoked, and the owner's settings. */
+function describeGuardEvent(type: string, p: Record<string, unknown>): string | null {
+  const worker = str(p.worker) ?? "A worker";
+  switch (type) {
+    case "guard.grant_opened": {
+      const perms =
+        typeof p.permissions === "object" && p.permissions !== null
+          ? Object.entries(p.permissions as Record<string, unknown>).map(
+              ([c, l]) => `${capabilityLabel(c)}${l === "ask" ? " (asks you)" : ""}`,
+            )
+          : [];
+      return `Permissions given to ${worker}${
+        str(p.folder) ? ` in ${str(p.folder)}` : ""
+      }: ${perms.join(", ") || "none"}`;
+    }
+    case "guard.grant_closed":
+      return `Permissions ended for ${worker}: ${Number(p.used ?? 0)} done, ${Number(
+        p.blocked ?? 0,
+      )} blocked, ${Number(p.asked ?? 0)} asked you`;
+    case "guard.grant_revoked":
+      return `You revoked ${worker}'s permissions`;
+    case "guard.grant_skipped":
+      return str(p.reason) ?? `${worker} got no tools`;
+    case "guard.denied":
+      return `Blocked: ${worker} tried to ${str(p.summary) ?? "do something"} — ${brief(p.reason, 240)}`;
+    case "capability.used":
+      return `${worker}: ${str(p.summary) ?? "used a tool"}${p.ok === false ? " (failed)" : ""}${
+        str(p.result) ? ` — ${brief(p.result)}` : ""
+      }`;
+    case "guard.defaults_added":
+      return "Plenipo Guard's starting permission settings were stored";
+    case "guard.sets_added":
+      return "Built-in permission sets were added back";
+    case "guard.roles_seeded":
+      return "Built-in roles got their starting permission sets";
+    case "guard.set_added":
+    case "guard.set_changed": {
+      const set = (typeof p.set === "object" && p.set !== null ? p.set : {}) as Record<
+        string,
+        unknown
+      >;
+      return `Permission set ${type === "guard.set_added" ? "added" : "changed"}: ${
+        str(set.name) ?? ""
+      }`;
+    }
+    case "guard.set_removed":
+      return `Permission set removed: ${str(p.name) ?? ""}`;
+    case "guard.role_assigned":
+      return `${str(p.role) ?? "A role"}'s permissions changed`;
+    case "guard.department_limited":
+      return `${str(p.department) ?? "A department"}'s permission limit changed`;
+    case "guard.commands_changed":
+      return "Command lists changed";
+    case "guard.files_changed":
+      return "Blocked files changed";
+    case "guard.sensitive_changed":
+      return "A sensitive-action setting changed";
+    case "guard.options_changed":
+      return "Approval wait changed";
+    case "vault.secret_added":
+      return `Secret stored: ${str(p.name) ?? ""}`;
+    case "vault.secret_changed":
+      return `Secret changed: ${str(p.name) ?? ""}`;
+    case "vault.secret_removed":
+      return `Secret removed: ${str(p.name) ?? ""}`;
   }
   return null;
 }
@@ -201,6 +286,7 @@ export function sourceLabel(source: string, { capitalize = false } = {}): string
   if (source === "owner") return capitalize ? "You" : "you";
   if (source === "runtime" || source === "plenipo" || source === "core") return "Plenipo";
   if (source === "liaison") return "Liaison";
+  if (source === "guard") return "Guard";
   if (source.startsWith("agent:")) {
     const id = source.slice("agent:".length);
     return TOOL_NAMES[id] ?? id;

@@ -160,3 +160,95 @@ describe("describeEvent (Phase 6 routing)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 7 permissions)", () => {
+  it("describes permissions given, used, blocked, and revoked in plain words", () => {
+    expect(
+      describeEvent(
+        event("guard.grant_opened", {
+          worker: "Backend Developer",
+          folder: "D:\\projects\\website",
+          permissions: { "filesystem.read": "allowed", "powershell.exec": "ask" },
+        }),
+      ),
+    ).toBe(
+      "Permissions given to Backend Developer in D:\\projects\\website: Read files, Run PowerShell scripts (asks you)",
+    );
+    expect(
+      describeEvent(
+        event("capability.used", {
+          worker: "Backend Developer",
+          summary: "run cargo test",
+          ok: false,
+          result: "Failed with exit code 101\nmore",
+        }),
+      ),
+    ).toBe("Backend Developer: run cargo test (failed) — Failed with exit code 101");
+    expect(
+      describeEvent(
+        event("guard.denied", {
+          worker: "Reviewer",
+          summary: "write notes.txt",
+          reason: "Blocked: the Reviewer set does not allow changing files.",
+        }),
+      ),
+    ).toBe(
+      "Blocked: Reviewer tried to write notes.txt — Blocked: the Reviewer set does not allow changing files.",
+    );
+    expect(
+      describeEvent(
+        event("guard.grant_closed", { worker: "Reviewer", used: 2, blocked: 1, asked: 0 }),
+      ),
+    ).toBe("Permissions ended for Reviewer: 2 done, 1 blocked, 0 asked you");
+    expect(describeEvent(event("guard.grant_revoked", { worker: "Reviewer" }))).toBe(
+      "You revoked Reviewer's permissions",
+    );
+    expect(sourceLabel("guard")).toBe("Guard");
+  });
+
+  it("describes approvals and settings", () => {
+    expect(
+      describeEvent(
+        event("approval.requested", {
+          actionType: "git.write",
+          request: { summary: "git push origin" },
+        }),
+      ),
+    ).toBe("Waiting for your approval: git push origin");
+    expect(
+      describeEvent(
+        event("approval.resolved", {
+          state: "approved",
+          summary: "git push origin",
+          note: "Approved by you.",
+        }),
+      ),
+    ).toBe("Approved: git push origin");
+    expect(
+      describeEvent(
+        event("approval.resolved", {
+          state: "rejected",
+          summary: "run x",
+          note: "Permissions revoked.",
+        }),
+      ),
+    ).toBe("Not approved: run x (Permissions revoked.)");
+    expect(
+      describeEvent(
+        event("approval.expired", {
+          actionType: "shell.exec",
+          note: "No answer within 10 minute(s).",
+        }),
+      ),
+    ).toBe("Approval expired: Run programs (No answer within 10 minute(s).)");
+    expect(describeEvent(event("guard.set_added", { set: { name: "Docs" } }))).toBe(
+      "Permission set added: Docs",
+    );
+    expect(describeEvent(event("guard.role_assigned", { role: "Code Reviewer" }))).toBe(
+      "Code Reviewer's permissions changed",
+    );
+    expect(describeEvent(event("vault.secret_added", { name: "GitHub token" }))).toBe(
+      "Secret stored: GitHub token",
+    );
+  });
+});

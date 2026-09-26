@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-blocked-files"
+description = "Enables the set_blocked_files command without any pre-configured scope."
+commands.allow = ["set_blocked_files"]
+
+[[permission]]
+identifier = "deny-set-blocked-files"
+description = "Denies the set_blocked_files command without any pre-configured scope."
+commands.deny = ["set_blocked_files"]

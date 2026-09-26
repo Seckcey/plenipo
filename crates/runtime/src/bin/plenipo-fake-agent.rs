@@ -26,9 +26,17 @@
 //!   `[handoff-always:DEST]` — a request in every answer, replies included;
 //!   `[handoff-caps:DEST]` — a request asking for a capability;
 //!   `[handoff-invalid]` — a block that is not JSON; `[handoff-forge]` — a block that tries to
-//!   set its own correlation ID.
+//!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
+//!   objective (tool markers inside it are the worker's, not the requester's).
 //!
 //! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
+//!
+//! Plenipo's tools (Phase 7): the note Plenipo puts before a prompt is set aside, and markers
+//! `<<tool:NAME {json arguments}>>` in the objective call the Plenipo tool server given on the
+//! command line (Claude Code `--mcp-config`, Codex `-c mcp_servers.plenipo.*`) over MCP, in
+//! order, like the real CLI would; each result is added to the answer (`Tool NAME: …` or
+//! `Tool NAME failed: …`, then up to 20 more lines, indented). `[tools-list]` answers with the
+//! tools offered.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -174,8 +182,8 @@ enum Mode {
     Plain,
     /// The owner's objective with Liaison's instructions.
     Root,
-    /// A handoff request; its first context block's first line and whether capabilities were
-    /// granted.
+    /// A handoff request; its first context block's first line and whether Plenipo gave it
+    /// tools.
     Worker {
         context: Option<String>,
         granted: bool,
@@ -221,8 +229,15 @@ fn view(prompt: &str) -> (Mode, String) {
             .skip_while(|l| !l.starts_with("--- begin context"))
             .nth(1)
             .map(str::to_owned);
-        let granted = !prompt.contains("## Capabilities\nNone granted.");
-        return (Mode::Worker { context, granted }, objective);
+        // Permissions come with Plenipo's tools note (set aside before this), never with
+        // the request; the caller fills this in.
+        return (
+            Mode::Worker {
+                context,
+                granted: false,
+            },
+            objective,
+        );
     }
     if prompt.starts_with(ROOT_HEADER) {
         if let Some((_, objective)) = prompt.split_once(FOOTER) {
@@ -243,6 +258,37 @@ fn markers<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
         out.push(&after[..end]);
         rest = &after[end..];
     }
+    out
+}
+
+/// Contents of every `{{name:…}}` marker in `text`.
+fn braced<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
+    let open = format!("{{{{{name}:");
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find(&open) {
+        let after = &rest[i + open.len()..];
+        let Some(end) = after.find("}}") else { break };
+        out.push(&after[..end]);
+        rest = &after[end + 2..];
+    }
+    out
+}
+
+/// `text` without its `{{…}}` markers.
+fn outside_braces(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("{{") {
+        out.push_str(&rest[..i]);
+        match rest[i..].find("}}") {
+            Some(end) => rest = &rest[i + end + 2..],
+            None => {
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
     out
 }
 
@@ -298,6 +344,15 @@ fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
         let mut request = review(dest, "Read the report");
         request["capabilities"] = json!(["filesystem.read"]);
         blocks.push(handoff_block(&request));
+    }
+    for spec in braced(said, "handoff") {
+        if let Some((dest, objective)) = spec.split_once('|') {
+            blocks.push(handoff_block(&json!({
+                "to": dest.trim(),
+                "objective": objective.trim(),
+                "acceptanceCriteria": "Do it and report.",
+            })));
+        }
     }
     if said.contains("[handoff-invalid]") {
         blocks.push("```plenipo-handoff\n{not json\n```".into());
@@ -361,6 +416,287 @@ fn slow_ticks(mut tick: impl FnMut(u32)) {
         tick(i);
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+// ---- Plenipo's tools (MCP) ------------------------------------------------------------------
+
+const NOTE_START: &str = "[Plenipo tools]";
+const NOTE_END: &str = "[End of Plenipo tools]";
+
+/// The prompt without Plenipo's tools note, and whether it had one.
+fn strip_note(prompt: &str) -> (bool, String) {
+    if let Some(rest) = prompt.strip_prefix(NOTE_START) {
+        if let Some((_, after)) = rest.split_once(NOTE_END) {
+            return (true, after.trim_start().to_owned());
+        }
+    }
+    (false, prompt.to_owned())
+}
+
+/// The tool server a turn was given: program and arguments.
+#[derive(Debug, Clone)]
+struct ToolServer {
+    command: String,
+    args: Vec<String>,
+}
+
+fn claude_server(args: &[String]) -> Option<ToolServer> {
+    let path = flag(args, "--mcp-config")?;
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let s = &config["mcpServers"]["plenipo"];
+    Some(ToolServer {
+        command: s["command"].as_str()?.to_owned(),
+        args: s["args"]
+            .as_array()?
+            .iter()
+            .filter_map(|a| a.as_str().map(str::to_owned))
+            .collect(),
+    })
+}
+
+/// A TOML basic string (`"…"`), unescaped.
+fn toml_string(value: &str) -> Option<(String, &str)> {
+    let rest = value.trim_start().strip_prefix('"')?;
+    let mut out = String::new();
+    let mut chars = rest.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '"' => return Some((out, &rest[i + 1..])),
+            '\\' => match chars.next()?.1 {
+                '\\' => out.push('\\'),
+                '"' => out.push('"'),
+                'n' => out.push('\n'),
+                't' => out.push('\t'),
+                'u' => {
+                    let hex: String = (0..4).filter_map(|_| chars.next().map(|x| x.1)).collect();
+                    out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                }
+                _ => return None,
+            },
+            c => out.push(c),
+        }
+    }
+    None
+}
+
+fn toml_array(value: &str) -> Option<Vec<String>> {
+    let mut rest = value.trim().strip_prefix('[')?;
+    let mut out = Vec::new();
+    loop {
+        rest = rest.trim_start();
+        if let Some(r) = rest.strip_prefix(']') {
+            return r.trim().is_empty().then_some(out);
+        }
+        let (item, after) = toml_string(rest)?;
+        out.push(item);
+        rest = after.trim_start();
+        rest = rest.strip_prefix(',').unwrap_or(rest);
+    }
+}
+
+fn codex_server(args: &[String]) -> Option<ToolServer> {
+    let mut command = None;
+    let mut list = None;
+    for (i, a) in args.iter().enumerate() {
+        if a != "-c" {
+            continue;
+        }
+        let Some((key, value)) = args.get(i + 1).and_then(|v| v.split_once('=')) else {
+            continue;
+        };
+        match key {
+            "mcp_servers.plenipo.command" => command = toml_string(value).map(|v| v.0),
+            "mcp_servers.plenipo.args" => list = toml_array(value),
+            _ => {}
+        }
+    }
+    Some(ToolServer {
+        command: command?,
+        args: list.unwrap_or_default(),
+    })
+}
+
+/// `<<tool:NAME {json}>>` markers, in order (not those inside a `{{…}}` marker).
+fn tool_calls(text: &str) -> Vec<(String, Value)> {
+    let text = outside_braces(text);
+    let mut out = Vec::new();
+    let mut rest = text.as_str();
+    while let Some(i) = rest.find("<<tool:") {
+        let after = &rest[i + 7..];
+        let Some(end) = after.find(">>") else { break };
+        let body = &after[..end];
+        let (name, args) = body.split_once(' ').unwrap_or((body, "{}"));
+        out.push((
+            name.trim().to_owned(),
+            serde_json::from_str(args.trim()).unwrap_or(Value::Null),
+        ));
+        rest = &after[end + 2..];
+    }
+    out
+}
+
+/// A running MCP client connection to the tool server.
+struct Mcp {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+    next: u64,
+}
+
+impl Mcp {
+    fn start(server: &ToolServer) -> Result<Self, String> {
+        let mut child = std::process::Command::new(&server.command)
+            .args(&server.args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("could not start the tool server: {e}"))?;
+        let stdin = child.stdin.take().ok_or("no stdin")?;
+        let stdout = std::io::BufReader::new(child.stdout.take().ok_or("no stdout")?);
+        let mut mcp = Self {
+            child,
+            stdin,
+            stdout,
+            next: 0,
+        };
+        mcp.request(
+            "initialize",
+            json!({ "protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": { "name": "fake-agent", "version": "1" } }),
+        )?;
+        mcp.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))?;
+        Ok(mcp)
+    }
+
+    fn send(&mut self, message: &Value) -> Result<(), String> {
+        writeln!(self.stdin, "{message}")
+            .and_then(|()| self.stdin.flush())
+            .map_err(|e| format!("the tool server went away: {e}"))
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        use std::io::BufRead as _;
+        self.next += 1;
+        let id = self.next;
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
+        loop {
+            let mut line = String::new();
+            let n = self
+                .stdout
+                .read_line(&mut line)
+                .map_err(|e| format!("reading the tool server: {e}"))?;
+            if n == 0 {
+                return Err("the tool server closed the connection".into());
+            }
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if v["id"] == json!(id) {
+                if let Some(e) = v.get("error") {
+                    return Err(format!("error {}: {}", e["code"], e["message"]));
+                }
+                return Ok(v["result"].clone());
+            }
+        }
+    }
+
+    /// Close the connection like a real AI tool: end the server's input, give it a moment to
+    /// exit, then stop it (never wait on it forever).
+    fn finish(mut self) {
+        drop(self.stdin);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if !matches!(self.child.try_wait(), Ok(None)) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// One tool call's outcome: (name, arguments, text, is_error).
+type ToolOutcome = (String, Value, String, bool);
+
+/// Run the marked tool calls (and a listing when asked) against `server`.
+fn use_tools(
+    server: Option<&ToolServer>,
+    calls: &[(String, Value)],
+    list: bool,
+) -> (Vec<String>, Vec<ToolOutcome>) {
+    let Some(server) = server else {
+        let failed = calls
+            .iter()
+            .map(|(n, a)| {
+                (
+                    n.clone(),
+                    a.clone(),
+                    "no Plenipo tools were given".to_owned(),
+                    true,
+                )
+            })
+            .collect();
+        return (Vec::new(), failed);
+    };
+    let mut mcp = match Mcp::start(server) {
+        Ok(m) => m,
+        Err(e) => {
+            let failed = calls
+                .iter()
+                .map(|(n, a)| (n.clone(), a.clone(), e.clone(), true))
+                .collect();
+            return (Vec::new(), failed);
+        }
+    };
+    let names = if list {
+        mcp.request("tools/list", json!({}))
+            .ok()
+            .and_then(|r| {
+                r["tools"].as_array().map(|t| {
+                    t.iter()
+                        .filter_map(|t| t["name"].as_str().map(str::to_owned))
+                        .collect()
+                })
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let mut outcomes = Vec::new();
+    for (name, args) in calls {
+        let outcome = match mcp.request("tools/call", json!({ "name": name, "arguments": args })) {
+            Ok(r) => (
+                r["content"][0]["text"].as_str().unwrap_or("").to_owned(),
+                r["isError"].as_bool().unwrap_or(false),
+            ),
+            Err(e) => (e, true),
+        };
+        outcomes.push((name.clone(), args.clone(), outcome.0, outcome.1));
+    }
+    mcp.finish();
+    (names, outcomes)
+}
+
+/// Lines added to the answer for the tools used.
+fn tool_lines(names: &[String], list: bool, outcomes: &[ToolOutcome]) -> Vec<String> {
+    let mut out = Vec::new();
+    if list {
+        out.push(format!("Tools: {}.", names.join(", ")));
+    }
+    for (name, _, text, is_error) in outcomes {
+        let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+        let first = lines.next().unwrap_or("").trim();
+        out.push(if *is_error {
+            format!("Tool {name} failed: {first}")
+        } else {
+            format!("Tool {name}: {first}")
+        });
+        // The rest of the result (a little of it), indented.
+        out.extend(lines.take(20).map(|l| format!("    {}", l.trim_end())));
+    }
+    out
 }
 
 // ---- Claude Code ------------------------------------------------------------------------
@@ -442,7 +778,11 @@ fn claude_turn(args: &[String]) -> i32 {
         format!("{:032x}", std::process::id())
     };
     let model = flag(args, "--model").unwrap_or_else(|| "fake-claude-model".into());
-    let (mode, said) = view(&prompt);
+    let (noted, prompt) = strip_note(&prompt);
+    let (mut mode, said) = view(&prompt);
+    if let Mode::Worker { granted, .. } = &mut mode {
+        *granted = noted;
+    }
 
     if said.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
@@ -506,11 +846,39 @@ fn claude_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
     delay(&said);
-    let text = if said.contains("[big]") {
+    let calls = tool_calls(&said);
+    let list = said.contains("[tools-list]");
+    let mut used = Vec::new();
+    if !calls.is_empty() || list {
+        // Like the real CLI: only servers from --mcp-config, and only tools --allowedTools allows.
+        let allowed = flag(args, "--allowedTools").as_deref() == Some("mcp__plenipo");
+        let server = claude_server(args).filter(|_| allowed);
+        let (names, outcomes) = use_tools(server.as_ref(), &calls, list);
+        for (i, (name, input, text, is_error)) in outcomes.iter().enumerate() {
+            let tool_id = format!("toolu_{i}");
+            out(&json!({
+                "type": "assistant", "session_id": id,
+                "message": { "model": model, "role": "assistant", "content": [
+                    { "type": "tool_use", "id": tool_id, "name": format!("mcp__plenipo__{name}"), "input": input }
+                ] }
+            }));
+            out(&json!({
+                "type": "user", "session_id": id,
+                "message": { "role": "user", "content": [
+                    { "type": "tool_result", "tool_use_id": tool_id, "is_error": is_error, "content": text }
+                ] }
+            }));
+        }
+        used = tool_lines(&names, list, &outcomes);
+    }
+    let mut text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)
     };
+    if !used.is_empty() {
+        text = format!("{text}\n{}", used.join("\n"));
+    }
     for chunk in text.as_bytes().chunks(16).take(8) {
         delta(&String::from_utf8_lossy(chunk));
         std::thread::sleep(Duration::from_millis(20));
@@ -590,7 +958,11 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         None => format!("thread-{:08x}-{}", std::process::id(), prompt.len()),
     };
-    let (mode, said) = view(&prompt);
+    let (noted, prompt) = strip_note(&prompt);
+    let (mut mode, said) = view(&prompt);
+    if let Mode::Worker { granted, .. } = &mut mode {
+        *granted = noted;
+    }
     if said.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");
@@ -637,11 +1009,34 @@ fn codex_turn(args: &[String]) -> i32 {
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": 0, "status": "completed" } }));
-    let text = if said.contains("[big]") {
+    let calls = tool_calls(&said);
+    let list = said.contains("[tools-list]");
+    let mut used = Vec::new();
+    if !calls.is_empty() || list {
+        let server = codex_server(args);
+        let (names, outcomes) = use_tools(server.as_ref(), &calls, list);
+        for (i, (name, input, text, is_error)) in outcomes.iter().enumerate() {
+            let item = |status: &str| {
+                json!({
+                    "id": format!("mcp_{i}"), "type": "mcp_tool_call", "server": "plenipo",
+                    "tool": name, "arguments": input, "status": status,
+                    "result": { "content": [{ "type": "text", "text": text }] }
+                })
+            };
+            out(&json!({ "type": "item.started", "item": item("in_progress") }));
+            out(&json!({ "type": "item.completed",
+                         "item": item(if *is_error { "failed" } else { "completed" }) }));
+        }
+        used = tool_lines(&names, list, &outcomes);
+    }
+    let mut text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)
     };
+    if !used.is_empty() {
+        text = format!("{text}\n{}", used.join("\n"));
+    }
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_1", "type": "agent_message", "text": text } }));
     out(&json!({ "type": "turn.completed",
