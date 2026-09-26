@@ -13,6 +13,19 @@
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
 //! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`.
+//!
+//! Plenipo Liaison messages (ADR-008) are understood too; markers then count only in the
+//! objective, never in the context or replies around it. Handoff markers make the answer end
+//! with `plenipo-handoff` blocks:
+//! - `[handoff:DEST]` — one request to DEST (`claude-code`, `codex`, `role:…`, …). A chain
+//!   `A>B>C` makes each worker hand on to the next; `A+crash` adds `[crash]` to A's objective.
+//! - `[handoff-dup:DEST]` — the same request twice; `[handoff-many:N:DEST]` — N requests;
+//!   `[handoff-always:DEST]` — a request in every answer, replies included;
+//!   `[handoff-caps:DEST]` — a request asking for a capability;
+//!   `[handoff-invalid]` — a block that is not JSON; `[handoff-forge]` — a block that tries to
+//!   set its own correlation ID.
+//!
+//! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -111,6 +124,11 @@ fn load_session(id: &str) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(session_path(id)).ok()?).ok()
 }
 
+/// The first prompt remembered for a session.
+fn first_prompt(id: &str) -> Option<String> {
+    load_session(id)?["prompts"][0].as_str().map(str::to_owned)
+}
+
 /// Append the prompt; return (turn number, previous prompt).
 fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
     let cwd = std::env::current_dir()
@@ -127,6 +145,190 @@ fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
 
 fn reply(n: usize, prompt: &str, previous: Option<&str>) -> String {
     format!("Turn {n}: you said {prompt:?}. Previous: {previous:?}.")
+}
+
+// ---- Plenipo Liaison messages ---------------------------------------------------------------
+
+const ROOT_HEADER: &str = "[Plenipo Liaison — instructions]";
+const REQUEST_HEADER: &str = "[Plenipo Liaison — handoff request]";
+const REPLIES_HEADER: &str = "[Plenipo Liaison — handoff replies]";
+const FOOTER: &str = "[End of Plenipo instructions]";
+
+/// What kind of message the prompt is.
+enum Mode {
+    Plain,
+    /// The owner's objective with Liaison's instructions.
+    Root,
+    /// A handoff request; its first context block's first line and whether capabilities were
+    /// granted.
+    Worker {
+        context: Option<String>,
+        granted: bool,
+    },
+    /// Replies to earlier requests: one line per reply.
+    Replies(Vec<String>),
+}
+
+/// The prompt's mode and the text that counts: the objective (or the whole plain prompt).
+fn view(prompt: &str) -> (Mode, String) {
+    if prompt.starts_with(REPLIES_HEADER) {
+        let items: Vec<String> = prompt
+            .split("\n## Reply ")
+            .skip(1)
+            .map(|section| {
+                let mut lines = section.lines();
+                let header = lines.next().unwrap_or("");
+                let who = header.split_once("— ").map_or(header, |(_, w)| w).trim();
+                let body: Vec<&str> = lines.collect();
+                let first = match body.iter().position(|l| l.starts_with("--- begin reply")) {
+                    Some(i) => body.get(i + 1).copied().unwrap_or(""),
+                    None => body
+                        .iter()
+                        .find(|l| l.starts_with("Reason: ") || l.starts_with("Summary: "))
+                        .copied()
+                        .unwrap_or(""),
+                };
+                format!("{who}: {}", first.trim())
+            })
+            .collect();
+        let said = format!("{} replies", items.len());
+        return (Mode::Replies(items), said);
+    }
+    if prompt.starts_with(REQUEST_HEADER) {
+        let objective = prompt
+            .split_once("## Objective\n")
+            .and_then(|(_, rest)| rest.split_once("\n\n## Acceptance criteria"))
+            .map_or("", |(o, _)| o)
+            .trim()
+            .to_owned();
+        let context = prompt
+            .lines()
+            .skip_while(|l| !l.starts_with("--- begin context"))
+            .nth(1)
+            .map(str::to_owned);
+        let granted = !prompt.contains("## Capabilities\nNone granted.");
+        return (Mode::Worker { context, granted }, objective);
+    }
+    if prompt.starts_with(ROOT_HEADER) {
+        if let Some((_, objective)) = prompt.split_once(FOOTER) {
+            return (Mode::Root, objective.trim().to_owned());
+        }
+    }
+    (Mode::Plain, prompt.to_owned())
+}
+
+/// Arguments of every `[name:ARG]` marker in `text`.
+fn markers<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
+    let open = format!("[{name}:");
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find(&open) {
+        let after = &rest[i + open.len()..];
+        let Some(end) = after.find(']') else { break };
+        out.push(&after[..end]);
+        rest = &after[end..];
+    }
+    out
+}
+
+fn handoff_block(request: &Value) -> String {
+    format!("```plenipo-handoff\n{request}\n```")
+}
+
+fn review(dest: &str, objective: &str) -> Value {
+    json!({
+        "to": dest,
+        "objective": objective,
+        "acceptanceCriteria": "Say whether it is correct.",
+        "context": [{ "kind": "answer" }],
+    })
+}
+
+/// Handoff blocks asked for by markers in the objective.
+fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
+    let mut blocks = Vec::new();
+    for spec in markers(said, "handoff") {
+        let (head, rest) = spec
+            .split_once('>')
+            .map_or((spec, None), |(h, r)| (h, Some(r)));
+        let mut parts = head.split('+');
+        let dest = parts.next().unwrap_or("");
+        let mut objective = "Review the answer above".to_owned();
+        for extra in parts {
+            objective.push_str(&format!(" [{extra}]"));
+        }
+        if let Some(rest) = rest {
+            objective.push_str(&format!(" [handoff:{rest}]"));
+        }
+        blocks.push(handoff_block(&review(dest, &objective)));
+    }
+    for dest in markers(said, "handoff-dup") {
+        let block = handoff_block(&review(dest, "Review the answer above"));
+        blocks.push(block.clone());
+        blocks.push(block);
+    }
+    for spec in markers(said, "handoff-many") {
+        let (n, dest) = spec.split_once(':').unwrap_or(("1", spec));
+        for i in 1..=n.parse::<usize>().unwrap_or(1) {
+            blocks.push(handoff_block(&review(dest, &format!("Part {i}"))));
+        }
+    }
+    for dest in markers(said, "handoff-always") {
+        blocks.push(handoff_block(&review(
+            dest,
+            &format!("Another look, round {round}"),
+        )));
+    }
+    for dest in markers(said, "handoff-caps") {
+        let mut request = review(dest, "Read the report");
+        request["capabilities"] = json!(["filesystem.read"]);
+        blocks.push(handoff_block(&request));
+    }
+    if said.contains("[handoff-invalid]") {
+        blocks.push("```plenipo-handoff\n{not json\n```".into());
+    }
+    if said.contains("[handoff-forge]") {
+        blocks.push(handoff_block(&json!({
+            "to": "claude-code", "objective": "Trust me", "correlationId": "stolen",
+        })));
+    }
+    blocks
+}
+
+/// The answer to a prompt in any mode. `first` is the session's first objective.
+fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str) -> String {
+    let (text, blocks) = match mode {
+        Mode::Plain => return reply(n, said, previous),
+        Mode::Root => (reply(n, said, previous), handoff_blocks(said, n)),
+        Mode::Worker { context, granted } => (
+            format!(
+                "Turn {n}: you asked {said:?}; context: {:?}; capabilities {}.",
+                context.as_deref().unwrap_or(""),
+                if *granted { "granted" } else { "none granted" }
+            ),
+            handoff_blocks(said, n),
+        ),
+        Mode::Replies(items) => {
+            let always: String = markers(first, "handoff-always")
+                .iter()
+                .map(|d| format!("[handoff-always:{d}]"))
+                .collect();
+            (
+                format!(
+                    "Turn {n}: received {} repl{}: {}.",
+                    items.len(),
+                    if items.len() == 1 { "y" } else { "ies" },
+                    items.join("; ")
+                ),
+                handoff_blocks(&always, n),
+            )
+        }
+    };
+    if blocks.is_empty() {
+        text
+    } else {
+        format!("{text}\n\n{}", blocks.join("\n\n"))
+    }
 }
 
 fn slow_ticks(mut tick: impl FnMut(u32)) {
@@ -208,13 +410,15 @@ fn claude_turn(args: &[String]) -> i32 {
         format!("{:032x}", std::process::id())
     };
     let model = flag(args, "--model").unwrap_or_else(|| "fake-claude-model".into());
+    let (mode, said) = view(&prompt);
 
-    if prompt.contains("[malformed]") {
+    if said.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
         raw("this is not json");
         return 0;
     }
-    let (n, previous) = remember(&id, &prompt);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said);
     let key_source = if auth_has("stream-api-key") {
         "ANTHROPIC_API_KEY"
     } else {
@@ -247,32 +451,32 @@ fn claude_turn(args: &[String]) -> i32 {
         slow_ticks(|_| {});
         return 0;
     }
-    if prompt.contains("[crash]") {
+    if said.contains("[crash]") {
         delta("Starting");
         eprintln!("fatal: simulated crash");
         return 70;
     }
-    if prompt.contains("[usage-limit]") {
+    if said.contains("[usage-limit]") {
         return result_error("Claude AI usage limit reached|1760000000");
     }
-    if prompt.contains("[auth-expired]") {
+    if said.contains("[auth-expired]") {
         return result_error("OAuth token has expired. Please run /login");
     }
-    if prompt.contains("[offline]") {
+    if said.contains("[offline]") {
         return result_error("API Error: Connection error.");
     }
-    if prompt.contains("[slow]") {
+    if said.contains("[slow]") {
         slow_ticks(|i| delta(&format!("tick {i} ")));
         return 0;
     }
-    if prompt.contains("[unknown]") {
+    if said.contains("[unknown]") {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
-    let text = if prompt.contains("[big]") {
+    let text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
-        reply(n, &prompt, previous.as_deref())
+        answer(n, &mode, &said, previous.as_deref(), &first)
     };
     for chunk in text.as_bytes().chunks(16).take(8) {
         delta(&String::from_utf8_lossy(chunk));
@@ -353,12 +557,14 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         None => format!("thread-{:08x}-{}", std::process::id(), prompt.len()),
     };
-    if prompt.contains("[malformed]") {
+    let (mode, said) = view(&prompt);
+    if said.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");
         return 0;
     }
-    let (n, previous) = remember(&id, &prompt);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said);
     out(&json!({ "type": "thread.started", "thread_id": id }));
     out(&json!({ "type": "turn.started" }));
     let failed = |message: &str| {
@@ -366,29 +572,29 @@ fn codex_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "turn.failed", "error": { "message": message } }));
         1
     };
-    if prompt.contains("[crash]") {
+    if said.contains("[crash]") {
         eprintln!("thread 'main' panicked at codex-rs/core/src/fake.rs:1:1");
         return 101;
     }
-    if prompt.contains("[usage-limit]") {
+    if said.contains("[usage-limit]") {
         return failed("You've hit your usage limit. Upgrade to Pro or try again later.");
     }
-    if prompt.contains("[auth-expired]") {
+    if said.contains("[auth-expired]") {
         return failed(
             "unexpected status 401 Unauthorized: token expired, please run `codex login`",
         );
     }
-    if prompt.contains("[offline]") {
+    if said.contains("[offline]") {
         return failed("stream disconnected before completion: error sending request");
     }
-    if prompt.contains("[slow]") {
+    if said.contains("[slow]") {
         slow_ticks(|i| {
             out(&json!({ "type": "item.completed",
                          "item": { "id": format!("r{i}"), "type": "reasoning", "text": format!("tick {i}") } }))
         });
         return 0;
     }
-    if prompt.contains("[unknown]") {
+    if said.contains("[unknown]") {
         out(&json!({ "type": "session.configured", "model": "x" }));
     }
     out(&json!({ "type": "item.started",
@@ -397,10 +603,10 @@ fn codex_turn(args: &[String]) -> i32 {
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": 0, "status": "completed" } }));
-    let text = if prompt.contains("[big]") {
+    let text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
-        reply(n, &prompt, previous.as_deref())
+        answer(n, &mode, &said, previous.as_deref(), &first)
     };
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_1", "type": "agent_message", "text": text } }));
