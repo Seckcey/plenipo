@@ -196,12 +196,17 @@ fn harness() -> H {
     harness_with(&["claude", "codex"], None)
 }
 
-/// Wait until the session has `turns` turns and none is running.
+/// Wait until the session has `turns` turns, none is running, and the runtime has released the
+/// session. A turn reads as finished as soon as its result is recorded, a moment before its slot
+/// is released; a follow-up sent in that moment is refused as "already running".
 async fn settled(rt: &AgentRuntime, session_id: &str, turns: usize) -> AgentSessionDetail {
     let deadline = Instant::now() + WAIT;
     loop {
         let detail = rt.session(session_id).await.unwrap();
-        if detail.turns.len() >= turns && detail.turns.iter().all(|t| !t.running) {
+        if detail.turns.len() >= turns
+            && detail.turns.iter().all(|t| !t.running)
+            && detail.session.active_task_id.is_none()
+        {
             return detail;
         }
         assert!(
@@ -1086,7 +1091,15 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         assert!(seqs.iter().any(|s| *s > STEP_SEQ) && seqs[0] < STEP_SEQ);
         let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
         assert!(exec.label.ends_with("turn 1 · step 2"), "{}", exec.label);
-        assert!(hook.released.load(Ordering::SeqCst) >= 2);
+        // The hook hears of each release once the slot is freed, just after the result is recorded.
+        let deadline = Instant::now() + WAIT;
+        while hook.released.load(Ordering::SeqCst) < 2 {
+            assert!(
+                Instant::now() < deadline,
+                "{runtime}: a release was never reported"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 }
 

@@ -294,19 +294,35 @@ impl H {
         self.ledger.task(id).unwrap().unwrap()
     }
 
+    /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
+    /// recorded as finished a moment before the runtime releases the session; a follow-up sent
+    /// in that moment is refused as "already running".
     async fn finished(&self, id: &str) -> Task {
         let deadline = Instant::now() + WAIT;
-        loop {
+        let task = loop {
             let task = self.task(id);
             if task.state.is_terminal() {
-                return task;
+                break task;
             }
             assert!(
                 Instant::now() < deadline,
                 "task {id} never finished: {task:#?}"
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        if let Some(session) = task.metadata["sessionId"].as_str() {
+            while let Ok(detail) = self.rt.session(session).await {
+                if detail.session.active_task_id.as_deref() != Some(id) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "task {id} never released its session"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
         }
+        task
     }
 
     /// Wait until the snapshot satisfies `pred`; returns that snapshot.

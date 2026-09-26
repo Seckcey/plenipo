@@ -200,9 +200,27 @@ impl H {
         }
     }
 
+    /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
+    /// recorded as finished a moment before the runtime releases the session; a follow-up sent
+    /// in that moment is refused as "already running".
     async fn finished(&self, id: &str) -> Task {
-        self.until_task(id, "finished", |t| t.state.is_terminal())
-            .await
+        let task = self
+            .until_task(id, "finished", |t| t.state.is_terminal())
+            .await;
+        if let Some(session) = task.metadata["sessionId"].as_str() {
+            let deadline = Instant::now() + WAIT;
+            while let Ok(detail) = self.rt.session(session).await {
+                if detail.session.active_task_id.as_deref() != Some(id) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "task {id} never released its session"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+        task
     }
 
     async fn until(&self, what: &str, pred: impl Fn(&H) -> bool) {
