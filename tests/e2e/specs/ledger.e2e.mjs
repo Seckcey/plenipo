@@ -24,13 +24,23 @@ const home = makeHome();
 const dbPath = join(home, ".local", "share", "com.eightwest.plenipo", "ledger", "plenipo.db");
 const TRAIL = '[aria-label="Activity trail"]';
 
+/**
+ * Read the whole trail in one in-page snapshot. (Reading element by element over WebDriver
+ * races with the live re-render that follows each ledger event: stale element references.)
+ */
 async function trailItems(browser) {
-  return browser.$$(`${TRAIL} li`).map(async (li) => ({
-    type: await li.getAttribute("data-event-type"),
-    seq: Number(await li.getAttribute("data-seq")),
-    text: await li.getText(),
-  }));
+  return browser.execute((selector) => {
+    return [...document.querySelectorAll(`${selector} li`)].map((li) => ({
+      type: li.getAttribute("data-event-type"),
+      seq: Number(li.getAttribute("data-seq")),
+      text: li.innerText.replace(/\s+/g, " ").trim(),
+    }));
+  }, TRAIL);
 }
+
+/** Wait until the trail has exactly `count` entries (i.e. the latest refresh has landed). */
+const waitForTrailLength = (browser, count) =>
+  waitUntil(async () => (await trailItems(browser)).length === count, `${count} trail entries`);
 
 /** Open a task by exact objective (sub-tasks share the parent's prefix, so match exactly). */
 async function openActivityTask(browser, objective) {
@@ -63,17 +73,20 @@ describe("Phase 2 ledger (real app)", () => {
     await waitForText(browser, '[role="status"]', "Created");
 
     await openActivityTask(browser, objective);
-    for (const action of ["Start", "Add step"]) {
-      await clickButton(browser, action);
-      await waitUntil(async () => (await trailItems(browser)).length > 0, "trail");
-    }
+    await waitForTrailLength(browser, 1);
+    await clickButton(browser, "Start");
+    await waitForText(browser, TRAIL, "Queued → Running");
+    await clickButton(browser, "Add step");
     // "Add step" selects the new sub-task; go back to the parent.
+    await waitForText(browser, DETAIL, "step 1");
     await clickButton(browser, "↑ Parent task");
     await waitForText(browser, DETAIL, objective);
+    await waitForTrailLength(browser, 3);
     await clickButton(browser, "Await approval");
     await waitForText(browser, TRAIL, "Running → Awaiting approval");
     await clickButton(browser, "Resume");
     await waitForText(browser, TRAIL, "Awaiting approval → Running");
+    await waitForTrailLength(browser, 5);
 
     const items = await trailItems(browser);
     assert.deepEqual(
@@ -139,6 +152,7 @@ describe("Phase 2 ledger (real app)", () => {
     assert.equal(await (await browser.$(".banner--severe")).isExisting(), false, "no corruption");
     await openActivityTask(browser, objective);
     await waitForText(browser, DETAIL, "Running");
+    await waitForTrailLength(browser, trailBefore.length);
     const after = await trailItems(browser);
     assert.deepEqual(after, trailBefore, "identical ordered trail after a hard kill");
     // Phase 1 runtime history also survived, via the ledger.
