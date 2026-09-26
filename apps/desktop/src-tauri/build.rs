@@ -17,6 +17,13 @@ const COMMANDS: &[&str] = &[
     "run_integrity_check",
     "create_ledger_backup",
     "export_ledger",
+    "get_agent_overview",
+    "refresh_agent_runtimes",
+    "get_agent_session",
+    "start_agent_session",
+    "resume_agent_session",
+    "cancel_agent_turn",
+    "close_agent_session",
 ];
 
 fn main() {

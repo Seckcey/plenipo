@@ -82,10 +82,7 @@ impl RuntimeAdapter for ClaudeCode {
                 out.push(home.join(".claude").join("local").join("claude"));
             }
         }
-        if cfg!(unix) {
-            out.push("/usr/local/bin/claude".into());
-            out.push("/opt/homebrew/bin/claude".into());
-        }
+        out.extend(host.system_dirs().iter().map(|d| d.join("claude")));
         out
     }
 

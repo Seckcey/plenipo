@@ -95,8 +95,7 @@ impl RuntimeAdapter for Codex {
             if let Some(home) = &host.home {
                 out.push(home.join(".local").join("bin").join("codex"));
             }
-            out.push("/usr/local/bin/codex".into());
-            out.push("/opt/homebrew/bin/codex".into());
+            out.extend(host.system_dirs().iter().map(|d| d.join("codex")));
         }
         out
     }

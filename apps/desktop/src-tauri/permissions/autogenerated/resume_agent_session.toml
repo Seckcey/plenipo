@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resume-agent-session"
+description = "Enables the resume_agent_session command without any pre-configured scope."
+commands.allow = ["resume_agent_session"]
+
+[[permission]]
+identifier = "deny-resume-agent-session"
+description = "Denies the resume_agent_session command without any pre-configured scope."
+commands.deny = ["resume_agent_session"]

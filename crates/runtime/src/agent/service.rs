@@ -48,25 +48,24 @@ pub trait SessionStore: Send + Sync + 'static {
         number: u32,
         objective: &str,
     ) -> Result<String, String>;
-    fn record_activity(
-        &self,
-        session_id: &str,
-        task_id: &str,
-        execution_id: Option<&str>,
-        event: &AgentEvent,
-    ) -> Result<(), String>;
+    /// Record durable activity. `actor` identifies the runtime (e.g. `agent:claude-code`).
+    fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String>;
     /// Record the normalized result and finish the task.
-    fn finish_turn(
-        &self,
-        session_id: &str,
-        task_id: &str,
-        execution_id: Option<&str>,
-        result: &TurnResult,
-    ) -> Result<(), String>;
+    fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String>;
     /// A session's turns, oldest first.
     fn turns(&self, session_id: &str) -> Result<Vec<AgentTurn>, String>;
     /// Turns still marked running (left behind when Plenipo stopped).
     fn unfinished_turns(&self) -> Result<Vec<AgentTurn>, String>;
+}
+
+/// Identifies a turn when recording it.
+#[derive(Debug, Clone, Copy)]
+pub struct TurnRef<'a> {
+    pub session_id: &'a str,
+    pub task_id: &'a str,
+    pub execution_id: Option<&'a str>,
+    /// Who is recording: `agent:<runtime>` for live turns, `plenipo` for recovery.
+    pub actor: &'a str,
 }
 
 /// What changed in a saved session.
@@ -213,12 +212,13 @@ impl AgentRuntime {
                 duration_ms: None,
                 ignored_lines: 0,
             };
-            if let Err(e) = store.finish_turn(
-                &turn.session_id,
-                &turn.task_id,
-                turn.execution_id.as_deref(),
-                &result,
-            ) {
+            let turn_ref = TurnRef {
+                session_id: &turn.session_id,
+                task_id: &turn.task_id,
+                execution_id: turn.execution_id.as_deref(),
+                actor: "plenipo",
+            };
+            if let Err(e) = store.finish_turn(&turn_ref, &result) {
                 self.notice(format!("Could not record an interrupted agent turn: {e}"));
             }
         }
@@ -867,6 +867,10 @@ struct TurnContext {
 }
 
 impl TurnContext {
+    fn actor(&self) -> String {
+        format!("agent:{}", self.session.runtime_id)
+    }
+
     async fn consume(
         mut self,
         mut parser: Box<dyn TurnParser>,
@@ -1000,14 +1004,21 @@ impl TurnContext {
             std::cmp::Ordering::Greater => return,
         };
         self.stored += 1;
-        let (session_id, task_id, execution_id) = (
+        let (session_id, task_id, execution_id, actor) = (
             self.session.id.clone(),
             self.turn.task_id.clone(),
             self.execution_id.clone(),
+            self.actor(),
         );
         if let Err(e) = runtime
             .with_store(move |s| {
-                s.record_activity(&session_id, &task_id, execution_id.as_deref(), &event)
+                let turn = TurnRef {
+                    session_id: &session_id,
+                    task_id: &task_id,
+                    execution_id: execution_id.as_deref(),
+                    actor: &actor,
+                };
+                s.record_activity(&turn, &event)
             })
             .await
         {
@@ -1035,15 +1046,22 @@ impl TurnContext {
                 }
             });
         }
-        let (session_id, task_id, execution_id, stored) = (
+        let (session_id, task_id, execution_id, actor, stored) = (
             self.session.id.clone(),
             self.turn.task_id.clone(),
             self.execution_id.clone(),
+            self.actor(),
             result.clone(),
         );
         if let Err(e) = runtime
             .with_store(move |s| {
-                s.finish_turn(&session_id, &task_id, execution_id.as_deref(), &stored)
+                let turn = TurnRef {
+                    session_id: &session_id,
+                    task_id: &task_id,
+                    execution_id: execution_id.as_deref(),
+                    actor: &actor,
+                };
+                s.finish_turn(&turn, &stored)
             })
             .await
         {

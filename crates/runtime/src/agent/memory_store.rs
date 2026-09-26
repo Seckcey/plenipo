@@ -4,7 +4,7 @@
 use std::sync::{Mutex, MutexGuard};
 
 use crate::agent::dto::{AgentEvent, AgentSession, AgentTurn, TurnResult};
-use crate::agent::service::{SessionChange, SessionStore};
+use crate::agent::service::{SessionChange, SessionStore, TurnRef};
 
 #[derive(Debug, Default)]
 struct Data {
@@ -115,37 +115,28 @@ impl SessionStore for MemorySessionStore {
         Ok(task_id)
     }
 
-    fn record_activity(
-        &self,
-        _session_id: &str,
-        task_id: &str,
-        _execution_id: Option<&str>,
-        event: &AgentEvent,
-    ) -> Result<(), String> {
+    fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String> {
         self.lock()
             .activity
-            .push((task_id.to_owned(), event.clone()));
+            .push((turn.task_id.to_owned(), event.clone()));
         Ok(())
     }
 
-    fn finish_turn(
-        &self,
-        _session_id: &str,
-        task_id: &str,
-        execution_id: Option<&str>,
-        result: &TurnResult,
-    ) -> Result<(), String> {
+    fn finish_turn(&self, turn_ref: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {
         let mut data = self.lock();
         let turn = data
             .turns
             .iter_mut()
-            .find(|t| t.task_id == task_id)
-            .ok_or_else(|| format!("unknown turn {task_id}"))?;
+            .find(|t| t.task_id == turn_ref.task_id)
+            .ok_or_else(|| format!("unknown turn {}", turn_ref.task_id))?;
         if !turn.running {
-            return Err(format!("turn {task_id} already finished"));
+            return Err(format!("turn {} already finished", turn_ref.task_id));
         }
         turn.running = false;
-        turn.execution_id = execution_id.map(str::to_owned).or(turn.execution_id.take());
+        turn.execution_id = turn_ref
+            .execution_id
+            .map(str::to_owned)
+            .or(turn.execution_id.take());
         turn.result = Some(result.clone());
         turn.ended_at = Some(crate::now_ms());
         Ok(())

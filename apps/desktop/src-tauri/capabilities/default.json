@@ -19,6 +19,13 @@
     "allow-advance-synthetic-task",
     "allow-run-integrity-check",
     "allow-create-ledger-backup",
-    "allow-export-ledger"
+    "allow-export-ledger",
+    "allow-get-agent-overview",
+    "allow-refresh-agent-runtimes",
+    "allow-get-agent-session",
+    "allow-start-agent-session",
+    "allow-resume-agent-session",
+    "allow-cancel-agent-turn",
+    "allow-close-agent-session"
   ]
 }

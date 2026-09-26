@@ -24,6 +24,8 @@ pub struct HostEnv {
     pub appdata: Option<PathBuf>,
     /// Values of variables adapters may pass through; everything else is ignored.
     vars: Vec<(String, String)>,
+    /// Machine-wide install directories (e.g. `/usr/local/bin`); empty for test hosts.
+    system_dirs: Vec<PathBuf>,
 }
 
 impl HostEnv {
@@ -35,17 +37,27 @@ impl HostEnv {
             home: std::env::var_os(home_var).map(PathBuf::from),
             appdata: std::env::var_os("APPDATA").map(PathBuf::from),
             vars: std::env::vars().collect(),
+            system_dirs: if cfg!(unix) {
+                vec!["/usr/local/bin".into(), "/opt/homebrew/bin".into()]
+            } else {
+                Vec::new()
+            },
         }
     }
 
-    /// An environment with only these locations (tests, tools).
+    /// An environment with only these locations (tests, tools): no machine-wide directories.
     pub fn new(path: Option<OsString>, home: Option<PathBuf>, appdata: Option<PathBuf>) -> Self {
         Self {
             path,
             home,
             appdata,
             vars: Vec::new(),
+            system_dirs: Vec::new(),
         }
+    }
+
+    pub fn system_dirs(&self) -> &[PathBuf] {
+        &self.system_dirs
     }
 
     /// Replace the captured variables (tests).

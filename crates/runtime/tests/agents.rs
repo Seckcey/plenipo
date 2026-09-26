@@ -223,10 +223,6 @@ async fn missing_runtimes_are_reported_not_installed() {
         .iter()
         .all(|r| r.installation.state == InstallState::Checking));
     for info in h.rt.refresh().await {
-        // A machine-wide install in a well-known location would legitimately be found.
-        if info.installation.state == InstallState::Installed {
-            continue;
-        }
         assert_eq!(
             info.installation.state,
             InstallState::NotInstalled,
@@ -243,10 +239,8 @@ async fn windows_npm_shims_are_not_run() {
     let h = harness_with(&[], None);
     std::fs::write(h.bin().join("claude.cmd"), "@echo off\r\n").unwrap();
     let info = h.rt.refresh().await.remove(0);
-    if info.installation.state != InstallState::Installed {
-        assert_eq!(info.installation.state, InstallState::Unsupported);
-        assert!(info.installation.detail.unwrap().contains("claude.cmd"));
-    }
+    assert_eq!(info.installation.state, InstallState::Unsupported);
+    assert!(info.installation.detail.unwrap().contains("claude.cmd"));
 }
 
 #[tokio::test]
