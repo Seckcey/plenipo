@@ -14,6 +14,10 @@ objective: string,
  */
 state: TaskState, sessionId: string | null, runtimeId: string, model: string | null, 
 /**
+ * Why it got this runtime and model (the Router's explanation).
+ */
+routing: string | null, 
+/**
  * The task that delegated to it.
  */
 parentTaskId: string | null, spawnedAt: number, startedAt: number | null, };

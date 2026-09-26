@@ -1132,6 +1132,12 @@ use serde_json::{json, Value};
 struct TeamDirectory {
     lead: Position,
     members: Vec<Position>,
+    /// The work each placed request was about (runtimes), in order.
+    reviewed: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+fn runtime_of(p: &Position) -> String {
+    p.runtime_id.clone().unwrap_or_default()
 }
 
 impl Directory for TeamDirectory {
@@ -1147,14 +1153,21 @@ impl Directory for TeamDirectory {
                 .iter()
                 .map(|m| Destination {
                     address: format!("role:{}", m.title),
-                    label: format!("{} on {}", m.title, m.runtime_id),
+                    label: format!("{} on {}", m.title, runtime_of(m)),
                     ready: true,
                 })
                 .collect(),
         })
     }
 
-    fn place(&self, _: &Value, requester: &Task, name: &str) -> Result<Placement, String> {
+    fn place(
+        &self,
+        _: &Value,
+        requester: &Task,
+        name: &str,
+        reviewed: &[String],
+    ) -> Result<Placement, String> {
+        self.reviewed.lock().unwrap().push(reviewed.to_vec());
         let m = self
             .members
             .iter()
@@ -1163,17 +1176,18 @@ impl Directory for TeamDirectory {
         let agent_id = uuid::Uuid::new_v4().to_string();
         Ok(Placement {
             address: format!("role:{}", m.title),
-            label: format!("{} ({})", m.title, m.runtime_id),
-            runtime_id: m.runtime_id.clone(),
+            label: format!("{} ({})", m.title, runtime_of(m)),
+            runtime_id: runtime_of(m),
             model: m.model.clone(),
             worker: NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: m.id.clone(),
                 role_id: m.role_id.clone(),
-                runtime_id: m.runtime_id.clone(),
+                runtime_id: runtime_of(m),
                 runtime_provider: None,
                 model: m.model.clone(),
                 project_id: requester.project_id.clone(),
+                routing: json!({ "reason": "test" }),
             },
             workforce: json!({ "positionId": m.id, "agentId": agent_id }),
             identity: format!("You are working as {} for {}.", m.title, self.lead.title),
@@ -1183,8 +1197,9 @@ impl Directory for TeamDirectory {
 }
 
 /// An organization with a lead (staffed, on Codex) and two on-demand members: a Reviewer on
-/// Claude Code (with a model) and a Builder on Codex. Returns (lead workforce record, members).
-fn organization(h: &H) -> (Value, Vec<Position>) {
+/// Claude Code (with a model) and a Builder on Codex. Returns (lead workforce record, members,
+/// the directory).
+fn organization(h: &H) -> (Value, Vec<Position>, Arc<TeamDirectory>) {
     let l = &h.ledger;
     let roles = l
         .ensure_roles(
@@ -1217,7 +1232,7 @@ fn organization(h: &H) -> (Value, Vec<Position>) {
             &NewPosition {
                 title: "Development Manager".into(),
                 role_id: role("Department Manager"),
-                runtime_id: "codex".into(),
+                runtime_id: Some("codex".into()),
                 staffed: true,
                 ..NewPosition::default()
             },
@@ -1230,7 +1245,7 @@ fn organization(h: &H) -> (Value, Vec<Position>) {
                 title: title.into(),
                 role_id: role("Specialist"),
                 reports_to: Some(lead.id.clone()),
-                runtime_id: runtime.into(),
+                runtime_id: Some(runtime.into()),
                 model: model.map(str::to_owned),
                 ..NewPosition::default()
             },
@@ -1245,11 +1260,14 @@ fn organization(h: &H) -> (Value, Vec<Position>) {
     ];
     let agent = l.position_incumbent(&lead.id).unwrap().unwrap();
     let workforce = json!({ "positionId": lead.id, "agentId": agent.id });
-    h.liaison.set_directory(Arc::new(TeamDirectory {
+    let directory = Arc::new(TeamDirectory {
         lead,
         members: members.clone(),
-    }));
-    (workforce, members)
+        reviewed: std::sync::Mutex::new(Vec::new()),
+    });
+    h.liaison
+        .set_directory(Arc::clone(&directory) as Arc<dyn Directory>);
+    (workforce, members, directory)
 }
 
 impl H {
@@ -1275,7 +1293,7 @@ impl H {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
     let h = harness().await;
-    let (lead, members) = organization(&h);
+    let (lead, members, directory) = organization(&h);
     let reviewer = &members[0];
     let (session, root) = h
         .start_member(&lead, "Plan the release [handoff:role:Reviewer]")
@@ -1287,6 +1305,11 @@ async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
         "the turn names its member"
     );
 
+    // The work under review was the requester's own (it referenced no tasks): its runtime.
+    assert_eq!(
+        *directory.reviewed.lock().unwrap(),
+        [vec!["codex".to_owned()]]
+    );
     // The child went to the Reviewer position: its runtime and model, recorded under it.
     let child = h.only_child(&root);
     assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
@@ -1379,7 +1402,7 @@ async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn members_address_their_team_by_role_and_never_a_raw_runtime() {
     let h = harness().await;
-    let (lead, _) = organization(&h);
+    let (lead, _, _) = organization(&h);
     let (_, root) = h
         .start_member(
             &lead,

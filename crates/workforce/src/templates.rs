@@ -3,6 +3,7 @@
 //! nothing about departments or projects is seeded.
 
 use plenipo_ledger::{RoleTemplate, RoleType};
+use plenipo_router::{CostPreference, CrossCompany, ModelFeature, RolePolicy};
 use serde_json::json;
 
 struct Template {
@@ -189,6 +190,51 @@ pub fn role_templates() -> Vec<RoleTemplate> {
         .collect()
 }
 
+/// Starting model policies for built-in roles, by template name (the plan's examples, Phase 6):
+/// designers need a model that sees and makes images, reviewers and security auditors prefer
+/// another AI company than the work they review, documentation prefers economical models and
+/// development premium ones. No model names: which models exist is the owner's to say. Given
+/// to a template role once, when it has no policy; the owner can change them.
+pub fn template_policies() -> Vec<(&'static str, RolePolicy)> {
+    vec![
+        (
+            "Senior Developer",
+            RolePolicy {
+                cost: CostPreference::Premium,
+                ..RolePolicy::default()
+            },
+        ),
+        (
+            "Code Reviewer",
+            RolePolicy {
+                cross_company: CrossCompany::Prefer,
+                ..RolePolicy::default()
+            },
+        ),
+        (
+            "Security Auditor",
+            RolePolicy {
+                cross_company: CrossCompany::Prefer,
+                ..RolePolicy::default()
+            },
+        ),
+        (
+            "Documentation Writer",
+            RolePolicy {
+                cost: CostPreference::Economical,
+                ..RolePolicy::default()
+            },
+        ),
+        (
+            "Designer",
+            RolePolicy {
+                needs: vec![ModelFeature::Vision, ModelFeature::ImageGeneration],
+                ..RolePolicy::default()
+            },
+        ),
+    ]
+}
+
 /// The glyph for a role without one (custom roles).
 pub fn default_glyph(role_type: RoleType) -> &'static str {
     match role_type {
@@ -243,6 +289,10 @@ mod tests {
             for old in r.formerly {
                 assert!(all.iter().all(|o| o.name != *old), "{old}");
             }
+        }
+        // Every starting policy belongs to a template.
+        for (name, _) in template_policies() {
+            assert!(all.iter().any(|r| r.name == name), "{name}");
         }
         // Capability names are from the plan's list (nothing is granted before Guard).
         for r in &all {

@@ -3,7 +3,12 @@
 /**
  * The agent holding a persistent position.
  */
-export type AgentInfo = { id: string, runtimeId: string, model: string | null, 
+export type AgentInfo = { id: string, 
+/**
+ * The runtime of its conversation; `None` for an automatic position's agent before its
+ * first objective (the Router picks one then).
+ */
+runtimeId: string | null, model: string | null, 
 /**
  * Its open runtime session (its conversation), once it has had an objective.
  */

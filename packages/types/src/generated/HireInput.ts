@@ -7,7 +7,15 @@ export type HireInput = { roleId: string, title: string,
 /**
  * The supervisor; `null` reports to the owner.
  */
-reportsTo: string | null, runtimeId: string, model?: string, 
+reportsTo: string | null, 
+/**
+ * A fixed AI tool; absent: automatic (the role's model policy picks).
+ */
+runtimeId?: string, 
+/**
+ * A fixed model (only with a fixed AI tool).
+ */
+model?: string, 
 /**
  * Leave a persistent position vacant (hire later).
  */

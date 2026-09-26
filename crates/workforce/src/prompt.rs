@@ -2,16 +2,8 @@
 //! team (written into their instructions by Liaison, ADR-009 §5).
 
 use plenipo_ledger::{OversightKind, Position, Role};
-use plenipo_runtime::agent::AgentRuntimeInfo;
 
 use crate::view::{OrgView, TeamMember};
-
-pub(crate) fn runtime_label(runtimes: &[AgentRuntimeInfo], id: &str) -> String {
-    runtimes
-        .iter()
-        .find(|r| r.id == id)
-        .map_or_else(|| id.to_owned(), |r| r.label.clone())
-}
 
 /// A role's purpose as one phrase list, or its description.
 fn purpose(role: &Role) -> String {
@@ -117,16 +109,14 @@ pub fn worker_identity(
 }
 
 /// How a team member is listed in a worker's instructions, after its `role:<title>` address.
-pub fn member_label(
-    view: &OrgView<'_>,
-    runtimes: &[AgentRuntimeInfo],
-    m: &TeamMember<'_>,
-) -> String {
-    let base = format!(
-        "{} on {}",
-        role_name(view, m.position),
-        runtime_label(runtimes, &m.position.runtime_id)
-    );
+/// `tool` names a fixed position's AI tool; an automatic position's is left out, since its
+/// role's model policy picks one for each worker (so the instructions stay the same when the
+/// policy changes).
+pub fn member_label(view: &OrgView<'_>, tool: Option<&str>, m: &TeamMember<'_>) -> String {
+    let base = match tool {
+        Some(tool) => format!("{} on {tool}", role_name(view, m.position)),
+        None => role_name(view, m.position).to_owned(),
+    };
     match m.oversight {
         Some(o) => format!("{base}, your team's {}", o.kind.label()),
         None => format!("{base}, a new worker for each request"),
