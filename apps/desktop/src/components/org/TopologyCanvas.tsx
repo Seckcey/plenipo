@@ -214,24 +214,48 @@ export function TopologyCanvas({
     [setCamera, stopFly],
   );
 
+  // Set once the viewport has been measured (the first measurement fits the organization).
+  const fitted = useRef(false);
+
+  /**
+   * The viewport's size now. The resize observer reports only with the next frame, and a command
+   * can come first (right after a start, or a window resize), so camera commands measure for
+   * themselves; their camera then takes the place of the first fit.
+   */
+  const measure = useCallback((): Size => {
+    const r = viewportRef.current?.getBoundingClientRect();
+    const { size } = live.current;
+    if (!r || r.width <= 0 || r.height <= 0) return size;
+    const next = { w: r.width, h: r.height };
+    if (next.w !== size.w || next.h !== size.h) {
+      fitted.current = true;
+      live.current.size = next;
+      setMeasured(next);
+    }
+    return next;
+  }, []);
+
   const fit = useCallback(() => {
-    const { size: view, layout: l, inset } = live.current;
+    const view = measure();
+    const { layout: l, inset } = live.current;
     flyTo(forInset(fitCamera(l.bounds, uncovered(view, inset)), inset));
-  }, [flyTo]);
+  }, [flyTo, measure]);
 
   const zoomBy = useCallback(
     (factor: number) => {
       stopFly();
-      const { camera: c, size: view, layout: l, inset } = live.current;
+      const view = measure();
+      const { camera: c, layout: l, inset } = live.current;
       flyTo(zoomAt(c, view, l.bounds, (view.w - inset) / 2, view.h / 2, factor));
     },
-    [flyTo, stopFly],
+    [flyTo, measure, stopFly],
   );
 
   /** Fly to a node unless it is already comfortably in view (and not under the panel). */
   const reveal = useCallback(
     (node: LayoutNode, force: boolean) => {
-      const { camera: c, size: view, inset } = live.current;
+      const view = measure();
+      const { camera: c, inset } = live.current;
       const full = visibleRect(c, view);
       const seen = { ...full, w: full.w - inset / c.z };
       const margin = 24 / c.z;
@@ -242,7 +266,7 @@ export function TopologyCanvas({
         node.y + node.h <= seen.y + seen.h - margin;
       if (force || !inside) flyTo(forInset(focusCamera(c, uncovered(view, inset), node), inset));
     },
-    [flyTo],
+    [flyTo, measure],
   );
 
   /** Zoom in on a node (double-click). */
@@ -268,7 +292,6 @@ export function TopologyCanvas({
   }, []);
 
   // First real measurement: fit the organization unless a view was restored.
-  const fitted = useRef(false);
   useEffect(() => {
     if (!measured || fitted.current) return;
     fitted.current = true;
@@ -320,20 +343,24 @@ export function TopologyCanvas({
   useEffect(() => () => stopFly(), [stopFly]);
 
   /** What is under a client point: a node ID, EMPTY_CANVAS, or `null` outside the canvas. */
-  const hitTest = useCallback((clientX: number, clientY: number): string | null => {
-    const el = viewportRef.current;
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    const sized = r.width > 0 && r.height > 0;
-    const { camera: c, size: view, layout: l, inset } = live.current;
-    // The panel over the right-hand side is not canvas.
-    const right = r.right - inset;
-    if (sized && (clientX < r.left || clientX > right || clientY < r.top || clientY > r.bottom)) {
-      return null;
-    }
-    const [wx, wy] = screenToWorld(c, view, clientX - r.left, clientY - r.top);
-    return nodeAt(l, wx, wy)?.id ?? EMPTY_CANVAS;
-  }, []);
+  const hitTest = useCallback(
+    (clientX: number, clientY: number): string | null => {
+      const el = viewportRef.current;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const sized = r.width > 0 && r.height > 0;
+      const view = measure();
+      const { camera: c, layout: l, inset } = live.current;
+      // The panel over the right-hand side is not canvas.
+      const right = r.right - inset;
+      if (sized && (clientX < r.left || clientX > right || clientY < r.top || clientY > r.bottom)) {
+        return null;
+      }
+      const [wx, wy] = screenToWorld(c, view, clientX - r.left, clientY - r.top);
+      return nodeAt(l, wx, wy)?.id ?? EMPTY_CANVAS;
+    },
+    [measure],
+  );
 
   const updateDrag = useCallback(
     (payload: DragPayload, x: number, y: number) => {
@@ -529,7 +556,8 @@ export function TopologyCanvas({
       if ((e.target as Element | null)?.closest?.("[data-canvas-scroll]")) return;
       e.preventDefault();
       stopFly();
-      const { camera: c, size: view, layout: l } = live.current;
+      const view = measure();
+      const { camera: c, layout: l } = live.current;
       if (e.shiftKey) {
         const step = (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 16 : 1);
         setCamera(panBy(c, view, l.bounds, -step, 0));
@@ -549,7 +577,7 @@ export function TopologyCanvas({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [setCamera, stopFly]);
+  }, [measure, setCamera, stopFly]);
 
   useImperativeHandle(
     ref,
@@ -575,6 +603,7 @@ export function TopologyCanvas({
     if (target.closest("[data-canvas-ui]")) return;
     if (e.pointerType === "mouse" && e.button > 2) return;
     stopFly();
+    measure();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
@@ -598,7 +627,8 @@ export function TopologyCanvas({
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select")) return;
-    const { camera: c, size: view, layout: l } = live.current;
+    const view = measure();
+    const { camera: c, layout: l } = live.current;
     const pan = (dx: number, dy: number) => {
       e.preventDefault();
       setCamera(panBy(c, view, l.bounds, dx, dy));
