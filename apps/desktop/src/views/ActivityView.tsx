@@ -18,13 +18,17 @@ function TaskBadge({ task }: { task: Task }) {
   return <span className={`badge badge--task-${task.state}`}>{TASK_STATE_LABEL[task.state]}</span>;
 }
 
-function EventRow({ event }: { event: LedgerEvent }) {
+/** `step` numbers a task's own trail (1, 2, 3…); the global ledger sequence is in the tooltip. */
+function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
   return (
     <li
       className={`trail__item${isRejection(event) ? " trail__item--rejected" : ""}`}
       data-event-type={event.eventType}
+      data-seq={event.seq}
     >
-      <span className="trail__seq">#{event.seq}</span>
+      <span className="trail__seq" title={`Ledger sequence #${event.seq}`}>
+        {step !== undefined ? `${step}.` : `#${event.seq}`}
+      </span>
       <time>{formatTime(event.createdAt)}</time>
       <span className="trail__text">{describeEvent(event)}</span>
       <span className="trail__source">{event.source}</span>
@@ -214,8 +218,8 @@ export function ActivityView({
 
                 <h3>Activity trail</h3>
                 <ol className="trail" aria-label="Activity trail">
-                  {current.events.map((e) => (
-                    <EventRow key={e.seq} event={e} />
+                  {current.events.map((e, i) => (
+                    <EventRow key={e.seq} event={e} step={i + 1} />
                   ))}
                 </ol>
               </>

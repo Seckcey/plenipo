@@ -232,7 +232,7 @@ button {
 
 .execution {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
   width: 100%;
   margin-bottom: 6px;
@@ -296,6 +296,8 @@ button {
 
 .badge {
   display: inline-block;
+  align-self: start;
+  height: fit-content;
   padding: 1px 8px;
   border-radius: 999px;
   font-size: 0.75rem;

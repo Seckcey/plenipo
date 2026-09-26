@@ -102,7 +102,12 @@ describe("Activity timeline", () => {
     ]);
     expect(items[1]).toHaveTextContent("Rejected: Queued → Succeeded is not allowed");
     expect(items[2]).toHaveTextContent("Queued → Running (diagnostics)");
-    expect(items[0]).toHaveTextContent("#1");
+    expect(items.map((i) => i.querySelector(".trail__seq")?.textContent)).toEqual([
+      "1.",
+      "2.",
+      "3.",
+    ]);
+    expect(items.map((i) => i.getAttribute("data-seq"))).toEqual(["1", "2", "3"]);
   });
 
   it("offers only valid actions and surfaces a rejection", async () => {

@@ -35,6 +35,22 @@ async function waitForPort(port, timeoutMs = 20_000) {
   throw new Error(`tauri-driver did not listen on ${port}`);
 }
 
+async function waitForPortFree(port, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const inUse = await new Promise((done) => {
+      const socket = net.connect(port, "127.0.0.1", () => {
+        socket.end();
+        done(true);
+      });
+      socket.on("error", () => done(false));
+    });
+    if (!inUse) return;
+    await sleep(100);
+  }
+  throw new Error(`port ${port} is still in use`);
+}
+
 /** Start tauri-driver + the app with `home` as its data root. */
 export async function launch(home) {
   const env = {
@@ -46,9 +62,13 @@ export async function launch(home) {
     // Tauri only lets WebDriver attach to its webview when this is set (test harness only).
     TAURI_WEBVIEW_AUTOMATION: "true",
   };
+  await waitForPortFree(PORT);
+  await waitForPortFree(PORT + 1); // tauri-driver's native WebDriver
+  // Own process group so close() can stop tauri-driver, its native driver, and the app together.
   const driver = spawn("tauri-driver", ["--port", String(PORT)], {
     env,
     stdio: ["ignore", "inherit", "inherit"],
+    detached: process.platform !== "win32",
   });
   await waitForPort(PORT);
   const browser = await remote({
@@ -71,8 +91,18 @@ export async function launch(home) {
       } catch {
         // The app may already have exited.
       }
-      driver.kill();
-      await new Promise((done) => (driver.exitCode === null ? driver.once("exit", done) : done()));
+      const exited = new Promise((done) =>
+        driver.exitCode === null && driver.signalCode === null ? driver.once("exit", done) : done(),
+      );
+      try {
+        if (process.platform === "win32") driver.kill();
+        else process.kill(-driver.pid, "SIGTERM"); // whole group
+      } catch {
+        // Already gone.
+      }
+      await exited;
+      await waitForPortFree(PORT);
+      await waitForPortFree(PORT + 1);
     },
   };
 }
