@@ -21,8 +21,9 @@ use plenipo_runtime::agent::{
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
 };
+use plenipo_workforce::outcome::{ReportApprovalState, ReportTask, ReviewVerdict};
 use plenipo_workforce::{
-    DepartmentInput, HireInput, LeadInput, OrgSnapshot, ProjectInput, Workforce,
+    DevelopmentInput, HireInput, ObjectiveReport, OrgSnapshot, ProjectInput, Workforce,
 };
 use serde_json::{json, Value};
 
@@ -125,24 +126,19 @@ impl AgentSink for NoUpdates {
     fn emit(&self, _: AgentUpdate) {}
 }
 
-/// Positions of the Development department.
+/// The Development department's leads (the team is addressed by title in scripts).
 struct Team {
     vp: String,
     supervisor: String,
-    developer: String,
-    frontend: String,
-    reviewer: String,
-    qa: String,
-    writer: String,
 }
 
 struct H {
     ledger: Arc<Ledger>,
     rt: AgentRuntime,
+    sup: Supervisor,
+    liaison: Liaison,
     workforce: Workforce,
-    guard: Guard,
     broker: Broker,
-    store: Arc<MemorySecretStore>,
     run: tokio::task::JoinHandle<()>,
     dir: tempfile::TempDir,
     /// The project's folder: the owner's own git checkout.
@@ -151,27 +147,92 @@ struct H {
     team: Team,
 }
 
-impl Drop for H {
-    fn drop(&mut self) {
-        self.run.abort();
+/// Everything above the Ledger, as the desktop app wires it, on the Ledger in `dir`.
+struct Stack {
+    ledger: Arc<Ledger>,
+    rt: AgentRuntime,
+    sup: Supervisor,
+    liaison: Liaison,
+    workforce: Workforce,
+    guard: Guard,
+    broker: Broker,
+    run: tokio::task::JoinHandle<()>,
+}
+
+async fn stack(dir: &Path) -> Stack {
+    let bin = dir.join("bin");
+    let ledger = Arc::new(Ledger::open(&dir.join("ledger").join(DB_FILE_NAME)).unwrap());
+    let sup = Supervisor::new(
+        SupervisorConfig::default(),
+        ExecutablePolicy::default(),
+        ProfileRegistry::default(),
+        Arc::new(LedgerExecutionStore(Arc::clone(&ledger))),
+        Arc::new(NoOutput),
+        vec![],
+    );
+    let mut config = AgentConfig::new(dir.join("sessions"));
+    config.extra_env = vec![(HOME_VAR.into(), dir.join("home").display().to_string())];
+    config.turn_timeout = Duration::from_secs(120);
+    let rt = AgentRuntime::new(
+        config,
+        builtin_adapters(),
+        sup.clone(),
+        Arc::new(LedgerSessionStore(Arc::clone(&ledger))),
+        Arc::new(NoUpdates),
+        HostEnv::new(
+            Some(bin.clone().into_os_string()),
+            Some(dir.join("home")),
+            None,
+        ),
+    );
+    rt.refresh().await;
+    let liaison = Liaison::new(
+        Arc::clone(&ledger),
+        rt.clone(),
+        LiaisonConfig {
+            tick: Duration::from_millis(200),
+            ..LiaisonConfig::default()
+        },
+    );
+    let router = Router::new(Arc::clone(&ledger), rt.clone());
+    let workforce = Workforce::new(Arc::clone(&ledger), rt.clone(), liaison.clone(), router);
+    let guard = Guard::new(Arc::clone(&ledger));
+    guard.seed_template_roles().unwrap();
+    let mut broker_config = BrokerConfig::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_plenipo-tool-relay")),
+        dir.join("tickets"),
+    );
+    broker_config.approval_minute = Duration::from_secs(1);
+    // GitHub's gh and the project's test (`verify`) are stand-ins in the test's own folder.
+    broker_config.search_path = Some(bin.into_os_string());
+    let broker = Broker::new(
+        guard.clone(),
+        sup.clone(),
+        Arc::new(MemorySecretStore::default()),
+        broker_config,
+    );
+    broker.start().await.unwrap();
+    rt.set_tools(Arc::new(broker.clone()));
+    rt.set_filter(broker.text_filter());
+    let run = tokio::spawn(liaison.clone().run());
+    Stack {
+        ledger,
+        rt,
+        sup,
+        liaison,
+        workforce,
+        guard,
+        broker,
+        run,
     }
 }
 
-fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
-    LeadInput {
-        role_id: role_id.into(),
-        title: title.into(),
-        runtime_id: Some(runtime.into()),
-        model: None,
-        vacant: None,
-    }
-}
-
-/// Development, headed by the Development VP (Claude Code), runs the Website project: its
-/// folder is a git repository on `main` with one commit, and its Website Supervisor (Claude
-/// Code) leads a Backend Developer (Senior Developer, Codex), a Frontend Developer (Senior
-/// Developer, Codex), a Reviewer (Code Reviewer, Claude Code), QA (QA Engineer, Claude Code),
-/// and Docs (Documentation Writer, Claude Code).
+/// The Development department from its template: the Development VP (Claude Code) runs the
+/// Website project, whose folder is a git repository on `main` with one commit and a remote
+/// server; its Website Supervisor (Claude Code) leads the standard team — Senior Developer,
+/// Code Reviewer, QA Engineer, Documentation Writer — and a Frontend Developer (Senior
+/// Developer role), all routed by their roles' model choices. `verify *` is an approved
+/// command.
 async fn harness() -> H {
     harness_with(true).await
 }
@@ -188,11 +249,6 @@ async fn harness_with(branch_per_objective: bool) -> H {
     std::fs::create_dir_all(folder.join("src")).unwrap();
     std::fs::write(folder.join("README.md"), "# Website\n").unwrap();
     std::fs::write(folder.join("src").join("app.txt"), "version = 1\n").unwrap();
-    std::fs::write(
-        folder.join("check.sh"),
-        "#!/bin/sh\n# The project's test: passes once src/fix.txt says fixed.\ngrep -q fixed src/fix.txt\n",
-    )
-    .unwrap();
     git(&folder, &["init", "-q", "-b", "main"]);
     git(&folder, &["config", "user.name", "Plenipo Test"]);
     git(&folder, &["config", "user.email", "test@example.com"]);
@@ -207,148 +263,121 @@ async fn harness_with(branch_per_objective: bool) -> H {
     );
     git(&folder, &["push", "-q", "origin", "main"]);
 
-    let ledger = Arc::new(Ledger::open(&dir.path().join("ledger").join(DB_FILE_NAME)).unwrap());
-    let sup = Supervisor::new(
-        SupervisorConfig::default(),
-        ExecutablePolicy::default(),
-        ProfileRegistry::default(),
-        Arc::new(LedgerExecutionStore(Arc::clone(&ledger))),
-        Arc::new(NoOutput),
-        vec![],
-    );
-    let mut config = AgentConfig::new(dir.path().join("sessions"));
-    config.extra_env = vec![(
-        HOME_VAR.into(),
-        dir.path().join("home").display().to_string(),
-    )];
-    config.turn_timeout = Duration::from_secs(120);
-    let rt = AgentRuntime::new(
-        config,
-        builtin_adapters(),
-        sup.clone(),
-        Arc::new(LedgerSessionStore(Arc::clone(&ledger))),
-        Arc::new(NoUpdates),
-        HostEnv::new(
-            Some(bin.clone().into_os_string()),
-            Some(dir.path().join("home")),
-            None,
-        ),
-    );
-    rt.refresh().await;
-    let liaison = Liaison::new(
-        Arc::clone(&ledger),
-        rt.clone(),
-        LiaisonConfig {
-            tick: Duration::from_millis(200),
-            ..LiaisonConfig::default()
-        },
-    );
-    let router = Router::new(Arc::clone(&ledger), rt.clone());
-    let workforce = Workforce::new(
-        Arc::clone(&ledger),
-        rt.clone(),
-        liaison.clone(),
-        router.clone(),
-    );
-    let guard = Guard::new(Arc::clone(&ledger));
-    guard.seed_template_roles().unwrap();
-    let store = Arc::new(MemorySecretStore::default());
-    let mut broker_config = BrokerConfig::new(
-        PathBuf::from(env!("CARGO_BIN_EXE_plenipo-tool-relay")),
-        dir.path().join("tickets"),
-    );
-    broker_config.approval_minute = Duration::from_secs(1);
-    // GitHub's gh is the stand-in in the test's own folder.
-    broker_config.search_path = Some(bin.clone().into_os_string());
-    let broker = Broker::new(guard.clone(), sup.clone(), store.clone(), broker_config);
-    broker.start().await.unwrap();
-    rt.set_tools(Arc::new(broker.clone()));
-    rt.set_filter(broker.text_filter());
-    let run = tokio::spawn(liaison.clone().run());
-
-    let role = |name: &str| -> String {
-        workforce
-            .snapshot()
-            .unwrap()
-            .roles
-            .into_iter()
-            .find(|r| r.name == name)
-            .unwrap()
-            .id
-    };
-    let s = workforce
-        .create_department(&DepartmentInput {
-            name: "Development".into(),
-            description: String::new(),
-            head: Some(lead(&role("VP"), "Development VP", "claude-code")),
-            reports_to: None,
-            active: None,
+    let s = stack(dir.path()).await;
+    let mut rules = s.guard.config().unwrap().commands;
+    rules.approved.push("verify *".into());
+    s.guard.set_commands(&rules).unwrap();
+    let org = s
+        .workforce
+        .set_up_development(&DevelopmentInput {
+            project: ProjectInput {
+                name: "Website".into(),
+                description: "The company website".into(),
+                repository_url: Some("https://github.com/example/website".into()),
+                local_path: Some(folder.display().to_string()),
+                allowed_runtimes: vec!["claude-code".into(), "codex".into()],
+                capability_profile: None,
+                branch_per_objective: Some(branch_per_objective),
+                department_id: None,
+                coordinator: None,
+            },
+            runtime_id: Some("claude-code".into()),
         })
         .unwrap();
-    let department = s.departments[0].id.clone();
-    let vp = s.departments[0].head_position_id.clone().unwrap();
-    let s = workforce
-        .create_project(&ProjectInput {
-            name: "Website".into(),
-            description: String::new(),
-            repository_url: Some("https://github.com/example/website".into()),
-            local_path: Some(folder.display().to_string()),
-            allowed_runtimes: vec!["claude-code".into(), "codex".into()],
-            capability_profile: None,
-            branch_per_objective: Some(branch_per_objective),
-            department_id: Some(department),
-            coordinator: Some(lead(
-                &role("Supervisor"),
-                "Website Supervisor",
-                "claude-code",
-            )),
-        })
-        .unwrap();
-    let project = s.projects[0].id.clone();
-    let supervisor = s.projects[0].coordinator_position_id.clone().unwrap();
-    let hire = |role_name: &str, title: &str, runtime: &str| -> String {
-        let s: OrgSnapshot = workforce
-            .hire(&HireInput {
-                role_id: role(role_name),
-                title: title.into(),
-                reports_to: Some(supervisor.clone()),
-                runtime_id: Some(runtime.into()),
-                model: None,
-                vacant: None,
-            })
-            .unwrap();
+    let project = org.projects[0].id.clone();
+    let id = |s: &OrgSnapshot, title: &str| {
         s.positions
             .iter()
             .find(|p| p.title == title)
-            .unwrap()
+            .unwrap_or_else(|| panic!("no position {title}"))
             .id
             .clone()
     };
+    let supervisor = id(&org, "Website Supervisor");
+    let senior = org
+        .roles
+        .iter()
+        .find(|r| r.name == "Senior Developer")
+        .unwrap()
+        .id
+        .clone();
+    let org = s
+        .workforce
+        .hire(&HireInput {
+            role_id: senior,
+            title: "Frontend Developer".into(),
+            reports_to: Some(supervisor.clone()),
+            runtime_id: None,
+            model: None,
+            vacant: None,
+        })
+        .unwrap();
+    for title in [
+        "Senior Developer",
+        "Frontend Developer",
+        "Code Reviewer",
+        "QA Engineer",
+    ] {
+        id(&org, title);
+    }
     let team = Team {
-        vp,
-        developer: hire("Senior Developer", "Backend Developer", "codex"),
-        frontend: hire("Senior Developer", "Frontend Developer", "codex"),
-        reviewer: hire("Code Reviewer", "Reviewer", "claude-code"),
-        qa: hire("QA Engineer", "QA", "claude-code"),
-        writer: hire("Documentation Writer", "Docs", "claude-code"),
+        vp: id(&org, "Development VP"),
         supervisor,
     };
     H {
-        ledger,
-        rt,
-        workforce,
-        guard,
-        broker,
-        store,
-        run,
+        ledger: s.ledger,
+        rt: s.rt,
+        sup: s.sup,
+        liaison: s.liaison,
+        workforce: s.workforce,
+        broker: s.broker,
+        run: s.run,
+        dir,
         folder,
         project,
         team,
-        dir,
     }
 }
 
 impl H {
+    /// Stop everything above the Ledger, as quitting Plenipo does, and start it again on the
+    /// same data.
+    async fn restart(self) -> H {
+        self.liaison.shutdown();
+        self.run.abort();
+        self.rt.shutdown(Duration::from_secs(10)).await;
+        self.sup.shutdown(Duration::from_secs(10)).await;
+        let s = stack(self.dir.path()).await;
+        H {
+            ledger: s.ledger,
+            rt: s.rt,
+            sup: s.sup,
+            liaison: s.liaison,
+            workforce: s.workforce,
+            broker: s.broker,
+            run: s.run,
+            dir: self.dir,
+            folder: self.folder,
+            project: self.project,
+            team: self.team,
+        }
+    }
+
+    /// The AI tool working as `title` has taken its scripted step `step`.
+    fn claimed(&self, title: &str, step: usize) -> bool {
+        let key: String = title
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        self.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("script-used")
+            .join(format!("{key}.{step}"))
+            .exists()
+    }
+
     /// What each position does, turn by turn (see the fake CLI's scripts).
     fn script(&self, script: &Value) {
         let dir = self.dir.path().join("home").join(".plenipo-fake-agent");
@@ -358,9 +387,14 @@ impl H {
 
     /// Give `position` an objective; returns its task.
     async fn objective(&self, position: &str, objective: &str) -> String {
+        self.objective_in(position, objective, None).await
+    }
+
+    /// Give `position` an objective about `project`; returns its task.
+    async fn objective_in(&self, position: &str, objective: &str, project: Option<&str>) -> String {
         let d = self
             .workforce
-            .give_objective(position, objective, None)
+            .give_objective(position, objective, project)
             .await
             .unwrap();
         d.turns.last().unwrap().task_id.clone()
@@ -368,6 +402,10 @@ impl H {
 
     fn task(&self, id: &str) -> Task {
         self.ledger.task(id).unwrap().unwrap()
+    }
+
+    fn report(&self, id: &str) -> ObjectiveReport {
+        self.workforce.objective_report(id).unwrap()
     }
 
     async fn finished(&self, id: &str) -> Task {
@@ -396,6 +434,15 @@ impl H {
             }
         }
         task
+    }
+
+    /// Wait until `pred` holds.
+    async fn until(&self, what: &str, pred: impl Fn(&H) -> bool) {
+        let deadline = Instant::now() + WAIT;
+        while !pred(self) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 
     fn text(&self, id: &str) -> String {
@@ -465,14 +512,6 @@ impl H {
         }
     }
 
-    fn set_commands(&self, approved: &[&str]) {
-        let mut rules = self.guard.config().unwrap().commands;
-        rules.approved = approved.iter().map(|s| (*s).to_owned()).collect();
-        self.guard.set_commands(&rules).unwrap();
-    }
-}
-
-impl H {
     /// The fake gh's state (its pull requests, and the variables of its last run).
     fn gh_state(&self) -> PathBuf {
         self.dir.path().join("bin").join("gh-state")
@@ -494,6 +533,25 @@ fn to(role: &str, objective: &str) -> Value {
     json!({ "to": format!("role:{role}"), "objective": objective })
 }
 
+fn write(path: &str, content: &str) -> Value {
+    tool("write_file", json!({ "path": path, "content": content }))
+}
+
+fn commit(paths: &[&str], message: &str) -> [Value; 2] {
+    [
+        tool("git_add", json!({ "paths": paths })),
+        tool("git_commit", json!({ "message": message })),
+    ]
+}
+
+fn run(program: &str, args: &[&str]) -> Value {
+    tool("run_command", json!({ "program": program, "args": args }))
+}
+
+fn review(verdict: &str, findings: Value) -> Value {
+    json!({ "verdict": verdict, "findings": findings })
+}
+
 // ---- Working copies (a branch per objective) --------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -502,12 +560,12 @@ async fn an_objective_gets_its_own_branch_and_working_copy_that_its_team_shares(
     h.script(&json!({
         "Website Supervisor": [
             { "say": "Handing it to the developer.",
-              "handoffs": [to("Backend Developer", "Add src/feature.txt and commit it.")] },
+              "handoffs": [to("Senior Developer", "Add src/feature.txt and commit it.")] },
             { "say": "Now a review.",
-              "handoffs": [to("Reviewer", "Review src/feature.txt.")] },
+              "handoffs": [to("Code Reviewer", "Review src/feature.txt.")] },
             { "say": "Feature added and reviewed." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "say": "Added the feature.",
               "tools": [
                   tool("write_file", json!({ "path": "src/feature.txt", "content": "feature on\n" })),
@@ -516,7 +574,7 @@ async fn an_objective_gets_its_own_branch_and_working_copy_that_its_team_shares(
                   tool("git_status", json!({})),
               ] }
         ],
-        "Reviewer": [
+        "Code Reviewer": [
             { "say": "Looks right.",
               "tools": [tool("read_file", json!({ "path": "src/feature.txt" }))],
               "review": { "verdict": "approve", "findings": [] } }
@@ -571,8 +629,8 @@ async fn an_objective_gets_its_own_branch_and_working_copy_that_its_team_shares(
     );
 
     // Both workers worked there: the reviewer read the developer's file.
-    let dev = &h.tasks_of(&root, "Backend Developer")[0];
-    let reviewer = &h.tasks_of(&root, "Reviewer")[0];
+    let dev = &h.tasks_of(&root, "Senior Developer")[0];
+    let reviewer = &h.tasks_of(&root, "Code Reviewer")[0];
     for t in [dev, reviewer] {
         let opened = h.events(&t.id, "guard.grant_opened");
         assert_eq!(opened[0]["workspace"]["branch"], w.branch.as_str());
@@ -598,10 +656,10 @@ async fn workers_stay_on_their_objectives_branch() {
     let h = harness().await;
     h.script(&json!({
         "Website Supervisor": [
-            { "handoffs": [to("Backend Developer", "Try other branches.")] },
+            { "handoffs": [to("Senior Developer", "Try other branches.")] },
             { "say": "Done." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "say": "Tried.",
               "tools": [
                   tool("git_branch", json!({ "name": "main" })),
@@ -625,7 +683,7 @@ async fn workers_stay_on_their_objectives_branch() {
         .resolve_approval(&approval.id, false, "owner")
         .unwrap();
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
-    let dev = &h.tasks_of(&root, "Backend Developer")[0];
+    let dev = &h.tasks_of(&root, "Senior Developer")[0];
     let text = h.text(&dev.id);
     let refusals: Vec<&str> = text
         .lines()
@@ -654,12 +712,12 @@ async fn a_second_worker_changing_files_at_the_same_time_gets_its_own_working_co
         "Website Supervisor": [
             { "say": "Two at once.",
               "handoffs": [
-                  to("Backend Developer", "Write the API."),
+                  to("Senior Developer", "Write the API."),
                   to("Frontend Developer", "Write the page."),
               ] },
             { "say": "Both done." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "say": "API written.", "delay": 2500,
               "tools": [tool("write_file", json!({ "path": "src/api.txt", "content": "api\n" }))] }
         ],
@@ -711,10 +769,10 @@ async fn a_project_can_work_in_its_folder_instead() {
     let h = harness_with(false).await;
     h.script(&json!({
         "Website Supervisor": [
-            { "handoffs": [to("Backend Developer", "Write it here.")] },
+            { "handoffs": [to("Senior Developer", "Write it here.")] },
             { "say": "Done." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "tools": [tool("write_file", json!({ "path": "src/here.txt", "content": "here\n" }))] }
         ]
     }));
@@ -736,10 +794,10 @@ async fn removing_a_finished_objectives_working_copy_keeps_its_branch() {
     let h = harness().await;
     h.script(&json!({
         "Website Supervisor": [
-            { "handoffs": [to("Backend Developer", "Commit a note.")] },
+            { "handoffs": [to("Senior Developer", "Commit a note.")] },
             { "say": "Done." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "delay": 1500,
               "tools": [
                   tool("write_file", json!({ "path": "note.txt", "content": "note\n" })),
@@ -789,10 +847,10 @@ async fn a_developer_opens_a_draft_pull_request_for_its_branch_only_after_approv
     let h = harness().await;
     h.script(&json!({
         "Website Supervisor": [
-            { "handoffs": [to("Backend Developer", "Build the login page and open a pull request.")] },
+            { "handoffs": [to("Senior Developer", "Build the login page and open a pull request.")] },
             { "say": "The pull request is open." }
         ],
-        "Backend Developer": [
+        "Senior Developer": [
             { "say": "Opened the pull request.",
               "tools": [
                   tool("github_issue_view", json!({ "number": 12 })),
@@ -855,7 +913,7 @@ async fn a_developer_opens_a_draft_pull_request_for_its_branch_only_after_approv
         ),
         "Add the login page"
     );
-    let dev = &h.tasks_of(&root, "Backend Developer")[0];
+    let dev = &h.tasks_of(&root, "Senior Developer")[0];
     let used = h.events(&dev.id, "capability.used");
     let created = used
         .iter()
@@ -910,11 +968,11 @@ async fn github_tools_use_only_the_projects_repository_and_the_workers_permissio
     h.script(&json!({
         "Website Supervisor": [
             { "handoffs": [
-                to("Reviewer", "Check the open pull requests."),
+                to("Code Reviewer", "Check the open pull requests."),
             ] },
             { "say": "Checked." }
         ],
-        "Reviewer": [
+        "Code Reviewer": [
             { "say": "Checked.",
               "tools": [
                   tool("github_pr_list", json!({ "state": "all" })),
@@ -924,7 +982,7 @@ async fn github_tools_use_only_the_projects_repository_and_the_workers_permissio
     }));
     let root = h.objective(&h.team.supervisor, "Check pull requests").await;
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
-    let reviewer = &h.tasks_of(&root, "Reviewer")[0];
+    let reviewer = &h.tasks_of(&root, "Code Reviewer")[0];
     let text = h.text(&reviewer.id);
     // Reading works with the stored token (gh itself is signed out)...
     assert!(text.contains("Tool github_pr_list:"), "{text}");
@@ -964,19 +1022,572 @@ async fn github_tools_use_only_the_projects_repository_and_the_workers_permissio
         .unwrap();
     h.script(&json!({
         "Website Supervisor": [
-            { "handoffs": [to("Reviewer", "Check again.")] },
+            { "handoffs": [to("Code Reviewer", "Check again.")] },
             { "say": "Checked." }
         ],
-        "Reviewer": [
+        "Code Reviewer": [
             { "tools": [tool("github_pr_list", json!({}))] }
         ]
     }));
     let root = h.objective(&h.team.supervisor, "Check again").await;
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
-    let reviewer = &h.tasks_of(&root, "Reviewer")[0];
+    let reviewer = &h.tasks_of(&root, "Code Reviewer")[0];
     assert!(
         h.text(&reviewer.id).contains("not on GitHub"),
         "{}",
         h.text(&reviewer.id)
     );
+}
+
+// ---- The plan's synthetic development scenarios ------------------------------------------------
+
+/// The acceptance scenario: "Have Development implement feature X in project Y and get it
+/// ready for review." The owner gives the Development VP the objective and picks the project;
+/// the VP hands it to the project's supervisor, whose team — a developer, a reviewer from
+/// another AI company, and QA — implement, review, and test it on the objective's branch; the
+/// developer opens a draft pull request once the owner approves; the VP reports back. Plenipo's
+/// result has every item the plan asks for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn acceptance_development_implements_a_feature_and_gets_it_ready_for_review() {
+    let h = harness().await;
+    h.script(&json!({
+        "Development VP": [
+            { "say": "Handing it to the Website supervisor.",
+              "handoffs": [to("Website Supervisor",
+                  "Implement the login page and get it ready for review: a draft pull request.")] },
+            { "say": "Development implemented the login page: reviewed, tested, and a draft pull \
+                      request is open for your review." }
+        ],
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Implement src/login.txt and commit it.")] },
+            { "handoffs": [
+                to("Code Reviewer", "Review the login page."),
+                to("QA Engineer", "Run verify src/login.txt login."),
+            ] },
+            { "handoffs": [to("Senior Developer", "Open a draft pull request for the branch.")] },
+            { "say": "The login page is implemented, reviewed, and tested; the draft pull request \
+                      is open." }
+        ],
+        "Senior Developer": [
+            { "say": "Implemented.",
+              "tools": [write("src/login.txt", "login form\n"),
+                        commit(&["src/login.txt"], "Add the login page")[0].clone(),
+                        commit(&["src/login.txt"], "Add the login page")[1].clone()] },
+            { "say": "Pull request opened.",
+              "tools": [tool("github_pr_create", json!({
+                  "title": "Add the login page",
+                  "body": "Adds the login page. Reviewed and tested by the team."
+              }))] }
+        ],
+        "Code Reviewer": [
+            { "say": "Good.",
+              "tools": [tool("read_file", json!({ "path": "src/login.txt" }))],
+              "review": review("approve", json!([{ "severity": "minor", "file": "src/login.txt",
+                                                    "summary": "Label the email field" }])) }
+        ],
+        "QA Engineer": [
+            { "say": "Passes.",
+              "tools": [run("verify", &["src/login.txt", "login"])],
+              "review": review("approve", json!([])) }
+        ]
+    }));
+    let root = h
+        .objective_in(
+            &h.team.vp,
+            "Have Development implement the login page in Website and get it ready for review.",
+            Some(&h.project),
+        )
+        .await;
+    // Opening the pull request waits for you: the result says so while it waits.
+    let approval = h.pending().await;
+    let live = h.report(&root);
+    assert!(
+        live.approvals.iter().any(|a| a.approval_id == approval.id
+            && a.state == ReportApprovalState::Waiting
+            && a.summary.starts_with("open a draft pull request")),
+        "{:#?}",
+        live.approvals
+    );
+    h.broker
+        .resolve_approval(&approval.id, true, "owner")
+        .unwrap();
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+
+    // Who got it and the synthesized answer.
+    assert_eq!(r.position_title.as_deref(), Some("Development VP"));
+    assert_eq!(r.project_name.as_deref(), Some("Website"));
+    assert!(r
+        .answer
+        .as_deref()
+        .unwrap()
+        .starts_with("Development implemented the login page"));
+    // Tasks performed: the VP's, the supervisor's (in its own conversation), and the team's.
+    let who: Vec<&str> = r.tasks.iter().map(|t| t.who.as_str()).collect();
+    assert_eq!(
+        who,
+        [
+            "Development VP",
+            "Website Supervisor",
+            "Senior Developer",
+            "Code Reviewer",
+            "QA Engineer",
+            "Senior Developer",
+        ],
+        "{:#?}",
+        r.tasks
+    );
+    assert!(r.tasks.iter().all(|t| t.state == TaskState::Succeeded));
+    // Agents and models: mixed AI companies — the reviewer is not on the supervisor's.
+    let labels: std::collections::BTreeSet<&str> = r
+        .workers
+        .iter()
+        .filter_map(|w| w.runtime_label.as_deref())
+        .collect();
+    assert_eq!(labels.len(), 2, "both AI tools: {:#?}", r.workers);
+    let reviewer = r.workers.iter().find(|w| w.who == "Code Reviewer").unwrap();
+    assert_eq!(reviewer.runtime_label.as_deref(), Some("Codex"));
+    // A model the AI tool names is shown; otherwise it is the AI tool's default.
+    assert!(
+        r.workers.iter().all(|w| w.runtime_label.is_some()),
+        "{:#?}",
+        r.workers
+    );
+    assert_eq!(
+        r.workers
+            .iter()
+            .find(|w| w.who == "Website Supervisor")
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("fake-claude-model")
+    );
+    // Files changed, on the objective's branch, committed.
+    assert_eq!(r.files.len(), 1);
+    assert_eq!(r.files[0].path, "src/login.txt");
+    assert!(r.files[0].committed);
+    // Tests executed.
+    assert_eq!(r.checks.len(), 1);
+    assert!(r.checks[0].test && r.checks[0].ok);
+    assert_eq!(r.checks[0].who, "QA Engineer");
+    assert_eq!(r.checks[0].command, "verify src/login.txt login");
+    // Branch, commit, and pull request.
+    assert_eq!(r.branches.len(), 1);
+    let b = &r.branches[0];
+    assert!(
+        b.branch
+            .starts_with("plenipo/have-development-implement-the-"),
+        "{}",
+        b.branch
+    );
+    assert_eq!(b.base_ref.as_deref(), Some("main"));
+    assert_eq!(b.commits[0].subject, "Add the login page");
+    assert!(b.pushed);
+    assert_eq!(r.pull_requests.len(), 1);
+    assert_eq!(
+        r.pull_requests[0].url,
+        "https://github.com/example/website/pull/1"
+    );
+    // Unresolved findings: the reviewer's minor note, not blocking.
+    assert_eq!(r.reviews.len(), 2);
+    assert!(r
+        .reviews
+        .iter()
+        .all(|v| v.verdict == ReviewVerdict::Approve));
+    assert_eq!(r.findings.len(), 1);
+    assert_eq!(r.findings[0].summary, "Label the email field");
+    assert!(!r.findings[0].blocking);
+    // Approvals: the one asked, answered; none still required.
+    assert_eq!(r.approvals.len(), 1);
+    assert_eq!(r.approvals[0].state, ReportApprovalState::Approved);
+    assert!(r.problems.is_empty(), "{:?}", r.problems);
+    assert!(r.blocked.is_empty());
+    // The owner's checkout never changed.
+    assert_eq!(git(&h.folder, &["status", "--porcelain"]), "");
+    assert!(!h.folder.join("src").join("login.txt").exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_documentation_only_change() {
+    let h = harness().await;
+    h.script(&json!({
+        "Development VP": [
+            { "handoffs": [to("Website Supervisor", "Add install steps to the README.")] },
+            { "say": "The README has install steps; the reviewer approved them." }
+        ],
+        "Website Supervisor": [
+            { "handoffs": [to("Documentation Writer", "Add install steps to README.md and commit.")] },
+            { "handoffs": [to("Code Reviewer", "Review the README change.")] },
+            { "say": "README updated and reviewed." }
+        ],
+        "Documentation Writer": [
+            { "say": "Added.",
+              "tools": [write("README.md", "# Website\n\n## Install\nRun the installer.\n")] }
+        ],
+        "Code Reviewer": [
+            { "tools": [tool("read_file", json!({ "path": "README.md" }))],
+              "review": review("approve", json!([])) }
+        ]
+    }));
+    let root = h
+        .objective_in(
+            &h.team.vp,
+            "Document how to install the website",
+            Some(&h.project),
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    let who: Vec<&str> = r.tasks.iter().map(|t| t.who.as_str()).collect();
+    assert_eq!(
+        who,
+        [
+            "Development VP",
+            "Website Supervisor",
+            "Documentation Writer",
+            "Code Reviewer"
+        ]
+    );
+    // Only the README changed; the writer cannot commit (its set does not save to git), so
+    // the change is in the working copy and the result says it is not committed.
+    assert_eq!(r.files.len(), 1);
+    assert_eq!(r.files[0].path, "README.md");
+    assert!(!r.files[0].committed);
+    assert!(r.checks.is_empty(), "nothing to test");
+    assert!(r.findings.is_empty());
+    assert!(
+        r.problems.iter().any(|p| p.contains("not committed yet")),
+        "{:?}",
+        r.problems
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_small_bug_fix() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Set the version to 2 and commit.")] },
+            { "handoffs": [to("QA Engineer", "Check the version is 2.")] },
+            { "say": "Fixed and checked." }
+        ],
+        "Senior Developer": [
+            { "tools": [write("src/app.txt", "version = 2\n"),
+                        commit(&["src/app.txt"], "Fix the version")[0].clone(),
+                        commit(&["src/app.txt"], "Fix the version")[1].clone()] }
+        ],
+        "QA Engineer": [
+            { "tools": [run("verify", &["src/app.txt", "version = 2"])],
+              "review": review("approve", json!([])) }
+        ]
+    }));
+    let root = h
+        .objective(&h.team.supervisor, "The version is wrong")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    assert_eq!(r.position_title.as_deref(), Some("Website Supervisor"));
+    assert_eq!(r.branches[0].commits.len(), 1);
+    assert_eq!(r.files[0].path, "src/app.txt");
+    assert_eq!((r.files[0].added, r.files[0].removed), (Some(1), Some(1)));
+    assert_eq!(r.checks.len(), 1);
+    assert!(r.checks[0].ok && r.checks[0].test);
+    assert!(r.problems.is_empty(), "{:?}", r.problems);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_failed_tests_and_repair() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Write the fix.")] },
+            { "handoffs": [to("QA Engineer", "Run verify src/fix.txt fixed.")] },
+            { "handoffs": [to("Senior Developer", "QA says verify fails; repair it.")] },
+            { "handoffs": [to("QA Engineer", "Run verify src/fix.txt fixed again.")] },
+            { "say": "Repaired; QA passes." }
+        ],
+        "Senior Developer": [
+            { "tools": [write("src/fix.txt", "broken\n"),
+                        commit(&["src/fix.txt"], "Add the fix")[0].clone(),
+                        commit(&["src/fix.txt"], "Add the fix")[1].clone()] },
+            { "tools": [write("src/fix.txt", "fixed\n"),
+                        commit(&["src/fix.txt"], "Repair the fix")[0].clone(),
+                        commit(&["src/fix.txt"], "Repair the fix")[1].clone()] }
+        ],
+        "QA Engineer": [
+            { "say": "It fails.",
+              "tools": [run("verify", &["src/fix.txt", "fixed"])],
+              "review": review("request-changes", json!([{ "severity": "major",
+                  "file": "src/fix.txt", "summary": "verify fails: it does not say fixed" }])) },
+            { "say": "It passes.",
+              "tools": [run("verify", &["src/fix.txt", "fixed"])],
+              "review": review("approve", json!([])) }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Fix the fix").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    let runs: Vec<(bool, bool)> = r.checks.iter().map(|c| (c.test, c.ok)).collect();
+    assert_eq!(runs, [(true, false), (true, true)], "failed, then passed");
+    let verdicts: Vec<ReviewVerdict> = r.reviews.iter().map(|v| v.verdict).collect();
+    assert_eq!(
+        verdicts,
+        [ReviewVerdict::RequestChanges, ReviewVerdict::Approve]
+    );
+    assert!(r.findings.is_empty(), "QA's latest verdict approves");
+    assert_eq!(r.branches[0].commits.len(), 2);
+    assert!(r.problems.is_empty(), "{:?}", r.problems);
+    // The repair round went back to the developer with QA's findings.
+    let qa_first = &h.tasks_of(&root, "QA Engineer")[0];
+    assert!(h.text(&qa_first.id).contains("1 test FAILED"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_concurrent_workers() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [
+                to("Senior Developer", "Write the API."),
+                to("Frontend Developer", "Write the page."),
+            ] },
+            { "say": "Both halves written." }
+        ],
+        "Senior Developer": [
+            { "delay": 2500, "tools": [write("src/api.txt", "api\n")] }
+        ],
+        "Frontend Developer": [
+            { "delay": 2500, "tools": [write("src/page.txt", "page\n")] }
+        ]
+    }));
+    let root = h
+        .objective(&h.team.supervisor, "Build both halves at once")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    // Both ran at the same time, each in its own working copy on its own branch.
+    let devs: Vec<&ReportTask> = r
+        .tasks
+        .iter()
+        .filter(|t| t.who.ends_with("Developer"))
+        .collect();
+    assert_eq!(devs.len(), 2);
+    let (a, b) = (devs[0], devs[1]);
+    assert!(
+        a.started_at < b.completed_at && b.started_at < a.completed_at,
+        "they overlapped"
+    );
+    assert_eq!(r.branches.len(), 2);
+    let second = r.branches.iter().find(|b| b.merge_into.is_some()).unwrap();
+    assert_eq!(
+        second.merge_into.as_deref(),
+        Some(r.branches[0].branch.as_str())
+    );
+    assert!(
+        r.problems.iter().any(|p| p.contains("merge it into")),
+        "{:?}",
+        r.problems
+    );
+    let branches_of = |path: &str| -> Vec<&str> {
+        r.files
+            .iter()
+            .filter(|f| f.path == path)
+            .map(|f| f.branch.as_str())
+            .collect()
+    };
+    assert_eq!(branches_of("src/api.txt").len(), 1);
+    assert_eq!(branches_of("src/page.txt").len(), 1);
+    assert_ne!(branches_of("src/api.txt"), branches_of("src/page.txt"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_reviewer_requests_changes() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Add the signup form.")] },
+            { "handoffs": [to("Code Reviewer", "Review the signup form.")] },
+            { "handoffs": [to("Senior Developer", "The reviewer asks for input validation; add it.")] },
+            { "handoffs": [to("Code Reviewer", "Review the signup form again.")] },
+            { "say": "Signup form done; approved after one round of changes." }
+        ],
+        "Senior Developer": [
+            { "tools": [write("src/signup.txt", "form\n"),
+                        commit(&["src/signup.txt"], "Add the signup form")[0].clone(),
+                        commit(&["src/signup.txt"], "Add the signup form")[1].clone()] },
+            { "tools": [write("src/signup.txt", "form\nvalidate input\n"),
+                        commit(&["src/signup.txt"], "Validate the signup input")[0].clone(),
+                        commit(&["src/signup.txt"], "Validate the signup input")[1].clone()] }
+        ],
+        "Code Reviewer": [
+            { "say": "Needs validation.",
+              "review": review("request-changes", json!([{ "severity": "major",
+                  "file": "src/signup.txt", "summary": "No input validation" }])) },
+            { "say": "Good now.", "review": review("approve", json!([])) }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Add a signup form").await;
+    // While the first review stands, the result shows its blocking finding.
+    h.until("the first review", |h| !h.report(&root).reviews.is_empty())
+        .await;
+    let first = h.report(&root);
+    assert_eq!(first.reviews[0].verdict, ReviewVerdict::RequestChanges);
+    assert!(first.findings[0].blocking);
+    assert!(first
+        .problems
+        .iter()
+        .any(|p| p == "Code Reviewer's latest review requests changes."));
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    let verdicts: Vec<ReviewVerdict> = r.reviews.iter().map(|v| v.verdict).collect();
+    assert_eq!(
+        verdicts,
+        [ReviewVerdict::RequestChanges, ReviewVerdict::Approve]
+    );
+    assert!(r.findings.is_empty(), "resolved by the second review");
+    assert_eq!(r.branches[0].commits.len(), 2);
+    assert!(r.problems.is_empty(), "{:?}", r.problems);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_provider_failure_mid_task() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Write the report page.")] },
+            { "handoffs": [to("Senior Developer", "Your AI tool crashed; try again.")] },
+            { "say": "Done on the second try." }
+        ],
+        "Senior Developer": [
+            { "crash": true },
+            { "tools": [write("src/report.txt", "report\n")] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Add the report page").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    let dev: Vec<TaskState> = r
+        .tasks
+        .iter()
+        .filter(|t| t.who == "Senior Developer")
+        .map(|t| t.state)
+        .collect();
+    assert_eq!(dev, [TaskState::Failed, TaskState::Succeeded]);
+    assert!(
+        r.problems
+            .iter()
+            .any(|p| p.starts_with("Senior Developer's task failed")),
+        "{:?}",
+        r.problems
+    );
+    assert_eq!(r.files[0].path, "src/report.txt");
+    // The supervisor was told the worker crashed, and carried on.
+    assert!(
+        h.text(&root).contains("Done on the second try."),
+        "{}",
+        h.text(&root)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_a_usage_limit_mid_task_never_switches_ai_company() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Write the page.")] },
+            { "handoffs": [to("Senior Developer", "Try again.")] },
+            { "say": "Blocked by a usage limit." }
+        ],
+        "Senior Developer": [
+            { "usageLimit": true }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Add a page").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let r = h.report(&root);
+    let dev: Vec<&ReportTask> = r
+        .tasks
+        .iter()
+        .filter(|t| t.who == "Senior Developer")
+        .collect();
+    assert_eq!(
+        dev.len(),
+        1,
+        "the second request was refused, not moved to another AI tool"
+    );
+    assert_eq!(dev[0].state, TaskState::Failed);
+    assert!(
+        r.problems
+            .iter()
+            .any(|p| p.contains("refused") && p.contains("usage limit")),
+        "{:?}",
+        r.problems
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scenario_coordinator_restart() {
+    let h = harness().await;
+    h.script(&json!({
+        "Development VP": [
+            { "handoffs": [to("Website Supervisor", "Add the about page.")] },
+            { "handoffs": [to("Website Supervisor", "Add the about page again.")] },
+            { "say": "The about page is done." }
+        ],
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Write the about page.")] },
+            { "handoffs": [to("Senior Developer", "Write the about page.")] },
+            { "say": "The about page is written." }
+        ],
+        "Senior Developer": [
+            { "delay": 20000 },
+            { "tools": [write("src/about.txt", "about\n")] }
+        ]
+    }));
+    let first = h
+        .objective_in(&h.team.vp, "Add an about page", Some(&h.project))
+        .await;
+    // Plenipo stops while the developer works for the supervisor (its AI tool has taken its
+    // first step).
+    h.until("the developer to start", |h| {
+        h.claimed("Senior Developer", 0)
+    })
+    .await;
+    let supervisor_session = h.tasks_of(&first, "Website Supervisor")[0].metadata["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let h = h.restart().await;
+
+    // Nothing is left running: the objective and its tasks ended as interrupted, and the
+    // result says so; its working copy stays.
+    let r = h.report(&first);
+    assert_eq!(r.state, TaskState::Failed);
+    assert!(
+        r.tasks.iter().all(|t| t.state.is_terminal()),
+        "{:#?}",
+        r.tasks
+    );
+    assert!(!r.problems.is_empty());
+    assert_eq!(r.branches.len(), 1);
+    assert!(Path::new(&r.branches[0].path).is_dir());
+    assert_eq!(
+        h.workforce.snapshot().unwrap().stats.active_workers,
+        0,
+        "no worker is left in the workforce"
+    );
+    // The supervisor kept its agent and conversation: the VP's next objective goes to the
+    // same conversation, and finishes.
+    let second = h
+        .objective_in(&h.team.vp, "Add an about page", Some(&h.project))
+        .await;
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    let supervisor_task = &h.tasks_of(&second, "Website Supervisor")[0];
+    assert_eq!(
+        supervisor_task.metadata["sessionId"],
+        supervisor_session.as_str()
+    );
+    let r = h.report(&second);
+    assert!(r.files.iter().any(|f| f.path == "src/about.txt"));
+    assert_eq!(r.answer.as_deref(), Some("The about page is done."));
 }

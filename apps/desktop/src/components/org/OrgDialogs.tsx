@@ -603,6 +603,7 @@ interface ProjectSettingsState {
   localPath: string;
   allowedRuntimes: string[];
   capabilityProfile: string;
+  branchPerObjective: boolean;
 }
 
 function settingsInput(s: ProjectSettingsState): ProjectInput {
@@ -610,6 +611,7 @@ function settingsInput(s: ProjectSettingsState): ProjectInput {
     name: s.name.trim(),
     description: s.description.trim(),
     allowedRuntimes: s.allowedRuntimes,
+    branchPerObjective: s.branchPerObjective,
   };
   const repositoryUrl = s.repositoryUrl.trim();
   const localPath = s.localPath.trim();
@@ -689,6 +691,21 @@ function ProjectSettingsFields({
           onChange={(e) => onChange({ localPath: e.target.value })}
         />
       </Field>
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={value.branchPerObjective}
+          onChange={(e) => onChange({ branchPerObjective: e.target.checked })}
+        />
+        <span className="choice__label">
+          Work on a separate branch for each objective (recommended)
+        </span>
+      </label>
+      <p className="hint">
+        When the folder is a git repository, each objective&apos;s workers work in their own copy of
+        it, on a new branch — your own copy of the folder is never changed. Turn this off to let
+        workers change the folder itself.
+      </p>
       <Field
         label="Permission limit"
         hint="Narrows what every worker may do in this project; each role's own permissions still apply."
@@ -740,6 +757,7 @@ export function NewProjectDialog({
     localPath: "",
     allowedRuntimes: readyRuntimes.length > 0 ? readyRuntimes : snapshot.runtimes.map((r) => r.id),
     capabilityProfile: "",
+    branchPerObjective: true,
   });
   const [lead, setLead] = useState(() => newLead(snapshot, "projectCoordinator"));
   const { pending, error, run } = useSubmit();
@@ -758,6 +776,7 @@ export function NewProjectDialog({
     capabilityProfile: null,
     coordinatorPositionId: null,
     active: true,
+    branchPerObjective: settings.branchPerObjective,
     createdAt: 0,
   };
 
@@ -836,6 +855,7 @@ export function EditProjectDialog({
     localPath: project.localPath ?? "",
     allowedRuntimes: project.allowedRuntimes,
     capabilityProfile: project.capabilityProfile ?? "",
+    branchPerObjective: project.branchPerObjective,
   });
   const { pending, error, run } = useSubmit();
   const submit = (e: FormEvent) => {

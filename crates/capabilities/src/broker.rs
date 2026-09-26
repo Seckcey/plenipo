@@ -52,8 +52,8 @@ pub struct BrokerConfig {
     pub tickets_dir: PathBuf,
     /// Where objectives' working copies are made (Phase 8, ADR-016).
     pub workspaces_dir: PathBuf,
-    /// Folders searched for GitHub's `gh` before Plenipo's own PATH (tests put a stand-in
-    /// there).
+    /// Folders searched for programs (such as GitHub's `gh`) before Plenipo's own PATH (tests
+    /// put stand-ins there).
     pub search_path: Option<std::ffi::OsString>,
     /// Longest one tool call may take (an approval waits inside a call).
     pub call_timeout: Duration,
@@ -263,6 +263,8 @@ struct Where<'a> {
     base: Option<&'a str>,
     repo: Option<&'a str>,
     gh: Option<PathBuf>,
+    /// Folders searched for programs before PATH (tests).
+    search: Option<std::ffi::OsString>,
 }
 
 /// Why a call cannot even be put to Guard (the target is unusable).
@@ -1090,6 +1092,7 @@ impl Broker {
             base: place.as_ref().and_then(|p| p.base_ref.as_deref()),
             repo: github.as_deref(),
             gh: self.find_program("gh"),
+            search: self.inner.config.search_path.clone(),
         };
         let prepared = match prepare(tool, action, &at, self.inner.config.command_timeout) {
             Ok(p) => p,
@@ -1921,6 +1924,7 @@ fn resolve(
 fn program_path(
     ws: &Workspace,
     program: &str,
+    search: Option<&std::ffi::OsStr>,
     summary: &str,
 ) -> std::result::Result<(std::result::Result<PathBuf, String>, String), Refused> {
     let refuse = |reason: String| Refused {
@@ -1950,7 +1954,9 @@ fn program_path(
         }
         return Ok((Ok(r.abs.clone()), format!("./{}", r.rel)));
     }
-    let found = programs::find_on_path(program)
+    let found = search
+        .and_then(|p| programs::find_in(program, Some(p.to_os_string())))
+        .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
     Ok((found, program.to_owned()))
 }
@@ -2101,7 +2107,7 @@ fn prepare(
                     summary: s,
                 });
             };
-            let (executable, key) = program_path(w, &program, &s)?;
+            let (executable, key) = program_path(w, &program, at.search.as_deref(), &s)?;
             let cwd = cwd_of(&cwd, &s)?;
             let command = CommandLine {
                 program: key,

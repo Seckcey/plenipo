@@ -64,9 +64,10 @@ type Answer = fn(&[String]) -> i32;
 /// tool adds its persona here (docs/development/adding-an-ai-tool.md).
 const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex)];
 
-/// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`.
-/// Listed by `--helpers`, never among the AI tools.
-const HELPERS: &[(&str, Answer)] = &[("gh", gh)];
+/// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
+/// and `verify FILE WORD`, a project's test (it passes when FILE, in the folder it runs in,
+/// contains WORD). Listed by `--helpers`, never among the AI tools.
+const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify)];
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -1044,6 +1045,29 @@ fn claude_turn(args: &[String]) -> i32 {
                    "cache_read_input_tokens": 5, "output_tokens": 7 }
     }));
     0
+}
+
+// ---- A project's test (Phase 8) -------------------------------------------------------------
+
+fn verify(args: &[String]) -> i32 {
+    let (Some(file), Some(word)) = (args.first(), args.get(1)) else {
+        eprintln!("usage: verify FILE WORD");
+        return 2;
+    };
+    match std::fs::read_to_string(file) {
+        Ok(text) if text.contains(word.as_str()) => {
+            println!("1 test passed: {file} says {word}");
+            0
+        }
+        Ok(_) => {
+            println!("1 test FAILED: {file} does not say {word}");
+            1
+        }
+        Err(e) => {
+            println!("1 test FAILED: cannot read {file}: {e}");
+            1
+        }
+    }
 }
 
 // ---- GitHub's gh (Phase 8) ------------------------------------------------------------------

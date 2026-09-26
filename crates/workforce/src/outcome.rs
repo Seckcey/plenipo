@@ -361,7 +361,7 @@ fn str_of(v: &Value) -> Option<String> {
 }
 
 /// The final result recorded for a task (its last step's).
-fn last_result<'e>(events: &'e [LedgerEvent]) -> Option<&'e LedgerEvent> {
+fn last_result(events: &[LedgerEvent]) -> Option<&LedgerEvent> {
     events.iter().rev().find(|e| e.event_type == "agent.result")
 }
 
