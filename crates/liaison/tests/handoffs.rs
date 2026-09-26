@@ -36,6 +36,22 @@ fn scratch() -> tempfile::TempDir {
     tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
 }
 
+/// Every AI tool the fake CLI stands in for (`plenipo-fake-agent --personas`).
+fn personas() -> &'static [&'static str] {
+    static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_plenipo-fake-agent-liaison"))
+            .arg("--personas")
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .leak()
+            .lines()
+            .collect()
+    })
+}
+
 /// One copy of the fake CLIs per test process, ready to execute (see the runtime's tests for
 /// why: copying while other tests fork can fail with ETXTBSY; hard links never open a write
 /// handle).
@@ -45,7 +61,7 @@ fn fake_clis() -> &'static Path {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("liaison-fake-agents-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for stem in ["claude", "codex"] {
+        for stem in personas() {
             let path = dir.join(exe_name(stem));
             std::fs::copy(env!("CARGO_BIN_EXE_plenipo-fake-agent-liaison"), &path).unwrap();
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -88,7 +104,7 @@ struct Setup {
 impl Default for Setup {
     fn default() -> Self {
         Self {
-            installed: &["claude", "codex"],
+            installed: personas(),
             auth: None,
             max_active_turns: 4,
             liaison: LiaisonConfig {
