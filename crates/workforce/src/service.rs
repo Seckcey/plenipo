@@ -39,6 +39,16 @@ pub(crate) fn org_name(ledger: &Ledger) -> String {
         .unwrap_or_else(|| DEFAULT_NAME.to_owned())
 }
 
+/// What the owner chose to call the ranks (Business when unset or unknown).
+fn org_titles(ledger: &Ledger) -> TitleTheme {
+    ledger
+        .setting(ORGANIZATION)
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value(v["titles"].clone()).ok())
+        .unwrap_or_default()
+}
+
 fn invalid(message: impl Into<String>) -> WorkforceError {
     WorkforceError::Invalid(message.into())
 }
@@ -100,7 +110,7 @@ impl Workforce {
         self.runtimes()
             .into_iter()
             .find(|r| r.id == id)
-            .ok_or_else(|| invalid(format!("there is no runtime named {id:?}")))
+            .ok_or_else(|| invalid(format!("there is no AI tool named {id:?}")))
     }
 
     // ---- Reads --------------------------------------------------------------------------
@@ -121,6 +131,7 @@ impl Workforce {
             sessions: &sessions,
             runtimes: &runtimes,
             name: org_name(l),
+            titles: org_titles(l),
             notices: self.notices().clone(),
             now,
         }))
@@ -161,7 +172,14 @@ impl Workforce {
     pub fn rename(&self, name: &str) -> Result<OrgSnapshot> {
         let name = plenipo_ledger::workforce::clean_line("the organization's name", name, 80)?;
         self.ledger()
-            .put_setting(ORGANIZATION, &json!({ "name": name }), OWNER)?;
+            .merge_setting(ORGANIZATION, &json!({ "name": name }), OWNER)?;
+        self.snapshot()
+    }
+
+    /// Choose what the app calls the ranks. Display only: agents keep the plain titles.
+    pub fn set_titles(&self, titles: TitleTheme) -> Result<OrgSnapshot> {
+        self.ledger()
+            .merge_setting(ORGANIZATION, &json!({ "titles": titles }), OWNER)?;
         self.snapshot()
     }
 
@@ -179,9 +197,7 @@ impl Workforce {
         };
         let persistent = input.staffing == Staffing::Persistent;
         if role_type != RoleType::Worker && !persistent {
-            return Err(invalid(
-                "superintendents, department managers, and project coordinators are persistent",
-            ));
+            return Err(invalid("VPs, managers, and supervisors are full-time"));
         }
         if self
             .ledger()
@@ -275,7 +291,7 @@ impl Workforce {
         let coordinator = input
             .coordinator
             .as_ref()
-            .ok_or_else(|| invalid("a new project needs a coordinator position"))?;
+            .ok_or_else(|| invalid("a new project needs a supervisor position"))?;
         let settings = self.settings(input)?;
         let coordinator = self.lead(coordinator, None)?;
         self.ledger().create_project_with_coordinator(
@@ -449,7 +465,7 @@ impl Workforce {
         }
         if !view.persistent(position) {
             return Err(invalid(format!(
-                "{} is an on-demand position: it takes tasks delegated by its team's lead",
+                "{} is an on-call position: it takes tasks handed to it by its team's lead",
                 position.title
             )));
         }

@@ -13,56 +13,62 @@ struct Template {
     glyph: &'static str,
     purpose: &'static [&'static str],
     capabilities: &'static [&'static str],
+    /// Names it was seeded under before (see `RoleTemplate::formerly`).
+    formerly: &'static [&'static str],
 }
 
 const TEMPLATES: &[Template] = &[
     Template {
-        name: "Superintendent",
-        description: "Accepts owner objectives, selects the project coordinator, tracks major \
-                      outcomes, escalates blockers, and summarizes completion.",
+        name: "VP",
+        description: "Takes your objectives, picks the supervisor for each, tracks the big \
+                      results, raises problems early, and reports back when work is done.",
         role_type: RoleType::Superintendent,
         persistent: true,
         glyph: "executive",
         purpose: &[
-            "accept the owner's objectives",
-            "select the project coordinator",
-            "track major outcomes",
-            "escalate blockers",
-            "summarize completion",
+            "take the owner's objectives",
+            "pick the supervisor for each piece of work",
+            "track the big results",
+            "raise problems early",
+            "report back when work is done",
         ],
         capabilities: &[],
+        formerly: &["Superintendent"],
     },
     Template {
-        name: "Department Manager",
-        description: "Runs a department: sets priorities, delegates outcomes to project \
-                      coordinators, tracks progress, and escalates blockers.",
+        name: "Manager",
+        description: "Runs a department: sets priorities, hands work to the supervisors of its \
+                      projects, tracks progress, and raises problems.",
         role_type: RoleType::DepartmentManager,
         persistent: true,
         glyph: "manager",
         purpose: &[
             "set the department's priorities",
-            "delegate outcomes to project coordinators",
+            "hand work to the supervisors of its projects",
             "track progress",
-            "escalate blockers",
+            "raise problems",
         ],
         capabilities: &[],
+        formerly: &["Department Manager"],
     },
     Template {
-        name: "Project Coordinator",
-        description: "Decomposes project objectives, spawns workers, coordinates dependencies, \
-                      requests reviews, judges acceptance criteria, and synthesizes the result.",
+        name: "Supervisor",
+        description:
+            "Leads a project: breaks objectives into tasks, hands them to the team, keeps \
+                      the work in order, asks for reviews, checks the result, and puts it together.",
         role_type: RoleType::ProjectCoordinator,
         persistent: true,
         glyph: "coordinator",
         purpose: &[
-            "decompose project objectives into bounded tasks",
+            "break the project's objectives into clear, bounded tasks",
             "hand those tasks to the workers on your team",
-            "coordinate dependencies",
-            "request reviews",
-            "judge acceptance criteria",
-            "synthesize the result",
+            "keep work that depends on other work in order",
+            "ask for reviews",
+            "check the result against what was asked",
+            "put the final result together",
         ],
         capabilities: &["git.read"],
+        formerly: &["Project Coordinator"],
     },
     Template {
         name: "Senior Developer",
@@ -77,6 +83,7 @@ const TEMPLATES: &[Template] = &[
             "git.read",
             "shell.exec",
         ],
+        formerly: &[],
     },
     Template {
         name: "Code Reviewer",
@@ -91,6 +98,7 @@ const TEMPLATES: &[Template] = &[
             "architectural findings",
         ],
         capabilities: &["filesystem.read", "git.read"],
+        formerly: &[],
     },
     Template {
         name: "QA Engineer",
@@ -100,6 +108,7 @@ const TEMPLATES: &[Template] = &[
         glyph: "qa",
         purpose: &["tests", "reproduction", "acceptance verification"],
         capabilities: &["filesystem.read", "shell.exec"],
+        formerly: &[],
     },
     Template {
         name: "Security Auditor",
@@ -115,6 +124,7 @@ const TEMPLATES: &[Template] = &[
             "dependency risks",
         ],
         capabilities: &["filesystem.read", "git.read"],
+        formerly: &[],
     },
     Template {
         name: "Documentation Writer",
@@ -130,6 +140,7 @@ const TEMPLATES: &[Template] = &[
             "user and administrator documentation",
         ],
         capabilities: &["filesystem.read", "filesystem.write"],
+        formerly: &[],
     },
     Template {
         name: "Researcher",
@@ -143,16 +154,18 @@ const TEMPLATES: &[Template] = &[
             "summarize findings",
         ],
         capabilities: &["browser.navigate"],
+        formerly: &[],
     },
     Template {
         name: "Designer",
-        description: "Graphics, campaign visuals, and brand assets (needs a vision- and \
-                      image-capable model).",
+        description: "Graphics, campaign visuals, and brand assets (needs an AI model that can \
+                      work with images).",
         role_type: RoleType::Worker,
         persistent: false,
         glyph: "design",
         purpose: &["graphics", "campaign visuals", "brand assets"],
         capabilities: &["filesystem.read", "filesystem.write"],
+        formerly: &[],
     },
 ];
 
@@ -171,6 +184,7 @@ pub fn role_templates() -> Vec<RoleTemplate> {
                 "purpose": t.purpose,
                 "defaultCapabilities": t.capabilities,
             }),
+            formerly: t.formerly,
         })
         .collect()
 }
@@ -213,6 +227,23 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), all.len());
+        // Leadership has plain titles (the chain of command: Worker, Supervisor, Manager, VP),
+        // and a former name is never a current one.
+        for (name, t) in [
+            ("VP", RoleType::Superintendent),
+            ("Manager", RoleType::DepartmentManager),
+            ("Supervisor", RoleType::ProjectCoordinator),
+        ] {
+            assert!(
+                all.iter().any(|r| r.name == name && r.role_type == t),
+                "{name}"
+            );
+        }
+        for r in &all {
+            for old in r.formerly {
+                assert!(all.iter().all(|o| o.name != *old), "{old}");
+            }
+        }
         // Capability names are from the plan's list (nothing is granted before Guard).
         for r in &all {
             for c in r.metadata["defaultCapabilities"].as_array().unwrap() {

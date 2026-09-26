@@ -6,11 +6,16 @@ import type { PositionInfo } from "./PositionInfo";
 import type { ProjectInfo } from "./ProjectInfo";
 import type { RoleInfo } from "./RoleInfo";
 import type { RuntimeBrief } from "./RuntimeBrief";
+import type { TitleTheme } from "./TitleTheme";
 
 /**
  * The whole organization for the canvas and directory.
  */
-export type OrgSnapshot = { name: string, roles: Array<RoleInfo>, departments: Array<DepartmentInfo>, projects: Array<ProjectInfo>, 
+export type OrgSnapshot = { name: string, 
+/**
+ * What the app calls the ranks (the owner's choice).
+ */
+titles: TitleTheme, roles: Array<RoleInfo>, departments: Array<DepartmentInfo>, projects: Array<ProjectInfo>, 
 /**
  * Active positions first (in tree order), then archived ones.
  */

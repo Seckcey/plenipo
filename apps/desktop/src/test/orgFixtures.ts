@@ -169,6 +169,7 @@ function stats(positions: PositionInfo[], departments: number, projects: number)
 export function emptyOrganization(): OrgSnapshot {
   return {
     name: "Organization",
+    titles: "business",
     roles: ROLES,
     departments: [],
     projects: [],
@@ -267,6 +268,7 @@ export function sampleOrganization(): OrgSnapshot {
   ];
   return {
     name: "Northwind Studio",
+    titles: "business",
     roles: ROLES,
     departments: [
       department("d-eng", "Engineering", "p-eng", ["pr-web"]),

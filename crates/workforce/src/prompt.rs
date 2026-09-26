@@ -38,7 +38,7 @@ pub fn member_identity(view: &OrgView<'_>, org: &str, me: &Position, has_team: b
     }
     s.push_str(&format!(" in {org}."));
     if let Some(p) = view.coordinates(&me.id) {
-        s.push_str(&format!(" You coordinate the project {}", p.name));
+        s.push_str(&format!(" You lead the project {}", p.name));
         if let Some(repo) = &p.repository_url {
             s.push_str(&format!(" (repository {repo})"));
         }

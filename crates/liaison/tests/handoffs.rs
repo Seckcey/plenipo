@@ -566,7 +566,7 @@ async fn missing_destinations_are_refused_and_the_requester_is_told() {
         .map(|r| r.envelope["rejection"].as_str().unwrap())
         .collect();
     assert!(
-        reasons[0].contains("no worker runtime named \"gemini\""),
+        reasons[0].contains("no AI tool named \"gemini\""),
         "{reasons:?}"
     );
     assert!(reasons[1].contains("role \"Code Reviewer\""), "{reasons:?}");
@@ -1195,6 +1195,7 @@ fn organization(h: &H) -> (Value, Vec<Position>) {
                     role_type: RoleType::DepartmentManager,
                     persistent: true,
                     metadata: Value::Null,
+                    formerly: &[],
                 },
                 RoleTemplate {
                     name: "Specialist",
@@ -1202,6 +1203,7 @@ fn organization(h: &H) -> (Value, Vec<Position>) {
                     role_type: RoleType::Worker,
                     persistent: false,
                     metadata: Value::Null,
+                    formerly: &[],
                 },
             ],
             "plenipo",
@@ -1393,7 +1395,7 @@ async fn members_address_their_team_by_role_and_never_a_raw_runtime() {
         .collect();
     assert!(
         reasons[0].contains(
-            "hand work to a member of your team, not to a runtime: role:Reviewer, role:Builder"
+            "hand work to a member of your team, not to an AI tool: role:Reviewer, role:Builder"
         ),
         "{reasons:?}"
     );

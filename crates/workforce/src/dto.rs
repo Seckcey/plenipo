@@ -27,6 +27,24 @@ pub enum Staffing {
     OnDemand,
 }
 
+/// What the app calls each rank of the chain of command — Worker, Supervisor, Manager, VP, and
+/// the owner at the top (President in `Business`) — or a branch's ranks, or the Mafia's. Display
+/// only: agents are always given the plain titles (ADR-010).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum TitleTheme {
+    #[default]
+    Business,
+    Army,
+    Navy,
+    AirForce,
+    MarineCorps,
+    CoastGuard,
+    SpaceForce,
+    Mafia,
+}
+
 /// What a position is doing, shown on its node (always with a text label, never color alone).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -277,6 +295,8 @@ pub struct RuntimeBrief {
 #[ts(export)]
 pub struct OrgSnapshot {
     pub name: String,
+    /// What the app calls the ranks (the owner's choice).
+    pub titles: TitleTheme,
     pub roles: Vec<RoleInfo>,
     pub departments: Vec<DepartmentInfo>,
     pub projects: Vec<ProjectInfo>,

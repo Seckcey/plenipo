@@ -24,6 +24,7 @@ pub(crate) struct Inputs<'a> {
     pub sessions: &'a [RuntimeSession],
     pub runtimes: &'a [AgentRuntimeInfo],
     pub name: String,
+    pub titles: TitleTheme,
     pub notices: Vec<String>,
     pub now: u64,
 }
@@ -88,7 +89,7 @@ pub(crate) fn brief(task: &Task, titles: &HashMap<&str, &str>) -> TaskBrief {
 fn unavailable(runtimes: &[AgentRuntimeInfo], runtime_id: &str) -> Option<String> {
     let Some(info) = runtimes.iter().find(|r| r.id == runtime_id) else {
         return Some(format!(
-            "The runtime {runtime_id} is not available in this build"
+            "The AI tool {runtime_id} is not available in this version of Plenipo"
         ));
     };
     if info.ready {
@@ -97,10 +98,10 @@ fn unavailable(runtimes: &[AgentRuntimeInfo], runtime_id: &str) -> Option<String
     Some(match info.installation.state {
         InstallState::Checking => format!("{} is still being checked", info.label),
         InstallState::Installed => format!(
-            "{} is not signed in with a subscription; open Runtimes",
+            "{} is not signed in with a subscription; open AI tools",
             info.label
         ),
-        _ => format!("{} is not installed; open Runtimes", info.label),
+        _ => format!("{} is not installed; open AI tools", info.label),
     })
 }
 
@@ -188,9 +189,9 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
         let c = counts(&own);
         let blocked_by_policy = (!allowed(project, &p.runtime_id)).then(|| {
             format!(
-                "{} does not allow the {} runtime",
+                "{} does not allow {}",
                 project.map_or("The project", |x| x.name.as_str()),
-                p.runtime_id
+                crate::prompt::runtime_label(runtimes, &p.runtime_id)
             )
         });
         let detail = blocked_by_policy
@@ -316,6 +317,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
 
     OrgSnapshot {
         name: inputs.name.clone(),
+        titles: inputs.titles,
         roles: records
             .roles
             .iter()
@@ -544,12 +546,7 @@ mod tests {
             .create_department_with_head(
                 "Development",
                 "",
-                &hire(
-                    role("Department Manager"),
-                    "Development Manager",
-                    None,
-                    "claude-code",
-                ),
+                &hire(role("Manager"), "Development Manager", None, "claude-code"),
                 "owner",
             )
             .unwrap();
@@ -562,7 +559,7 @@ mod tests {
                     ..ProjectSettings::default()
                 },
                 &hire(
-                    role("Project Coordinator"),
+                    role("Supervisor"),
                     "Cloudline Coordinator",
                     None,
                     "claude-code",
@@ -692,6 +689,7 @@ mod tests {
             sessions: &[],
             runtimes,
             name: "8 West".into(),
+            titles: TitleTheme::Army,
             notices: vec![],
             now: 1,
         })
@@ -887,7 +885,7 @@ mod tests {
         assert_eq!(dev.status, PositionStatus::Unavailable);
         assert_eq!(
             dev.status_detail.as_deref(),
-            Some("Cloudline does not allow the codex runtime")
+            Some("Cloudline does not allow Codex")
         );
         // Archived positions come last and say so.
         o.l.end_oversight(&o.l.org_records().unwrap().oversight[0].id, "owner")

@@ -234,7 +234,7 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     assert.match(t.text, /received 1 reply: Plenipo: rejected: Reason: missing destination/);
     const card = await handoffCard(browser, "gemini");
     assert.match(card, /Refused/);
-    assert.match(card, /no worker runtime named "gemini"/);
+    assert.match(card, /no AI tool named "gemini"/);
     // Nothing was sent to another provider instead.
     assert.equal(
       await (await browser.$('//button[normalize-space()="Open worker session"]')).isExisting(),

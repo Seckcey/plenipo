@@ -127,7 +127,7 @@ pub fn clean_runtime_id(id: &str) -> Result<String> {
     if ok {
         Ok(id.to_owned())
     } else {
-        Err(invalid(format!("invalid runtime id {id:?}")))
+        Err(invalid(format!("invalid AI tool name {id:?}")))
     }
 }
 
@@ -213,7 +213,7 @@ fn clean_profile(name: &str) -> Result<String> {
 
 fn clean_runtimes(list: &[String]) -> Result<Vec<String>> {
     if list.len() > 16 {
-        return Err(invalid("at most 16 allowed runtimes"));
+        return Err(invalid("at most 16 allowed AI tools"));
     }
     let mut out: Vec<String> = Vec::new();
     for id in list {
@@ -274,9 +274,9 @@ fn clean_position(new: &NewPosition) -> Result<NewPosition> {
 
 fn role_type_label(t: RoleType) -> &'static str {
     match t {
-        RoleType::Superintendent => "superintendent",
-        RoleType::DepartmentManager => "department manager",
-        RoleType::ProjectCoordinator => "project coordinator",
+        RoleType::Superintendent => "VP",
+        RoleType::DepartmentManager => "manager",
+        RoleType::ProjectCoordinator => "supervisor",
         RoleType::Worker => "worker",
     }
 }
@@ -489,11 +489,11 @@ impl Org {
             return match role.role_type {
                 RoleType::Superintendent | RoleType::DepartmentManager => Ok(()),
                 RoleType::ProjectCoordinator => Err(invalid(
-                    "a project coordinator reports to the head of its project's department",
+                    "a supervisor reports to the manager of its project's department",
                 )),
                 RoleType::Worker => Err(invalid(
-                    "a worker reports to a manager, coordinator, or other persistent position, \
-                     not directly to the owner",
+                    "a worker reports to a supervisor, manager, or other full-time position, \
+                     not directly to you",
                 )),
             };
         };
@@ -501,7 +501,7 @@ impl Org {
         let boss_role = self.role_of(boss)?;
         if !boss_role.persistent {
             return Err(invalid(format!(
-                "{} is an on-demand position; only persistent positions supervise others",
+                "{} is an on-call position; only full-time positions lead others",
                 boss.title
             )));
         }
@@ -517,13 +517,11 @@ impl Org {
             RoleType::Superintendent | RoleType::DepartmentManager
                 if boss_role.role_type != RoleType::Superintendent =>
             {
-                Err(invalid(format!(
-                    "a {label} reports to the owner or to a superintendent"
-                )))
+                Err(invalid(format!("a {label} reports to you or to a VP")))
             }
-            RoleType::ProjectCoordinator if !self.heads.contains_key(to) => Err(invalid(
-                "a project coordinator reports to the head of a department",
-            )),
+            RoleType::ProjectCoordinator if !self.heads.contains_key(to) => {
+                Err(invalid("a supervisor reports to a department's manager"))
+            }
             _ => Ok(()),
         }
     }
@@ -533,8 +531,8 @@ impl Org {
         match project {
             Some(p) if !p.allowed_runtimes.iter().any(|r| r == runtime_id) => {
                 Err(invalid(format!(
-                    "{} does not allow the {runtime_id} runtime, so {title} cannot use it; change \
-                     the project's allowed runtimes or choose another runtime",
+                    "{} does not allow the {runtime_id} AI tool, so {title} cannot use it; change \
+                     the project's allowed AI tools or choose another one",
                     p.name
                 )))
             }
@@ -939,6 +937,8 @@ pub struct RoleTemplate {
     pub role_type: RoleType,
     pub persistent: bool,
     pub metadata: Value,
+    /// Names the template was seeded under before: that role is renamed, not duplicated.
+    pub formerly: &'static [&'static str],
 }
 
 impl Ledger {
@@ -1126,7 +1126,44 @@ impl Ledger {
         })
     }
 
-    /// Insert the templates that no role is named after yet; returns every role.
+    /// Set `fields` in the object stored under `key`, keeping its other fields; returns the
+    /// whole object. One transaction, so two changes to different fields never undo each other.
+    pub fn merge_setting(&self, key: &str, fields: &Value, actor: &str) -> Result<Value> {
+        let key = clean_line("the setting key", key, 64)?;
+        let Some(fields) = fields.as_object() else {
+            return Err(invalid("setting fields must be an object"));
+        };
+        self.write(|tx, out| {
+            let mut value = tx
+                .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()?
+                .map(parse_json)
+                .filter(Value::is_object)
+                .unwrap_or_else(|| json!({}));
+            for (field, v) in fields {
+                value[field] = v.clone();
+            }
+            tx.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![key, value.to_string(), now()],
+            )?;
+            let changed: Vec<&String> = fields.keys().collect();
+            org_event(
+                out,
+                tx,
+                actor,
+                "settings_changed",
+                json!({ "key": key, "fields": changed }),
+            )?;
+            Ok(value)
+        })
+    }
+
+    /// Insert the templates that no role is named after yet, renaming a template's role seeded
+    /// under one of its former names instead; returns every role.
     pub fn ensure_roles(&self, templates: &[RoleTemplate], actor: &str) -> Result<Vec<Role>> {
         self.write(|tx, out| {
             for t in templates {
@@ -1134,6 +1171,36 @@ impl Ledger {
                     .query_row("SELECT id FROM roles WHERE name = ?1", [t.name], |r| r.get(0))
                     .optional()?;
                 if exists.is_some() {
+                    continue;
+                }
+                let mut former = None;
+                for old in t.formerly {
+                    former = tx
+                        .query_row(
+                            "SELECT id FROM roles
+                             WHERE name = ?1 AND json_extract(metadata, '$.template') = 1",
+                            [old],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .optional()?
+                        .map(|id| (id, *old));
+                    if former.is_some() {
+                        break;
+                    }
+                }
+                if let Some((id, old)) = former {
+                    // Same role, so every position holding it keeps it.
+                    tx.execute(
+                        "UPDATE roles SET name = ?2, description = ?3, metadata = ?4 WHERE id = ?1",
+                        params![id, t.name, t.description, metadata_text(&t.metadata)?],
+                    )?;
+                    org_event(
+                        out,
+                        tx,
+                        actor,
+                        "role_renamed",
+                        json!({ "id": id, "name": t.name, "formerly": old, "template": true }),
+                    )?;
                     continue;
                 }
                 let id = uuid::Uuid::new_v4().to_string();
@@ -1184,7 +1251,7 @@ impl Ledger {
             ) || !role.persistent
             {
                 return Err(invalid(format!(
-                    "{} cannot head a department: choose a superintendent or department manager role",
+                    "{} cannot run a department: choose a VP or manager role",
                     role.name
                 )));
             }
@@ -1210,7 +1277,14 @@ impl Ledger {
                 json!({ "id": id, "name": name, "headPositionId": position.id }),
             )?;
             if head.staffed {
-                hire(tx, out, &position, head.runtime_provider.as_deref(), None, actor)?;
+                hire(
+                    tx,
+                    out,
+                    &position,
+                    head.runtime_provider.as_deref(),
+                    None,
+                    actor,
+                )?;
             }
             let department = tx.query_row(
                 &format!("SELECT {DEPT_COLS} FROM departments WHERE id = ?1"),
@@ -1348,14 +1422,14 @@ impl Ledger {
             let role = org.role(&coordinator.role_id)?;
             if role.role_type != RoleType::ProjectCoordinator || !role.persistent {
                 return Err(invalid(format!(
-                    "{} cannot coordinate a project: choose a project coordinator role",
+                    "{} cannot lead a project: choose a supervisor role",
                     role.name
                 )));
             }
             org.check_title(&coordinator.title, Some(&head.id), None)?;
             if !settings.allowed_runtimes.contains(&coordinator.runtime_id) {
                 return Err(invalid(format!(
-                    "the coordinator's runtime ({}) must be one of the project's allowed runtimes",
+                    "the supervisor's AI tool ({}) must be one of the project's allowed AI tools",
                     coordinator.runtime_id
                 )));
             }
@@ -1548,12 +1622,14 @@ impl Ledger {
             let org = Org::load(tx)?;
             let role = org.role(&new.role_id)?;
             match role.role_type {
-                RoleType::DepartmentManager => return Err(invalid(
-                    "a department manager comes with its department: create a department instead",
-                )),
+                RoleType::DepartmentManager => {
+                    return Err(invalid(
+                        "a manager comes with a department: create a department instead",
+                    ))
+                }
                 RoleType::ProjectCoordinator => {
                     return Err(invalid(
-                        "a project coordinator comes with its project: create a project instead",
+                        "a supervisor comes with a project: create a project instead",
                     ))
                 }
                 RoleType::Superintendent | RoleType::Worker => {}
@@ -1591,7 +1667,7 @@ impl Ledger {
             let position = org.position(tx, id)?;
             if !org.role_of(position)?.persistent {
                 return Err(invalid(format!(
-                    "{} is an on-demand position: it gets a new worker for every task",
+                    "{} is an on-call position: it gets a new worker for every task",
                     position.title
                 )));
             }
@@ -1685,7 +1761,7 @@ impl Ledger {
                 && (new_runtime.is_some() || new_model.is_some())
                 && incumbent(tx, id)?.is_some();
             if replace {
-                refuse_if_busy(tx, &position, "changing its runtime or model")?;
+                refuse_if_busy(tx, &position, "changing its AI tool or model")?;
             }
             tx.execute(
                 "UPDATE positions SET title = ?2, runtime_id = ?3, model = ?4, updated_at = ?5
@@ -1703,7 +1779,7 @@ impl Ledger {
             org_event(out, tx, actor, "position_updated", Value::Object(changes))?;
             let updated = get_position(tx, id)?;
             let agent = if replace {
-                retire_incumbent(tx, out, &updated, "runtime or model changed", actor)?;
+                retire_incumbent(tx, out, &updated, "AI tool or model changed", actor)?;
                 let provider = runtime.as_ref().and_then(|(_, p)| p.as_deref());
                 Some(hire(
                     tx,
@@ -1859,14 +1935,14 @@ impl Ledger {
             }
             if org.role_of(overseer)?.persistent {
                 return Err(invalid(format!(
-                    "{} is a persistent position; in this phase only on-demand positions can be \
-                     assigned to review, QA, or audit a team",
+                    "{} is a full-time position; for now only on-call positions can be assigned \
+                     to review, QA, or audit a team",
                     overseer.title
                 )));
             }
             if !org.role_of(target)?.persistent {
                 return Err(invalid(format!(
-                    "{} is an on-demand position and has no team to oversee",
+                    "{} is an on-call position and has no team to oversee",
                     target.title
                 )));
             }
@@ -1957,6 +2033,7 @@ mod tests {
             role_type,
             persistent,
             metadata: Value::Null,
+            formerly: &[],
         }
     }
 
@@ -2127,7 +2204,7 @@ mod tests {
             &position(&roles["Senior Developer"], "Ops Lead", None, "codex"),
             "owner",
         );
-        assert!(err(worker_head).contains("cannot head a department"));
+        assert!(err(worker_head).contains("cannot run a department"));
         let not_allowed = l.create_project_with_coordinator(
             &dept.id,
             &settings("Milepost", &["claude-code"]),
@@ -2139,7 +2216,7 @@ mod tests {
             ),
             "owner",
         );
-        assert!(err(not_allowed).contains("allowed runtimes"));
+        assert!(err(not_allowed).contains("allowed AI tools"));
         let bad_path = l.create_project_with_coordinator(
             &dept.id,
             &ProjectSettings {
@@ -2207,12 +2284,10 @@ mod tests {
                 "owner",
             )
         };
-        assert!(err(dev("Loose Developer", None)).contains("not directly to the owner"));
+        assert!(err(dev("Loose Developer", None)).contains("not directly to you"));
         let (developer, agent) = dev("Senior Developer", Some(&coordinator.id)).unwrap();
         assert!(agent.is_none(), "on-demand positions have no incumbent");
-        assert!(
-            err(dev("Helper", Some(&developer.id))).contains("only persistent positions supervise")
-        );
+        assert!(err(dev("Helper", Some(&developer.id))).contains("only full-time positions lead"));
         assert!(err(dev("senior developer", Some(&coordinator.id)))
             .contains("already has a team member"));
         // Other teams may reuse a title.
@@ -2254,7 +2329,7 @@ mod tests {
         )
         .unwrap();
         assert!(err(dev("Codex Developer", Some(&coordinator.id)))
-            .contains("does not allow the codex runtime"));
+            .contains("does not allow the codex AI tool"));
         // Bad input never reaches the database.
         for bad in [
             NewPosition {
@@ -2355,10 +2430,9 @@ mod tests {
             )
             .unwrap();
 
-        // A manager reports to the owner or a superintendent, and never below itself.
+        // A manager reports to the owner or a VP, and never below itself.
         assert!(
-            err(l.move_position(&ops_head.id, Some(&dev_head.id), "owner"))
-                .contains("superintendent")
+            err(l.move_position(&ops_head.id, Some(&dev_head.id), "owner")).contains("to a VP")
         );
         assert!(err(l.move_position(&chief.id, Some(&dev_head.id), "owner"))
             .contains("cannot report to it"));
@@ -2367,14 +2441,12 @@ mod tests {
             .is_err());
         assert!(
             err(l.move_position(&coordinator.id, Some(&chief.id), "owner"))
-                .contains("head of a department")
+                .contains("a department's manager")
         );
         assert!(
-            err(l.move_position(&coordinator.id, Some(&developer.id), "owner"))
-                .contains("on-demand")
+            err(l.move_position(&coordinator.id, Some(&developer.id), "owner")).contains("on-call")
         );
-        assert!(err(l.move_position(&developer.id, None, "owner"))
-            .contains("not directly to the owner"));
+        assert!(err(l.move_position(&developer.id, None, "owner")).contains("not directly to you"));
 
         // Department/project reassignment: the coordinator moves to Operations' head.
         let moved = l
@@ -2578,7 +2650,7 @@ mod tests {
             &head.id,
             "owner"
         ))
-        .contains("persistent position"));
+        .contains("full-time position"));
         assert!(
             err(l.assign_oversight(OversightKind::Security, &qa.id, &qa.id, "owner"))
                 .contains("own team")
@@ -2898,5 +2970,129 @@ mod tests {
                 [&roles["QA Engineer"]]
             )
             .is_ok());
+    }
+
+    #[test]
+    fn merging_a_setting_keeps_its_other_fields() {
+        let l = ledger();
+        let v = l
+            .merge_setting("organization", &json!({ "name": "8 West" }), "owner")
+            .unwrap();
+        assert_eq!(v, json!({ "name": "8 West" }));
+        let v = l
+            .merge_setting("organization", &json!({ "titles": "army" }), "owner")
+            .unwrap();
+        assert_eq!(v, json!({ "name": "8 West", "titles": "army" }));
+        l.merge_setting(
+            "organization",
+            &json!({ "name": "8 West Ventures" }),
+            "owner",
+        )
+        .unwrap();
+        assert_eq!(
+            l.setting("organization").unwrap(),
+            Some(json!({ "name": "8 West Ventures", "titles": "army" }))
+        );
+        // A value that is not an object is replaced; fields must be an object.
+        l.put_setting("organization", &json!("old"), "owner")
+            .unwrap();
+        let v = l
+            .merge_setting("organization", &json!({ "titles": "navy" }), "owner")
+            .unwrap();
+        assert_eq!(v, json!({ "titles": "navy" }));
+        assert!(l
+            .merge_setting("organization", &json!("navy"), "owner")
+            .is_err());
+        let changed = l
+            .recent_events(10)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event_type == "org.settings_changed")
+            .unwrap();
+        assert_eq!(
+            changed.payload,
+            json!({ "key": "organization", "fields": ["titles"] })
+        );
+    }
+
+    #[test]
+    fn a_renamed_template_keeps_its_role_and_positions() {
+        let l = ledger();
+        let old = RoleTemplate {
+            name: "Project Coordinator",
+            description: "Coordinates a project.",
+            role_type: RoleType::ProjectCoordinator,
+            persistent: true,
+            metadata: json!({ "template": true, "purpose": ["coordinate"] }),
+            formerly: &[],
+        };
+        let custom = RoleTemplate {
+            name: "Superintendent",
+            description: "The owner's own role, not a template.",
+            role_type: RoleType::Superintendent,
+            persistent: true,
+            metadata: json!({ "template": false }),
+            formerly: &[],
+        };
+        let roles = l.ensure_roles(&[old, custom], "plenipo").unwrap();
+        let id = |name: &str| roles.iter().find(|r| r.name == name).unwrap().id.clone();
+        let coordinator = id("Project Coordinator");
+        let (held, _) = l
+            .create_position(
+                &position(&id("Superintendent"), "Chief", None, "codex"),
+                "owner",
+            )
+            .unwrap();
+
+        let renamed = [
+            RoleTemplate {
+                name: "Supervisor",
+                description: "Leads a project team.",
+                role_type: RoleType::ProjectCoordinator,
+                persistent: true,
+                metadata: json!({ "template": true, "purpose": ["lead the team"] }),
+                formerly: &["Project Coordinator"],
+            },
+            RoleTemplate {
+                name: "VP",
+                description: "Runs the organization for the owner.",
+                role_type: RoleType::Superintendent,
+                persistent: true,
+                metadata: json!({ "template": true }),
+                formerly: &["Superintendent"],
+            },
+        ];
+        let roles = l.ensure_roles(&renamed, "plenipo").unwrap();
+        // The template's role is renamed in place: same ID, new wording.
+        let supervisor = roles.iter().find(|r| r.name == "Supervisor").unwrap();
+        assert_eq!(supervisor.id, coordinator);
+        assert_eq!(supervisor.description, "Leads a project team.");
+        assert_eq!(supervisor.metadata["purpose"], json!(["lead the team"]));
+        assert!(roles.iter().all(|r| r.name != "Project Coordinator"));
+        let renamed_event = l
+            .recent_events(20)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event_type == "org.role_renamed")
+            .unwrap();
+        assert_eq!(renamed_event.payload["formerly"], "Project Coordinator");
+        assert_eq!(renamed_event.payload["name"], "Supervisor");
+        // An owner's role that merely shares a former name is left alone; the template is
+        // added next to it, and the position holding the owner's role keeps it.
+        assert!(roles.iter().any(|r| r.name == "Superintendent"));
+        assert!(roles.iter().any(|r| r.name == "VP"));
+        assert_eq!(
+            l.org_records()
+                .unwrap()
+                .positions
+                .iter()
+                .find(|p| p.id == held.id)
+                .unwrap()
+                .role_id,
+            id("Superintendent")
+        );
+        // Seeding again changes nothing.
+        let before = l.list_roles().unwrap();
+        assert_eq!(l.ensure_roles(&renamed, "plenipo").unwrap(), before);
     }
 }

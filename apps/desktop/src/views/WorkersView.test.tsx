@@ -594,7 +594,7 @@ describe("Workers view — handoffs", () => {
             state: "rejected",
             destination: "runtime:gemini",
             destinationLabel: "gemini",
-            rejection: 'missing destination: there is no worker runtime named "gemini"',
+            rejection: 'missing destination: there is no AI tool named "gemini"',
             childTaskId: null,
             childSessionId: null,
             childState: null,
@@ -607,7 +607,7 @@ describe("Workers view — handoffs", () => {
     render(<Harness initial={REQUESTER} />);
     const card = await screen.findByRole("listitem", { name: /Handoff to gemini/ });
     expect(within(card).getByText("Refused")).toBeInTheDocument();
-    expect(within(card).getByText(/no worker runtime named "gemini"/)).toBeInTheDocument();
+    expect(within(card).getByText(/no AI tool named "gemini"/)).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: "Open worker session" })).toBeNull();
   });
 

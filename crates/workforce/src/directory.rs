@@ -130,7 +130,7 @@ impl Directory for WorkforceDirectory {
             .find(|r| r.id == target.runtime_id)
             .ok_or_else(|| {
                 format!(
-                    "{}'s runtime ({}) is not available in this build",
+                    "{}'s AI tool ({}) is not available in this version of Plenipo",
                     target.title, target.runtime_id
                 )
             })?;
@@ -140,7 +140,7 @@ impl Directory for WorkforceDirectory {
         if !allowed(project, &target.runtime_id) {
             return Err(format!(
                 "{} does not allow {} workers, so {} cannot take work; the owner can change the \
-                 project's allowed runtimes or the position's runtime",
+                 project's allowed AI tools or the position's AI tool",
                 project.map_or("the project", |p| p.name.as_str()),
                 info.label,
                 target.title

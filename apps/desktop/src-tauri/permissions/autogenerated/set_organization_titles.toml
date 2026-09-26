@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-organization-titles"
+description = "Enables the set_organization_titles command without any pre-configured scope."
+commands.allow = ["set_organization_titles"]
+
+[[permission]]
+identifier = "deny-set-organization-titles"
+description = "Denies the set_organization_titles command without any pre-configured scope."
+commands.deny = ["set_organization_titles"]

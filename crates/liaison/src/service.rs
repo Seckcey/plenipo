@@ -775,31 +775,31 @@ impl Liaison {
                      members on the Organization canvas)"
                         .to_owned()
                 } else {
-                    format!("hand work to a member of your team, not to a runtime: {list}")
+                    format!("hand work to a member of your team, not to an AI tool: {list}")
                 })
             }
             Ok(Address::Runtime(id)) if destinations.iter().any(|x| x.address == id) => id,
             Ok(Address::Runtime(id)) => {
                 return Err(format!(
-                    "missing destination: there is no worker runtime named \"{id}\" (available: \
+                    "missing destination: there is no AI tool named \"{id}\" (available: \
                      {list})"
                 ))
             }
             Ok(Address::Role(name)) => {
                 return Err(format!(
                     "missing destination: the role \"{name}\" belongs to members of an \
-                     organization, and this worker is not one; address a runtime instead: {list}"
+                     organization, and this worker is not one; address an AI tool instead: {list}"
                 ))
             }
             Ok(Address::Session(_)) => {
                 return Err(format!(
-                    "workers cannot address another worker's session; hand off to a runtime \
+                    "workers cannot address another worker's session; hand off to an AI tool \
                      instead: {list}"
                 ))
             }
             Ok(Address::Owner | Address::Liaison) => {
                 return Err(format!(
-                    "\"{}\" is not a destination for handoffs; address a runtime: {list}",
+                    "\"{}\" is not a destination for handoffs; address an AI tool: {list}",
                     d.to
                 ))
             }

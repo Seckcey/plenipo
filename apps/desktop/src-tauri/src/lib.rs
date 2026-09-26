@@ -134,6 +134,7 @@ pub fn configure<R: Runtime>(
             commands::get_organization,
             commands::get_work,
             commands::rename_organization,
+            commands::set_organization_titles,
             commands::create_role,
             commands::create_department,
             commands::update_department,
@@ -887,7 +888,7 @@ mod ipc_boundary_tests {
             "create_department",
             serde_json::json!({ "input": {
                 "name": "Development", "description": "Builds the products",
-                "head": lead("Department Manager", "Development Manager"),
+                "head": lead("Manager", "Development Manager"),
             }}),
         ));
         let dept = s.departments[0].clone();
@@ -901,7 +902,7 @@ mod ipc_boundary_tests {
                 "allowedRuntimes": ["claude-code", "codex"],
                 "capabilityProfile": "development",
                 "departmentId": dept.id,
-                "coordinator": lead("Project Coordinator", "Cloudline Coordinator"),
+                "coordinator": lead("Supervisor", "Cloudline Supervisor"),
             }}),
         ));
         let coordinator = s.projects[0].coordinator_position_id.clone().unwrap();
@@ -951,10 +952,21 @@ mod ipc_boundary_tests {
         assert_eq!(moved.reports_to.as_deref(), Some(head.as_str()));
         let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
             &main,
+            "set_organization_titles",
+            serde_json::json!({ "titles": "marineCorps" }),
+        ));
+        assert_eq!(s.titles, plenipo_workforce::TitleTheme::MarineCorps);
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
             "rename_organization",
             serde_json::json!({ "name": "8 West Ventures" }),
         ));
         assert_eq!(s.name, "8 West Ventures");
+        assert_eq!(
+            s.titles,
+            plenipo_workforce::TitleTheme::MarineCorps,
+            "renaming keeps the titles"
+        );
         let work: plenipo_workforce::WorkView = body(invoke_json(
             &main,
             "get_work",
@@ -1056,6 +1068,11 @@ mod ipc_boundary_tests {
                 "give_objective",
                 serde_json::json!({ "positionId": "../x", "objective": "hi" }),
             ),
+            // Only the known title themes.
+            (
+                "set_organization_titles",
+                serde_json::json!({ "titles": "starfleet" }),
+            ),
             (
                 "give_objective",
                 serde_json::json!({ "positionId": SESSION, "objective": "x".repeat(40_001) }),
@@ -1090,7 +1107,7 @@ mod ipc_boundary_tests {
             "create_department",
             serde_json::json!({ "input": {
                 "name": "Development", "description": "",
-                "head": { "roleId": role_id(&org, "Department Manager"),
+                "head": { "roleId": role_id(&org, "Manager"),
                           "title": "Development Manager", "runtimeId": "claude-code" },
             }}),
         ));

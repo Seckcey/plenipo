@@ -30,6 +30,7 @@ const COMMANDS: &[&str] = &[
     "get_organization",
     "get_work",
     "rename_organization",
+    "set_organization_titles",
     "create_role",
     "create_department",
     "update_department",

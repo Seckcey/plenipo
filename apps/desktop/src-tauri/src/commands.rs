@@ -25,7 +25,7 @@ use plenipo_runtime::{
 };
 use plenipo_workforce::{
     DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionPatchInput,
-    ProjectInput, RoleInput, WorkView, Workforce, WorkforceError,
+    ProjectInput, RoleInput, TitleTheme, WorkView, Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -518,6 +518,15 @@ pub async fn rename_organization(
 ) -> Result<OrgSnapshot, CommandError> {
     bounded("the name", &name)?;
     with_workforce(&workforce, move |w| w.rename(&name)).await
+}
+
+/// What the app calls the ranks (display only; agents keep the plain titles).
+#[tauri::command]
+pub async fn set_organization_titles(
+    workforce: State<'_, Workforce>,
+    titles: TitleTheme,
+) -> Result<OrgSnapshot, CommandError> {
+    with_workforce(&workforce, move |w| w.set_titles(titles)).await
 }
 
 #[tauri::command]

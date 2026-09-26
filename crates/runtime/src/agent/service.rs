@@ -557,7 +557,7 @@ impl AgentRuntime {
         let not_checked = AuthStatus {
             state: AuthState::Unknown,
             method: None,
-            detail: Some("Not checked: the runtime is not installed.".into()),
+            detail: Some("Not checked: the AI tool is not installed.".into()),
         };
         let executable = match locate(adapter, host) {
             Located::Found(path) => path,
@@ -842,7 +842,7 @@ impl AgentRuntime {
         }
         let adapter = self.adapter(&session.runtime_id).ok_or_else(|| {
             RuntimeError::NotReady(format!(
-                "The runtime {:?} is not available in this build.",
+                "The AI tool {:?} is not available in this version of Plenipo.",
                 session.runtime_id
             ))
         })?;
@@ -928,7 +928,7 @@ impl AgentRuntime {
         };
         let Some(adapter) = self.adapter(&session.runtime_id) else {
             let e = RuntimeError::NotReady(format!(
-                "The runtime {:?} is not available in this build.",
+                "The AI tool {:?} is not available in this version of Plenipo.",
                 session.runtime_id
             ));
             self.end_waiting(

@@ -33,6 +33,7 @@
     "allow-get-organization",
     "allow-get-work",
     "allow-rename-organization",
+    "allow-set-organization-titles",
     "allow-create-role",
     "allow-create-department",
     "allow-update-department",

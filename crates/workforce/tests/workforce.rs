@@ -234,7 +234,7 @@ impl H {
             .create_department(&DepartmentInput {
                 name: name.into(),
                 description: format!("{name} work"),
-                head: Some(lead(&self.role("Department Manager"), head_title, runtime)),
+                head: Some(lead(&self.role("Manager"), head_title, runtime)),
                 reports_to: None,
                 active: None,
             })
@@ -251,7 +251,7 @@ impl H {
             .create_project(&ProjectInput {
                 department_id: Some(department.clone()),
                 coordinator: Some(lead(
-                    &self.role("Project Coordinator"),
+                    &self.role("Supervisor"),
                     "Cloudline Coordinator",
                     "claude-code",
                 )),
@@ -416,7 +416,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         kind: PositionKind::DepartmentManager,
         staffing: Staffing::OnDemand,
     }))
-    .contains("persistent"));
+    .contains("full-time"));
 
     // Create department, with its head position still vacant.
     let s = h
@@ -426,11 +426,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
             description: "Builds the products".into(),
             head: Some(LeadInput {
                 vacant: Some(true),
-                ..lead(
-                    &h.role("Department Manager"),
-                    "Development Manager",
-                    "claude-code",
-                )
+                ..lead(&h.role("Manager"), "Development Manager", "claude-code")
             }),
             reports_to: None,
             active: None,
@@ -461,7 +457,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         .create_project(&ProjectInput {
             department_id: Some(dept.id.clone()),
             coordinator: Some(lead(
-                &h.role("Project Coordinator"),
+                &h.role("Supervisor"),
                 "Cloudline Coordinator",
                 "claude-code",
             )),
@@ -497,7 +493,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         model: None,
         vacant: None,
     }))
-    .contains("no runtime named"));
+    .contains("no AI tool named"));
     let events: Vec<String> = h
         .ledger
         .recent_events(200)
@@ -751,13 +747,13 @@ async fn plan_orphan_prevention() {
             .contains("cannot report to it")
     );
     let (_, ops_head) = h.department("Operations", "Operations Manager", "codex");
-    assert!(refusal(h.workforce.move_position(&ops_head, Some(&o.head))).contains("superintendent"));
-    assert!(refusal(h.workforce.move_position(&tech_lead, Some(&intern))).contains("on-demand"));
+    assert!(refusal(h.workforce.move_position(&ops_head, Some(&o.head))).contains("to a VP"));
+    assert!(refusal(h.workforce.move_position(&tech_lead, Some(&intern))).contains("on-call"));
     assert!(refusal(
         h.workforce
             .move_position(&o.coordinator, Some(&o.developer))
     )
-    .contains("on-demand"));
+    .contains("on-call"));
     assert!(refusal(h.workforce.remove_department(&o.department)).contains("project"));
 
     // An agent with unfinished work cannot be let go.
@@ -824,7 +820,7 @@ async fn requests_outside_the_team_are_refused_and_explained() {
         "{reasons:?}"
     );
     assert!(
-        reasons[1].contains("hand work to a member of your team, not to a runtime"),
+        reasons[1].contains("hand work to a member of your team, not to an AI tool"),
         "{reasons:?}"
     );
     // A runtime the project no longer allows is refused, never switched.
@@ -852,7 +848,7 @@ async fn requests_outside_the_team_are_refused_and_explained() {
 async fn objectives_go_only_to_staffed_persistent_positions() {
     let h = harness().await;
     let o = h.development();
-    assert!(refusal(h.workforce.give_objective(&o.developer, "x").await).contains("on-demand"));
+    assert!(refusal(h.workforce.give_objective(&o.developer, "x").await).contains("on-call"));
     assert!(h
         .workforce
         .give_objective("0f8fad5b-d9cb-469f-a165-70867728950e", "x")

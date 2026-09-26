@@ -84,6 +84,7 @@ export type { RoleInput } from "./generated/RoleInput";
 export type { RuntimeBrief } from "./generated/RuntimeBrief";
 export type { Staffing } from "./generated/Staffing";
 export type { TaskBrief } from "./generated/TaskBrief";
+export type { TitleTheme } from "./generated/TitleTheme";
 export type { WorkCounts } from "./generated/WorkCounts";
 export type { WorkView } from "./generated/WorkView";
 export type { WorkerInfo } from "./generated/WorkerInfo";
