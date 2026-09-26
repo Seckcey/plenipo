@@ -99,6 +99,10 @@ impl RuntimeAdapter for Codex {
         }
     }
 
+    fn checked_version(&self) -> &'static str {
+        "0.157.1"
+    }
+
     fn install_hint(&self) -> &'static str {
         "Install the Codex CLI: npm install -g @openai/codex (requires Node.js). Then choose Re-check."
     }

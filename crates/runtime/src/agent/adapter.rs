@@ -61,9 +61,16 @@ pub enum ProviderSession {
     Resume { id: String },
 }
 
+impl Default for ProviderSession {
+    fn default() -> Self {
+        Self::New { preassigned: None }
+    }
+}
+
 /// Everything an adapter needs to build one turn's launch. The objective itself is not
-/// here: it is always written to stdin, never placed in arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// here: it is always written to stdin, never placed in arguments. The default is a new
+/// session with the runtime's default model and effort, billing not confirmed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TurnRequest {
     pub session: ProviderSession,
     /// Validated model name, or `None` for the runtime's default.
@@ -133,6 +140,9 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn provider(&self) -> &'static str;
     fn provider_label(&self) -> &'static str;
     fn capabilities(&self) -> RuntimeCapabilities;
+    /// The CLI version whose models and effort levels [`Self::capabilities`] lists, as last
+    /// checked against the real CLI (ADR-014), e.g. `2.1.283`.
+    fn checked_version(&self) -> &'static str;
     fn install_hint(&self) -> &'static str;
     fn login_hint(&self) -> &'static str;
 
