@@ -1,0 +1,13 @@
+Usage: kimi provider [options] [command]
+
+Manage LLM providers non-interactively.
+
+Options:
+  -h, --help           Show help.
+
+Commands:
+  add [options] <url>  Import every provider listed in a custom registry (api.json).
+  remove <providerId>  Remove a provider and every model alias that referenced it.
+  list [options]       Show configured providers and their model counts.
+  catalog              Discover and import providers from the public models.dev catalog.
+  help [command]       display help for command

@@ -1,0 +1,3 @@
+{"method":"initialize","params":{"clientInfo":{"version":"1","name":"plenipo-check"},"protocolVersion":1,"clientCapabilities":{"terminal":false,"fs":{"readTextFile":false,"writeTextFile":false}}},"id":1,"jsonrpc":"2.0"}
+{"method":"session/load","params":{"mcpServers":[],"cwd":"C:\\Users\\<user>\\plenipo-cli-checks\\kimi-scratch","sessionId":"session_0fe194e1-3bd2-4568-be4a-8ad5d6d06c7c"},"id":2,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"What exact text did I first ask you to reply with?","type":"text"}],"sessionId":"session_0fe194e1-3bd2-4568-be4a-8ad5d6d06c7c"},"id":3,"jsonrpc":"2.0"}
