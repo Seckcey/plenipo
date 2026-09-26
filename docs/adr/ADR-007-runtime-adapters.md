@@ -56,10 +56,14 @@ record.
    - signed out → the turn is refused with the official login command to run;
    - signed in with an API key or a third-party cloud → refused as `billingNotAllowed`
      (API fallback is disabled until explicitly configured in a later phase);
-   - subscription sign-in → allowed; unrecognized-but-signed-in → allowed and labelled
-     "billing unverified".
-     Claude Code also reports its credential source at the start of every stream; any source
-     other than a subscription sign-in terminates the turn immediately as `billingNotAllowed`.
+   - subscription sign-in → allowed;
+   - signed in but unrecognized, or status unavailable → allowed **only** for a runtime that
+     proves its credential during the turn (Claude Code), labelled "billing unverified";
+     otherwise refused (Codex must show a ChatGPT sign-in).
+     Claude Code reports its credential source at the start of every stream; any source other
+     than a subscription sign-in terminates the turn immediately as `billingNotAllowed`. If the
+     sign-in was not confirmed up front, a stream that does not report its source (or produces
+     output before reporting it) is stopped the same way.
 5. **Least privilege until Guard (Phase 7).** No capabilities are granted in Phase 3. Claude
    Code runs with no built-in tools (`--tools ""`) and no MCP servers (`--strict-mcp-config`);
    Codex runs in its read-only sandbox (no writes, no network) with approvals disabled. Each

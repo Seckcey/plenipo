@@ -68,7 +68,8 @@ plus parser unit tests in `agent/claude_code.rs` and `agent/codex.rs`.
       `windows_npm_shims_are_not_run` (Windows)
 - [x] Unauthenticated behavior — `unauthenticated_runtimes_refuse_work_with_login_guidance`,
       `api_key_and_cloud_sign_ins_are_refused`, `unverifiable_sign_in_is_allowed_only_with_a_per_turn_billing_check`,
-      `claude_code_turn_is_stopped_when_it_reports_api_billing`
+      `claude_code_turn_is_stopped_when_it_reports_api_billing`,
+      `unconfirmed_sign_in_without_a_reported_credential_source_is_stopped`
 - [x] Authenticated smoke task — fake CLIs in CI; **real CLIs: owner check below**
 - [x] New session — `new_session_streams_activity_and_returns_a_normalized_result`
 - [x] Resume same session — `resume_continues_the_same_provider_session`
@@ -81,7 +82,8 @@ plus parser unit tests in `agent/claude_code.rs` and `agent/codex.rs`.
 - [x] Provider unavailable — `provider_unavailable_after_detection_is_refused`, `failures_are_normalized` (`[offline]`)
 
 Also: restart recovery (`restart_marks_unfinished_turns_interrupted`, E2E kill -9 mid-turn),
-shutdown (`shutdown_stops_running_turns_and_records_them`), one turn per session and closing,
+shutdown (`shutdown_stops_running_turns_and_records_them`), one turn per session and closing
+(`close_and_follow_up_never_interleave`),
 input validation, Ledger migration 0002 up/down and v1 → v2 upgrade, IPC boundary tests for
 every new command, and E2E through the real app (`tests/e2e/specs/agents.e2e.mjs`).
 

@@ -12,7 +12,7 @@ Screenshots: [agent runtimes](evidence/phase-3/agent-runtimes.png) ·
 [live turn](evidence/phase-3/worker-live.png) · [result](evidence/phase-3/worker-result.png) ·
 [ledger trail](evidence/phase-3/worker-ledger-trail.png).
 
-Test totals: **221 Rust** (Linux; Windows adds the npm-shim test) · **44 frontend** · **20
+Test totals: **225 Rust** (Linux; Windows adds the npm-shim test) · **46 frontend** · **20
 end-to-end** against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3).
 
 CI has no provider accounts, so every automated test drives `plenipo-fake-agent`, a test double
@@ -61,6 +61,11 @@ remote origins denied, smuggled `executable`/`args` fields rejected).
 | Query plan review  | The per-session turn count scanned the task index instead of seeking it (TEXT affinity on `s.id` blocked the expression index).                                                               | Compare with `+s.id`; verified with `EXPLAIN QUERY PLAN` (SEARCH).                                                                               |
 | Ledger tests       | Migration tests used a synthetic "version 2", which collides with the real migration 0002.                                                                                                    | Synthetic migration is now one past the newest real one; a real v1 → v2 upgrade test was added.                                                  |
 | E2E                | A test read the previously selected session before the new one was shown.                                                                                                                     | Wait for the new session's title before reading its turns.                                                                                       |
+| Code review        | Selecting a session could show only the turns that live updates had delivered (e.g. after a webview reload), never its full history.                                                          | The view fetches a session's history whenever it is selected; the store tracks which sessions are fully loaded. Tests added.                     |
+| Code review        | If Claude Code omitted its credential source while the sign-in check was inconclusive, the per-turn billing check passed silently.                                                            | Without a confirmed subscription, the stream must report a subscription credential before anything else, or the turn is stopped. Tests added.    |
+| Code review        | A slow Ledger writer could hold up reading a turn's output past the 2 s drain window, cutting off the final result.                                                                           | The output observer is unbounded, so reading never waits on it. Regression test with a deliberately slow observer.                               |
+| Code review        | Close and a follow-up submitted at the same moment could start a turn on a just-closed session.                                                                                               | Both claim the session exclusively before acting; a follow-up re-reads the session after claiming it. Race test (10 iterations).                 |
+| Parallel tests     | Copying the fake CLI while other tests forked could fail with `Text file busy` (Linux).                                                                                                       | Copy once per test process, wait until it runs, hard-link per test.                                                                              |
 
 ## 4. Deliverables
 
