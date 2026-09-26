@@ -1,12 +1,12 @@
 # Phase 6 — Acceptance Report
 
-|              |                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 6 — Model Policy and Intelligent Role Routing                                                                                                                       |
-| **Branch**   | `claude/phase-6` ([PR #9](https://github.com/Seckcey/plenipo/pull/9))                                                                                               |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #9.                              |
-| **Date**     | 2026-09-26                                                                                                                                                          |
-| **Result**   | **Both Phase 6 acceptance criteria pass end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2). |
+|              |                                                                                                                                                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 6 — Model Policy and Intelligent Role Routing                                                                                                                                                                                     |
+| **Branch**   | `claude/phase-6` ([PR #9](https://github.com/Seckcey/plenipo/pull/9), merged)                                                                                                                                                     |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #9.                                                                                            |
+| **Date**     | 2026-09-26                                                                                                                                                                                                                        |
+| **Result**   | **Accepted by the owner on 2026-09-26** and released as **v0.7.0**. Both acceptance criteria pass end to end against fake CLIs in CI; the owner's Windows check with the real CLIs was not reported with the acceptance (§7, O2). |
 
 Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [a role's model choice changed](evidence/phase-6/models-role-choices.png) ·
@@ -150,13 +150,13 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 
 ## 7. Owner items
 
-| ID  | Item                                                                                                                                                              | Recommendation                   |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| O1  | ADR-011 (how Plenipo picks each worker's AI model) — **Accepted** by the owner on 2026-09-26, with effort per model and per role choice added (§15).              | Done.                            |
-| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
-| O3  | Version stays **0.6.1** (Phase 5, accepted); Phase 6 acceptance brings 0.7.0.                                                                                     | Bump after acceptance.           |
-| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                     | Keep, or change its choices.     |
-| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                              | Say "start Phase 7" after O1–O2. |
+| ID  | Item                                                                                                                                                                                                                                    | Recommendation                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| O1  | ADR-011 (how Plenipo picks each worker's AI model) — **Accepted** by the owner on 2026-09-26, with effort per model and per role choice added (§15).                                                                                    | Done.                                |
+| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). The owner accepted Phase 6 without reporting it; anything odd is fixed in a patch release. | Recommended with v0.7.0.             |
+| O3  | Version **0.7.0** (Phase 6 accepted).                                                                                                                                                                                                   | Done.                                |
+| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                                                                                           | Keep, or change its choices.         |
+| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                                                                                                    | The owner starts it in a new branch. |
 
 ## 8. Verification
 
@@ -171,5 +171,5 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 
 ## 9. Phase boundary
 
-Phase 6 is implemented and verified against fake CLIs. It is complete once the owner accepts it
-(§7). Phase 7 has not been started.
+Phase 6 is complete: accepted by the owner on 2026-09-26 and released as v0.7.0 (release notes:
+[docs/releases/v0.7.0.md](../releases/v0.7.0.md)). Phase 7 starts on its own branch.
