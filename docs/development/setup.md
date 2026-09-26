@@ -79,7 +79,23 @@ $p = Start-Process target\release\plenipo-desktop.exe -PassThru; $null = $p.Hand
 Remove-Item Env:PLENIPO_SMOKE_TEST
 ```
 
-## 5. Linux (development / CI only)
+## 5. End-to-end tests
+
+`pnpm e2e` drives the real release build through WebDriver. It runs in CI on Linux; locally:
+
+```bash
+# once
+sudo apt-get install -y webkit2gtk-driver xvfb
+cargo install tauri-driver --locked
+# each run
+pnpm --filter @plenipo/desktop tauri build --no-bundle
+xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
+```
+
+Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
+it never touches your real Plenipo data.
+
+## 6. Linux (development / CI only)
 
 ```bash
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \

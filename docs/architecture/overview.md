@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(Phase 0) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 1) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -18,8 +18,17 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │           ▼                          │   │
 │                                            │ Plenipo Core (crates/core)           │   │
 │                                            │  - provider-neutral domain + DTOs    │   │
-│                                            └──────────────────────────────────────┘   │
-└───────────────────────────────────────────────────────────────────────────────────────┘
+│                                            │ Plenipo Runtime (crates/runtime)     │   │
+│   ▲ events: plenipo://runtime              │  - Supervisor, profiles, policy      │   │
+│   └────────────────────────────────────────│  - metadata store (JSON, interim)    │   │
+│                                            └──────────────┬───────────────────────┘   │
+└───────────────────────────────────────────────────────────┼───────────────────────────┘
+                                                            │ spawns approved profiles only
+                                          ┌─────────────────▼─────────────────┐
+                                          │ child process tree                │
+                                          │ (Job Object / process group,      │
+                                          │  cleared env, stdout/stderr piped)│
+                                          └───────────────────────────────────┘
 ```
 
 ## 2. Trust boundary
@@ -63,7 +72,28 @@ Current commands:
 All commands return `Result<T, CommandError>`; the TS client converts rejections into
 `PlenipoCommandError { kind, message }`.
 
-## 4. Launch smoke test
+## 4. Runtime supervisor (Phase 1)
+
+Decision record: [ADR-005](../adr/ADR-005-runtime-supervisor.md).
+
+- **Profiles, not commands.** The UI names a profile ID; the profile (Rust only) fixes the
+  executable, args, working directory, declared env vars, and max runtime.
+- **Allowlist** of canonical executable paths, checked at registration and at spawn.
+- **Cleared environment**: OS baseline + declared variables only.
+- **Process-tree ownership**: Windows Job Object (kill-on-close), Unix process group. Cancel,
+  timeout, and shutdown kill the whole tree.
+- **Lifecycle**: UUID per launch; `starting → running → succeeded | failed | cancelled |
+timedOut`; `interrupted` for runs left active by a previous session.
+- **Output**: 8 KiB line cap, 1,000-line ring buffer, batched events (50 ms / 200 lines).
+- **Shutdown**: tray Quit, last-window close, SIGTERM/SIGINT → graceful shutdown. Closing the
+  window with work running hides to the tray.
+- **UI state** lives above the views, so navigation never loses it; after a webview reload it
+  is rebuilt from `get_runtime_overview` + `get_execution_output` and deduplicated by `seq`.
+
+Phase 1 ships only diagnostic profiles that run Plenipo itself with
+`--plenipo-diagnostic=<scenario>` (handled in `main()` before Tauri starts).
+
+## 5. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
 has rendered **and** successfully called Core, and the process exits 0. If that does not
@@ -71,9 +101,9 @@ happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The 
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
 
-## 5. Target component map
+## 6. Target component map
 
-From the rollout plan. Only **Desktop** and **Core** exist today.
+From the rollout plan. **Desktop**, **Core**, and **Runtime** (supervisor) exist today.
 
 | Component    | Responsibility                                | Introduced |
 | ------------ | --------------------------------------------- | ---------- |
@@ -89,7 +119,7 @@ From the rollout plan. Only **Desktop** and **Core** exist today.
 | Vault        | Credential references (OS-protected storage)  | Phase 7    |
 | Integrations | Paperclip, GitHub, CrewOS                     | Phase 8+   |
 
-## 6. Invariants every phase must keep
+## 7. Invariants every phase must keep
 
 - **Local-first** ([ADR-002](../adr/ADR-002-local-first-architecture.md)): the desktop app owns
   execution; remote surfaces never become the privileged runtime.

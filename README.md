@@ -5,8 +5,10 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 0 — repository foundation. The app launches to a branded shell. There are
-> no AI runtimes, departments, or task execution yet. See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> **Status:** Phase 1 — desktop shell and local runtime supervisor. Plenipo can launch,
+> observe, and terminate approved local processes (built-in diagnostics only) with live output
+> in the UI. There are no AI runtimes, departments, or tasks yet. See
+> [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -54,7 +56,9 @@ No API keys, provider logins, or `.env` file are needed to build or launch.
 apps/desktop/            React + TypeScript UI (Vite)
 apps/desktop/src-tauri/  Tauri 2 Rust backend: typed command boundary, capabilities
 crates/core/             Plenipo Core: provider-neutral domain types and shared DTOs
-packages/types/          TypeScript DTOs generated from crates/core (do not hand-edit)
+crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy
+packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
+tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
 docs/adr/                Architecture Decision Records
 docs/development/        Setup, configuration, versioning
@@ -62,7 +66,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`runtime`, `liaison`, `guard`, `ledger`, …) are added when the
+Further crates from the plan (`ledger`, `liaison`, `guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation
@@ -72,4 +76,5 @@ phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layou
 - [Configuration conventions](docs/development/configuration.md)
 - [Versioning](docs/development/versioning.md)
 - [Architecture Decision Records](docs/adr/README.md)
+- [Phase checklists and acceptance reports](docs/phases/)
 - [Rollout plan](ROLLOUT_PLAN.md)
