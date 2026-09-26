@@ -5,8 +5,7 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 6 — Model policy and role routing (implemented; awaiting owner acceptance,
-> so the version stays 0.6.1). **Settings → AI models** says which AI model each role's workers
+> **Status:** Phase 6 — Model policy and role routing (accepted, v0.7.0). **Settings → AI models** says which AI model each role's workers
 > get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
 > first choice, backups, what the model must be able to do, AI companies it never uses, and
 > reviews by a different AI company — and see, for every role, the model its next worker would

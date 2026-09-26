@@ -1,6 +1,6 @@
 # Phase 6 — Implementation Checklist
 
-**Status:** implemented on `claude/phase-6`; awaiting owner acceptance (see the
+**Status:** accepted by the owner on 2026-09-26; released as v0.7.0 (see the
 [acceptance report](phase-6-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 6 — Model Policy and Intelligent Role Routing. Phase 5 is
