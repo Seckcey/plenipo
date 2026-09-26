@@ -70,7 +70,10 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
     case "runtimesLoaded":
       return { ...state, runtimes: action.runtimes };
     case "sessionLoaded": {
-      const { session, turns, activity } = action.detail;
+      const { turns, activity } = action.detail;
+      // A command's snapshot can arrive after newer live updates (e.g. a fast turn finished
+      // before `start` returned): never let it move facts backwards.
+      const session = mergeSession(state.sessions[action.detail.session.id], action.detail.session);
       let next = upsertSession(state, session);
       const known = state.turns[session.id] ?? [];
       // A turn update may have arrived while the snapshot was in flight: keep the newer one.
@@ -82,6 +85,13 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         if (!merged.some((t) => t.taskId === live.taskId)) merged.push(live);
       }
       next = { ...next, turns: { ...next.turns, [session.id]: sortTurns(merged) } };
+      const active = merged.find((t) => t.taskId === session.activeTaskId);
+      if (active && !active.running) {
+        next = {
+          ...next,
+          sessions: { ...next.sessions, [session.id]: { ...session, activeTaskId: null } },
+        };
+      }
       // The snapshot is authoritative up to its newest `seq` for each turn (the backend
       // coalesces streamed text); keep only live items that are newer.
       const byTask = new Map<string, AgentActivity[]>();
@@ -105,8 +115,14 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
           const list = state.turns[u.sessionId] ?? [];
           const rest = list.filter((t) => t.taskId !== u.taskId);
           const turn = { ...u } as AgentTurn;
+          const owner = state.sessions[u.sessionId];
+          const sessions =
+            !turn.running && owner?.activeTaskId === turn.taskId
+              ? { ...state.sessions, [u.sessionId]: { ...owner, activeTaskId: null } }
+              : state.sessions;
           return {
             ...state,
+            sessions,
             turns: { ...state.turns, [u.sessionId]: sortTurns([...rest, turn]) },
           };
         }
@@ -119,6 +135,21 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       }
     }
   }
+}
+
+/** Merge a snapshot into what the UI already knows, keeping facts that only move forward. */
+function mergeSession(known: AgentSession | undefined, snapshot: AgentSession): AgentSession {
+  if (!known) return snapshot;
+  const confirmed = known.providerSessionConfirmed && !snapshot.providerSessionConfirmed;
+  return {
+    ...snapshot,
+    providerSessionId: confirmed ? known.providerSessionId : snapshot.providerSessionId,
+    providerSessionConfirmed: known.providerSessionConfirmed || snapshot.providerSessionConfirmed,
+    model: snapshot.model ?? known.model,
+    state: known.state === "closed" ? "closed" : snapshot.state,
+    turnCount: Math.max(known.turnCount, snapshot.turnCount),
+    updatedAt: Math.max(known.updatedAt, snapshot.updatedAt),
+  };
 }
 
 function upsertSession(state: AgentState, session: AgentSession): AgentState {

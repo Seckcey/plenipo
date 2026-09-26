@@ -100,6 +100,53 @@ describe("agent store", () => {
     expect(state.turns.s1?.[0]?.running).toBe(false);
   });
 
+  it("a late command snapshot does not undo a turn that already finished", () => {
+    const done = turn("t1", {
+      running: false,
+      result: {
+        outcome: "completed",
+        summary: "Hi",
+        text: "Hi",
+        error: null,
+        providerSessionId: "p",
+        model: null,
+        usage: null,
+        durationMs: 1,
+        ignoredLines: 0,
+      },
+    });
+    // Live: started, bound, finished.
+    let state = agentReducer(initialAgentState, {
+      type: "update",
+      update: { kind: "session", ...session("s1", { activeTaskId: "t1" }) },
+    });
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...done },
+    });
+    expect(isRunning(state.sessions.s1)).toBe(false);
+    state = agentReducer(state, {
+      type: "update",
+      update: {
+        kind: "session",
+        ...session("s1", { providerSessionId: "p", providerSessionConfirmed: true }),
+      },
+    });
+    // Then the `start` response, captured while the turn was still running.
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { activeTaskId: "t1", turnCount: 1 }),
+        turns: [turn("t1")],
+        activity: [],
+      },
+    });
+    expect(isRunning(state.sessions.s1)).toBe(false);
+    expect(state.sessions.s1?.providerSessionConfirmed).toBe(true);
+    expect(state.sessions.s1?.providerSessionId).toBe("p");
+    expect(state.turns.s1?.[0]?.running).toBe(false);
+  });
+
   it("joins streamed text and replaces it with the complete message", () => {
     const items = activityItems([
       activity("t", 1, { type: "sessionStarted", providerSessionId: "p", model: "m" }),
