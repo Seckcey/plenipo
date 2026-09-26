@@ -252,6 +252,38 @@ impl Ledger {
         })
     }
 
+    /// Sessions of the agent `agent_id` (`metadata.workforce.agentId`), newest first.
+    pub fn agent_sessions(&self, agent_id: &str) -> Result<Vec<RuntimeSession>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "SELECT {SESSION_COLUMNS} FROM runtime_sessions s
+                 WHERE json_extract(s.metadata, '$.workforce.agentId') = ?1
+                 ORDER BY s.created_at DESC, s.rowid DESC"
+            ))?;
+            let rows = stmt
+                .query_map([agent_id], session_row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
+    /// Open sessions of organization members and their workers (`metadata.workforce`), newest
+    /// first.
+    pub fn open_workforce_sessions(&self) -> Result<Vec<RuntimeSession>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "SELECT {SESSION_COLUMNS} FROM runtime_sessions s
+                 WHERE s.state = 'open'
+                   AND json_extract(s.metadata, '$.workforce.agentId') IS NOT NULL
+                 ORDER BY s.created_at DESC, s.rowid DESC"
+            ))?;
+            let rows = stmt
+                .query_map([], session_row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
     /// A session's turns (tasks), oldest first.
     pub fn session_tasks(&self, session_id: &str) -> Result<Vec<Task>> {
         self.read(|c| {
@@ -421,6 +453,24 @@ mod tests {
         );
         l.close_runtime_session("s-worker", "liaison").unwrap();
         assert!(l.open_handoff_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn sessions_are_found_by_their_member() {
+        let l = ledger();
+        let mut a = new_session("s-a");
+        a.metadata = json!({ "workforce": { "agentId": "agent-1", "positionId": "p" } });
+        l.open_runtime_session(a, "owner").unwrap();
+        let mut b = new_session("s-b");
+        b.metadata = json!({ "workforce": { "agentId": "agent-1", "positionId": "p" } });
+        l.open_runtime_session(b, "owner").unwrap();
+        l.open_runtime_session(new_session("s-other"), "owner")
+            .unwrap();
+        let ids = |v: Vec<RuntimeSession>| v.into_iter().map(|s| s.id).collect::<Vec<_>>();
+        assert_eq!(ids(l.agent_sessions("agent-1").unwrap()), ["s-b", "s-a"]);
+        assert!(l.agent_sessions("agent-2").unwrap().is_empty());
+        l.close_runtime_session("s-b", "owner").unwrap();
+        assert_eq!(ids(l.open_workforce_sessions().unwrap()), ["s-a"]);
     }
 
     #[test]

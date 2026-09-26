@@ -2415,6 +2415,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenipo-workforce"
+version = "0.4.0"
+dependencies = [
+ "plenipo-ledger",
+ "plenipo-liaison",
+ "plenipo-runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "plist"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

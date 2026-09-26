@@ -1,0 +1,32 @@
+[package]
+name = "plenipo-workforce"
+description = "Plenipo Workforce: departments, positions, coordinators, and ephemeral workers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+# Test helper: the runtime's fake Claude Code / Codex CLI, built here too so the Workforce's
+# integration tests can run it (copied as `claude` / `codex`). Never shipped.
+name = "plenipo-fake-agent-workforce"
+path = "tests/support/fake_agent.rs"
+test = false
+
+[dependencies]
+plenipo-ledger = { path = "../ledger" }
+plenipo-liaison = { path = "../liaison" }
+plenipo-runtime = { path = "../runtime" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+ts-rs = "11"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
