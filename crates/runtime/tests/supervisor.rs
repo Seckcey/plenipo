@@ -800,8 +800,9 @@ async fn annotate_updates_agent_attribution_and_persists_it() {
 
 #[tokio::test]
 async fn a_slow_observer_neither_stalls_reading_nor_loses_output() {
-    // Consuming takes longer than the drain timeout (2 s) after the process exits. Reading the
-    // pipes must not wait for the observer, or the tail of the output would be cut off.
+    // The observer does not start consuming until after the drain timeout (2 s) has passed.
+    // Reading the pipes must not wait for it, or the tail of the output would be cut off.
+    // (One long pause rather than many short sleeps: Windows timers tick at ~15 ms.)
     let h = harness();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut s = spec("burst", Scenario::Burst, h.dir.path());
@@ -809,12 +810,11 @@ async fn a_slow_observer_neither_stalls_reading_nor_loses_output() {
     s.observer = Some(tx);
     let started = h.sup.launch(s).await.unwrap();
     let slow = tokio::spawn(async move {
+        tokio::time::sleep(SupervisorConfig::default().drain_timeout + Duration::from_secs(1))
+            .await;
         let mut n = 0;
         while let Some(line) = rx.recv().await {
             n += 1;
-            if n % 2 == 0 {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
             if line.text == "burst done" {
                 return n;
             }
