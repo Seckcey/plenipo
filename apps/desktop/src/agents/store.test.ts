@@ -279,6 +279,43 @@ describe("agent store — waiting turns and steps (Phase 4)", () => {
     expect(isRunning(state.sessions.s1)).toBe(true);
   });
 
+  it("keeps a recorded wait over a snapshot read while the step was being recorded", () => {
+    let state = loaded();
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...turn("t1", { running: false, waiting: true, steps: [step1] }) },
+    });
+    // Read in the instant between recording the wait and releasing the step: "running", with
+    // no step left to run.
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { activeTaskId: "t1" }),
+        turns: [turn("t1", { running: true, steps: [step1] })],
+        activity: [],
+      },
+    });
+    expect(state.turns.s1?.[0]?.waiting).toBe(true);
+    expect(isWaiting(state.sessions.s1)).toBe(true);
+    expect(isRunning(state.sessions.s1)).toBe(false);
+
+    // The same for a turn that finished: the snapshot never brings "running" back.
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "turn", ...turn("t1", { running: false, result: done("final") }) },
+    });
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { activeTaskId: "t1" }),
+        turns: [turn("t1", { running: true, result: done("final") })],
+        activity: [],
+      },
+    });
+    expect(state.turns.s1?.[0]?.running).toBe(false);
+    expect(isRunning(state.sessions.s1)).toBe(false);
+  });
+
   it("reads Liaison settings from session metadata", () => {
     expect(liaisonInfo(session("a")).enabled).toBe(false);
     expect(

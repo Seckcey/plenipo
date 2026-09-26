@@ -95,7 +95,18 @@ export function liaisonInfo(session: AgentSession | undefined): LiaisonSessionIn
 function progress(turn: AgentTurn): number {
   if (turn.result) return Number.MAX_SAFE_INTEGER;
   const done = turn.steps.filter((s) => s.result).length;
-  return done * 2 + (turn.running ? 1 : 0);
+  // "Running" counts only while a step is unfinished (or none is recorded yet).
+  const unfinished = turn.steps.length === 0 || turn.steps.some((s) => !s.result);
+  return done * 2 + (turn.running && unfinished ? 1 : 0);
+}
+
+/** The newer of what is live and a snapshot of the same turn. */
+function newer(live: AgentTurn | undefined, snapshot: AgentTurn): AgentTurn {
+  if (!live) return snapshot;
+  const [l, s] = [progress(live), progress(snapshot)];
+  if (l !== s) return l > s ? live : snapshot;
+  // Equally far: a snapshot never stops what is live from having stopped running.
+  return snapshot.running && !live.running ? live : snapshot;
 }
 
 /** A session's running / waiting markers follow its newest known turns. */
@@ -135,10 +146,12 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       let next = upsertSession(state, session);
       const known = state.turns[session.id] ?? [];
       // A turn update may have arrived while the snapshot was in flight: keep the newer one.
-      const merged = turns.map((t) => {
-        const live = known.find((k) => k.taskId === t.taskId);
-        return live && progress(live) > progress(t) ? live : t;
-      });
+      const merged = turns.map((t) =>
+        newer(
+          known.find((k) => k.taskId === t.taskId),
+          t,
+        ),
+      );
       for (const live of known) {
         if (!merged.some((t) => t.taskId === live.taskId)) merged.push(live);
       }
