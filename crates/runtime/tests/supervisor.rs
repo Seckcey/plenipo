@@ -105,7 +105,8 @@ fn harness_with(
     let (registry, rejected) = ProfileRegistry::new(profiles, &policy);
     assert!(rejected.is_empty(), "{rejected:?}");
     let sink = Arc::new(Collector::default());
-    let store = store.map_or_else(MetadataStore::in_memory, MetadataStore::file);
+    let store: Arc<dyn plenipo_runtime::ExecutionStore> =
+        Arc::new(store.map_or_else(MetadataStore::in_memory, MetadataStore::file));
     let sup = Supervisor::new(
         SupervisorConfig::default(),
         policy,
@@ -399,7 +400,7 @@ async fn executable_is_rechecked_at_spawn_time() {
         SupervisorConfig::default(),
         policy,
         registry,
-        MetadataStore::in_memory(),
+        Arc::new(MetadataStore::in_memory()),
         Arc::new(Collector::default()),
         vec![],
     );
@@ -448,7 +449,7 @@ async fn spawn_failure_becomes_failed_execution() {
         SupervisorConfig::default(),
         policy,
         registry,
-        MetadataStore::in_memory(),
+        Arc::new(MetadataStore::in_memory()),
         sink.clone(),
         vec![],
     );

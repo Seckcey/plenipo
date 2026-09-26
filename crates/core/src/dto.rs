@@ -86,6 +86,22 @@ impl CommandError {
     }
 }
 
+/// Diagnostic actions on a synthetic task (Diagnostics → Ledger). Real tasks are driven
+/// by coordinators and workers in later phases, never directly by these actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum SyntheticTaskAction {
+    Start,
+    Block,
+    AwaitApproval,
+    Resume,
+    Complete,
+    Fail,
+    Cancel,
+    AddChild,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +160,15 @@ mod tests {
             serde_json::to_value(CommandError::internal("x")).unwrap()["kind"],
             "internal"
         );
+    }
+
+    #[test]
+    fn synthetic_actions_are_camel_case() {
+        assert_eq!(
+            serde_json::to_value(SyntheticTaskAction::AwaitApproval).unwrap(),
+            json!("awaitApproval")
+        );
+        assert!(serde_json::from_value::<SyntheticTaskAction>(json!("deleteEverything")).is_err());
     }
 
     #[test]

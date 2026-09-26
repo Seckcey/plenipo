@@ -26,7 +26,7 @@ pub use dto::{
 pub use error::RuntimeError;
 pub use policy::{ExecutablePolicy, PolicyError};
 pub use profile::{LaunchProfile, ProfileRegistry};
-pub use store::MetadataStore;
+pub use store::{ExecutionStore, MetadataStore};
 pub use supervisor::{EventSink, Supervisor, SupervisorConfig};
 
 /// Milliseconds since the Unix epoch.

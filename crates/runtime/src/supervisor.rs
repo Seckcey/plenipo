@@ -17,7 +17,7 @@ use crate::error::RuntimeError;
 use crate::output::{read_lines, OutputBuffer, RawLine};
 use crate::policy::{build_child_env, check_working_dir, ExecutablePolicy};
 use crate::profile::{LaunchProfile, ProfileRegistry};
-use crate::store::{MetadataStore, MAX_HISTORY};
+use crate::store::{ExecutionStore, MAX_HISTORY};
 
 /// Receives runtime events. Implementations must not block for long.
 pub trait EventSink: Send + Sync + 'static {
@@ -92,7 +92,7 @@ struct Inner {
     config: SupervisorConfig,
     policy: ExecutablePolicy,
     profiles: ProfileRegistry,
-    store: MetadataStore,
+    store: Arc<dyn ExecutionStore>,
     sink: Arc<dyn EventSink>,
     state: Mutex<State>,
 }
@@ -111,11 +111,11 @@ impl Supervisor {
         config: SupervisorConfig,
         policy: ExecutablePolicy,
         profiles: ProfileRegistry,
-        store: MetadataStore,
+        store: Arc<dyn ExecutionStore>,
         sink: Arc<dyn EventSink>,
         mut notices: Vec<String>,
     ) -> Self {
-        let loaded = store.load();
+        let loaded = store.load(MAX_HISTORY);
         notices.extend(loaded.notices);
         let mut records = loaded.records;
         let mut recovered = 0;
@@ -124,14 +124,14 @@ impl Supervisor {
             record.detail =
                 Some("Plenipo stopped while this process was running; outcome unknown".into());
             recovered += 1;
+            if let Err(e) = store.save(record) {
+                notices.push(format!("Could not save execution history: {e}"));
+            }
         }
         if recovered > 0 {
             notices.push(format!(
                 "{recovered} execution(s) from a previous session were marked interrupted."
             ));
-            if let Err(e) = store.save(&records) {
-                notices.push(format!("Could not save execution history: {e}"));
-            }
         }
         Self {
             inner: Arc::new(Inner {
@@ -236,7 +236,7 @@ impl Supervisor {
                 id.clone(),
                 OutputBuffer::new(inner.config.output_buffer_lines),
             );
-            inner.persist(&mut state);
+            inner.persist(&mut state, &id);
         }
         inner.emit_lifecycle(record);
 
@@ -270,7 +270,7 @@ impl Supervisor {
             let record = inner.transition(&mut state, &id, ExecutionState::Running, |r| {
                 r.pid = child.id();
             });
-            inner.persist(&mut state);
+            inner.persist(&mut state, &id);
             record
         };
         inner.emit_lifecycle(record.clone());
@@ -560,8 +560,17 @@ impl Inner {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn persist(&self, state: &mut State) {
-        // Keep history bounded: drop the oldest finished records first.
+    /// Save one record through the store, then keep in-memory history bounded
+    /// (the store keeps full history; memory keeps the most recent [`MAX_HISTORY`]).
+    fn persist(&self, state: &mut State, id: &str) {
+        if let Some(record) = state.records.iter().find(|r| r.id == id) {
+            if let Err(e) = self.store.save(record) {
+                let notice = format!("Could not save execution history: {e}");
+                if !state.notices.contains(&notice) {
+                    state.notices.push(notice);
+                }
+            }
+        }
         while state.records.len() > MAX_HISTORY {
             match state.records.iter().position(|r| r.state.is_terminal()) {
                 Some(i) => {
@@ -570,12 +579,6 @@ impl Inner {
                     state.finished_outputs.retain(|id| id != &removed.id);
                 }
                 None => break,
-            }
-        }
-        if let Err(e) = self.store.save(&state.records) {
-            let notice = format!("Could not save execution history: {e}");
-            if !state.notices.contains(&notice) {
-                state.notices.push(notice);
             }
         }
     }
@@ -624,7 +627,7 @@ impl Inner {
                     state.outputs.remove(&old);
                 }
             }
-            self.persist(&mut state);
+            self.persist(&mut state, id);
             record
         };
         self.emit_lifecycle(record.clone());

@@ -22,3 +22,4 @@ export type { LedgerStatus } from "./generated/LedgerStatus";
 export type { Task } from "./generated/Task";
 export type { TaskState } from "./generated/TaskState";
 export type { TaskTimeline } from "./generated/TaskTimeline";
+export type { SyntheticTaskAction } from "./generated/SyntheticTaskAction";

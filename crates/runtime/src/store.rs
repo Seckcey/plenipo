@@ -1,19 +1,29 @@
-//! Durable execution metadata (JSON file, atomic writes).
+//! Durable execution metadata.
 //!
-//! Interim store until the SQLite Ledger (Phase 2). Holds metadata only — never output
-//! or environment values. A corrupt file is quarantined and reported, never silently
-//! discarded.
+//! The supervisor persists through [`ExecutionStore`]. The desktop app backs it with the
+//! Plenipo Ledger (Phase 2). [`MetadataStore`] is the original JSON-file store, kept for
+//! tests, tools, and importing Phase 1 history. Stores hold metadata only — never output
+//! or environment values. A corrupt JSON file is quarantined and reported.
 
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
 use crate::dto::ExecutionRecord;
 
-/// Maximum number of records kept on disk (oldest finished records are dropped first).
+/// Records kept in memory by the supervisor (and on disk by the JSON store).
 pub const MAX_HISTORY: usize = 200;
+
+/// Where the supervisor persists execution records.
+pub trait ExecutionStore: Send + Sync + 'static {
+    /// The most recent `limit` records, oldest first, plus any notices for the user.
+    fn load(&self, limit: usize) -> Loaded;
+    /// Insert or update one record.
+    fn save(&self, record: &ExecutionRecord) -> Result<(), String>;
+}
 const FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,10 +32,11 @@ struct FileFormat {
     executions: Vec<ExecutionRecord>,
 }
 
-/// Where execution metadata is persisted. `None` keeps it in memory only.
-#[derive(Debug, Clone, Default)]
+/// JSON-file store (atomic writes). `path: None` keeps records in memory only.
+#[derive(Debug, Default)]
 pub struct MetadataStore {
     path: Option<PathBuf>,
+    records: Mutex<Vec<ExecutionRecord>>,
 }
 
 /// Result of loading the store.
@@ -37,12 +48,13 @@ pub struct Loaded {
 
 impl MetadataStore {
     pub fn in_memory() -> Self {
-        Self { path: None }
+        Self::default()
     }
 
     pub fn file(path: impl Into<PathBuf>) -> Self {
         Self {
             path: Some(path.into()),
+            records: Mutex::default(),
         }
     }
 
@@ -50,9 +62,23 @@ impl MetadataStore {
         self.path.as_deref()
     }
 
+    /// Read every record from the file.
     pub fn load(&self) -> Loaded {
+        let loaded = self.read_file();
+        *self.records.lock().unwrap_or_else(|p| p.into_inner()) = loaded.records.clone();
+        loaded
+    }
+
+    fn read_file(&self) -> Loaded {
         let Some(path) = &self.path else {
-            return Loaded::default();
+            return Loaded {
+                records: self
+                    .records
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone(),
+                notices: vec![],
+            };
         };
         let text = match fs::read_to_string(path) {
             Ok(text) => text,
@@ -99,8 +125,13 @@ impl MetadataStore {
         }
     }
 
-    /// Atomically replace the stored records (write temp file, then rename).
-    pub fn save(&self, records: &[ExecutionRecord]) -> std::io::Result<()> {
+    /// Atomically replace all stored records (write temp file, then rename).
+    pub fn save_all(&self, records: &[ExecutionRecord]) -> std::io::Result<()> {
+        *self.records.lock().unwrap_or_else(|p| p.into_inner()) = records.to_vec();
+        self.write_file(records)
+    }
+
+    fn write_file(&self, records: &[ExecutionRecord]) -> std::io::Result<()> {
         let Some(path) = &self.path else {
             return Ok(());
         };
@@ -119,6 +150,35 @@ impl MetadataStore {
             file.sync_all()?;
         }
         fs::rename(&tmp, path)
+    }
+}
+
+impl ExecutionStore for MetadataStore {
+    fn load(&self, limit: usize) -> Loaded {
+        let mut loaded = MetadataStore::load(self);
+        let excess = loaded.records.len().saturating_sub(limit);
+        loaded.records.drain(..excess);
+        loaded
+    }
+
+    fn save(&self, record: &ExecutionRecord) -> Result<(), String> {
+        let snapshot = {
+            let mut records = self.records.lock().unwrap_or_else(|p| p.into_inner());
+            match records.iter_mut().find(|r| r.id == record.id) {
+                Some(existing) => *existing = record.clone(),
+                None => records.push(record.clone()),
+            }
+            while records.len() > MAX_HISTORY {
+                match records.iter().position(|r| r.state.is_terminal()) {
+                    Some(i) => {
+                        records.remove(i);
+                    }
+                    None => break,
+                }
+            }
+            records.clone()
+        };
+        self.write_file(&snapshot).map_err(|e| e.to_string())
     }
 }
 
@@ -159,7 +219,7 @@ mod tests {
             record("a", ExecutionState::Succeeded),
             record("b", ExecutionState::Running),
         ];
-        store.save(&records).unwrap();
+        store.save_all(&records).unwrap();
         assert_eq!(store.load().records, records);
         assert!(!dir.path().join("nested/executions.json.tmp").exists());
     }

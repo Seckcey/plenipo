@@ -55,7 +55,7 @@ fn host(work_dir: Option<&str>) -> i32 {
             SupervisorConfig::default(),
             policy,
             profiles,
-            MetadataStore::in_memory(),
+            Arc::new(MetadataStore::in_memory()),
             Arc::new(Silent),
             vec![],
         );

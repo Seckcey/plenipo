@@ -8,6 +8,15 @@ const COMMANDS: &[&str] = &[
     "start_execution",
     "cancel_execution",
     "get_execution_output",
+    "get_ledger_status",
+    "list_tasks",
+    "get_task_timeline",
+    "list_recent_events",
+    "create_synthetic_task",
+    "advance_synthetic_task",
+    "run_integrity_check",
+    "create_ledger_backup",
+    "export_ledger",
 ];
 
 fn main() {

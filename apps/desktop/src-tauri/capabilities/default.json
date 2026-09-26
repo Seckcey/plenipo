@@ -10,6 +10,15 @@
     "allow-get-runtime-overview",
     "allow-start-execution",
     "allow-cancel-execution",
-    "allow-get-execution-output"
+    "allow-get-execution-output",
+    "allow-get-ledger-status",
+    "allow-list-tasks",
+    "allow-get-task-timeline",
+    "allow-list-recent-events",
+    "allow-create-synthetic-task",
+    "allow-advance-synthetic-task",
+    "allow-run-integrity-check",
+    "allow-create-ledger-backup",
+    "allow-export-ledger"
   ]
 }

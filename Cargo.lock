@@ -2357,11 +2357,13 @@ name = "plenipo-desktop"
 version = "0.2.0"
 dependencies = [
  "plenipo-core",
+ "plenipo-ledger",
  "plenipo-runtime",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
  "tokio",
 ]
 

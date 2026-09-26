@@ -4,7 +4,13 @@
 //! There is deliberately no command that accepts an executable, arguments, environment
 //! variables, or a working directory. The UI can only name a pre-approved launch profile.
 
-use plenipo_core::{AppInfo, CommandError};
+use std::sync::Arc;
+
+use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
+use plenipo_ledger::{
+    BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
+    NewTask, Task, TaskState, TaskTimeline,
+};
 use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
 };
@@ -74,6 +80,154 @@ pub fn get_execution_output(
 ) -> Result<ExecutionOutput, CommandError> {
     validate_execution_id(&execution_id)?;
     supervisor.output(&execution_id).map_err(to_command_error)
+}
+
+// ---- Ledger ------------------------------------------------------------------------------
+
+/// Actor recorded for actions taken by the person using the app.
+const OWNER: &str = "owner";
+
+/// Run ledger work off the main thread.
+async fn with_ledger<T: Send + 'static>(
+    ledger: &Arc<Ledger>,
+    f: impl FnOnce(&Ledger) -> Result<T, LedgerError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let ledger = Arc::clone(ledger);
+    tauri::async_runtime::spawn_blocking(move || f(&ledger))
+        .await
+        .map_err(|e| CommandError::internal(format!("ledger task failed: {e}")))?
+        .map_err(ledger_error)
+}
+
+fn ledger_error(e: LedgerError) -> CommandError {
+    if e.is_caller_error() {
+        CommandError::invalid_input(e.to_string())
+    } else {
+        CommandError::internal(e.to_string())
+    }
+}
+
+fn validate_task_id(id: &str) -> Result<(), CommandError> {
+    validate_execution_id(id).map_err(|_| CommandError::invalid_input("invalid task id"))
+}
+
+#[tauri::command]
+pub async fn get_ledger_status(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<LedgerStatus, CommandError> {
+    with_ledger(&ledger, Ledger::status).await
+}
+
+/// Tasks, newest first (at most 500).
+#[tauri::command]
+pub async fn list_tasks(ledger: State<'_, Arc<Ledger>>) -> Result<Vec<Task>, CommandError> {
+    with_ledger(&ledger, |l| l.list_tasks(500)).await
+}
+
+/// A task's complete ordered activity trail and its direct children.
+#[tauri::command]
+pub async fn get_task_timeline(
+    ledger: State<'_, Arc<Ledger>>,
+    task_id: String,
+) -> Result<TaskTimeline, CommandError> {
+    validate_task_id(&task_id)?;
+    with_ledger(&ledger, move |l| l.task_timeline(&task_id)).await
+}
+
+/// Most recent events across the ledger, newest first (at most 200).
+#[tauri::command]
+pub async fn list_recent_events(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<Vec<LedgerEvent>, CommandError> {
+    with_ledger(&ledger, |l| l.recent_events(200)).await
+}
+
+/// Diagnostics: create a synthetic task to exercise the ledger end to end.
+#[tauri::command]
+pub async fn create_synthetic_task(ledger: State<'_, Arc<Ledger>>) -> Result<Task, CommandError> {
+    with_ledger(&ledger, |l| {
+        let n = l.list_tasks(1000)?.len() + 1;
+        l.create_task(
+            synthetic(None, format!("Synthetic diagnostic task #{n}")),
+            OWNER,
+        )
+    })
+    .await
+}
+
+/// Diagnostics: apply an action to a synthetic task. Only tasks created as synthetic can be
+/// changed this way; the ledger's state machine still decides what is allowed.
+#[tauri::command]
+pub async fn advance_synthetic_task(
+    ledger: State<'_, Arc<Ledger>>,
+    task_id: String,
+    action: SyntheticTaskAction,
+) -> Result<Task, CommandError> {
+    validate_task_id(&task_id)?;
+    with_ledger(&ledger, move |l| {
+        let task = l
+            .task(&task_id)?
+            .ok_or_else(|| LedgerError::NotFound(format!("task {task_id}")))?;
+        if task.metadata.get("synthetic") != Some(&serde_json::Value::Bool(true)) {
+            return Err(LedgerError::InvalidInput(
+                "only synthetic diagnostic tasks can be changed from Diagnostics".into(),
+            ));
+        }
+        let to = match action {
+            SyntheticTaskAction::AddChild => {
+                let n = l.child_tasks(&task_id)?.len() + 1;
+                return l.create_task(
+                    synthetic(
+                        Some(task_id.clone()),
+                        format!("{} — step {n}", task.objective),
+                    ),
+                    OWNER,
+                );
+            }
+            SyntheticTaskAction::Start | SyntheticTaskAction::Resume => TaskState::Running,
+            SyntheticTaskAction::Block => TaskState::Blocked,
+            SyntheticTaskAction::AwaitApproval => TaskState::AwaitingApproval,
+            SyntheticTaskAction::Complete => TaskState::Succeeded,
+            SyntheticTaskAction::Fail => TaskState::Failed,
+            SyntheticTaskAction::Cancel => TaskState::Cancelled,
+        };
+        l.transition_task(&task_id, to, OWNER, Some("diagnostics"))
+    })
+    .await
+}
+
+fn synthetic(parent: Option<String>, objective: String) -> NewTask {
+    NewTask {
+        parent_task_id: parent,
+        requested_by: OWNER.into(),
+        objective,
+        acceptance_criteria: "Diagnostic only: exercises the ledger.".into(),
+        priority: 3,
+        metadata: serde_json::json!({ "synthetic": true }),
+        ..NewTask::default()
+    }
+}
+
+/// Full integrity check (can take a moment on large ledgers).
+#[tauri::command]
+pub async fn run_integrity_check(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<IntegrityReport, CommandError> {
+    with_ledger(&ledger, Ledger::integrity_check).await
+}
+
+/// Verified backup into the ledger's backups folder (location chosen by Core, not the UI).
+#[tauri::command]
+pub async fn create_ledger_backup(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<BackupInfo, CommandError> {
+    with_ledger(&ledger, |l| l.backup(None)).await
+}
+
+/// JSON export into the ledger's backups folder (location chosen by Core, not the UI).
+#[tauri::command]
+pub async fn export_ledger(ledger: State<'_, Arc<Ledger>>) -> Result<ExportInfo, CommandError> {
+    with_ledger(&ledger, |l| l.export_json(None)).await
 }
 
 fn app_info_for(version: &str) -> AppInfo {

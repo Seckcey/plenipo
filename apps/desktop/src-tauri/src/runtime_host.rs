@@ -3,11 +3,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use plenipo_ledger::Ledger;
 use plenipo_runtime::profile::diagnostic_profiles;
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, MetadataStore, ProfileRegistry, RuntimeEvent, Supervisor,
-    SupervisorConfig,
+    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
 };
+
+use crate::ledger_host::{self, LedgerExecutionStore};
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 /// Tauri event name carrying [`RuntimeEvent`] payloads to the main window.
@@ -38,22 +40,29 @@ impl<R: Runtime> EventSink for TauriSink<R> {
     }
 }
 
-/// Build the supervisor. Never fails: problems become notices shown in the UI, and the
-/// app falls back to in-memory history or no launch profiles rather than refusing to start.
-pub fn create_supervisor<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Supervisor {
+/// Build the supervisor, persisting executions in the ledger. Never fails: problems become
+/// notices shown in the UI, and the app falls back to no launch profiles rather than refusing
+/// to start.
+pub fn create_supervisor<R: Runtime>(
+    app: &AppHandle<R>,
+    persistence: Persistence,
+    ledger: Arc<Ledger>,
+) -> Supervisor {
     let mut notices = Vec::new();
-    let (store, work_dir) = match persistence {
+    let work_dir = match persistence {
         Persistence::AppData => match prepare_dirs(app) {
-            Ok((store_path, work_dir)) => (MetadataStore::file(store_path), work_dir),
+            Ok((legacy_history, work_dir)) => {
+                ledger_host::import_phase1_history(&ledger, &legacy_history);
+                work_dir
+            }
             Err(e) => {
-                notices.push(format!(
-                    "Runtime data directory unavailable ({e}); history will not be saved."
-                ));
-                (MetadataStore::in_memory(), std::env::temp_dir())
+                notices.push(format!("Runtime working directory unavailable ({e})."));
+                std::env::temp_dir()
             }
         },
-        Persistence::InMemory => (MetadataStore::in_memory(), std::env::temp_dir()),
+        Persistence::InMemory => std::env::temp_dir(),
     };
+    let store = Arc::new(LedgerExecutionStore(ledger));
 
     // Phase 1 allows exactly one executable: Plenipo itself, in diagnostic mode.
     let (policy, profiles) = match std::env::current_exe() {

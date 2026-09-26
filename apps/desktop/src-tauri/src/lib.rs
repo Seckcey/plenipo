@@ -5,6 +5,7 @@
 //! `capabilities/default.json`; nothing else is exposed.
 
 pub mod commands;
+pub mod ledger_host;
 pub mod runtime_host;
 pub mod smoke;
 pub mod tray;
@@ -55,7 +56,10 @@ pub fn configure<R: Runtime>(
             if let SmokeMode::Enabled { timeout } = smoke.mode() {
                 smoke.arm_watchdog(app.handle().clone(), timeout);
             }
-            let supervisor = runtime_host::create_supervisor(app.handle(), options.persistence);
+            let ledger = ledger_host::open(app.handle(), options.persistence);
+            app.manage(ledger.clone());
+            let supervisor =
+                runtime_host::create_supervisor(app.handle(), options.persistence, ledger);
             app.manage(supervisor);
             quit_on_termination_signal(app.handle().clone());
             if options.tray {
@@ -86,7 +90,16 @@ pub fn configure<R: Runtime>(
             commands::get_runtime_overview,
             commands::start_execution,
             commands::cancel_execution,
-            commands::get_execution_output
+            commands::get_execution_output,
+            commands::get_ledger_status,
+            commands::list_tasks,
+            commands::get_task_timeline,
+            commands::list_recent_events,
+            commands::create_synthetic_task,
+            commands::advance_synthetic_task,
+            commands::run_integrity_check,
+            commands::create_ledger_backup,
+            commands::export_ledger
         ])
 }
 
@@ -173,8 +186,11 @@ mod ipc_boundary_tests {
         )
         .build(tauri::generate_context!())
         .expect("failed to build mock app");
-        // The mock runtime does not run `setup`; install the runtime the same way.
-        let supervisor = runtime_host::create_supervisor(app.handle(), Persistence::InMemory);
+        // The mock runtime does not run `setup`; install the ledger and runtime the same way.
+        let ledger = ledger_host::open(app.handle(), Persistence::InMemory);
+        app.manage(ledger.clone());
+        let supervisor =
+            runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger);
         app.manage(supervisor);
         app
     }
@@ -364,6 +380,149 @@ mod ipc_boundary_tests {
             serde_json::json!({ "profileId": "diagnostic.echo" })
         )
         .is_err());
+    }
+
+    fn body<T: serde::de::DeserializeOwned>(
+        r: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+    ) -> T {
+        r.expect("command should succeed").deserialize().unwrap()
+    }
+
+    #[test]
+    fn synthetic_task_lifecycle_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
+        assert_eq!(status.schema_version, 1);
+        assert!(!status.persistent, "tests use an in-memory ledger");
+
+        let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
+        assert_eq!(task.state, plenipo_ledger::TaskState::Queued);
+        let id = serde_json::json!(task.id);
+
+        // Invalid transition: queued -> succeeded is rejected and recorded.
+        let err = invoke_json(
+            &main,
+            "advance_synthetic_task",
+            serde_json::json!({ "taskId": id, "action": "complete" }),
+        )
+        .expect_err("queued -> succeeded must be rejected");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(err["message"]
+            .as_str()
+            .unwrap()
+            .contains("queued -> succeeded"));
+
+        for action in ["start", "addChild", "awaitApproval", "resume", "complete"] {
+            let _: plenipo_ledger::Task = body(invoke_json(
+                &main,
+                "advance_synthetic_task",
+                serde_json::json!({ "taskId": id, "action": action }),
+            ));
+        }
+        let timeline: plenipo_ledger::TaskTimeline = body(invoke_json(
+            &main,
+            "get_task_timeline",
+            serde_json::json!({ "taskId": id }),
+        ));
+        let types: Vec<_> = timeline
+            .events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect();
+        assert_eq!(
+            types,
+            [
+                "task.created",
+                "task.transition_rejected",
+                "task.state_changed",
+                "task.child_created",
+                "task.state_changed",
+                "task.state_changed",
+                "task.state_changed"
+            ]
+        );
+        assert!(timeline.events.windows(2).all(|w| w[0].seq < w[1].seq));
+        assert_eq!(timeline.task.state, plenipo_ledger::TaskState::Succeeded);
+        assert_eq!(timeline.children.len(), 1);
+
+        let tasks: Vec<plenipo_ledger::Task> = body(invoke(&main, "list_tasks"));
+        assert_eq!(tasks.len(), 2);
+        let events: Vec<plenipo_ledger::LedgerEvent> = body(invoke(&main, "list_recent_events"));
+        assert_eq!(events[0].event_type, "task.state_changed");
+        let report: plenipo_ledger::IntegrityReport = body(invoke(&main, "run_integrity_check"));
+        assert!(report.ok);
+    }
+
+    #[test]
+    fn only_synthetic_tasks_can_be_changed_from_the_ui() {
+        let app = app();
+        let main = window(&app, "main");
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let real = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "coordinator".into(),
+                    objective: "real work".into(),
+                    ..Default::default()
+                },
+                "coordinator",
+            )
+            .unwrap();
+        let err = invoke_json(
+            &main,
+            "advance_synthetic_task",
+            serde_json::json!({ "taskId": real.id, "action": "cancel" }),
+        )
+        .expect_err("non-synthetic");
+        assert!(err["message"].as_str().unwrap().contains("only synthetic"));
+        assert_eq!(
+            ledger.task(&real.id).unwrap().unwrap().state,
+            plenipo_ledger::TaskState::Queued
+        );
+
+        let bad_action = invoke_json(
+            &main,
+            "advance_synthetic_task",
+            serde_json::json!({ "taskId": real.id, "action": "deleteEverything" }),
+        );
+        assert!(bad_action.is_err());
+        let bad_id = invoke_json(
+            &main,
+            "get_task_timeline",
+            serde_json::json!({ "taskId": "../../etc" }),
+        )
+        .expect_err("bad id");
+        assert_eq!(bad_id["kind"], "invalidInput");
+    }
+
+    #[test]
+    fn backups_need_a_real_ledger_and_never_take_a_path_from_the_ui() {
+        let app = app();
+        let main = window(&app, "main");
+        // In-memory (test) ledger: refused cleanly rather than writing somewhere unexpected.
+        let err = invoke_json(
+            &main,
+            "create_ledger_backup",
+            serde_json::json!({ "path": "C:/Windows/System32/evil.db" }),
+        )
+        .expect_err("in-memory ledger has no backup dir");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(invoke(&main, "export_ledger").is_err());
+    }
+
+    #[test]
+    fn ledger_commands_denied_for_ungranted_windows() {
+        let app = app();
+        let other = window(&app, "untrusted");
+        for cmd in [
+            "get_ledger_status",
+            "list_tasks",
+            "create_synthetic_task",
+            "create_ledger_backup",
+        ] {
+            assert!(invoke(&other, cmd).is_err(), "{cmd}");
+        }
     }
 
     #[test]
