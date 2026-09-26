@@ -178,6 +178,19 @@ impl Ledger {
         })
     }
 
+    /// A task's executions, oldest first.
+    pub fn executions_for_task(&self, task_id: &str) -> Result<Vec<ExecutionRow>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "SELECT {EXEC_COLS} FROM executions WHERE task_id = ?1 ORDER BY started_at, rowid"
+            ))?;
+            let rows = stmt
+                .query_map([task_id], exec_row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
     /// Most recent executions, newest first.
     pub fn recent_executions(&self, limit: u32) -> Result<Vec<ExecutionRow>> {
         self.read(|c| {

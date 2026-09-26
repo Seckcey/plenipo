@@ -163,6 +163,31 @@ impl Ledger {
         actor: &str,
         reason: Option<&str>,
     ) -> Result<Task> {
+        self.transition_with(id, to, actor, reason, None)
+    }
+
+    /// Record `event` on the task and move it to `to` in **one** transaction (e.g. an agent
+    /// turn's result and its final state). An illegal transition writes neither and is
+    /// recorded as `task.transition_rejected`.
+    pub fn complete_task(
+        &self,
+        id: &str,
+        to: TaskState,
+        actor: &str,
+        reason: Option<&str>,
+        event: NewEvent,
+    ) -> Result<Task> {
+        self.transition_with(id, to, actor, reason, Some(event))
+    }
+
+    fn transition_with(
+        &self,
+        id: &str,
+        to: TaskState,
+        actor: &str,
+        reason: Option<&str>,
+        before: Option<NewEvent>,
+    ) -> Result<Task> {
         let result = self.write(|tx, out| {
             let task = require(tx, id)?;
             if !task.state.can_transition_to(to) {
@@ -172,6 +197,15 @@ impl Ledger {
                     from: task.state.as_str().into(),
                     to: to.as_str().into(),
                 });
+            }
+            if let Some(event) = before {
+                out.push(events::insert(
+                    tx,
+                    NewEvent {
+                        task_id: Some(id.into()),
+                        ..event
+                    },
+                )?);
             }
             let now = crate::now_ms() as i64;
             tx.execute(
@@ -482,5 +516,41 @@ mod tests {
         assert!(c
             .execute("UPDATE tasks SET state = 'exploded' WHERE id = ?1", [&t.id])
             .is_err());
+    }
+
+    #[test]
+    fn complete_task_records_the_event_and_state_together() {
+        let l = ledger();
+        let t = task(&l, "turn");
+        l.transition_task(&t.id, Running, "w", None).unwrap();
+        let result = |text: &str| NewEvent {
+            source: "agent:test".into(),
+            event_type: "agent.result".into(),
+            payload: json!({ "summary": text }),
+            ..NewEvent::default()
+        };
+        let done = l
+            .complete_task(&t.id, Succeeded, "w", Some("done"), result("ok"))
+            .unwrap();
+        assert_eq!(done.state, Succeeded);
+        let trail: Vec<_> = l
+            .events_for_task(&t.id)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        assert_eq!(
+            &trail[trail.len() - 2..],
+            ["agent.result", "task.state_changed"]
+        );
+        // An illegal transition writes neither the event nor the state.
+        let before = l.events_for_task(&t.id).unwrap().len();
+        assert!(l
+            .complete_task(&t.id, Failed, "w", None, result("again"))
+            .is_err());
+        let after = l.events_for_task(&t.id).unwrap();
+        assert_eq!(after.len(), before + 1);
+        assert_eq!(after.last().unwrap().event_type, "task.transition_rejected");
+        assert!(!after.iter().any(|e| e.payload["summary"] == "again"));
     }
 }

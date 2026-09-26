@@ -393,7 +393,10 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
-        assert_eq!(status.schema_version, 1);
+        assert_eq!(
+            status.schema_version,
+            plenipo_ledger::migrate::latest(plenipo_ledger::MIGRATIONS)
+        );
         assert!(!status.persistent, "tests use an in-memory ledger");
 
         let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
