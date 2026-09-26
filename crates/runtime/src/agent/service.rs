@@ -1066,7 +1066,7 @@ impl AgentRuntime {
     /// is recorded.
     pub async fn cancel_turn(&self, session_id: &str) -> Result<AgentSessionDetail, RuntimeError> {
         enum Target {
-            Running(String, watch::Receiver<bool>),
+            Running(String, Option<String>, watch::Receiver<bool>),
             Waiting(String),
         }
         let target = {
@@ -1093,33 +1093,45 @@ impl AgentRuntime {
                             "The turn is still starting; try again in a moment.".into(),
                         )
                     })?;
-                    Target::Running(execution, active.done.clone())
+                    Target::Running(execution, active.task_id.clone(), active.done.clone())
                 }
             }
         };
-        match target {
-            Target::Running(execution, mut done) => {
+        let waiting = match target {
+            Target::Running(execution, task, mut done) => {
                 self.inner.supervisor.cancel(&execution).await?;
                 let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+                // The step may have ended just before the cancel, with the turn going on to wait
+                // for handoff replies (it already reads as waiting): end that wait as well. It is
+                // claimed for the cancel in the same look, so a continuation cannot start first.
+                let mut state = self.lock();
+                match state.active.get_mut(session_id) {
+                    Some(active) if active.claim == Claim::Wait && active.task_id == task => {
+                        active.claim = Claim::Close;
+                        task
+                    }
+                    _ => None,
+                }
             }
-            Target::Waiting(task_id) => {
-                let id = session_id.to_owned();
-                let session = self
-                    .with_store(move |s| s.session(&id))
-                    .await
-                    .ok()
-                    .flatten();
-                let (done, _) = watch::channel(false);
-                self.end_waiting(
-                    session_id,
-                    &task_id,
-                    session.as_ref(),
-                    TurnOutcome::Cancelled,
-                    &RuntimeError::NotReady("cancelled".into()),
-                    done,
-                )
-                .await;
-            }
+            Target::Waiting(task_id) => Some(task_id),
+        };
+        if let Some(task_id) = waiting {
+            let id = session_id.to_owned();
+            let session = self
+                .with_store(move |s| s.session(&id))
+                .await
+                .ok()
+                .flatten();
+            let (done, _) = watch::channel(false);
+            self.end_waiting(
+                session_id,
+                &task_id,
+                session.as_ref(),
+                TurnOutcome::Cancelled,
+                &RuntimeError::NotReady("cancelled".into()),
+                done,
+            )
+            .await;
         }
         self.session(session_id).await
     }
