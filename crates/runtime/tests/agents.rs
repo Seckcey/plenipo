@@ -1151,6 +1151,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
                 task: TurnTask::New {
                     requested_by: "agent:tester".into(),
                     metadata: serde_json::json!({ "extra": 1 }),
+                    project_id: None,
                 },
             },
         )

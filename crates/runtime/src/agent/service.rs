@@ -98,10 +98,12 @@ pub enum SessionChange {
 /// What a turn works on.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TurnTask {
-    /// Record a new task. `metadata` (a JSON object, or null) is added to the turn's own.
+    /// Record a new task. `metadata` (a JSON object, or null) is added to the turn's own;
+    /// `project_id` makes the task part of a project (an organization's work, ADR-009).
     New {
         requested_by: String,
         metadata: serde_json::Value,
+        project_id: Option<String>,
     },
     /// Run a task recorded earlier (for example a handoff's child task) as this turn.
     Existing { task_id: String },
@@ -127,6 +129,7 @@ impl TurnInput {
             task: TurnTask::New {
                 requested_by: OWNER.into(),
                 metadata: serde_json::Value::Null,
+                project_id: None,
             },
         }
     }
@@ -1865,6 +1868,7 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
         TurnTask::New {
             requested_by,
             metadata,
+            project_id,
         } => {
             let requested_by = requested_by.trim().to_owned();
             if requested_by.is_empty() || requested_by.len() > 200 {
@@ -1872,9 +1876,17 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
                     "requested_by must be 1–200 characters".into(),
                 ));
             }
+            let project_ok = |id: &String| {
+                (1..=64).contains(&id.len())
+                    && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            };
+            if project_id.as_ref().is_some_and(|id| !project_ok(id)) {
+                return Err(RuntimeError::InvalidInput("invalid project id".into()));
+            }
             TurnTask::New {
                 requested_by,
                 metadata: object_or_empty("turn metadata", metadata)?,
+                project_id,
             }
         }
         TurnTask::Existing { task_id } => {
@@ -1969,7 +1981,8 @@ mod tests {
             ok.task,
             TurnTask::New {
                 requested_by: OWNER.into(),
-                metadata: serde_json::json!({})
+                metadata: serde_json::json!({}),
+                project_id: None,
             }
         );
         for bad in [
@@ -1981,6 +1994,7 @@ mod tests {
                 task: TurnTask::New {
                     requested_by: " ".into(),
                     metadata: serde_json::Value::Null,
+                    project_id: None,
                 },
                 ..TurnInput::owner("x")
             },
@@ -1988,6 +2002,15 @@ mod tests {
                 task: TurnTask::New {
                     requested_by: "owner".into(),
                     metadata: serde_json::json!([1]),
+                    project_id: None,
+                },
+                ..TurnInput::owner("x")
+            },
+            TurnInput {
+                task: TurnTask::New {
+                    requested_by: "owner".into(),
+                    metadata: serde_json::Value::Null,
+                    project_id: Some("../etc".into()),
                 },
                 ..TurnInput::owner("x")
             },

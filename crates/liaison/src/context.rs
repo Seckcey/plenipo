@@ -33,6 +33,9 @@ pub struct ContextPacket {
     pub references: Vec<PacketReference>,
     pub artifacts: Vec<PacketArtifact>,
     pub capabilities: PacketCapabilities,
+    /// Who the child worker is, when it fills a position in the organization (Phase 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,10 +88,12 @@ pub struct PacketCapabilities {
     pub granted: Vec<String>,
 }
 
-/// A worker a request can go to.
+/// A worker a request can go to: a runtime (address `claude-code`), or — for a member of the
+/// organization — a team member (address `role:<title>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Destination {
-    pub runtime_id: String,
+    /// What the worker writes in `"to"`.
+    pub address: String,
     pub label: String,
     pub ready: bool,
 }
@@ -152,7 +157,7 @@ fn destination_list(destinations: &[Destination]) -> Option<String> {
     let ready: Vec<String> = destinations
         .iter()
         .filter(|d| d.ready)
-        .map(|d| format!("{} ({})", d.runtime_id, d.label))
+        .map(|d| format!("{} ({})", d.address, d.label))
         .collect();
     (!ready.is_empty()).then(|| ready.join(", "))
 }
@@ -198,7 +203,13 @@ fn protocol_section(out: &mut String, destinations: &[Destination], limits: Prom
 }
 
 /// The first message of a session that allows handoffs: instructions, then the objective.
-pub fn root_prompt(objective: &str, destinations: &[Destination], limits: PromptLimits) -> String {
+/// `identity` describes a member of the organization (its position and team).
+pub fn root_prompt(
+    objective: &str,
+    identity: Option<&str>,
+    destinations: &[Destination],
+    limits: PromptLimits,
+) -> String {
     let mut out = String::new();
     out.push_str(ROOT_HEADER);
     out.push('\n');
@@ -207,6 +218,10 @@ pub fn root_prompt(objective: &str, destinations: &[Destination], limits: Prompt
          another AI worker for help through Plenipo Liaison. Workers never contact each other \
          directly.\n\n"
     ));
+    if let Some(identity) = identity.map(str::trim).filter(|i| !i.is_empty()) {
+        out.push_str(identity);
+        out.push_str("\n\n");
+    }
     protocol_section(&mut out, destinations, limits);
     out.push_str(FOOTER);
     out.push_str("\n\n");
@@ -224,6 +239,15 @@ pub fn child_prompt(
     let mut out = String::new();
     out.push_str(REQUEST_HEADER);
     out.push('\n');
+    if let Some(identity) = packet
+        .identity
+        .as_deref()
+        .map(str::trim)
+        .filter(|i| !i.is_empty())
+    {
+        out.push_str(identity);
+        out.push_str("\n\n");
+    }
     out.push_str(&format!(
         "Plenipo Liaison assigned you this task for another AI worker ({}, working on: \
          \"{}\"). Complete it and answer normally: your final answer is returned to that worker \
@@ -351,12 +375,12 @@ mod tests {
     fn destinations() -> Vec<Destination> {
         vec![
             Destination {
-                runtime_id: "claude-code".into(),
+                address: "claude-code".into(),
                 label: "Claude Code".into(),
                 ready: true,
             },
             Destination {
-                runtime_id: "codex".into(),
+                address: "codex".into(),
                 label: "Codex".into(),
                 ready: false,
             },
@@ -403,12 +427,13 @@ mod tests {
                 requested: vec!["filesystem.read".into()],
                 granted: vec![],
             },
+            identity: None,
         }
     }
 
     #[test]
     fn the_root_prompt_explains_the_protocol_then_gives_the_objective() {
-        let p = root_prompt("  Write a parser  ", &destinations(), LIMITS);
+        let p = root_prompt("  Write a parser  ", None, &destinations(), LIMITS);
         assert!(p.starts_with(ROOT_HEADER));
         assert!(p.ends_with(&format!("{FOOTER}\n\nWrite a parser")));
         assert!(p.contains("claude-code (Claude Code)"));
@@ -419,9 +444,52 @@ mod tests {
         assert!(p.contains("at most 3"));
         // The example cannot be sent as is: its destination is a placeholder.
         assert!(p.contains("\"to\": \"<destination>\""));
-        let none = root_prompt("x", &[], LIMITS);
+        let none = root_prompt("x", None, &[], LIMITS);
         assert!(none.contains("No other worker is available"));
         assert!(!none.contains("```plenipo-handoff"));
+    }
+
+    #[test]
+    fn a_member_is_told_who_it_is_and_whom_it_may_address() {
+        let team = [Destination {
+            address: "role:QA Engineer".into(),
+            label: "QA Engineer on Claude Code, your team's QA evaluator".into(),
+            ready: true,
+        }];
+        let p = root_prompt(
+            "Ship the release",
+            Some("You are Cloudline Coordinator, the project coordinator of Cloudline."),
+            &team,
+            LIMITS,
+        );
+        let identity = p.find("You are Cloudline Coordinator").unwrap();
+        let protocol = p.find("```plenipo-handoff").unwrap();
+        assert!(identity < protocol, "identity comes before the protocol");
+        assert!(p.contains(
+            "- \"to\": one of these workers: role:QA Engineer (QA Engineer on Claude Code, your \
+             team's QA evaluator)."
+        ));
+        assert!(p.ends_with(&format!("{FOOTER}\n\nShip the release")));
+        let mut child = packet(1);
+        child.identity = Some("You are working as QA Engineer for the Cloudline team.".into());
+        let c = child_prompt(&child, &team, LIMITS);
+        assert!(c.starts_with(&format!(
+            "{REQUEST_HEADER}\nYou are working as QA Engineer for the Cloudline team.\n\n"
+        )));
+        // An identity round-trips with the packet; old packets without one still read.
+        let json = serde_json::to_value(&child).unwrap();
+        assert_eq!(
+            serde_json::from_value::<ContextPacket>(json).unwrap(),
+            child
+        );
+        let mut old = serde_json::to_value(packet(1)).unwrap();
+        old.as_object_mut().unwrap().remove("identity");
+        assert_eq!(
+            serde_json::from_value::<ContextPacket>(old)
+                .unwrap()
+                .identity,
+            None
+        );
     }
 
     #[test]

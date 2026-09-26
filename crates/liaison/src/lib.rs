@@ -9,12 +9,14 @@
 
 pub mod address;
 pub mod context;
+pub mod directory;
 pub mod dto;
 pub mod error;
 pub mod protocol;
 mod service;
 pub mod store;
 
+pub use directory::{Directory, Placement, Team};
 pub use dto::*;
 pub use error::{LiaisonError, Result};
 pub use service::{Liaison, LiaisonConfig, ACTOR};

@@ -11,7 +11,7 @@
 //!   Every step is guarded by recorded state, so repeating a pass changes nothing.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Duration;
 
 use plenipo_ledger::{
@@ -32,6 +32,7 @@ use crate::context::{
     self, ContextPacket, DeliveredReply, Destination, PacketArtifact, PacketCapabilities,
     PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
 };
+use crate::directory::{Directory, Placement, Team};
 use crate::dto::*;
 use crate::error::{LiaisonError, Result};
 use crate::protocol::{self, cap_chars, Block, ContextRequest, Directive, PROTOCOL};
@@ -171,6 +172,8 @@ struct Inner {
     /// Serializes reading a turn's requests with the counts their limits depend on.
     planning: Mutex<()>,
     state: Mutex<State>,
+    /// The organization's directory (Workforce, Phase 5), when installed.
+    directory: RwLock<Option<Arc<dyn Directory>>>,
 }
 
 /// Cheap to clone; clones share state.
@@ -232,6 +235,8 @@ struct Accepted {
     depth: u32,
     references: Vec<PacketReference>,
     artifacts: Vec<PacketArtifact>,
+    /// Where a member's request to its team goes (Workforce, Phase 5).
+    placement: Option<Placement>,
 }
 
 impl Liaison {
@@ -246,6 +251,7 @@ impl Liaison {
             wake: Arc::clone(&wake),
             planning: Mutex::new(()),
             state: Mutex::new(State::default()),
+            directory: RwLock::new(None),
         });
         runtime.set_hook(Arc::new(Hook {
             inner: Arc::downgrade(&inner),
@@ -260,6 +266,47 @@ impl Liaison {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         lock(&self.inner.state)
+    }
+
+    /// Install the organization's directory (at most one; replaces any earlier). Members of the
+    /// organization then address their team by role (ADR-009).
+    pub fn set_directory(&self, directory: Arc<dyn Directory>) {
+        *self
+            .inner
+            .directory
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = Some(directory);
+    }
+
+    fn directory(&self) -> Option<Arc<dyn Directory>> {
+        self.inner
+            .directory
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// The team of the member described by a `workforce` record (blocking: reads the Ledger).
+    fn team(&self, workforce: &Value) -> Option<Team> {
+        if !workforce.is_object() {
+            return None;
+        }
+        self.directory()?.team(workforce)
+    }
+
+    /// A worker's identity and destinations: its team for a member, runtimes otherwise.
+    fn audience(&self, workforce: &Value) -> (Option<String>, Vec<Destination>) {
+        match self.team(workforce) {
+            Some(team) => (Some(team.identity), team.members),
+            None => (None, self.destinations()),
+        }
+    }
+
+    async fn audience_async(&self, workforce: Value) -> (Option<String>, Vec<Destination>) {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.audience(&workforce))
+            .await
+            .unwrap_or_else(|_| (None, self.destinations()))
     }
 
     fn notice(&self, notice: String) {
@@ -281,7 +328,7 @@ impl Liaison {
             .runtimes()
             .into_iter()
             .map(|r| Destination {
-                runtime_id: r.id,
+                address: r.id,
                 label: r.label,
                 ready: r.ready,
             })
@@ -347,7 +394,7 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let prompt = context::root_prompt(objective, &self.destinations(), self.limits());
+        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
         runtime
             .start_session_with(
                 SessionStart {
@@ -367,6 +414,7 @@ impl Liaison {
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
+                        project_id: None,
                     },
                 },
             )
@@ -388,12 +436,19 @@ impl Liaison {
                 "This is a handoff worker's session: it takes work only through Liaison.".into(),
             ));
         }
+        if info.origin.as_deref() == Some("member") {
+            return Err(RuntimeError::NotReady(
+                "This session belongs to a member of your organization: give it objectives from \
+                 the Organization view."
+                    .into(),
+            ));
+        }
         if !info.enabled {
             return runtime.resume_session(session_id, objective).await;
         }
         // Each objective restates the instructions: the provider may have compacted the first
         // turn away, and destinations may have changed since.
-        let prompt = context::root_prompt(objective, &self.destinations(), self.limits());
+        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
         runtime
             .resume_session_with(
                 session_id,
@@ -403,6 +458,100 @@ impl Liaison {
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
+                        project_id: None,
+                    },
+                },
+            )
+            .await
+    }
+
+    // ---- Members of the organization (Workforce, Phase 5) ------------------------------
+
+    /// Start the session of an organization member (a persistent agent) with the owner's
+    /// objective. `workforce` is its record (`positionId`, `agentId`, …), stored with the
+    /// session and the turn's task; its instructions name its team, which it addresses by role.
+    pub async fn start_member_session(
+        &self,
+        start: SessionStart,
+        objective: &str,
+        workforce: Value,
+        project_id: Option<String>,
+    ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
+        if workforce["agentId"].as_str().is_none() || workforce["positionId"].as_str().is_none() {
+            return Err(RuntimeError::InvalidInput(
+                "a member's workforce record names its agent and position".into(),
+            ));
+        }
+        let runtime = &self.inner.runtime;
+        if runtime
+            .runtimes()
+            .iter()
+            .any(|r| r.installation.state == InstallState::Checking)
+        {
+            runtime.refresh().await;
+        }
+        let (identity, destinations) = self.audience_async(workforce.clone()).await;
+        let prompt =
+            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let mut metadata = match start.metadata {
+            Value::Object(_) => start.metadata,
+            _ => json!({}),
+        };
+        metadata["liaison"] = json!({ "enabled": true, "origin": "member", "protocol": PROTOCOL });
+        metadata["workforce"] = workforce.clone();
+        let mut task_metadata = root_metadata();
+        task_metadata["workforce"] = workforce;
+        runtime
+            .start_session_with(
+                SessionStart { metadata, ..start },
+                TurnInput {
+                    objective: objective.into(),
+                    prompt: Some(prompt),
+                    task: TurnTask::New {
+                        requested_by: OWNER.into(),
+                        metadata: task_metadata,
+                        project_id,
+                    },
+                },
+            )
+            .await
+    }
+
+    /// Give a member's session its next objective (a new workflow in the same provider
+    /// session). The session must belong to the agent `workforce` names.
+    pub async fn resume_member_session(
+        &self,
+        session_id: &str,
+        objective: &str,
+        workforce: Value,
+        project_id: Option<String>,
+    ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
+        let runtime = &self.inner.runtime;
+        let detail = runtime.session(session_id).await?;
+        let metadata = &detail.session.metadata;
+        if session_info(metadata).origin.as_deref() != Some("member")
+            || workforce["agentId"].as_str().is_none()
+            || metadata["workforce"]["agentId"] != workforce["agentId"]
+        {
+            return Err(RuntimeError::InvalidInput(
+                "this session does not belong to that member".into(),
+            ));
+        }
+        let (identity, destinations) = self.audience_async(workforce.clone()).await;
+        let prompt =
+            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let mut task_metadata = root_metadata();
+        task_metadata["workforce"] = workforce;
+        runtime
+            .resume_session_with(
+                session_id,
+                TurnInput {
+                    objective: objective.into(),
+                    prompt: Some(prompt),
+                    task: TurnTask::New {
+                        requested_by: OWNER.into(),
+                        metadata: task_metadata,
+                        project_id,
                     },
                 },
             )
@@ -493,7 +642,10 @@ impl Liaison {
             }
             return Ok(None);
         }
-        let destinations = self.destinations();
+        let workforce = &end.session.metadata["workforce"];
+        let team = self.team(workforce);
+        let member = team.is_some();
+        let destinations = team.map_or_else(|| self.destinations(), |t| t.members);
         let mut budget = config
             .max_workflow_handoffs
             .saturating_sub(l.liaison_handoff_count(&correlation)?);
@@ -520,6 +672,7 @@ impl Liaison {
                         &info,
                         &correlation,
                         &destinations,
+                        member.then_some(workforce),
                         &mut budget,
                         answer,
                     ),
@@ -586,13 +739,14 @@ impl Liaison {
         info: &TaskInfo,
         correlation: &str,
         destinations: &[Destination],
+        member: Option<&Value>,
         budget: &mut u32,
         answer: &str,
     ) -> std::result::Result<Accepted, String> {
         let config = &self.inner.config;
         let list = destinations
             .iter()
-            .map(|d| d.runtime_id.as_str())
+            .map(|d| d.address.as_str())
             .collect::<Vec<_>>()
             .join(", ");
         let depth = info.depth + 1;
@@ -603,8 +757,28 @@ impl Liaison {
                 config.max_depth
             ));
         }
+        let mut placement = None;
         let runtime_id = match Address::parse(&d.to) {
-            Ok(Address::Runtime(id)) if destinations.iter().any(|x| x.runtime_id == id) => id,
+            // A member hands work to its team, placed by the organization's directory.
+            Ok(Address::Role(name)) if member.is_some() => {
+                let directory = self
+                    .directory()
+                    .ok_or_else(|| "the organization's directory is unavailable".to_owned())?;
+                let p = directory.place(member.unwrap_or(&Value::Null), task, &name)?;
+                let runtime_id = p.runtime_id.clone();
+                placement = Some(p);
+                runtime_id
+            }
+            Ok(Address::Runtime(_)) if member.is_some() => {
+                return Err(if destinations.is_empty() {
+                    "no one is on your team yet, so do this part yourself (the owner can hire team \
+                     members on the Organization canvas)"
+                        .to_owned()
+                } else {
+                    format!("hand work to a member of your team, not to a runtime: {list}")
+                })
+            }
+            Ok(Address::Runtime(id)) if destinations.iter().any(|x| x.address == id) => id,
             Ok(Address::Runtime(id)) => {
                 return Err(format!(
                     "missing destination: there is no worker runtime named \"{id}\" (available: \
@@ -613,9 +787,8 @@ impl Liaison {
             }
             Ok(Address::Role(name)) => {
                 return Err(format!(
-                    "missing destination: no worker is assigned to the role \"{name}\" yet \
-                     (roles arrive with Plenipo's Workforce engine); address a runtime instead: \
-                     {list}"
+                    "missing destination: the role \"{name}\" belongs to members of an \
+                     organization, and this worker is not one; address a runtime instead: {list}"
                 ))
             }
             Ok(Address::Session(_)) => {
@@ -713,6 +886,7 @@ impl Liaison {
             depth,
             references,
             artifacts,
+            placement,
         })
     }
 
@@ -733,7 +907,7 @@ impl Liaison {
         let source = Address::Session(end.session.id.clone()).to_string();
         let now = plenipo_ledger::now_ms();
         let directive = block.parsed.as_ref().ok();
-        let destination = directive
+        let mut destination = directive
             .map(|d| {
                 Address::parse(&d.to).map_or_else(|_| cap_chars(d.to.trim(), 64), |a| a.to_string())
             })
@@ -780,6 +954,7 @@ impl Liaison {
                     LiaisonError::Internal("an accepted request has no directive".into())
                 })?;
                 let priority = d.priority.unwrap_or(task.priority);
+                let placement = accepted.placement;
                 let packet = ContextPacket {
                     format: CONTEXT_FORMAT.into(),
                     message_id: message_id.clone(),
@@ -804,12 +979,22 @@ impl Liaison {
                         requested: d.capabilities.clone(),
                         granted: Vec::new(),
                     },
+                    identity: placement.as_ref().map(|p| p.identity.clone()),
                 };
+                let (address, label) = match &placement {
+                    Some(p) => (p.address.clone(), p.label.clone()),
+                    None => (
+                        format!("runtime:{}", accepted.runtime_id),
+                        self.runtime_label(&accepted.runtime_id),
+                    ),
+                };
+                destination = address.clone();
                 envelope["depth"] = json!(accepted.depth);
-                envelope["destination"] = json!(format!("runtime:{}", accepted.runtime_id));
+                envelope["destination"] = json!(address);
+                envelope["destinationLabel"] = json!(label);
                 envelope["packet"] = serde_json::to_value(&packet)
                     .map_err(|e| LiaisonError::Internal(e.to_string()))?;
-                let received = json!({
+                let mut received = json!({
                     "objective": first_line(&d.objective, 200),
                     "depth": accepted.depth,
                     "runtimeId": accepted.runtime_id,
@@ -818,31 +1003,42 @@ impl Liaison {
                     "capabilities": { "requested": d.capabilities, "granted": [] },
                     "contextFormat": CONTEXT_FORMAT,
                 });
+                let mut metadata = json!({
+                    "sessionId": uuid::Uuid::new_v4().to_string(),
+                    "runtimeId": accepted.runtime_id,
+                    "turn": 1,
+                    "liaison": {
+                        "correlationId": correlation,
+                        "depth": accepted.depth,
+                        "requestId": message_id,
+                        "parentTaskId": task.id,
+                        "parentSessionId": end.session.id,
+                        "protocol": PROTOCOL,
+                    },
+                });
+                let mut project_id = task.project_id.clone();
+                if let Some(p) = &placement {
+                    envelope["model"] = json!(p.model);
+                    received["position"] = json!(p.label);
+                    metadata["workforce"] = p.workforce.clone();
+                    if let Some(model) = &p.model {
+                        metadata["model"] = json!(model);
+                    }
+                    project_id = p.project_id.clone();
+                }
                 HandoffDecision::Accept {
                     child: NewTask {
                         parent_task_id: Some(task.id.clone()),
                         requested_by: format!("agent:{}", end.session.runtime_id),
                         assigned_to: Some(accepted.runtime_id.clone()),
-                        project_id: task.project_id.clone(),
+                        project_id,
                         objective: d.objective.clone(),
                         acceptance_criteria: d.acceptance_criteria.clone(),
                         priority,
-                        metadata: json!({
-                            "sessionId": uuid::Uuid::new_v4().to_string(),
-                            "runtimeId": accepted.runtime_id,
-                            "turn": 1,
-                            "liaison": {
-                                "correlationId": correlation,
-                                "depth": accepted.depth,
-                                "requestId": message_id,
-                                "parentTaskId": task.id,
-                                "parentSessionId": end.session.id,
-                                "protocol": PROTOCOL,
-                            },
-                        }),
+                        metadata,
                     },
                     received,
-                    worker: None,
+                    worker: placement.map(|p| p.worker),
                 }
             }
             Err(reason) => {
@@ -1039,23 +1235,30 @@ impl Liaison {
                 child.id
             )));
         };
-        let prompt = context::child_prompt(&packet, &self.destinations(), self.limits());
+        // A member's worker addresses its own team; others address runtimes.
+        let workforce = child.metadata["workforce"].clone();
+        let (_, destinations) = self.audience_async(workforce.clone()).await;
+        let prompt = context::child_prompt(&packet, &destinations, self.limits());
         let parent_session = request.source.strip_prefix("session:").unwrap_or_default();
+        let mut metadata = json!({ "liaison": {
+            "enabled": true,
+            "origin": "handoff",
+            "protocol": PROTOCOL,
+            "requestId": request.id,
+            "correlationId": request.correlation_id,
+            "parentTaskId": request.task_id,
+            "parentSessionId": parent_session,
+            "depth": packet.depth,
+        }});
+        if workforce.is_object() {
+            metadata["workforce"] = workforce;
+        }
         let start = SessionStart {
             id: Some(session_id.into()),
             runtime_id: runtime_id.into(),
-            model: None,
+            model: child.metadata["model"].as_str().map(str::to_owned),
             title: Some(child.objective.clone()),
-            metadata: json!({ "liaison": {
-                "enabled": true,
-                "origin": "handoff",
-                "protocol": PROTOCOL,
-                "requestId": request.id,
-                "correlationId": request.correlation_id,
-                "parentTaskId": request.task_id,
-                "parentSessionId": parent_session,
-                "depth": packet.depth,
-            }}),
+            metadata,
         };
         let input = TurnInput {
             objective: child.objective.clone(),
@@ -1170,11 +1373,14 @@ impl Liaison {
             .config
             .max_rounds
             .saturating_sub(rounds.saturating_add(1));
+        let (_, destinations) = self
+            .audience_async(task.metadata["workforce"].clone())
+            .await;
         let prompt = context::replies_prompt(
             &delivered,
             &replies[0].correlation_id,
             rounds_left,
-            &self.destinations(),
+            &destinations,
         );
         let ids: Vec<String> = replies.iter().map(|r| r.id.clone()).collect();
         let correlation = replies[0].correlation_id.clone();
@@ -1312,7 +1518,8 @@ impl Liaison {
             requester_runtime_id: e["sourceRuntime"].as_str().map(str::to_owned),
             step: e["step"].as_u64().and_then(|s| u32::try_from(s).ok()),
             destination: request.destination.clone(),
-            destination_label: self.destination_label(&request.destination),
+            destination_label: recorded_label(request)
+                .unwrap_or_else(|| self.destination_label(&request.destination)),
             objective: e["objective"]
                 .as_str()
                 .map_or_else(|| "(an unreadable request)".into(), str::to_owned),
@@ -1386,7 +1593,8 @@ impl Liaison {
                             MessageState::Rejected => HandoffState::Rejected,
                             _ => HandoffState::Accepted,
                         },
-                        destination_label: self.destination_label(&request.destination),
+                        destination_label: recorded_label(&request)
+                            .unwrap_or_else(|| self.destination_label(&request.destination)),
                         reply_outcome: reply.map(|r| outcome_of(&r)),
                     })
                 }
@@ -1427,8 +1635,8 @@ impl Liaison {
                 .destinations()
                 .into_iter()
                 .map(|d| DestinationInfo {
-                    address: d.runtime_id.clone(),
-                    runtime_id: d.runtime_id,
+                    runtime_id: d.address.clone(),
+                    address: d.address,
                     label: d.label,
                     ready: d.ready,
                 })
@@ -1437,6 +1645,13 @@ impl Liaison {
             notices: self.lock().notices.clone(),
         })
     }
+}
+
+/// The destination's label as recorded when the request was accepted.
+fn recorded_label(request: &LiaisonMessage) -> Option<String> {
+    request.envelope["destinationLabel"]
+        .as_str()
+        .map(str::to_owned)
 }
 
 fn outcome_of(reply: &LiaisonMessage) -> HandoffOutcome {
