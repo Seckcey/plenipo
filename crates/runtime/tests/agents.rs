@@ -299,10 +299,7 @@ async fn installation_detection() {
         Some("Claude subscription (max)")
     );
     assert_eq!(runtimes[1].auth.method.as_deref(), Some("ChatGPT sign-in"));
-    assert_eq!(
-        runtimes[2].auth.method.as_deref(),
-        Some("Grok sign-in (X account)")
-    );
+    assert_eq!(runtimes[2].auth.method.as_deref(), Some("grok.com sign-in"));
     // No account identifier from the status output is kept.
     assert!(!format!("{runtimes:?}").contains("owner@example.com"));
     // The UI was told.

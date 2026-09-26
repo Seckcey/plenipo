@@ -122,7 +122,7 @@ prints a key, do not paste it.
    `Select-String -Path "$env:USERPROFILE\.grok\config.toml" -Pattern 'api_key|env_key|models_base_url|auth_provider'`.
 4. Run `grok models` and copy its first line.
 5. Start Plenipo. Open **AI tools** and choose **Re-check**. The Grok card should say **Ready**
-   and "Signed in (subscription) · Grok sign-in (X account)". If it says Plenipo could not
+   and "Signed in (subscription) · grok.com sign-in". If it says Plenipo could not
    confirm the sign-in, copy the line it quotes and stop here; that line is all I need.
 6. In **Workers**, pick **Grok** and start: _"Say hello and tell me what you are."_ It should
    finish with an answer and token counts.
@@ -156,7 +156,9 @@ prints a key, do not paste it.
 
 Everything below needs a signed-in Grok, which was never used here:
 
-- the exact wording `grok models` prints for a subscription sign-in (step 4);
+- the effort levels of the two models Grok offers only when signed in, `grok-4.7` (its
+  default) and `grok-4.7-build-fast` (seen on the owner's machine, §8); until they are known,
+  Plenipo's menu lists `grok-4.6` and `grok-4.5`, and the owner can type the others' names;
 - a real task over ACP: whether the conversation opens without ACP's sign-in message, the text,
   tool calls, and usage fields a signed-in Grok sends, and its usage-limit wording;
 - that the agent profile removes Grok's own tools and that Grok asks before using a tool server;
@@ -165,3 +167,11 @@ Everything below needs a signed-in Grok, which was never used here:
 
 If a real message differs from the fake Grok's, the fix belongs in `acp.rs` or `grok.rs` and
 the persona, with the recorded output added to the evidence.
+
+## 8. Owner results
+
+- **Step 4 (2026-09-26):** `grok models` on the owner's machine starts with "You are logged in
+  with grok.com." ([`models-signed-in.txt`](evidence/ai-tools-grok/models-signed-in.txt)).
+  Plenipo reads that as a subscription sign-in ("grok.com sign-in" on the AI tools card).
+  Signed in, Grok offers four models: `grok-4.7` (default), `grok-4.7-build-fast`, `grok-4.6`,
+  and `grok-4.5`. Signed out it lists only the last two.

@@ -18,15 +18,14 @@ over ACP). Evidence from the real CLI: [`evidence/ai-tools-grok/`](evidence/ai-t
       `session/new` answer carries the conversation ID, `session/update` the text and tool use,
       the `session/prompt` answer the stop reason and usage; errors are JSON-RPC errors
       (`-32000 Authentication required` recorded signed out).
-- [ ] Subscription sign-in only; no API key or password ever needed — `grok login` with an X
-      account (SuperGrok or X Premium Plus, per xAI). `GROK_DISABLE_API_KEY_AUTH=1` makes Grok
-      refuse `XAI_API_KEY` and a key set on a model in its settings (tested with fake keys).
-      **Owner check:** a real subscription sign-in.
-- [ ] Sign-in status check tells a subscription from an API key — `grok models`, first line:
-      "You are not authenticated." / "You are using XAI_API_KEY." / "Model '…' is using its own
-      API key." / "You are authenticated via deployment key." (recorded or in the program).
-      **Owner check:** the signed-in wording (Plenipo accepts a line saying "logged in" or
-      "signed in"; anything else is refused and quoted on the AI tools card).
+- [ ] Subscription sign-in only; no API key or password ever needed — `grok login` signs in
+      with grok.com (SuperGrok or X Premium Plus, per xAI); the owner is signed in this way
+      (2026-09-26). `GROK_DISABLE_API_KEY_AUTH=1` makes Grok refuse `XAI_API_KEY` and a key set
+      on a model in its settings (tested with fake keys). **Owner check:** a task runs on it.
+- [x] Sign-in status check tells a subscription from an API key — `grok models`, first line:
+      "You are logged in with grok.com." (the owner's machine, 2026-09-26) / "You are not
+      authenticated." / "You are using XAI_API_KEY." / "Model '…' is using its own API key." /
+      "You are authenticated via deployment key." (recorded or in the program).
 - [x] Stable execution (version flag, resume by ID, same result on repeat) — `grok --version`
       (`grok 1.0.41 (4220f3b224a6)`), `session/resume` with the conversation ID (advertised in
       `initialize`), exit codes documented (0, 1, 130, 143). **Owner check:** resume signed in.
@@ -44,7 +43,7 @@ over ACP). Evidence from the real CLI: [`evidence/ai-tools-grok/`](evidence/ai-t
 - [x] Executable: `grok`; `%USERPROFILE%\.grok\bin\grok.exe` (a real `.exe`), `~/.grok/bin`,
       `~/.local/bin`; version from `grok --version`
 - [x] Sign-in check: `grok models`, first line; subscription, API key, signed out, unrecognized;
-      no account names kept (method: "Grok sign-in (X account)")
+      no account names kept (method: "grok.com sign-in")
 - [x] Environment: `GROK_HOME` and `NETWORK_ENV` passed; `GROK_DISABLE_API_KEY_AUTH=1` and the
       least-privilege switches set; no API-key or billing variables
 - [x] Turn arguments: `agent --no-leader [-m MODEL] [--reasoning-effort LEVEL] stdio`; the

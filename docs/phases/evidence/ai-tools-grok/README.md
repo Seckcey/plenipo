@@ -24,6 +24,7 @@ Every task below ran in an empty folder with standard input closed or piped, and
 | `help/*.txt`                                    | `grok [subcommand] --help` for every subcommand                                                     | 0    |
 | `inspect-login-policy.json`                     | `GROK_DISABLE_API_KEY_AUTH=1 grok inspect --json` (cut down)                                        | 0    |
 | `models-signed-out.txt`                         | `grok models`                                                                                       | 0    |
+| `models-signed-in.txt`                          | `grok models`, signed in with grok.com — **from the owner's Windows machine** (2026-09-26)          | 0    |
 | `models-api-key.txt`                            | `XAI_API_KEY=<fake> grok models` (same text with `GROK_CODE_XAI_API_KEY`)                           | 0    |
 | `turn-signed-out.streaming-json.jsonl`          | `grok -p - --output-format streaming-json` (stdout; stderr in `turn-signed-out.stderr.txt`)         | 1    |
 | `turn-signed-out.json.jsonl`                    | `grok -m not-a-model -p hi --output-format json`                                                    | 1    |

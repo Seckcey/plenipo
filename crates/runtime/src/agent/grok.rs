@@ -233,9 +233,9 @@ fn profile(tool_server: bool) -> Value {
 }
 
 /// `grok models` starts with a line naming the credential in use:
-/// "You are not authenticated.", "You are using XAI_API_KEY.",
-/// "Model 'grok-4.6' is using its own API key.", "You are authenticated via deployment key.",
-/// or, signed in with an X account, a line saying so.
+/// "You are logged in with grok.com." (signed in), "You are not authenticated.",
+/// "You are using XAI_API_KEY.", "Model 'grok-4.6' is using its own API key.", or
+/// "You are authenticated via deployment key."
 fn parse_auth(out: &ProbeOutput) -> AuthStatus {
     let status = |state, method: Option<&str>, detail: Option<&str>| AuthStatus {
         state,
@@ -280,11 +280,13 @@ fn parse_auth(out: &ProbeOutput) -> AuthStatus {
         );
     }
     if out.exit_code == Some(0) && (l.contains("logged in") || l.contains("signed in")) {
-        return status(
-            AuthState::Subscription,
-            Some("Grok sign-in (X account)"),
-            None,
-        );
+        // "You are logged in with grok.com." (Grok 1.0, a subscription sign-in).
+        let method = if l.contains("grok.com") {
+            "grok.com sign-in"
+        } else {
+            "Grok sign-in"
+        };
+        return status(AuthState::Subscription, Some(method), None);
     }
     if !line.is_empty() {
         return status(
@@ -339,13 +341,15 @@ mod tests {
             assert_eq!(s.state, AuthState::ApiKey, "{text}");
             assert!(s.detail.unwrap().contains("billed"));
         }
-        // Signed in with an X account (wording to be confirmed on the owner's machine).
-        let s = Grok.parse_auth(&probe(
-            "You are logged in with Grok.\n\nDefault model: grok-4.6\n",
-        ));
+        // Signed in: real output from the owner's machine.
+        let signed_in =
+            include_str!("../../../../docs/phases/evidence/ai-tools-grok/models-signed-in.txt");
+        let s = Grok.parse_auth(&probe(signed_in));
         assert_eq!(s.state, AuthState::Subscription);
-        assert_eq!(s.method.as_deref(), Some("Grok sign-in (X account)"));
-        // Never an account name in the method.
+        assert_eq!(s.method.as_deref(), Some("grok.com sign-in"));
+        // Another sign-in wording still counts; never an account name in the method.
+        let s = Grok.parse_auth(&probe("You are signed in as someone@example.com.\n"));
+        assert_eq!(s.state, AuthState::Subscription);
         assert!(!s.method.unwrap().contains('@'));
 
         // Anything else is not trusted (Grok cannot confirm billing during a task).
@@ -355,7 +359,7 @@ mod tests {
         assert_eq!(s.state, AuthState::Unverified);
         let failed = ProbeOutput {
             exit_code: Some(1),
-            ..probe("You are logged in with Grok.")
+            ..probe(signed_in)
         };
         assert_eq!(Grok.parse_auth(&failed).state, AuthState::Unverified);
         assert_eq!(Grok.parse_auth(&probe("")).state, AuthState::Unknown);

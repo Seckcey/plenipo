@@ -1076,9 +1076,12 @@ fn grok_models() -> i32 {
             eprintln!("error: failed to load models");
             return 1;
         }
-        _ => "You are logged in with Grok.",
+        _ => "You are logged in with grok.com.",
     };
-    println!("{first}\n\nDefault model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5");
+    println!(
+        "{first}\n\nDefault model: grok-4.7\n\nAvailable models:\n  * grok-4.7 (default)\n  \
+         - grok-4.7-build-fast\n  - grok-4.6\n  - grok-4.5"
+    );
     0
 }
 
