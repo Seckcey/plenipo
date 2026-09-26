@@ -147,6 +147,30 @@ impl GuardConfig {
         added
     }
 
+    /// Bring built-in sets the owner never changed up to date with this version's defaults
+    /// (their levels and description exactly as an earlier version made them). Returns the IDs
+    /// updated.
+    pub fn upgrade_builtins(&mut self) -> Vec<String> {
+        let current = defaults::builtin_sets();
+        let mut updated = Vec::new();
+        for earlier in defaults::earlier_sets() {
+            let Some(now) = current.iter().find(|s| s.id == earlier.id) else {
+                continue;
+            };
+            if let Some(s) = self.sets.iter_mut().find(|s| {
+                s.id == earlier.id
+                    && s.built_in
+                    && s.levels == earlier.levels
+                    && s.description == earlier.description
+            }) {
+                s.levels = now.levels.clone();
+                s.description = now.description.clone();
+                updated.push(s.id.clone());
+            }
+        }
+        updated
+    }
+
     /// The role's permission set ID (`None`: none).
     pub fn role_set(&self, role_id: &str) -> Option<&str> {
         self.roles.get(role_id).and_then(|s| s.as_deref())
@@ -433,6 +457,45 @@ mod tests {
             description: String::new(),
             levels: levels.iter().copied().collect(),
         }
+    }
+
+    #[test]
+    fn unchanged_builtin_sets_gain_github_and_changed_ones_are_left_alone() {
+        let mut c = GuardConfig::with_defaults();
+        // The sets as an earlier version stored them; the owner changed the Reviewer set.
+        for earlier in defaults::earlier_sets() {
+            let s = c.sets.iter_mut().find(|s| s.id == earlier.id).unwrap();
+            *s = earlier;
+        }
+        c.sets
+            .iter_mut()
+            .find(|s| s.id == "reviewer")
+            .unwrap()
+            .levels
+            .insert(Capability::ShellExec, Level::Allowed);
+        assert_eq!(c.upgrade_builtins(), ["read-only", "developer", "tester"]);
+        let developer = c.set("developer").unwrap();
+        assert_eq!(
+            developer.levels.get(&Capability::GithubWrite),
+            Some(&Level::Allowed)
+        );
+        assert!(developer.description.contains("pull requests"));
+        assert!(!c
+            .set("reviewer")
+            .unwrap()
+            .levels
+            .contains_key(&Capability::GithubRead));
+        assert!(c.upgrade_builtins().is_empty(), "only once");
+        assert_eq!(
+            c.sets,
+            {
+                let mut fresh = GuardConfig::with_defaults();
+                let r = fresh.sets.iter_mut().find(|s| s.id == "reviewer").unwrap();
+                *r = c.set("reviewer").unwrap().clone();
+                fresh.sets
+            },
+            "the others match this version's defaults"
+        );
     }
 
     #[test]

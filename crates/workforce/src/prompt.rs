@@ -22,6 +22,35 @@ fn role_name<'a>(view: &OrgView<'a>, p: &Position) -> &'a str {
     view.role(p).map_or("team member", |r| r.name.as_str())
 }
 
+/// How a lead of leads (a VP, a manager) works with the full-time members on its team (Phase 8,
+/// ADR-016).
+const DELEGATION: &str = "Hand each objective to the member of your team who leads the work it \
+    concerns (for a project, its supervisor): the whole objective, the project, and what to send \
+    back, in a few sentences. When the reply comes, report to the owner in a few short lines: \
+    what was done and by whom, the files changed, the tests run and their results, the branch \
+    and any pull request, review findings still open, and approvals still needed. Say plainly \
+    what is not finished.";
+
+/// How a project's supervisor runs a development objective with its team (Phase 8, ADR-016).
+const PLAYBOOK: &str = "How to run the objective: 1) Break it into small, bounded tasks. \
+    2) Have a developer do each one on the objective's branch and commit it. 3) Have your \
+    reviewer review the work, passing the developer's task as context ({\"kind\": \"task\", \
+    \"taskId\": \"...\"}); if it requests changes, send the findings to a developer and have it \
+    reviewed again. 4) Have QA run the project's tests and check the acceptance criteria; if \
+    they fail, have a developer fix it and QA check again. 5) If the change affects \
+    documentation, have your documentation writer update it. 6) Answer with a short report: \
+    what changed, tests and results, the review verdict and any open findings, the branch, \
+    and approvals still needed. Open a pull request only when the objective asks for one (it \
+    waits for the owner's approval). Skip a step your team has no one for, and say so.";
+
+/// A reviewer's, QA's, or security auditor's verdict, which Plenipo reads for the objective's
+/// result (Phase 8).
+const VERDICT: &str = "End your answer with your verdict in a fenced block:\n```plenipo-review\n\
+    {\"verdict\": \"approve\", \"findings\": [{\"severity\": \"major\", \"file\": \
+    \"src/app.rs\", \"summary\": \"one line\"}]}\n```\n\"verdict\" is \"approve\" or \
+    \"request-changes\" (use it when a blocker or major finding must be fixed); \"severity\" is \
+    \"blocker\", \"major\", or \"minor\". List only real problems; no findings is fine.";
+
 /// Who a persistent member is: position, department, project, supervisor, purpose.
 pub fn member_identity(view: &OrgView<'_>, org: &str, me: &Position, has_team: bool) -> String {
     let mut s = format!("Your position: {}, the {}", me.title, role_name(view, me));
@@ -53,6 +82,15 @@ pub fn member_identity(view: &OrgView<'_>, org: &str, me: &Position, has_team: b
             "\nGive each member of your team a short, specific task and combine their replies \
              into your answer; do a part yourself when no team member fits it.",
         );
+        let team = view.team(&me.id);
+        if team.iter().any(|m| view.persistent(m.position)) {
+            s.push('\n');
+            s.push_str(DELEGATION);
+        }
+        if view.coordinates(&me.id).is_some() && team.iter().any(|m| !view.persistent(m.position)) {
+            s.push('\n');
+            s.push_str(PLAYBOOK);
+        }
     } else {
         s.push_str(
             "\nNo one is on your team yet, so do the work yourself; the owner can hire team \
@@ -105,7 +143,20 @@ pub fn worker_identity(
             s.push_str(&format!(" Your purpose: {purpose}."));
         }
     }
+    let reviews = serving.is_some() || view.role(position).is_some_and(gives_verdict);
+    if reviews {
+        s.push('\n');
+        s.push_str(VERDICT);
+    }
     s
+}
+
+/// Reviewers, QA, and security auditors end their answers with a verdict (Phase 8): the
+/// built-in Code Reviewer, QA Engineer, and Security Auditor roles, and custom roles marked so.
+fn gives_verdict(role: &Role) -> bool {
+    role.metadata["verdict"] == true
+        || (role.metadata["template"] == true
+            && crate::templates::VERDICT_ROLES.contains(&role.name.as_str()))
 }
 
 /// How a team member is listed in a worker's instructions, after its `role:<title>` address.

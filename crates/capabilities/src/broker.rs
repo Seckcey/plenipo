@@ -52,6 +52,9 @@ pub struct BrokerConfig {
     pub tickets_dir: PathBuf,
     /// Where objectives' working copies are made (Phase 8, ADR-016).
     pub workspaces_dir: PathBuf,
+    /// Folders searched for GitHub's `gh` before Plenipo's own PATH (tests put a stand-in
+    /// there).
+    pub search_path: Option<std::ffi::OsString>,
     /// Longest one tool call may take (an approval waits inside a call).
     pub call_timeout: Duration,
     /// A program's time limit when the worker names none.
@@ -66,6 +69,7 @@ impl BrokerConfig {
             relay_command,
             relay_args: Vec::new(),
             workspaces_dir: tickets_dir.with_file_name("workspaces"),
+            search_path: None,
             tickets_dir,
             call_timeout: Duration::from_secs(60 * 60),
             command_timeout: Duration::from_secs(10 * 60),
@@ -111,6 +115,8 @@ struct Grant {
     workspace: Option<Workspace>,
     /// The objective's working copy the grant works in, when it has one (Phase 8).
     place: Option<Place>,
+    /// The project's GitHub repository (`owner/name`), the only one its GitHub tools act on.
+    github: Option<String>,
     levels: BTreeMap<Capability, Level>,
     tools: Vec<&'static str>,
     opened_at: u64,
@@ -163,6 +169,8 @@ struct Place {
     /// The working copy's top folder and branch.
     path: PathBuf,
     branch: String,
+    /// The branch it was made from (a pull request's base).
+    base_ref: Option<String>,
     base_commit: String,
     /// It holds the working copy as the one worker changing files there.
     writer: bool,
@@ -233,9 +241,28 @@ enum Work {
         cwd: PathBuf,
         stdin: Option<Vec<u8>>,
         timeout: Duration,
-        /// Git's own variables (git tools).
-        git: bool,
+        /// The program's own variables (git's, gh's).
+        env: Vec<(String, String)>,
     },
+    /// Push the objective's branch, then open a draft pull request for it (Phase 8).
+    PullRequest {
+        git: PathBuf,
+        push: Vec<String>,
+        gh: PathBuf,
+        create: Vec<String>,
+        cwd: PathBuf,
+        timeout: Duration,
+    },
+}
+
+/// Where a call happens: the grant's folder, its objective's branch and base, the project's
+/// GitHub repository, and GitHub's `gh` program.
+struct Where<'a> {
+    ws: Option<&'a Workspace>,
+    branch: Option<&'a str>,
+    base: Option<&'a str>,
+    repo: Option<&'a str>,
+    gh: Option<PathBuf>,
 }
 
 /// Why a call cannot even be put to Guard (the target is unusable).
@@ -575,6 +602,12 @@ impl Broker {
             &levels,
             problem.as_deref(),
         );
+        let github = scope
+            .project
+            .as_ref()
+            .and_then(|p| self.ledger().project(&p.id).ok().flatten())
+            .and_then(|p| p.repository_url)
+            .and_then(|url| crate::github::repo_of(&url));
         let grant = Grant {
             id: grant_id.clone(),
             ticket: ticket.clone(),
@@ -588,6 +621,7 @@ impl Broker {
             scope,
             workspace,
             place,
+            github,
             levels,
             tools: offered,
             opened_at: plenipo_ledger::now_ms(),
@@ -762,6 +796,7 @@ impl Broker {
                 workspace_id: chosen.id,
                 path: PathBuf::from(chosen.path),
                 branch: chosen.branch,
+                base_ref: chosen.base_ref,
                 base_commit: chosen.base_commit,
                 writer,
             },
@@ -1018,12 +1053,22 @@ impl Broker {
                     g.task_id.clone(),
                     g.runtime_id.clone(),
                     g.worker.clone(),
-                    g.place.as_ref().map(|p| p.branch.clone()),
+                    g.place.clone(),
+                    g.github.clone(),
                 )
             })
         };
-        let Some((scope, workspace, grant_level, revoked, task_id, runtime_id, worker, branch)) =
-            context
+        let Some((
+            scope,
+            workspace,
+            grant_level,
+            revoked,
+            task_id,
+            runtime_id,
+            worker,
+            place,
+            github,
+        )) = context
         else {
             return CallResult::error("This task step has ended; its tools are closed.");
         };
@@ -1039,13 +1084,14 @@ impl Broker {
                 ))
             }
         };
-        let prepared = match prepare(
-            tool,
-            action,
-            workspace.as_ref(),
-            branch.as_deref(),
-            self.inner.config.command_timeout,
-        ) {
+        let at = Where {
+            ws: workspace.as_ref(),
+            branch: place.as_ref().map(|p| p.branch.as_str()),
+            base: place.as_ref().and_then(|p| p.base_ref.as_deref()),
+            repo: github.as_deref(),
+            gh: self.find_program("gh"),
+        };
+        let prepared = match prepare(tool, action, &at, self.inner.config.command_timeout) {
             Ok(p) => p,
             Err(r) => {
                 let decision = Decision {
@@ -1154,6 +1200,11 @@ impl Broker {
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.used += 1;
         }
+        // A pull request opened is recorded with its link (Phase 8).
+        let pull_request = (ok && tool.name == "github_pr_create")
+            .then(|| crate::github::pull_request_link(&text))
+            .flatten()
+            .map(|(url, number)| json!({ "url": url, "number": number }));
         let _ = self.ledger().append_event(NewEvent {
             task_id: Some(task_id),
             execution_id: execution.clone(),
@@ -1170,6 +1221,7 @@ impl Broker {
                 "result": first_line(&text),
                 "approvalId": approval_id,
                 "executionId": execution,
+                "pullRequest": pull_request,
             }),
             ..NewEvent::default()
         });
@@ -1418,92 +1470,173 @@ impl Broker {
                 cwd,
                 stdin,
                 timeout,
-                git,
+                env,
             } => {
-                let mut env = programs::dev_env();
-                if git {
-                    env.extend(programs::git_env());
-                }
-                let program = CommandLine {
-                    program: executable
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    args: Vec::new(),
-                }
-                .program_name();
-                let mut secrets_used = Vec::new();
-                if let Ok(config) = self.inner.guard.config() {
-                    for s in config
-                        .secrets
-                        .iter()
-                        .filter(|s| s.programs.contains(&program))
-                    {
-                        if let (Some(var), Ok(Some(value))) =
-                            (&s.env_var, self.inner.store.get(&s.id))
-                        {
-                            env.push((var.clone(), value));
-                            secrets_used.push(s.name.clone());
-                        }
-                    }
-                }
-                let this = self.clone();
-                let grant = grant_id.to_owned();
-                let ran = programs::run(
-                    &self.inner.supervisor,
-                    Run {
-                        label: cap(&format!("{worker} · {summary}"), 200),
-                        executable,
-                        args,
-                        working_dir: &cwd,
-                        env,
-                        stdin,
-                        timeout,
-                    },
-                    move |id| {
-                        if let Some(g) = this.state().grants.get_mut(&grant) {
-                            g.running.insert(id.to_owned());
-                        } else {
-                            // Ended while starting: stop it.
-                            let (sup, id) = (this.inner.supervisor.clone(), id.to_owned());
-                            this.spawn(async move {
-                                let _ = sup.cancel(&id).await;
-                            });
-                        }
-                    },
+                self.run_program(
+                    grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env,
                 )
-                .await;
-                match ran {
-                    Ok(ran) => {
-                        if let Some(g) = self.state().grants.get_mut(grant_id) {
-                            g.running.remove(&ran.execution_id);
-                        }
-                        let mut text = String::new();
-                        if !secrets_used.is_empty() {
-                            text.push_str(&format!(
-                                "(Given the stored secret(s) {} by Plenipo.)\n",
-                                secrets_used.join(", ")
-                            ));
-                        }
-                        let output = ran.output.trim_end();
-                        text.push_str(if output.is_empty() {
-                            "(no output)"
-                        } else {
-                            output
-                        });
-                        text.push('\n');
-                        text.push_str(&ran.ending(timeout));
-                        let id = Some(ran.execution_id.clone());
-                        if ran.succeeded() {
-                            (Ok(text), id)
-                        } else {
-                            (Err(text), id)
-                        }
+                .await
+            }
+            Work::PullRequest {
+                git,
+                push,
+                gh,
+                create,
+                cwd,
+                timeout,
+            } => {
+                let (pushed, push_run) = self
+                    .run_program(
+                        grant_id,
+                        worker,
+                        summary,
+                        git,
+                        push,
+                        &cwd,
+                        None,
+                        timeout,
+                        programs::git_env(),
+                    )
+                    .await;
+                let pushed = match pushed {
+                    Ok(text) => text,
+                    Err(text) => {
+                        return (
+                            Err(format!("The branch could not be pushed:\n{text}")),
+                            push_run,
+                        )
                     }
-                    Err(e) => (Err(e), None),
+                };
+                let (created, create_run) = self
+                    .run_program(
+                        grant_id,
+                        worker,
+                        summary,
+                        gh,
+                        create,
+                        &cwd,
+                        None,
+                        timeout,
+                        programs::gh_env(),
+                    )
+                    .await;
+                let run = create_run.or(push_run);
+                match created {
+                    Ok(text) => (Ok(format!("{text}\nPushed the branch:\n{pushed}")), run),
+                    Err(text) => (
+                        Err(format!(
+                            "The branch was pushed, but the pull request could not be opened:\n{text}"
+                        )),
+                        run,
+                    ),
                 }
             }
         }
+    }
+
+    /// Run one program for a grant: through the supervisor, with the stored secrets the owner
+    /// gave that program; its output and run ID.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_program(
+        &self,
+        grant_id: &str,
+        worker: &str,
+        summary: &str,
+        executable: PathBuf,
+        args: Vec<String>,
+        cwd: &Path,
+        stdin: Option<Vec<u8>>,
+        timeout: Duration,
+        extra: Vec<(String, String)>,
+    ) -> (std::result::Result<String, String>, Option<String>) {
+        let mut env = programs::dev_env();
+        env.extend(extra);
+        let program = CommandLine {
+            program: executable
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            args: Vec::new(),
+        }
+        .program_name();
+        let mut secrets_used = Vec::new();
+        if let Ok(config) = self.inner.guard.config() {
+            for s in config
+                .secrets
+                .iter()
+                .filter(|s| s.programs.contains(&program))
+            {
+                if let (Some(var), Ok(Some(value))) = (&s.env_var, self.inner.store.get(&s.id)) {
+                    env.push((var.clone(), value));
+                    secrets_used.push(s.name.clone());
+                }
+            }
+        }
+        let this = self.clone();
+        let grant = grant_id.to_owned();
+        let ran = programs::run(
+            &self.inner.supervisor,
+            Run {
+                label: cap(&format!("{worker} · {summary}"), 200),
+                executable,
+                args,
+                working_dir: cwd,
+                env,
+                stdin,
+                timeout,
+            },
+            move |id| {
+                if let Some(g) = this.state().grants.get_mut(&grant) {
+                    g.running.insert(id.to_owned());
+                } else {
+                    // Ended while starting: stop it.
+                    let (sup, id) = (this.inner.supervisor.clone(), id.to_owned());
+                    this.spawn(async move {
+                        let _ = sup.cancel(&id).await;
+                    });
+                }
+            },
+        )
+        .await;
+        match ran {
+            Ok(ran) => {
+                if let Some(g) = self.state().grants.get_mut(grant_id) {
+                    g.running.remove(&ran.execution_id);
+                }
+                let mut text = String::new();
+                if !secrets_used.is_empty() {
+                    text.push_str(&format!(
+                        "(Given the stored secret(s) {} by Plenipo.)\n",
+                        secrets_used.join(", ")
+                    ));
+                }
+                let output = ran.output.trim_end();
+                text.push_str(if output.is_empty() {
+                    "(no output)"
+                } else {
+                    output
+                });
+                text.push('\n');
+                text.push_str(&ran.ending(timeout));
+                let id = Some(ran.execution_id.clone());
+                if ran.succeeded() {
+                    (Ok(text), id)
+                } else {
+                    (Err(text), id)
+                }
+            }
+            Err(e) => (Err(e), None),
+        }
+    }
+
+    /// A program by name: from the configured search folders (tests), then PATH.
+    fn find_program(&self, name: &str) -> Option<PathBuf> {
+        self.inner
+            .config
+            .search_path
+            .clone()
+            .and_then(|p| programs::find_in(name, Some(p)))
+            .or_else(|| programs::find_on_path(name))
     }
 
     // ---- Views --------------------------------------------------------------------------------
@@ -1822,15 +1955,15 @@ fn program_path(
     Ok((found, program.to_owned()))
 }
 
-/// Read a call into what Guard checks and what Plenipo then does. `branch`: the objective's
-/// branch when the worker works in its working copy (Phase 8), which git tools must stay on.
+/// Read a call into what Guard checks and what Plenipo then does. In an objective's working
+/// copy (Phase 8), git tools stay on its branch.
 fn prepare(
     tool: &ToolDef,
     action: Action,
-    ws: Option<&Workspace>,
-    branch: Option<&str>,
+    at: &Where<'_>,
     default_timeout: Duration,
 ) -> std::result::Result<Prepared, Refused> {
+    let (ws, branch) = (at.ws, at.branch);
     let base = |summary: String, detail: String, files: Vec<Resolved>, work: Work| {
         let writes_git_dir = tool.capability == Capability::FilesystemWrite
             && files.iter().any(Resolved::in_git_dir);
@@ -1981,7 +2114,7 @@ fn prepare(
                     cwd,
                     stdin: None,
                     timeout: timeout_of(timeout),
-                    git: false,
+                    env: Vec::new(),
                 },
                 Err(why) => Work::Missing(why),
             };
@@ -2013,13 +2146,190 @@ fn prepare(
                     cwd,
                     stdin: Some(script.clone().into_bytes()),
                     timeout: timeout_of(timeout),
-                    git: false,
+                    env: Vec::new(),
                 },
                 None => Work::Missing("PowerShell is not installed on this computer.".into()),
             };
             let mut p = base(s, script.clone(), vec![], work);
             p.script = Some(script);
             p
+        }
+        github @ (Action::GithubPrList { .. }
+        | Action::GithubPrView { .. }
+        | Action::GithubPrChecks { .. }
+        | Action::GithubIssueView { .. }
+        | Action::GithubPrCreate { .. }) => {
+            let s = tool.name.replace('_', " ");
+            let refuse = |reason: &str| Refused {
+                layer: Layer::Target,
+                reason: reason.to_owned(),
+                summary: s.clone(),
+            };
+            let Some(w) = ws else {
+                return Err(refuse("there is no project folder."));
+            };
+            let Some(repo) = at.repo else {
+                return Err(refuse(
+                    "the project's repository is not on GitHub (the owner sets its GitHub \
+                     address under Edit project).",
+                ));
+            };
+            let cwd = w.root().to_path_buf();
+            let gh_missing = || {
+                Work::Missing(
+                    "GitHub's gh program is not installed on this computer (cli.github.com), so \
+                     GitHub tools cannot run."
+                        .into(),
+                )
+            };
+            let gh = |args: Vec<String>| match &at.gh {
+                Some(gh) => Work::Program {
+                    executable: gh.clone(),
+                    args,
+                    cwd: cwd.clone(),
+                    stdin: None,
+                    timeout: default_timeout,
+                    env: programs::gh_env(),
+                },
+                None => gh_missing(),
+            };
+            let strings =
+                |items: &[&str]| -> Vec<String> { items.iter().map(|a| (*a).to_owned()).collect() };
+            // Without a number: the pull request of this objective's branch.
+            let selector = |number: Option<u64>| match (number, branch) {
+                (Some(n), _) => Ok(n.to_string()),
+                (None, Some(b)) => Ok(b.to_owned()),
+                (None, None) => Err(refuse(
+                    "give the pull request's number (this project has no branch per objective).",
+                )),
+            };
+            match github {
+                Action::GithubPrList { state, limit } => {
+                    let args = strings(&[
+                        "pr",
+                        "list",
+                        "--repo",
+                        repo,
+                        "--state",
+                        &state,
+                        "--limit",
+                        &limit.to_string(),
+                        "--json",
+                        "number,title,state,isDraft,headRefName,baseRefName,url",
+                    ]);
+                    base(
+                        format!("list {state} pull requests of {repo}"),
+                        format!("gh {}", args.join(" ")),
+                        vec![],
+                        gh(args),
+                    )
+                }
+                Action::GithubPrView { number } => {
+                    let which = selector(number)?;
+                    let args = strings(&[
+                        "pr",
+                        "view",
+                        &which,
+                        "--repo",
+                        repo,
+                        "--json",
+                        "number,title,state,isDraft,url,headRefName,baseRefName,reviewDecision,\
+                         mergeable,body",
+                    ]);
+                    base(
+                        format!("view pull request {which} of {repo}"),
+                        format!("gh {}", args.join(" ")),
+                        vec![],
+                        gh(args),
+                    )
+                }
+                Action::GithubPrChecks { number } => {
+                    let which = selector(number)?;
+                    let args = strings(&[
+                        "pr",
+                        "checks",
+                        &which,
+                        "--repo",
+                        repo,
+                        "--json",
+                        "name,state,bucket,link,workflow",
+                    ]);
+                    base(
+                        format!("view the checks of pull request {which} of {repo}"),
+                        format!("gh {}", args.join(" ")),
+                        vec![],
+                        gh(args),
+                    )
+                }
+                Action::GithubIssueView { number } => {
+                    let args = strings(&[
+                        "issue",
+                        "view",
+                        &number.to_string(),
+                        "--repo",
+                        repo,
+                        "--json",
+                        "number,title,state,url,body,labels",
+                    ]);
+                    base(
+                        format!("view issue {number} of {repo}"),
+                        format!("gh {}", args.join(" ")),
+                        vec![],
+                        gh(args),
+                    )
+                }
+                Action::GithubPrCreate { title, body } => {
+                    let Some(branch) = branch else {
+                        return Err(refuse(
+                            "pull requests are opened for an objective's own branch, and this \
+                             project works in its folder (the owner can turn on a branch per \
+                             objective under Edit project).",
+                        ));
+                    };
+                    let push =
+                        programs::git_args(w.root(), &strings(&["push", "-u", "origin", branch]));
+                    let mut create = strings(&[
+                        "pr", "create", "--repo", repo, "--draft", "--head", branch, "--title",
+                        &title, "--body", &body,
+                    ]);
+                    if let Some(b) = at.base {
+                        create.extend(strings(&["--base", b]));
+                    }
+                    let work = match (programs::find_on_path("git"), &at.gh) {
+                        (Some(git), Some(gh)) => Work::PullRequest {
+                            git,
+                            push,
+                            gh: gh.clone(),
+                            create,
+                            cwd: cwd.clone(),
+                            timeout: default_timeout,
+                        },
+                        (None, _) => {
+                            Work::Missing("git is not installed (it was not found on PATH).".into())
+                        }
+                        (_, None) => gh_missing(),
+                    };
+                    let into = at.base.unwrap_or("the default branch");
+                    let mut p = base(
+                        format!(
+                            "open a draft pull request \"{}\" from {branch} into {into} on {repo}",
+                            cap(&title, 80)
+                        ),
+                        format!(
+                            "git push -u origin {branch}\ngh pr create --draft --repo {repo} \
+                             --head {branch} --base {into} --title {title:?}\n\n{body}"
+                        ),
+                        vec![],
+                        work,
+                    );
+                    p.inherent = Some((
+                        SensitiveKind::Outbound,
+                        "it publishes the branch and opens a pull request on GitHub",
+                    ));
+                    p
+                }
+                _ => unreachable!("only GitHub actions come here"),
+            }
         }
         git_action => {
             let s = tool.name.replace('_', " ");
@@ -2145,7 +2455,7 @@ fn prepare(
                     cwd: w.root().to_path_buf(),
                     stdin: None,
                     timeout: default_timeout,
-                    git: true,
+                    env: programs::git_env(),
                 },
                 None => Work::Missing("git is not installed (it was not found on PATH).".into()),
             };

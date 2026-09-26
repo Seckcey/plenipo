@@ -64,6 +64,10 @@ type Answer = fn(&[String]) -> i32;
 /// tool adds its persona here (docs/development/adding-an-ai-tool.md).
 const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex)];
 
+/// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`.
+/// Listed by `--helpers`, never among the AI tools.
+const HELPERS: &[(&str, Answer)] = &[("gh", gh)];
+
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
     let persona = args
@@ -73,10 +77,19 @@ pub fn main() {
         .unwrap_or_default();
     let rest = &args[1..];
     let names: Vec<&str> = PERSONAS.iter().map(|(name, _)| *name).collect();
-    let code = match PERSONAS.iter().find(|(name, _)| *name == persona) {
+    let code = match PERSONAS
+        .iter()
+        .chain(HELPERS)
+        .find(|(name, _)| *name == persona)
+    {
         Some((_, answer)) => answer(rest),
         None if rest == ["--personas"] => {
             println!("{}", names.join("\n"));
+            0
+        }
+        None if rest == ["--helpers"] => {
+            let helpers: Vec<&str> = HELPERS.iter().map(|(name, _)| *name).collect();
+            println!("{}", helpers.join("\n"));
             0
         }
         None => {
@@ -1031,6 +1044,130 @@ fn claude_turn(args: &[String]) -> i32 {
                    "cache_read_input_tokens": 5, "output_tokens": 7 }
     }));
     0
+}
+
+// ---- GitHub's gh (Phase 8) ------------------------------------------------------------------
+
+/// The fake gh keeps its pull requests next to its own executable (Plenipo runs programs with
+/// its own environment, so each test's copy has its own state). `signed-out` there makes every
+/// command fail as unauthenticated unless GH_TOKEN is set; `last-env.txt` lists the variable
+/// names of the last run (never values).
+fn gh_dir() -> PathBuf {
+    let dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("gh-state")))
+        .unwrap_or_else(|| state_dir().join("gh"));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn gh_prs() -> Vec<Value> {
+    std::fs::read_to_string(gh_dir().join("prs.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn gh(args: &[String]) -> i32 {
+    let dir = gh_dir();
+    let mut names: Vec<String> = std::env::vars_os()
+        .map(|(k, _)| k.to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let _ = std::fs::write(dir.join("last-env.txt"), names.join("\n"));
+    let _ = std::fs::write(dir.join("last-args.json"), json!(args).to_string());
+    if args.first().map(String::as_str) == Some("--version") {
+        println!("gh version 2.99.0 (fake)");
+        return 0;
+    }
+    if dir.join("signed-out").exists() && std::env::var_os("GH_TOKEN").is_none() {
+        eprintln!("To get started with GitHub CLI, please run:  gh auth login");
+        return 4;
+    }
+    let repo = flag(args, "--repo").unwrap_or_default();
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let find = |sel: &str| {
+        gh_prs().into_iter().find(|p| {
+            p["number"].as_u64().map(|n| n.to_string()).as_deref() == Some(sel)
+                || p["headRefName"] == sel
+        })
+    };
+    match words.as_slice() {
+        ["pr", "create", ..] => {
+            let mut prs = gh_prs();
+            let head = flag(args, "--head").unwrap_or_default();
+            if prs.iter().any(|p| p["headRefName"] == head.as_str()) {
+                eprintln!("a pull request for branch \"{head}\" already exists");
+                return 1;
+            }
+            let number = prs.len() + 1;
+            let url = format!("https://github.com/{repo}/pull/{number}");
+            prs.push(json!({
+                "number": number,
+                "title": flag(args, "--title").unwrap_or_default(),
+                "body": flag(args, "--body").unwrap_or_default(),
+                "state": "OPEN",
+                "isDraft": args.iter().any(|a| a == "--draft"),
+                "headRefName": head,
+                "baseRefName": flag(args, "--base").unwrap_or_else(|| "main".into()),
+                "url": url,
+                "reviewDecision": "",
+                "mergeable": "MERGEABLE",
+            }));
+            let _ = std::fs::write(dir.join("prs.json"), json!(prs).to_string());
+            println!("{url}");
+            0
+        }
+        ["pr", "list", ..] => {
+            let state = flag(args, "--state").unwrap_or_else(|| "open".into());
+            let prs: Vec<Value> = gh_prs()
+                .into_iter()
+                .filter(|p| state == "all" || p["state"].as_str() == Some(&state.to_uppercase()))
+                .collect();
+            println!("{}", json!(prs));
+            0
+        }
+        ["pr", "view", sel, ..] => match find(sel) {
+            Some(pr) => {
+                println!("{pr}");
+                0
+            }
+            None => {
+                eprintln!("no pull requests found for branch \"{sel}\"");
+                1
+            }
+        },
+        ["pr", "checks", sel, ..] => match find(sel) {
+            Some(_) => {
+                println!(
+                    "{}",
+                    json!([{ "name": "CI / test", "state": "SUCCESS", "bucket": "pass",
+                             "workflow": "CI",
+                             "link": format!("https://github.com/{repo}/actions/runs/1") }])
+                );
+                0
+            }
+            None => {
+                eprintln!("no pull requests found for branch \"{sel}\"");
+                1
+            }
+        },
+        ["issue", "view", number, ..] => {
+            println!(
+                "{}",
+                json!({ "number": number.parse::<u64>().unwrap_or(0),
+                        "title": format!("Issue {number}"), "state": "OPEN",
+                        "url": format!("https://github.com/{repo}/issues/{number}"),
+                        "body": "The login page should remember the user's email.",
+                        "labels": [] })
+            );
+            0
+        }
+        _ => {
+            eprintln!("fake gh: unknown command {args:?}");
+            64
+        }
+    }
 }
 
 // ---- Codex --------------------------------------------------------------------------------

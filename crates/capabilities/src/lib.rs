@@ -12,6 +12,7 @@ pub mod broker;
 pub mod dto;
 mod error;
 pub mod files;
+pub mod github;
 pub mod mcp;
 pub mod programs;
 pub mod relay;

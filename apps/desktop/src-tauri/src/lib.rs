@@ -830,7 +830,7 @@ mod ipc_boundary_tests {
                 overview.limits.max_rounds,
                 overview.limits.max_workflow_handoffs
             ),
-            (3, 3, 5, 12)
+            (3, 3, 8, 16)
         );
         let addresses: Vec<_> = overview
             .destinations

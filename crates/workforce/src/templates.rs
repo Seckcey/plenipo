@@ -170,6 +170,9 @@ const TEMPLATES: &[Template] = &[
     },
 ];
 
+/// Built-in roles whose workers end their answers with a verdict (Phase 8).
+pub const VERDICT_ROLES: [&str; 3] = ["Code Reviewer", "QA Engineer", "Security Auditor"];
+
 /// Every built-in template, as the Ledger seeds them.
 pub fn role_templates() -> Vec<RoleTemplate> {
     TEMPLATES
@@ -184,6 +187,7 @@ pub fn role_templates() -> Vec<RoleTemplate> {
                 "glyph": t.glyph,
                 "purpose": t.purpose,
                 "defaultCapabilities": t.capabilities,
+                "verdict": VERDICT_ROLES.contains(&t.name),
             }),
             formerly: t.formerly,
         })

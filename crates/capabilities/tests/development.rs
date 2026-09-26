@@ -53,6 +53,22 @@ fn personas() -> &'static [&'static str] {
     })
 }
 
+/// The other programs it stands in for (`--helpers`): GitHub's `gh`.
+fn helpers() -> &'static [&'static str] {
+    static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_plenipo-fake-agent-capabilities"))
+            .arg("--helpers")
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .leak()
+            .lines()
+            .collect()
+    })
+}
+
 /// One copy of the fake CLIs per test process, ready to execute.
 fn fake_clis() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -60,7 +76,7 @@ fn fake_clis() -> &'static Path {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("development-fake-agents-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for stem in personas() {
+        for stem in personas().iter().chain(helpers()) {
             let path = dir.join(exe_name(stem));
             std::fs::copy(env!("CARGO_BIN_EXE_plenipo-fake-agent-capabilities"), &path).unwrap();
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -126,6 +142,7 @@ struct H {
     workforce: Workforce,
     guard: Guard,
     broker: Broker,
+    store: Arc<MemorySecretStore>,
     run: tokio::task::JoinHandle<()>,
     dir: tempfile::TempDir,
     /// The project's folder: the owner's own git checkout.
@@ -164,7 +181,7 @@ async fn harness_with(branch_per_objective: bool) -> H {
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(dir.path().join("home").join(".plenipo-fake-agent")).unwrap();
-    for stem in personas() {
+    for stem in personas().iter().chain(helpers()) {
         install_fake(&bin, stem);
     }
     let folder = dir.path().join("website");
@@ -181,6 +198,14 @@ async fn harness_with(branch_per_objective: bool) -> H {
     git(&folder, &["config", "user.email", "test@example.com"]);
     git(&folder, &["add", "-A"]);
     git(&folder, &["commit", "-q", "-m", "Start"]);
+    // Its remote server: a bare repository next to it.
+    let origin = dir.path().join("origin.git");
+    git(dir.path(), &["init", "-q", "--bare", "origin.git"]);
+    git(
+        &folder,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&folder, &["push", "-q", "origin", "main"]);
 
     let ledger = Arc::new(Ledger::open(&dir.path().join("ledger").join(DB_FILE_NAME)).unwrap());
     let sup = Supervisor::new(
@@ -233,7 +258,9 @@ async fn harness_with(branch_per_objective: bool) -> H {
         dir.path().join("tickets"),
     );
     broker_config.approval_minute = Duration::from_secs(1);
-    let broker = Broker::new(guard.clone(), sup.clone(), store, broker_config);
+    // GitHub's gh is the stand-in in the test's own folder.
+    broker_config.search_path = Some(bin.clone().into_os_string());
+    let broker = Broker::new(guard.clone(), sup.clone(), store.clone(), broker_config);
     broker.start().await.unwrap();
     rt.set_tools(Arc::new(broker.clone()));
     rt.set_filter(broker.text_filter());
@@ -312,6 +339,7 @@ async fn harness_with(branch_per_objective: bool) -> H {
         workforce,
         guard,
         broker,
+        store,
         run,
         folder,
         project,
@@ -324,6 +352,7 @@ impl H {
     /// What each position does, turn by turn (see the fake CLI's scripts).
     fn script(&self, script: &Value) {
         let dir = self.dir.path().join("home").join(".plenipo-fake-agent");
+        let _ = std::fs::remove_dir_all(dir.join("script-used"));
         std::fs::write(dir.join("script.json"), script.to_string()).unwrap();
     }
 
@@ -440,6 +469,20 @@ impl H {
         let mut rules = self.guard.config().unwrap().commands;
         rules.approved = approved.iter().map(|s| (*s).to_owned()).collect();
         self.guard.set_commands(&rules).unwrap();
+    }
+}
+
+impl H {
+    /// The fake gh's state (its pull requests, and the variables of its last run).
+    fn gh_state(&self) -> PathBuf {
+        self.dir.path().join("bin").join("gh-state")
+    }
+
+    fn pull_requests(&self) -> Vec<Value> {
+        std::fs::read_to_string(self.gh_state().join("prs.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -736,5 +779,204 @@ async fn removing_a_finished_objectives_working_copy_keeps_its_branch() {
     assert_eq!(
         h.broker.remove_workspace(&w.id, "owner").unwrap().state,
         WorkspaceState::Removed
+    );
+}
+
+// ---- GitHub ----------------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_developer_opens_a_draft_pull_request_for_its_branch_only_after_approval() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Backend Developer", "Build the login page and open a pull request.")] },
+            { "say": "The pull request is open." }
+        ],
+        "Backend Developer": [
+            { "say": "Opened the pull request.",
+              "tools": [
+                  tool("github_issue_view", json!({ "number": 12 })),
+                  tool("write_file", json!({ "path": "src/login.txt", "content": "login\n" })),
+                  tool("git_add", json!({ "paths": ["src/login.txt"] })),
+                  tool("git_commit", json!({ "message": "Add the login page" })),
+                  tool("github_pr_create", json!({
+                      "title": "Add the login page",
+                      "body": "Adds src/login.txt. Tested by hand."
+                  })),
+                  tool("github_pr_view", json!({})),
+                  tool("github_pr_checks", json!({})),
+                  tool("github_pr_list", json!({})),
+              ] }
+        ]
+    }));
+    let root = h
+        .objective(&h.team.supervisor, "Build the login page")
+        .await;
+    // Publishing waits for the owner; nothing is pushed before.
+    let approval = h.pending().await;
+    assert!(
+        approval.summary.starts_with(
+            "open a draft pull request \"Add the login page\" from plenipo/build-the-login-page-"
+        ),
+        "{}",
+        approval.summary
+    );
+    assert!(
+        approval.summary.ends_with(" into main on example/website"),
+        "{}",
+        approval.summary
+    );
+    assert!(approval.detail.contains("git push -u origin plenipo/"));
+    assert!(h.pull_requests().is_empty());
+    assert!(git(
+        &h.dir.path().join("origin.git"),
+        &["branch", "--list", "plenipo/*"]
+    )
+    .is_empty());
+    h.broker
+        .resolve_approval(&approval.id, true, "owner")
+        .unwrap();
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+
+    let prs = h.pull_requests();
+    assert_eq!(prs.len(), 1);
+    let branch = prs[0]["headRefName"].as_str().unwrap().to_owned();
+    assert!(
+        branch.starts_with("plenipo/build-the-login-page-"),
+        "{branch}"
+    );
+    assert_eq!(prs[0]["baseRefName"], "main");
+    assert_eq!(prs[0]["isDraft"], true);
+    // The branch reached the remote server, with the commit.
+    assert_eq!(
+        git(
+            &h.dir.path().join("origin.git"),
+            &["log", "--format=%s", "-n", "1", &branch]
+        ),
+        "Add the login page"
+    );
+    let dev = &h.tasks_of(&root, "Backend Developer")[0];
+    let used = h.events(&dev.id, "capability.used");
+    let created = used
+        .iter()
+        .find(|u| u["tool"] == "github_pr_create")
+        .unwrap();
+    assert_eq!(created["ok"], true);
+    assert_eq!(
+        created["pullRequest"]["url"],
+        "https://github.com/example/website/pull/1"
+    );
+    assert_eq!(created["approvalId"], approval.id.as_str());
+    let text = h.text(&dev.id);
+    for line in [
+        "Tool github_issue_view:",
+        "Tool github_pr_create: https://github.com/example/website/pull/1",
+        "Tool github_pr_view:",
+        "Tool github_pr_checks:",
+        "Tool github_pr_list:",
+    ] {
+        assert!(text.contains(line), "{line} in {text}");
+    }
+    assert!(text.contains("\"bucket\":\"pass\""), "{text}");
+    // The working copy knows its branch was pushed.
+    let w = h
+        .ledger
+        .project_workspaces(&h.project, 1)
+        .unwrap()
+        .remove(0);
+    assert!(w.facts.pushed, "{:#?}", w.facts);
+    // gh never waits for input or prints colors.
+    let env = std::fs::read_to_string(h.gh_state().join("last-env.txt")).unwrap();
+    for var in ["GH_PROMPT_DISABLED", "NO_COLOR"] {
+        assert!(env.lines().any(|l| l == var), "{var}: {env}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn github_tools_use_only_the_projects_repository_and_the_workers_permissions() {
+    let h = harness().await;
+    std::fs::create_dir_all(h.gh_state()).unwrap();
+    std::fs::write(h.gh_state().join("signed-out"), "").unwrap();
+    // The owner gives gh a GitHub token from Secrets; the worker never sees it.
+    h.broker
+        .save_secret(&plenipo_guard::SecretInput {
+            name: "GitHub token".into(),
+            env_var: Some("GH_TOKEN".into()),
+            programs: vec!["gh".into()],
+            value: Some("ghp_testtoken1234567890abcdefghijklmnop".into()),
+            ..plenipo_guard::SecretInput::default()
+        })
+        .unwrap();
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [
+                to("Reviewer", "Check the open pull requests."),
+            ] },
+            { "say": "Checked." }
+        ],
+        "Reviewer": [
+            { "say": "Checked.",
+              "tools": [
+                  tool("github_pr_list", json!({ "state": "all" })),
+                  tool("github_pr_create", json!({ "title": "Sneaky" })),
+              ] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Check pull requests").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let reviewer = &h.tasks_of(&root, "Reviewer")[0];
+    let text = h.text(&reviewer.id);
+    // Reading works with the stored token (gh itself is signed out)...
+    assert!(text.contains("Tool github_pr_list:"), "{text}");
+    assert!(
+        text.contains("Given the stored secret(s) GitHub token"),
+        "{text}"
+    );
+    // ...but a reviewer may not open pull requests.
+    assert!(text.contains("Tool github_pr_create failed"), "{text}");
+    let denied = h.events(&reviewer.id, "guard.denied");
+    assert_eq!(denied.len(), 1, "{denied:?}");
+    assert_eq!(denied[0]["layer"], "role");
+    assert!(h.pull_requests().is_empty());
+    let recorded = format!("{:?}", h.ledger.events_for_task(&reviewer.id).unwrap());
+    assert!(
+        !recorded.contains("ghp_testtoken"),
+        "the token is never recorded"
+    );
+
+    // Without a GitHub address for the project, GitHub tools refuse.
+    let project = h.workforce.snapshot().unwrap().projects.remove(0);
+    h.workforce
+        .update_project(
+            &h.project,
+            &ProjectInput {
+                name: project.name,
+                description: project.description,
+                repository_url: Some("https://gitlab.com/example/website".into()),
+                local_path: project.local_path,
+                allowed_runtimes: project.allowed_runtimes,
+                capability_profile: None,
+                branch_per_objective: None,
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Reviewer", "Check again.")] },
+            { "say": "Checked." }
+        ],
+        "Reviewer": [
+            { "tools": [tool("github_pr_list", json!({}))] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Check again").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let reviewer = &h.tasks_of(&root, "Reviewer")[0];
+    assert!(
+        h.text(&reviewer.id).contains("not on GitHub"),
+        "{}",
+        h.text(&reviewer.id)
     );
 }
