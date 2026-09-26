@@ -557,3 +557,275 @@ async fn children_do_not_outlive_a_crashed_owner() {
     host.wait().unwrap();
     wait_pid_gone(hosted).await;
 }
+
+// ---- Launch specs (Phase 3: adapter-built launches) --------------------------------------
+
+fn spec(id: &str, scenario: Scenario, dir: &Path) -> plenipo_runtime::LaunchSpec {
+    let mut spec = profile(id, scenario, dir, 60).to_spec();
+    spec.label = format!("{id} spec");
+    spec
+}
+
+async fn drain(
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<plenipo_runtime::OutputLine>,
+) -> Vec<plenipo_runtime::OutputLine> {
+    let mut lines = vec![];
+    while let Some(line) = rx.recv().await {
+        lines.push(line);
+    }
+    lines
+}
+
+#[tokio::test]
+async fn launch_writes_stdin_and_the_observer_sees_every_line_in_order() {
+    let h = harness();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
+    let input = "first line\nsecond \"quoted\" line; & | > ok\n";
+    s.stdin = Some(input.as_bytes().to_vec());
+    s.observer = Some(tx);
+    let started = h.sup.launch(s).await.unwrap();
+    let observed = tokio::time::timeout(WAIT, drain(rx)).await.unwrap();
+    let done = h.sup.wait(&started.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Succeeded, "{done:?}");
+
+    let texts: Vec<_> = observed.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "stdin: first line",
+            "stdin: second \"quoted\" line; & | > ok",
+            &format!("stdin bytes: {}", input.len())
+        ]
+    );
+    // Observer lines carry the same sequence numbers as the UI stream.
+    let seqs: Vec<_> = observed.iter().map(|l| l.seq).collect();
+    assert_eq!(seqs, [1, 2, 3]);
+    assert_eq!(
+        h.sink
+            .lines(&started.id)
+            .iter()
+            .map(|l| l.3)
+            .collect::<Vec<_>>(),
+        seqs
+    );
+    // Stdin content is not recorded in the execution metadata.
+    assert!(!format!("{done:?}").contains("first line"));
+}
+
+#[tokio::test]
+async fn without_stdin_the_child_reads_end_of_file() {
+    let h = harness();
+    let started = h
+        .sup
+        .launch(spec("stdin", Scenario::Stdin, h.dir.path()))
+        .await
+        .unwrap();
+    let done = wait_terminal(&h.sup, &started.id).await;
+    assert_eq!(done.state, ExecutionState::Succeeded);
+    wait_for_line(&h.sink, &started.id, "stdin bytes: 0").await;
+}
+
+#[tokio::test]
+async fn observer_gets_full_long_lines_while_the_ui_stream_stays_capped() {
+    let h = harness();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut s = spec("burst", Scenario::Burst, h.dir.path());
+    s.max_line_bytes = Some(256 * 1024);
+    s.observer = Some(tx);
+    let started = h.sup.launch(s).await.unwrap();
+    let observed = tokio::time::timeout(WAIT, drain(rx)).await.unwrap();
+    assert_eq!(observed.len(), 5002, "every line reaches the observer");
+    let long = observed.iter().find(|l| l.text.starts_with("xxx")).unwrap();
+    assert_eq!(long.text.len(), 100_000);
+    assert!(!long.truncated);
+
+    wait_terminal(&h.sup, &started.id).await;
+    let shown = h
+        .sink
+        .lines(&started.id)
+        .into_iter()
+        .find(|l| l.2.starts_with("xxx"))
+        .unwrap();
+    assert_eq!(shown.2.len(), SupervisorConfig::default().max_line_bytes);
+}
+
+#[tokio::test]
+async fn launch_requires_the_executable_to_be_allowed_by_core() {
+    let h = harness();
+    // A hard link: a second path to the same file, without the ETXTBSY race a fresh copy has
+    // on Linux while other tests fork.
+    let links = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let copy = links
+        .path()
+        .join(if cfg!(windows) { "agent.exe" } else { "agent" });
+    if std::fs::hard_link(diag_exe(), &copy).is_err() {
+        std::fs::copy(diag_exe(), &copy).unwrap();
+    }
+    let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
+    s.executable = copy.clone();
+    assert!(matches!(
+        h.sup.launch(s.clone()).await,
+        Err(RuntimeError::Policy(
+            plenipo_runtime::PolicyError::NotAllowed(_)
+        ))
+    ));
+    assert!(h.sup.overview().executions.is_empty(), "nothing recorded");
+
+    // Core located it (e.g. agent CLI detection) and allows it.
+    let allowed = h.sup.allow_executable(&copy).unwrap();
+    assert_eq!(allowed, dunce_canonical(&copy));
+    let started = h.sup.launch(s).await.unwrap();
+    assert_eq!(
+        wait_terminal(&h.sup, &started.id).await.state,
+        ExecutionState::Succeeded
+    );
+    assert!(h.sup.allow_executable(Path::new("relative/agent")).is_err());
+}
+
+fn dunce_canonical(p: &Path) -> PathBuf {
+    let c = std::fs::canonicalize(p).unwrap();
+    // Match `dunce`: no `\\?\` prefix on Windows for ordinary paths.
+    PathBuf::from(c.to_string_lossy().trim_start_matches(r"\\?\"))
+}
+
+#[tokio::test]
+async fn launch_validates_the_spec() {
+    let h = harness();
+    let base = spec("stdin", Scenario::Stdin, h.dir.path());
+    let cases: Vec<(&str, plenipo_runtime::LaunchSpec)> = vec![
+        (
+            "id",
+            plenipo_runtime::LaunchSpec {
+                profile_id: "Bad ID".into(),
+                ..base.clone()
+            },
+        ),
+        (
+            "label",
+            plenipo_runtime::LaunchSpec {
+                label: " ".into(),
+                ..base.clone()
+            },
+        ),
+        (
+            "dir",
+            plenipo_runtime::LaunchSpec {
+                working_dir: "relative".into(),
+                ..base.clone()
+            },
+        ),
+        (
+            "env",
+            plenipo_runtime::LaunchSpec {
+                env: vec![("A=B".into(), "x".into())],
+                ..base.clone()
+            },
+        ),
+        (
+            "runtime",
+            plenipo_runtime::LaunchSpec {
+                max_runtime: Duration::ZERO,
+                ..base.clone()
+            },
+        ),
+        (
+            "lines",
+            plenipo_runtime::LaunchSpec {
+                max_line_bytes: Some(0),
+                ..base.clone()
+            },
+        ),
+    ];
+    for (what, s) in cases {
+        let err = h.sup.launch(s).await.expect_err(what);
+        assert!(err.is_caller_error(), "{what}: {err}");
+    }
+    assert!(h.sup.overview().executions.is_empty());
+}
+
+#[tokio::test]
+async fn annotate_updates_agent_attribution_and_persists_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("executions.json");
+    let h = harness_with(|_| vec![], Some(store_path.clone()));
+    let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
+    s.agent = Some(Box::new(plenipo_runtime::AgentAttribution {
+        runtime_id: "test-runtime".into(),
+        provider: "test".into(),
+        session_id: "s1".into(),
+        task_id: "t1".into(),
+        model: None,
+        provider_session_id: None,
+        usage: None,
+    }));
+    let started = h.sup.launch(s).await.unwrap();
+    let updated = h
+        .sup
+        .annotate(&started.id, |a| {
+            a.provider_session_id = Some("provider-123".into());
+            a.model = Some("model-x".into());
+        })
+        .unwrap();
+    assert_eq!(
+        updated
+            .agent
+            .as_ref()
+            .unwrap()
+            .provider_session_id
+            .as_deref(),
+        Some("provider-123")
+    );
+    let done = h.sup.wait(&started.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Succeeded);
+    assert_eq!(
+        done.agent.as_ref().unwrap().model.as_deref(),
+        Some("model-x")
+    );
+
+    let saved = MetadataStore::file(&store_path).load().records;
+    assert_eq!(saved[0].agent, done.agent, "attribution persisted");
+    // Plain profile launches carry no attribution, and annotate leaves them alone.
+    let plain = h.sup.start("echo").await.unwrap();
+    assert!(plain.agent.is_none());
+    assert!(h
+        .sup
+        .annotate(&plain.id, |_| unreachable!())
+        .unwrap()
+        .agent
+        .is_none());
+    assert!(h.sup.annotate("nope", |_| {}).is_err());
+    assert!(h.sup.wait("nope").await.is_err());
+}
+
+#[tokio::test]
+async fn a_slow_observer_neither_stalls_reading_nor_loses_output() {
+    // The observer does not start consuming until after the drain timeout (2 s) has passed.
+    // Reading the pipes must not wait for it, or the tail of the output would be cut off.
+    // (One long pause rather than many short sleeps: Windows timers tick at ~15 ms.)
+    let h = harness();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut s = spec("burst", Scenario::Burst, h.dir.path());
+    s.max_line_bytes = Some(256 * 1024);
+    s.observer = Some(tx);
+    let started = h.sup.launch(s).await.unwrap();
+    let slow = tokio::spawn(async move {
+        tokio::time::sleep(SupervisorConfig::default().drain_timeout + Duration::from_secs(1))
+            .await;
+        let mut n = 0;
+        while let Some(line) = rx.recv().await {
+            n += 1;
+            if line.text == "burst done" {
+                return n;
+            }
+        }
+        n
+    });
+    let done = h.sup.wait(&started.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Succeeded);
+    assert_eq!(done.detail, None, "no descendants were terminated");
+    assert_eq!(
+        tokio::time::timeout(WAIT, slow).await.unwrap().unwrap(),
+        5002
+    );
+}

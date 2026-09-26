@@ -27,6 +27,8 @@ pub enum Scenario {
     Tree,
     /// 5,000 fast lines plus one 100 KB line, exits 0.
     Burst,
+    /// Reads stdin to the end, echoes each line as `stdin: <line>`, then the byte count.
+    Stdin,
 }
 
 impl Scenario {
@@ -38,6 +40,7 @@ impl Scenario {
             Self::Env => "env",
             Self::Tree => "tree",
             Self::Burst => "burst",
+            Self::Stdin => "stdin",
         }
     }
 
@@ -49,6 +52,7 @@ impl Scenario {
             Self::Env,
             Self::Tree,
             Self::Burst,
+            Self::Stdin,
         ]
         .into_iter()
         .find(|s| s.name() == name)
@@ -100,6 +104,18 @@ pub fn run(scenario: Scenario) -> i32 {
             }
             out(&"x".repeat(100_000));
             out("burst done");
+            0
+        }
+        Scenario::Stdin => {
+            let mut input = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input) {
+                err(&format!("cannot read stdin: {e}"));
+                return 1;
+            }
+            for line in input.lines() {
+                out(&format!("stdin: {line}"));
+            }
+            out(&format!("stdin bytes: {}", input.len()));
             0
         }
     }
@@ -177,6 +193,7 @@ mod tests {
             Scenario::Env,
             Scenario::Tree,
             Scenario::Burst,
+            Scenario::Stdin,
         ] {
             assert_eq!(Scenario::parse(s.name()), Some(s));
         }

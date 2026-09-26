@@ -7,6 +7,9 @@ import {
   getLedgerStatus,
   type PlenipoCommandError,
 } from "./api/commands";
+import { AgentsProvider } from "./agents/AgentsProvider";
+import { isRunning } from "./agents/store";
+import { useAgents } from "./agents/useAgents";
 import { BrandMark } from "./components/BrandMark";
 import { Sidebar } from "./components/Sidebar";
 import { VIEWS, type ViewId } from "./components/views";
@@ -18,6 +21,7 @@ import { DiagnosticsView } from "./views/DiagnosticsView";
 import { OrganizationView } from "./views/OrganizationView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
+import { WorkersView } from "./views/WorkersView";
 
 type CoreState =
   | { status: "loading" }
@@ -28,6 +32,7 @@ type CoreState =
 const VIEW_KEY = "plenipo.view";
 const SELECTED_KEY = "plenipo.selectedExecution";
 const SELECTED_TASK_KEY = "plenipo.selectedTask";
+const SELECTED_SESSION_KEY = "plenipo.selectedSession";
 
 /** Notices that mean data may be at risk get alert styling; others are informational. */
 function isSevere(notice: string): boolean {
@@ -78,14 +83,20 @@ export function App() {
 
   return (
     <RuntimeProvider>
-      <Shell core={core} />
+      <AgentsProvider>
+        <Shell core={core} />
+      </AgentsProvider>
     </RuntimeProvider>
   );
 }
 
 function Shell({ core }: { core: CoreState }) {
   const { state } = useRuntime();
+  const agents = useAgents();
   const [view, setView] = useState<ViewId>(initialView);
+  const [selectedSession, setSelectedSession] = useState<string | null>(() =>
+    readSession(SELECTED_SESSION_KEY),
+  );
   const [selected, setSelected] = useState<string | null>(() => readSession(SELECTED_KEY));
   const [selectedTask, setSelectedTask] = useState<string | null>(() =>
     readSession(SELECTED_TASK_KEY),
@@ -99,6 +110,7 @@ function Shell({ core }: { core: CoreState }) {
       .catch(() => undefined);
   }, []);
   const activeCount = Object.values(state.executions).filter(isActive).length;
+  const workingCount = Object.values(agents.state.sessions).filter(isRunning).length;
   const info = core.status === "ready" ? core.info : null;
 
   const navigate = (next: ViewId) => {
@@ -112,6 +124,14 @@ function Shell({ core }: { core: CoreState }) {
   const selectTask = (id: string | null) => {
     setSelectedTask(id);
     writeSession(SELECTED_TASK_KEY, id);
+  };
+  const selectSession = (id: string | null) => {
+    setSelectedSession(id);
+    writeSession(SELECTED_SESSION_KEY, id);
+  };
+  const showExecution = (id: string) => {
+    select(id);
+    navigate("runtimes");
   };
   const severe = ledgerNotices.some(isSevere);
 
@@ -128,7 +148,12 @@ function Shell({ core }: { core: CoreState }) {
       </header>
 
       <div className="shell__body">
-        <Sidebar current={view} onNavigate={navigate} activeCount={activeCount} />
+        <Sidebar
+          current={view}
+          onNavigate={navigate}
+          activeCount={activeCount}
+          workingCount={workingCount}
+        />
         <main className="shell__main">
           {ledgerNotices.length > 0 && !noticesDismissed && (
             <div
@@ -154,6 +179,14 @@ function Shell({ core }: { core: CoreState }) {
             </p>
           )}
           {view === "organization" && <OrganizationView />}
+          {view === "workers" && (
+            <WorkersView
+              selectedSessionId={selectedSession}
+              onSelectSession={selectSession}
+              onShowExecution={showExecution}
+              onOpenRuntimes={() => navigate("runtimes")}
+            />
+          )}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />

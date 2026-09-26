@@ -4,6 +4,7 @@
 //! [`commands`]. Each command must also be granted in
 //! `capabilities/default.json`; nothing else is exposed.
 
+pub mod agent_host;
 pub mod commands;
 pub mod ledger_host;
 pub mod runtime_host;
@@ -13,6 +14,7 @@ pub mod tray;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
 
@@ -59,8 +61,18 @@ pub fn configure<R: Runtime>(
             let ledger = ledger_host::open(app.handle(), options.persistence);
             app.manage(ledger.clone());
             let supervisor =
-                runtime_host::create_supervisor(app.handle(), options.persistence, ledger);
+                runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
+            let agents = agent_host::create(
+                app.handle(),
+                options.persistence,
+                ledger,
+                supervisor.clone(),
+            );
+            if options.persistence == Persistence::AppData {
+                agent_host::detect_in_background(&agents);
+            }
             app.manage(supervisor);
+            app.manage(agents);
             quit_on_termination_signal(app.handle().clone());
             if options.tray {
                 // A missing tray (e.g. no status-notifier host on Linux) is not fatal.
@@ -99,7 +111,14 @@ pub fn configure<R: Runtime>(
             commands::advance_synthetic_task,
             commands::run_integrity_check,
             commands::create_ledger_backup,
-            commands::export_ledger
+            commands::export_ledger,
+            commands::get_agent_overview,
+            commands::refresh_agent_runtimes,
+            commands::get_agent_session,
+            commands::start_agent_session,
+            commands::resume_agent_session,
+            commands::cancel_agent_turn,
+            commands::close_agent_session
         ])
 }
 
@@ -112,11 +131,17 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             api.prevent_exit();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
+                // The agent runtime stops its turns through the supervisor and records their
+                // results; the supervisor then has nothing left to stop.
+                let mut stopped = 0;
+                if let Some(agents) = app.try_state::<AgentRuntime>() {
+                    stopped += agents.shutdown(SHUTDOWN_GRACE).await;
+                }
                 if let Some(supervisor) = app.try_state::<Supervisor>() {
-                    let stopped = supervisor.shutdown(SHUTDOWN_GRACE).await;
-                    if stopped > 0 {
-                        eprintln!("[plenipo] terminated {stopped} running process(es) on exit");
-                    }
+                    stopped += supervisor.shutdown(SHUTDOWN_GRACE).await;
+                }
+                if stopped > 0 {
+                    eprintln!("[plenipo] terminated {stopped} running process(es) on exit");
                 }
                 app.exit(code.unwrap_or(0));
             });
@@ -190,8 +215,15 @@ mod ipc_boundary_tests {
         let ledger = ledger_host::open(app.handle(), Persistence::InMemory);
         app.manage(ledger.clone());
         let supervisor =
-            runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger);
+            runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger.clone());
+        let agents = agent_host::create(
+            app.handle(),
+            Persistence::InMemory,
+            ledger,
+            supervisor.clone(),
+        );
         app.manage(supervisor);
+        app.manage(agents);
         app
     }
 
@@ -393,7 +425,10 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
-        assert_eq!(status.schema_version, 1);
+        assert_eq!(
+            status.schema_version,
+            plenipo_ledger::migrate::latest(plenipo_ledger::MIGRATIONS)
+        );
         assert!(!status.persistent, "tests use an in-memory ledger");
 
         let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
@@ -537,5 +572,108 @@ mod ipc_boundary_tests {
         let app = app();
         let other = window(&app, "untrusted");
         assert!(invoke(&other, "get_app_info").is_err());
+    }
+
+    // ---- Agent runtimes (Phase 3) ---------------------------------------------------------
+
+    const SESSION: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+    #[test]
+    fn agent_overview_lists_runtimes_without_starting_anything() {
+        let app = app();
+        let main = window(&app, "main");
+        let overview: plenipo_runtime::agent::AgentOverview =
+            body(invoke(&main, "get_agent_overview"));
+        let ids: Vec<_> = overview.runtimes.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["claude-code", "codex"]);
+        assert!(overview.sessions.is_empty());
+        assert!(overview.runtimes.iter().all(|r| !r.ready));
+    }
+
+    #[test]
+    fn agent_runtimes_not_installed_refuse_work_clearly() {
+        let app = app();
+        let main = window(&app, "main");
+        // Tests see no installed runtimes (hermetic: no real CLI is ever started).
+        let runtimes: Vec<plenipo_runtime::agent::AgentRuntimeInfo> =
+            body(invoke(&main, "refresh_agent_runtimes"));
+        assert!(runtimes
+            .iter()
+            .all(|r| r.installation.state == plenipo_runtime::agent::InstallState::NotInstalled));
+        let err = invoke_json(
+            &main,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "codex", "objective": "hello" }),
+        )
+        .expect_err("not installed");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(
+            err["message"].as_str().unwrap().contains("not available"),
+            "{err}"
+        );
+        let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
+        assert_eq!(status.task_count, 0, "a refused turn records nothing");
+    }
+
+    #[test]
+    fn agent_commands_validate_input_and_accept_no_commands_or_paths() {
+        let app = app();
+        let main = window(&app, "main");
+        for args in [
+            serde_json::json!({ "runtimeId": "../claude", "objective": "x" }),
+            serde_json::json!({ "runtimeId": "gemini", "objective": "x" }),
+            serde_json::json!({ "runtimeId": "codex", "objective": "   " }),
+            serde_json::json!({ "runtimeId": "codex", "objective": "x".repeat(40_001) }),
+            serde_json::json!({ "runtimeId": "codex", "objective": "x", "model": "--yolo" }),
+            // Extra fields cannot influence the launch.
+            serde_json::json!({
+                "runtimeId": "codex", "objective": " ", "executable": "/bin/sh",
+                "args": ["-c", "echo pwned"], "workingDir": "/"
+            }),
+        ] {
+            let err = invoke_json(&main, "start_agent_session", args.clone()).expect_err("bad");
+            assert_eq!(err["kind"], "invalidInput", "{args}: {err}");
+        }
+        for cmd in [
+            "get_agent_session",
+            "cancel_agent_turn",
+            "close_agent_session",
+            "resume_agent_session",
+        ] {
+            let err = invoke_json(
+                &main,
+                cmd,
+                serde_json::json!({ "sessionId": "../x", "objective": "hi" }),
+            )
+            .expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}");
+            let err = invoke_json(
+                &main,
+                cmd,
+                serde_json::json!({ "sessionId": SESSION, "objective": "hi" }),
+            )
+            .expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}: {err}");
+        }
+    }
+
+    #[test]
+    fn agent_commands_denied_for_ungranted_windows_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        for cmd in ["get_agent_overview", "refresh_agent_runtimes"] {
+            assert!(invoke(&other, cmd).is_err(), "{cmd}");
+            assert!(
+                invoke_from(&main, cmd, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
+        assert!(invoke_json(
+            &other,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "codex", "objective": "hi" })
+        )
+        .is_err());
     }
 }

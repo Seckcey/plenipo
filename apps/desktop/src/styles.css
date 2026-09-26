@@ -519,3 +519,276 @@ button {
   border-color: #e0a100;
   color: #e0a100;
 }
+
+/* ---- Workers and agent runtimes (Phase 3) ------------------------------------------------ */
+
+.panel {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.choices legend {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.choice__label {
+  font-weight: 600;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field > span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.field textarea,
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.advanced summary {
+  margin-bottom: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.hint {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #e0a100;
+  background: rgba(224, 161, 0, 0.08);
+  font-size: 0.88rem;
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.pill--ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.pill--warn {
+  border-color: #e0a100;
+  color: #e0a100;
+}
+
+.pill--bad {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.card__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
+
+.kv dt {
+  color: var(--muted);
+}
+
+.kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.button--quiet {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.badge--task-cancelled {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.turns {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turn {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.turn[data-running="true"] {
+  border-color: var(--accent);
+}
+
+.turn__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.turn__number {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.turn__objective {
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.turn__activity {
+  margin-top: 8px;
+}
+
+.turn__activity summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.turn__result {
+  margin-top: 8px;
+}
+
+.turn__text {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.turn__error {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #03060c;
+  color: #ff9b9b;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-log {
+  max-height: 320px;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.agent-log__item {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-log__label {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-log__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-log__item--streaming .agent-log__text {
+  color: var(--accent);
+}
+
+.agent-log__item--warn .agent-log__text {
+  color: #e0a100;
+}
+
+.agent-log__item--bad .agent-log__text {
+  color: var(--error);
+}
+
+.followup {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}

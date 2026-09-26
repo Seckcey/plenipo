@@ -24,6 +24,7 @@ export const record = (id: string, patch: Partial<ExecutionRecord> = {}): Execut
   detail: null,
   startedAt: 1_000,
   endedAt: null,
+  agent: null,
   ...patch,
 });
 

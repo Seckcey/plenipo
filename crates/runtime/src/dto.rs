@@ -66,6 +66,40 @@ pub struct ExecutionRecord {
     pub started_at: u64,
     #[ts(type = "number | null")]
     pub ended_at: Option<u64>,
+    /// Set when this execution is an agent runtime turn; `None` for plain process launches.
+    #[serde(default)]
+    pub agent: Option<Box<AgentAttribution>>,
+}
+
+/// Which agent session and task an execution belongs to, and what the provider reported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AgentAttribution {
+    /// Adapter ID, e.g. `claude-code` (data, not a type).
+    pub runtime_id: String,
+    pub provider: String,
+    /// Plenipo's session ID.
+    pub session_id: String,
+    pub task_id: String,
+    /// Requested model, replaced by the model the provider reports.
+    pub model: Option<String>,
+    /// The provider's own session/thread ID once known.
+    pub provider_session_id: Option<String>,
+    pub usage: Option<TokenUsage>,
+}
+
+/// Token counts reported by a provider for one turn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TokenUsage {
+    #[ts(type = "number")]
+    pub input_tokens: u64,
+    #[ts(type = "number")]
+    pub cached_input_tokens: u64,
+    #[ts(type = "number")]
+    pub output_tokens: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

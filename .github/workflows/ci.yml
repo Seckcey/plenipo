@@ -84,6 +84,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
+      - name: Build fake agent CLIs for Phase 3 tests
+        run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
       - name: Run end-to-end tests
         env:
           PLENIPO_E2E_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots

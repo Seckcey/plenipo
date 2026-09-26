@@ -72,24 +72,32 @@ fn migrations_apply_roll_back_and_reapply_cleanly() {
     assert!(again.applied.is_empty());
 }
 
-const V2: Migration = Migration {
-    version: 2,
+/// A synthetic migration one past the newest real one (simulates a future Plenipo).
+const NEXT: Migration = Migration {
+    version: 3,
     name: "test_add_column",
     up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
     down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",
 };
 
+fn with_next() -> Vec<Migration> {
+    let mut all = MIGRATIONS.to_vec();
+    all.push(NEXT);
+    assert_eq!(migrate::latest(MIGRATIONS) + 1, NEXT.version);
+    all
+}
+
 #[test]
 fn upgrading_an_existing_ledger_takes_a_backup_first() {
     let dir = tempfile::tempdir().unwrap();
     let path = db_path(dir.path());
+    let current = migrate::latest(MIGRATIONS);
     let task_id = {
         let l = Ledger::open(&path).unwrap();
         new_task(&l, "exists before upgrade").id
     };
-    let both = [MIGRATIONS[0], V2];
-    let l = Ledger::open_with(&path, &both).unwrap();
-    assert_eq!(l.schema_version().unwrap(), 2);
+    let l = Ledger::open_with(&path, &with_next()).unwrap();
+    assert_eq!(l.schema_version().unwrap(), NEXT.version);
     assert!(
         l.task(&task_id).unwrap().is_some(),
         "data survives the upgrade"
@@ -98,31 +106,70 @@ fn upgrading_an_existing_ledger_takes_a_backup_first() {
     let notice = status
         .notices
         .iter()
-        .find(|n| n.contains("upgraded from version 1"))
+        .find(|n| n.contains(&format!("upgraded from version {current}")))
         .unwrap();
     let backups: Vec<_> = std::fs::read_dir(path.parent().unwrap().join("backups"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(backups.len(), 1);
-    assert!(backups[0].starts_with("pre-migration-v1-"));
+    assert!(backups[0].starts_with(&format!("pre-migration-v{current}-")));
     assert!(notice.contains(&backups[0]));
 
-    // The backup is a usable v1 ledger (the production rollback path).
+    // The backup is a usable ledger of the previous version (the production rollback path).
     let backup = path.parent().unwrap().join("backups").join(&backups[0]);
     let restored = Ledger::open(&backup).unwrap();
-    assert_eq!(restored.schema_version().unwrap(), 1);
+    assert_eq!(restored.schema_version().unwrap(), current);
     assert!(restored.task(&task_id).unwrap().is_some());
+}
+
+#[test]
+fn phase2_ledger_upgrades_to_runtime_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let task_id = {
+        let v1 = Ledger::open_with(&path, &MIGRATIONS[..1]).unwrap();
+        assert_eq!(v1.schema_version().unwrap(), 1);
+        let t = new_task(&v1, "from Phase 2");
+        v1.transition_task(&t.id, TaskState::Running, "w", None)
+            .unwrap();
+        t.id
+    };
+    let l = Ledger::open(&path).unwrap();
+    assert_eq!(l.schema_version().unwrap(), 2);
+    let status = l.status().unwrap();
+    assert!(status
+        .notices
+        .iter()
+        .any(|n| n.contains("upgraded from version 1")));
+    // Phase 2 history is intact, and Phase 2 tasks are not session turns.
+    assert_eq!(l.events_for_task(&task_id).unwrap().len(), 2);
+    assert!(l.unfinished_session_tasks().unwrap().is_empty());
+    let s = l
+        .open_runtime_session(
+            plenipo_ledger::NewRuntimeSession {
+                id: "s-1".into(),
+                runtime: "codex".into(),
+                provider: "openai".into(),
+                title: "t".into(),
+                working_dir: "/w".into(),
+                ..Default::default()
+            },
+            "owner",
+        )
+        .unwrap();
+    assert_eq!(s.turn_count, 0);
+    assert!(l.integrity_check().unwrap().ok);
 }
 
 #[test]
 fn newer_schema_is_refused_and_left_untouched() {
     let dir = tempfile::tempdir().unwrap();
     let path = db_path(dir.path());
-    drop(Ledger::open_with(&path, &[MIGRATIONS[0], V2]).unwrap());
+    drop(Ledger::open_with(&path, &with_next()).unwrap());
     let before = std::fs::read(&path).unwrap();
     match Ledger::open(&path) {
-        Err(LedgerError::NewerSchema { db: 2, app: 1 }) => {}
+        Err(LedgerError::NewerSchema { db: 3, app: 2 }) => {}
         other => panic!("expected NewerSchema, got {:?}", other.map(|_| ())),
     }
     assert!(path.exists(), "not quarantined");
@@ -142,19 +189,19 @@ fn edited_or_skipped_migrations_are_detected() {
         Err(LedgerError::ModifiedMigration(1))
     ));
 
-    // History says v2 is applied but v1 never was.
+    // History says the next version is applied but v1 never was.
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);",
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO schema_migrations VALUES (2, 'test_add_column', ?1, 0)",
-        [V2.checksum()],
+        "INSERT INTO schema_migrations VALUES (3, 'test_add_column', ?1, 0)",
+        [NEXT.checksum()],
     )
     .unwrap();
     assert!(matches!(
-        migrate::migrate(&conn, &[MIGRATIONS[0], V2], |_| Ok(())),
+        migrate::migrate(&conn, &with_next(), |_| Ok(())),
         Err(LedgerError::InconsistentMigrations(_))
     ));
 }
@@ -473,7 +520,7 @@ fn json_export_contains_every_table() {
     let doc: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&info.path).unwrap()).unwrap();
     assert_eq!(doc["format"], "plenipo-ledger-export");
-    assert_eq!(doc["schemaVersion"], 1);
+    assert_eq!(doc["schemaVersion"], migrate::latest(MIGRATIONS));
     for table in [
         "tasks",
         "events",
@@ -484,6 +531,7 @@ fn json_export_contains_every_table() {
         "departments",
         "projects",
         "agent_instances",
+        "runtime_sessions",
     ] {
         assert!(doc["tables"][table].is_array(), "{table}");
     }

@@ -31,12 +31,20 @@ impl Migration {
 }
 
 /// Every migration this build knows, in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    up: include_str!("../migrations/0001_initial.up.sql"),
-    down: include_str!("../migrations/0001_initial.down.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        up: include_str!("../migrations/0001_initial.up.sql"),
+        down: include_str!("../migrations/0001_initial.down.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "runtime_sessions",
+        up: include_str!("../migrations/0002_runtime_sessions.up.sql"),
+        down: include_str!("../migrations/0002_runtime_sessions.down.sql"),
+    },
+];
 
 /// Highest version in `migrations` (0 if none).
 pub fn latest(migrations: &[Migration]) -> u32 {

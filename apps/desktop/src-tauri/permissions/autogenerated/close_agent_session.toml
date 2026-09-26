@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-agent-session"
+description = "Enables the close_agent_session command without any pre-configured scope."
+commands.allow = ["close_agent_session"]
+
+[[permission]]
+identifier = "deny-close-agent-session"
+description = "Denies the close_agent_session command without any pre-configured scope."
+commands.deny = ["close_agent_session"]

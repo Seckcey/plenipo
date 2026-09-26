@@ -8,6 +8,8 @@ use crate::dto::LaunchProfileInfo;
 use crate::policy::{validate_env_name, ExecutablePolicy};
 
 pub const MAX_RUNTIME_LIMIT: Duration = Duration::from_secs(24 * 60 * 60);
+/// Upper bound for [`LaunchSpec::max_line_bytes`].
+pub const MAX_OBSERVED_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 /// A fully specified, pre-approved launch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +26,49 @@ pub struct LaunchProfile {
     pub max_runtime: Duration,
 }
 
+/// One fully specified launch, built by Core: from a registered [`LaunchProfile`], or by an
+/// agent runtime adapter from validated inputs. Never constructed from UI input directly.
+/// The executable must still pass the supervisor's allowlist at spawn.
+#[derive(Debug, Clone)]
+pub struct LaunchSpec {
+    pub profile_id: String,
+    pub label: String,
+    pub executable: PathBuf,
+    pub args: Vec<String>,
+    /// The only variables added to the child's baseline environment.
+    pub env: Vec<(String, String)>,
+    pub working_dir: PathBuf,
+    pub max_runtime: Duration,
+    /// Written to the child's stdin, which is then closed. `None`: stdin is empty.
+    pub stdin: Option<Vec<u8>>,
+    /// Longest line delivered to `observer` (lines shown in the UI keep the configured cap).
+    /// `None`: the supervisor's configured per-line limit.
+    pub max_line_bytes: Option<usize>,
+    /// Receives every output line, in order, with its full text; closes after the process's
+    /// output ends. Unbounded on purpose: a slow observer must never stall reading the
+    /// child's pipes (which would trip the drain timeout and lose the final lines).
+    pub observer: Option<tokio::sync::mpsc::UnboundedSender<crate::dto::OutputLine>>,
+    pub agent: Option<Box<crate::dto::AgentAttribution>>,
+}
+
 impl LaunchProfile {
+    /// The launch this profile describes (no stdin, no observer).
+    pub fn to_spec(&self) -> LaunchSpec {
+        LaunchSpec {
+            profile_id: self.id.clone(),
+            label: self.label.clone(),
+            executable: self.executable.clone(),
+            args: self.args.clone(),
+            env: self.env.clone(),
+            working_dir: self.working_dir.clone(),
+            max_runtime: self.max_runtime,
+            stdin: None,
+            max_line_bytes: None,
+            observer: None,
+            agent: None,
+        }
+    }
+
     pub fn info(&self) -> LaunchProfileInfo {
         LaunchProfileInfo {
             id: self.id.clone(),

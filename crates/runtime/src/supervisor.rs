@@ -1,22 +1,26 @@
 //! The runtime supervisor: launches approved profiles and owns their process trees.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
+use tokio::io::AsyncWriteExt as _;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::dto::{
-    ExecutionOutput, ExecutionRecord, ExecutionState, LifecycleEvent, OutputBatch, OutputLine,
-    OutputStream, RuntimeEvent, RuntimeOverview,
+    AgentAttribution, ExecutionOutput, ExecutionRecord, ExecutionState, LifecycleEvent,
+    OutputBatch, OutputLine, OutputStream, RuntimeEvent, RuntimeOverview,
 };
 use crate::error::RuntimeError;
 use crate::output::{read_lines, OutputBuffer, RawLine};
-use crate::policy::{build_child_env, check_working_dir, ExecutablePolicy};
-use crate::profile::{LaunchProfile, ProfileRegistry};
+use crate::policy::{build_child_env, check_working_dir, validate_env_name, ExecutablePolicy};
+use crate::profile::{
+    validate_profile_id, LaunchSpec, ProfileRegistry, MAX_OBSERVED_LINE_BYTES, MAX_RUNTIME_LIMIT,
+};
 use crate::store::{ExecutionStore, MAX_HISTORY};
 
 /// Receives runtime events. Implementations must not block for long.
@@ -60,6 +64,8 @@ impl Default for SupervisorConfig {
 enum CancelReason {
     User,
     Shutdown,
+    /// Core stopped it (e.g. an agent runtime reported a billing source that is not allowed).
+    Policy,
 }
 
 impl CancelReason {
@@ -67,6 +73,7 @@ impl CancelReason {
         match self {
             Self::User => "Cancelled by user",
             Self::Shutdown => "Cancelled because Plenipo was shutting down",
+            Self::Policy => "Stopped by Plenipo policy",
         }
     }
 }
@@ -90,7 +97,8 @@ struct State {
 
 struct Inner {
     config: SupervisorConfig,
-    policy: ExecutablePolicy,
+    /// Grows only through Core ([`Supervisor::allow_executable`]), never from UI input.
+    policy: RwLock<ExecutablePolicy>,
     profiles: ProfileRegistry,
     store: Arc<dyn ExecutionStore>,
     sink: Arc<dyn EventSink>,
@@ -136,7 +144,7 @@ impl Supervisor {
         Self {
             inner: Arc::new(Inner {
                 config,
-                policy,
+                policy: RwLock::new(policy),
                 profiles,
                 store,
                 sink,
@@ -201,26 +209,50 @@ impl Supervisor {
     /// Policy and input problems are errors. A process that is allowed but fails to start
     /// is not an error: it produces a `failed` execution with an explanation.
     pub async fn start(&self, profile_id: &str) -> Result<ExecutionRecord, RuntimeError> {
-        let inner = &self.inner;
-        let profile = inner
+        let spec = self
+            .inner
             .profiles
             .get(profile_id)
             .ok_or_else(|| RuntimeError::UnknownProfile(profile_id.to_owned()))?
-            .clone();
+            .to_spec();
+        self.launch(spec).await
+    }
+
+    /// Allow an executable that Core located itself (e.g. a detected agent CLI).
+    /// Returns its canonical path. Must never be called with a path from the UI.
+    pub fn allow_executable(&self, path: &Path) -> Result<PathBuf, RuntimeError> {
+        Ok(self
+            .inner
+            .policy
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .allow(path)?)
+    }
+
+    /// Launch a spec built by Core. Same rules as [`Supervisor::start`]: the executable must
+    /// be allowlisted (checked here, at spawn), and a process that fails to start produces a
+    /// `failed` execution rather than an error.
+    pub async fn launch(&self, spec: LaunchSpec) -> Result<ExecutionRecord, RuntimeError> {
+        let inner = &self.inner;
+        validate_spec(&spec)?;
         if inner.lock().shutting_down {
             return Err(RuntimeError::ShuttingDown);
         }
-        // Re-check at spawn time: the file may have changed since registration.
-        let executable = inner.policy.check(&profile.executable)?;
-        let working_dir = check_working_dir(&profile.working_dir)?;
+        // Re-check at spawn time: the file may have changed since it was approved.
+        let executable = inner
+            .policy
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .check(&spec.executable)?;
+        let working_dir = check_working_dir(&spec.working_dir)?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let record = ExecutionRecord {
             id: id.clone(),
-            profile_id: profile.id.clone(),
-            label: profile.label.clone(),
+            profile_id: spec.profile_id.clone(),
+            label: spec.label.clone(),
             executable: executable.display().to_string(),
-            args: profile.args.clone(),
+            args: spec.args.clone(),
             working_dir: working_dir.display().to_string(),
             pid: None,
             state: ExecutionState::Starting,
@@ -228,6 +260,7 @@ impl Supervisor {
             detail: None,
             started_at: crate::now_ms(),
             ended_at: None,
+            agent: spec.agent.clone(),
         };
         {
             let mut state = inner.lock();
@@ -240,7 +273,7 @@ impl Supervisor {
         }
         inner.emit_lifecycle(record);
 
-        let mut command = build_command(&profile, &executable, &working_dir);
+        let mut command = build_command(&spec, &executable, &working_dir);
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
@@ -254,6 +287,14 @@ impl Supervisor {
             }
         };
 
+        if let (Some(bytes), Some(mut stdin)) = (spec.stdin, child.stdin().take()) {
+            // A child that exits without reading its input is not an error here; its exit
+            // status tells the story.
+            tokio::spawn(async move {
+                let _ = stdin.write_all(&bytes).await;
+                let _ = stdin.shutdown().await;
+            });
+        }
         let stdout = child.stdout().take();
         let stderr = child.stderr().take();
         let (cancel_tx, cancel_rx) = oneshot::channel();
@@ -275,22 +316,79 @@ impl Supervisor {
         };
         inner.emit_lifecycle(record.clone());
 
+        let run = Run {
+            id,
+            max_runtime: spec.max_runtime,
+            read_limit: spec.max_line_bytes.unwrap_or(inner.config.max_line_bytes),
+            observer: spec.observer,
+        };
         tokio::spawn(supervise(
             Arc::clone(inner),
-            id,
+            run,
             child,
             stdout,
             stderr,
             cancel_rx,
             done_tx,
-            profile.max_runtime,
         ));
         Ok(record)
+    }
+
+    /// Update an execution's agent attribution (e.g. the provider reported its session ID or
+    /// usage), persist it, and notify listeners. No-op for executions without attribution.
+    pub fn annotate(
+        &self,
+        id: &str,
+        update: impl FnOnce(&mut AgentAttribution),
+    ) -> Result<ExecutionRecord, RuntimeError> {
+        let record = {
+            let mut state = self.inner.lock();
+            let record = state
+                .records
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| RuntimeError::UnknownExecution(id.to_owned()))?;
+            let Some(agent) = record.agent.as_mut() else {
+                return Ok(record.clone());
+            };
+            update(agent);
+            let record = record.clone();
+            self.inner.persist(&mut state, id);
+            record
+        };
+        self.inner.emit_lifecycle(record.clone());
+        Ok(record)
+    }
+
+    /// Wait until an execution has reached its final state and return that record.
+    pub async fn wait(&self, id: &str) -> Result<ExecutionRecord, RuntimeError> {
+        let done = {
+            let state = self.inner.lock();
+            if !state.records.iter().any(|r| r.id == id) {
+                return Err(RuntimeError::UnknownExecution(id.to_owned()));
+            }
+            state.live.get(id).map(|live| live.done.clone())
+        };
+        if let Some(mut done) = done {
+            let _ = done.wait_for(|d| *d).await;
+        }
+        self.record(id)
+            .ok_or_else(|| RuntimeError::UnknownExecution(id.to_owned()))
     }
 
     /// Terminate an execution's process tree and wait for its final record.
     /// Cancelling an execution that already finished returns its record unchanged.
     pub async fn cancel(&self, id: &str) -> Result<ExecutionRecord, RuntimeError> {
+        self.stop(id, CancelReason::User).await
+    }
+
+    /// Like [`Supervisor::cancel`], but recorded as stopped by Plenipo policy rather than by
+    /// the user.
+    pub async fn terminate(&self, id: &str) -> Result<ExecutionRecord, RuntimeError> {
+        self.stop(id, CancelReason::Policy).await
+    }
+
+    async fn stop(&self, id: &str, reason: CancelReason) -> Result<ExecutionRecord, RuntimeError> {
         let mut done = {
             let mut state = self.inner.lock();
             let record = state
@@ -303,7 +401,7 @@ impl Supervisor {
                 return Ok(record);
             };
             if let Some(tx) = live.cancel.take() {
-                let _ = tx.send(CancelReason::User);
+                let _ = tx.send(reason);
             }
             live.done.clone()
         };
@@ -338,18 +436,55 @@ impl Supervisor {
     }
 }
 
-fn build_command(
-    profile: &LaunchProfile,
-    executable: &std::path::Path,
-    working_dir: &std::path::Path,
+fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {
+    let invalid = |m: String| Err(RuntimeError::InvalidInput(m));
+    validate_profile_id(&spec.profile_id).or_else(invalid)?;
+    if spec.label.trim().is_empty() {
+        return invalid("label must not be empty".into());
+    }
+    if !spec.working_dir.is_absolute() {
+        return invalid("working directory must be absolute".into());
+    }
+    for (name, _) in &spec.env {
+        validate_env_name(name)?;
+    }
+    if spec.max_runtime.is_zero() || spec.max_runtime > MAX_RUNTIME_LIMIT {
+        return invalid("max runtime must be between 1 second and 24 hours".into());
+    }
+    if spec
+        .max_line_bytes
+        .is_some_and(|n| n == 0 || n > MAX_OBSERVED_LINE_BYTES)
+    {
+        return invalid("line limit out of range".into());
+    }
+    Ok(())
+}
+
+fn build_command(spec: &LaunchSpec, executable: &Path, working_dir: &Path) -> CommandWrap {
+    let stdin = if spec.stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
+    wrapped_command(executable, &spec.args, &spec.env, working_dir, stdin)
+}
+
+/// A command in its own process tree with a cleared environment (baseline + `declared`),
+/// piped stdout/stderr, and kill-on-drop. Shared by launches and short probes.
+pub(crate) fn wrapped_command(
+    executable: &Path,
+    args: &[String],
+    declared: &[(String, String)],
+    working_dir: &Path,
+    stdin: Stdio,
 ) -> CommandWrap {
-    let env = build_child_env(&profile.env);
+    let env = build_child_env(declared);
     let mut command = CommandWrap::with_new(executable, |c| {
-        c.args(&profile.args)
+        c.args(args)
             .current_dir(working_dir)
             .env_clear()
             .envs(env)
-            .stdin(Stdio::null())
+            .stdin(stdin)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
     });
@@ -372,31 +507,44 @@ fn build_command(
     command
 }
 
+/// Per-launch settings the supervising task needs.
+struct Run {
+    id: String,
+    max_runtime: Duration,
+    /// Longest line read from the child (observer lines); display lines are capped separately.
+    read_limit: usize,
+    observer: Option<mpsc::UnboundedSender<OutputLine>>,
+}
+
 enum Outcome {
     Exited(std::io::Result<ExitStatus>),
     Cancelled(CancelReason),
     TimedOut,
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn supervise(
     inner: Arc<Inner>,
-    id: String,
+    run: Run,
     mut child: Box<dyn ChildWrapper>,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
     cancel_rx: oneshot::Receiver<CancelReason>,
     done_tx: watch::Sender<bool>,
-    max_runtime: Duration,
 ) {
     let config = inner.config.clone();
+    let Run {
+        id,
+        max_runtime,
+        read_limit,
+        observer,
+    } = run;
     let (tx, rx) = mpsc::channel::<RawLine>(1024);
     let mut readers: Vec<JoinHandle<()>> = Vec::new();
     if let Some(out) = stdout {
         readers.push(tokio::spawn(read_lines(
             out,
             OutputStream::Stdout,
-            config.max_line_bytes,
+            read_limit,
             tx.clone(),
         )));
     }
@@ -404,12 +552,12 @@ async fn supervise(
         readers.push(tokio::spawn(read_lines(
             err,
             OutputStream::Stderr,
-            config.max_line_bytes,
+            read_limit,
             tx.clone(),
         )));
     }
     drop(tx);
-    let aggregator = tokio::spawn(aggregate(Arc::clone(&inner), id.clone(), rx));
+    let aggregator = tokio::spawn(aggregate(Arc::clone(&inner), id.clone(), rx, observer));
 
     let cancelled = async {
         match cancel_rx.await {
@@ -492,6 +640,19 @@ async fn kill_tree(child: &mut dyn ChildWrapper, grace: Duration) {
     let _ = tokio::time::timeout(grace, child.wait()).await;
 }
 
+/// Cut a line to at most `max` bytes (on a character boundary), flagging it as truncated.
+fn cap_line(mut raw: RawLine, max: usize) -> RawLine {
+    if raw.text.len() > max {
+        let mut end = max;
+        while !raw.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        raw.text.truncate(end);
+        raw.truncated = true;
+    }
+    raw
+}
+
 fn classify(status: ExitStatus) -> (ExecutionState, Option<i32>, Option<String>) {
     match status.code() {
         Some(0) => (ExecutionState::Succeeded, Some(0), None),
@@ -521,8 +682,14 @@ fn classify(status: ExitStatus) -> (ExecutionState, Option<i32>, Option<String>)
     }
 }
 
-/// Sequence output lines into the buffer and emit them in batches.
-async fn aggregate(inner: Arc<Inner>, id: String, mut rx: mpsc::Receiver<RawLine>) {
+/// Sequence output lines into the buffer, hand them to the observer (if any), and emit them
+/// in batches.
+async fn aggregate(
+    inner: Arc<Inner>,
+    id: String,
+    mut rx: mpsc::Receiver<RawLine>,
+    mut observer: Option<mpsc::UnboundedSender<OutputLine>>,
+) {
     let config = &inner.config;
     let mut batch: Vec<OutputLine> = Vec::new();
     let mut tick = tokio::time::interval(config.batch_interval);
@@ -531,7 +698,12 @@ async fn aggregate(inner: Arc<Inner>, id: String, mut rx: mpsc::Receiver<RawLine
         tokio::select! {
             raw = rx.recv() => match raw {
                 Some(raw) => {
-                    if let Some(line) = inner.push_output(&id, raw) {
+                    if let Some((line, full)) = inner.push_output(&id, raw, observer.is_some()) {
+                        if let (Some(tx), Some(full)) = (&observer, full) {
+                            if tx.send(full).is_err() {
+                                observer = None; // the observer went away; keep capturing
+                            }
+                        }
                         batch.push(line);
                     }
                     if batch.len() >= config.batch_max_lines {
@@ -634,12 +806,24 @@ impl Inner {
         record
     }
 
-    fn push_output(&self, id: &str, raw: RawLine) -> Option<OutputLine> {
+    /// Buffer one line (cut to the display limit) and return it, plus the full line when
+    /// `keep_full` (for an observer). Both carry the same sequence number.
+    fn push_output(
+        &self,
+        id: &str,
+        raw: RawLine,
+        keep_full: bool,
+    ) -> Option<(OutputLine, Option<OutputLine>)> {
+        let full = keep_full.then(|| (raw.text.clone(), raw.truncated));
+        let display = cap_line(raw, self.config.max_line_bytes);
         let mut state = self.lock();
-        state
-            .outputs
-            .get_mut(id)
-            .map(|buf| buf.push(raw, crate::now_ms()))
+        let line = state.outputs.get_mut(id)?.push(display, crate::now_ms());
+        let full = full.map(|(text, truncated)| OutputLine {
+            text,
+            truncated,
+            ..line.clone()
+        });
+        Some((line, full))
     }
 
     fn emit_output(&self, id: &str, lines: Vec<OutputLine>) {

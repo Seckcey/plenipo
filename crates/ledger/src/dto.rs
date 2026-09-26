@@ -498,3 +498,63 @@ mod tests {
         assert!(!Starting.can_transition_to(Idle));
     }
 }
+
+// ---- Runtime sessions (Phase 3, ADR-007) -------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeSessionState {
+    Open,
+    Closed,
+}
+
+impl RuntimeSessionState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Open, Self::Closed]
+            .into_iter()
+            .find(|v| v.as_str() == s)
+    }
+}
+
+/// One conversation with an agent runtime. Its turns are tasks whose metadata carries
+/// `sessionId`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSession {
+    pub id: String,
+    /// Adapter ID, e.g. `claude-code`.
+    pub runtime: String,
+    pub provider: String,
+    pub provider_session_id: Option<String>,
+    pub provider_session_confirmed: bool,
+    pub model: Option<String>,
+    pub title: String,
+    pub working_dir: String,
+    pub state: RuntimeSessionState,
+    pub metadata: Value,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub closed_at: Option<u64>,
+    /// Number of turns (tasks) recorded for the session.
+    pub turn_count: u32,
+}
+
+/// Input for [`crate::Ledger::open_runtime_session`]. The caller chooses the ID (it also names
+/// the session's working directory).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewRuntimeSession {
+    pub id: String,
+    pub runtime: String,
+    pub provider: String,
+    pub model: Option<String>,
+    pub title: String,
+    pub working_dir: String,
+    pub metadata: Value,
+}

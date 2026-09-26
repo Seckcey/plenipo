@@ -14,6 +14,12 @@ name = "plenipo-diag"
 path = "src/bin/plenipo-diag.rs"
 test = false
 
+[[bin]]
+# Test double for the Claude Code and Codex CLIs (copied as `claude` / `codex` by tests).
+name = "plenipo-fake-agent"
+path = "src/bin/plenipo-fake-agent.rs"
+test = false
+
 [dependencies]
 dunce = "1"
 process-wrap = { version = "10", features = ["tokio1"] }

@@ -5,11 +5,11 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 2 — Plenipo Ledger. Tasks, events, and executions are recorded in a
-> durable local SQLite ledger with a complete ordered activity trail, backups, and corruption
-> detection. Plenipo can also launch, observe, and terminate approved local processes
-> (built-in diagnostics only). There are no AI runtimes or departments yet. See
-> [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> **Status:** Phase 3 — provider runtime adapters (accepted, v0.4.0). The **Workers** view
+> runs tasks on your own signed-in Claude Code and Codex CLIs (subscription sign-ins only, no
+> API billing), with live activity, normalized results, resume, and cancel. Every turn is
+> recorded in the durable local Ledger. Workers cannot change files yet, and there are no
+> departments yet. See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -33,7 +33,9 @@ pnpm install
 pnpm dev          # run the desktop app with hot reload
 ```
 
-No API keys, provider logins, or `.env` file are needed to build or launch.
+No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
+install and sign in to Claude Code and/or Codex — see the
+[setup guide](docs/development/setup.md#3-agent-runtimes-phase-3-optional).
 
 ## Common commands
 
@@ -59,7 +61,8 @@ apps/desktop/            React + TypeScript UI (Vite)
 apps/desktop/src-tauri/  Tauri 2 Rust backend: typed command boundary, capabilities
 crates/core/             Plenipo Core: provider-neutral domain types and shared DTOs
 crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, event trail
-crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy
+crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
+                         agent runtime adapters (Claude Code, Codex) and sessions
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview

@@ -14,12 +14,13 @@ pub const KEEP_BACKUPS: usize = 10;
 const BACKUP_PREFIX: &str = "plenipo-backup-";
 
 /// Tables included in a JSON export, in dependency order.
-const EXPORT_TABLES: [&str; 10] = [
+const EXPORT_TABLES: [&str; 11] = [
     "schema_migrations",
     "roles",
     "departments",
     "projects",
     "agent_instances",
+    "runtime_sessions",
     "tasks",
     "events",
     "executions",

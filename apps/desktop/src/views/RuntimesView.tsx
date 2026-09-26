@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { toCommandError } from "../api/commands";
+import { AgentRuntimeCards } from "../components/AgentRuntimeCards";
 import { OutputPanel } from "../components/OutputPanel";
 import { StateBadge } from "../components/StateBadge";
 import { formatDuration, formatTime, outcomeText } from "../runtime/format";
@@ -43,8 +44,9 @@ export function RuntimesView({
     <section className="view" aria-labelledby="runtimes-title">
       <h1 id="runtimes-title">Runtimes</h1>
       <p className="view__lead">
-        Plenipo launches only approved profiles, isolates each process tree, and streams its output
-        here. Phase 1 includes built-in diagnostic profiles only.
+        Plenipo runs only approved launch profiles and detected agent runtimes, isolates each
+        process tree, and streams its output here. Agent turns also appear below with their raw
+        output.
       </p>
 
       {error && (
@@ -57,6 +59,8 @@ export function RuntimesView({
           Could not load runtimes: {state.error}
         </p>
       )}
+
+      <AgentRuntimeCards />
 
       <h2>Launch profiles</h2>
       <ul className="profiles">

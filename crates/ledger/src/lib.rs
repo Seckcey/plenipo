@@ -13,6 +13,7 @@ pub mod migrate;
 mod org;
 mod records;
 mod rows;
+mod sessions;
 mod tasks;
 
 use std::path::{Path, PathBuf};

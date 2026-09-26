@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use plenipo_ledger::{ExecutionRow, Ledger, LedgerEvent, DB_FILE_NAME};
 use plenipo_runtime::store::Loaded;
-use plenipo_runtime::{ExecutionRecord, ExecutionState, ExecutionStore, MetadataStore};
+use plenipo_runtime::{
+    AgentAttribution, ExecutionRecord, ExecutionState, ExecutionStore, MetadataStore, TokenUsage,
+};
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
@@ -109,14 +112,19 @@ fn state_str(state: ExecutionState) -> String {
         .unwrap_or_default()
 }
 
+/// `runtime` value for plain supervised processes (no agent attribution).
+const LOCAL_PROCESS: &str = "local-process";
+
 pub fn to_row(r: &ExecutionRecord) -> ExecutionRow {
+    let agent = r.agent.as_ref();
     ExecutionRow {
         id: r.id.clone(),
-        task_id: None,
-        runtime: "local-process".into(),
-        provider: None,
-        model: None,
-        session_id: None,
+        task_id: agent.map(|a| a.task_id.clone()),
+        runtime: agent.map_or_else(|| LOCAL_PROCESS.into(), |a| a.runtime_id.clone()),
+        provider: agent.map(|a| a.provider.clone()),
+        model: agent.and_then(|a| a.model.clone()),
+        // Plenipo's session ID; the provider's own ID is kept with the usage metadata.
+        session_id: agent.map(|a| a.session_id.clone()),
         process_id: r.pid,
         profile_id: Some(r.profile_id.clone()),
         label: r.label.clone(),
@@ -128,14 +136,39 @@ pub fn to_row(r: &ExecutionRecord) -> ExecutionRow {
         detail: r.detail.clone(),
         started_at: r.started_at,
         ended_at: r.ended_at,
-        usage_metadata: serde_json::Value::Null,
+        usage_metadata: agent.map_or(
+            Value::Null,
+            |a| json!({ "providerSessionId": a.provider_session_id, "usage": a.usage }),
+        ),
     }
+}
+
+fn to_attribution(row: &ExecutionRow) -> Option<Box<AgentAttribution>> {
+    if row.runtime == LOCAL_PROCESS {
+        return None;
+    }
+    let meta = &row.usage_metadata;
+    Some(Box::new(AgentAttribution {
+        runtime_id: row.runtime.clone(),
+        provider: row.provider.clone()?,
+        session_id: row.session_id.clone()?,
+        task_id: row.task_id.clone()?,
+        model: row.model.clone(),
+        provider_session_id: meta
+            .get("providerSessionId")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        usage: meta
+            .get("usage")
+            .and_then(|u| serde_json::from_value::<TokenUsage>(u.clone()).ok()),
+    }))
 }
 
 fn to_record(row: ExecutionRow) -> Result<ExecutionRecord, String> {
     let state: ExecutionState =
         serde_json::from_value(serde_json::Value::String(row.state.clone()))
             .map_err(|_| format!("Execution {} has an unknown state {:?}", row.id, row.state))?;
+    let agent = to_attribution(&row);
     Ok(ExecutionRecord {
         id: row.id,
         profile_id: row.profile_id.unwrap_or_default(),
@@ -149,6 +182,7 @@ fn to_record(row: ExecutionRow) -> Result<ExecutionRecord, String> {
         detail: row.detail,
         started_at: row.started_at,
         ended_at: row.ended_at,
+        agent,
     })
 }
 
@@ -200,6 +234,7 @@ mod tests {
             detail: None,
             started_at: 10,
             ended_at: Some(20),
+            agent: None,
         }
     }
 
@@ -214,6 +249,45 @@ mod tests {
         assert!(loaded.notices.is_empty());
         let events = ledger.events_for_execution("e1").unwrap();
         assert_eq!(events[0].event_type, "execution.timed_out");
+    }
+
+    #[test]
+    fn agent_attribution_round_trips_through_the_ledger() {
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let task = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "Say hello".into(),
+                    ..Default::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let store = LedgerExecutionStore(ledger.clone());
+        let mut r = record("e2", ExecutionState::Succeeded);
+        r.agent = Some(Box::new(AgentAttribution {
+            runtime_id: "claude-code".into(),
+            provider: "anthropic".into(),
+            session_id: "s-1".into(),
+            task_id: task.id.clone(),
+            model: Some("model-a".into()),
+            provider_session_id: Some("p-9".into()),
+            usage: Some(TokenUsage {
+                input_tokens: 10,
+                cached_input_tokens: 2,
+                output_tokens: 5,
+            }),
+        }));
+        store.save(&r).unwrap();
+        assert_eq!(store.load(10).records, [r]);
+        let row = ledger.execution("e2").unwrap().unwrap();
+        assert_eq!(row.runtime, "claude-code");
+        assert_eq!(row.provider.as_deref(), Some("anthropic"));
+        assert_eq!(row.task_id.as_deref(), Some(task.id.as_str()));
+        // The execution appears in its task's trail.
+        let trail = ledger.events_for_task(&task.id).unwrap();
+        assert!(trail.iter().any(|e| e.event_type == "execution.succeeded"));
     }
 
     #[test]

@@ -12,11 +12,20 @@ pub enum RuntimeError {
     InvalidInput(String),
     #[error("runtime is shutting down")]
     ShuttingDown,
+    /// An agent runtime cannot take work right now (not installed, not signed in, busy, …).
+    /// The message says what to do.
+    #[error("{0}")]
+    NotReady(String),
+    #[error("unknown session: {0}")]
+    UnknownSession(String),
+    /// Persisting agent session state failed.
+    #[error("could not record agent activity: {0}")]
+    Store(String),
 }
 
 impl RuntimeError {
     /// True when the caller supplied something unacceptable (vs. an internal failure).
     pub fn is_caller_error(&self) -> bool {
-        !matches!(self, Self::ShuttingDown)
+        !matches!(self, Self::ShuttingDown | Self::Store(_))
     }
 }

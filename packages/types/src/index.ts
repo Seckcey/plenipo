@@ -1,5 +1,6 @@
 // Public entry point for shared DTOs.
 // Files under ./generated are produced by `pnpm bindings` from the Rust crates — do not edit by hand.
+export type { AgentAttribution } from "./generated/AgentAttribution";
 export type { AppInfo } from "./generated/AppInfo";
 export type { BuildProfile } from "./generated/BuildProfile";
 export type { CommandError } from "./generated/CommandError";
@@ -14,6 +15,7 @@ export type { OutputLine } from "./generated/OutputLine";
 export type { OutputStream } from "./generated/OutputStream";
 export type { RuntimeEvent } from "./generated/RuntimeEvent";
 export type { RuntimeOverview } from "./generated/RuntimeOverview";
+export type { TokenUsage } from "./generated/TokenUsage";
 export type { BackupInfo } from "./generated/BackupInfo";
 export type { ExportInfo } from "./generated/ExportInfo";
 export type { IntegrityReport } from "./generated/IntegrityReport";
@@ -23,3 +25,23 @@ export type { Task } from "./generated/Task";
 export type { TaskState } from "./generated/TaskState";
 export type { TaskTimeline } from "./generated/TaskTimeline";
 export type { SyntheticTaskAction } from "./generated/SyntheticTaskAction";
+
+// Agent runtimes (Phase 3)
+export type { AgentActivity } from "./generated/AgentActivity";
+export type { AgentEvent } from "./generated/AgentEvent";
+export type { AgentOverview } from "./generated/AgentOverview";
+export type { AgentRuntimeInfo } from "./generated/AgentRuntimeInfo";
+export type { AgentSession } from "./generated/AgentSession";
+export type { AgentSessionDetail } from "./generated/AgentSessionDetail";
+export type { AgentTurn } from "./generated/AgentTurn";
+export type { AgentUpdate } from "./generated/AgentUpdate";
+export type { AuthState } from "./generated/AuthState";
+export type { AuthStatus } from "./generated/AuthStatus";
+export type { InstallState } from "./generated/InstallState";
+export type { Installation } from "./generated/Installation";
+export type { NoticeLevel } from "./generated/NoticeLevel";
+export type { RuntimeCapabilities } from "./generated/RuntimeCapabilities";
+export type { RuntimesUpdate } from "./generated/RuntimesUpdate";
+export type { SessionState } from "./generated/SessionState";
+export type { TurnOutcome } from "./generated/TurnOutcome";
+export type { TurnResult } from "./generated/TurnResult";

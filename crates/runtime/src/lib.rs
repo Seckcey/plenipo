@@ -10,6 +10,7 @@
 //! (Windows Job Object with kill-on-close / Unix process group) so terminating it never
 //! leaves descendants behind.
 
+pub mod agent;
 pub mod diagnostic;
 pub mod dto;
 pub mod error;
@@ -20,12 +21,13 @@ pub mod store;
 mod supervisor;
 
 pub use dto::{
-    ExecutionOutput, ExecutionRecord, ExecutionState, LaunchProfileInfo, LifecycleEvent,
-    OutputBatch, OutputLine, OutputStream, RuntimeEvent, RuntimeOverview,
+    AgentAttribution, ExecutionOutput, ExecutionRecord, ExecutionState, LaunchProfileInfo,
+    LifecycleEvent, OutputBatch, OutputLine, OutputStream, RuntimeEvent, RuntimeOverview,
+    TokenUsage,
 };
 pub use error::RuntimeError;
 pub use policy::{ExecutablePolicy, PolicyError};
-pub use profile::{LaunchProfile, ProfileRegistry};
+pub use profile::{LaunchProfile, LaunchSpec, ProfileRegistry};
 pub use store::{ExecutionStore, MetadataStore};
 pub use supervisor::{EventSink, Supervisor, SupervisorConfig};
 

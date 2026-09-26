@@ -54,6 +54,16 @@ impl ExecutablePolicy {
     pub fn allowed(&self) -> &[PathBuf] {
         &self.allowed
     }
+
+    /// Add an executable Core itself located (never a path from the UI). Idempotent.
+    /// Returns the canonical path that was allowed.
+    pub fn allow(&mut self, path: &Path) -> Result<PathBuf, PolicyError> {
+        let canonical = canonical_file(path)?;
+        if !self.allowed.contains(&canonical) {
+            self.allowed.push(canonical.clone());
+        }
+        Ok(canonical)
+    }
 }
 
 fn canonical_file(path: &Path) -> Result<PathBuf, PolicyError> {

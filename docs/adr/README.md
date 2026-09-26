@@ -21,3 +21,4 @@ architecture must be recorded here.
 | [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Accepted |
 | [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                     | Accepted |
 | [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)        | Accepted |
+| [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)  | Accepted |

@@ -4,10 +4,13 @@ export function Sidebar({
   current,
   onNavigate,
   activeCount,
+  workingCount,
 }: {
   current: ViewId;
   onNavigate: (view: ViewId) => void;
   activeCount: number;
+  /** Agent turns in progress. */
+  workingCount: number;
 }) {
   return (
     <nav className="sidebar" aria-label="Main">
@@ -24,6 +27,11 @@ export function Sidebar({
               {view.id === "runtimes" && activeCount > 0 && (
                 <span className="badge badge--running" aria-label={`${activeCount} active`}>
                   {activeCount}
+                </span>
+              )}
+              {view.id === "workers" && workingCount > 0 && (
+                <span className="badge badge--running" aria-label={`${workingCount} working`}>
+                  {workingCount}
                 </span>
               )}
             </button>

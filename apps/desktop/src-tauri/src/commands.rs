@@ -2,7 +2,8 @@
 //! `plenipo-core` / `plenipo-runtime` so the TypeScript bindings stay in lockstep.
 //!
 //! There is deliberately no command that accepts an executable, arguments, environment
-//! variables, or a working directory. The UI can only name a pre-approved launch profile.
+//! variables, or a working directory. The UI can only name a pre-approved launch profile, or
+//! (Phase 3) an agent runtime ID plus an objective that Core sends on stdin.
 
 use std::sync::Arc;
 
@@ -10,6 +11,9 @@ use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
     NewTask, Task, TaskState, TaskTimeline,
+};
+use plenipo_runtime::agent::{
+    AgentOverview, AgentRuntime, AgentRuntimeInfo, AgentSession, AgentSessionDetail,
 };
 use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
@@ -230,6 +234,117 @@ pub async fn export_ledger(ledger: State<'_, Arc<Ledger>>) -> Result<ExportInfo,
     with_ledger(&ledger, |l| l.export_json(None)).await
 }
 
+// ---- Agent runtimes (Phase 3) ------------------------------------------------------------
+
+/// Longest objective accepted at the boundary (bytes); the runtime enforces 10,000 characters.
+const MAX_OBJECTIVE_BYTES: usize = 40_000;
+
+fn validate_runtime_id(id: &str) -> Result<(), CommandError> {
+    let ok = (1..=32).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok {
+        Ok(())
+    } else {
+        Err(CommandError::invalid_input("invalid runtime id"))
+    }
+}
+
+fn validate_session_id(id: &str) -> Result<(), CommandError> {
+    validate_execution_id(id).map_err(|_| CommandError::invalid_input("invalid session id"))
+}
+
+fn validate_objective(objective: &str) -> Result<(), CommandError> {
+    if objective.len() > MAX_OBJECTIVE_BYTES {
+        return Err(CommandError::invalid_input("the objective is too long"));
+    }
+    Ok(())
+}
+
+/// Runtimes (installation, sign-in, capabilities), sessions (newest first), and notices.
+#[tauri::command]
+pub async fn get_agent_overview(
+    agents: State<'_, AgentRuntime>,
+) -> Result<AgentOverview, CommandError> {
+    agents.overview().await.map_err(to_command_error)
+}
+
+/// Re-detect every runtime's installation and sign-in.
+#[tauri::command]
+pub async fn refresh_agent_runtimes(
+    agents: State<'_, AgentRuntime>,
+) -> Result<Vec<AgentRuntimeInfo>, CommandError> {
+    Ok(agents.refresh().await)
+}
+
+/// A session with its turns and recent live activity.
+#[tauri::command]
+pub async fn get_agent_session(
+    agents: State<'_, AgentRuntime>,
+    session_id: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_session_id(&session_id)?;
+    agents.session(&session_id).await.map_err(to_command_error)
+}
+
+/// Start a new session on a runtime with a first objective (startSession + submitTask).
+#[tauri::command]
+pub async fn start_agent_session(
+    agents: State<'_, AgentRuntime>,
+    runtime_id: String,
+    objective: String,
+    model: Option<String>,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    validate_objective(&objective)?;
+    agents
+        .start_session(&runtime_id, &objective, model.as_deref())
+        .await
+        .map_err(to_command_error)
+}
+
+/// Give an existing session its next objective (resumeSession + submitTask).
+#[tauri::command]
+pub async fn resume_agent_session(
+    agents: State<'_, AgentRuntime>,
+    session_id: String,
+    objective: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_session_id(&session_id)?;
+    validate_objective(&objective)?;
+    agents
+        .resume_session(&session_id, &objective)
+        .await
+        .map_err(to_command_error)
+}
+
+/// Cancel the session's running turn; resolves once the turn is recorded.
+#[tauri::command]
+pub async fn cancel_agent_turn(
+    agents: State<'_, AgentRuntime>,
+    session_id: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_session_id(&session_id)?;
+    agents
+        .cancel_turn(&session_id)
+        .await
+        .map_err(to_command_error)
+}
+
+/// Close a session (no further turns).
+#[tauri::command]
+pub async fn close_agent_session(
+    agents: State<'_, AgentRuntime>,
+    session_id: String,
+) -> Result<AgentSession, CommandError> {
+    validate_session_id(&session_id)?;
+    agents
+        .close_session(&session_id)
+        .await
+        .map_err(to_command_error)
+}
+
 fn app_info_for(version: &str) -> AppInfo {
     AppInfo::current(version)
 }
@@ -291,6 +406,18 @@ mod tests {
                 assert!(!accepted, "{bad:?}");
             }
         }
+    }
+
+    #[test]
+    fn agent_input_validation() {
+        assert!(validate_runtime_id("claude-code").is_ok());
+        for bad in ["", "Claude", "../codex", "codex --yolo", &"a".repeat(33)] {
+            assert!(validate_runtime_id(bad).is_err(), "{bad:?}");
+        }
+        assert!(validate_session_id("0f8fad5b-d9cb-469f-a165-70867728950e").is_ok());
+        assert!(validate_session_id("../../x").is_err());
+        assert!(validate_objective(&"x".repeat(MAX_OBJECTIVE_BYTES)).is_ok());
+        assert!(validate_objective(&"x".repeat(MAX_OBJECTIVE_BYTES + 1)).is_err());
     }
 
     #[test]

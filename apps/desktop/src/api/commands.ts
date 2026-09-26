@@ -4,6 +4,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AgentOverview,
+  AgentRuntimeInfo,
+  AgentSession,
+  AgentSessionDetail,
   AppInfo,
   BackupInfo,
   CommandError,
@@ -130,4 +134,54 @@ export function createLedgerBackup(): Promise<BackupInfo> {
 /** JSON export; Core chooses the location. */
 export function exportLedger(): Promise<ExportInfo> {
   return call<ExportInfo>("export_ledger");
+}
+
+// ---- Agent runtimes (Phase 3) -------------------------------------------------------------
+
+/** Runtimes (installation, sign-in, capabilities), sessions (newest first), and notices. */
+export function getAgentOverview(): Promise<AgentOverview> {
+  return call<AgentOverview>("get_agent_overview");
+}
+
+/** Re-detect every runtime's installation and sign-in. */
+export function refreshAgentRuntimes(): Promise<AgentRuntimeInfo[]> {
+  return call<AgentRuntimeInfo[]>("refresh_agent_runtimes");
+}
+
+/** A session with its turns and recent live activity. */
+export function getAgentSession(sessionId: string): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("get_agent_session", { sessionId });
+}
+
+/**
+ * Start a session on a runtime with a first objective. The objective is sent to the runtime on
+ * stdin by Core; the UI never supplies a command, path, or flag.
+ */
+export function startAgentSession(
+  runtimeId: string,
+  objective: string,
+  model?: string,
+): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("start_agent_session", {
+    runtimeId,
+    objective,
+    model: model?.trim() ? model.trim() : null,
+  });
+}
+
+/** Give an existing session its next objective (resumes the provider session). */
+export function resumeAgentSession(
+  sessionId: string,
+  objective: string,
+): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("resume_agent_session", { sessionId, objective });
+}
+
+/** Cancel the session's running turn; resolves once the turn is recorded. */
+export function cancelAgentTurn(sessionId: string): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("cancel_agent_turn", { sessionId });
+}
+
+export function closeAgentSession(sessionId: string): Promise<AgentSession> {
+  return call<AgentSession>("close_agent_session", { sessionId });
 }
