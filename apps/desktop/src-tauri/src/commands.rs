@@ -5,7 +5,9 @@
 //! variables, or a working directory. The UI can only name a pre-approved launch profile, or
 //! (Phase 3) an agent runtime ID plus an objective that Core sends on stdin. Handoffs between
 //! workers (Phase 4) are requested by the workers themselves and checked by Liaison; the UI
-//! can only allow them for a new session, read them, and cancel a waiting turn.
+//! can only allow them for a new session, read them, and cancel a waiting turn. The
+//! organization (Phase 5) is changed only through validated Workforce operations; the Ledger
+//! enforces its structure, and no command names a session, a prompt, or a path to open.
 
 use std::sync::Arc;
 
@@ -20,6 +22,10 @@ use plenipo_runtime::agent::{
 };
 use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
+};
+use plenipo_workforce::{
+    DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionPatchInput,
+    ProjectInput, RoleInput, WorkView, Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -403,6 +409,304 @@ pub async fn get_liaison_overview(
     liaison: State<'_, Liaison>,
 ) -> Result<LiaisonOverview, CommandError> {
     with_liaison(&liaison, Liaison::overview).await
+}
+
+// ---- Workforce (Phase 5) -----------------------------------------------------------------
+
+/// Longest text field accepted at the boundary (bytes); the Ledger enforces the real limits.
+const MAX_FIELD_BYTES: usize = 8_000;
+
+fn workforce_error(e: WorkforceError) -> CommandError {
+    if e.is_caller_error() {
+        CommandError::invalid_input(e.to_string())
+    } else {
+        CommandError::internal(e.to_string())
+    }
+}
+
+/// Run Workforce work (Ledger reads and writes) off the main thread.
+async fn with_workforce<T: Send + 'static>(
+    workforce: &Workforce,
+    f: impl FnOnce(&Workforce) -> Result<T, WorkforceError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let workforce = workforce.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&workforce))
+        .await
+        .map_err(|e| CommandError::internal(format!("workforce task failed: {e}")))?
+        .map_err(workforce_error)
+}
+
+/// An organization record ID (a UUID).
+fn validate_id(what: &str, id: &str) -> Result<(), CommandError> {
+    validate_execution_id(id).map_err(|_| CommandError::invalid_input(format!("invalid {what} id")))
+}
+
+fn validate_optional_id(what: &str, id: Option<&str>) -> Result<(), CommandError> {
+    id.map_or(Ok(()), |id| validate_id(what, id))
+}
+
+fn bounded(what: &str, value: &str) -> Result<(), CommandError> {
+    if value.len() > MAX_FIELD_BYTES {
+        Err(CommandError::invalid_input(format!("{what} is too long")))
+    } else {
+        Ok(())
+    }
+}
+
+fn bounded_optional(what: &str, value: Option<&str>) -> Result<(), CommandError> {
+    value.map_or(Ok(()), |v| bounded(what, v))
+}
+
+fn validate_runtimes(ids: &[String]) -> Result<(), CommandError> {
+    if ids.len() > 16 {
+        return Err(CommandError::invalid_input("too many runtimes"));
+    }
+    ids.iter().try_for_each(|r| validate_runtime_id(r))
+}
+
+fn validate_lead(lead: &LeadInput) -> Result<(), CommandError> {
+    validate_id("role", &lead.role_id)?;
+    bounded("the title", &lead.title)?;
+    validate_runtime_id(&lead.runtime_id)?;
+    bounded_optional("the model", lead.model.as_deref())
+}
+
+fn validate_department(input: &DepartmentInput) -> Result<(), CommandError> {
+    bounded("the name", &input.name)?;
+    bounded("the description", &input.description)?;
+    validate_optional_id("position", input.reports_to.as_deref())?;
+    input.head.as_ref().map_or(Ok(()), validate_lead)
+}
+
+fn validate_project(input: &ProjectInput) -> Result<(), CommandError> {
+    bounded("the name", &input.name)?;
+    bounded("the description", &input.description)?;
+    bounded_optional("the repository", input.repository_url.as_deref())?;
+    bounded_optional("the local folder", input.local_path.as_deref())?;
+    bounded_optional(
+        "the capability profile",
+        input.capability_profile.as_deref(),
+    )?;
+    validate_runtimes(&input.allowed_runtimes)?;
+    validate_optional_id("department", input.department_id.as_deref())?;
+    input.coordinator.as_ref().map_or(Ok(()), validate_lead)
+}
+
+/// The organization: departments, projects, positions with live status, oversight, and stats.
+#[tauri::command]
+pub async fn get_organization(
+    workforce: State<'_, Workforce>,
+) -> Result<OrgSnapshot, CommandError> {
+    with_workforce(&workforce, Workforce::snapshot).await
+}
+
+/// The work a position owns and its team's unfinished work (`positionId` omitted: the whole
+/// organization's).
+#[tauri::command]
+pub async fn get_work(
+    workforce: State<'_, Workforce>,
+    position_id: Option<String>,
+) -> Result<WorkView, CommandError> {
+    validate_optional_id("position", position_id.as_deref())?;
+    with_workforce(&workforce, move |w| w.work(position_id.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn rename_organization(
+    workforce: State<'_, Workforce>,
+    name: String,
+) -> Result<OrgSnapshot, CommandError> {
+    bounded("the name", &name)?;
+    with_workforce(&workforce, move |w| w.rename(&name)).await
+}
+
+#[tauri::command]
+pub async fn create_role(
+    workforce: State<'_, Workforce>,
+    input: RoleInput,
+) -> Result<OrgSnapshot, CommandError> {
+    bounded("the name", &input.name)?;
+    bounded("the description", &input.description)?;
+    with_workforce(&workforce, move |w| w.create_role(&input)).await
+}
+
+/// Create a department with its head position.
+#[tauri::command]
+pub async fn create_department(
+    workforce: State<'_, Workforce>,
+    input: DepartmentInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_department(&input)?;
+    with_workforce(&workforce, move |w| w.create_department(&input)).await
+}
+
+#[tauri::command]
+pub async fn update_department(
+    workforce: State<'_, Workforce>,
+    department_id: String,
+    input: DepartmentInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("department", &department_id)?;
+    validate_department(&input)?;
+    with_workforce(&workforce, move |w| {
+        w.update_department(&department_id, &input)
+    })
+    .await
+}
+
+/// Delete a department that has no projects (its head position is archived).
+#[tauri::command]
+pub async fn remove_department(
+    workforce: State<'_, Workforce>,
+    department_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("department", &department_id)?;
+    with_workforce(&workforce, move |w| w.remove_department(&department_id)).await
+}
+
+/// Create a project with its coordinator position. The local folder is recorded, never opened.
+#[tauri::command]
+pub async fn create_project(
+    workforce: State<'_, Workforce>,
+    input: ProjectInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_project(&input)?;
+    with_workforce(&workforce, move |w| w.create_project(&input)).await
+}
+
+#[tauri::command]
+pub async fn update_project(
+    workforce: State<'_, Workforce>,
+    project_id: String,
+    input: ProjectInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("project", &project_id)?;
+    validate_project(&input)?;
+    with_workforce(&workforce, move |w| w.update_project(&project_id, &input)).await
+}
+
+/// Archive a project and its whole team once none of it has unfinished work.
+#[tauri::command]
+pub async fn archive_project(
+    workforce: State<'_, Workforce>,
+    project_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("project", &project_id)?;
+    with_workforce(&workforce, move |w| w.archive_project(&project_id)).await
+}
+
+/// Hire into a team: a new position (and, for a persistent one, its agent).
+#[tauri::command]
+pub async fn hire_position(
+    workforce: State<'_, Workforce>,
+    input: HireInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("role", &input.role_id)?;
+    bounded("the title", &input.title)?;
+    validate_optional_id("position", input.reports_to.as_deref())?;
+    validate_runtime_id(&input.runtime_id)?;
+    bounded_optional("the model", input.model.as_deref())?;
+    with_workforce(&workforce, move |w| w.hire(&input)).await
+}
+
+/// Hire an agent into a vacant persistent position.
+#[tauri::command]
+pub async fn fill_position(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &position_id)?;
+    with_workforce(&workforce, move |w| w.fill(&position_id)).await
+}
+
+/// Let a persistent position's agent go (the position stays, vacant).
+#[tauri::command]
+pub async fn vacate_position(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &position_id)?;
+    with_workforce(&workforce, move |w| w.vacate(&position_id)).await
+}
+
+#[tauri::command]
+pub async fn update_position(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+    input: PositionPatchInput,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &position_id)?;
+    bounded_optional("the title", input.title.as_deref())?;
+    if let Some(r) = input.runtime_id.as_deref() {
+        validate_runtime_id(r)?;
+    }
+    bounded_optional("the model", input.model.as_deref())?;
+    with_workforce(&workforce, move |w| w.update_position(&position_id, &input)).await
+}
+
+/// Make a position report to another (`reportsTo` null: the owner).
+#[tauri::command]
+pub async fn move_position(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+    reports_to: Option<String>,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &position_id)?;
+    validate_optional_id("position", reports_to.as_deref())?;
+    with_workforce(&workforce, move |w| {
+        w.move_position(&position_id, reports_to.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn archive_position(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &position_id)?;
+    with_workforce(&workforce, move |w| w.archive_position(&position_id)).await
+}
+
+/// Assign an on-demand position to review, QA, or security-audit a team.
+#[tauri::command]
+pub async fn assign_oversight(
+    workforce: State<'_, Workforce>,
+    overseer_id: String,
+    target_id: String,
+    role: OversightRole,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("position", &overseer_id)?;
+    validate_id("position", &target_id)?;
+    with_workforce(&workforce, move |w| {
+        w.assign_oversight(&overseer_id, &target_id, role)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn end_oversight(
+    workforce: State<'_, Workforce>,
+    oversight_id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("oversight assignment", &oversight_id)?;
+    with_workforce(&workforce, move |w| w.end_oversight(&oversight_id)).await
+}
+
+/// Give a staffed persistent position's agent an objective. Core builds its instructions and
+/// chooses its session; the UI names only the position.
+#[tauri::command]
+pub async fn give_objective(
+    workforce: State<'_, Workforce>,
+    position_id: String,
+    objective: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_id("position", &position_id)?;
+    validate_objective(&objective)?;
+    workforce
+        .give_objective(&position_id, &objective)
+        .await
+        .map_err(workforce_error)
 }
 
 fn app_info_for(version: &str) -> AppInfo {

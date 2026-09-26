@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-move-position"
+description = "Enables the move_position command without any pre-configured scope."
+commands.allow = ["move_position"]
+
+[[permission]]
+identifier = "deny-move-position"
+description = "Denies the move_position command without any pre-configured scope."
+commands.deny = ["move_position"]

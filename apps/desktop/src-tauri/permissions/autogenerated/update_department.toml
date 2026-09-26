@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-department"
+description = "Enables the update_department command without any pre-configured scope."
+commands.allow = ["update_department"]
+
+[[permission]]
+identifier = "deny-update-department"
+description = "Denies the update_department command without any pre-configured scope."
+commands.deny = ["update_department"]

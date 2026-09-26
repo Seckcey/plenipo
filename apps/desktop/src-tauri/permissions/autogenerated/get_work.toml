@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-work"
+description = "Enables the get_work command without any pre-configured scope."
+commands.allow = ["get_work"]
+
+[[permission]]
+identifier = "deny-get-work"
+description = "Denies the get_work command without any pre-configured scope."
+commands.deny = ["get_work"]

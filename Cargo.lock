@@ -2360,6 +2360,7 @@ dependencies = [
  "plenipo-ledger",
  "plenipo-liaison",
  "plenipo-runtime",
+ "plenipo-workforce",
  "serde",
  "serde_json",
  "tauri",

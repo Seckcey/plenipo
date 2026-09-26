@@ -29,6 +29,25 @@
     "allow-close-agent-session",
     "allow-get-task-handoffs",
     "allow-get-task-tree",
-    "allow-get-liaison-overview"
+    "allow-get-liaison-overview",
+    "allow-get-organization",
+    "allow-get-work",
+    "allow-rename-organization",
+    "allow-create-role",
+    "allow-create-department",
+    "allow-update-department",
+    "allow-remove-department",
+    "allow-create-project",
+    "allow-update-project",
+    "allow-archive-project",
+    "allow-hire-position",
+    "allow-fill-position",
+    "allow-vacate-position",
+    "allow-update-position",
+    "allow-move-position",
+    "allow-archive-position",
+    "allow-assign-oversight",
+    "allow-end-oversight",
+    "allow-give-objective"
   ]
 }
