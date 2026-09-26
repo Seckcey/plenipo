@@ -11,7 +11,7 @@ pub mod runtime_host;
 pub mod smoke;
 pub mod tray;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -42,8 +42,41 @@ impl Default for ShellOptions {
     }
 }
 
+/// Where quitting is: running, stopping owned processes, or done and free to exit.
 #[derive(Default)]
-struct ShutdownState(AtomicBool);
+struct ShutdownState(AtomicU8);
+
+const RUNNING: u8 = 0;
+const STOPPING: u8 = 1;
+const STOPPED: u8 = 2;
+
+#[derive(Debug, PartialEq, Eq)]
+enum ExitStep {
+    /// The first request: hold the exit and stop owned processes.
+    Start,
+    /// A request while that runs, such as the window being destroyed: hold it too, or the
+    /// app would exit before the processes' final state is recorded.
+    Hold,
+    /// The shutdown has finished; this is its own exit.
+    Allow,
+}
+
+impl ShutdownState {
+    fn exit_requested(&self) -> ExitStep {
+        match self
+            .0
+            .compare_exchange(RUNNING, STOPPING, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => ExitStep::Start,
+            Err(STOPPING) => ExitStep::Hold,
+            Err(_) => ExitStep::Allow,
+        }
+    }
+
+    fn finished(&self) {
+        self.0.store(STOPPED, Ordering::SeqCst);
+    }
+}
 
 /// Register Plenipo state, setup hooks, window behavior, and the command surface.
 /// Shared by the real app and the IPC boundary tests.
@@ -155,12 +188,15 @@ pub fn configure<R: Runtime>(
 }
 
 /// Handle app-level events. On the first exit request, terminate owned processes and record
-/// their final state before letting the app exit.
+/// their final state before letting the app exit. Exit requests that arrive meanwhile (the
+/// window being destroyed, a second Quit) are held until that is done.
 pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
     if let RunEvent::ExitRequested { api, code, .. } = event {
-        let first = !app.state::<ShutdownState>().0.swap(true, Ordering::SeqCst);
-        if first {
+        let step = app.state::<ShutdownState>().exit_requested();
+        if step != ExitStep::Allow {
             api.prevent_exit();
+        }
+        if step == ExitStep::Start {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 // Liaison stops handing out work first. The agent runtime then stops its turns
@@ -180,6 +216,7 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 if stopped > 0 {
                     eprintln!("[plenipo] terminated {stopped} running process(es) on exit");
                 }
+                app.state::<ShutdownState>().finished();
                 app.exit(code.unwrap_or(0));
             });
         }
@@ -223,6 +260,22 @@ pub fn run() -> i32 {
     // The runtime does not reliably propagate the code given to `AppHandle::exit`
     // on every platform, so the smoke outcome is tracked independently.
     outcome.resolve_exit_code(runtime_code)
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    #[test]
+    fn exit_requests_wait_for_the_shutdown_to_finish() {
+        let state = ShutdownState::default();
+        assert_eq!(state.exit_requested(), ExitStep::Start);
+        // The window destroyed mid-shutdown, then a second Quit: both wait.
+        assert_eq!(state.exit_requested(), ExitStep::Hold);
+        assert_eq!(state.exit_requested(), ExitStep::Hold);
+        state.finished();
+        assert_eq!(state.exit_requested(), ExitStep::Allow);
+    }
 }
 
 #[cfg(test)]
