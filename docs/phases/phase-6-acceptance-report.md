@@ -140,7 +140,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | O1  | ADR-011 (how Plenipo picks each worker's AI model) — **Accepted** by the owner on 2026-09-26, with effort per model and per role choice added (§15).              | Done.                            |
 | O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
-| O3  | Version stays **0.6.0** (Phase 5, accepted); Phase 6 acceptance brings 0.7.0.                                                                                     | Bump after acceptance.           |
+| O3  | Version stays **0.6.1** (Phase 5, accepted); Phase 6 acceptance brings 0.7.0.                                                                                     | Bump after acceptance.           |
 | O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                     | Keep, or change its choices.     |
 | O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                              | Say "start Phase 7" after O1–O2. |
 

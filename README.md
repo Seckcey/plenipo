@@ -6,7 +6,7 @@ the work to supervisors and specialist workers, grants only the permissions each
 watches over the work, and keeps a complete record of it.
 
 > **Status:** Phase 6 — Model policy and role routing (implemented; awaiting owner acceptance,
-> so the version stays 0.6.0). **Settings → AI models** says which AI model each role's workers
+> so the version stays 0.6.1). **Settings → AI models** says which AI model each role's workers
 > get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
 > first choice, backups, what the model must be able to do, AI companies it never uses, and
 > reviews by a different AI company — and see, for every role, the model its next worker would
@@ -14,7 +14,7 @@ watches over the work, and keeps a complete record of it.
 > a position to one AI tool. A usage limit never moves work to another AI company unless you
 > allow it, and every worker's reason is kept in the Ledger.
 >
-> Phase 5 — Workforce and organization engine (accepted, v0.6.0). The
+> Phase 5 — Workforce and organization engine (accepted, v0.6.1). The
 > **Organization** view is a live topology map of your AI workforce: create departments and
 > projects (each comes with its manager or supervisor), drag roles from the hire palette onto a
 > lead to build its team, drag positions to change who they report to or to make them a team's

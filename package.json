@@ -1,6 +1,6 @@
 {
   "name": "plenipo",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Plenipo — local-first desktop AI workforce orchestration platform.",
