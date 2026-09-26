@@ -1,0 +1,22 @@
+Manage plugins and marketplace sources
+
+Usage: grok plugin [OPTIONS] <COMMAND>
+
+Commands:
+  list         List installed plugins
+  install      Install a plugin from a git URL or local path
+  uninstall    Uninstall an installed plugin by name [aliases: rm, remove]
+  update       Update installed plugin(s)
+  enable       Enable a disabled plugin
+  disable      Disable a plugin without uninstalling it
+  details      Show a plugin's component inventory
+  validate     Validate a plugin manifest
+  tag          Create a release git tag from the plugin's manifest version
+  marketplace  Manage marketplace sources
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+      --debug                 Enable debug logging
+      --debug-file <FILE>     Write debug logs to FILE
+  -h, --help                  Print help
+      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

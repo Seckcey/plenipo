@@ -1,0 +1,4 @@
+Error: Internal error: {
+  "message": "API error (status 400 Bad Request): invalid-argument: Incorrect API key provided. You can obtain an API key from https://console.x.ai.",
+  "http_status": 400
+}

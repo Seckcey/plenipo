@@ -1,0 +1,21 @@
+Manage git worktrees
+
+Usage: grok worktree [OPTIONS] <COMMAND>
+
+Commands:
+  list             List tracked worktrees [aliases: ls]
+  show             Show details for a specific worktree
+  rm               Remove worktrees
+  gc               Remove expired worktrees, keeping any whose work would not survive
+  detach           Convert a Grove-projected worktree into a plain git worktree
+  salvage          Recover hydrated and dirty files when the source repo is gone
+  clean-artifacts  Purge escape-dir artifact contents (`git clean` does not)
+  redirect         Inspect and repair artifact-directory redirections
+  db               Database maintenance
+  help             Print this message or the help of the given subcommand(s)
+
+Options:
+      --debug                 Enable debug logging
+      --debug-file <FILE>     Write debug logs to FILE
+  -h, --help                  Print help
+      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered
