@@ -95,7 +95,11 @@ Notes:
   - Grok gets none of its own tools, helpers, memory, or web access, and none of your Claude Code
     or Cursor settings. When Grok asks to use a tool, Plenipo answers for you: Plenipo's own
     tools yes (Guard still decides each call), everything else no.
-  - Models: **grok-4.6** (low to extra high effort) and **grok-4.5** (low to high).
+  - Models (Grok 1.0.41, signed in): **grok-4.7** (Grok's default), **grok-4.7-build-fast**
+    ("Grok 4.7 Fast"), and **grok-4.6**, each low to extra high effort, and **grok-4.5** (low to
+    high).
+  - Keep Grok up to date with `grok update`. Plenipo was checked with 1.0.41; an old version
+    (1.0.13, for example) may not have the options Plenipo uses.
 - Workers you start in **Workers** cannot change anything: Claude Code and Grok run with none of
   their own tools (conversation only), Codex in its read-only sandbox, each conversation in its own empty folder
   under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`. Organization

@@ -64,7 +64,8 @@ checks now include Grok).
   off (checked: a task then loads none of the owner's skills). A worker with permissions gets
   Plenipo's tool server in `session/new`; Grok reaches it through its `use_tool`, asks first,
   and Plenipo allows only that server (Guard decides inside each call).
-- **Models:** `grok-4.6` (Low, Medium, High, Extra high) and `grok-4.5` (Low, Medium, High), as
+- **Models:** `grok-4.7` (Grok's default), `grok-4.7-build-fast` ("Grok 4.7 Fast"), and
+  `grok-4.6` (Low, Medium, High, Extra high), and `grok-4.5` (Low, Medium, High), as
   Grok 1.0.41 lists them.
 
 ## 3. Tests
@@ -78,7 +79,7 @@ checks now include Grok).
 | Supervisor (`a_stdin_feed_keeps_stdin_open_until_its_sender_is_gone`) | Stdin stays open while a task talks, in order, and closes when it is done.                                                                                                                                                 |
 | Guard (`a_grok_worker_uses_plenipo_tools_over_acp_and_nothing_else`)  | Through the real broker and relay: a Grok Supervisor lists and uses Plenipo's tools, a write its role does not allow is blocked, and Grok's request for its own tool is refused and noted.                                 |
 | Desktop IPC                                                           | The AI tools list and the default models follow the registered tools (two tests that still said two tools now follow `builtin_adapters()`).                                                                                |
-| End to end (`agents.e2e.mjs`, `routing.e2e.mjs`)                      | Grok appears under AI tools (ready, version, Grok sign-in); a Grok task runs through Workers; Settings → AI models → Add a model lists `grok-4.6` and `grok-4.5` for Grok.                                                 |
+| End to end (`agents.e2e.mjs`, `routing.e2e.mjs`)                      | Grok appears under AI tools (ready, version, Grok sign-in); a Grok task runs through Workers; Settings → AI models → Add a model lists Grok's four models.                                                                 |
 
 ## 4. Changes to shared code, and why
 
@@ -156,9 +157,6 @@ prints a key, do not paste it.
 
 Everything below needs a signed-in Grok, which was never used here:
 
-- the effort levels of the two models Grok offers only when signed in, `grok-4.7` (its
-  default) and `grok-4.7-build-fast` (seen on the owner's machine, §8); until they are known,
-  Plenipo's menu lists `grok-4.6` and `grok-4.5`, and the owner can type the others' names;
 - a real task over ACP: whether the conversation opens without ACP's sign-in message, the text,
   tool calls, and usage fields a signed-in Grok sends, and its usage-limit wording;
 - that the agent profile removes Grok's own tools and that Grok asks before using a tool server;
@@ -175,3 +173,10 @@ the persona, with the recorded output added to the evidence.
   Plenipo reads that as a subscription sign-in ("grok.com sign-in" on the AI tools card).
   Signed in, Grok offers four models: `grok-4.7` (default), `grok-4.7-build-fast`, `grok-4.6`,
   and `grok-4.5`. Signed out it lists only the last two.
+- **Models and effort (2026-09-26):** the owner's Grok was 1.0.13 and was updated to 1.0.41
+  (`grok update`). Grok's ACP handshake, signed in, lists each model with its effort levels
+  ([`models-effort-signed-in.txt`](evidence/ai-tools-grok/models-effort-signed-in.txt)):
+  `grok-4.7`, `grok-4.7-build-fast` ("Grok 4.7 Fast"), and `grok-4.6` take Extra high, High,
+  Medium, and Low; `grok-4.5` takes High, Medium, and Low. Plenipo's menu now lists all four;
+  a test checks the adapter against this file. The setup guide now says to keep Grok up to
+  date.

@@ -288,11 +288,13 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       ).selectByVisibleText(label);
     await chooseTool("Grok");
     await waitUntil(
-      async () => (await menuOptions()).includes("grok-4.6"),
+      async () => (await menuOptions()).includes("grok-4.7"),
       "Grok's models in the menu",
     );
-    assert.deepEqual((await menuOptions()).slice(0, 4), [
+    assert.deepEqual((await menuOptions()).slice(0, 6), [
       "The AI tool's default (already in your list)",
+      "grok-4.7",
+      "grok-4.7-build-fast",
       "grok-4.6",
       "grok-4.5",
       "Type another name…",

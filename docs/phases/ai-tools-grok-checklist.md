@@ -50,7 +50,8 @@ over ACP). Evidence from the real CLI: [`evidence/ai-tools-grok/`](evidence/ai-t
       conversation ID travels in ACP messages
 - [x] Parser: the shared ACP driver (`acp.rs`) — every message type seen; unknown messages
       ignored and counted; usage-limit and sign-in errors classified; never sends `authenticate`
-- [x] Capabilities: tool posture, effort levels, `grok-4.6` (low–extra high) and `grok-4.5`
+- [x] Capabilities: tool posture, effort levels, `grok-4.7`, `grok-4.7-build-fast`, and
+      `grok-4.6` (low–extra high) and `grok-4.5`
       (low–high), `checked_version()` = `1.0.41`
 - [x] Unit tests in the module, using the recorded outputs (`include_str!` from the evidence)
 - [x] After Phase 7 is on main: Plenipo's tool server wired in (ACP `mcpServers`), tested

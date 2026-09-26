@@ -1245,7 +1245,7 @@ impl GrokAgent {
         };
         out(&json!({ "jsonrpc": "2.0", "method": "_x.ai/session/setup",
                      "params": { "method": method, "phase": "persistence_init", "sessionId": session } }));
-        let model = flag(&self.args, "-m").unwrap_or_else(|| "grok-4.6".into());
+        let model = flag(&self.args, "-m").unwrap_or_else(|| "grok-4.7".into());
         self.session = Some(session.clone());
         let result = if method == "session/new" {
             json!({ "sessionId": session, "models": { "currentModelId": model } })
@@ -1425,8 +1425,10 @@ fn grok_agent(args: &[String]) -> i32 {
                     },
                     "authMethods": [{ "id": "grok.com", "name": "Grok", "description": "Sign in with Grok" }],
                     "_meta": { "agentVersion": "1.0.99", "modelState": {
-                        "currentModelId": "grok-4.6",
+                        "currentModelId": "grok-4.7",
                         "availableModels": [
+                            { "modelId": "grok-4.7", "name": "Grok 4.7" },
+                            { "modelId": "grok-4.7-build-fast", "name": "Grok 4.7 Fast" },
                             { "modelId": "grok-4.6", "name": "Grok 4.6" },
                             { "modelId": "grok-4.5", "name": "Grok 4.5" }
                         ] } }

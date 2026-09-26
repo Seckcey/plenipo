@@ -27,8 +27,9 @@ use crate::agent::dto::{AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabi
 pub const ID: &str = "grok";
 const LABEL: &str = "Grok";
 
-/// Effort levels `grok agent --reasoning-effort` takes for Grok 4.6 (lowest first).
-const GROK_4_6_EFFORT: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::XHigh];
+/// Effort levels `grok agent --reasoning-effort` takes for Grok 4.7, 4.7 Fast, and 4.6
+/// (lowest first).
+const FULL_EFFORT: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::XHigh];
 /// Grok 4.5's levels: no Extra high.
 const GROK_4_5_EFFORT: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
 
@@ -103,11 +104,14 @@ impl RuntimeAdapter for Grok {
                            Plenipo Guard."
                 .into(),
             // `grok agent --reasoning-effort <level>`: the levels its models list.
-            effort_levels: GROK_4_6_EFFORT.to_vec(),
-            // The models `grok models` and the ACP handshake list (Grok 1.0.41), with the
-            // effort levels each one's menu offers.
+            effort_levels: FULL_EFFORT.to_vec(),
+            // The models Grok 1.0.41 offers when signed in (`grok models` and the ACP
+            // handshake on the owner's machine, 2026-09-26), in its order, with the effort
+            // levels each one's menu offers. Grok 4.7 is its default.
             known_models: vec![
-                KnownModel::new("grok-4.6", "Grok 4.6", GROK_4_6_EFFORT),
+                KnownModel::new("grok-4.7", "Grok 4.7", FULL_EFFORT),
+                KnownModel::new("grok-4.7-build-fast", "Grok 4.7 Fast", FULL_EFFORT),
+                KnownModel::new("grok-4.6", "Grok 4.6", FULL_EFFORT),
                 KnownModel::new("grok-4.5", "Grok 4.5", GROK_4_5_EFFORT),
             ],
         }
@@ -486,9 +490,22 @@ mod tests {
 
     #[test]
     fn known_models_come_with_their_own_effort_levels() {
+        // Real output from the owner's machine: each model and the effort levels it offers.
+        let listed = include_str!(
+            "../../../../docs/phases/evidence/ai-tools-grok/models-effort-signed-in.txt"
+        );
         let caps = Grok.capabilities();
-        assert_eq!(caps.effort_levels_for(Some("grok-4.6")), GROK_4_6_EFFORT);
-        assert_eq!(caps.effort_levels_for(Some("grok-4.5")), GROK_4_5_EFFORT);
+        let names: Vec<&str> = caps.known_models.iter().map(|m| m.name.as_str()).collect();
+        let lines: Vec<&str> = listed.lines().collect();
+        assert_eq!(names.len(), lines.len());
+        for (model, line) in caps.known_models.iter().zip(lines) {
+            let (head, levels) = line.split_once(": ").unwrap();
+            assert_eq!(head, format!("{} ({})", model.name, model.label));
+            let mut wanted: Vec<&str> = levels.split(", ").collect();
+            wanted.reverse(); // Grok lists them highest first; Plenipo lowest first.
+            let ours: Vec<&str> = model.effort_levels.iter().map(|e| e.as_str()).collect();
+            assert_eq!(ours, wanted, "{}", model.name);
+        }
         assert!(!caps.billing_checked_per_turn);
     }
 }
