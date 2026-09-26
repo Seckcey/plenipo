@@ -1,12 +1,12 @@
 # Phase 3 — Acceptance Report (draft, pending owner verification)
 
-|              |                                                                                                                                                          |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 3 — Provider Runtime Adapters: Codex and Claude Code                                                                                                     |
-| **Branch**   | `claude/funny-pascal-tgon01` ([PR #2](https://github.com/Seckcey/plenipo/pull/2))                                                                        |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e` against the release build. GitHub CI pending (see O4).                          |
-| **Date**     | 2026-09-26                                                                                                                                               |
-| **Result**   | **All acceptance criteria pass end to end against fake CLIs.** The same criteria with the **real** Claude Code and Codex sign-ins are owner item **O2**. |
+|              |                                                                                                                                                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 3 — Provider Runtime Adapters: Codex and Claude Code                                                                                                                                                                                                    |
+| **Branch**   | `claude/phase-3-runtime-adapters` ([PR #3](https://github.com/Seckcey/plenipo/pull/3); replaces #2)                                                                                                                                                     |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI **green** on `9fdd498`: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — [run](https://github.com/Seckcey/plenipo/actions/runs/36219759501). |
+| **Date**     | 2026-09-26                                                                                                                                                                                                                                              |
+| **Result**   | **All acceptance criteria pass end to end against fake CLIs.** The same criteria with the **real** Claude Code and Codex sign-ins are owner item **O2**.                                                                                                |
 
 Screenshots: [agent runtimes](evidence/phase-3/agent-runtimes.png) ·
 [live turn](evidence/phase-3/worker-live.png) · [result](evidence/phase-3/worker-result.png) ·
@@ -107,13 +107,13 @@ remote origins denied, smuggled `executable`/`args` fields rejected).
 
 ## 7. Owner items
 
-| ID  | Item                                                                                                                                                                                             | Recommendation                                                |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| O1  | ADR-007 is **Proposed**.                                                                                                                                                                         | Accept or amend.                                              |
-| O2  | Windows check with the **real** CLIs and your subscription sign-ins (~10 min): the steps in [phase-3-checklist.md](phase-3-checklist.md#owner-check-on-windows-10-minutes). Report anything odd. | Required for acceptance (criteria A1–A7 with real CLIs).      |
-| O3  | Version stays **0.3.1** until O2 passes; then **0.4.0** per the phase convention.                                                                                                                | Bump after O2.                                                |
-| O4  | A repository rule ("changes must be made through a pull request") began rejecting pushes to this branch mid-session, so later commits could not be pushed and CI has not run on them.            | Limit the rule to `main` (or allow the Claude app to bypass). |
-| O5  | Phase 4 (Liaison message bus, cross-provider handoffs) lets agents hand work to each other — a material expansion (plan §8.12).                                                                  | Say "start Phase 4" after O1–O2.                              |
+| ID  | Item                                                                                                                                                                                             | Recommendation                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| O1  | ADR-007 is **Proposed**.                                                                                                                                                                         | Accept or amend.                                         |
+| O2  | Windows check with the **real** CLIs and your subscription sign-ins (~10 min): the steps in [phase-3-checklist.md](phase-3-checklist.md#owner-check-on-windows-10-minutes). Report anything odd. | Required for acceptance (criteria A1–A7 with real CLIs). |
+| O3  | Version stays **0.3.1** until O2 passes; then **0.4.0** per the phase convention.                                                                                                                | Bump after O2.                                           |
+| O4  | A repository rule rejected pushes to the branch mid-session (work moved to PR #3).                                                                                                               | **Resolved** — owner updated the rule; CI ran green.     |
+| O5  | Phase 4 (Liaison message bus, cross-provider handoffs) lets agents hand work to each other — a material expansion (plan §8.12).                                                                  | Say "start Phase 4" after O1–O2.                         |
 
 Things only the real CLIs can confirm (O2): the exact `claude auth status --json` fields,
 Claude Code's `apiKeySource` for a subscription sign-in (`none` expected — anything else stops
