@@ -1,0 +1,476 @@
+//! Ledger integration tests: migrations, durability, concurrency, corruption, backup/export.
+
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use plenipo_ledger::migrate::{self, Migration};
+use plenipo_ledger::{Ledger, LedgerError, NewEvent, NewTask, TaskState, DB_FILE_NAME, MIGRATIONS};
+use rusqlite::Connection;
+use serde_json::json;
+
+fn db_path(dir: &Path) -> PathBuf {
+    dir.join("ledger").join(DB_FILE_NAME)
+}
+
+fn new_task(l: &Ledger, objective: &str) -> plenipo_ledger::Task {
+    l.create_task(
+        NewTask {
+            requested_by: "owner".into(),
+            objective: objective.into(),
+            ..NewTask::default()
+        },
+        "owner",
+    )
+    .unwrap()
+}
+
+/// Normalized schema (tables, indexes, triggers) for comparisons.
+fn schema(conn: &Connection) -> Vec<(String, String)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT type, name FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite_%' AND name != 'schema_migrations' ORDER BY type, name",
+        )
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+// ---- Migrations ------------------------------------------------------------------------
+
+#[test]
+fn migrations_apply_roll_back_and_reapply_cleanly() {
+    let conn = Connection::open_in_memory().unwrap();
+    let report = migrate::migrate(&conn, MIGRATIONS, |_| panic!("no backup for a new db")).unwrap();
+    assert_eq!((report.from, report.to), (0, migrate::latest(MIGRATIONS)));
+    let full = schema(&conn);
+    assert!(full.iter().any(|(_, n)| n == "tasks"));
+    assert!(full
+        .iter()
+        .any(|(t, n)| t == "trigger" && n == "events_are_append_only_update"));
+
+    migrate::rollback_to(&conn, MIGRATIONS, 0).unwrap();
+    assert!(
+        schema(&conn).is_empty(),
+        "down scripts remove everything: {:?}",
+        schema(&conn)
+    );
+    assert_eq!(migrate::current_version(&conn).unwrap(), 0);
+
+    migrate::migrate(&conn, MIGRATIONS, |_| Ok(())).unwrap();
+    assert_eq!(
+        schema(&conn),
+        full,
+        "up after down reproduces the same schema"
+    );
+
+    // Idempotent: nothing pending.
+    let again = migrate::migrate(&conn, MIGRATIONS, |_| panic!("nothing to do")).unwrap();
+    assert!(again.applied.is_empty());
+}
+
+const V2: Migration = Migration {
+    version: 2,
+    name: "test_add_column",
+    up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
+    down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",
+};
+
+#[test]
+fn upgrading_an_existing_ledger_takes_a_backup_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let task_id = {
+        let l = Ledger::open(&path).unwrap();
+        new_task(&l, "exists before upgrade").id
+    };
+    let both = [MIGRATIONS[0], V2];
+    let l = Ledger::open_with(&path, &both).unwrap();
+    assert_eq!(l.schema_version().unwrap(), 2);
+    assert!(
+        l.task(&task_id).unwrap().is_some(),
+        "data survives the upgrade"
+    );
+    let status = l.status().unwrap();
+    let notice = status
+        .notices
+        .iter()
+        .find(|n| n.contains("upgraded from version 1"))
+        .unwrap();
+    let backups: Vec<_> = std::fs::read_dir(path.parent().unwrap().join("backups"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    assert!(backups[0].starts_with("pre-migration-v1-"));
+    assert!(notice.contains(&backups[0]));
+
+    // The backup is a usable v1 ledger (the production rollback path).
+    let backup = path.parent().unwrap().join("backups").join(&backups[0]);
+    let restored = Ledger::open(&backup).unwrap();
+    assert_eq!(restored.schema_version().unwrap(), 1);
+    assert!(restored.task(&task_id).unwrap().is_some());
+}
+
+#[test]
+fn newer_schema_is_refused_and_left_untouched() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    drop(Ledger::open_with(&path, &[MIGRATIONS[0], V2]).unwrap());
+    let before = std::fs::read(&path).unwrap();
+    match Ledger::open(&path) {
+        Err(LedgerError::NewerSchema { db: 2, app: 1 }) => {}
+        other => panic!("expected NewerSchema, got {:?}", other.map(|_| ())),
+    }
+    assert!(path.exists(), "not quarantined");
+    assert_eq!(std::fs::read(&path).unwrap().len(), before.len());
+}
+
+#[test]
+fn edited_or_skipped_migrations_are_detected() {
+    let conn = Connection::open_in_memory().unwrap();
+    migrate::migrate(&conn, MIGRATIONS, |_| Ok(())).unwrap();
+    let edited = Migration {
+        up: "-- changed\nCREATE TABLE x (y);",
+        ..MIGRATIONS[0]
+    };
+    assert!(matches!(
+        migrate::migrate(&conn, &[edited], |_| Ok(())),
+        Err(LedgerError::ModifiedMigration(1))
+    ));
+
+    // History says v2 is applied but v1 never was.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO schema_migrations VALUES (2, 'test_add_column', ?1, 0)",
+        [V2.checksum()],
+    )
+    .unwrap();
+    assert!(matches!(
+        migrate::migrate(&conn, &[MIGRATIONS[0], V2], |_| Ok(())),
+        Err(LedgerError::InconsistentMigrations(_))
+    ));
+}
+
+// ---- Durability -----------------------------------------------------------------------
+
+#[test]
+fn history_survives_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let (id, trail) = {
+        let l = Ledger::open(&path).unwrap();
+        let t = new_task(&l, "durable");
+        l.transition_task(&t.id, TaskState::Running, "worker", None)
+            .unwrap();
+        l.transition_task(&t.id, TaskState::Blocked, "worker", Some("input needed"))
+            .unwrap();
+        (t.id.clone(), l.events_for_task(&t.id).unwrap())
+    };
+    let l = Ledger::open(&path).unwrap();
+    assert_eq!(l.task(&id).unwrap().unwrap().state, TaskState::Blocked);
+    assert_eq!(l.events_for_task(&id).unwrap(), trail);
+    assert!(l.status().unwrap().notices.is_empty());
+    let mode: String = Connection::open(&path)
+        .unwrap()
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal");
+}
+
+#[test]
+fn committed_history_survives_a_hard_killed_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_ledger-writer"))
+        .arg(&path)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let task_id = lines
+        .next()
+        .unwrap()
+        .unwrap()
+        .trim_start_matches("task:")
+        .to_owned();
+    let mut committed = 0;
+    for line in lines.by_ref() {
+        committed = line
+            .unwrap()
+            .trim_start_matches("committed:")
+            .parse::<u64>()
+            .unwrap();
+        if committed >= 200 {
+            break;
+        }
+    }
+    child.kill().unwrap(); // SIGKILL / TerminateProcess mid-stream: no clean shutdown
+    child.wait().unwrap();
+
+    let l = Ledger::open(&path).unwrap();
+    assert!(
+        l.status().unwrap().notices.is_empty(),
+        "no corruption after a hard kill"
+    );
+    let task = l.task(&task_id).unwrap().unwrap();
+    assert_eq!(task.state, TaskState::Running);
+    let trail = l.events_for_task(&task_id).unwrap();
+    let ticks: Vec<u64> = trail
+        .iter()
+        .filter(|e| e.event_type == "synthetic.tick")
+        .map(|e| e.payload["n"].as_u64().unwrap())
+        .collect();
+    assert!(
+        ticks.len() as u64 >= committed,
+        "every acknowledged commit survived"
+    );
+    assert_eq!(
+        ticks,
+        (1..=ticks.len() as u64).collect::<Vec<_>>(),
+        "no gaps or reordering"
+    );
+    assert!(l.integrity_check().unwrap().ok);
+}
+
+// ---- Concurrency ----------------------------------------------------------------------
+
+#[test]
+fn concurrent_writers_on_one_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = Arc::new(Ledger::open(&db_path(dir.path())).unwrap());
+    let t = new_task(&l, "shared");
+    let handles: Vec<_> = (0..8)
+        .map(|w| {
+            let l = l.clone();
+            let id = t.id.clone();
+            std::thread::spawn(move || {
+                for n in 0..50 {
+                    l.append_event(NewEvent {
+                        task_id: Some(id.clone()),
+                        source: format!("writer-{w}"),
+                        event_type: "synthetic.tick".into(),
+                        payload: json!({ "w": w, "n": n }),
+                        ..NewEvent::default()
+                    })
+                    .unwrap();
+                }
+            })
+        })
+        .collect();
+    handles.into_iter().for_each(|h| h.join().unwrap());
+    assert_ordered_per_writer(&l, &t.id, 8, 50);
+}
+
+#[test]
+fn concurrent_writers_on_separate_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let id = new_task(&Ledger::open(&path).unwrap(), "multi-connection").id;
+    let handles: Vec<_> = (0..4)
+        .map(|w| {
+            let path = path.clone();
+            let id = id.clone();
+            std::thread::spawn(move || {
+                let l = Ledger::open(&path).unwrap(); // its own connection
+                for n in 0..100 {
+                    l.append_event(NewEvent {
+                        task_id: Some(id.clone()),
+                        source: format!("writer-{w}"),
+                        event_type: "synthetic.tick".into(),
+                        payload: json!({ "w": w, "n": n }),
+                        ..NewEvent::default()
+                    })
+                    .unwrap();
+                }
+            })
+        })
+        .collect();
+    handles.into_iter().for_each(|h| h.join().unwrap());
+    assert_ordered_per_writer(&Ledger::open(&path).unwrap(), &id, 4, 100);
+}
+
+fn assert_ordered_per_writer(l: &Ledger, task_id: &str, writers: u64, each: u64) {
+    let ticks: Vec<_> = l
+        .events_for_task(task_id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type == "synthetic.tick")
+        .collect();
+    assert_eq!(ticks.len() as u64, writers * each, "no lost writes");
+    assert!(
+        ticks.windows(2).all(|p| p[0].seq < p[1].seq),
+        "unique, increasing seq"
+    );
+    for w in 0..writers {
+        let ns: Vec<u64> = ticks
+            .iter()
+            .filter(|e| e.payload["w"] == w)
+            .map(|e| e.payload["n"].as_u64().unwrap())
+            .collect();
+        assert_eq!(
+            ns,
+            (0..each).collect::<Vec<_>>(),
+            "writer {w} order preserved"
+        );
+    }
+}
+
+// ---- Corruption -----------------------------------------------------------------------
+
+fn populated(path: &Path) {
+    let l = Ledger::open(path).unwrap();
+    for i in 0..300 {
+        new_task(&l, &format!("task {i} {}", "padding ".repeat(20)));
+    }
+    // Dropping the connection checkpoints the WAL into the main file.
+}
+
+fn assert_quarantined(path: &Path) {
+    let l = Ledger::open(path).unwrap();
+    let status = l.status().unwrap();
+    let notice = status
+        .notices
+        .iter()
+        .find(|n| n.contains("failed its integrity check"))
+        .expect("corruption must be reported");
+    assert!(notice.contains(".corrupt-"), "{notice}");
+    assert_eq!(status.task_count, 0, "a fresh ledger was started");
+    let quarantined = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("plenipo.db.corrupt-")
+        });
+    assert!(quarantined, "damaged file kept for recovery");
+    // The new ledger works.
+    new_task(&l, "after recovery");
+}
+
+#[test]
+fn garbage_file_is_quarantined_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        b"this is not a sqlite database, just some bytes ".repeat(100),
+    )
+    .unwrap();
+    assert_quarantined(&path);
+}
+
+#[test]
+fn damaged_pages_are_quarantined_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    populated(&path);
+    let mut bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.len() > 16 * 4096);
+    // Keep the 100-byte header valid; scramble interior b-tree pages.
+    for (i, b) in bytes.iter_mut().enumerate().skip(4096 * 2).take(4096 * 6) {
+        *b = (i % 251) as u8;
+    }
+    std::fs::write(&path, bytes).unwrap();
+    assert_quarantined(&path);
+}
+
+#[test]
+fn truncated_file_is_quarantined_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    populated(&path);
+    let len = std::fs::metadata(&path).unwrap().len();
+    let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    f.set_len(len / 3).unwrap();
+    drop(f);
+    assert_quarantined(&path);
+}
+
+// ---- Backup / export -------------------------------------------------------------------
+
+#[test]
+fn backup_is_consistent_verified_and_restorable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let l = Ledger::open(&path).unwrap();
+    let t = new_task(&l, "backed up");
+    l.transition_task(&t.id, TaskState::Running, "w", None)
+        .unwrap();
+    let info = l.backup(None).unwrap();
+    assert!(info.verified);
+    assert!(info.size_bytes > 0);
+    assert_eq!(l.status().unwrap().last_backup.unwrap(), info);
+
+    // Changes after the backup are not in it.
+    l.transition_task(&t.id, TaskState::Succeeded, "w", None)
+        .unwrap();
+    let restored = Ledger::open(Path::new(&info.path)).unwrap();
+    assert_eq!(
+        restored.task(&t.id).unwrap().unwrap().state,
+        TaskState::Running
+    );
+    assert_eq!(restored.events_for_task(&t.id).unwrap().len(), 2);
+}
+
+#[test]
+fn backups_are_pruned_to_the_newest_ten() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = Ledger::open(&db_path(dir.path())).unwrap();
+    new_task(&l, "x");
+    for _ in 0..13 {
+        l.backup(None).unwrap();
+    }
+    let count = std::fs::read_dir(l.backups_dir().unwrap()).unwrap().count();
+    assert_eq!(count, 10);
+}
+
+#[test]
+fn json_export_contains_every_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = Ledger::open(&db_path(dir.path())).unwrap();
+    let t = new_task(&l, "exported");
+    l.transition_task(&t.id, TaskState::Running, "w", None)
+        .unwrap();
+    let info = l.export_json(None).unwrap();
+    let doc: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&info.path).unwrap()).unwrap();
+    assert_eq!(doc["format"], "plenipo-ledger-export");
+    assert_eq!(doc["schemaVersion"], 1);
+    for table in [
+        "tasks",
+        "events",
+        "executions",
+        "approvals",
+        "artifacts",
+        "roles",
+        "departments",
+        "projects",
+        "agent_instances",
+    ] {
+        assert!(doc["tables"][table].is_array(), "{table}");
+    }
+    assert_eq!(doc["tables"]["tasks"][0]["objective"], "exported");
+    assert_eq!(doc["tables"]["events"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn integrity_check_reports_ok() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = Ledger::open(&db_path(dir.path())).unwrap();
+    new_task(&l, "healthy");
+    let report = l.integrity_check().unwrap();
+    assert!(report.ok);
+    assert_eq!(report.messages, ["ok"]);
+    assert_eq!(l.status().unwrap().last_integrity_check.unwrap(), report);
+}
