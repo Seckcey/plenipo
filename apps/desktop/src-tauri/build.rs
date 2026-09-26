@@ -24,6 +24,9 @@ const COMMANDS: &[&str] = &[
     "resume_agent_session",
     "cancel_agent_turn",
     "close_agent_session",
+    "get_task_handoffs",
+    "get_task_tree",
+    "get_liaison_overview",
 ];
 
 fn main() {

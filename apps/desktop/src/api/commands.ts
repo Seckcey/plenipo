@@ -18,10 +18,13 @@ import type {
   IntegrityReport,
   LedgerEvent,
   LedgerStatus,
+  LiaisonOverview,
   RuntimeOverview,
   SyntheticTaskAction,
   Task,
+  TaskHandoffs,
   TaskTimeline,
+  TaskTree,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -155,21 +158,27 @@ export function getAgentSession(sessionId: string): Promise<AgentSessionDetail> 
 
 /**
  * Start a session on a runtime with a first objective. The objective is sent to the runtime on
- * stdin by Core; the UI never supplies a command, path, or flag.
+ * stdin by Core; the UI never supplies a command, path, or flag. With `handoffs`, the worker may
+ * ask other workers for help through Plenipo Liaison.
  */
 export function startAgentSession(
   runtimeId: string,
   objective: string,
   model?: string,
+  handoffs = false,
 ): Promise<AgentSessionDetail> {
   return call<AgentSessionDetail>("start_agent_session", {
     runtimeId,
     objective,
     model: model?.trim() ? model.trim() : null,
+    handoffs,
   });
 }
 
-/** Give an existing session its next objective (resumes the provider session). */
+/**
+ * Give an existing session its next objective (resumes the provider session). A handoff worker's
+ * session takes work only through Liaison.
+ */
 export function resumeAgentSession(
   sessionId: string,
   objective: string,
@@ -177,11 +186,31 @@ export function resumeAgentSession(
   return call<AgentSessionDetail>("resume_agent_session", { sessionId, objective });
 }
 
-/** Cancel the session's running turn; resolves once the turn is recorded. */
+/**
+ * Cancel the session's running turn, or end a turn waiting for handoff replies; resolves once the
+ * turn is recorded. Liaison then stops the handoffs it was waiting for.
+ */
 export function cancelAgentTurn(sessionId: string): Promise<AgentSessionDetail> {
   return call<AgentSessionDetail>("cancel_agent_turn", { sessionId });
 }
 
 export function closeAgentSession(sessionId: string): Promise<AgentSession> {
   return call<AgentSession>("close_agent_session", { sessionId });
+}
+
+// ---- Liaison (Phase 4) --------------------------------------------------------------------
+
+/** The handoff that created a task (if any) and the handoffs it made, with their replies. */
+export function getTaskHandoffs(taskId: string): Promise<TaskHandoffs> {
+  return call<TaskHandoffs>("get_task_handoffs", { taskId });
+}
+
+/** A task's whole delegation tree, from its root task, depth-first. */
+export function getTaskTree(taskId: string): Promise<TaskTree> {
+  return call<TaskTree>("get_task_tree", { taskId });
+}
+
+/** Liaison's protocol, limits, destinations, open handoffs, and notices. */
+export function getLiaisonOverview(): Promise<LiaisonOverview> {
+  return call<LiaisonOverview>("get_liaison_overview");
 }

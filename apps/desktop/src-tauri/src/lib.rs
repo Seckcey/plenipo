@@ -14,6 +14,7 @@ pub mod tray;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
@@ -65,14 +66,18 @@ pub fn configure<R: Runtime>(
             let agents = agent_host::create(
                 app.handle(),
                 options.persistence,
-                ledger,
+                ledger.clone(),
                 supervisor.clone(),
             );
             if options.persistence == Persistence::AppData {
                 agent_host::detect_in_background(&agents);
             }
+            // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
+            let liaison = Liaison::new(ledger, agents.clone(), LiaisonConfig::default());
+            tauri::async_runtime::spawn(liaison.clone().run());
             app.manage(supervisor);
             app.manage(agents);
+            app.manage(liaison);
             quit_on_termination_signal(app.handle().clone());
             if options.tray {
                 // A missing tray (e.g. no status-notifier host on Linux) is not fatal.
@@ -118,7 +123,10 @@ pub fn configure<R: Runtime>(
             commands::start_agent_session,
             commands::resume_agent_session,
             commands::cancel_agent_turn,
-            commands::close_agent_session
+            commands::close_agent_session,
+            commands::get_task_handoffs,
+            commands::get_task_tree,
+            commands::get_liaison_overview
         ])
 }
 
@@ -131,8 +139,13 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             api.prevent_exit();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                // The agent runtime stops its turns through the supervisor and records their
-                // results; the supervisor then has nothing left to stop.
+                // Liaison stops handing out work first. The agent runtime then stops its turns
+                // through the supervisor and records their results (waiting turns stay as
+                // recorded; the next start marks them interrupted); the supervisor then has
+                // nothing left to stop.
+                if let Some(liaison) = app.try_state::<Liaison>() {
+                    liaison.shutdown();
+                }
                 let mut stopped = 0;
                 if let Some(agents) = app.try_state::<AgentRuntime>() {
                     stopped += agents.shutdown(SHUTDOWN_GRACE).await;
@@ -219,11 +232,14 @@ mod ipc_boundary_tests {
         let agents = agent_host::create(
             app.handle(),
             Persistence::InMemory,
-            ledger,
+            ledger.clone(),
             supervisor.clone(),
         );
+        // Queries only: the reconciliation loop is not needed without running workers.
+        let liaison = Liaison::new(ledger, agents.clone(), LiaisonConfig::default());
         app.manage(supervisor);
         app.manage(agents);
+        app.manage(liaison);
         app
     }
 
@@ -654,6 +670,134 @@ mod ipc_boundary_tests {
             )
             .expect_err(cmd);
             assert_eq!(err["kind"], "invalidInput", "{cmd}: {err}");
+        }
+    }
+
+    // ---- Liaison (Phase 4) -----------------------------------------------------------------
+
+    #[test]
+    fn liaison_overview_reports_protocol_limits_and_destinations() {
+        let app = app();
+        let main = window(&app, "main");
+        let overview: plenipo_liaison::LiaisonOverview =
+            body(invoke(&main, "get_liaison_overview"));
+        assert_eq!(overview.protocol, "plenipo-liaison/1");
+        assert_eq!(overview.context_format, "plenipo-context/1");
+        assert_eq!(
+            (
+                overview.limits.max_depth,
+                overview.limits.max_requests_per_answer,
+                overview.limits.max_rounds,
+                overview.limits.max_workflow_handoffs
+            ),
+            (3, 3, 5, 12)
+        );
+        let addresses: Vec<_> = overview
+            .destinations
+            .iter()
+            .map(|d| d.address.as_str())
+            .collect();
+        assert_eq!(addresses, ["claude-code", "codex"]);
+        assert!(overview.destinations.iter().all(|d| !d.ready));
+        assert_eq!(overview.open_handoffs, 0);
+    }
+
+    #[test]
+    fn task_handoffs_and_trees_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let parent = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "plan the release".into(),
+                    ..Default::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let child = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    parent_task_id: Some(parent.id.clone()),
+                    requested_by: "agent:codex".into(),
+                    objective: "review the plan".into(),
+                    ..Default::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let handoffs: plenipo_liaison::TaskHandoffs = body(invoke_json(
+            &main,
+            "get_task_handoffs",
+            serde_json::json!({ "taskId": parent.id }),
+        ));
+        assert_eq!(handoffs.task_id, parent.id);
+        assert!(handoffs.sent.is_empty() && handoffs.received.is_none());
+        let tree: plenipo_liaison::TaskTree = body(invoke_json(
+            &main,
+            "get_task_tree",
+            serde_json::json!({ "taskId": child.id }),
+        ));
+        assert_eq!(
+            (tree.root_id.as_str(), tree.focus_id.as_str()),
+            (parent.id.as_str(), child.id.as_str())
+        );
+        let depths: Vec<_> = tree.nodes.iter().map(|n| n.depth).collect();
+        assert_eq!(depths, [0, 1]);
+        for cmd in ["get_task_handoffs", "get_task_tree"] {
+            let err = invoke_json(&main, cmd, serde_json::json!({ "taskId": "../../etc" }))
+                .expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}");
+            let err =
+                invoke_json(&main, cmd, serde_json::json!({ "taskId": SESSION })).expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}: {err}");
+            assert!(
+                invoke_json(&main, cmd, serde_json::json!({})).is_err(),
+                "{cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn sessions_that_allow_handoffs_are_refused_like_any_other_when_not_installed() {
+        let app = app();
+        let main = window(&app, "main");
+        let err = invoke_json(
+            &main,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "codex", "objective": "hello", "handoffs": true }),
+        )
+        .expect_err("not installed");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(
+            err["message"].as_str().unwrap().contains("not available"),
+            "{err}"
+        );
+        // The flag is a boolean; nothing else is accepted in its place.
+        assert!(invoke_json(
+            &main,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "codex", "objective": "hello", "handoffs": "yes" }),
+        )
+        .is_err());
+        let status: plenipo_ledger::LedgerStatus = body(invoke(&main, "get_ledger_status"));
+        assert_eq!(status.task_count, 0, "a refused turn records nothing");
+    }
+
+    #[test]
+    fn liaison_commands_denied_for_ungranted_windows_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let args = serde_json::json!({ "taskId": SESSION });
+        for cmd in ["get_liaison_overview", "get_task_handoffs", "get_task_tree"] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_with(&main, cmd, args.clone(), "https://example.com").is_err(),
+                "{cmd}"
+            );
         }
     }
 

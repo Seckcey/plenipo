@@ -3,7 +3,9 @@
 //!
 //! There is deliberately no command that accepts an executable, arguments, environment
 //! variables, or a working directory. The UI can only name a pre-approved launch profile, or
-//! (Phase 3) an agent runtime ID plus an objective that Core sends on stdin.
+//! (Phase 3) an agent runtime ID plus an objective that Core sends on stdin. Handoffs between
+//! workers (Phase 4) are requested by the workers themselves and checked by Liaison; the UI
+//! can only allow them for a new session, read them, and cancel a waiting turn.
 
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
     NewTask, Task, TaskState, TaskTimeline,
 };
+use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
 use plenipo_runtime::agent::{
     AgentOverview, AgentRuntime, AgentRuntimeInfo, AgentSession, AgentSessionDetail,
 };
@@ -289,37 +292,46 @@ pub async fn get_agent_session(
 }
 
 /// Start a new session on a runtime with a first objective (startSession + submitTask).
+/// With `handoffs`, the worker may ask other workers for help through Liaison (Phase 4).
 #[tauri::command]
 pub async fn start_agent_session(
-    agents: State<'_, AgentRuntime>,
+    liaison: State<'_, Liaison>,
     runtime_id: String,
     objective: String,
     model: Option<String>,
+    handoffs: Option<bool>,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_runtime_id(&runtime_id)?;
     validate_objective(&objective)?;
-    agents
-        .start_session(&runtime_id, &objective, model.as_deref())
+    liaison
+        .start_session(
+            &runtime_id,
+            &objective,
+            model.as_deref(),
+            handoffs.unwrap_or(false),
+        )
         .await
         .map_err(to_command_error)
 }
 
-/// Give an existing session its next objective (resumeSession + submitTask).
+/// Give an existing session its next objective (resumeSession + submitTask). A handoff
+/// worker's session takes work only through Liaison.
 #[tauri::command]
 pub async fn resume_agent_session(
-    agents: State<'_, AgentRuntime>,
+    liaison: State<'_, Liaison>,
     session_id: String,
     objective: String,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_session_id(&session_id)?;
     validate_objective(&objective)?;
-    agents
+    liaison
         .resume_session(&session_id, &objective)
         .await
         .map_err(to_command_error)
 }
 
-/// Cancel the session's running turn; resolves once the turn is recorded.
+/// Cancel the session's running turn, or end a turn waiting for handoff replies; resolves
+/// once the turn is recorded. Liaison then stops the handoffs it was waiting for.
 #[tauri::command]
 pub async fn cancel_agent_turn(
     agents: State<'_, AgentRuntime>,
@@ -343,6 +355,54 @@ pub async fn close_agent_session(
         .close_session(&session_id)
         .await
         .map_err(to_command_error)
+}
+
+// ---- Liaison (Phase 4) -------------------------------------------------------------------
+
+/// Run Liaison queries (Ledger reads) off the main thread.
+async fn with_liaison<T: Send + 'static>(
+    liaison: &Liaison,
+    f: impl FnOnce(&Liaison) -> Result<T, LiaisonError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let liaison = liaison.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&liaison))
+        .await
+        .map_err(|e| CommandError::internal(format!("liaison task failed: {e}")))?
+        .map_err(|e| {
+            if e.is_caller_error() {
+                CommandError::invalid_input(e.to_string())
+            } else {
+                CommandError::internal(e.to_string())
+            }
+        })
+}
+
+/// The handoff that created a task (if any) and the handoffs it made, with their replies.
+#[tauri::command]
+pub async fn get_task_handoffs(
+    liaison: State<'_, Liaison>,
+    task_id: String,
+) -> Result<TaskHandoffs, CommandError> {
+    validate_task_id(&task_id)?;
+    with_liaison(&liaison, move |l| l.task_handoffs(&task_id)).await
+}
+
+/// A task's whole delegation tree, from its root task, depth-first.
+#[tauri::command]
+pub async fn get_task_tree(
+    liaison: State<'_, Liaison>,
+    task_id: String,
+) -> Result<TaskTree, CommandError> {
+    validate_task_id(&task_id)?;
+    with_liaison(&liaison, move |l| l.task_tree(&task_id)).await
+}
+
+/// Liaison's protocol, limits, destinations, open handoffs, and notices.
+#[tauri::command]
+pub async fn get_liaison_overview(
+    liaison: State<'_, Liaison>,
+) -> Result<LiaisonOverview, CommandError> {
+    with_liaison(&liaison, Liaison::overview).await
 }
 
 fn app_info_for(version: &str) -> AppInfo {

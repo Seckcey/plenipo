@@ -97,7 +97,7 @@ describe("Workers view", () => {
 
     await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Say hello");
     await user.click(within(form).getByRole("button", { name: "Start task" }));
-    expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say hello", "");
+    expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say hello", "", false);
 
     // The new session is selected and shows its running turn.
     const turns = await screen.findByRole("list", { name: "Turns" });
