@@ -4,7 +4,7 @@
 - **Date:** 2026-09-26
 - **Phase:** 6
 
-> **On screen** (ADR-010): model policies are "model choices", the preferred model is the "first
+> **On screen** (ADR-010, plain words and rank names): model policies are "model choices", the preferred model is the "first
 > choice" and fallbacks are "backups", a position that follows its role's policy is "Automatic",
 > and providers are "AI companies". This ADR keeps the plan's words, which are also the code's.
 

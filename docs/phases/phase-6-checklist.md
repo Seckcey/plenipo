@@ -11,7 +11,7 @@ app uses the plain words in [`docs/design/vocabulary.md`](../design/vocabulary.m
 **Goal:** make model/provider selection configurable by role rather than hard-coded into
 coordinators.
 
-## Design decisions (details in ADR-011)
+## Design decisions (details in ADR-011, how Plenipo picks each worker's AI model)
 
 - **A new crate, `crates/router` (`plenipo-router`)**, as planned by ADR-004: the Model
   Registry, role model policies, the routing engine (a pure function), and the Router service
@@ -71,7 +71,8 @@ coordinators.
 - [x] Settings UI (models, AI tools, role model choices with a live "next worker" preview,
       usage-limit behavior)
 - [x] Automatic and Fixed positions on the Organization canvas
-- [x] ADR-011; architecture, README, vocabulary, setup updated
+- [x] ADR-011 (how Plenipo picks each worker's AI model); architecture, README, vocabulary,
+      setup updated
 
 ## Phase 6 tests (from plan)
 

@@ -3,8 +3,8 @@
 |              |                                                                                                                                                                     |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Phase**    | 6 — Model Policy and Intelligent Role Routing                                                                                                                       |
-| **Branch**   | `claude/phase-6` (pull request linked from the branch)                                                                                                              |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see the pull request.                   |
+| **Branch**   | `claude/phase-6` ([PR #9](https://github.com/Seckcey/plenipo/pull/9))                                                                                               |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see PR #9.                              |
 | **Date**     | 2026-09-26                                                                                                                                                          |
 | **Result**   | **Both Phase 6 acceptance criteria pass end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2). |
 
@@ -16,7 +16,7 @@ Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [the reason in the Ledger's trail](evidence/phase-6/routing-trail.png) ·
 [a usage limit holding work back](evidence/phase-6/models-usage-limit.png).
 
-Test totals: **404 Rust** (Linux) · **116 frontend** · **35 end-to-end**
+Test totals: **406 Rust** (Linux) · **116 frontend** · **35 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5 + 5
 Phase 6).
 
@@ -91,7 +91,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | Settings UI                   | `apps/desktop/src/components/models/*` (Settings → AI models), `routing/*`                                                                                       |
 | Automatic and fixed positions | Ledger (`AUTOMATIC`, `route_agent`), Workforce directory and objectives, dialogs and details panel (`components/org/*`)                                          |
 | Commands                      | `get_routing`, `save_model`, `remove_model`, `set_role_policy`, `set_routing_options`, `clear_usage_limit` (architecture overview §3), each granted by name      |
-| Decision record               | [ADR-011](../adr/ADR-011-model-policy-routing.md)                                                                                                                |
+| Decision record               | [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR-011-model-policy-routing.md)                                                                     |
 
 ## 5. Security notes
 
@@ -99,7 +99,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
   validation as before (`[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}`: never a flag or a path), are sent
   as one argument by the adapters, and every command refuses unknown fields.
 - API billing stays off: a tool signed in with an API key or a third-party cloud is never chosen,
-  and the runtime's own refusal (ADR-007) remains.
+  and the runtime's own refusal (ADR-007, how Plenipo runs Claude Code and Codex) remains.
 - A usage limit never moves work to another AI company unless the owner chooses "next choice";
   either way the choice and its reason are recorded. Upgrading keeps every existing position on
   the AI tool it had.
@@ -122,13 +122,13 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 
 ## 7. Owner items
 
-| ID  | Item                                                                                                                                                              | Recommendation                   |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| O1  | ADR-011 is **Proposed** (ADR-009 and ADR-010 are also still Proposed).                                                                                            | Accept or amend.                 |
-| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
-| O3  | Version stays **0.5.0**; Phase 5 acceptance (0.6.0) and Phase 6 acceptance (0.7.0) are pending.                                                                   | Bump after acceptance.           |
-| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                     | Keep, or change its choices.     |
-| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                              | Say "start Phase 7" after O1–O2. |
+| ID  | Item                                                                                                                                                                                                                            | Recommendation                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| O1  | ADR-011 (how Plenipo picks each worker's AI model) is **Proposed**. Accepting it confirms the design in §6: model choices per role, Automatic and fixed positions, usage limits that wait by default, and API billing kept off. | Accept or amend.                 |
+| O2  | Windows check with the **real** CLIs (~20 min): the steps in [phase-6-checklist.md](phase-6-checklist.md#owner-check-on-windows-20-minutes). Report anything odd.                                                               | Required for acceptance.         |
+| O3  | Version stays **0.5.0**; Phase 5 acceptance (0.6.0) and Phase 6 acceptance (0.7.0) are pending.                                                                                                                                 | Bump after acceptance.           |
+| O4  | The Designer has no eligible model until you mark one as able to see and make images; its requests are refused and explained.                                                                                                   | Keep, or change its choices.     |
+| O5  | Phase 7 (Guard: capabilities and approvals) materially expands what workers may do on this computer.                                                                                                                            | Say "start Phase 7" after O1–O2. |
 
 ## 8. Verification
 
@@ -136,7 +136,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | ------------------------------------------------------------------------- | ---------------------------------------------- |
 | `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 116 frontend tests                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                           |
-| `cargo test --workspace`                                                  | Pass — 404 tests                               |
+| `cargo test --workspace`                                                  | Pass — 406 tests                               |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 35 of 35, including the 5 Phase 6 tests |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)    |
 | GitHub CI on the PR                                                       | Linked from the PR                             |

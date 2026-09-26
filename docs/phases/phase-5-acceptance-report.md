@@ -110,7 +110,7 @@ keep other fields; and, end to end, Army titles chosen in Settings that survive 
 | Commands                             | 20 Workforce commands (architecture overview §3), each granted by name                                                                                                   |
 | Plain words and Titles (owner)       | [Word list](../design/vocabulary.md); `apps/desktop/src/org/titles.ts`; Settings → Personalization → Titles (`set_organization_titles`)                                  |
 | Test double                          | `plenipo-fake-agent`: `role:` destinations and `[delay:MS]`                                                                                                              |
-| Decision records                     | [ADR-009](../adr/ADR-009-workforce.md), [ADR-010](../adr/ADR-010-plain-titles.md)                                                                                        |
+| Decision records                     | [ADR-009 — how the AI organization works](../adr/ADR-009-workforce.md), [ADR-010 — plain words and rank names](../adr/ADR-010-plain-titles.md)                           |
 
 ## 5. Security notes
 
@@ -147,7 +147,7 @@ keep other fields; and, end to end, Army titles chosen in Settings that survive 
 
 | ID  | Item                                                                                                                                                                                             | Recommendation                   |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| O1  | ADR-009 and ADR-010 are **Proposed**.                                                                                                                                                            | Accept or amend.                 |
+| O1  | ADR-009 (how the AI organization works: seats, teams, and the org map) and ADR-010 (plain words and rank names): **Accepted** by the owner on 2026-09-26.                                        | Done.                            |
 | O2  | Windows check with the **real** CLIs and your subscription sign-ins (~20 min): the steps in [phase-5-checklist.md](phase-5-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
 | O3  | Version stays **0.5.0** until O2 passes; then **0.6.0** per the phase convention.                                                                                                                | Bump after O2.                   |
 | O4  | Phase 6 (Model Policy Engine) replaces the per-position AI tool choice with policy.                                                                                                              | Say "start Phase 6" after O1–O2. |

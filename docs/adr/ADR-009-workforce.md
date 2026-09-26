@@ -1,17 +1,18 @@
 # ADR-009: Plenipo Workforce — organization engine and topology canvas
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 5
 
-> **On screen** (ADR-010): the owner is the President, and the superintendent, department
+> **On screen** (ADR-010, plain words and rank names): the owner is the President, and the superintendent, department
 > manager, and project coordinator below are shown as **VP**, **Manager**, and **Supervisor**,
 > with "AI tool" for runtime and "full-time" / "on call" for persistent / on-demand. This ADR
 > keeps the rollout plan's names, which are also the names in the code.
 
-> **Phase 6** ([ADR-011](ADR-011-model-policy-routing.md)): §8's per-position runtime is now
-> optional. A position without one is _Automatic_ — its role's model policy picks each worker's
-> runtime and model — and positions from before Phase 6 keep the runtime they had.
+> **Phase 6** ([ADR-011](ADR-011-model-policy-routing.md), how Plenipo picks each worker's AI
+> model — proposed): amends §8. A position's runtime becomes optional; a position without one is
+> _Automatic_ — its role's model policy picks each worker's runtime and model — and positions from
+> before Phase 6 keep the runtime they had.
 
 ## Context
 
