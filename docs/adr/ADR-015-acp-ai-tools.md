@@ -1,6 +1,6 @@
 # ADR-015: Running AI tools over ACP when their one-task mode cannot read standard input
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 15 (adapter parts pulled forward, as in ADR-014)
 

@@ -29,4 +29,4 @@ architecture must be recorded here.
 | [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Accepted |
 | [013](ADR-013-guard-capability-broker.md)    | Guard, capability broker, and human approval      | Accepted |
 | [014](ADR-014-adding-ai-tools.md)            | Adding AI tools ahead of Phase 15                 | Accepted |
-| [015](ADR-015-acp-ai-tools.md)               | Running AI tools over ACP                         | Proposed |
+| [015](ADR-015-acp-ai-tools.md)               | Running AI tools over ACP                         | Accepted |
