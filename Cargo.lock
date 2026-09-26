@@ -2371,6 +2371,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenipo-guard"
+version = "0.6.1"
+dependencies = [
+ "dunce",
+ "plenipo-ledger",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "plenipo-ledger"
 version = "0.6.1"
 dependencies = [

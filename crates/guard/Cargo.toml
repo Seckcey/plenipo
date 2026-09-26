@@ -1,0 +1,24 @@
+[package]
+name = "plenipo-guard"
+description = "Plenipo Guard: the capability registry, permission sets, and the checks every worker action passes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dunce = "1"
+plenipo-ledger = { path = "../ledger" }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ts-rs = "11"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
