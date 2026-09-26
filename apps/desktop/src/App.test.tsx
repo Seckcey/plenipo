@@ -161,6 +161,16 @@ describe("App shell", () => {
     await waitFor(() => expect(api.frontendReady).toHaveBeenCalledTimes(1));
   });
 
+  it("opens each view at its top", async () => {
+    render(<App />);
+    const user = userEvent.setup();
+    const main = screen.getByRole("main");
+    await user.click(screen.getByRole("button", { name: "Diagnostics" }));
+    main.scrollTop = 480;
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(main.scrollTop).toBe(0);
+  });
+
   it("shows diagnostics from Core", async () => {
     render(<App />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Diagnostics" }));

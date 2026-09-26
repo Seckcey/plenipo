@@ -1,6 +1,6 @@
 # Phase 4 — Implementation Checklist
 
-**Status:** implemented on `claude/phase-4`; awaiting owner acceptance (see the
+**Status:** accepted by the owner on 2026-09-26; released as v0.5.0 (see the
 [acceptance report](phase-4-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 4 — Liaison Message Bus and Cross-Provider Handoffs.

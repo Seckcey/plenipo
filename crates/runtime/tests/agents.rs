@@ -908,6 +908,29 @@ impl TurnHook for WaitHook {
     }
 }
 
+/// A [`WaitHook`] that also reads the session right after recording the wait, while the
+/// runtime still holds the turn's slot (the window a UI snapshot can land in).
+struct SnapshotHook {
+    wait: WaitHook,
+    rt: OnceLock<AgentRuntime>,
+    seen: Mutex<Option<AgentTurn>>,
+}
+
+impl TurnHook for SnapshotHook {
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        let disposition = self.wait.turn_ended(end);
+        if disposition != TurnDisposition::Finish {
+            let rt = self.rt.get().expect("runtime set").clone();
+            let id = end.session.id.clone();
+            let detail = tokio::runtime::Handle::current()
+                .block_on(async move { rt.session(&id).await })
+                .unwrap();
+            *self.seen.lock().unwrap() = detail.turns.first().cloned();
+        }
+        disposition
+    }
+}
+
 fn with_hook(h: &H) -> Arc<WaitHook> {
     let hook = Arc::new(WaitHook {
         store: h.store.clone(),
@@ -946,6 +969,36 @@ async fn waiting_turn(h: &H, runtime: &str) -> (String, String) {
     let id = started.session.id.clone();
     let detail = turn_where(&h.rt, &id, 1, |t| t.waiting).await;
     (id, detail.turns[0].task_id.clone())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_reads_as_waiting_as_soon_as_its_wait_is_recorded() {
+    let h = harness();
+    let hook = Arc::new(SnapshotHook {
+        wait: WaitHook {
+            store: h.store.clone(),
+            released: AtomicUsize::new(0),
+        },
+        rt: OnceLock::new(),
+        seen: Mutex::new(None),
+    });
+    assert!(hook.rt.set(h.rt.clone()).is_ok());
+    h.rt.set_hook(hook.clone());
+    let started =
+        h.rt.start_session("codex", "plan it [wait]", None)
+            .await
+            .unwrap();
+    turn_where(&h.rt, &started.session.id, 1, |t| t.waiting).await;
+    // Read before the runtime released the step: the recorded wait already shows, never a
+    // running turn whose only step has finished.
+    let seen = hook
+        .seen
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("a read from inside the hook");
+    assert!(seen.waiting && !seen.running, "{seen:#?}");
+    assert!(seen.steps.iter().all(|s| !s.running), "{seen:#?}");
 }
 
 #[tokio::test]

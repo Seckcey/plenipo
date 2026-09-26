@@ -6,7 +6,7 @@ worker agents, grants only the capabilities each task needs, supervises executio
 a complete audit trail.
 
 > **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
-> acceptance, so the version stays 0.4.0). The **Organization** view is a live topology map of
+> acceptance, so the version stays 0.5.0). The **Organization** view is a live topology map of
 > your AI workforce: create departments and projects (each comes with its manager or
 > coordinator), drag roles from the hire palette onto a lead to build its team, drag positions
 > to change who they report to or to make them a team's reviewer, QA evaluator, or security

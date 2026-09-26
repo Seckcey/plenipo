@@ -22,5 +22,5 @@ architecture must be recorded here.
 | [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                       | Accepted |
 | [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)          | Accepted |
 | [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)    | Accepted |
-| [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs   | Proposed |
+| [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs   | Accepted |
 | [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas | Proposed |

@@ -414,6 +414,13 @@ impl AgentRuntime {
             return turn;
         };
         match active.claim {
+            // Its step's result is recorded but the slot not yet released (the turn is finishing
+            // or starting to wait): the recorded state is already the current one.
+            Claim::Turn
+                if turn
+                    .steps
+                    .iter()
+                    .any(|s| s.number == active.step && s.result.is_some()) => {}
             Claim::Turn => {
                 turn.running = true;
                 turn.waiting = false;

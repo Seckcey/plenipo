@@ -1,12 +1,12 @@
 # Phase 4 — Acceptance Report
 
-|              |                                                                                                                                                                         |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 4 — Liaison Message Bus and Cross-Provider Handoffs                                                                                                                     |
-| **Branch**   | `claude/phase-4` ([PR #5](https://github.com/Seckcey/plenipo/pull/5))                                                                                                   |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — see PR #5. |
-| **Date**     | 2026-09-26                                                                                                                                                              |
-| **Result**   | **Both Phase 4 acceptance criteria pass end to end against fake CLIs.** Owner verification with the real Claude Code and Codex CLIs on Windows is pending (§7, O2).     |
+|              |                                                                                                                                                                                           |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 4 — Liaison Message Bus and Cross-Provider Handoffs                                                                                                                                       |
+| **Branch**   | `claude/phase-4` ([PR #5](https://github.com/Seckcey/plenipo/pull/5))                                                                                                                     |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, full `pnpm e2e`. GitHub CI: Rust, Frontend, E2E (Linux), Windows (tests, installer, launch smoke) — see PR #5.                   |
+| **Date**     | 2026-09-26                                                                                                                                                                                |
+| **Result**   | **Accepted by the owner on 2026-09-26** and released as **v0.5.0**. Both acceptance criteria pass end to end against fake CLIs in CI, and the owner confirmed the build on Windows (§10). |
 
 Screenshots: [Codex → Claude Code review](evidence/phase-4/handoff-codex-to-claude.png) ·
 [the reviewer's session](evidence/phase-4/handoff-worker-session.png) ·
@@ -14,7 +14,7 @@ Screenshots: [Codex → Claude Code review](evidence/phase-4/handoff-codex-to-cl
 [waiting for a reply](evidence/phase-4/handoff-waiting.png) ·
 [Ledger trail and delegation tree](evidence/phase-4/handoff-ledger-trail.png).
 
-Test totals: **293 Rust** (Linux) · **61 frontend** · **25 end-to-end** against the real release
+Test totals: **294 Rust** (Linux) · **63 frontend** · **25 end-to-end** against the real release
 binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4).
 
 CI has no provider accounts, so every automated test drives `plenipo-fake-agent`, the Phase 3
@@ -58,14 +58,16 @@ and the `liaison.*` trail descriptions.
 
 ## 3. Defects found and fixed during Phase 4
 
-| Found by         | Problem                                                                                                                                                                 | Fix                                                                                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Integration test | A reply claiming another workflow, sent to a request that was already answered, came back as "already answered" instead of being refused and recorded.                  | The Ledger checks a reply's claims (request, correlation ID, child task) before anything else, and a reply must come from the request's own child.             |
-| Code review      | While the owner cancelled a waiting turn, a reply delivery arriving at the same moment was told "not waiting", which would have failed a task that was being cancelled. | Continuing a turn that is being cancelled answers "busy"; Liaison retries, then sees the turn cancelled and discards the replies.                              |
-| Integration test | Only a session's first objective carried Liaison's instructions; a later objective in the same session could not hand off reliably.                                     | Every owner objective in a handoff session restates the instructions and the current destinations.                                                             |
-| Integration test | Two Liaison events (a refused sender, a failed delivery) did not carry the workflow's correlation ID.                                                                   | Both carry it; the correlation test checks every `liaison.*` event.                                                                                            |
-| Frontend review  | A session snapshot taken while a turn waited could arrive after the turn had continued and show it waiting again.                                                       | The store orders a turn's progress (run, wait, run again, finish) and never moves it backwards; the session's running/waiting markers follow its turns. Tests. |
-| E2E              | The delegation tree showed a runtime ID for the root task but labels for the others.                                                                                    | Core supplies each node's runtime label.                                                                                                                       |
+| Found by                           | Problem                                                                                                                                                                                                                                                                  | Fix                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integration test                   | A reply claiming another workflow, sent to a request that was already answered, came back as "already answered" instead of being refused and recorded.                                                                                                                   | The Ledger checks a reply's claims (request, correlation ID, child task) before anything else, and a reply must come from the request's own child.                                                                              |
+| Code review                        | While the owner cancelled a waiting turn, a reply delivery arriving at the same moment was told "not waiting", which would have failed a task that was being cancelled.                                                                                                  | Continuing a turn that is being cancelled answers "busy"; Liaison retries, then sees the turn cancelled and discards the replies.                                                                                               |
+| Integration test                   | Only a session's first objective carried Liaison's instructions; a later objective in the same session could not hand off reliably.                                                                                                                                      | Every owner objective in a handoff session restates the instructions and the current destinations.                                                                                                                              |
+| Integration test                   | Two Liaison events (a refused sender, a failed delivery) did not carry the workflow's correlation ID.                                                                                                                                                                    | Both carry it; the correlation test checks every `liaison.*` event.                                                                                                                                                             |
+| Frontend review                    | A session snapshot taken while a turn waited could arrive after the turn had continued and show it waiting again.                                                                                                                                                        | The store orders a turn's progress (run, wait, run again, finish) and never moves it backwards; the session's running/waiting markers follow its turns. Tests.                                                                  |
+| E2E                                | The delegation tree showed a runtime ID for the root task but labels for the others.                                                                                                                                                                                     | Core supplies each node's runtime label.                                                                                                                                                                                        |
+| E2E (intermittent, release CI)     | All views share one scroll area, and switching views kept the previous view's scroll position, so a view could open part-way down. After the Workers view was scrolled, an end-to-end click in Activity missed its target in about 1 run in 3.                           | Each view now opens at its top (unit test); the test scrolls with a DOM call instead of a WebDriver wheel action.                                                                                                               |
+| E2E (intermittent, release checks) | Between recording a turn's wait (or its end) and releasing its step, the runtime reported the turn as still running. A Workers snapshot read in that instant showed a waiting turn as "Working…" until the turn next changed; the cancel test timed out in 1 of 10 runs. | The runtime reports the recorded state as soon as a step's result is recorded, and the Workers store never lets a snapshot bring "running" back. A runtime test reads the session inside that instant; a store test replays it. |
 
 ## 4. Deliverables
 
@@ -133,14 +135,24 @@ takes on real subscriptions.
 
 | Check                                                                     | Result                                                                                                                                        |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 61 frontend tests                                                                                                                      |
+| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 63 frontend tests                                                                                                                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                                                                                                                          |
-| `cargo test --workspace`                                                  | Pass — 293 tests, including 16 Liaison integration tests (repeated 10 times in a row without a failure)                                       |
+| `cargo test --workspace`                                                  | Pass — 294 tests, including 16 Liaison integration tests (repeated 10 times in a row without a failure)                                       |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 25 of 25, including the 5 Phase 4 tests                                                                                                |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)                                                                                                   |
 | GitHub CI on PR #5                                                        | Rust, Frontend, E2E (Linux), and Windows (tests, installer, launch smoke) — green on every pushed commit so far; final run linked from the PR |
 
 ## 9. Phase boundary
 
-Phase 4 is implemented and verified against fake CLIs. It is complete once the owner accepts
-it (§7). Phase 5 has not been started.
+Phase 4 is complete. Phase 5 (Workforce and organization engine) has not been started (§7, O4).
+
+## 10. Owner sign-off (2026-09-26)
+
+| Item                            | Outcome                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| O1 ADR-008                      | **Accepted** by owner                                                                                  |
+| O2 Windows check with the build | **Passed** — reported by owner ("everything looks and works great")                                    |
+| O3 Version                      | Bumped to **0.5.0**; released as `v0.5.0` (tag on the release merge commit) with the Windows installer |
+| O4 Phase 5                      | Awaiting the owner's go-ahead                                                                          |
+
+Phase 4 is **accepted**.
