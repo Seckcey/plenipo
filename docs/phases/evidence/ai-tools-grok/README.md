@@ -2,9 +2,10 @@
 
 Real output from xAI's official Grok CLI ("Grok Build", `grok 1.0.41 (4220f3b224a6)`, stable
 channel, `linux-x86_64`), installed with `https://x.ai/cli/install.sh` on 2026-09-26. Nothing
-here was signed in: there was no `~/.grok/auth.json`, and no real API key. These files are for
-the Grok adapter's tests and fake persona; the adapter itself waits for the shared AI-tool
-groundwork (the `claude/ai-tools` branch) to reach `main`.
+here was signed in: there was no `~/.grok/auth.json`, and no real API key. These files are the
+evidence for [the Grok finding](../../ai-tools-grok-finding.md). If Grok is tried again, they
+are a starting point for its adapter's tests and fake persona. The standard-input checks were
+repeated on the alpha channel's `grok 1.0.42 (4651fbdf9f13)` with the same results.
 
 **Redacted:** working-directory paths (now `/work`), the host name, the agent and instance IDs,
 and the conversation ID Grok created (now `00000000-0000-7000-8000-000000000001`). Slash
