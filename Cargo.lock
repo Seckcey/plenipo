@@ -2359,6 +2359,7 @@ dependencies = [
  "plenipo-core",
  "plenipo-ledger",
  "plenipo-liaison",
+ "plenipo-router",
  "plenipo-runtime",
  "plenipo-workforce",
  "serde",
@@ -2399,6 +2400,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenipo-router"
+version = "0.5.0"
+dependencies = [
+ "plenipo-ledger",
+ "plenipo-runtime",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "plenipo-runtime"
 version = "0.5.0"
 dependencies = [
@@ -2421,6 +2435,7 @@ version = "0.5.0"
 dependencies = [
  "plenipo-ledger",
  "plenipo-liaison",
+ "plenipo-router",
  "plenipo-runtime",
  "serde",
  "serde_json",
