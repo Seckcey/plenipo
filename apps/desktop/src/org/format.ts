@@ -1,7 +1,6 @@
 import type {
   OrgSnapshot,
   OversightRole,
-  PositionKind,
   PositionStatus,
   Staffing,
   TaskState,
@@ -18,16 +17,11 @@ export const STATUS_LABEL: Record<PositionStatus, string> = {
   archived: "Archived",
 };
 
-export const KIND_LABEL: Record<PositionKind, string> = {
-  superintendent: "Superintendent",
-  departmentManager: "Department manager",
-  projectCoordinator: "Project coordinator",
-  worker: "Worker",
-};
-
+/** Full-time: one agent holds the position and keeps its conversation. On call: a new worker
+ * is brought in for each task and leaves when it is done. */
 export const STAFFING_LABEL: Record<Staffing, string> = {
-  persistent: "Persistent",
-  onDemand: "On demand",
+  persistent: "Full-time",
+  onDemand: "On call",
 };
 
 /** What a live worker is doing, from its task's state. */

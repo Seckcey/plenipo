@@ -539,6 +539,40 @@ button {
   color: #e0a100;
 }
 
+/* ---- Settings: titles --------------------------------------------------------------------- */
+
+.titles {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.titles__pick {
+  max-width: 280px;
+  margin-bottom: 0;
+}
+
+.titles__chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.titles__chain li {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.titles__chain li:first-child {
+  border-color: var(--lead-exec);
+}
+
 /* ---- Workers and agent runtimes (Phase 3) ------------------------------------------------ */
 
 .panel {

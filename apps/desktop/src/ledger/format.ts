@@ -102,7 +102,7 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
     case "org.position_created":
       return `Position created: ${title}`;
     case "org.position_updated":
-      return str(p.title) ? `Position renamed to ${title}` : "Position runtime or model changed";
+      return str(p.title) ? `Position renamed to ${title}` : "Position's AI tool or model changed";
     case "org.position_moved":
       return `${title} now reports to ${p.to === null ? "the owner" : "a new supervisor"}`;
     case "org.position_archived":
@@ -153,7 +153,7 @@ function brief(v: unknown, max = 160): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
-/** Phase 3: agent turn activity and runtime session events. */
+/** Phase 3: agent turn activity and worker conversation events. */
 function describeAgentEvent(type: string, p: Record<string, unknown>): string | null {
   switch (type) {
     case "agent.session_bound":
@@ -175,11 +175,11 @@ function describeAgentEvent(type: string, p: Record<string, unknown>): string | 
       return `Result: ${label ?? "?"} — ${brief(p.summary)}`;
     }
     case "session.opened":
-      return `Worker session opened on ${str(p.runtime) ?? "a runtime"}`;
+      return `Worker conversation opened on ${str(p.runtime) ?? "an AI tool"}`;
     case "session.bound":
-      return `Worker session bound to provider session ${str(p.providerSessionId) ?? "?"}`;
+      return `Worker conversation linked to provider session ${str(p.providerSessionId) ?? "?"}`;
     case "session.closed":
-      return "Worker session closed";
+      return "Worker conversation closed";
   }
   return null;
 }

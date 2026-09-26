@@ -35,7 +35,7 @@ describe("describeEvent (Phase 3 agent events)", () => {
       describeEvent(event("agent.result", { outcome: "usageLimited", summary: "Try later" })),
     ).toBe("Result: Usage limit reached — Try later");
     expect(describeEvent(event("session.opened", { runtime: "codex" }))).toBe(
-      "Worker session opened on codex",
+      "Worker conversation opened on codex",
     );
     expect(describeEvent(event("agent.message", { text: "x".repeat(500) })).length).toBeLessThan(
       170,

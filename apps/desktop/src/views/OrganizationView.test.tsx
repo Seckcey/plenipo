@@ -112,11 +112,11 @@ describe("Organization view", () => {
     show();
     const map = await screen.findByRole("region", { name: "Organization topology" });
     for (const name of [
-      "You, owner",
+      "You, President",
       "Northwind Studio, organization",
-      "Superintendent, Working",
+      "VP, Working",
       "Engineering Manager, Idle",
-      "Website Coordinator, Waiting on team",
+      "Website Supervisor, Waiting on team",
       "Marketing Manager, Vacant",
       "Designer, Unavailable",
       "Worker for Senior Developer: Build the new pricing page, Working",
@@ -124,15 +124,15 @@ describe("Organization view", () => {
     ]) {
       expect(within(map).getByRole("button", { name })).toBeInTheDocument();
     }
-    // Links are labelled with the department, the project, and each worker's runtime.
+    // Links are labelled with the department, the project, and each worker's AI tool.
     expect(within(map).getByText("Engineering")).toBeInTheDocument();
     expect(within(map).getByText("Website Relaunch")).toBeInTheDocument();
     const codex = within(map).getAllByText("Codex");
     expect(codex.some((el) => el.classList.contains("topo-chip"))).toBe(true);
-    // Each position also names its runtime.
+    // Each position also names its AI tool.
     expect(codex.some((el) => el.classList.contains("topo-node__runtime"))).toBe(true);
     // Oversight shows on the nodes as well as the links.
-    expect(within(map).getAllByText(/Security → Website Coordinator/).length).toBeGreaterThan(0);
+    expect(within(map).getAllByText(/Security → Website Supervisor/).length).toBeGreaterThan(0);
     const totals = screen.getByLabelText("At a glance");
     expect(within(totals).getByText("Positions").nextSibling).toHaveTextContent("111 vacant");
     expect(within(totals).getByText("Live workers").nextSibling).toHaveTextContent("3");
@@ -152,7 +152,7 @@ describe("Organization view", () => {
     // The snapshot is refreshed to show it working.
     await waitFor(() => expect(api.getOrganization).toHaveBeenCalledTimes(2));
     // A busy lead cannot take another objective yet; a vacant one needs an agent first.
-    await user.click(screen.getByRole("button", { name: "Superintendent, Working" }));
+    await user.click(screen.getByRole("button", { name: "VP, Working" }));
     expect(screen.getByRole("button", { name: "Give objective" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Marketing Manager, Vacant" }));
     expect(screen.getByText(/is vacant\. Hire an agent/)).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe("Organization view", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Hire" });
     expect(within(dialog).getByRole("combobox", { name: "Reports to" })).toHaveDisplayValue(
-      "Website Coordinator — Project Coordinator",
+      "Website Supervisor",
     );
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "Hire" }));
     expect(api.hirePosition).toHaveBeenCalledWith({
@@ -194,31 +194,31 @@ describe("Organization view", () => {
     const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
     const target = screenPoint(org, "p-camp");
     drag(auditor, screenPoint(org, "p-sec"), target);
-    expect(screen.getByRole("button", { name: "Campaign Coordinator, Idle" })).toHaveClass(
+    expect(screen.getByRole("button", { name: "Campaign Supervisor, Idle" })).toHaveClass(
       "is-drop-target",
     );
     release(target);
 
     const menu = await screen.findByRole("menu", {
-      name: "Security Auditor → Campaign Coordinator",
+      name: "Security Auditor → Campaign Supervisor",
     });
     const items = within(menu)
       .getAllByRole("menuitem")
       .map((i) => i.textContent);
     // Its specialty comes first after reporting.
-    expect(items[0]).toMatch(/^Report to Campaign Coordinator/);
-    expect(items[1]).toMatch(/^Security auditor for Campaign Coordinator's team/);
+    expect(items[0]).toMatch(/^Report to Campaign Supervisor/);
+    expect(items[1]).toMatch(/^Security auditor for Campaign Supervisor's team/);
     const user = userEvent.setup();
     await user.click(within(menu).getByRole("menuitem", { name: /^Security auditor/ }));
     expect(api.assignOversight).toHaveBeenCalledWith("p-sec", "p-camp", "security");
     expect(
-      await screen.findByText(/is now Campaign Coordinator's security auditor/),
+      await screen.findByText(/is now Campaign Supervisor's security auditor/),
     ).toBeInTheDocument();
 
     drag(auditor, screenPoint(org, "p-sec"), target);
     release(target);
     await user.click(
-      await screen.findByRole("menuitem", { name: /^Report to Campaign Coordinator/ }),
+      await screen.findByRole("menuitem", { name: /^Report to Campaign Supervisor/ }),
     );
     expect(api.movePosition).toHaveBeenCalledWith("p-sec", "p-camp");
   });
@@ -233,7 +233,7 @@ describe("Organization view", () => {
       "is-drop-refused",
     );
     expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
-      "Code Reviewer is an on-demand position; only persistent positions lead a team.",
+      "Code Reviewer is an on-call position; only full-time positions lead a team.",
     );
     release(reviewer);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -247,26 +247,26 @@ describe("Organization view", () => {
     api.movePosition.mockRejectedValue(
       new commands.PlenipoCommandError(
         "invalidInput",
-        "Campaign Coordinator's project does not allow the codex runtime",
+        "Campaign Supervisor's project does not allow the codex AI tool",
       ),
     );
     drag(developer, screenPoint(org, "p-dev"), screenPoint(org, "p-camp"));
     release(screenPoint(org, "p-camp"));
     await userEvent.setup().click(await screen.findByRole("menuitem", { name: /^Report to/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("does not allow the codex runtime");
+    expect(await screen.findByRole("alert")).toHaveTextContent("does not allow the codex AI tool");
   });
 
   it("collapses and expands a team", async () => {
     show();
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: "Collapse Website Coordinator's team (3 below)" }),
+      await screen.findByRole("button", { name: "Collapse Website Supervisor's team (3 below)" }),
     );
     expect(
       screen.queryByRole("button", { name: "Senior Developer, Working" }),
     ).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole("button", { name: "Expand Website Coordinator's team (6 hidden)" }),
+      screen.getByRole("button", { name: "Expand Website Supervisor's team (6 hidden)" }),
     );
     expect(screen.getByRole("button", { name: "Senior Developer, Working" })).toBeInTheDocument();
   });
@@ -277,9 +277,7 @@ describe("Organization view", () => {
     const search = await screen.findByRole("searchbox", { name: "Find in the organization" });
     await user.type(search, "security{Enter}");
     expect(screen.getByText("1 match")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Superintendent, Working" })).toHaveClass(
-      "is-dimmed",
-    );
+    expect(screen.getByRole("button", { name: "VP, Working" })).toHaveClass("is-dimmed");
     expect(
       screen.getByRole("complementary", { name: "Details: Security Auditor" }),
     ).toBeInTheDocument();
@@ -297,7 +295,7 @@ describe("Organization view", () => {
     const campaign = within(projects)
       .getByRole("rowheader", { name: /Q4 Campaign/ })
       .closest("tr");
-    expect(campaign).toHaveTextContent(/MarketingCampaign CoordinatorClaude CodeActive$/);
+    expect(campaign).toHaveTextContent(/MarketingCampaign SupervisorClaude CodeActive$/);
   });
 
   it("creates a department with its head, and starts empty with guidance", async () => {
@@ -359,6 +357,34 @@ describe("Organization view", () => {
       }),
     );
     await waitFor(() => expect(api.getOrganization).toHaveBeenCalledTimes(2));
+  });
+
+  it("names the ranks with the organization's chosen titles", async () => {
+    show({ ...sampleOrganization(), titles: "army" });
+    const user = userEvent.setup();
+    const map = await screen.findByRole("region", { name: "Organization topology" });
+    // Job titles stay as written; each node shows its rank in the chosen set.
+    const you = within(map).getByRole("button", { name: "You, General" });
+    expect(you).toHaveTextContent("General");
+    expect(within(map).getByRole("button", { name: "VP, Working" })).toHaveTextContent("Colonel");
+    expect(
+      within(map).getByRole("button", { name: "Engineering Manager, Idle" }),
+    ).toHaveTextContent("Captain");
+    expect(
+      within(map).getByRole("button", { name: "Website Supervisor, Waiting on team" }),
+    ).toHaveTextContent("Sergeant");
+    expect(within(map).getByRole("button", { name: "Code Reviewer, Idle" })).toHaveTextContent(
+      "Private",
+    );
+    // The palette hires a VP-class leader by its rank.
+    expect(screen.getByRole("button", { name: "Hire Colonel" })).toBeInTheDocument();
+    await user.click(you);
+    const details = screen.getByRole("complementary", { name: "Details: You" });
+    expect(details).toHaveTextContent("You run this organization as its General.");
+    expect(within(details).getByRole("button", { name: "Hire a Colonel" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Website Supervisor, Waiting on team" }));
+    const lead = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
+    expect(within(lead).getByText("Rank").nextSibling).toHaveTextContent("Sergeant");
   });
 
   it("zooms and fits from the canvas controls", async () => {

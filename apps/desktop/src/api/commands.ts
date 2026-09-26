@@ -32,6 +32,7 @@ import type {
   TaskHandoffs,
   TaskTimeline,
   TaskTree,
+  TitleTheme,
   WorkView,
 } from "@plenipo/types";
 
@@ -239,6 +240,11 @@ export function getWork(positionId?: string): Promise<WorkView> {
 
 export function renameOrganization(name: string): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("rename_organization", { name });
+}
+
+/** Choose what the app calls the ranks. Display only: agents keep the plain titles. */
+export function setOrganizationTitles(titles: TitleTheme): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("set_organization_titles", { titles });
 }
 
 export function createRole(input: RoleInput): Promise<OrgSnapshot> {

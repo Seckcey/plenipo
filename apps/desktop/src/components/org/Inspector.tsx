@@ -12,7 +12,6 @@ import type {
 import { getWork, toCommandError } from "../../api/commands";
 import { TASK_STATE_LABEL } from "../../ledger/format";
 import {
-  KIND_LABEL,
   OVERSIGHT_LABEL,
   OVERSIGHT_NOUN,
   STAFFING_LABEL,
@@ -32,6 +31,7 @@ import {
   oversightRefusal,
   positionMap,
 } from "../../org/rules";
+import { rankName, roleLabel, titlesOf, withArticle } from "../../org/titles";
 import { Glyph } from "./Glyph";
 import { StatusPill } from "./OrgNode";
 
@@ -189,11 +189,13 @@ function OwnerPanel({
   onSelect: (id: string) => void;
 }) {
   const reports = snapshot.positions.filter((p) => p.active && p.reportsTo === null);
+  const t = titlesOf(snapshot);
   return (
     <>
       <p className="muted">
-        You own this organization. Superintendents and department heads report to you; give them
-        objectives and they hand work down their teams.
+        You run this organization as its {rankName(t, "owner")}. {rankName(t, "superintendent", 2)}{" "}
+        and {rankName(t, "departmentManager", 2)} report to you; give them objectives and they hand
+        the work down their teams.
       </p>
       <Section title="Reporting to you">
         {reports.length === 0 ? (
@@ -213,7 +215,7 @@ function OwnerPanel({
       </Section>
       <div className="actions">
         <button type="button" className="button button--small" onClick={() => actions.hire(null)}>
-          Hire a superintendent
+          Hire {withArticle(rankName(t, "superintendent"))}
         </button>
         <button
           type="button"
@@ -266,7 +268,7 @@ function OrganizationPanel({
         <Fact label="Done (24 h)" value={s.completed24h} />
         <Fact label="Failed (24 h)" value={s.failed24h} />
       </dl>
-      <Section title="Runtimes">
+      <Section title="AI tools">
         <ul className="inspector__list">
           {snapshot.runtimes.map((r) => (
             <li key={r.id}>
@@ -320,6 +322,7 @@ function PositionPanel({
   const department = snapshot.departments.find((d) => d.id === p.departmentId) ?? null;
   const project = snapshot.projects.find((x) => x.id === p.projectId) ?? null;
   const role = snapshot.roles.find((r) => r.id === p.roleId);
+  const t = titlesOf(snapshot);
   const status = useRun(actions);
 
   return (
@@ -330,7 +333,7 @@ function PositionPanel({
         </span>
         <div>
           <div>
-            {p.roleName} · {STAFFING_LABEL[p.staffing]}
+            {role ? roleLabel(t, role) : p.roleName} · {STAFFING_LABEL[p.staffing]}
           </div>
           <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
@@ -346,8 +349,8 @@ function PositionPanel({
           {p.staffing === "persistent" && <ObjectivePanel p={p} actions={actions} />}
           {p.staffing === "onDemand" && (
             <p className="muted inspector__note">
-              On demand: its team&apos;s lead hands it tasks through Liaison, and a fresh worker is
-              spawned for each one.
+              On call: its team&apos;s lead hands it tasks, and a new worker is brought in for each
+              one.
             </p>
           )}
         </>
@@ -361,12 +364,12 @@ function PositionPanel({
               {supervisor.title}
             </button>
           ) : (
-            "You (owner)"
+            `You (${rankName(t, "owner")})`
           )}
         </dd>
-        <dt>Class</dt>
-        <dd>{KIND_LABEL[p.kind]}</dd>
-        <dt>Runtime</dt>
+        <dt>Rank</dt>
+        <dd>{rankName(t, p.kind)}</dd>
+        <dt>AI tool</dt>
         <dd>
           {runtimeLabel(snapshot, p.runtimeId)}{" "}
           {!runtimeReady(snapshot, p.runtimeId) && (
@@ -374,7 +377,7 @@ function PositionPanel({
           )}
         </dd>
         <dt>Model</dt>
-        <dd>{p.model ?? "Runtime default"}</dd>
+        <dd>{p.model ?? "The AI tool's default"}</dd>
         <dt>Department</dt>
         <dd>{department?.name ?? "—"}</dd>
         <dt>Project</dt>
@@ -478,7 +481,7 @@ function PositionPanel({
                   title: `Remove ${department.name}?`,
                   message: (
                     <p>
-                      The department is deleted and its head position archived. A department with
+                      The department is deleted and {p.title} is archived. A department with
                       projects cannot be removed; archive its projects first.
                     </p>
                   ),
@@ -497,10 +500,10 @@ function PositionPanel({
         <Section title={`Project: ${project.name}`}>
           {project.description && <p className="muted">{project.description}</p>}
           <dl className="kv">
-            <dt>Allowed runtimes</dt>
+            <dt>Allowed AI tools</dt>
             <dd>
               {project.allowedRuntimes.length === 0
-                ? "None — its workers cannot run"
+                ? "None — its team cannot take work"
                 : project.allowedRuntimes.map((r) => runtimeLabel(snapshot, r)).join(", ")}
             </dd>
             {project.repositoryUrl && (
@@ -543,8 +546,8 @@ function PositionPanel({
                     title: `Archive ${project.name}?`,
                     message: (
                       <p>
-                        The project and its whole team are archived: every position under its
-                        coordinator. This is refused while any of them has unfinished work. History
+                        The project and its whole team are archived: {p.title} and every position
+                        under it. This is refused while any of them has unfinished work. History
                         remains in the Ledger.
                       </p>
                     ),
@@ -768,6 +771,7 @@ function ManagePanel({
   run: ReturnType<typeof useRun>;
 }) {
   const byId = positionMap(snapshot);
+  const t = titlesOf(snapshot);
   const choices = moveChoices(snapshot, p);
   const [moveTo, setMoveTo] = useState<string>("");
   const [title, setTitle] = useState(p.title);
@@ -851,7 +855,7 @@ function ManagePanel({
 
       <form
         className="inspector__move"
-        aria-label="Change supervisor"
+        aria-label="Change who it reports to"
         onSubmit={(e) => {
           e.preventDefault();
           const to = moveTo === OWNER_VALUE ? null : moveTo;
@@ -866,12 +870,12 @@ function ManagePanel({
             disabled={choices.length === 0}
           >
             <option value="">
-              {choices.length === 0 ? "No other supervisor fits" : "Choose a supervisor…"}
+              {choices.length === 0 ? "No other position fits" : "Choose who it reports to…"}
             </option>
             {choices.map((id) =>
               id === null ? (
                 <option key={OWNER_VALUE} value={OWNER_VALUE}>
-                  You (owner)
+                  You ({rankName(t, "owner")})
                 </option>
               ) : (
                 <option key={id} value={id}>
@@ -887,14 +891,14 @@ function ManagePanel({
       </form>
 
       <details className="advanced">
-        <summary>Edit title, runtime, or model</summary>
+        <summary>Edit title, AI tool, or model</summary>
         <form aria-label="Edit position" onSubmit={save}>
           <label className="field">
             <span>Title</span>
             <input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <label className="field">
-            <span>Runtime</span>
+            <span>AI tool</span>
             <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
               {snapshot.runtimes.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -909,13 +913,13 @@ function ManagePanel({
             <input
               value={model}
               maxLength={100}
-              placeholder="Runtime default"
+              placeholder="The AI tool's default"
               onChange={(e) => setModel(e.target.value)}
             />
           </label>
           {replacesAgent && (
             <p className="hint">
-              Changing the runtime or model hires a new agent for this position; the current one
+              Changing the AI tool or model hires a new agent for this position; the current one
               retires and its conversation ends.
             </p>
           )}
@@ -1061,12 +1065,12 @@ function WorkerPanel({
             {position.title}
           </button>
         </dd>
-        <dt>Runtime</dt>
+        <dt>AI tool</dt>
         <dd>
           {runtimeLabel(snapshot, worker.runtimeId)}
           {worker.model ? ` · ${worker.model}` : ""}
         </dd>
-        <dt>Spawned</dt>
+        <dt>Brought in</dt>
         <dd>{ago(worker.spawnedAt)}</dd>
         {worker.startedAt && (
           <>
@@ -1076,8 +1080,8 @@ function WorkerPanel({
         )}
       </dl>
       <p className="muted inspector__note">
-        On-demand worker: it leaves the organization when its task finishes; its history stays in
-        the Ledger.
+        On-call worker: it leaves the organization when its task is done; its history stays in the
+        Ledger.
       </p>
       <div className="actions">
         <button

@@ -14,7 +14,7 @@ import type {
   Staffing,
 } from "@plenipo/types";
 
-import { KIND_LABEL } from "../../org/format";
+import { STAFFING_LABEL } from "../../org/format";
 import {
   defaultRuntime,
   hireRefusal,
@@ -22,6 +22,7 @@ import {
   positionMap,
   supervisorChoices,
 } from "../../org/rules";
+import { RANKS, rankName, roleLabel, titlesOf, withArticle, type TitleSet } from "../../org/titles";
 import { Modal } from "./Modal";
 
 /** Resolves with the refusal to show, or `null` once done. */
@@ -42,8 +43,21 @@ function projectOf(snapshot: OrgSnapshot, positionId: string | null): ProjectInf
   return snapshot.projects.find((p) => p.id === projectId) ?? null;
 }
 
-function positionChoiceLabel(p: PositionInfo): string {
-  return p.title === p.roleName ? p.title : `${p.title} — ${p.roleName}`;
+/** "Website Supervisor", or "Engineering Lead — Manager" when the title does not say its rank
+ * (a worker's role, for workers). */
+function positionChoiceLabel(t: TitleSet, p: PositionInfo): string {
+  const label = p.kind === "worker" ? p.roleName : rankName(t, p.kind);
+  return p.title === label || p.title.endsWith(` ${label}`) ? p.title : `${p.title} — ${label}`;
+}
+
+/** "Full-time: one agent holds it and keeps its conversation." */
+const STAFFING_HINT: Record<Staffing, string> = {
+  persistent: "Full-time: one agent holds it and keeps its conversation.",
+  onDemand: "On call: a new worker is brought in for each task and leaves when it is done.",
+};
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function useSubmit() {
@@ -122,11 +136,11 @@ function RuntimeField({
   const refused = project !== null && !project.allowedRuntimes.includes(value);
   return (
     <Field
-      label="Runtime"
+      label="AI tool"
       hint={
         refused ? (
           <span className="field__warn">
-            {project.name} does not allow this runtime
+            {project.name} does not allow this AI tool
             {project.allowedRuntimes.length > 0
               ? ` (allowed: ${project.allowedRuntimes.map((r) => runtimeChoiceLabel(snapshot, r)).join(", ")})`
               : "; it allows none yet"}
@@ -169,6 +183,7 @@ export function HireDialog({
 }) {
   const roles = hireableRoles(snapshot);
   const byId = positionMap(snapshot);
+  const t = titlesOf(snapshot);
   const firstRole =
     roles.find((r) => r.id === initialRole) ??
     roles.find((r) => r.kind === "worker") ??
@@ -229,11 +244,7 @@ export function HireDialog({
       <form className="modal__body" aria-label="Hire" onSubmit={submit}>
         <Field
           label="Role"
-          hint={
-            role
-              ? `${role.description} ${role.staffing === "persistent" ? "Persistent: keeps one agent." : "On demand: a worker is spawned for each task."}`
-              : undefined
-          }
+          hint={role ? `${role.description} ${STAFFING_HINT[role.staffing]}` : undefined}
         >
           <select value={roleId} onChange={(e) => changeRole(e.target.value)} required>
             <optgroup label="Leadership">
@@ -241,7 +252,7 @@ export function HireDialog({
                 .filter((r) => r.kind === "superintendent")
                 .map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name}
+                    {roleLabel(t, r)}
                   </option>
                 ))}
             </optgroup>
@@ -251,7 +262,7 @@ export function HireDialog({
                 .map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
-                    {r.staffing === "persistent" ? " (persistent)" : ""}
+                    {r.staffing === "persistent" ? " (full-time)" : ""}
                   </option>
                 ))}
             </optgroup>
@@ -285,11 +296,11 @@ export function HireDialog({
             {choices.map((id) =>
               id === null ? (
                 <option key={OWNER_VALUE} value={OWNER_VALUE}>
-                  You (owner)
+                  You ({rankName(t, "owner")})
                 </option>
               ) : (
                 <option key={id} value={id}>
-                  {byId.get(id) ? positionChoiceLabel(byId.get(id) as PositionInfo) : id}
+                  {byId.get(id) ? positionChoiceLabel(t, byId.get(id) as PositionInfo) : id}
                 </option>
               ),
             )}
@@ -297,8 +308,8 @@ export function HireDialog({
         </Field>
         {role && choices.length === 0 && (
           <p className="hint">
-            A {role.name} reports to a persistent position. Hire a superintendent or create a
-            department first.
+            {capitalized(withArticle(roleLabel(t, role)))} reports to a full-time position. Hire{" "}
+            {withArticle(rankName(t, "superintendent"))} or create a department first.
           </p>
         )}
         <RuntimeField
@@ -307,7 +318,7 @@ export function HireDialog({
           onChange={setRuntimeId}
           project={project}
         />
-        <Field label="Model (optional)" hint="Leave blank for the runtime's default model.">
+        <Field label="Model (optional)" hint="Leave blank for the AI tool's default model.">
           <input value={model} maxLength={100} onChange={(e) => setModel(e.target.value)} />
         </Field>
         {role?.staffing === "persistent" && (
@@ -353,6 +364,7 @@ function LeadFields({
   what: string;
 }) {
   const roles = leadRoles(snapshot, kind);
+  const t = titlesOf(snapshot);
   return (
     <fieldset className="fieldset">
       <legend>{what}</legend>
@@ -360,7 +372,7 @@ function LeadFields({
         <select value={lead.roleId} onChange={(e) => onChange({ roleId: e.target.value })} required>
           {roles.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.name}
+              {roleLabel(t, r)}
             </option>
           ))}
         </select>
@@ -447,6 +459,8 @@ export function NewDepartmentDialog({
   onSubmit: Submit<DepartmentInput>;
 }) {
   const superintendents = snapshot.positions.filter((p) => p.active && p.kind === "superintendent");
+  const t = titlesOf(snapshot);
+  const manager = rankName(t, "departmentManager");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [reportsTo, setReportsTo] = useState<string | null>(
@@ -481,15 +495,15 @@ export function NewDepartmentDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
         </Field>
-        <Field label="Head reports to">
+        <Field label={`Its ${manager} reports to`}>
           <select
             value={reportsTo ?? OWNER_VALUE}
             onChange={(e) => setReportsTo(e.target.value === OWNER_VALUE ? null : e.target.value)}
           >
-            <option value={OWNER_VALUE}>You (owner)</option>
+            <option value={OWNER_VALUE}>You ({rankName(t, "owner")})</option>
             {superintendents.map((p) => (
               <option key={p.id} value={p.id}>
-                {positionChoiceLabel(p)}
+                {positionChoiceLabel(t, p)}
               </option>
             ))}
           </select>
@@ -500,7 +514,7 @@ export function NewDepartmentDialog({
           lead={shownLead}
           onChange={(patch) => setLead((l) => ({ ...l, ...patch }))}
           project={null}
-          what="Department head"
+          what={`Its ${manager}`}
         />
         <FormError error={error} />
         <Footer
@@ -621,9 +635,7 @@ function ProjectSettingsFields({
         />
       </Field>
       <fieldset className="choices">
-        <legend>
-          Allowed runtimes — workers on this project may use only these (none allows none)
-        </legend>
+        <legend>Allowed AI tools — its team may use only these (none allows none)</legend>
         {snapshot.runtimes.map((r) => (
           <label key={r.id} className="choice">
             <input
@@ -696,7 +708,9 @@ export function NewProjectDialog({
     newLead(snapshot, "projectCoordinator", settings.allowedRuntimes),
   );
   const { pending, error, run } = useSubmit();
-  const fallbackTitle = `${settings.name.trim() || "Project"} Coordinator`;
+  const t = titlesOf(snapshot);
+  const supervisor = rankName(t, "projectCoordinator");
+  const fallbackTitle = `${settings.name.trim() || "Project"} Supervisor`;
   const shownLead = lead.titleEdited ? lead : { ...lead, title: fallbackTitle };
   const draftProject: ProjectInfo = {
     id: "",
@@ -728,8 +742,8 @@ export function NewProjectDialog({
       <form className="modal__body" aria-label="New project" onSubmit={submit}>
         {departments.length === 0 ? (
           <p className="hint">
-            A project belongs to a department, and its coordinator reports to the department&apos;s
-            head. Create a department first.
+            A project belongs to a department, and its {supervisor} reports to the department&apos;s{" "}
+            {rankName(t, "departmentManager")}. Create a department first.
           </p>
         ) : (
           <Field label="Department">
@@ -753,7 +767,7 @@ export function NewProjectDialog({
           lead={shownLead}
           onChange={(patch) => setLead((l) => ({ ...l, ...patch }))}
           project={draftProject}
-          what="Project coordinator"
+          what={`Its ${supervisor}`}
         />
         <FormError error={error} />
         <Footer
@@ -816,9 +830,11 @@ export function EditProjectDialog({
 // ---- Roles ----------------------------------------------------------------------------------
 
 export function RoleDialog({
+  titles: t,
   onCancel,
   onSubmit,
 }: {
+  titles: TitleSet;
   onCancel: () => void;
   onSubmit: Submit<RoleInput>;
 }) {
@@ -853,11 +869,11 @@ export function RoleDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
         </Field>
-        <Field label="Class">
+        <Field label="Rank">
           <select value={kind} onChange={(e) => setKind(e.target.value as PositionKind)}>
-            {(Object.keys(KIND_LABEL) as PositionKind[]).map((k) => (
+            {RANKS.filter((k): k is PositionKind => k !== "owner").map((k) => (
               <option key={k} value={k}>
-                {KIND_LABEL[k]}
+                {rankName(t, k)}
               </option>
             ))}
           </select>
@@ -871,8 +887,8 @@ export function RoleDialog({
               checked={fixed || staffing === "persistent"}
               onChange={() => setStaffing("persistent")}
             />
-            <span className="choice__label">Persistent</span>
-            <span className="muted">one agent that keeps its context and can lead a team</span>
+            <span className="choice__label">{STAFFING_LABEL.persistent}</span>
+            <span className="muted">one agent that keeps its conversation and can lead a team</span>
           </label>
           <label className="choice">
             <input
@@ -882,8 +898,8 @@ export function RoleDialog({
               checked={!fixed && staffing === "onDemand"}
               onChange={() => setStaffing("onDemand")}
             />
-            <span className="choice__label">On demand</span>
-            <span className="muted">a fresh worker for each task, gone when it is done</span>
+            <span className="choice__label">{STAFFING_LABEL.onDemand}</span>
+            <span className="muted">a new worker for each task, gone when it is done</span>
           </label>
         </fieldset>
         <FormError error={error} />

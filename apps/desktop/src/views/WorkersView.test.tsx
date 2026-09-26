@@ -106,7 +106,7 @@ afterEach(() => {
 });
 
 describe("Workers view", () => {
-  it("starts a task on a ready runtime and streams its activity to a normalized result", async () => {
+  it("starts a task on a ready AI tool and streams its activity to a normalized result", async () => {
     api.startAgentSession.mockResolvedValue(detail());
     api.getAgentSession.mockResolvedValue(detail());
     render(<Harness />);
@@ -155,7 +155,7 @@ describe("Workers view", () => {
     expect(showExecution).toHaveBeenCalledWith("e1");
   });
 
-  it("explains why a runtime is not ready and does not let it start", async () => {
+  it("explains why an AI tool is not ready and does not let it start", async () => {
     render(<Harness />);
     const user = userEvent.setup();
     const form = await screen.findByRole("form", { name: "New task" });
@@ -164,7 +164,7 @@ describe("Workers view", () => {
     expect(within(form).getByRole("note")).toHaveTextContent("Run the login command.");
     await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Hi");
     expect(within(form).getByRole("button", { name: "Start task" })).toBeDisabled();
-    await user.click(within(form).getByRole("button", { name: "Open Runtimes" }));
+    await user.click(within(form).getByRole("button", { name: "Open AI tools" }));
     expect(openRuntimes).toHaveBeenCalled();
   });
 

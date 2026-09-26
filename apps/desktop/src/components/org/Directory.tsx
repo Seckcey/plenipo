@@ -1,9 +1,10 @@
 import { useState } from "react";
 import type { OrgSnapshot, PositionStatus } from "@plenipo/types";
 
-import { STATUS_LABEL, runtimeLabel } from "../../org/format";
+import { STAFFING_LABEL, STATUS_LABEL, runtimeLabel } from "../../org/format";
 import { positionMap } from "../../org/rules";
 import { positionSearchText } from "../../org/search";
+import { rankName, titlesOf } from "../../org/titles";
 import { StatusPill } from "./OrgNode";
 
 type Tab = "positions" | "departments" | "projects";
@@ -25,8 +26,10 @@ export function Directory({
   const [status, setStatus] = useState<PositionStatus | "">("");
   const [archived, setArchived] = useState(false);
   const byId = positionMap(snapshot);
+  const t = titlesOf(snapshot);
   const q = query.trim().toLowerCase();
-  const title = (id: string | null) => (id ? (byId.get(id)?.title ?? "—") : "You (owner)");
+  const title = (id: string | null) =>
+    id ? (byId.get(id)?.title ?? "—") : `You (${rankName(t, "owner")})`;
 
   const positions = snapshot.positions.filter(
     (p) =>
@@ -115,7 +118,7 @@ export function Directory({
                   <th scope="col">Reports to</th>
                   <th scope="col">Department</th>
                   <th scope="col">Project</th>
-                  <th scope="col">Runtime</th>
+                  <th scope="col">AI tool</th>
                   <th scope="col">Work</th>
                 </tr>
               </thead>
@@ -127,7 +130,8 @@ export function Directory({
                         {p.title}
                       </button>
                       <span className="table__sub">
-                        {p.roleName} · {p.staffing === "persistent" ? "persistent" : "on demand"}
+                        {p.kind === "worker" ? p.roleName : rankName(t, p.kind)} ·{" "}
+                        {STAFFING_LABEL[p.staffing]}
                       </span>
                     </th>
                     <td>
@@ -163,7 +167,7 @@ export function Directory({
             <thead>
               <tr>
                 <th scope="col">Department</th>
-                <th scope="col">Head</th>
+                <th scope="col">{rankName(t, "departmentManager")}</th>
                 <th scope="col">Projects</th>
                 <th scope="col">State</th>
               </tr>
@@ -205,8 +209,8 @@ export function Directory({
               <tr>
                 <th scope="col">Project</th>
                 <th scope="col">Department</th>
-                <th scope="col">Coordinator</th>
-                <th scope="col">Allowed runtimes</th>
+                <th scope="col">{rankName(t, "projectCoordinator")}</th>
+                <th scope="col">Allowed AI tools</th>
                 <th scope="col">State</th>
               </tr>
             </thead>

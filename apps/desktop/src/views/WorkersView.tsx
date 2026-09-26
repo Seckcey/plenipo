@@ -139,11 +139,11 @@ export function WorkersView({
     <section className="view" aria-labelledby="workers-title">
       <h1 id="workers-title">Workers</h1>
       <p className="view__lead">
-        Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex
-        command-line tool, supervised by Plenipo, and every turn is recorded in the Ledger. In this
-        phase workers cannot change files or use the network: Claude Code has no tools, and Codex
-        runs in its read-only sandbox. With handoffs allowed, a worker can ask a worker on another
-        runtime for help through Plenipo Liaison.
+        Give an objective to an AI worker. It runs on your own signed-in Claude Code or Codex,
+        watched over by Plenipo, and every step is recorded in the Ledger. For now workers cannot
+        change files or use the internet: Claude Code gets no tools, and Codex runs read-only. With
+        handoffs allowed, a worker can ask a worker on another AI tool for help through Plenipo
+        Liaison.
       </p>
 
       {state.status === "error" && (
@@ -164,7 +164,7 @@ export function WorkersView({
       <form className="panel" aria-label="New task" onSubmit={submitNew}>
         <h2>New task</h2>
         <fieldset className="choices">
-          <legend>Runtime</legend>
+          <legend>AI tool</legend>
           {state.runtimes.map((r) => {
             const status = runtimeStatus(r);
             return (
@@ -181,7 +181,7 @@ export function WorkersView({
               </label>
             );
           })}
-          {state.runtimes.length === 0 && <p className="muted">Loading runtimes…</p>}
+          {state.runtimes.length === 0 && <p className="muted">Loading AI tools…</p>}
         </fieldset>
 
         <label className="field">
@@ -203,9 +203,9 @@ export function WorkersView({
           <span>
             Allow handoffs to other workers
             <span className="check__hint">
-              The worker may ask a worker on another runtime — for example Codex asking Claude Code
+              The worker may ask a worker on another AI tool — for example Codex asking Claude Code
               for a review — through Plenipo Liaison. Handoffs are limited in depth and number, use
-              only your signed-in runtimes, and are all recorded in the Ledger.
+              only your signed-in AI tools, and are all recorded in the Ledger.
             </span>
           </span>
         </label>
@@ -216,7 +216,7 @@ export function WorkersView({
             <input
               value={model}
               maxLength={64}
-              placeholder="Runtime default"
+              placeholder="The AI tool's default"
               onChange={(e) => setModel(e.target.value)}
             />
           </label>
@@ -226,7 +226,7 @@ export function WorkersView({
           <p className="hint" role="note">
             <strong>{chosen.label} is not ready.</strong> {hint}{" "}
             <button type="button" className="link" onClick={onOpenRuntimes}>
-              Open Runtimes
+              Open AI tools
             </button>{" "}
             <button
               type="button"

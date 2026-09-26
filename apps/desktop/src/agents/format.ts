@@ -108,10 +108,10 @@ export function runtimeStatus(r: AgentRuntimeInfo): {
   return { text: AUTH_LABEL[r.auth.state], tone: "warn" };
 }
 
-/** Why a runtime cannot take work, with what to do about it. `null` when ready. */
+/** Why an AI tool cannot take work, with what to do about it. `null` when ready. */
 export function notReadyHint(r: AgentRuntimeInfo): string | null {
   if (r.ready) return null;
-  if (r.installation.state === "checking") return "Still checking this runtime…";
+  if (r.installation.state === "checking") return "Still checking this AI tool…";
   if (r.installation.state !== "installed") {
     return [r.installation.detail, r.installHint].filter(Boolean).join(" ");
   }

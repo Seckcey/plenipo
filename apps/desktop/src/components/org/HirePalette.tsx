@@ -1,7 +1,9 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { OrgSnapshot, RoleInfo } from "@plenipo/types";
 
+import { STAFFING_LABEL } from "../../org/format";
 import { hireableRoles } from "../../org/rules";
+import { roleLabel, titlesOf } from "../../org/titles";
 import { Glyph } from "./Glyph";
 import type { DragPayload } from "./TopologyCanvas";
 
@@ -30,32 +32,34 @@ export function HirePalette({
   onNewRole: () => void;
 }) {
   const roles = hireableRoles(snapshot);
+  const t = titlesOf(snapshot);
   const leadership = roles.filter((r) => r.kind === "superintendent");
   const members = roles.filter((r) => r.kind === "worker");
-  const card = (r: RoleInfo) => (
-    <li key={r.id}>
-      <button
-        type="button"
-        className="palette__role"
-        aria-label={`Hire ${r.name}`}
-        title={open ? r.description : `${r.name} — ${r.description}`}
-        onPointerDown={(e) => onStartDrag({ kind: "role", roleId: r.id }, e)}
-        onClick={() => onPick(r.id)}
-      >
-        <span className="palette__glyph">
-          <Glyph name={r.glyph} size={16} />
-        </span>
-        {open && (
-          <>
-            <span className="palette__name">{r.name}</span>
-            <span className="palette__staffing">
-              {r.staffing === "persistent" ? "Persistent" : "On demand"}
-            </span>
-          </>
-        )}
-      </button>
-    </li>
-  );
+  const card = (r: RoleInfo) => {
+    const name = roleLabel(t, r);
+    return (
+      <li key={r.id}>
+        <button
+          type="button"
+          className="palette__role"
+          aria-label={`Hire ${name}`}
+          title={open ? r.description : `${name} — ${r.description}`}
+          onPointerDown={(e) => onStartDrag({ kind: "role", roleId: r.id }, e)}
+          onClick={() => onPick(r.id)}
+        >
+          <span className="palette__glyph">
+            <Glyph name={r.glyph} size={16} />
+          </span>
+          {open && (
+            <>
+              <span className="palette__name">{name}</span>
+              <span className="palette__staffing">{STAFFING_LABEL[r.staffing]}</span>
+            </>
+          )}
+        </button>
+      </li>
+    );
+  };
   const group = (label: string, list: RoleInfo[]) =>
     list.length > 0 && (
       <>

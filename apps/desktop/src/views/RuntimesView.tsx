@@ -42,11 +42,11 @@ export function RuntimesView({
 
   return (
     <section className="view" aria-labelledby="runtimes-title">
-      <h1 id="runtimes-title">Runtimes</h1>
+      <h1 id="runtimes-title">AI tools</h1>
       <p className="view__lead">
-        Plenipo runs only approved launch profiles and detected agent runtimes, isolates each
-        process tree, and streams its output here. Agent turns also appear below with their raw
-        output.
+        Plenipo runs only the AI tools it finds on this computer and a few approved programs of its
+        own, keeps each run separate, and shows its output here. Every run of an AI tool is listed
+        below with its raw output.
       </p>
 
       {error && (
@@ -56,20 +56,20 @@ export function RuntimesView({
       )}
       {state.status === "error" && (
         <p className="status status--error" role="alert">
-          Could not load runtimes: {state.error}
+          Could not load AI tools: {state.error}
         </p>
       )}
 
       <AgentRuntimeCards />
 
-      <h2>Launch profiles</h2>
+      <h2>Approved programs</h2>
       <ul className="profiles">
         {state.profiles.map((profile) => (
           <li key={profile.id} className="card">
             <div>
               <div className="card__title">{profile.label}</div>
               <div className="card__meta">{profile.description}</div>
-              <div className="card__meta">Limit: {profile.maxRuntimeSecs}s</div>
+              <div className="card__meta">Time limit: {profile.maxRuntimeSecs}s</div>
             </div>
             <button
               type="button"
@@ -85,17 +85,17 @@ export function RuntimesView({
           </li>
         ))}
         {state.status === "ready" && state.profiles.length === 0 && (
-          <li className="card card--empty">No launch profiles are available.</li>
+          <li className="card card--empty">No approved programs are available.</li>
         )}
       </ul>
 
       <div className="split">
         <div className="split__list">
-          <h2>Executions</h2>
+          <h2>Runs</h2>
           {state.order.length === 0 ? (
             <p className="muted">Nothing has run yet.</p>
           ) : (
-            <ul className="executions" aria-label="Executions">
+            <ul className="executions" aria-label="Runs">
               {state.order.map((id) => {
                 const record = state.executions[id];
                 if (!record) return null;
@@ -148,7 +148,7 @@ export function RuntimesView({
               <OutputPanel record={selected} output={state.outputs[selected.id]} />
             </>
           ) : (
-            <p className="muted">Select an execution to see its output.</p>
+            <p className="muted">Select a run to see its output.</p>
           )}
         </div>
       </div>

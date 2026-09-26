@@ -5,7 +5,7 @@ import { AUTH_LABEL, INSTALL_LABEL, notReadyHint, runtimeStatus } from "../agent
 import { useAgents } from "../agents/useAgents";
 import { formatTime } from "../runtime/format";
 
-/** Provider diagnostics: installation, sign-in, and capabilities of each agent runtime. */
+/** Each AI tool (Claude Code, Codex): whether it is installed and signed in, and what it can do. */
 export function AgentRuntimeCards() {
   const { state, refresh } = useAgents();
   const [checking, setChecking] = useState(false);
@@ -26,7 +26,7 @@ export function AgentRuntimeCards() {
   return (
     <>
       <div className="section-header">
-        <h2>Agent runtimes</h2>
+        <h2>Claude Code and Codex</h2>
         <button
           type="button"
           className="button button--small"
@@ -45,12 +45,12 @@ export function AgentRuntimeCards() {
           {error}
         </p>
       )}
-      <ul className="profiles" aria-label="Agent runtimes">
+      <ul className="profiles" aria-label="AI tools">
         {state.runtimes.map((r) => {
           const status = runtimeStatus(r);
           const hint = notReadyHint(r);
           return (
-            <li key={r.id} className="card card--stack" aria-label={`${r.label} runtime`}>
+            <li key={r.id} className="card card--stack" aria-label={`${r.label} AI tool`}>
               <div className="card__row">
                 <div>
                   <div className="card__title">{r.label}</div>

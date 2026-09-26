@@ -33,9 +33,9 @@ export const role = (
 });
 
 export const ROLES: RoleInfo[] = [
-  role("r-super", "Superintendent", "superintendent", "persistent", "executive"),
-  role("r-manager", "Department Manager", "departmentManager", "persistent", "manager"),
-  role("r-coord", "Project Coordinator", "projectCoordinator", "persistent", "coordinator"),
+  role("r-super", "VP", "superintendent", "persistent", "executive"),
+  role("r-manager", "Manager", "departmentManager", "persistent", "manager"),
+  role("r-coord", "Supervisor", "projectCoordinator", "persistent", "coordinator"),
   role("r-dev", "Senior Developer", "worker", "onDemand", "code"),
   role("r-review", "Code Reviewer", "worker", "onDemand", "review"),
   role("r-qa", "QA Engineer", "worker", "onDemand", "qa"),
@@ -186,7 +186,7 @@ export function emptyOrganization(): OrgSnapshot {
 }
 
 /**
- * Two departments under a superintendent; Engineering runs Website Relaunch with a working team
+ * Two departments under a VP; Engineering runs Website Relaunch with a working team
  * (a security auditor oversees it), Marketing runs Q4 Campaign (the QA engineer also QAs it).
  */
 export function sampleOrganization(): OrgSnapshot {
@@ -195,7 +195,7 @@ export function sampleOrganization(): OrgSnapshot {
   const mkt = { departmentId: "d-mkt" };
   const camp = { ...mkt, projectId: "pr-camp" };
   const positions: PositionInfo[] = [
-    position("p-super", "Superintendent", "r-super", null, {
+    position("p-super", "VP", "r-super", null, {
       status: "working",
       counts: { working: 1, waiting: 0, queued: 0 },
       currentTask: {
@@ -203,7 +203,7 @@ export function sampleOrganization(): OrgSnapshot {
         objective: "Relaunch the website before the Q4 campaign",
         state: "running",
         positionId: "p-super",
-        positionTitle: "Superintendent",
+        positionTitle: "VP",
         projectId: null,
         parentTaskId: null,
         sessionId: "session-super",
@@ -216,7 +216,7 @@ export function sampleOrganization(): OrgSnapshot {
       ...eng,
       headsDepartmentId: "d-eng",
     }),
-    position("p-web", "Website Coordinator", "r-coord", "p-eng", {
+    position("p-web", "Website Supervisor", "r-coord", "p-eng", {
       ...web,
       coordinatesProjectId: "pr-web",
       status: "waiting",
@@ -250,7 +250,7 @@ export function sampleOrganization(): OrgSnapshot {
       agent: null,
       status: "vacant",
     }),
-    position("p-camp", "Campaign Coordinator", "r-coord", "p-mkt", {
+    position("p-camp", "Campaign Supervisor", "r-coord", "p-mkt", {
       ...camp,
       coordinatesProjectId: "pr-camp",
     }),

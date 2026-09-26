@@ -11,6 +11,7 @@ import {
 } from "../../org/format";
 import type { LayoutNode } from "../../org/layout";
 import { nodeLabel, workerStatus, type DropState, type NodeContext } from "../../org/nodes";
+import { rankName, titlesOf } from "../../org/titles";
 import { Glyph } from "./Glyph";
 
 interface Props {
@@ -85,7 +86,7 @@ function NodeBody({ node, ctx, now }: { node: LayoutNode; ctx: NodeContext; now:
           </span>
           <span className="topo-node__body">
             <span className="topo-node__title">You</span>
-            <span className="topo-node__meta">Owner</span>
+            <span className="topo-node__meta">{rankName(titlesOf(ctx.snapshot), "owner")}</span>
           </span>
         </>
       );
@@ -142,6 +143,10 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
   const oversees = ctx.oversees(p.id);
   const overseenBy = ctx.overseenBy(p.id);
   const live = p.workers.length;
+  const rank = rankName(titlesOf(ctx.snapshot), p.kind);
+  // A worker's role, when its title does not already say it ("Backend Developer" is a Senior
+  // Developer).
+  const role = p.kind === "worker" && p.title !== p.roleName ? ` · ${p.roleName}` : "";
   return (
     <>
       <span className={`topo-node__glyph topo-node__glyph--${p.kind}`}>
@@ -150,7 +155,8 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
       <span className="topo-node__body">
         <span className="topo-node__title">{p.title}</span>
         <span className="topo-node__meta">
-          {p.title === p.roleName ? STAFFING_LABEL[p.staffing] : p.roleName}
+          {p.title === rank ? STAFFING_LABEL[p.staffing] : rank}
+          {role}
           {p.model ? ` · ${p.model}` : ""}
         </span>
         <span className="topo-node__foot">

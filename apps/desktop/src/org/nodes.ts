@@ -2,6 +2,7 @@ import type { OrgSnapshot, OversightInfo, PositionStatus } from "@plenipo/types"
 
 import { STATUS_LABEL, WORKER_STATE_LABEL } from "./format";
 import type { LayoutNode } from "./layout";
+import { rankName, titlesOf } from "./titles";
 
 /** Lookups the nodes need, built once per snapshot. */
 export interface NodeContext {
@@ -42,7 +43,7 @@ export function workerStatus(state: string): PositionStatus {
 export function nodeLabel(node: LayoutNode, ctx: NodeContext): string {
   switch (node.kind) {
     case "owner":
-      return "You, owner";
+      return `You, ${rankName(titlesOf(ctx.snapshot), "owner")}`;
     case "organization":
       return `${ctx.snapshot.name}, organization`;
     case "position": {

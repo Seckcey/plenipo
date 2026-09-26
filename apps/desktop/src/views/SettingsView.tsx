@@ -1,4 +1,5 @@
 import { useAgents } from "../agents/useAgents";
+import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
 export function SettingsView() {
@@ -8,73 +9,77 @@ export function SettingsView() {
     <section className="view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
       <p className="view__lead">
-        Read-only in this build. Editable settings arrive in later phases.
+        Personalization can be changed here. The rest is shown for reference and becomes editable in
+        later phases.
       </p>
 
-      <h2>Agent runtimes</h2>
+      <h2>Personalization</h2>
+      <TitlesSetting />
+
+      <h2>AI tools</h2>
       <ul className="settings">
         <li>
-          <strong>Runtimes:</strong>{" "}
-          {agents.state.runtimes.map((r) => r.label).join(", ") || "none detected yet"}. Plenipo
-          uses each tool&apos;s own sign-in on this computer and never asks for passwords.
+          <strong>AI tools:</strong>{" "}
+          {agents.state.runtimes.map((r) => r.label).join(", ") || "none found yet"}. Plenipo uses
+          each tool&apos;s own sign-in on this computer and never asks for passwords.
         </li>
         <li>
-          <strong>Billing:</strong> subscription sign-ins only. A runtime signed in with an API key
-          or a third-party cloud is refused, and API billing fallback is disabled. A usage limit
-          never switches work to another provider.
+          <strong>Billing:</strong> subscription sign-ins only. A tool signed in with an API key or
+          through a third-party cloud is refused, and Plenipo never falls back to pay-per-use API
+          billing. Reaching a usage limit never moves work to another AI company.
         </li>
         <li>
-          <strong>Permissions:</strong> Claude Code workers get no tools and no MCP servers; Codex
-          workers run in their read-only sandbox without network access. Each session works in its
-          own empty folder. Capability grants arrive with Plenipo Guard.
+          <strong>Permissions:</strong> Claude Code workers get no tools and no add-ons (MCP
+          servers); Codex workers run read-only, without internet access. Each conversation works in
+          its own empty folder. Permission to do more arrives with Plenipo Guard.
         </li>
         <li>
-          <strong>Credentials:</strong> API keys and other secrets in Plenipo&apos;s environment are
-          never passed to a worker. Only proxy settings and the tools&apos; own config locations
+          <strong>Your keys and secrets:</strong> API keys and other secrets on this computer are
+          never passed to a worker. Only proxy settings and the tools&apos; own settings folders
           are.
         </li>
         <li>
-          <strong>Model:</strong> the runtime&apos;s default unless you name one for a new task.
-          Automatic model selection arrives with role policies.
+          <strong>Model:</strong> the AI tool&apos;s default unless you name one for a new task.
+          Automatic model choice arrives with role policies.
         </li>
         <li>
           <strong>Handoffs:</strong> off unless you allow them for a new task. A worker may then ask
-          a worker on another runtime for help through Plenipo Liaison — workers never contact each
-          other directly. Liaison creates a recorded sub-task, passes only the context the worker
-          chose (capped), and returns the reply to the same workflow. Limits: depth 3, 3 requests
-          per answer, 5 reply rounds per task, 12 handoffs per workflow. Handoff workers get the
-          same permissions as any worker; capability requests are recorded but never granted before
-          Plenipo Guard.
+          a worker on another AI tool for help through Plenipo Liaison — workers never contact each
+          other directly. Liaison records a sub-task, passes on only the context the worker chose
+          (up to a limit), and brings the reply back to the same piece of work. Limits: 3 levels
+          deep, 3 requests per answer, 5 reply rounds per task, 12 handoffs per piece of work.
+          Handoff workers get the same permissions as any worker; requests for more permissions are
+          recorded but never granted before Plenipo Guard.
         </li>
       </ul>
 
-      <h2>Runtime policy</h2>
+      <h2>Programs Plenipo runs</h2>
       <ul className="settings">
         <li>
-          <strong>Approved launch profiles:</strong>{" "}
+          <strong>Approved programs:</strong>{" "}
           {state.profiles.map((p) => p.label).join(", ") || "none"}
         </li>
         <li>
-          <strong>Executables:</strong> Plenipo itself (built-in diagnostics) and the detected
-          Claude Code and Codex tools. The interface can never supply a command, path, or argument.
+          <strong>Only these:</strong> Plenipo itself (built-in checks) and the Claude Code and
+          Codex it finds. Nothing on screen can supply a command, path, or argument.
         </li>
         <li>
-          <strong>Environment:</strong> child processes receive a minimal operating-system baseline
-          plus variables declared by Plenipo. Your credentials are never passed on.
+          <strong>Environment:</strong> programs get the operating system&apos;s basics plus
+          settings Plenipo sets on purpose. Your credentials are never passed on.
         </li>
         <li>
-          <strong>Isolation:</strong> each launch runs in its own process tree; cancelling or
-          quitting terminates the whole tree.
+          <strong>Kept apart:</strong> each run is its own group of processes; cancelling or
+          quitting stops the whole group.
         </li>
       </ul>
 
       <h2>Window behavior</h2>
       <ul className="settings">
         <li>
-          Closing the window while processes are running keeps them running; use the tray icon to
+          Closing the window while programs are running keeps them running; use the tray icon to
           reopen Plenipo or stop them.
         </li>
-        <li>Quitting from the tray stops all running processes and records their final state.</li>
+        <li>Quitting from the tray stops everything that is running and records how it ended.</li>
       </ul>
     </section>
   );

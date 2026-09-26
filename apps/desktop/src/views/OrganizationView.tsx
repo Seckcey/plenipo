@@ -1,6 +1,6 @@
 /**
  * The organization: a live topology map (like a network topology view) of departments,
- * managers, project coordinators, their teams, and the workers they spawn. Hire by dragging a
+ * managers, supervisors, their teams, and the workers brought in for tasks. Hire by dragging a
  * role onto a position, reorganize by dragging a position onto another, and assign reviewers,
  * QA evaluators, and security auditors the same way. Everything comes from the Workforce engine;
  * nothing is hard-coded here.
@@ -66,6 +66,7 @@ import {
   positionMap,
 } from "../org/rules";
 import { searchMatches } from "../org/search";
+import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
 
 const SELECTED_KEY = "plenipo.orgSelected";
@@ -202,6 +203,7 @@ export function OrganizationView({
     [snapshot, collapsed],
   );
   const ctx = useMemo(() => (snapshot ? nodeContext(snapshot) : null), [snapshot]);
+  const titles = titleSet(snapshot?.titles);
   const matchList = useMemo(
     () => (snapshot ? searchMatches(snapshot, query) : null),
     [snapshot, query],
@@ -355,7 +357,7 @@ export function OrganizationView({
       if (moveRefusal(snapshot, moving, to) === null) {
         choices.push({
           id: "move",
-          label: `Report to ${lead ? lead.title : "you (owner)"}`,
+          label: `Report to ${lead ? lead.title : `you (${rankName(titles, "owner")})`}`,
           detail: moving.staffing === "persistent" ? "Its team moves with it" : "Joins this team",
           run: () =>
             void runWithToast(
@@ -388,7 +390,7 @@ export function OrganizationView({
           choices,
         });
     },
-    [snapshot, byId, runWithToast],
+    [snapshot, byId, runWithToast, titles],
   );
 
   const describeDrag = useCallback(
@@ -396,7 +398,7 @@ export function OrganizationView({
       if (payload.kind === "role") {
         const role = snapshot?.roles.find((r) => r.id === payload.roleId);
         return {
-          title: `Hire ${role?.name ?? "a role"}`,
+          title: `Hire ${role ? roleLabel(titles, role) : "a role"}`,
           glyph: role?.glyph ?? "worker",
           hint: "Release to hire into this team",
         };
@@ -408,7 +410,7 @@ export function OrganizationView({
         hint: "Release to choose: report here, or oversee this team",
       };
     },
-    [snapshot, byId],
+    [snapshot, byId, titles],
   );
 
   const toggle = useCallback(
@@ -593,10 +595,20 @@ export function OrganizationView({
               <div className="topology__empty" data-canvas-ui>
                 <h2>Build your organization</h2>
                 <ol>
-                  <li>Create a department — it comes with its manager.</li>
-                  <li>Create a project in it — it comes with its coordinator.</li>
-                  <li>Drag roles from the palette onto the coordinator to build its team.</li>
-                  <li>Select the coordinator and give it an objective.</li>
+                  <li>
+                    Create a department — it comes with its {rankName(titles, "departmentManager")}.
+                  </li>
+                  <li>
+                    Create a project in it — it comes with its{" "}
+                    {rankName(titles, "projectCoordinator")}.
+                  </li>
+                  <li>
+                    Drag roles from the palette onto the {rankName(titles, "projectCoordinator")} to
+                    build the team.
+                  </li>
+                  <li>
+                    Select the {rankName(titles, "projectCoordinator")} and give it an objective.
+                  </li>
                 </ol>
                 <div className="actions">
                   <button
@@ -611,7 +623,7 @@ export function OrganizationView({
                     className="button button--quiet"
                     onClick={() => setDialog({ kind: "hire", roleId: null, reportsTo: null })}
                   >
-                    Hire a superintendent
+                    Hire {withArticle(rankName(titles, "superintendent"))}
                   </button>
                 </div>
               </div>
@@ -698,6 +710,7 @@ export function OrganizationView({
       )}
       {dialog?.kind === "role" && (
         <RoleDialog
+          titles={titles}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createRole(input), `Added the ${input.name} role.`)}
         />
