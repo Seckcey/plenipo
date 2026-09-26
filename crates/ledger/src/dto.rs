@@ -270,6 +270,8 @@ pub struct Department {
     pub status: String,
     pub metadata: Value,
     pub created_at: u64,
+    /// The position that heads the department (Phase 5).
+    pub head_position_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -282,6 +284,15 @@ pub struct Project {
     pub department_id: Option<String>,
     pub metadata: Value,
     pub created_at: u64,
+    pub description: String,
+    /// The project's coordinator position (Phase 5).
+    pub coordinator_position_id: Option<String>,
+    /// Runtime IDs the project's workers may use; empty allows none.
+    pub allowed_runtimes: Vec<String>,
+    /// Default capability profile, granted by Guard from Phase 7 (recorded only until then).
+    pub capability_profile: Option<String>,
+    /// `active` or `archived`.
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,6 +351,192 @@ pub struct AgentInstance {
     pub metadata: Value,
     pub created_at: u64,
     pub last_seen_at: u64,
+    /// The position it fills (Phase 5).
+    pub position_id: Option<String>,
+    /// The runtime (adapter ID) it runs on.
+    pub runtime_id: Option<String>,
+    pub model: Option<String>,
+    /// For a worker spawned by an on-demand position: the task it exists for. Its lifecycle
+    /// follows that task (ADR-009 §4).
+    pub task_id: Option<String>,
+    pub retired_at: Option<u64>,
+}
+
+impl AgentInstance {
+    /// In the active workforce (not retired or failed).
+    pub fn is_active(&self) -> bool {
+        !matches!(
+            self.lifecycle_state,
+            AgentLifecycle::Retired | AgentLifecycle::Failed
+        )
+    }
+}
+
+// ---- Workforce (Phase 5, ADR-009) ------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PositionState {
+    Active,
+    Archived,
+}
+
+impl PositionState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Active, Self::Archived]
+            .into_iter()
+            .find(|v| v.as_str() == s)
+    }
+}
+
+/// A place in the organization chart. Its role decides whether it is persistent (held by one
+/// agent at a time, or vacant) or on demand (a new agent for every task delegated to it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Position {
+    pub id: String,
+    pub title: String,
+    pub role_id: String,
+    /// The supervisor; `None` means the position reports to the owner.
+    pub reports_to: Option<String>,
+    /// The runtime (adapter ID) that fills it.
+    pub runtime_id: String,
+    pub model: Option<String>,
+    pub state: PositionState,
+    pub sort_key: i64,
+    pub metadata: Value,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub archived_at: Option<u64>,
+}
+
+/// What an oversight assignment makes a position do for a team.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OversightKind {
+    Review,
+    Qa,
+    Security,
+}
+
+impl OversightKind {
+    pub const ALL: [Self; 3] = [Self::Review, Self::Qa, Self::Security];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Review => "review",
+            Self::Qa => "qa",
+            Self::Security => "security",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.as_str() == s)
+    }
+
+    /// How the assignment reads, e.g. "QA evaluator".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Review => "reviewer",
+            Self::Qa => "QA evaluator",
+            Self::Security => "security auditor",
+        }
+    }
+}
+
+/// `overseer` reviews, QA-evaluates, or security-audits the team led by `target`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Oversight {
+    pub id: String,
+    pub kind: OversightKind,
+    pub overseer_id: String,
+    pub target_id: String,
+    pub active: bool,
+    pub created_at: u64,
+    pub ended_at: Option<u64>,
+}
+
+/// Input for a new position (and, when `staffed`, its first incumbent).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewPosition {
+    pub title: String,
+    pub role_id: String,
+    /// `None`: reports to the owner. Ignored for a department head created with its department
+    /// when set by the caller, and for a coordinator (it reports to its department's head).
+    pub reports_to: Option<String>,
+    pub runtime_id: String,
+    /// The runtime's provider, recorded with agent instances.
+    pub runtime_provider: Option<String>,
+    pub model: Option<String>,
+    /// Hire an incumbent now (persistent positions only).
+    pub staffed: bool,
+}
+
+/// Project fields set when a project is created or updated.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProjectSettings {
+    pub name: String,
+    pub description: String,
+    pub repository_url: Option<String>,
+    pub local_path: Option<String>,
+    pub allowed_runtimes: Vec<String>,
+    pub capability_profile: Option<String>,
+}
+
+/// Changes to a position; `None` leaves a field as it is.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PositionPatch {
+    pub title: Option<String>,
+    /// A new runtime (with its provider). For a staffed persistent position the incumbent is
+    /// replaced: a runtime session belongs to one runtime.
+    pub runtime: Option<(String, Option<String>)>,
+    /// `Some(None)` clears the model.
+    pub model: Option<Option<String>>,
+}
+
+/// A worker to record with a delegated child task (Liaison, ADR-009 §5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewWorker {
+    /// Chosen by the caller so the child's metadata can name it.
+    pub agent_id: String,
+    pub position_id: String,
+    pub role_id: String,
+    pub runtime_id: String,
+    pub runtime_provider: Option<String>,
+    pub model: Option<String>,
+    pub project_id: Option<String>,
+}
+
+/// The whole organization as recorded: everything a snapshot is built from, in one read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrgRecords {
+    pub roles: Vec<Role>,
+    pub departments: Vec<Department>,
+    pub projects: Vec<Project>,
+    /// Active and archived positions.
+    pub positions: Vec<Position>,
+    /// Agents in the active workforce.
+    pub agents: Vec<AgentInstance>,
+    /// Active oversight assignments.
+    pub oversight: Vec<Oversight>,
+    /// Per position: agents that have left the workforce (retired, failed).
+    pub former_agents: std::collections::HashMap<String, FormerAgents>,
+}
+
+/// History of a position's agents that have left the workforce.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormerAgents {
+    pub retired: u32,
+    pub failed: u32,
+    pub last_retired_at: Option<u64>,
 }
 
 // ---- Execution, approval, artifact ----------------------------------------------------
@@ -685,8 +882,14 @@ pub struct NewHandoffRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HandoffDecision {
     /// Create `child` (queued) under the requesting task. `received` is the payload of
-    /// `liaison.handoff_received` on the child (JSON object).
-    Accept { child: NewTask, received: Value },
+    /// `liaison.handoff_received` on the child (JSON object). `worker`, when the request went
+    /// to a position in the organization, is recorded as the agent spawned for the child
+    /// (`org.worker_spawned`), in the same transaction.
+    Accept {
+        child: NewTask,
+        received: Value,
+        worker: Option<NewWorker>,
+    },
     /// Refuse the request. The requester learns why through `reply`, which is recorded as
     /// pending with the request.
     Reject { reason: String, reply: NewReply },

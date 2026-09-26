@@ -13,13 +13,14 @@ architecture must be recorded here.
 
 ## Index
 
-| ADR                                          | Title                                           | Status   |
-| -------------------------------------------- | ----------------------------------------------- | -------- |
-| [001](ADR-001-desktop-stack.md)              | Tauri 2 + React/TypeScript + Rust desktop stack | Accepted |
-| [002](ADR-002-local-first-architecture.md)   | Local-first architecture                        | Accepted |
-| [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                      | Accepted |
-| [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Accepted |
-| [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                     | Accepted |
-| [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)        | Accepted |
-| [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)  | Accepted |
-| [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs | Proposed |
+| ADR                                          | Title                                             | Status   |
+| -------------------------------------------- | ------------------------------------------------- | -------- |
+| [001](ADR-001-desktop-stack.md)              | Tauri 2 + React/TypeScript + Rust desktop stack   | Accepted |
+| [002](ADR-002-local-first-architecture.md)   | Local-first architecture                          | Accepted |
+| [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                        | Accepted |
+| [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase    | Accepted |
+| [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                       | Accepted |
+| [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)          | Accepted |
+| [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)    | Accepted |
+| [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs   | Proposed |
+| [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas | Proposed |

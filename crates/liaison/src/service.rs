@@ -842,6 +842,7 @@ impl Liaison {
                         }),
                     },
                     received,
+                    worker: None,
                 }
             }
             Err(reason) => {

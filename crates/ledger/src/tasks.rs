@@ -140,6 +140,8 @@ pub(crate) fn transition(
             ..NewEvent::default()
         },
     )?);
+    // A worker spawned for this task starts and retires with it (ADR-009 §4).
+    crate::workforce::follow_task(tx, out, &task, to, actor)?;
     require(tx, id)
 }
 
