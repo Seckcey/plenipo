@@ -67,8 +67,9 @@ impl Default for LiaisonConfig {
             max_requests_per_answer: 3,
             max_rounds: 5,
             max_workflow_handoffs: 12,
-            reply_text_bytes: 16 * 1024,
-            answer_context_bytes: 12 * 1024,
+            // Short on purpose (ADR-012, brief messages between agents).
+            reply_text_bytes: 8 * 1024,
+            answer_context_bytes: 6 * 1024,
             task_context_bytes: 8 * 1024,
             tick: Duration::from_secs(2),
         }

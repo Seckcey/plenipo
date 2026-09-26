@@ -6,25 +6,25 @@ the work to supervisors and specialist workers, grants only the permissions each
 watches over the work, and keeps a complete record of it.
 
 > **Status:** Phase 6 — Model policy and role routing (implemented; awaiting owner acceptance,
-> so the version stays 0.5.0). **Settings → AI models** says which AI model each role's workers
-> get: list your models (each AI tool's default is built in), give each role its model choices —
+> so the version stays 0.6.0). **Settings → AI models** says which AI model each role's workers
+> get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
 > first choice, backups, what the model must be able to do, AI companies it never uses, and
 > reviews by a different AI company — and see, for every role, the model its next worker would
 > get and why. New positions follow their role's choices ("Auto" on the map); you can still fix
 > a position to one AI tool. A usage limit never moves work to another AI company unless you
 > allow it, and every worker's reason is kept in the Ledger.
 >
-> Phase 5 — Workforce and organization engine: the **Organization** view is a live topology map of
-> your AI workforce: create departments and projects (each comes with its manager or
-> supervisor), drag roles from the hire palette onto a lead to build its team, drag positions
-> to change who they report to or to make them a team's reviewer, QA evaluator, or security
-> auditor, and give a supervisor an objective — its workers appear under it while they work
-> and leave when done, with every step in the durable local Ledger. The chain of command reads
-> Worker → Supervisor → Manager → VP → President (you); **Settings → Personalization → Titles**
-> can rename the ranks after a U.S. military branch or the Mafia. Agents run on your own
-> signed-in Claude Code and Codex (subscription sign-ins only, no API billing). Workers cannot
-> change files yet (permissions arrive with Guard in Phase 7). See
-> [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> Phase 5 — Workforce and organization engine (accepted, v0.6.0). The
+> **Organization** view is a live topology map of your AI workforce: create departments and
+> projects (each comes with its manager or supervisor), drag roles from the hire palette onto a
+> lead to build its team, drag positions to change who they report to or to make them a team's
+> reviewer, QA evaluator, or security auditor, and give a supervisor an objective — its workers
+> appear under it while they work and leave when done, with every step in the durable local
+> Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
+> **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
+> the Mafia. Agents run on your own signed-in Claude Code and Codex (subscription sign-ins only,
+> no API billing). Workers cannot change files yet (permissions arrive with Guard in Phase 7).
+> See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -50,7 +50,7 @@ pnpm dev          # run the desktop app with hot reload
 
 No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
 install and sign in to Claude Code and/or Codex — see the
-[setup guide](docs/development/setup.md#3-agent-runtimes-phase-3-optional).
+[setup guide](docs/development/setup.md#3-ai-tools-claude-code-and-codex-phase-3-optional).
 
 ## Common commands
 

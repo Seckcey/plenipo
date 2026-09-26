@@ -50,8 +50,8 @@ pub fn member_identity(view: &OrgView<'_>, org: &str, me: &Position, has_team: b
     }
     if has_team {
         s.push_str(
-            "\nHand bounded tasks to the members of your team and combine their replies into \
-             your answer; do a part yourself when no team member fits it.",
+            "\nGive each member of your team a short, specific task and combine their replies \
+             into your answer; do a part yourself when no team member fits it.",
         );
     } else {
         s.push_str(

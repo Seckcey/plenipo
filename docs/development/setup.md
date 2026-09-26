@@ -70,6 +70,13 @@ Notes:
 - On Windows, Plenipo runs only native `.exe` builds. An npm-installed Claude Code (`claude.cmd`)
   is reported as unsupported — install the native build above. For Codex, Plenipo uses the
   native binary inside the npm package automatically.
+- If a Codex task fails with _"The '…' model is not supported when using Codex with a ChatGPT
+  account"_, Codex's own settings name a model your ChatGPT plan can't use. Update Codex
+  (`npm install -g @openai/codex@latest`). If it still fails, back up
+  `%USERPROFILE%\.codex\config.toml` and remove its `model = …` line, or run `codex` and pick
+  a model with `/model`. `codex exec --skip-git-repo-check "Say hi"` should then answer. You
+  can also name a model for one position in Plenipo (details panel → **Edit title, AI tool, or
+  model**).
 - In Phase 3 workers cannot change anything: Claude Code runs with no tools (conversation
   only), Codex in its read-only sandbox, each conversation in its own empty folder under
   `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.

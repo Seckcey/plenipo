@@ -988,6 +988,34 @@ async fn limits_bound_one_answer_one_workflow_and_one_task() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn long_replies_are_cut_before_they_reach_the_requester() {
+    // ADR-012 (brief messages between agents): a reply is at most 8 KiB; the worker's full
+    // answer stays with its own task.
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Write a parser [handoff:claude-code+big]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    assert!(
+        h.text(&child.id).len() > 32 * 1024,
+        "the worker answered at length"
+    );
+    let reply = h
+        .messages(&root)
+        .into_iter()
+        .find(|m| m.kind == MessageKind::Reply)
+        .unwrap();
+    let text = reply.envelope["result"]["text"].as_str().unwrap();
+    assert!(text.len() <= 8 * 1024, "{}", text.len());
+    assert!(
+        text.len() > 7 * 1024 && text.ends_with('…'),
+        "{}",
+        text.len()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn capability_requests_are_recorded_but_never_granted() {
     let h = harness().await;
     let (_, root) = h.start("codex", "Read it [handoff-caps:claude-code]").await;
