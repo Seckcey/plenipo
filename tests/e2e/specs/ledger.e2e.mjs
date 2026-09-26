@@ -77,9 +77,9 @@ describe("Phase 2 ledger (real app)", () => {
     await clickButton(browser, "Start");
     await waitForText(browser, TRAIL, "Queued → Running");
     await clickButton(browser, "Add step");
-    // "Add step" selects the new sub-task; go back to the parent.
-    await waitForText(browser, DETAIL, "step 1");
-    await clickButton(browser, "↑ Parent task");
+    // Adding a step keeps the parent selected; the step appears under Sub-tasks.
+    await waitForText(browser, TRAIL, "Sub-task created");
+    await waitForText(browser, ".children", "step 1");
     await waitForText(browser, DETAIL, objective);
     await waitForTrailLength(browser, 3);
     await clickButton(browser, "Await approval");

@@ -64,8 +64,8 @@ export function ActivityView({
     setPending(true);
     setActionError(null);
     try {
-      const result = await advanceSyntheticTask(taskId, action);
-      if (action === "addChild") onSelectTask(result.id);
+      // Stay on the current task; a new step appears under "Sub-tasks".
+      await advanceSyntheticTask(taskId, action);
     } catch (reason) {
       setActionError(toCommandError(reason).message);
     } finally {

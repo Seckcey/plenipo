@@ -131,6 +131,22 @@ describe("Activity timeline", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("queued -> running");
   });
 
+  it("stays on the current task after adding a step", async () => {
+    const parent = task({ state: "running" });
+    api.listTasks.mockResolvedValue([parent]);
+    api.getTaskTimeline.mockResolvedValue({ task: parent, children: [], events: [] });
+    api.advanceSyntheticTask.mockResolvedValue(task({ id: "child", parentTaskId: "t1" }));
+    render(<Harness />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Synthetic diagnostic task #1/ }));
+    const actions = await screen.findByLabelText("Synthetic task actions");
+    await user.click(within(actions).getByRole("button", { name: "Add step" }));
+    expect(api.advanceSyntheticTask).toHaveBeenCalledWith("t1", "addChild");
+    // Still on the parent: its running-state actions (including Complete) remain.
+    expect(within(actions).getByRole("button", { name: "Complete" })).toBeInTheDocument();
+    expect(api.getTaskTimeline).not.toHaveBeenCalledWith("child");
+  });
+
   it("hides actions for non-synthetic tasks", async () => {
     const real = task({ metadata: {}, objective: "Real work" });
     api.listTasks.mockResolvedValue([real]);
