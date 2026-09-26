@@ -1,0 +1,18 @@
+Lazy-clone a git repository via grove (NFS on macOS, FUSE on Linux)
+
+Usage: grok clone [OPTIONS] <URL> [DIR]
+
+Arguments:
+  <URL>  Remote repository URL
+  [DIR]  Local directory for the mount (default: basename of the URL)
+
+Options:
+  -b, --branch <BRANCH>       Branch or ref to check out
+      --full-history          Fetch complete history during clone instead of the fast depth-1 bootstrap. After a depth-1 clone, `git fetch --deepen=N origin` / `--unshallow origin` affect only the selected branch. Another branch needs an explicit depth-limited refspec
+      --redirect-ignored      Enable redirects for the safe artifact-directory allowlist
+      --no-redirects          Explicitly disable redirects for this clone
+      --redirect-dir <REL>    Add a redirect allowlist entry (repeatable; inert unless enabled)
+      --debug                 Enable debug logging
+      --debug-file <FILE>     Write debug logs to FILE
+  -h, --help                  Print help
+      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

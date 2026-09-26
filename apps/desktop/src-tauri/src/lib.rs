@@ -1288,10 +1288,11 @@ mod ipc_boundary_tests {
         let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
         // Each AI tool's default model is listed; nothing is signed in, so nothing is chosen.
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            ["Claude Code (default model)", "Codex (default model)"]
-        );
+        let defaults: Vec<String> = plenipo_runtime::agent::builtin_adapters()
+            .iter()
+            .map(|a| format!("{} (default model)", a.label()))
+            .collect();
+        assert_eq!(labels, defaults);
         assert!(s.tools.iter().all(|t| !t.available));
         assert!(!s.api_billing);
         let designer = s.roles.iter().find(|r| r.role_name == "Designer").unwrap();
@@ -1519,7 +1520,7 @@ mod ipc_boundary_tests {
         }
         // Nothing was changed by the refusals.
         let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
-        assert_eq!(s.models.len(), 2);
+        assert_eq!(s.models.len(), tool_ids().len());
         assert_eq!(
             s.options.on_usage_limit,
             plenipo_router::LimitBehavior::Wait

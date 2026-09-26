@@ -1,0 +1,31 @@
+Run as the shared leader process for other clients
+
+Usage: grok agent leader [OPTIONS]
+
+Options:
+      --no-exit-on-disconnect
+          Keep the leader running after the last client disconnects
+      --relay-on-demand
+          Defer the grok.com relay WebSocket until the first headless IPC client registers. Without this flag the leader connects the relay eagerly at startup. Passed by leaders auto-spawned from interactive clients (TUI/IDE), which only need the relay if a headless client appears
+      --no-auto-update
+          Disable periodic auto-update checks for the leader
+      --cursor-worker
+          Register this leader as a Cursor private worker once it is ready. Without this flag the door starts only when `[cursor_worker] auto_start = true`
+      --cursor-worker-name <NAME>
+          Worker display name shown in Cursor (default: `[cursor_worker].name`, then the hostname)
+      --cursor-worker-dir <DIR>
+          Repository directory offered to Cursor Cloud Agents; repeatable, the first one is the registered working directory. Defaults to `[cursor_worker].worker_dirs`
+      --cursor-worker-max-agents <N>
+          Maximum concurrent Cloud Agent claims (default: `[cursor_worker].max_agents`; unset means no cap)
+      --grok-ws-origin <GROK_WS_ORIGIN>
+          
+      --grok-ws-url <GROK_WS_URL>
+          
+      --debug
+          Enable debug logging
+      --debug-file <FILE>
+          Write debug logs to FILE
+  -h, --help
+          Print help
+      --leader-socket <PATH>
+          Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

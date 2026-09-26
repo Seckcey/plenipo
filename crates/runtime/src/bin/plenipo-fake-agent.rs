@@ -1,9 +1,11 @@
 //! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
-//! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`;
+//! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`, `grok`;
 //! `.exe` on Windows); it answers like the real CLI named by its file stem: `--version`, the
 //! sign-in status command, and one turn in the provider's JSON-lines stream format with the
-//! prompt read from stdin. Under any other name, `--personas` lists the persona names, one per
+//! prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent … stdio` answers
+//! `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and stdout, asks
+//! permission before each tool call, and stops a slow task on `session/cancel`. Under any other name, `--personas` lists the persona names, one per
 //! line, so test helpers install every persona without naming them.
 //!
 //! State lives in `<HOME or USERPROFILE>/.plenipo-fake-agent/`:
@@ -33,10 +35,13 @@
 //!
 //! Plenipo's tools (Phase 7): the note Plenipo puts before a prompt is set aside, and markers
 //! `<<tool:NAME {json arguments}>>` in the objective call the Plenipo tool server given on the
-//! command line (Claude Code `--mcp-config`, Codex `-c mcp_servers.plenipo.*`) over MCP, in
-//! order, like the real CLI would; each result is added to the answer (`Tool NAME: …` or
-//! `Tool NAME failed: …`, then up to 20 more lines, indented). `[tools-list]` answers with the
-//! tools offered.
+//! command line (Claude Code `--mcp-config`, Codex `-c mcp_servers.plenipo.*`) or in
+//! `session/new` (Grok) over MCP, in order, like the real CLI would; each result is added to
+//! the answer (`Tool NAME: …` or `Tool NAME failed: …`, then up to 20 more lines, indented).
+//! `[tools-list]` answers with the tools offered. Grok asks permission first (as `use_tool` on
+//! the server); `[own-tool]` makes it ask for one of its own tools too, and the answer says
+//! whether that was allowed. `last-acp.json` records what Plenipo sent to open the session,
+//! and `authenticate-called` appears if Plenipo ever asked Grok to sign in.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -49,7 +54,7 @@ type Answer = fn(&[String]) -> i32;
 
 /// Each AI tool this double stands in for: its executable name and how it answers. A new AI
 /// tool adds its persona here (docs/development/adding-an-ai-tool.md).
-const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex)];
+const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex), ("grok", grok)];
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -1041,5 +1046,405 @@ fn codex_turn(args: &[String]) -> i32 {
                  "item": { "id": "item_1", "type": "agent_message", "text": text } }));
     out(&json!({ "type": "turn.completed",
                  "usage": { "input_tokens": 20, "cached_input_tokens": 8, "output_tokens": 9 } }));
+    0
+}
+
+// ---- Grok (ACP, ADR-015) ------------------------------------------------------------------
+
+fn grok(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("--version" | "-v") => {
+            println!("grok 1.0.99 (fake0000beef)");
+            0
+        }
+        Some("models") => grok_models(),
+        Some("agent") if args.last().map(String::as_str) == Some("stdio") => grok_agent(args),
+        _ => {
+            eprintln!("fake grok: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+/// `grok models`: the first line names the credential in use.
+fn grok_models() -> i32 {
+    let first = match auth_mode() {
+        "signed-out" => "You are not authenticated.",
+        "api-key" => "You are using XAI_API_KEY.",
+        "cloud" => "You are authenticated via deployment key.",
+        "unknown-status" => {
+            eprintln!("error: failed to load models");
+            return 1;
+        }
+        _ => "You are logged in with Grok.",
+    };
+    println!("{first}\n\nDefault model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5");
+    0
+}
+
+/// Messages from Plenipo, read on their own thread so a slow task can notice a cancel.
+fn acp_input() -> std::sync::mpsc::Receiver<Value> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::BufRead as _;
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                if tx.send(v).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    rx
+}
+
+fn acp_result(id: &Value, result: Value) {
+    out(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+}
+
+fn acp_error(id: &Value, code: i64, message: &str) {
+    out(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } }));
+}
+
+fn acp_update(session: &str, update: Value) {
+    out(&json!({ "jsonrpc": "2.0", "method": "session/update",
+                 "params": { "sessionId": session, "update": update } }));
+}
+
+fn grok_chunk(session: &str, text: &str) {
+    acp_update(
+        session,
+        json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } }),
+    );
+}
+
+/// One Grok agent process: the ACP exchange for one task.
+struct GrokAgent {
+    input: std::sync::mpsc::Receiver<Value>,
+    args: Vec<String>,
+    /// Messages read while waiting for something else, handled next.
+    queued: std::collections::VecDeque<Value>,
+    session: Option<String>,
+    cwd: String,
+    server: Option<ToolServer>,
+    next_request: u64,
+}
+
+impl GrokAgent {
+    fn next(&mut self) -> Option<Value> {
+        self.queued.pop_front().or_else(|| self.input.recv().ok())
+    }
+
+    /// Wait for the answer to a request Grok sent, keeping everything else for later.
+    fn wait_answer(&mut self, id: u64) -> Option<Value> {
+        loop {
+            let v = self.input.recv().ok()?;
+            if v.get("method").is_none() && v["id"] == json!(id) {
+                return Some(v);
+            }
+            self.queued.push_back(v);
+        }
+    }
+
+    /// Ask permission like the real CLI; `Some(true)` when allowed.
+    fn permission(&mut self, title: &str, raw_input: Value) -> Option<bool> {
+        self.next_request += 1;
+        let id = 1000 + self.next_request;
+        out(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "session/request_permission",
+            "params": {
+                "sessionId": self.session,
+                "toolCall": { "toolCallId": format!("call_{id}"), "title": title, "kind": "other",
+                              "rawInput": raw_input },
+                "options": [
+                    { "optionId": "allow", "name": "Allow", "kind": "allow_once" },
+                    { "optionId": "reject", "name": "Reject", "kind": "reject_once" }
+                ]
+            }
+        }));
+        let answer = self.wait_answer(id)?;
+        Some(answer.pointer("/result/outcome/optionId") == Some(&json!("allow")))
+    }
+
+    /// Whether Plenipo asked to cancel the running prompt.
+    fn cancelled(&mut self) -> bool {
+        while let Ok(v) = self.input.try_recv() {
+            if v["method"] == json!("session/cancel") {
+                return true;
+            }
+            self.queued.push_back(v);
+        }
+        false
+    }
+
+    fn open(&mut self, id: &Value, method: &str, params: &Value) {
+        let _ = std::fs::write(
+            state_dir().join("last-acp.json"),
+            json!({ "method": method, "params": params }).to_string(),
+        );
+        if auth_mode() == "signed-out" {
+            out(&json!({ "jsonrpc": "2.0", "method": "_x.ai/session/setup",
+                         "params": { "method": method, "phase": "auth", "sessionId": null } }));
+            out(&json!({ "jsonrpc": "2.0", "id": id, "error": {
+                "code": -32000, "message": "Authentication required",
+                "data": "no auth method id provided" } }));
+            return;
+        }
+        self.cwd = params["cwd"].as_str().unwrap_or("").to_owned();
+        self.server = params["mcpServers"].as_array().and_then(|servers| {
+            servers
+                .iter()
+                .find(|s| s["name"] == json!("plenipo"))
+                .map(|s| ToolServer {
+                    command: s["command"].as_str().unwrap_or("").to_owned(),
+                    args: s["args"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(str::to_owned))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+        });
+        let session = match method {
+            "session/new" => format!(
+                "01a0{:04x}-{:04x}-7000-8000-{:012x}",
+                std::process::id() & 0xffff,
+                self.cwd.len() & 0xffff,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_nanos() & 0xffff_ffff_ffff)
+            ),
+            _ => {
+                let wanted = params["sessionId"].as_str().unwrap_or("").to_owned();
+                match load_session(&wanted) {
+                    Some(s) if s["cwd"] == json!(self.cwd) => {
+                        if method == "session/load" {
+                            for prompt in s["prompts"].as_array().into_iter().flatten() {
+                                acp_update(
+                                    &wanted,
+                                    json!({ "sessionUpdate": "user_message_chunk",
+                                    "content": { "type": "text", "text": prompt } }),
+                                );
+                                grok_chunk(&wanted, "(earlier answer)");
+                            }
+                        }
+                        wanted
+                    }
+                    _ => {
+                        acp_error(id, -32603, &format!("Session not found: {wanted}"));
+                        return;
+                    }
+                }
+            }
+        };
+        out(&json!({ "jsonrpc": "2.0", "method": "_x.ai/session/setup",
+                     "params": { "method": method, "phase": "persistence_init", "sessionId": session } }));
+        let model = flag(&self.args, "-m").unwrap_or_else(|| "grok-4.6".into());
+        self.session = Some(session.clone());
+        let result = if method == "session/new" {
+            json!({ "sessionId": session, "models": { "currentModelId": model } })
+        } else {
+            json!({ "models": { "currentModelId": model } })
+        };
+        acp_result(id, result);
+    }
+
+    /// One prompt; `false` when the process should end right away.
+    fn prompt(&mut self, id: &Value, params: &Value) -> bool {
+        let Some(session) = self.session.clone() else {
+            acp_error(id, -32602, "Invalid params: unknown session");
+            return true;
+        };
+        let prompt = params["prompt"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        let (noted, prompt) = strip_note(&prompt);
+        let (mut mode, said) = view(&prompt);
+        if let Mode::Worker { granted, .. } = &mut mode {
+            *granted = noted;
+        }
+        if said.contains("[malformed]") {
+            raw("<html>502 Bad Gateway</html>");
+            raw("this is not json");
+            return false;
+        }
+        let first = first_prompt(&session).unwrap_or_else(|| said.clone());
+        let (n, previous) = remember(&session, &said);
+        if said.contains("[crash]") {
+            grok_chunk(&session, "Starting");
+            eprintln!("thread 'main' panicked at crates/fake/src/lib.rs:1:1: simulated crash");
+            std::process::exit(101);
+        }
+        for (marker, code, message) in [
+            (
+                "[usage-limit]",
+                -32603,
+                "Usage limit reached for your plan (429). Try again later.",
+            ),
+            ("[auth-expired]", -32000, "Authentication required"),
+            ("[offline]", -32603, "Network error: connection refused"),
+        ] {
+            if said.contains(marker) {
+                acp_error(id, code, message);
+                return true;
+            }
+        }
+        if said.contains("[slow]") {
+            for i in 1..=300 {
+                if self.cancelled() {
+                    acp_result(id, json!({ "stopReason": "cancelled" }));
+                    return true;
+                }
+                grok_chunk(&session, &format!("tick {i} "));
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+        if said.contains("[unknown]") {
+            acp_update(&session, json!({ "sessionUpdate": "brand_new_update" }));
+            out(&json!({ "jsonrpc": "2.0", "method": "x.ai/fs_notify", "params": {} }));
+        }
+        delay(&said);
+        let mut extra = Vec::new();
+        if said.contains("[own-tool]") {
+            let allowed = self.permission("run_terminal_command", json!({ "command": "rm -rf ~" }));
+            extra.push(format!("Own tool allowed: {}.", allowed == Some(true)));
+        }
+        let calls = tool_calls(&said);
+        let list = said.contains("[tools-list]");
+        if !calls.is_empty() || list {
+            // Like the real CLI: tool servers are reached through `use_tool`, after asking.
+            let mut permitted = Vec::new();
+            let mut refused = Vec::new();
+            for (name, input) in calls {
+                let raw_input = json!({ "server": "plenipo", "tool": name, "arguments": input });
+                if self.permission("use_tool", raw_input) == Some(true) {
+                    permitted.push((name, input));
+                } else {
+                    refused.push((
+                        name,
+                        input,
+                        "the client refused the tool call".to_owned(),
+                        true,
+                    ));
+                }
+            }
+            let (names, mut outcomes) = use_tools(self.server.as_ref(), &permitted, list);
+            outcomes.extend(refused);
+            for (i, (name, input, text, is_error)) in outcomes.iter().enumerate() {
+                let call = format!("call_mcp_{i}");
+                acp_update(
+                    &session,
+                    json!({ "sessionUpdate": "tool_call", "toolCallId": call,
+                    "title": format!("plenipo: {name}"), "kind": "other", "status": "pending",
+                    "rawInput": input }),
+                );
+                acp_update(
+                    &session,
+                    json!({ "sessionUpdate": "tool_call_update", "toolCallId": call,
+                    "title": format!("plenipo: {name}"),
+                    "status": if *is_error { "failed" } else { "completed" },
+                    "content": [{ "type": "content", "content": { "type": "text", "text": text } }] }),
+                );
+            }
+            extra.extend(tool_lines(&names, list, &outcomes));
+        }
+        let mut text = if said.contains("[big]") {
+            "B".repeat(1024 * 1024)
+        } else {
+            answer(n, &mode, &said, previous.as_deref(), &first)
+        };
+        if !extra.is_empty() {
+            text = format!("{text}\n{}", extra.join("\n"));
+        }
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "agent_thought_chunk",
+                                     "content": { "type": "text", "text": "Thinking." } }),
+        );
+        let bytes = text.as_bytes();
+        let mut start = 0;
+        while start < bytes.len() {
+            let mut end = (start + 4096).min(bytes.len());
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            grok_chunk(&session, &text[start..end]);
+            start = end;
+        }
+        acp_result(
+            id,
+            json!({ "stopReason": "end_turn", "_meta": { "usage": {
+            "inputTokens": 30, "cachedReadTokens": 12, "outputTokens": 9 } } }),
+        );
+        true
+    }
+}
+
+fn grok_agent(args: &[String]) -> i32 {
+    record_invocation(args);
+    if let Some(effort) = flag(args, "--reasoning-effort") {
+        if !["low", "medium", "high", "xhigh"].contains(&effort.as_str()) {
+            eprintln!("error: invalid value '{effort}' for '--reasoning-effort <EFFORT>'");
+            return 2;
+        }
+    }
+    let mut agent = GrokAgent {
+        input: acp_input(),
+        args: args.to_vec(),
+        queued: std::collections::VecDeque::new(),
+        session: None,
+        cwd: String::new(),
+        server: None,
+        next_request: 0,
+    };
+    while let Some(message) = agent.next() {
+        let Some(method) = message["method"].as_str() else {
+            continue; // an answer nobody waits for
+        };
+        let id = message.get("id").cloned();
+        let params = message.get("params").cloned().unwrap_or(Value::Null);
+        match (method, id) {
+            ("initialize", Some(id)) => acp_result(
+                &id,
+                json!({
+                    "protocolVersion": 1,
+                    "agentCapabilities": {
+                        "loadSession": true,
+                        "promptCapabilities": { "image": false, "audio": false, "embeddedContext": true },
+                        "mcpCapabilities": { "http": true, "sse": true },
+                        "sessionCapabilities": { "list": {}, "resume": {}, "close": {} },
+                        "auth": {}
+                    },
+                    "authMethods": [{ "id": "grok.com", "name": "Grok", "description": "Sign in with Grok" }],
+                    "_meta": { "agentVersion": "1.0.99", "modelState": {
+                        "currentModelId": "grok-4.6",
+                        "availableModels": [
+                            { "modelId": "grok-4.6", "name": "Grok 4.6" },
+                            { "modelId": "grok-4.5", "name": "Grok 4.5" }
+                        ] } }
+                }),
+            ),
+            ("authenticate", Some(id)) => {
+                let _ = std::fs::write(state_dir().join("authenticate-called"), "yes");
+                acp_error(&id, -32603, "fake grok: would open a browser");
+            }
+            ("session/new" | "session/resume" | "session/load", Some(id)) => {
+                agent.open(&id, method, &params);
+            }
+            ("session/prompt", Some(id)) => {
+                if !agent.prompt(&id, &params) {
+                    return 0;
+                }
+            }
+            ("session/cancel", None) => {}
+            (_, Some(id)) => acp_error(&id, -32601, "Method not found"),
+            (_, None) => {}
+        }
+    }
     0
 }

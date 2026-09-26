@@ -24,7 +24,7 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │ Plenipo Runtime (crates/runtime)     │   │
 │   ▲ events: plenipo://runtime              │  - Supervisor, profiles, policy      │   │
 │   ▲ events: plenipo://agents               │  - agent runtimes: adapters (Claude  │   │
-│   └────────────────────────────────────────│    Code, Codex), sessions, turns     │   │
+│   └────────────────────────────────────────│    Code, Codex, Grok), sessions      │   │
 │                                            │  - persists via Ledger               │   │
 │                                            │ Plenipo Liaison (crates/liaison)     │   │
 │                                            │  - handoffs between workers: checks, │   │
@@ -233,22 +233,33 @@ cancelled` (terminal states are final).
 
 ## 6. Agent runtimes (Phase 3)
 
-Decision record: [ADR-007](../adr/ADR-007-runtime-adapters.md).
+Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
+and Codex) and [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP).
 
 - **Contract.** `RuntimeAdapter` (`crates/runtime/src/agent/adapter.rs`) is provider-neutral:
   detection, sign-in check, capabilities, turn arguments (new or resumed provider session),
   a stream parser producing normalized `AgentEvent`s, and a normalized `TurnResult`. Vendor
-  names appear only in `agent/claude_code.rs` and `agent/codex.rs`.
+  names appear only in `agent/claude_code.rs`, `agent/codex.rs`, and `agent/grok.rs`.
 - **Surface.** The official non-interactive CLIs: `claude -p --output-format stream-json` and
   `codex exec --json`. One turn = one supervised execution; the objective is written to stdin.
+- **Tasks that talk (ADR-015).** Grok's one-task mode cannot read stdin, so it runs
+  `grok agent --no-leader stdio` and talks ACP (JSON-RPC, one message per line) through the
+  shared driver `agent/acp.rs`: `initialize`, `session/new` or `session/resume`, then the prompt,
+  all on stdin. The parser's `open()` gives the first lines; the supervisor keeps stdin open
+  (`StdinFeed`) for the lines each `Parsed` sends, and closes it when the task is over. The
+  driver answers the tool's permission requests (Plenipo's tool server yes, anything else no)
+  and never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
+  seconds before the process tree is ended.
 - **Boundary.** The UI names a runtime ID, an objective, an optional (validated) model, and a
   session ID. Executables come only from detection (PATH + known install locations; Windows
   `.exe` only), are allowlisted by Core, and re-checked at spawn.
 - **Billing.** Sign-in is checked before every turn with the CLI's own status command; signed
   out, API-key, and third-party-cloud sign-ins are refused. Claude Code's reported credential
   source is checked again in each stream. API-key variables are never passed to children.
+  Grok also runs with `GROK_DISABLE_API_KEY_AUTH=1`, so it refuses API keys itself.
 - **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex:
-  read-only sandbox. Each session has its own empty workspace. Organization workers with
+  read-only sandbox. Grok: an agent profile with none of its own tools, no subagents, memory,
+  web fetch, or Claude Code/Cursor settings. Each session has its own empty workspace. Organization workers with
   permissions get Plenipo's tools for each step (§10).
 - **Sessions.** `runtime_sessions` (migration 0002) maps Plenipo's session to the provider
   session ID. Each turn is a task (`metadata.sessionId`) with an execution, `agent.*` activity
@@ -257,7 +268,8 @@ Decision record: [ADR-007](../adr/ADR-007-runtime-adapters.md).
   `authRequired`, `billingNotAllowed`, `providerUnavailable`, `malformedOutput`, `crashed`,
   `interrupted`. A usage limit never switches provider. Turns running when Plenipo stopped are
   recorded as interrupted on the next start.
-- **Tests** run against `plenipo-fake-agent`, a test double that speaks both stream formats.
+- **Tests** run against `plenipo-fake-agent`, a test double that speaks each tool's format
+  (Grok: ACP).
 - **Adding an AI tool** ([ADR-014](../adr/ADR-014-adding-ai-tools.md), adding AI tools ahead of
   Phase 15): the [adapter guide](../development/adding-an-ai-tool.md) is the contract, and
   `crates/runtime/tests/contract.rs` checks it for every adapter in `builtin_adapters()`. The
@@ -273,7 +285,7 @@ Decision record: [ADR-008](../adr/ADR-008-liaison.md).
   `priority`; protocol `plenipo-liaison/1`). Liaison parses them as untrusted input: unknown
   or identity fields (sender, IDs, correlation) are refused; the sender is whoever Plenipo's
   own records say is running that turn.
-- **Destinations are runtimes** (`claude-code`, `codex`, or `runtime:<id>`) for sessions the
+- **Destinations are runtimes** (`claude-code`, `codex`, `grok`, or `runtime:<id>`) for sessions the
   owner starts in Workers, and **roles** (`role:<title>`) for organization members, resolved
   by the Workforce directory (§8). Another worker's session can never be addressed. A request
   never falls back to another provider.

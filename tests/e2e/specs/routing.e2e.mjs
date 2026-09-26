@@ -225,7 +225,11 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await nav(browser, "Settings");
     await waitForText(browser, ROLES, "Senior Developer");
     const models = await textOf(browser, '[aria-labelledby="models-title"]');
-    for (const m of ["Claude Code (default model)", "Codex (default model)"]) {
+    for (const m of [
+      "Claude Code (default model)",
+      "Codex (default model)",
+      "Grok (default model)",
+    ]) {
       assert.ok(models.includes(m), `${m} listed`);
     }
     await waitForText(browser, '[aria-labelledby="tools-title"]', "Ready: signed in");
@@ -261,6 +265,50 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "the new model to be named Sonnet",
     );
     await screenshot(browser, "models-add-menu");
+
+    // Another AI tool's own models: Grok's, from its adapter (ADR-015). Changing the AI tool
+    // rebuilds the menu, so it is looked up afresh each time.
+    const MENU = `//form[@aria-label="Add a model"]//label[.//span[normalize-space()="Model"]]//select`;
+    const menuOptions = () =>
+      browser.execute((xpath) => {
+        const el = document.evaluate(
+          xpath,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null,
+        ).singleNodeValue;
+        return el ? [...el.options].map((o) => o.textContent) : [];
+      }, MENU);
+    const chooseTool = async (label) =>
+      (
+        await browser.$(
+          `//form[@aria-label="Add a model"]//label[.//span[normalize-space()="AI tool"]]//select`,
+        )
+      ).selectByVisibleText(label);
+    await chooseTool("Grok");
+    await waitUntil(
+      async () => (await menuOptions()).includes("grok-4.6"),
+      "Grok's models in the menu",
+    );
+    assert.deepEqual((await menuOptions()).slice(0, 4), [
+      "The AI tool's default (already in your list)",
+      "grok-4.6",
+      "grok-4.5",
+      "Type another name…",
+    ]);
+    await screenshot(browser, "models-add-menu-grok");
+    await chooseTool("Claude Code");
+    await waitUntil(
+      async () => (await menuOptions()).includes("sonnet"),
+      "Claude Code's models back in the menu",
+    );
+    await (await browser.$(MENU)).selectByAttribute("value", "sonnet");
+    await waitUntil(
+      async () =>
+        (await (await field(browser, "Add a model", "Your name for it")).getValue()) === "Sonnet",
+      "the new model to be named Sonnet again",
+    );
     await submit(browser, form);
     await waitForText(browser, '[aria-labelledby="models-title"]', "Sonnet");
   });

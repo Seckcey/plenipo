@@ -169,6 +169,38 @@ fn secret_bearing(arg: &str) -> bool {
         || ["--token", "--key"].contains(&flag)
 }
 
+/// The messages a task that talks (ADR-015) sends when the AI tool answers every request
+/// the way a willing tool would; empty for a one-way task.
+fn messages(a: &dyn RuntimeAdapter, request: &TurnRequest) -> Vec<String> {
+    let mut parser = a.parser(request);
+    let Some(mut pending) = parser.open("Contract prompt") else {
+        return Vec::new();
+    };
+    let mut sent = Vec::new();
+    for _ in 0..8 {
+        let mut next = Vec::new();
+        for line in pending.drain(..) {
+            sent.push(line.clone());
+            let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) else {
+                continue;
+            };
+            let result = match method {
+                "initialize" => serde_json::json!({ "protocolVersion": 1, "agentCapabilities": {
+                    "loadSession": true, "sessionCapabilities": { "resume": {} } } }),
+                "session/new" => serde_json::json!({ "sessionId": "contract-session" }),
+                _ => serde_json::json!({}),
+            };
+            let answer = serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result });
+            next.extend(parser.line(&answer.to_string(), false).send);
+        }
+        pending = next;
+    }
+    sent
+}
+
 #[test]
 fn turn_arguments_carry_the_choices_and_no_secrets() {
     for a in builtin_adapters() {
@@ -184,7 +216,15 @@ fn turn_arguments_carry_the_choices_and_no_secrets() {
                 ProviderSession::New { preassigned } => preassigned.as_ref(),
             };
             if let Some(session) = session {
-                assert!(passes(&args, session), "{id}: session ID missing: {args:?}");
+                // In the arguments, or in the messages of a task that talks (ADR-015).
+                let quoted = format!("\"{session}\"");
+                assert!(
+                    passes(&args, session)
+                        || messages(a.as_ref(), &request)
+                            .iter()
+                            .any(|m| m.contains(&quoted)),
+                    "{id}: session ID missing: {args:?}"
+                );
             }
             if let Some(model) = &request.model {
                 assert!(passes(&args, model), "{id}: model missing: {args:?}");
@@ -203,10 +243,17 @@ fn turn_arguments_carry_the_choices_and_no_secrets() {
 fn no_api_key_or_cloud_variables_are_passed() {
     for a in builtin_adapters() {
         let fixed = a.fixed_env();
-        let names = a
-            .passthrough_env()
-            .into_iter()
-            .chain(fixed.iter().map(|(k, _)| k.as_str()));
+        // A fixed switch Plenipo sets to turn key sign-in off (`GROK_DISABLE_API_KEY_AUTH=1`,
+        // ADR-015 §6) carries no credential; everything else is checked by name.
+        let switch_off = |(k, v): &&(String, String)| {
+            k.contains("DISABLE") && ["1", "true"].contains(&v.as_str())
+        };
+        let names = a.passthrough_env().into_iter().chain(
+            fixed
+                .iter()
+                .filter(|kv| !switch_off(kv))
+                .map(|(k, _)| k.as_str()),
+        );
         for name in names {
             let upper = name.to_ascii_uppercase();
             assert!(

@@ -72,9 +72,9 @@ export function SettingsView() {
           {state.profiles.map((p) => p.label).join(", ") || "none"}
         </li>
         <li>
-          <strong>Only these:</strong> Plenipo itself (built-in checks), the Claude Code and Codex
-          it finds, and programs a worker runs with your permission (Permissions above). Nothing on
-          screen can supply a command, path, or argument.
+          <strong>Only these:</strong> Plenipo itself (built-in checks), the AI tools it finds
+          (Claude Code, Codex, Grok), and programs a worker runs with your permission (Permissions
+          above). Nothing on screen can supply a command, path, or argument.
         </li>
         <li>
           <strong>Environment:</strong> programs get the operating system&apos;s basics plus

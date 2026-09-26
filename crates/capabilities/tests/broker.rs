@@ -131,6 +131,11 @@ fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
 /// holding secrets), with a Website Supervisor on Claude Code, a Backend Developer (Senior
 /// Developer) on Codex, and a Reviewer (Code Reviewer) on Claude Code.
 async fn harness() -> H {
+    harness_on("claude-code").await
+}
+
+/// The same organization, with the project's Supervisor on `supervisor_tool`.
+async fn harness_on(supervisor_tool: &str) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -239,13 +244,13 @@ async fn harness() -> H {
             description: String::new(),
             repository_url: None,
             local_path: Some(folder.display().to_string()),
-            allowed_runtimes: vec!["claude-code".into(), "codex".into()],
+            allowed_runtimes: vec!["claude-code".into(), "codex".into(), "grok".into()],
             capability_profile: None,
             department_id: Some(department),
             coordinator: Some(lead(
                 &role("Supervisor"),
                 "Website Supervisor",
-                "claude-code",
+                supervisor_tool,
             )),
         })
         .unwrap();
@@ -489,6 +494,48 @@ async fn plan_allowed_read_and_denied_write() {
     let listed = h.broker.blocked(10).unwrap();
     assert_eq!(listed[0].worker, "Website Supervisor");
     assert_eq!(listed[0].summary, "write notes.txt");
+    assert!(
+        h.broker.grants().is_empty(),
+        "the grant ended with the step"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_grok_worker_uses_plenipo_tools_over_acp_and_nothing_else() {
+    // Grok (ADR-015): Plenipo's tool server goes in the ACP session, Grok asks before each
+    // call, Plenipo allows its own tools (Guard decides inside) and refuses Grok's.
+    let h = harness_on("grok").await;
+    let task = h
+        .objective(&format!(
+            "[tools-list] [own-tool] {} {}",
+            tool("read_file", serde_json::json!({ "path": "README.md" })),
+            tool(
+                "write_file",
+                serde_json::json!({ "path": "notes.txt", "content": "x" })
+            ),
+        ))
+        .await;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    assert!(lines_of(&text, "Tools:")[0].contains("read_file"), "{text}");
+    assert!(
+        text.contains("Tool read_file: README.md (2 lines)"),
+        "{text}"
+    );
+    let denied = lines_of(&text, "Tool write_file failed:");
+    assert!(denied[0].contains("Blocked"), "{text}");
+    assert!(!h.folder.join("notes.txt").exists());
+    // Grok's own tool was refused, and the refusal is in the task's activity.
+    assert!(text.contains("Own tool allowed: false."), "{text}");
+    let notices = h.events(&task, "agent.notice");
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.to_string().contains("Plenipo refused it")),
+        "{notices:?}"
+    );
+    assert_eq!(h.events(&task, "capability.used").len(), 1);
+    assert_eq!(h.events(&task, "guard.denied").len(), 1);
     assert!(
         h.broker.grants().is_empty(),
         "the grant ended with the step"

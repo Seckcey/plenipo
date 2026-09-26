@@ -627,6 +627,43 @@ async fn without_stdin_the_child_reads_end_of_file() {
 }
 
 #[tokio::test]
+async fn a_stdin_feed_keeps_stdin_open_until_its_sender_is_gone() {
+    // A task that talks while it runs (ADR-015).
+    let h = harness();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let (feed_tx, feed) = plenipo_runtime::StdinFeed::new();
+    let mut s = spec("stdin", Scenario::Stdin, h.dir.path());
+    s.stdin = Some(b"opening\n".to_vec());
+    s.stdin_feed = Some(feed);
+    s.observer = Some(tx);
+    let started = h.sup.launch(s).await.unwrap();
+    feed_tx.send(b"first reply\n".to_vec()).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let running = h.sup.overview().executions;
+    assert!(
+        running
+            .iter()
+            .any(|e| e.id == started.id && e.state == ExecutionState::Running),
+        "stdin must stay open while the feed has a sender: {running:?}"
+    );
+    feed_tx.send(b"second reply\n".to_vec()).unwrap();
+    drop(feed_tx);
+    let observed = tokio::time::timeout(WAIT, drain(rx)).await.unwrap();
+    let done = h.sup.wait(&started.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Succeeded, "{done:?}");
+    let texts: Vec<_> = observed.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "stdin: opening",
+            "stdin: first reply",
+            "stdin: second reply",
+            "stdin bytes: 33"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn observer_gets_full_long_lines_while_the_ui_stream_stays_capped() {
     let h = harness();
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();

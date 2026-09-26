@@ -195,6 +195,7 @@ pub async fn run(
             working_dir: run.working_dir.to_path_buf(),
             max_runtime: run.timeout,
             stdin: run.stdin,
+            stdin_feed: None,
             max_line_bytes: Some(64 * 1024),
             observer: Some(tx),
             agent: None,

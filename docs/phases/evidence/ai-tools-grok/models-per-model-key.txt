@@ -1,0 +1,7 @@
+Model 'grok-4.6' is using its own API key.
+
+Default model: grok-4.5
+
+Available models:
+  * grok-4.5 (default)
+  - grok-4.6

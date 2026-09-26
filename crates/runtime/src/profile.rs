@@ -1,7 +1,10 @@
 //! Launch profiles: the only things the UI can ask the runtime to start.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::diagnostic::{self, Scenario};
 use crate::dto::LaunchProfileInfo;
@@ -41,6 +44,9 @@ pub struct LaunchSpec {
     pub max_runtime: Duration,
     /// Written to the child's stdin, which is then closed. `None`: stdin is empty.
     pub stdin: Option<Vec<u8>>,
+    /// Keeps stdin open after `stdin` is written, for AI tools that talk during a task
+    /// (ADR-015). Each chunk sent is written in order; stdin closes when every sender is gone.
+    pub stdin_feed: Option<StdinFeed>,
     /// Longest line delivered to `observer` (lines shown in the UI keep the configured cap).
     /// `None`: the supervisor's configured per-line limit.
     pub max_line_bytes: Option<usize>,
@@ -49,6 +55,23 @@ pub struct LaunchSpec {
     /// child's pipes (which would trip the drain timeout and lose the final lines).
     pub observer: Option<tokio::sync::mpsc::UnboundedSender<crate::dto::OutputLine>>,
     pub agent: Option<Box<crate::dto::AgentAttribution>>,
+}
+
+/// What a running task writes to its child's stdin after the launch (ADR-015). Cloning a
+/// [`LaunchSpec`] shares it; the supervisor takes it once, at spawn.
+#[derive(Debug, Clone)]
+pub struct StdinFeed(Arc<Mutex<Option<UnboundedReceiver<Vec<u8>>>>>);
+
+impl StdinFeed {
+    /// A feed and the sender that writes to it.
+    pub fn new() -> (UnboundedSender<Vec<u8>>, Self) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (tx, Self(Arc::new(Mutex::new(Some(rx)))))
+    }
+
+    pub(crate) fn take(&self) -> Option<UnboundedReceiver<Vec<u8>>> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).take()
+    }
 }
 
 impl LaunchProfile {
@@ -63,6 +86,7 @@ impl LaunchProfile {
             working_dir: self.working_dir.clone(),
             max_runtime: self.max_runtime,
             stdin: None,
+            stdin_feed: None,
             max_line_bytes: None,
             observer: None,
             agent: None,

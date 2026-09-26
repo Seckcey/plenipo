@@ -1051,8 +1051,8 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
         .unwrap();
     assert_eq!(
         s.models.len(),
-        3,
-        "two built-in defaults and the owner's model"
+        plenipo_runtime::agent::builtin_adapters().len() + 1,
+        "each AI tool's built-in default and the owner's model"
     );
 
     // Senior Developer: Codex's default model first.
