@@ -194,7 +194,10 @@ function PolicyEditor({
         )}
         <label className="field">
           <span>Add a model to the list</span>
+          {/* Remounted after every change, so it always shows its prompt again (a controlled
+              select kept at "" is not reset by the browser when its options change). */}
           <select
+            key={models.join()}
             value=""
             disabled={addable.length === 0}
             onChange={(e) => e.target.value && setModels([...models, e.target.value])}

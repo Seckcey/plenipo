@@ -1083,7 +1083,10 @@ function RouteSection({ p, snapshot }: { p: PositionInfo; snapshot: OrgSnapshot 
           position would get: {route.choice?.label ?? "no model now"}.
         </p>
       )}
-      <p className="inspector__detail" data-testid="route-reason">
+      <p
+        className={route.choice ? "inspector__reason" : "inspector__detail"}
+        data-testid="route-reason"
+      >
         {route.reason}
       </p>
       {route.candidates.length > 1 && (

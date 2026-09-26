@@ -2112,6 +2112,11 @@ button {
   margin-top: 4px;
 }
 
+.inspector__reason {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+
 .inspector__detail {
   margin: 6px 0 0;
   color: var(--warn);

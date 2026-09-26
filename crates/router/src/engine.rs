@@ -226,10 +226,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         {
             Some(format!("{name} does not allow {}", info.label))
         } else if let Some(f) = policy.needs.iter().find(|f| !m.features.contains(f)) {
-            Some(format!(
-                "it is not marked as able to {} (in Settings → AI models)",
-                f.words()
-            ))
+            Some(format!("it is not marked as able to {}", f.words()))
         } else if let Some(min) = policy
             .min_context_tokens
             .filter(|min| m.context_tokens.is_none_or(|have| have < *min))
