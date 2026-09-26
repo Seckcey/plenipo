@@ -1,22 +1,45 @@
 // Launch the real Plenipo binary under tauri-driver and drive it with WebdriverIO.
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { remote } from "webdriverio";
 
 const root = resolve(import.meta.dirname, "../../..");
-const exe = process.platform === "win32" ? "plenipo-desktop.exe" : "plenipo-desktop";
-export const APP = resolve(process.env.PLENIPO_APP ?? join(root, "target", "release", exe));
+const exeName = (stem) => (process.platform === "win32" ? `${stem}.exe` : stem);
+export const APP = resolve(
+  process.env.PLENIPO_APP ?? join(root, "target", "release", exeName("plenipo-desktop")),
+);
+const FAKE_AGENT = resolve(
+  process.env.PLENIPO_FAKE_AGENT ?? join(root, "target", "release", exeName("plenipo-fake-agent")),
+);
 const PORT = 4444;
 
 /** A fresh, isolated HOME so each run has its own app data. */
 export function makeHome() {
   return mkdtempSync(join(tmpdir(), "plenipo-e2e-"));
+}
+
+/**
+ * Put the fake AI tools (plenipo-fake-agent) in `<home>/bin`: one copy for each AI tool it
+ * stands in for (`plenipo-fake-agent --personas`). Returns the variables for `launch` that put
+ * them first on PATH.
+ */
+export function installFakeTools(home) {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  const personas = execFileSync(FAKE_AGENT, ["--personas"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
+  for (const name of personas) {
+    copyFileSync(FAKE_AGENT, join(bin, exeName(name)));
+    chmodSync(join(bin, exeName(name)), 0o755);
+  }
+  return { PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` };
 }
 
 async function waitForPort(port, timeoutMs = 20_000) {

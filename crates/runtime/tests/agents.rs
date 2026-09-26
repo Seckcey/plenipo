@@ -39,6 +39,22 @@ fn scratch() -> tempfile::TempDir {
     tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
 }
 
+/// Every AI tool the fake CLI stands in for (`plenipo-fake-agent --personas`).
+fn personas() -> &'static [&'static str] {
+    static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let out = std::process::Command::new(fake_exe())
+            .arg("--personas")
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .leak()
+            .lines()
+            .collect()
+    })
+}
+
 /// One copy of the fake CLIs per test process, ready to execute.
 ///
 /// Copying an executable while other tests fork is racy on Linux: a forked child can briefly
@@ -50,7 +66,7 @@ fn fake_clis() -> &'static Path {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("fake-agents-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for stem in ["claude", "codex"] {
+        for stem in personas() {
             let path = dir.join(exe_name(stem));
             std::fs::copy(fake_exe(), &path).unwrap();
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -193,7 +209,7 @@ fn harness_config(
 }
 
 fn harness() -> H {
-    harness_with(&["claude", "codex"], None)
+    harness_with(personas(), None)
 }
 
 /// Wait until the session has `turns` turns, none is running, and the runtime has released the
@@ -302,7 +318,7 @@ async fn windows_npm_shims_are_not_run() {
 #[tokio::test]
 async fn unauthenticated_runtimes_refuse_work_with_login_guidance() {
     for runtime in RUNTIMES {
-        let h = harness_with(&["claude", "codex"], Some("signed-out"));
+        let h = harness_with(personas(), Some("signed-out"));
         let info =
             h.rt.refresh()
                 .await
@@ -335,7 +351,7 @@ async fn api_key_and_cloud_sign_ins_are_refused() {
         ("api-key", "codex", AuthState::ApiKey),
         ("cloud", "claude-code", AuthState::ThirdPartyCloud),
     ] {
-        let h = harness_with(&["claude", "codex"], Some(mode));
+        let h = harness_with(personas(), Some(mode));
         let info =
             h.rt.refresh()
                 .await
@@ -359,7 +375,7 @@ async fn api_key_and_cloud_sign_ins_are_refused() {
 
 #[tokio::test]
 async fn unverifiable_sign_in_is_allowed_only_with_a_per_turn_billing_check() {
-    let h = harness_with(&["claude", "codex"], Some("unknown-status"));
+    let h = harness_with(personas(), Some("unknown-status"));
     let runtimes = h.rt.refresh().await;
     assert_eq!(runtimes[0].auth.state, AuthState::Unknown);
     assert!(
@@ -1210,7 +1226,7 @@ async fn a_cancel_as_a_turn_starts_waiting_ends_the_wait() {
 
 #[tokio::test]
 async fn continuing_needs_a_waiting_turn_and_a_free_worker_slot() {
-    let h = harness_config(&["claude", "codex"], None, |c| c.max_active_turns = 1);
+    let h = harness_config(personas(), None, |c| c.max_active_turns = 1);
     with_hook(&h);
     let (id, task) = waiting_turn(&h, "codex").await;
     // Only waiting turns continue.

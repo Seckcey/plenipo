@@ -78,6 +78,10 @@ impl RuntimeAdapter for ClaudeCode {
         }
     }
 
+    fn checked_version(&self) -> &'static str {
+        "2.1.283"
+    }
+
     fn install_hint(&self) -> &'static str {
         "Install the native Claude Code build. Windows (PowerShell): irm https://claude.ai/install.ps1 | iex — \
          macOS/Linux: curl -fsSL https://claude.ai/install.sh | bash. Then choose Re-check."

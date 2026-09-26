@@ -27,3 +27,4 @@ architecture must be recorded here.
 | [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks    | Accepted |
 | [011](ADR-011-model-policy-routing.md)       | Router: model registry, role policies, routing    | Accepted |
 | [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                     | Proposed |
+| [014](ADR-014-adding-ai-tools.md)            | Adding AI tools ahead of Phase 15                 | Proposed |
