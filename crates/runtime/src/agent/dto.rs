@@ -253,9 +253,18 @@ pub struct AgentSession {
     pub turn_count: u32,
     /// Task ID of the turn currently running, if any.
     pub active_task_id: Option<String>,
+    /// Task ID of a turn waiting to be continued (for example for handoff replies), if any.
+    /// The session takes no other turn meanwhile.
+    pub waiting_task_id: Option<String>,
+    /// Settings stored with the session by the component that started it (for example
+    /// Plenipo Liaison). Opaque to the runtime.
+    #[ts(type = "Record<string, unknown>")]
+    pub metadata: serde_json::Value,
 }
 
-/// One turn: an objective given to the session, recorded as a Ledger task.
+/// One turn: an objective given to the session, recorded as a Ledger task. A turn normally
+/// runs one step; a turn that waited (for example for handoff replies, ADR-008) continues with
+/// further steps in the same provider session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -264,16 +273,40 @@ pub struct AgentTurn {
     pub session_id: String,
     pub number: u32,
     pub objective: String,
+    /// The latest step's execution.
     pub execution_id: Option<String>,
+    /// A step is running.
     pub running: bool,
+    /// Waiting to be continued; no step is running.
+    pub waiting: bool,
+    /// The final result, once the turn has finished.
     pub result: Option<TurnResult>,
+    /// Steps in order: finished ones with their results, then the running one.
+    pub steps: Vec<TurnStep>,
     #[ts(type = "number")]
     pub started_at: u64,
     #[ts(type = "number | null")]
     pub ended_at: Option<u64>,
 }
 
-/// Live activity for one turn. `seq` increases per turn.
+/// One run of a turn's runtime process: the objective, or a continuation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TurnStep {
+    /// 1 for the objective, 2+ for continuations.
+    pub number: u32,
+    pub execution_id: Option<String>,
+    pub running: bool,
+    pub result: Option<TurnResult>,
+    #[ts(type = "number | null")]
+    pub started_at: Option<u64>,
+    #[ts(type = "number | null")]
+    pub ended_at: Option<u64>,
+}
+
+/// Live activity for one turn. `seq` increases per turn: step `n` numbers its activity from
+/// `(n - 1) * STEP_SEQ + 1` ([`crate::agent::STEP_SEQ`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

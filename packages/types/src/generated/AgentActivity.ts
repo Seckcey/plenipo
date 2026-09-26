@@ -2,6 +2,7 @@
 import type { AgentEvent } from "./AgentEvent";
 
 /**
- * Live activity for one turn. `seq` increases per turn.
+ * Live activity for one turn. `seq` increases per turn: step `n` numbers its activity from
+ * `(n - 1) * STEP_SEQ + 1` ([`crate::agent::STEP_SEQ`]).
  */
 export type AgentActivity = { sessionId: string, taskId: string, seq: number, ts: number, event: AgentEvent, };

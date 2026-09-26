@@ -44,6 +44,8 @@ export const session = (id: string, patch: Partial<AgentSession> = {}): AgentSes
   updatedAt: 1,
   turnCount: 1,
   activeTaskId: null,
+  waitingTaskId: null,
+  metadata: {},
   ...patch,
 });
 
@@ -54,7 +56,9 @@ export const turn = (taskId: string, patch: Partial<AgentTurn> = {}): AgentTurn 
   objective: "Say hello",
   executionId: "e1",
   running: true,
+  waiting: false,
   result: null,
+  steps: [],
   startedAt: 1,
   endedAt: null,
   ...patch,

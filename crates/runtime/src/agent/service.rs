@@ -5,13 +5,18 @@
 //!
 //! 1. validate input; reserve the session (one active turn per session, a global cap);
 //! 2. preflight: locate the CLI, allow it, check sign-in (refuse if not usable);
-//! 3. record the turn's task; launch the adapter-built spec with the objective on stdin;
+//! 3. record the turn's task; launch the adapter-built spec with the prompt on stdin;
 //! 4. parse every output line into normalized events → live updates + durable activity;
-//! 5. when the process ends, normalize the result, record it, and release the session.
+//! 5. when the process ends, normalize the result. A [`TurnHook`] may keep the turn open —
+//!    waiting, for example for handoff replies (ADR-008); otherwise the result is recorded and
+//!    the session released.
+//!
+//! A waiting turn keeps its session reserved until it continues with a new step
+//! ([`AgentRuntime::continue_turn`], same provider session) or is cancelled.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
@@ -30,6 +35,12 @@ use crate::supervisor::Supervisor;
 
 /// Longest objective accepted (characters).
 pub const MAX_OBJECTIVE_CHARS: usize = 10_000;
+/// Longest prompt sent to a runtime (bytes): an objective plus instructions added by Core.
+pub const MAX_PROMPT_BYTES: usize = 256 * 1024;
+/// Activity numbering per step: step `n` numbers its activity from `(n - 1) * STEP_SEQ + 1`.
+pub const STEP_SEQ: u64 = 1_000_000;
+/// Actor recorded for turns the person using the app asked for.
+pub const OWNER: &str = "owner";
 
 /// Where sessions and turns are recorded. The desktop app backs this with the Ledger.
 /// Calls may block (they run on a blocking thread).
@@ -41,20 +52,23 @@ pub trait SessionStore: Send + Sync + 'static {
     fn open_session(&self, session: &AgentSession) -> Result<(), String>;
     /// Persist changed session fields.
     fn save_session(&self, session: &AgentSession, change: SessionChange) -> Result<(), String>;
-    /// Record the turn's task (running) and return its ID.
+    /// Record the turn's task as running — a new task, or an adopted one — and return its ID.
     fn begin_turn(
         &self,
         session: &AgentSession,
         number: u32,
-        objective: &str,
+        input: &TurnInput,
     ) -> Result<String, String>;
+    /// A waiting turn continues with its next step: record its task as running again.
+    fn begin_step(&self, turn: &TurnRef<'_>, note: &StepNote) -> Result<(), String>;
     /// Record durable activity. `actor` identifies the runtime (e.g. `agent:claude-code`).
     fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String>;
     /// Record the normalized result and finish the task.
     fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String>;
-    /// A session's turns, oldest first.
+    /// A session's turns, oldest first, with their finished steps.
     fn turns(&self, session_id: &str) -> Result<Vec<AgentTurn>, String>;
-    /// Turns still marked running (left behind when Plenipo stopped).
+    /// Turns not finished — running, waiting, or never started (left behind when Plenipo
+    /// stopped).
     fn unfinished_turns(&self) -> Result<Vec<AgentTurn>, String>;
 }
 
@@ -64,6 +78,9 @@ pub struct TurnRef<'a> {
     pub session_id: &'a str,
     pub task_id: &'a str,
     pub execution_id: Option<&'a str>,
+    /// The step concerned; `None` for a result that ends the turn without a step of its own
+    /// (cancelled while waiting, interrupted, could not continue).
+    pub step: Option<u32>,
     /// Who is recording: `agent:<runtime>` for live turns, `plenipo` for recovery.
     pub actor: &'a str,
 }
@@ -76,6 +93,94 @@ pub enum SessionChange {
     Closed,
     /// Timestamps/counters only.
     Touched,
+}
+
+/// What a turn works on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TurnTask {
+    /// Record a new task. `metadata` (a JSON object, or null) is added to the turn's own.
+    New {
+        requested_by: String,
+        metadata: serde_json::Value,
+    },
+    /// Run a task recorded earlier (for example a handoff's child task) as this turn.
+    Existing { task_id: String },
+}
+
+/// One turn's input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnInput {
+    /// Recorded as the turn's objective and shown to the owner.
+    pub objective: String,
+    /// Sent to the runtime on stdin; the objective itself when `None`. Lets Core add
+    /// instructions (e.g. Liaison's protocol) without changing what is recorded.
+    pub prompt: Option<String>,
+    pub task: TurnTask,
+}
+
+impl TurnInput {
+    /// An objective the owner gives directly.
+    pub fn owner(objective: impl Into<String>) -> Self {
+        Self {
+            objective: objective.into(),
+            prompt: None,
+            task: TurnTask::New {
+                requested_by: OWNER.into(),
+                metadata: serde_json::Value::Null,
+            },
+        }
+    }
+}
+
+/// Settings for a new session.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionStart {
+    /// Plenipo session ID chosen by the caller (a UUID); generated when `None`.
+    pub id: Option<String>,
+    pub runtime_id: String,
+    pub model: Option<String>,
+    /// Defaults to the objective's first line.
+    pub title: Option<String>,
+    /// Stored with the session (a JSON object, or null); opaque to the runtime.
+    pub metadata: serde_json::Value,
+}
+
+/// Why a waiting turn continues; recorded with its next step.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StepNote {
+    /// Reason recorded with the task's return to `running`.
+    pub reason: String,
+    /// Extra data for the store (opaque to the runtime).
+    pub data: serde_json::Value,
+}
+
+/// A turn step's process ended (passed to the [`TurnHook`]).
+#[derive(Debug, Clone)]
+pub struct TurnEnd {
+    pub session: AgentSession,
+    pub task_id: String,
+    pub step: u32,
+    pub execution_id: Option<String>,
+    pub result: TurnResult,
+}
+
+/// What happens to a turn whose step ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnDisposition {
+    /// Record the result and finish the turn (the default).
+    Finish,
+    /// The hook durably recorded the step's result and moved the task to a waiting state; the
+    /// session stays reserved for it until [`AgentRuntime::continue_turn`] or a cancel.
+    Suspended { reason: String },
+}
+
+/// Decides what happens when a turn step ends (Phase 4: Plenipo Liaison, ADR-008).
+pub trait TurnHook: Send + Sync + 'static {
+    /// Called on a blocking thread before anything about the ended step is recorded.
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition;
+    /// A turn finished or was suspended, or a waiting turn was cancelled: a session or worker
+    /// slot may have become free.
+    fn released(&self) {}
 }
 
 /// Receives updates for the UI. Must not block for long.
@@ -96,7 +201,7 @@ pub struct AgentConfig {
     pub activity_per_turn: usize,
     /// Turns whose live activity is kept in memory.
     pub activity_turns: usize,
-    /// Activity events recorded in the Ledger per turn.
+    /// Activity events recorded in the Ledger per step.
     pub stored_activity_per_turn: u32,
     /// Extra fixed variables for every runtime process (tests and diagnostics only; never
     /// credentials).
@@ -119,26 +224,32 @@ impl AgentConfig {
     }
 }
 
-struct Active {
-    task_id: Option<String>,
-    execution_id: Option<String>,
-    done: watch::Receiver<bool>,
-    /// Held by `close_session`, not by a turn.
-    closing: bool,
-}
-
-/// Why a session's slot is claimed. Claims are exclusive, so a close and a new turn can never
-/// interleave.
+/// Why a session's slot is claimed. Claims are exclusive, so a close, a new turn, and a
+/// continuation can never interleave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Claim {
+    /// A step is starting or running.
     Turn,
+    /// A turn is waiting to continue; no process runs.
+    Wait,
+    /// `close_session` holds the slot.
     Close,
+}
+
+struct Active {
+    claim: Claim,
+    task_id: Option<String>,
+    execution_id: Option<String>,
+    /// The step running (or, while waiting, the last one run).
+    step: u32,
+    step_started_at: u64,
+    done: watch::Receiver<bool>,
 }
 
 #[derive(Default)]
 struct State {
     runtimes: Vec<AgentRuntimeInfo>,
-    /// Keyed by session ID: turns starting or running.
+    /// Keyed by session ID: turns starting, running, or waiting.
     active: HashMap<String, Active>,
     activity: HashMap<String, VecDeque<AgentActivity>>,
     /// Task IDs with buffered activity, oldest first.
@@ -154,6 +265,7 @@ struct Inner {
     supervisor: Supervisor,
     store: Arc<dyn SessionStore>,
     sink: Arc<dyn AgentSink>,
+    hook: RwLock<Option<Arc<dyn TurnHook>>>,
     host: HostEnv,
     state: Mutex<State>,
 }
@@ -170,6 +282,18 @@ struct Ready {
     env: Vec<(String, String)>,
     /// The sign-in check confirmed a subscription.
     billing_confirmed: bool,
+}
+
+/// A runtime that cannot take work, with the outcome to record when a waiting turn cannot
+/// continue because of it.
+struct NotReady {
+    error: RuntimeError,
+    outcome: TurnOutcome,
+}
+
+/// A receiver that reports "done" at once (for claims no step is running under).
+fn finished() -> watch::Receiver<bool> {
+    watch::channel(true).1
 }
 
 impl AgentRuntime {
@@ -191,6 +315,7 @@ impl AgentRuntime {
                 supervisor,
                 store,
                 sink,
+                hook: RwLock::new(None),
                 host,
                 state: Mutex::new(State {
                     runtimes,
@@ -200,6 +325,25 @@ impl AgentRuntime {
         };
         this.recover();
         this
+    }
+
+    /// Install the hook consulted when a turn step ends (at most one; replaces any earlier).
+    pub fn set_hook(&self, hook: Arc<dyn TurnHook>) {
+        *self.inner.hook.write().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    }
+
+    fn hook(&self) -> Option<Arc<dyn TurnHook>> {
+        self.inner
+            .hook
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    fn released(&self) {
+        if let Some(hook) = self.hook() {
+            hook.released();
+        }
     }
 
     fn recover(&self) {
@@ -213,21 +357,16 @@ impl AgentRuntime {
         };
         let count = unfinished.len();
         for turn in unfinished {
-            let result = TurnResult {
-                outcome: TurnOutcome::Interrupted,
-                summary: "Plenipo stopped while this turn was running".into(),
-                text: None,
-                error: None,
-                provider_session_id: None,
-                model: None,
-                usage: None,
-                duration_ms: None,
-                ignored_lines: 0,
-            };
+            let result = administrative(
+                TurnOutcome::Interrupted,
+                "Plenipo stopped while this turn was running",
+                None,
+            );
             let turn_ref = TurnRef {
                 session_id: &turn.session_id,
                 task_id: &turn.task_id,
                 execution_id: turn.execution_id.as_deref(),
+                step: None,
                 actor: "plenipo",
             };
             if let Err(e) = store.finish_turn(&turn_ref, &result) {
@@ -248,14 +387,61 @@ impl AgentRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// `session` with the task ID of its running turn (if any).
+    /// `session` with the task IDs of its running or waiting turn (if any).
     fn with_active(&self, mut session: AgentSession) -> AgentSession {
-        session.active_task_id = self
-            .lock()
-            .active
-            .get(&session.id)
+        let state = self.lock();
+        let active = state.active.get(&session.id);
+        session.active_task_id = active
+            .filter(|a| a.claim == Claim::Turn)
+            .and_then(|a| a.task_id.clone());
+        session.waiting_task_id = active
+            .filter(|a| a.claim == Claim::Wait)
             .and_then(|a| a.task_id.clone());
         session
+    }
+
+    /// `turn` with the live state of its running step or wait, when it holds its session.
+    fn decorate(&self, mut turn: AgentTurn) -> AgentTurn {
+        let state = self.lock();
+        let Some(active) = state
+            .active
+            .get(&turn.session_id)
+            .filter(|a| a.task_id.as_deref() == Some(turn.task_id.as_str()))
+        else {
+            return turn;
+        };
+        match active.claim {
+            Claim::Turn => {
+                turn.running = true;
+                turn.waiting = false;
+                if let Some(id) = &active.execution_id {
+                    turn.execution_id = Some(id.clone());
+                }
+                match turn.steps.iter_mut().find(|s| s.number == active.step) {
+                    Some(step) => {
+                        step.running = step.result.is_none();
+                        step.execution_id = step
+                            .execution_id
+                            .take()
+                            .or_else(|| active.execution_id.clone());
+                    }
+                    None => turn.steps.push(TurnStep {
+                        number: active.step,
+                        execution_id: active.execution_id.clone(),
+                        running: true,
+                        result: None,
+                        started_at: Some(active.step_started_at),
+                        ended_at: None,
+                    }),
+                }
+            }
+            Claim::Wait => {
+                turn.running = false;
+                turn.waiting = true;
+            }
+            Claim::Close => {}
+        }
+        turn
     }
 
     fn notice(&self, notice: String) {
@@ -282,6 +468,27 @@ impl AgentRuntime {
             .await
             .map_err(|e| RuntimeError::Store(e.to_string()))?
             .map_err(RuntimeError::Store)
+    }
+
+    /// Emit the turn as recorded, with its live state.
+    async fn emit_turn(&self, session_id: &str, task_id: &str) {
+        let (s, t) = (session_id.to_owned(), task_id.to_owned());
+        match self
+            .with_store(move |store| Ok(store.turns(&s)?.into_iter().find(|x| x.task_id == t)))
+            .await
+        {
+            Ok(Some(turn)) => {
+                let turn = self.decorate(turn);
+                self.inner.sink.emit(AgentUpdate::Turn(turn));
+            }
+            Ok(None) => {}
+            Err(e) => self.notice(e.to_string()),
+        }
+    }
+
+    fn emit_session(&self, session: AgentSession) {
+        let current = self.with_active(session);
+        self.inner.sink.emit(AgentUpdate::Session(current));
     }
 
     // ---- Detection ----------------------------------------------------------------------
@@ -457,7 +664,7 @@ impl AgentRuntime {
     }
 
     /// Fresh check right before a turn. Refuses with an explanation when not usable.
-    async fn preflight(&self, adapter: &dyn RuntimeAdapter) -> Result<Ready, RuntimeError> {
+    async fn preflight(&self, adapter: &dyn RuntimeAdapter) -> Result<Ready, NotReady> {
         let (info, ready) = self.detect(adapter, false).await;
         let changed = self
             .lock()
@@ -466,13 +673,17 @@ impl AgentRuntime {
             .find(|r| r.id == info.id)
             .is_none_or(|r| r.installation != info.installation || r.auth != info.auth);
         let explanation = not_ready_reason(adapter, &info);
+        let outcome = unavailable_outcome(&info);
         self.store_info(info);
         if changed {
             self.inner.sink.emit(AgentUpdate::Runtimes(RuntimesUpdate {
                 runtimes: self.runtimes(),
             }));
         }
-        ready.ok_or(RuntimeError::NotReady(explanation))
+        ready.ok_or(NotReady {
+            error: RuntimeError::NotReady(explanation),
+            outcome,
+        })
     }
 
     // ---- Sessions -----------------------------------------------------------------------
@@ -495,19 +706,8 @@ impl AgentRuntime {
             .await?;
         let session = session.ok_or_else(|| RuntimeError::UnknownSession(session_id.to_owned()))?;
         let session = self.with_active(session);
+        let turns: Vec<AgentTurn> = turns.into_iter().map(|t| self.decorate(t)).collect();
         let state = self.lock();
-        let active = state.active.get(session_id);
-        let turns = turns
-            .into_iter()
-            .map(|mut t| {
-                if let Some(a) = active.filter(|a| a.task_id.as_deref() == Some(t.task_id.as_str()))
-                {
-                    t.running = true;
-                    t.execution_id = t.execution_id.or_else(|| a.execution_id.clone());
-                }
-                t
-            })
-            .collect::<Vec<AgentTurn>>();
         let activity = turns
             .iter()
             .filter_map(|t| state.activity.get(&t.task_id))
@@ -520,25 +720,56 @@ impl AgentRuntime {
         })
     }
 
-    /// startSession + submitTask.
+    /// startSession + submitTask, for an objective from the owner.
     pub async fn start_session(
         &self,
         runtime_id: &str,
         objective: &str,
         model: Option<&str>,
     ) -> Result<AgentSessionDetail, RuntimeError> {
-        let objective = validate_objective(objective)?;
-        let model = model
+        self.start_session_with(
+            SessionStart {
+                runtime_id: runtime_id.into(),
+                model: model.map(str::to_owned),
+                ..SessionStart::default()
+            },
+            TurnInput::owner(objective),
+        )
+        .await
+    }
+
+    /// startSession + submitTask with full control over the session and turn (Core only).
+    pub async fn start_session_with(
+        &self,
+        start: SessionStart,
+        input: TurnInput,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        let input = validate_input(input)?;
+        let model = start
+            .model
+            .as_deref()
             .map(str::trim)
             .filter(|m| !m.is_empty())
             .map(validate_model)
             .transpose()?;
-        let adapter = self
-            .adapter(runtime_id)
-            .ok_or_else(|| RuntimeError::InvalidInput(format!("unknown runtime: {runtime_id}")))?;
-        let session_id = uuid::Uuid::new_v4().to_string();
+        let adapter = self.adapter(&start.runtime_id).ok_or_else(|| {
+            RuntimeError::InvalidInput(format!("unknown runtime: {}", start.runtime_id))
+        })?;
+        let metadata = object_or_empty("session metadata", start.metadata)?;
+        let session_id = match start.id {
+            Some(id) => validate_session_id(&id)?,
+            None => uuid::Uuid::new_v4().to_string(),
+        };
+        let title = start
+            .title
+            .map(|t| first_line(&t, 80))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| first_line(&input.objective, 80));
         let reservation = self.reserve(&session_id, Claim::Turn)?;
-        let ready = self.preflight(adapter.as_ref()).await?;
+        let ready = self
+            .preflight(adapter.as_ref())
+            .await
+            .map_err(|n| n.error)?;
 
         let working_dir = self.inner.config.workspace_root.join(&session_id);
         std::fs::create_dir_all(&working_dir).map_err(|e| {
@@ -552,28 +783,40 @@ impl AgentRuntime {
             provider_session_id: None,
             provider_session_confirmed: false,
             model,
-            title: first_line(&objective, 80),
+            title,
             state: SessionState::Open,
             working_dir: working_dir.display().to_string(),
             created_at: now,
             updated_at: now,
             turn_count: 0,
             active_task_id: None,
+            waiting_task_id: None,
+            metadata,
         };
         let opened = session.clone();
         self.with_store(move |s| s.open_session(&opened)).await?;
         self.inner.sink.emit(AgentUpdate::Session(session.clone()));
-        self.run_turn(session, adapter, ready, objective, reservation)
+        self.run_turn(session, adapter, ready, input, reservation)
             .await
     }
 
-    /// resumeSession + submitTask.
+    /// resumeSession + submitTask, for an objective from the owner.
     pub async fn resume_session(
         &self,
         session_id: &str,
         objective: &str,
     ) -> Result<AgentSessionDetail, RuntimeError> {
-        let objective = validate_objective(objective)?;
+        self.resume_session_with(session_id, TurnInput::owner(objective))
+            .await
+    }
+
+    /// resumeSession + submitTask with full control over the turn (Core only).
+    pub async fn resume_session_with(
+        &self,
+        session_id: &str,
+        input: TurnInput,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        let input = validate_input(input)?;
         // Claim first, then read: a concurrent close either finished before (we see it closed)
         // or cannot start until this turn ends.
         let reservation = self.reserve(session_id, Claim::Turn)?;
@@ -593,29 +836,276 @@ impl AgentRuntime {
                 session.runtime_id
             ))
         })?;
-        let ready = self.preflight(adapter.as_ref()).await?;
-        self.run_turn(session, adapter, ready, objective, reservation)
+        let ready = self
+            .preflight(adapter.as_ref())
+            .await
+            .map_err(|n| n.error)?;
+        self.run_turn(session, adapter, ready, input, reservation)
             .await
     }
 
-    /// cancelExecution: stop the session's running turn and wait until it is recorded.
+    /// Continue a waiting turn with its next step: `prompt` goes to the same provider session.
+    /// `Busy` means no worker slot is free (try again later); a runtime that cannot take work
+    /// ends the turn as failed with the reason. The session stays reserved throughout.
+    pub async fn continue_turn(
+        &self,
+        session_id: &str,
+        task_id: &str,
+        prompt: &str,
+        note: StepNote,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        let prompt = validate_prompt(prompt)?;
+        let (step, done) = {
+            let mut state = self.lock();
+            if state.shutting_down {
+                return Err(RuntimeError::ShuttingDown);
+            }
+            let running = state
+                .active
+                .values()
+                .filter(|a| a.claim == Claim::Turn)
+                .count();
+            let not_waiting = || {
+                RuntimeError::NotWaiting(format!(
+                    "Session {session_id} is not waiting to continue task {task_id}."
+                ))
+            };
+            let active = state.active.get_mut(session_id).ok_or_else(not_waiting)?;
+            if active.task_id.as_deref() != Some(task_id) {
+                return Err(not_waiting());
+            }
+            match active.claim {
+                Claim::Wait => {}
+                Claim::Turn => {
+                    return Err(RuntimeError::Busy(
+                        "The turn's last step is still being recorded; try again in a moment."
+                            .into(),
+                    ))
+                }
+                Claim::Close => return Err(not_waiting()),
+            }
+            if running >= self.inner.config.max_active_turns {
+                return Err(RuntimeError::Busy(format!(
+                    "{running} agent turns are already running; wait for one to finish."
+                )));
+            }
+            let (tx, rx) = watch::channel(false);
+            active.claim = Claim::Turn;
+            active.execution_id = None;
+            active.step += 1;
+            active.step_started_at = crate::now_ms();
+            active.done = rx;
+            (active.step, tx)
+        };
+        let id = session_id.to_owned();
+        let session = match self.with_store(move |s| s.session(&id)).await {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                let e = RuntimeError::UnknownSession(session_id.to_owned());
+                self.end_waiting(session_id, task_id, None, TurnOutcome::Failed, &e, done)
+                    .await;
+                return Err(e);
+            }
+            Err(e) => {
+                self.wait_again(session_id, done);
+                return Err(e);
+            }
+        };
+        let Some(adapter) = self.adapter(&session.runtime_id) else {
+            let e = RuntimeError::NotReady(format!(
+                "The runtime {:?} is not available in this build.",
+                session.runtime_id
+            ));
+            self.end_waiting(
+                session_id,
+                task_id,
+                Some(&session),
+                TurnOutcome::ProviderUnavailable,
+                &e,
+                done,
+            )
+            .await;
+            return Err(e);
+        };
+        let ready = match self.preflight(adapter.as_ref()).await {
+            Ok(ready) => ready,
+            Err(n) => {
+                self.end_waiting(
+                    session_id,
+                    task_id,
+                    Some(&session),
+                    n.outcome,
+                    &n.error,
+                    done,
+                )
+                .await;
+                return Err(n.error);
+            }
+        };
+        let actor = format!("agent:{}", session.runtime_id);
+        let (sid, tid) = (session_id.to_owned(), task_id.to_owned());
+        if let Err(e) = self
+            .with_store(move |s| {
+                let turn = TurnRef {
+                    session_id: &sid,
+                    task_id: &tid,
+                    execution_id: None,
+                    step: Some(step),
+                    actor: &actor,
+                };
+                s.begin_step(&turn, &note)
+            })
+            .await
+        {
+            self.wait_again(session_id, done);
+            return Err(e);
+        }
+        let number = self
+            .with_store({
+                let (s, t) = (session_id.to_owned(), task_id.to_owned());
+                move |store| Ok(store.turns(&s)?.into_iter().find(|x| x.task_id == t))
+            })
+            .await
+            .ok()
+            .flatten()
+            .map_or(session.turn_count, |t| t.number);
+        let request = turn_request(&session, adapter.as_ref(), ready.billing_confirmed);
+        self.launch_step(
+            session,
+            adapter,
+            ready,
+            request,
+            StepLaunch {
+                task_id: task_id.to_owned(),
+                number,
+                step,
+                prompt,
+            },
+            Some(done),
+        )
+        .await
+    }
+
+    /// A continuation could not start for a passing reason: the turn waits again. (Nothing
+    /// was freed, so the hook is not told; its caller retries later.)
+    fn wait_again(&self, session_id: &str, done: watch::Sender<bool>) {
+        if let Some(active) = self.lock().active.get_mut(session_id) {
+            active.claim = Claim::Wait;
+            active.step = active.step.saturating_sub(1).max(1);
+            active.done = finished();
+        }
+        let _ = done.send(true);
+    }
+
+    /// A waiting turn ends without another step (it could not continue, or was cancelled).
+    async fn end_waiting(
+        &self,
+        session_id: &str,
+        task_id: &str,
+        session: Option<&AgentSession>,
+        outcome: TurnOutcome,
+        error: &RuntimeError,
+        done: watch::Sender<bool>,
+    ) {
+        let (summary, detail) = match outcome {
+            TurnOutcome::Cancelled => ("Cancelled while waiting to continue".to_owned(), None),
+            _ => (
+                format!(
+                    "Could not continue: {}",
+                    first_line(&error.to_string(), 240)
+                ),
+                Some(error.to_string()),
+            ),
+        };
+        let result = administrative(outcome, &summary, detail);
+        let actor = session.map_or_else(
+            || "plenipo".to_owned(),
+            |s| format!("agent:{}", s.runtime_id),
+        );
+        let (sid, tid) = (session_id.to_owned(), task_id.to_owned());
+        if let Err(e) = self
+            .with_store(move |s| {
+                let turn = TurnRef {
+                    session_id: &sid,
+                    task_id: &tid,
+                    execution_id: None,
+                    step: None,
+                    actor: &actor,
+                };
+                s.finish_turn(&turn, &result)
+            })
+            .await
+        {
+            self.notice(e.to_string());
+        }
+        self.lock().active.remove(session_id);
+        let _ = done.send(true);
+        self.emit_turn(session_id, task_id).await;
+        if let Some(session) = session {
+            self.emit_session(session.clone());
+        }
+        self.released();
+    }
+
+    /// cancelExecution: stop the session's running turn — or end its wait — and return once it
+    /// is recorded.
     pub async fn cancel_turn(&self, session_id: &str) -> Result<AgentSessionDetail, RuntimeError> {
-        let (execution, mut done) = {
-            let state = self.lock();
+        enum Target {
+            Running(String, watch::Receiver<bool>),
+            Waiting(String),
+        }
+        let target = {
+            let mut state = self.lock();
             let active = state
                 .active
                 .get(session_id)
-                .filter(|a| !a.closing)
+                .filter(|a| a.claim != Claim::Close)
                 .ok_or_else(|| {
                     RuntimeError::NotReady("No turn is running in this session.".into())
                 })?;
-            let execution = active.execution_id.clone().ok_or_else(|| {
-                RuntimeError::NotReady("The turn is still starting; try again in a moment.".into())
-            })?;
-            (execution, active.done.clone())
+            match active.claim {
+                Claim::Wait => {
+                    let task = active.task_id.clone().unwrap_or_default();
+                    // Claim it for the cancel, so a continuation cannot start meanwhile.
+                    if let Some(active) = state.active.get_mut(session_id) {
+                        active.claim = Claim::Close;
+                    }
+                    Target::Waiting(task)
+                }
+                _ => {
+                    let execution = active.execution_id.clone().ok_or_else(|| {
+                        RuntimeError::NotReady(
+                            "The turn is still starting; try again in a moment.".into(),
+                        )
+                    })?;
+                    Target::Running(execution, active.done.clone())
+                }
+            }
         };
-        self.inner.supervisor.cancel(&execution).await?;
-        let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+        match target {
+            Target::Running(execution, mut done) => {
+                self.inner.supervisor.cancel(&execution).await?;
+                let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+            }
+            Target::Waiting(task_id) => {
+                let id = session_id.to_owned();
+                let session = self
+                    .with_store(move |s| s.session(&id))
+                    .await
+                    .ok()
+                    .flatten();
+                let (done, _) = watch::channel(false);
+                self.end_waiting(
+                    session_id,
+                    &task_id,
+                    session.as_ref(),
+                    TurnOutcome::Cancelled,
+                    &RuntimeError::NotReady("cancelled".into()),
+                    done,
+                )
+                .await;
+            }
+        }
         self.session(session_id).await
     }
 
@@ -640,7 +1130,8 @@ impl AgentRuntime {
     }
 
     /// Refuse new turns, stop running ones (through the supervisor), and wait up to `grace`
-    /// for their results to be recorded.
+    /// for their results to be recorded. Waiting turns stay as recorded (a restart marks them
+    /// interrupted).
     pub async fn shutdown(&self, grace: Duration) -> usize {
         let consumers = {
             let mut state = self.lock();
@@ -667,19 +1158,26 @@ impl AgentRuntime {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(existing) = state.active.get(session_id) {
-            return Err(RuntimeError::NotReady(match (existing.closing, claim) {
-                (true, _) => "This session is being closed.".into(),
-                (false, Claim::Close) => {
+            return Err(RuntimeError::NotReady(match (existing.claim, claim) {
+                (Claim::Close, _) => "This session is being closed.".into(),
+                (Claim::Wait, _) => "This session's turn is waiting to continue (for example for \
+                                     handoff replies). Cancel the turn to stop waiting."
+                    .into(),
+                (Claim::Turn, Claim::Close) => {
                     "A turn is running in this session. Cancel it first.".into()
                 }
-                (false, Claim::Turn) => {
+                (Claim::Turn, _) => {
                     "A turn is already running in this session. Wait for it or cancel it.".into()
                 }
             }));
         }
-        let turns = state.active.values().filter(|a| !a.closing).count();
+        let turns = state
+            .active
+            .values()
+            .filter(|a| a.claim == Claim::Turn)
+            .count();
         if claim == Claim::Turn && turns >= self.inner.config.max_active_turns {
-            return Err(RuntimeError::NotReady(format!(
+            return Err(RuntimeError::Busy(format!(
                 "{turns} agent turns are already running; wait for one to finish."
             )));
         }
@@ -687,10 +1185,12 @@ impl AgentRuntime {
         state.active.insert(
             session_id.to_owned(),
             Active {
+                claim,
                 task_id: None,
                 execution_id: None,
+                step: 1,
+                step_started_at: crate::now_ms(),
                 done: done_rx,
-                closing: claim == Claim::Close,
             },
         );
         Ok(Reservation {
@@ -705,51 +1205,75 @@ impl AgentRuntime {
         mut session: AgentSession,
         adapter: Arc<dyn RuntimeAdapter>,
         ready: Ready,
-        objective: String,
+        input: TurnInput,
         mut reservation: Reservation,
     ) -> Result<AgentSessionDetail, RuntimeError> {
         let number = session.turn_count + 1;
-        let request = TurnRequest {
-            session: match (
-                &session.provider_session_id,
-                session.provider_session_confirmed,
-            ) {
-                (Some(id), true) => ProviderSession::Resume { id: id.clone() },
-                // Unconfirmed: start the provider session (again). A fresh ID avoids reusing
-                // one a failed attempt may have claimed.
-                _ => ProviderSession::New {
-                    preassigned: adapter
-                        .preassigns_session_id()
-                        .then(|| uuid::Uuid::new_v4().to_string()),
-                },
-            },
-            model: session.model.clone(),
-            billing_confirmed: ready.billing_confirmed,
-        };
-        let (s, text) = (session.clone(), objective.clone());
+        let request = turn_request(&session, adapter.as_ref(), ready.billing_confirmed);
+        let (s, recorded) = (session.clone(), input.clone());
         let task_id = self
-            .with_store(move |store| store.begin_turn(&s, number, &text))
+            .with_store(move |store| store.begin_turn(&s, number, &recorded))
             .await?;
         session.turn_count = number;
         session.updated_at = crate::now_ms();
         if let Some(active) = self.lock().active.get_mut(&session.id) {
             active.task_id = Some(task_id.clone());
         }
+        let prompt = input.prompt.unwrap_or(input.objective);
+        let done = reservation.done.take();
+        self.launch_step(
+            session,
+            adapter,
+            ready,
+            request,
+            StepLaunch {
+                task_id,
+                number,
+                step: 1,
+                prompt,
+            },
+            done,
+        )
+        .await
+    }
 
+    /// Launch one step of a turn whose session is claimed; the step's consumer releases or
+    /// converts the claim when it ends.
+    async fn launch_step(
+        &self,
+        session: AgentSession,
+        adapter: Arc<dyn RuntimeAdapter>,
+        ready: Ready,
+        request: TurnRequest,
+        launch: StepLaunch,
+        done: Option<watch::Sender<bool>>,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        let StepLaunch {
+            task_id,
+            number,
+            step,
+            prompt,
+        } = launch;
+        let session_id = session.id.clone();
         let (tx, rx) = mpsc::unbounded_channel::<OutputLine>();
         let provider_session = match &request.session {
             ProviderSession::Resume { id } => Some(id.clone()),
             ProviderSession::New { preassigned } => preassigned.clone(),
         };
+        let label = if step == 1 {
+            format!("{} · turn {number}", adapter.label())
+        } else {
+            format!("{} · turn {number} · step {step}", adapter.label())
+        };
         let spec = LaunchSpec {
             profile_id: format!("agent.{}", adapter.id()),
-            label: format!("{} · turn {number}", adapter.label()),
+            label,
             executable: ready.executable,
             args: adapter.turn_args(&request),
             env: ready.env,
             working_dir: PathBuf::from(&session.working_dir),
             max_runtime: self.inner.config.turn_timeout,
-            stdin: Some(objective.clone().into_bytes()),
+            stdin: Some(prompt.into_bytes()),
             max_line_bytes: Some(self.inner.config.max_line_bytes),
             observer: Some(tx),
             agent: Some(Box::new(AgentAttribution {
@@ -762,22 +1286,20 @@ impl AgentRuntime {
                 usage: None,
             })),
         };
-        let turn = AgentTurn {
-            task_id: task_id.clone(),
-            session_id: session.id.clone(),
-            number,
-            objective,
-            execution_id: None,
-            running: true,
-            result: None,
-            started_at: session.updated_at,
-            ended_at: None,
-        };
         let parser = adapter.parser(&request);
+        let ctx = TurnContext {
+            runtime: self.clone(),
+            session: session.clone(),
+            task_id: task_id.clone(),
+            step,
+            execution_id: None,
+            seq: u64::from(step.saturating_sub(1)) * STEP_SEQ,
+            stored: 0,
+        };
         let execution_id = match self.inner.supervisor.launch(spec).await {
-            Ok(record) => Some(record.id),
+            Ok(record) => record.id,
             Err(e) => {
-                // Nothing ran: record the turn as failed right away.
+                // Nothing ran: record the step as failed right away.
                 let result = TurnResult {
                     outcome: TurnOutcome::ProviderUnavailable,
                     summary: format!("{} could not be started", adapter.label()),
@@ -789,38 +1311,19 @@ impl AgentRuntime {
                     duration_ms: None,
                     ignored_lines: 0,
                 };
-                let ctx = TurnContext {
-                    runtime: self.clone(),
-                    session,
-                    turn,
-                    execution_id: None,
-                    seq: 0,
-                    stored: 0,
-                };
-                ctx.complete(result, reservation.done.take()).await;
-                return self.session(&reservation.session_id).await;
+                ctx.complete(result, done).await;
+                return self.session(&session_id).await;
             }
         };
         if let Some(active) = self.lock().active.get_mut(&session.id) {
-            active.execution_id.clone_from(&execution_id);
+            active.execution_id = Some(execution_id.clone());
         }
-        let turn = AgentTurn {
-            execution_id: execution_id.clone(),
-            ..turn
-        };
-        self.inner.sink.emit(AgentUpdate::Turn(turn.clone()));
-        let current = self.with_active(session.clone());
-        self.inner.sink.emit(AgentUpdate::Session(current));
+        self.emit_turn(&session_id, &task_id).await;
+        self.emit_session(session);
         let ctx = TurnContext {
-            runtime: self.clone(),
-            session,
-            turn,
-            execution_id,
-            seq: 0,
-            stored: 0,
+            execution_id: Some(execution_id),
+            ..ctx
         };
-        let done = reservation.done.take();
-        let session_id = reservation.session_id.clone();
         let handle = tokio::spawn(ctx.consume(parser, rx, done));
         {
             let mut state = self.lock();
@@ -866,6 +1369,39 @@ impl AgentRuntime {
     }
 }
 
+/// The provider session a turn runs in: the confirmed one, or a new one.
+fn turn_request(
+    session: &AgentSession,
+    adapter: &dyn RuntimeAdapter,
+    billing_confirmed: bool,
+) -> TurnRequest {
+    TurnRequest {
+        session: match (
+            &session.provider_session_id,
+            session.provider_session_confirmed,
+        ) {
+            (Some(id), true) => ProviderSession::Resume { id: id.clone() },
+            // Unconfirmed: start the provider session (again). A fresh ID avoids reusing one a
+            // failed attempt may have claimed.
+            _ => ProviderSession::New {
+                preassigned: adapter
+                    .preassigns_session_id()
+                    .then(|| uuid::Uuid::new_v4().to_string()),
+            },
+        },
+        model: session.model.clone(),
+        billing_confirmed,
+    }
+}
+
+/// What to launch for one step.
+struct StepLaunch {
+    task_id: String,
+    number: u32,
+    step: u32,
+    prompt: String,
+}
+
 /// Holds a session's slot until the turn is launched (or the attempt fails).
 struct Reservation {
     runtime: AgentRuntime,
@@ -883,11 +1419,12 @@ impl Drop for Reservation {
     }
 }
 
-/// Per-turn state owned by the task that consumes the turn's output.
+/// Per-step state owned by the task that consumes the step's output.
 struct TurnContext {
     runtime: AgentRuntime,
     session: AgentSession,
-    turn: AgentTurn,
+    task_id: String,
+    step: u32,
     execution_id: Option<String>,
     seq: u64,
     stored: u32,
@@ -962,7 +1499,7 @@ impl TurnContext {
         self.seq += 1;
         let activity = AgentActivity {
             session_id: self.session.id.clone(),
-            task_id: self.turn.task_id.clone(),
+            task_id: self.task_id.clone(),
             seq: self.seq,
             ts: crate::now_ms(),
             event: event.clone(),
@@ -1005,8 +1542,7 @@ impl TurnContext {
                     {
                         runtime.notice(e.to_string());
                     }
-                    let current = runtime.with_active(self.session.clone());
-                    runtime.inner.sink.emit(AgentUpdate::Session(current));
+                    runtime.emit_session(self.session.clone());
                 }
             }
             AgentEvent::Usage { usage } => {
@@ -1034,11 +1570,12 @@ impl TurnContext {
             std::cmp::Ordering::Greater => return,
         };
         self.stored += 1;
-        let (session_id, task_id, execution_id, actor) = (
+        let (session_id, task_id, execution_id, actor, step) = (
             self.session.id.clone(),
-            self.turn.task_id.clone(),
+            self.task_id.clone(),
             self.execution_id.clone(),
             self.actor(),
+            self.step,
         );
         if let Err(e) = runtime
             .with_store(move |s| {
@@ -1046,6 +1583,7 @@ impl TurnContext {
                     session_id: &session_id,
                     task_id: &task_id,
                     execution_id: execution_id.as_deref(),
+                    step: Some(step),
                     actor: &actor,
                 };
                 s.record_activity(&turn, &event)
@@ -1076,26 +1614,46 @@ impl TurnContext {
                 }
             });
         }
-        let (session_id, task_id, execution_id, actor, stored) = (
-            self.session.id.clone(),
-            self.turn.task_id.clone(),
-            self.execution_id.clone(),
-            self.actor(),
-            result.clone(),
-        );
-        if let Err(e) = runtime
-            .with_store(move |s| {
-                let turn = TurnRef {
-                    session_id: &session_id,
-                    task_id: &task_id,
-                    execution_id: execution_id.as_deref(),
-                    actor: &actor,
+        // The hook (if any) decides whether the turn finishes or waits to continue.
+        let disposition = match runtime.hook() {
+            Some(hook) => {
+                let end = TurnEnd {
+                    session: self.session.clone(),
+                    task_id: self.task_id.clone(),
+                    step: self.step,
+                    execution_id: self.execution_id.clone(),
+                    result: result.clone(),
                 };
-                s.finish_turn(&turn, &stored)
-            })
-            .await
-        {
-            runtime.notice(e.to_string());
+                tokio::task::spawn_blocking(move || hook.turn_ended(&end))
+                    .await
+                    .unwrap_or(TurnDisposition::Finish)
+            }
+            None => TurnDisposition::Finish,
+        };
+        if disposition == TurnDisposition::Finish {
+            let (session_id, task_id, execution_id, actor, step, stored) = (
+                self.session.id.clone(),
+                self.task_id.clone(),
+                self.execution_id.clone(),
+                self.actor(),
+                self.step,
+                result,
+            );
+            if let Err(e) = runtime
+                .with_store(move |s| {
+                    let turn = TurnRef {
+                        session_id: &session_id,
+                        task_id: &task_id,
+                        execution_id: execution_id.as_deref(),
+                        step: Some(step),
+                        actor: &actor,
+                    };
+                    s.finish_turn(&turn, &stored)
+                })
+                .await
+            {
+                runtime.notice(e.to_string());
+            }
         }
         self.session.updated_at = crate::now_ms();
         let saved = self.session.clone();
@@ -1103,16 +1661,42 @@ impl TurnContext {
             .with_store(move |s| s.save_session(&saved, SessionChange::Touched))
             .await;
 
-        runtime.lock().active.remove(&self.session.id);
+        {
+            let mut state = runtime.lock();
+            match &disposition {
+                TurnDisposition::Finish => {
+                    state.active.remove(&self.session.id);
+                }
+                TurnDisposition::Suspended { .. } => {
+                    if let Some(active) = state.active.get_mut(&self.session.id) {
+                        active.claim = Claim::Wait;
+                        active.execution_id = None;
+                        active.done = finished();
+                    }
+                }
+            }
+        }
         if let Some(done) = done {
             let _ = done.send(true);
         }
-        self.turn.running = false;
-        self.turn.ended_at = Some(crate::now_ms());
-        self.turn.result = Some(result);
-        runtime.inner.sink.emit(AgentUpdate::Turn(self.turn));
-        let current = runtime.with_active(self.session);
-        runtime.inner.sink.emit(AgentUpdate::Session(current));
+        runtime.emit_turn(&self.session.id, &self.task_id).await;
+        runtime.emit_session(self.session);
+        runtime.released();
+    }
+}
+
+/// A result recorded without a step of its own.
+fn administrative(outcome: TurnOutcome, summary: &str, error: Option<String>) -> TurnResult {
+    TurnResult {
+        outcome,
+        summary: summary.into(),
+        text: None,
+        error: error.map(|e| cap(&e, MAX_EVENT_TEXT)),
+        provider_session_id: None,
+        model: None,
+        usage: None,
+        duration_ms: None,
+        ignored_lines: 0,
     }
 }
 
@@ -1164,6 +1748,20 @@ fn auth_allowed(adapter: &dyn RuntimeAdapter, state: AuthState) -> bool {
             adapter.capabilities().billing_checked_per_turn
         }
         _ => false,
+    }
+}
+
+/// The outcome to record for work refused because a runtime is not usable.
+pub fn unavailable_outcome(info: &AgentRuntimeInfo) -> TurnOutcome {
+    if info.installation.state != InstallState::Installed {
+        return TurnOutcome::ProviderUnavailable;
+    }
+    match info.auth.state {
+        AuthState::SignedOut | AuthState::Unverified | AuthState::Unknown => {
+            TurnOutcome::AuthRequired
+        }
+        AuthState::ApiKey | AuthState::ThirdPartyCloud => TurnOutcome::BillingNotAllowed,
+        AuthState::Checking | AuthState::Subscription => TurnOutcome::ProviderUnavailable,
     }
 }
 
@@ -1235,6 +1833,88 @@ pub fn validate_objective(objective: &str) -> Result<String, RuntimeError> {
     Ok(trimmed.to_owned())
 }
 
+/// A prompt Core sends on stdin: non-empty, at most [`MAX_PROMPT_BYTES`], no NUL.
+pub fn validate_prompt(prompt: &str) -> Result<String, RuntimeError> {
+    if prompt.trim().is_empty() {
+        return Err(RuntimeError::InvalidInput(
+            "the prompt must not be empty".into(),
+        ));
+    }
+    if prompt.len() > MAX_PROMPT_BYTES {
+        return Err(RuntimeError::InvalidInput(format!(
+            "the prompt is longer than {MAX_PROMPT_BYTES} bytes"
+        )));
+    }
+    if prompt.contains('\0') {
+        return Err(RuntimeError::InvalidInput(
+            "the prompt contains a NUL character".into(),
+        ));
+    }
+    Ok(prompt.to_owned())
+}
+
+fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
+    let objective = validate_objective(&input.objective)?;
+    let prompt = input.prompt.as_deref().map(validate_prompt).transpose()?;
+    let task = match input.task {
+        TurnTask::New {
+            requested_by,
+            metadata,
+        } => {
+            let requested_by = requested_by.trim().to_owned();
+            if requested_by.is_empty() || requested_by.len() > 200 {
+                return Err(RuntimeError::InvalidInput(
+                    "requested_by must be 1–200 characters".into(),
+                ));
+            }
+            TurnTask::New {
+                requested_by,
+                metadata: object_or_empty("turn metadata", metadata)?,
+            }
+        }
+        TurnTask::Existing { task_id } => {
+            if task_id.is_empty() || task_id.len() > 64 {
+                return Err(RuntimeError::InvalidInput("invalid task id".into()));
+            }
+            TurnTask::Existing { task_id }
+        }
+    };
+    Ok(TurnInput {
+        objective,
+        prompt,
+        task,
+    })
+}
+
+/// A JSON object (null counts as empty).
+fn object_or_empty(
+    what: &str,
+    value: serde_json::Value,
+) -> Result<serde_json::Value, RuntimeError> {
+    match value {
+        serde_json::Value::Null => Ok(serde_json::json!({})),
+        serde_json::Value::Object(_) => Ok(value),
+        _ => Err(RuntimeError::InvalidInput(format!(
+            "{what} must be a JSON object"
+        ))),
+    }
+}
+
+/// A Plenipo session ID chosen by Core: a lowercase UUID.
+fn validate_session_id(id: &str) -> Result<String, RuntimeError> {
+    let ok = id.len() == 36
+        && id
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c) || c == '-');
+    if ok {
+        Ok(id.to_owned())
+    } else {
+        Err(RuntimeError::InvalidInput(format!(
+            "invalid session id: {id:?}"
+        )))
+    }
+}
+
 /// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}` — a model name, never a flag or a path.
 pub fn validate_model(model: &str) -> Result<String, RuntimeError> {
     let mut chars = model.chars();
@@ -1265,6 +1945,72 @@ mod tests {
     }
 
     #[test]
+    fn prompts() {
+        assert_eq!(
+            validate_prompt("  keep\n spacing ").unwrap(),
+            "  keep\n spacing "
+        );
+        assert!(validate_prompt(" \n").is_err());
+        assert!(validate_prompt("a\0b").is_err());
+        assert!(validate_prompt(&"x".repeat(MAX_PROMPT_BYTES)).is_ok());
+        assert!(validate_prompt(&"x".repeat(MAX_PROMPT_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn turn_inputs() {
+        let ok = validate_input(TurnInput::owner(" do it ")).unwrap();
+        assert_eq!(ok.objective, "do it");
+        assert_eq!(
+            ok.task,
+            TurnTask::New {
+                requested_by: OWNER.into(),
+                metadata: serde_json::json!({})
+            }
+        );
+        for bad in [
+            TurnInput {
+                prompt: Some(String::new()),
+                ..TurnInput::owner("x")
+            },
+            TurnInput {
+                task: TurnTask::New {
+                    requested_by: " ".into(),
+                    metadata: serde_json::Value::Null,
+                },
+                ..TurnInput::owner("x")
+            },
+            TurnInput {
+                task: TurnTask::New {
+                    requested_by: "owner".into(),
+                    metadata: serde_json::json!([1]),
+                },
+                ..TurnInput::owner("x")
+            },
+            TurnInput {
+                task: TurnTask::Existing {
+                    task_id: String::new(),
+                },
+                ..TurnInput::owner("x")
+            },
+        ] {
+            assert!(validate_input(bad.clone()).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn session_ids() {
+        assert!(validate_session_id("0f8fad5b-d9cb-469f-a165-70867728950e").is_ok());
+        for bad in [
+            "",
+            "0F8FAD5B-D9CB-469F-A165-70867728950E",
+            "../../../../etc/passwd/xxxxxxxxxxxxx",
+            "0f8fad5b-d9cb-469f-a165-70867728950",
+        ] {
+            assert!(validate_session_id(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
     fn models() {
         for good in [
             "sonnet",
@@ -1286,6 +2032,23 @@ mod tests {
             &"a".repeat(65),
         ] {
             assert!(validate_model(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn unavailable_outcomes() {
+        let mut info = checking(&crate::agent::codex::Codex);
+        info.installation.state = InstallState::NotInstalled;
+        assert_eq!(unavailable_outcome(&info), TurnOutcome::ProviderUnavailable);
+        info.installation.state = InstallState::Installed;
+        for (auth, want) in [
+            (AuthState::SignedOut, TurnOutcome::AuthRequired),
+            (AuthState::ApiKey, TurnOutcome::BillingNotAllowed),
+            (AuthState::ThirdPartyCloud, TurnOutcome::BillingNotAllowed),
+            (AuthState::Unknown, TurnOutcome::AuthRequired),
+        ] {
+            info.auth.state = auth;
+            assert_eq!(unavailable_outcome(&info), want, "{auth:?}");
         }
     }
 }

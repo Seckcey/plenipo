@@ -10,8 +10,8 @@ use plenipo_ledger::{
 };
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSink, AgentTurn,
-    AgentUpdate, HostEnv, SessionChange, SessionState, SessionStore, TurnOutcome, TurnRef,
-    TurnResult,
+    AgentUpdate, HostEnv, SessionChange, SessionState, SessionStore, StepNote, TurnInput,
+    TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask,
 };
 use plenipo_runtime::Supervisor;
 use serde_json::{json, Value};
@@ -77,7 +77,8 @@ pub fn detect_in_background(runtime: &AgentRuntime) {
 }
 
 /// Sessions and turns in the Ledger: sessions in `runtime_sessions`; each turn is a task whose
-/// metadata names the session, with its activity and final `agent.result` on the task trail.
+/// metadata names the session, with its activity, one `agent.result` per step (and a final
+/// one), and — for handoffs — the Liaison records written in the same transactions.
 pub struct LedgerSessionStore(pub Arc<Ledger>);
 
 fn to_session(s: RuntimeSession) -> AgentSession {
@@ -98,6 +99,12 @@ fn to_session(s: RuntimeSession) -> AgentSession {
         updated_at: s.updated_at,
         turn_count: s.turn_count,
         active_task_id: None,
+        waiting_task_id: None,
+        metadata: if s.metadata.is_object() {
+            s.metadata
+        } else {
+            json!({})
+        },
     }
 }
 
@@ -107,6 +114,22 @@ fn final_state(outcome: TurnOutcome) -> TaskState {
         TurnOutcome::Cancelled => TaskState::Cancelled,
         _ => TaskState::Failed,
     }
+}
+
+/// The `agent.result` event for a step's (or a turn's final) result.
+pub fn result_event(turn: &TurnRef<'_>, result: &TurnResult) -> Result<NewEvent, String> {
+    let mut payload = serde_json::to_value(result).map_err(|e| e.to_string())?;
+    payload["sessionId"] = json!(turn.session_id);
+    if let Some(step) = turn.step {
+        payload["step"] = json!(step);
+    }
+    Ok(NewEvent {
+        execution_id: turn.execution_id.map(str::to_owned),
+        source: turn.actor.into(),
+        event_type: "agent.result".into(),
+        payload,
+        ..NewEvent::default()
+    })
 }
 
 impl LedgerSessionStore {
@@ -119,31 +142,68 @@ impl LedgerSessionStore {
             .as_u64()
             .and_then(|n| u32::try_from(n).ok())
             .unwrap_or(0);
-        let execution_id = self
+        let executions = self
             .0
             .executions_for_task(&task.id)
+            .map_err(|e| e.to_string())?;
+        let results: Vec<_> = self
+            .0
+            .events_for_task(&task.id)
             .map_err(|e| e.to_string())?
-            .pop()
-            .map(|e| e.id);
+            .into_iter()
+            .filter(|e| e.event_type == "agent.result")
+            .collect();
+        let parse = |payload: &Value| serde_json::from_value::<TurnResult>(payload.clone()).ok();
+        let started = |execution: &Option<String>| {
+            executions
+                .iter()
+                .find(|x| Some(&x.id) == execution.as_ref())
+                .map(|x| x.started_at)
+        };
+        let mut steps: Vec<TurnStep> = results
+            .iter()
+            .filter_map(|e| {
+                let number = u32::try_from(e.payload.get("step")?.as_u64()?).ok()?;
+                Some(TurnStep {
+                    number,
+                    execution_id: e.execution_id.clone(),
+                    running: false,
+                    result: parse(&e.payload),
+                    started_at: started(&e.execution_id),
+                    ended_at: Some(e.created_at),
+                })
+            })
+            .collect();
         let result = if task.state.is_terminal() {
-            self.0
-                .events_for_task(&task.id)
-                .map_err(|e| e.to_string())?
-                .into_iter()
-                .rev()
-                .find(|e| e.event_type == "agent.result")
-                .and_then(|e| serde_json::from_value::<TurnResult>(e.payload).ok())
+            results.last().and_then(|e| parse(&e.payload))
         } else {
             None
         };
+        // Turns recorded before steps existed (Phase 3): a finished run is step 1.
+        if steps.is_empty() {
+            if let (Some(last), Some(execution)) = (results.last(), executions.last()) {
+                if last.execution_id.as_deref() == Some(execution.id.as_str()) {
+                    steps.push(TurnStep {
+                        number: 1,
+                        execution_id: Some(execution.id.clone()),
+                        running: false,
+                        result: parse(&last.payload),
+                        started_at: Some(execution.started_at),
+                        ended_at: Some(last.created_at),
+                    });
+                }
+            }
+        }
         Ok(AgentTurn {
             task_id: task.id,
             session_id,
             number,
             objective: task.objective,
-            execution_id,
-            running: !task.state.is_terminal(),
+            execution_id: executions.last().map(|e| e.id.clone()),
+            running: task.state == TaskState::Running,
+            waiting: task.state == TaskState::Blocked,
             result,
+            steps,
             started_at: task.created_at,
             ended_at: task.completed_at,
         })
@@ -167,6 +227,11 @@ impl SessionStore for LedgerSessionStore {
     }
 
     fn open_session(&self, session: &AgentSession) -> Result<(), String> {
+        let actor = if session.metadata["liaison"]["origin"] == "handoff" {
+            "liaison"
+        } else {
+            OWNER
+        };
         self.0
             .open_runtime_session(
                 NewRuntimeSession {
@@ -176,9 +241,9 @@ impl SessionStore for LedgerSessionStore {
                     model: session.model.clone(),
                     title: session.title.clone(),
                     working_dir: session.working_dir.clone(),
-                    metadata: Value::Null,
+                    metadata: session.metadata.clone(),
                 },
-                OWNER,
+                actor,
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -209,34 +274,96 @@ impl SessionStore for LedgerSessionStore {
         &self,
         session: &AgentSession,
         number: u32,
-        objective: &str,
+        input: &TurnInput,
     ) -> Result<String, String> {
-        let task = self
-            .0
-            .create_task(
-                NewTask {
-                    requested_by: OWNER.into(),
-                    assigned_to: Some(session.runtime_id.clone()),
-                    objective: objective.into(),
-                    metadata: json!({
-                        "sessionId": session.id,
-                        "runtimeId": session.runtime_id,
-                        "turn": number,
-                    }),
-                    ..NewTask::default()
-                },
-                OWNER,
+        let actor = format!("agent:{}", session.runtime_id);
+        match &input.task {
+            TurnTask::New {
+                requested_by,
+                metadata,
+            } => {
+                let mut metadata = if metadata.is_object() {
+                    metadata.clone()
+                } else {
+                    json!({})
+                };
+                metadata["sessionId"] = json!(session.id);
+                metadata["runtimeId"] = json!(session.runtime_id);
+                metadata["turn"] = json!(number);
+                let task = self
+                    .0
+                    .create_task(
+                        NewTask {
+                            requested_by: requested_by.clone(),
+                            assigned_to: Some(session.runtime_id.clone()),
+                            objective: input.objective.clone(),
+                            metadata,
+                            ..NewTask::default()
+                        },
+                        requested_by,
+                    )
+                    .map_err(|e| e.to_string())?;
+                self.0
+                    .transition_task(&task.id, TaskState::Running, &actor, Some("turn started"))
+                    .map_err(|e| e.to_string())?;
+                Ok(task.id)
+            }
+            TurnTask::Existing { task_id } => {
+                let task = self
+                    .0
+                    .task(task_id)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| format!("unknown task {task_id}"))?;
+                if task.metadata["sessionId"].as_str() != Some(session.id.as_str()) {
+                    return Err(format!(
+                        "task {task_id} is not assigned to session {}",
+                        session.id
+                    ));
+                }
+                let handoff = self
+                    .0
+                    .liaison_request_for_child(task_id)
+                    .map_err(|e| e.to_string())?;
+                let started = match handoff {
+                    // Starting a handoff's child also marks the request dispatched.
+                    Some(_) => self.0.begin_handoff_turn(task_id, &session.id, &actor),
+                    None => self.0.transition_task(
+                        task_id,
+                        TaskState::Running,
+                        &actor,
+                        Some("turn started"),
+                    ),
+                };
+                started.map(|t| t.id).map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    fn begin_step(&self, turn: &TurnRef<'_>, note: &StepNote) -> Result<(), String> {
+        // `deliver`: the Liaison replies this step receives, marked delivered with the step.
+        let deliver: Vec<String> = note
+            .data
+            .get("deliver")
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let reason = Some(note.reason.as_str()).filter(|r| !r.is_empty());
+        let resumed = if deliver.is_empty() {
+            self.0
+                .transition_task(turn.task_id, TaskState::Running, turn.actor, reason)
+        } else {
+            self.0.resume_with_replies(
+                turn.task_id,
+                &deliver,
+                reason.unwrap_or("continuing"),
+                turn.actor,
             )
-            .map_err(|e| e.to_string())?;
-        self.0
-            .transition_task(
-                &task.id,
-                TaskState::Running,
-                &format!("agent:{}", session.runtime_id),
-                Some("turn started"),
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(task.id)
+        };
+        resumed.map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String> {
@@ -257,21 +384,13 @@ impl SessionStore for LedgerSessionStore {
     }
 
     fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {
-        let mut payload = serde_json::to_value(result).map_err(|e| e.to_string())?;
-        payload["sessionId"] = json!(turn.session_id);
         self.0
             .complete_task(
                 turn.task_id,
                 final_state(result.outcome),
                 turn.actor,
                 Some(&result.summary),
-                NewEvent {
-                    execution_id: turn.execution_id.map(str::to_owned),
-                    source: turn.actor.into(),
-                    event_type: "agent.result".into(),
-                    payload,
-                    ..NewEvent::default()
-                },
+                result_event(turn, result)?,
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -316,6 +435,8 @@ mod tests {
             updated_at: 1,
             turn_count: 0,
             active_task_id: None,
+            waiting_task_id: None,
+            metadata: json!({}),
         }
     }
 
@@ -339,11 +460,14 @@ mod tests {
         let store = LedgerSessionStore(ledger.clone());
         let mut s = session("s-1");
         store.open_session(&s).unwrap();
-        let task_id = store.begin_turn(&s, 1, "Say hello").unwrap();
+        let task_id = store
+            .begin_turn(&s, 1, &TurnInput::owner("Say hello"))
+            .unwrap();
         let turn = TurnRef {
             session_id: "s-1",
             task_id: &task_id,
             execution_id: None,
+            step: Some(1),
             actor: "agent:codex",
         };
         store
@@ -376,6 +500,12 @@ mod tests {
         assert_eq!(turns[0].objective, "Say hello");
         assert!(!turns[0].running);
         assert_eq!(turns[0].result, Some(result(TurnOutcome::Completed)));
+        assert_eq!(turns[0].steps.len(), 1);
+        assert_eq!(turns[0].steps[0].number, 1);
+        assert_eq!(
+            turns[0].steps[0].result,
+            Some(result(TurnOutcome::Completed))
+        );
 
         let loaded = store.session("s-1").unwrap().unwrap();
         assert_eq!(loaded.turn_count, 1);
@@ -421,11 +551,12 @@ mod tests {
             (TurnOutcome::UsageLimited, TaskState::Failed),
             (TurnOutcome::Interrupted, TaskState::Failed),
         ] {
-            let task_id = store.begin_turn(&s, 1, "x").unwrap();
+            let task_id = store.begin_turn(&s, 1, &TurnInput::owner("x")).unwrap();
             let turn = TurnRef {
                 session_id: "s-2",
                 task_id: &task_id,
                 execution_id: None,
+                step: None,
                 actor: "plenipo",
             };
             store.finish_turn(&turn, &result(outcome)).unwrap();

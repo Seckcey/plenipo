@@ -3,13 +3,15 @@
 //! runtimes. No network, no accounts.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, HostEnv, InstallState, MemorySessionStore, SessionState,
-    SessionStore, TurnOutcome,
+    AgentTurn, AgentUpdate, AuthState, HostEnv, InstallState, MemorySessionStore, SessionStart,
+    SessionState, SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput,
+    TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ExecutionState, MetadataStore, ProfileRegistry, RuntimeError,
@@ -138,6 +140,14 @@ impl H {
 }
 
 fn harness_with(installed: &[&str], auth: Option<&str>) -> H {
+    harness_config(installed, auth, |_| {})
+}
+
+fn harness_config(
+    installed: &[&str],
+    auth: Option<&str>,
+    tune: impl FnOnce(&mut AgentConfig),
+) -> H {
     let dir = scratch();
     let bin = dir.path().join("bin");
     let home = dir.path().join("home");
@@ -157,6 +167,7 @@ fn harness_with(installed: &[&str], auth: Option<&str>) -> H {
     let mut config = AgentConfig::new(dir.path().join("workspaces"));
     config.extra_env = vec![(HOME_VAR.into(), home.display().to_string())];
     config.turn_timeout = Duration::from_secs(120);
+    tune(&mut config);
     let store = Arc::new(MemorySessionStore::default());
     let updates = Arc::new(Updates::default());
     let host = HostEnv::new(Some(bin.clone().into_os_string()), Some(home), None);
@@ -785,15 +796,13 @@ async fn restart_marks_unfinished_turns_interrupted() {
     let dir = scratch();
     let store = Arc::new(MemorySessionStore::default());
     store.insert_turn(AgentTurn {
-        task_id: "t-1".into(),
-        session_id: "s-1".into(),
-        number: 1,
-        objective: "left running".into(),
         execution_id: Some("e-1".into()),
         running: true,
-        result: None,
-        started_at: 1,
-        ended_at: None,
+        ..unstarted("t-1", "s-1", "left running")
+    });
+    store.insert_turn(AgentTurn {
+        waiting: true,
+        ..unstarted("t-2", "s-2", "left waiting")
     });
     let sup = Supervisor::new(
         SupervisorConfig::default(),
@@ -811,9 +820,11 @@ async fn restart_marks_unfinished_turns_interrupted() {
         Arc::new(Updates::default()),
         HostEnv::new(None, None, None),
     );
-    let turn = store.turns("s-1").unwrap().remove(0);
-    assert!(!turn.running);
-    assert_eq!(outcome(&turn), TurnOutcome::Interrupted);
+    for session in ["s-1", "s-2"] {
+        let turn = store.turns(session).unwrap().remove(0);
+        assert!(!turn.running && !turn.waiting, "{session}");
+        assert_eq!(outcome(&turn), TurnOutcome::Interrupted);
+    }
     assert!(store.unfinished_turns().unwrap().is_empty());
     let overview = rt.overview().await.unwrap();
     assert!(
@@ -840,4 +851,408 @@ async fn shutdown_stops_running_turns_and_records_them() {
         h.rt.start_session("codex", "more", None).await,
         Err(RuntimeError::ShuttingDown)
     ));
+}
+
+// ---- Steps and waiting (extension points used by Liaison, ADR-008) ---------------------------
+
+/// A turn recorded but not started (a task a later turn adopts, or one left from before).
+fn unstarted(task_id: &str, session_id: &str, objective: &str) -> AgentTurn {
+    AgentTurn {
+        task_id: task_id.into(),
+        session_id: session_id.into(),
+        number: 1,
+        objective: objective.into(),
+        execution_id: None,
+        running: false,
+        waiting: false,
+        result: None,
+        steps: Vec::new(),
+        started_at: 1,
+        ended_at: None,
+    }
+}
+
+/// Stands in for Liaison: keeps a turn waiting when its first answer mentions `[wait]`.
+struct WaitHook {
+    store: Arc<MemorySessionStore>,
+    released: AtomicUsize,
+}
+
+impl TurnHook for WaitHook {
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        let wants = end.step == 1
+            && end.result.outcome == TurnOutcome::Completed
+            && end
+                .result
+                .text
+                .as_deref()
+                .is_some_and(|t| t.contains("[wait]"));
+        if !wants {
+            return TurnDisposition::Finish;
+        }
+        let turn = TurnRef {
+            session_id: &end.session.id,
+            task_id: &end.task_id,
+            execution_id: end.execution_id.as_deref(),
+            step: Some(end.step),
+            actor: "test",
+        };
+        self.store.suspend(&turn, &end.result).unwrap();
+        TurnDisposition::Suspended {
+            reason: "waiting for replies".into(),
+        }
+    }
+
+    fn released(&self) {
+        self.released.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn with_hook(h: &H) -> Arc<WaitHook> {
+    let hook = Arc::new(WaitHook {
+        store: h.store.clone(),
+        released: AtomicUsize::new(0),
+    });
+    h.rt.set_hook(hook.clone());
+    hook
+}
+
+/// Wait until the session's turn `n` satisfies `predicate`.
+async fn turn_where(
+    rt: &AgentRuntime,
+    session_id: &str,
+    n: usize,
+    predicate: impl Fn(&AgentTurn) -> bool,
+) -> AgentSessionDetail {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let detail = rt.session(session_id).await.unwrap();
+        if detail.turns.get(n - 1).is_some_and(&predicate) {
+            return detail;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "turn {n} never matched: {detail:#?}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+async fn waiting_turn(h: &H, runtime: &str) -> (String, String) {
+    let started =
+        h.rt.start_session(runtime, "plan it [wait]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.waiting).await;
+    (id, detail.turns[0].task_id.clone())
+}
+
+#[tokio::test]
+async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
+    for runtime in RUNTIMES {
+        let h = harness();
+        let hook = with_hook(&h);
+        let (id, task) = waiting_turn(&h, runtime).await;
+        let detail = h.rt.session(&id).await.unwrap();
+        let turn = &detail.turns[0];
+        assert!(
+            !turn.running && turn.result.is_none(),
+            "{runtime}: {turn:#?}"
+        );
+        assert_eq!(turn.steps.len(), 1);
+        assert_eq!(
+            turn.steps[0].result.as_ref().unwrap().outcome,
+            TurnOutcome::Completed
+        );
+        assert_eq!(
+            detail.session.waiting_task_id.as_deref(),
+            Some(task.as_str())
+        );
+        assert!(detail.session.active_task_id.is_none());
+        let provider_id = detail.session.provider_session_id.clone().unwrap();
+
+        // The session takes no other work while it waits.
+        let busy =
+            h.rt.resume_session(&id, "something else")
+                .await
+                .unwrap_err();
+        assert!(busy.to_string().contains("waiting to continue"), "{busy}");
+        assert!(h.rt.close_session(&id).await.is_err());
+
+        let note = StepNote {
+            reason: "replies arrived".into(),
+            data: serde_json::json!({ "deliver": ["r-1"] }),
+        };
+        h.rt.continue_turn(&id, &task, "here are the replies", note.clone())
+            .await
+            .unwrap();
+        let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+        let turn = &detail.turns[0];
+        let result = turn.result.clone().unwrap();
+        assert_eq!(
+            result.outcome,
+            TurnOutcome::Completed,
+            "{runtime}: {result:#?}"
+        );
+        assert_eq!(
+            result.text.as_deref(),
+            Some("Turn 2: you said \"here are the replies\". Previous: Some(\"plan it [wait]\").")
+        );
+        assert_eq!(turn.steps.len(), 2);
+        assert_ne!(turn.steps[0].execution_id, turn.steps[1].execution_id);
+        assert_eq!(turn.execution_id, turn.steps[1].execution_id);
+        assert_eq!(detail.session.turn_count, 1, "a step is not a new turn");
+        assert!(detail.session.waiting_task_id.is_none());
+        assert_eq!(h.store.notes(&task), [note]);
+        // Same provider session, resumed.
+        let args = h.last_args();
+        let flag = if runtime == "claude-code" {
+            "--resume"
+        } else {
+            "resume"
+        };
+        let i = args
+            .iter()
+            .position(|a| a == flag)
+            .expect("resume argument");
+        assert_eq!(args[i + 1], provider_id);
+        // Step 2's live activity is numbered after step 1's.
+        let seqs: Vec<u64> = h
+            .updates
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|u| match u {
+                AgentUpdate::Activity(a) if a.task_id == task => Some(a.seq),
+                _ => None,
+            })
+            .collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+        assert!(seqs.iter().any(|s| *s > STEP_SEQ) && seqs[0] < STEP_SEQ);
+        let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
+        assert!(exec.label.ends_with("turn 1 · step 2"), "{}", exec.label);
+        assert!(hook.released.load(Ordering::SeqCst) >= 2);
+    }
+}
+
+#[tokio::test]
+async fn cancelling_a_waiting_turn_ends_it_and_frees_the_session() {
+    let h = harness();
+    let hook = with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    let before = hook.released.load(Ordering::SeqCst);
+    let detail = h.rt.cancel_turn(&id).await.unwrap();
+    let turn = &detail.turns[0];
+    assert!(!turn.waiting && !turn.running);
+    let result = turn.result.clone().unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Cancelled);
+    assert!(result.summary.contains("waiting"), "{}", result.summary);
+    assert_eq!(turn.steps.len(), 1, "cancelling runs no step");
+    assert!(detail.session.waiting_task_id.is_none());
+    assert!(hook.released.load(Ordering::SeqCst) > before);
+    // It cannot be continued any more, and the session takes new work.
+    let err =
+        h.rt.continue_turn(&id, &task, "late replies", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::NotWaiting(_)), "{err}");
+    h.rt.resume_session(&id, "next").await.unwrap();
+    settled(&h.rt, &id, 2).await;
+}
+
+#[tokio::test]
+async fn continuing_needs_a_waiting_turn_and_a_free_worker_slot() {
+    let h = harness_config(&["claude", "codex"], None, |c| c.max_active_turns = 1);
+    with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    // Only waiting turns continue.
+    let err =
+        h.rt.continue_turn(&id, "another-task", "x", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::NotWaiting(_)), "{err}");
+    let unknown = "00000000-0000-4000-8000-000000000000";
+    assert!(matches!(
+        h.rt.continue_turn(unknown, &task, "x", StepNote::default())
+            .await,
+        Err(RuntimeError::NotWaiting(_))
+    ));
+    // A waiting turn holds no worker slot, but a continuation needs one.
+    let slow =
+        h.rt.start_session("claude-code", "busy [slow]", None)
+            .await
+            .unwrap();
+    let err =
+        h.rt.continue_turn(&id, &task, "replies", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::Busy(_)), "{err}");
+    assert!(err.is_caller_error());
+    let detail = h.rt.session(&id).await.unwrap();
+    assert!(
+        detail.turns[0].waiting,
+        "still waiting after a busy refusal"
+    );
+    // The global cap refuses new sessions the same way.
+    assert!(matches!(
+        h.rt.start_session("codex", "one more", None).await,
+        Err(RuntimeError::Busy(_))
+    ));
+    h.rt.cancel_turn(&slow.session.id).await.unwrap();
+    h.rt.continue_turn(&id, &task, "replies", StepNote::default())
+        .await
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Completed);
+}
+
+#[tokio::test]
+async fn a_turn_that_cannot_continue_ends_with_the_reason() {
+    let h = harness();
+    with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    h.set_auth("signed-out");
+    let err =
+        h.rt.continue_turn(&id, &task, "replies", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::NotReady(_)), "{err}");
+    let detail = h.rt.session(&id).await.unwrap();
+    let turn = &detail.turns[0];
+    let result = turn.result.clone().unwrap();
+    assert_eq!(result.outcome, TurnOutcome::AuthRequired);
+    assert!(
+        result.summary.starts_with("Could not continue"),
+        "{}",
+        result.summary
+    );
+    assert!(!turn.waiting && detail.session.waiting_task_id.is_none());
+    assert_eq!(turn.steps.len(), 1);
+}
+
+#[tokio::test]
+async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
+    let h = harness();
+    let id = "5d0b2c6e-8d7a-4f3e-9a51-0c2b8e4f6a7d";
+    let started =
+        h.rt.start_session_with(
+            SessionStart {
+                id: Some(id.into()),
+                runtime_id: "codex".into(),
+                model: None,
+                title: Some("Chosen title\nsecond line".into()),
+                metadata: serde_json::json!({ "origin": "test" }),
+            },
+            TurnInput {
+                objective: "the recorded objective".into(),
+                prompt: Some("the prompt that is sent".into()),
+                task: TurnTask::New {
+                    requested_by: "agent:tester".into(),
+                    metadata: serde_json::json!({ "extra": 1 }),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(started.session.id, id);
+    assert_eq!(started.session.title, "Chosen title");
+    assert_eq!(started.session.metadata["origin"], "test");
+    let detail = settled(&h.rt, id, 1).await;
+    let turn = &detail.turns[0];
+    assert_eq!(turn.objective, "the recorded objective");
+    assert_eq!(
+        turn.result.as_ref().unwrap().text.as_deref(),
+        Some("Turn 1: you said \"the prompt that is sent\". Previous: None.")
+    );
+    // The same ID cannot be opened twice; bad input is refused before anything runs.
+    let again =
+        h.rt.start_session_with(
+            SessionStart {
+                id: Some(id.into()),
+                runtime_id: "codex".into(),
+                ..SessionStart::default()
+            },
+            TurnInput::owner("again"),
+        )
+        .await;
+    assert!(again.is_err());
+    for (start, input) in [
+        (
+            SessionStart {
+                id: Some("../escape".into()),
+                runtime_id: "codex".into(),
+                ..SessionStart::default()
+            },
+            TurnInput::owner("x"),
+        ),
+        (
+            SessionStart {
+                runtime_id: "codex".into(),
+                metadata: serde_json::json!(["not", "an", "object"]),
+                ..SessionStart::default()
+            },
+            TurnInput::owner("x"),
+        ),
+        (
+            SessionStart {
+                runtime_id: "codex".into(),
+                ..SessionStart::default()
+            },
+            TurnInput {
+                prompt: Some(" ".into()),
+                ..TurnInput::owner("x")
+            },
+        ),
+    ] {
+        let err = h.rt.start_session_with(start, input).await.unwrap_err();
+        assert!(matches!(err, RuntimeError::InvalidInput(_)), "{err}");
+    }
+    assert_eq!(h.store.sessions(10).unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_recorded_task_can_be_adopted_as_a_turn() {
+    let h = harness();
+    let id = "7a1c3e5f-2b4d-4c6e-8f0a-1b3d5f7a9c2e";
+    h.store.insert_turn(unstarted("t-adopt", id, "review this"));
+    h.rt.start_session_with(
+        SessionStart {
+            id: Some(id.into()),
+            runtime_id: "claude-code".into(),
+            ..SessionStart::default()
+        },
+        TurnInput {
+            objective: "review this".into(),
+            prompt: Some("Please review this".into()),
+            task: TurnTask::Existing {
+                task_id: "t-adopt".into(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let detail = settled(&h.rt, id, 1).await;
+    assert_eq!(detail.turns.len(), 1);
+    assert_eq!(detail.turns[0].task_id, "t-adopt");
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Completed);
+    // A task that already ran cannot be adopted again.
+    let err =
+        h.rt.start_session_with(
+            SessionStart {
+                runtime_id: "codex".into(),
+                ..SessionStart::default()
+            },
+            TurnInput {
+                objective: "again".into(),
+                prompt: None,
+                task: TurnTask::Existing {
+                    task_id: "t-adopt".into(),
+                },
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, RuntimeError::Store(_)), "{err}");
 }

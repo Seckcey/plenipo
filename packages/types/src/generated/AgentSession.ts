@@ -20,4 +20,14 @@ providerSessionConfirmed: boolean, model: string | null, title: string, state: S
 /**
  * Task ID of the turn currently running, if any.
  */
-activeTaskId: string | null, };
+activeTaskId: string | null, 
+/**
+ * Task ID of a turn waiting to be continued (for example for handoff replies), if any.
+ * The session takes no other turn meanwhile.
+ */
+waitingTaskId: string | null, 
+/**
+ * Settings stored with the session by the component that started it (for example
+ * Plenipo Liaison). Opaque to the runtime.
+ */
+metadata: Record<string, unknown>, };

@@ -45,3 +45,4 @@ export type { RuntimesUpdate } from "./generated/RuntimesUpdate";
 export type { SessionState } from "./generated/SessionState";
 export type { TurnOutcome } from "./generated/TurnOutcome";
 export type { TurnResult } from "./generated/TurnResult";
+export type { TurnStep } from "./generated/TurnStep";
