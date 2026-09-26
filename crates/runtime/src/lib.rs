@@ -27,7 +27,7 @@ pub use dto::{
 };
 pub use error::RuntimeError;
 pub use policy::{ExecutablePolicy, PolicyError};
-pub use profile::{LaunchProfile, LaunchSpec, ProfileRegistry};
+pub use profile::{LaunchProfile, LaunchSpec, ProfileRegistry, StdinFeed};
 pub use store::{ExecutionStore, MetadataStore};
 pub use supervisor::{EventSink, Supervisor, SupervisorConfig};
 
