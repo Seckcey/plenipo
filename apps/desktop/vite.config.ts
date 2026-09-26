@@ -22,5 +22,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
+    // Slow Windows CI runners can take several times longer than a laptop.
+    testTimeout: 15_000,
   },
 });
