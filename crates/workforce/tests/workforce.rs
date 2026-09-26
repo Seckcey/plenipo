@@ -321,7 +321,7 @@ impl H {
     async fn objective(&self, position: &str, objective: &str) -> String {
         let d = self
             .workforce
-            .give_objective(position, objective)
+            .give_objective(position, objective, None)
             .await
             .unwrap();
         d.turns.last().unwrap().task_id.clone()
@@ -811,7 +811,12 @@ async fn plan_orphan_prevention() {
     let coordinator = s.positions.iter().find(|p| p.id == o.coordinator).unwrap();
     assert_eq!(coordinator.status, PositionStatus::Vacant);
     assert_eq!(coordinator.history.retired, 1);
-    assert!(refusal(h.workforce.give_objective(&o.coordinator, "hello").await).contains("vacant"));
+    assert!(refusal(
+        h.workforce
+            .give_objective(&o.coordinator, "hello", None)
+            .await
+    )
+    .contains("vacant"));
 
     // Archiving the project archives its whole team and ends the QA assignment for it.
     let s = h.workforce.archive_project(&o.project).unwrap();
@@ -886,10 +891,10 @@ async fn requests_outside_the_team_are_refused_and_explained() {
 async fn objectives_go_only_to_staffed_persistent_positions() {
     let h = harness().await;
     let o = h.development();
-    assert!(refusal(h.workforce.give_objective(&o.developer, "x").await).contains("on-call"));
+    assert!(refusal(h.workforce.give_objective(&o.developer, "x", None).await).contains("on-call"));
     assert!(h
         .workforce
-        .give_objective("0f8fad5b-d9cb-469f-a165-70867728950e", "x")
+        .give_objective("0f8fad5b-d9cb-469f-a165-70867728950e", "x", None)
         .await
         .is_err());
     // The project's allowed runtimes bind its coordinator too.
@@ -897,7 +902,8 @@ async fn objectives_go_only_to_staffed_persistent_positions() {
         .update_project(&o.project, &project_input("Cloudline", &["codex"]))
         .unwrap();
     assert!(
-        refusal(h.workforce.give_objective(&o.coordinator, "x").await).contains("does not allow")
+        refusal(h.workforce.give_objective(&o.coordinator, "x", None).await)
+            .contains("does not allow")
     );
     // A member session cannot be continued from the Workers view.
     h.workforce
@@ -934,7 +940,7 @@ async fn a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on() {
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert!(
         h.text(&root)
-            .starts_with("Turn 2: received 1 reply: Codex: crashed"),
+            .starts_with("Turn 2: received 1 reply: Senior Developer (Codex): crashed"),
         "{}",
         h.text(&root)
     );
@@ -1088,7 +1094,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(spawned.payload["runtimeId"], "codex");
     assert_eq!(spawned.payload["routing"]["rank"], 1);
     assert!(
-        h.text(&first).contains("Codex: completed"),
+        h.text(&first).contains("(Codex): completed"),
         "{}",
         h.text(&first)
     );
@@ -1329,7 +1335,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
     h.workforce.vacate(&head).unwrap();
     h.workforce.fill(&head).unwrap();
-    let why = refusal(h.workforce.give_objective(&head, "Anything").await);
+    let why = refusal(h.workforce.give_objective(&head, "Anything", None).await);
     assert!(
         why.starts_with("Research Manager cannot start: No model can take Manager's work now"),
         "{why}"
@@ -1400,4 +1406,236 @@ async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() 
         why[0].contains("not marked as able to see images"),
         "{why:?}"
     );
+}
+
+// ---- Phase 8: leads hand work to full-time members (ADR-016) -------------------------------
+
+fn session_of(task: &Task) -> String {
+    task.metadata["sessionId"]
+        .as_str()
+        .expect("a session")
+        .to_owned()
+}
+
+impl H {
+    /// The first child of `parent`, once it exists.
+    async fn child_of(&self, parent: &str) -> Task {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            if let Some(child) = self.ledger.child_tasks(parent).unwrap().into_iter().next() {
+                return child;
+            }
+            assert!(Instant::now() < deadline, "no child task of {parent}");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    /// Wait until task `id` has an event of `event_type`.
+    async fn event_on(&self, id: &str, event_type: &str) {
+        let deadline = Instant::now() + WAIT;
+        while !self.types(id).iter().any(|t| t == event_type) {
+            assert!(
+                Instant::now() < deadline,
+                "task {id} never had {event_type}: {:#?}",
+                self.types(id)
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_manager_hands_an_objective_to_its_supervisor_who_does_it_in_its_own_conversation() {
+    let h = harness().await;
+    let o = h.development();
+    // The supervisor already has a conversation with the owner.
+    let first = h.objective(&o.coordinator, "Hello").await;
+    h.finished(&first).await;
+    let conversation = session_of(&h.task(&first));
+    // The manager's team names its supervisor, a full-time member.
+    let (_, team) = h.briefing(&o.head);
+    let supervisor = team
+        .iter()
+        .find(|(address, _, _)| address == "role:Cloudline Coordinator")
+        .expect("the supervisor is on the manager's team");
+    assert!(supervisor.2, "ready: {team:?}");
+    assert!(
+        supervisor.1.contains("leads the project Cloudline"),
+        "{team:?}"
+    );
+
+    let root = h
+        .objective(
+            &o.head,
+            "Ship it {{handoff:role:Cloudline Coordinator|Build it [handoff:role:Senior Developer]}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    assert_eq!(child.state, TaskState::Succeeded);
+    assert_eq!(
+        session_of(&child),
+        conversation,
+        "the supervisor's own conversation"
+    );
+    assert_eq!(child.metadata["workforce"]["fullTime"], true);
+    assert_eq!(child.metadata["workforce"]["positionId"], o.coordinator);
+    assert_eq!(child.project_id.as_deref(), Some(o.project.as_str()));
+    assert_eq!(
+        child.metadata["turn"], 2,
+        "its second task in that conversation"
+    );
+    assert!(
+        !h.types(&child.id).iter().any(|t| t == "org.worker_spawned"),
+        "no worker is brought in for a full-time member"
+    );
+    // The supervisor handed on to its developer, a worker brought in for the task.
+    let grandchild = h.last_child(&child.id);
+    assert_eq!(grandchild.metadata["workforce"]["positionId"], o.developer);
+    assert!(h
+        .types(&grandchild.id)
+        .iter()
+        .any(|t| t == "org.worker_spawned"));
+    // One workflow from the owner's objective down.
+    let correlation = h.task(&root).metadata["liaison"]["correlationId"].clone();
+    assert_eq!(child.metadata["liaison"]["correlationId"], correlation);
+    assert_eq!(grandchild.metadata["liaison"]["correlationId"], correlation);
+    // Replies are named by position.
+    assert!(
+        h.text(&child.id)
+            .starts_with("Turn 3: received 1 reply: Senior Developer (Codex): completed"),
+        "{}",
+        h.text(&child.id)
+    );
+    assert!(
+        h.text(&root).starts_with(
+            "Turn 2: received 1 reply: Cloudline Coordinator (Claude Code): completed: Turn 3"
+        ),
+        "{}",
+        h.text(&root)
+    );
+    // Its conversation stays open, and the owner's next objective continues it.
+    let next = h.objective(&o.coordinator, "And now?").await;
+    h.finished(&next).await;
+    assert_eq!(session_of(&h.task(&next)), conversation);
+    let session = h.ledger.runtime_session(&conversation).unwrap().unwrap();
+    assert_eq!(session.state, plenipo_ledger::RuntimeSessionState::Open);
+    assert_eq!(session.turn_count, 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_supervisor_takes_a_handed_over_objective_when_it_is_free() {
+    let h = harness().await;
+    let o = h.development();
+    let busy = h.objective(&o.coordinator, "A long job [delay:3000]").await;
+    let root = h
+        .objective(
+            &o.head,
+            "Ship it {{handoff:role:Cloudline Coordinator|Summarize the status}}",
+        )
+        .await;
+    let child = h.child_of(&root).await;
+    h.event_on(&child.id, "liaison.waiting_for_member").await;
+    assert_eq!(
+        h.task(&child.id).state,
+        TaskState::Queued,
+        "it waits for the supervisor"
+    );
+    assert_eq!(h.finished(&busy).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.task(&child.id);
+    assert_eq!(child.state, TaskState::Succeeded);
+    assert!(child.started_at >= h.task(&busy).completed_at);
+    assert_eq!(session_of(&child), session_of(&h.task(&busy)));
+    // The wait was recorded once, with the reason.
+    let waits: Vec<_> = h
+        .ledger
+        .events_for_task(&child.id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type == "liaison.waiting_for_member")
+        .collect();
+    assert_eq!(waits.len(), 1);
+    assert!(waits[0].payload["reason"]
+        .as_str()
+        .unwrap()
+        .starts_with("waiting for Cloudline Coordinator"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_handover_starts_a_supervisors_first_conversation_and_work_only_goes_down() {
+    let h = harness().await;
+    let o = h.development();
+    let agent = h.position(&o.coordinator).agent.unwrap().id;
+    let root = h
+        .objective(&o.head, "{{handoff:role:Cloudline Coordinator|Plan it}}")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    assert_eq!(child.state, TaskState::Succeeded);
+    assert_eq!(
+        session_of(&child),
+        agent,
+        "its first conversation is named after its agent"
+    );
+    let session = h.ledger.runtime_session(&agent).unwrap().unwrap();
+    assert_eq!(session.metadata["liaison"]["origin"], "member");
+    assert_eq!(session.metadata["workforce"]["positionId"], o.coordinator);
+    // The owner's next objective continues that conversation.
+    let next = h.objective(&o.coordinator, "Next").await;
+    h.finished(&next).await;
+    assert_eq!(session_of(&h.task(&next)), agent);
+
+    // Work only goes down: the supervisor cannot hand work to its manager.
+    let up = h
+        .objective(
+            &o.coordinator,
+            "Escalate [handoff:role:Development Manager]",
+        )
+        .await;
+    assert_eq!(h.finished(&up).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&up).unwrap().is_empty());
+    let why = h.rejections(&up);
+    assert!(
+        why[0].contains("\"Development Manager\" is not on your team"),
+        "{why:?}"
+    );
+
+    // A vacant supervisor cannot take work, and the manager is told why.
+    h.workforce.vacate(&o.coordinator).unwrap();
+    let root = h
+        .objective(&o.head, "{{handoff:role:Cloudline Coordinator|Plan it}}")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&root).unwrap().is_empty());
+    let why = h.rejections(&root);
+    assert!(why[0].contains("vacant"), "{why:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelling_a_handed_over_objective_stops_only_that_task() {
+    let h = harness().await;
+    let o = h.development();
+    let root = h
+        .objective(
+            &o.head,
+            "{{handoff:role:Cloudline Coordinator|A long job [delay:15000]}}",
+        )
+        .await;
+    let child = h.child_of(&root).await;
+    let deadline = Instant::now() + WAIT;
+    while h.task(&child.id).state != TaskState::Running {
+        assert!(Instant::now() < deadline, "the supervisor never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // The owner cancels the manager's objective: its wait ends, and the supervisor's task
+    // stops.
+    let manager_session = session_of(&h.task(&root));
+    h.rt.cancel_turn(&manager_session).await.unwrap();
+    assert_eq!(h.finished(&root).await.state, TaskState::Cancelled);
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Cancelled);
+    // The supervisor's conversation carries on with its next objective.
+    let next = h.objective(&o.coordinator, "Still there?").await;
+    assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
+    assert_eq!(session_of(&h.task(&next)), session_of(&child));
 }

@@ -723,6 +723,7 @@ async fn one_turn_per_session_and_closing() {
     let id = started.session.id.clone();
     let busy = h.rt.resume_session(&id, "second").await.unwrap_err();
     assert!(busy.to_string().contains("already running"), "{busy}");
+    assert!(matches!(busy, RuntimeError::SessionBusy(_)), "{busy:?}");
     let close = h.rt.close_session(&id).await.unwrap_err();
     assert!(close.to_string().contains("Cancel it first"), "{close}");
 
@@ -740,6 +741,40 @@ async fn one_turn_per_session_and_closing() {
     let overview = h.rt.overview().await.unwrap();
     assert_eq!(overview.sessions.len(), 1);
     assert_eq!(overview.sessions[0].state, SessionState::Closed);
+}
+
+/// A member of the organization keeps one conversation for all its tasks, so stopping one
+/// task must never stop another (Phase 8).
+#[tokio::test]
+async fn cancel_task_stops_only_the_named_turn() {
+    let h = harness();
+    let started =
+        h.rt.start_session("claude-code", "long [slow]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let deadline = Instant::now() + WAIT;
+    let task = loop {
+        let detail = h.rt.session(&id).await.unwrap();
+        if let Some(t) = detail.session.active_task_id.clone() {
+            break t;
+        }
+        assert!(Instant::now() < deadline, "the turn never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    let other =
+        h.rt.cancel_task(&id, "7c9e6679-7425-40de-944b-e07fc1f90ae7")
+            .await
+            .unwrap_err();
+    assert!(other.to_string().contains("is not the turn"), "{other}");
+    assert!(h.rt.session(&id).await.unwrap().turns[0].running);
+    h.rt.cancel_task(&id, &task).await.unwrap();
+    let detail = settled(&h.rt, &id, 1).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Cancelled);
+    assert!(
+        h.rt.cancel_task(&id, &task).await.is_err(),
+        "nothing left to stop"
+    );
 }
 
 #[tokio::test]

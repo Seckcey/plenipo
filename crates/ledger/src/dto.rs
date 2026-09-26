@@ -521,6 +521,17 @@ pub struct NewWorker {
     pub routing: Value,
 }
 
+/// The conversation that runs a task delegated to a full-time member of the organization
+/// (Phase 8, ADR-016): the member's own runtime session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChildConversation {
+    pub session_id: String,
+    pub runtime_id: String,
+    pub model: Option<String>,
+    /// The effort level (`None`: the runtime's default).
+    pub effort: Option<String>,
+}
+
 /// The runtime and model an automatic position's agent starts its conversation on, and why
 /// (Phase 6, ADR-011).
 #[derive(Debug, Clone, PartialEq)]

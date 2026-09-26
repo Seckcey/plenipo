@@ -726,17 +726,20 @@ pub async fn end_oversight(
 }
 
 /// Give a staffed persistent position's agent an objective. Core builds its instructions and
-/// chooses its session; the UI names only the position.
+/// chooses its session; the UI names only the position and, optionally, the project the
+/// objective is about (one its team runs, Phase 8).
 #[tauri::command]
 pub async fn give_objective(
     workforce: State<'_, Workforce>,
     position_id: String,
     objective: String,
+    project_id: Option<String>,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_id("position", &position_id)?;
+    validate_optional_id("project", project_id.as_deref())?;
     validate_objective(&objective)?;
     workforce
-        .give_objective(&position_id, &objective)
+        .give_objective(&position_id, &objective, project_id.as_deref())
         .await
         .map_err(workforce_error)
 }

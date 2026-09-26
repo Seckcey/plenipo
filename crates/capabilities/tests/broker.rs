@@ -304,7 +304,7 @@ impl H {
     async fn objective(&self, objective: &str) -> String {
         let d = self
             .workforce
-            .give_objective(&self.supervisor, objective)
+            .give_objective(&self.supervisor, objective, None)
             .await
             .unwrap();
         d.turns.last().unwrap().task_id.clone()

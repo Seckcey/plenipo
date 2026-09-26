@@ -9,6 +9,7 @@
 //! canvas shows, applies the owner's changes, gives persistent agents their objectives, and
 //! tells Liaison who each member's team is.
 
+mod conversation;
 pub mod directory;
 pub mod dto;
 pub mod error;

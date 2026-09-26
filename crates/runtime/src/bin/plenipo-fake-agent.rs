@@ -29,6 +29,10 @@
 //!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
 //!   objective (tool markers inside it are the worker's, not the requester's).
 //!
+//! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
+//! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
+//! Supervisor hand on to the Developer).
+//!
 //! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
 //!
 //! Plenipo's tools (Phase 7): the note Plenipo puts before a prompt is set aside, and markers
@@ -308,6 +312,9 @@ fn review(dest: &str, objective: &str) -> Value {
 /// Handoff blocks asked for by markers in the objective.
 fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
     let mut blocks = Vec::new();
+    let full = said;
+    let own = outside_braces(said);
+    let said = own.as_str();
     for spec in markers(said, "handoff") {
         let (head, rest) = spec
             .split_once('>')
@@ -345,7 +352,7 @@ fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
         request["capabilities"] = json!(["filesystem.read"]);
         blocks.push(handoff_block(&request));
     }
-    for spec in braced(said, "handoff") {
+    for spec in braced(full, "handoff") {
         if let Some((dest, objective)) = spec.split_once('|') {
             blocks.push(handoff_block(&json!({
                 "to": dest.trim(),
@@ -783,8 +790,10 @@ fn claude_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
+    // Markers inside a `{{handoff:…}}` are that request's worker's, not this one's.
+    let own = outside_braces(&said);
 
-    if said.contains("[malformed]") {
+    if own.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
         raw("this is not json");
         return 0;
@@ -823,31 +832,31 @@ fn claude_turn(args: &[String]) -> i32 {
         slow_ticks(|_| {});
         return 0;
     }
-    if said.contains("[crash]") {
+    if own.contains("[crash]") {
         delta("Starting");
         eprintln!("fatal: simulated crash");
         return 70;
     }
-    if said.contains("[usage-limit]") {
+    if own.contains("[usage-limit]") {
         return result_error("Claude AI usage limit reached|1760000000");
     }
-    if said.contains("[auth-expired]") {
+    if own.contains("[auth-expired]") {
         return result_error("OAuth token has expired. Please run /login");
     }
-    if said.contains("[offline]") {
+    if own.contains("[offline]") {
         return result_error("API Error: Connection error.");
     }
-    if said.contains("[slow]") {
+    if own.contains("[slow]") {
         slow_ticks(|i| delta(&format!("tick {i} ")));
         return 0;
     }
-    if said.contains("[unknown]") {
+    if own.contains("[unknown]") {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
-    delay(&said);
+    delay(&own);
     let calls = tool_calls(&said);
-    let list = said.contains("[tools-list]");
+    let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
         // Like the real CLI: only servers from --mcp-config, and only tools --allowedTools allows.
@@ -871,7 +880,7 @@ fn claude_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if said.contains("[big]") {
+    let mut text = if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)
@@ -963,7 +972,9 @@ fn codex_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
-    if said.contains("[malformed]") {
+    // Markers inside a `{{handoff:…}}` are that request's worker's, not this one's.
+    let own = outside_braces(&said);
+    if own.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");
         return 0;
@@ -977,32 +988,32 @@ fn codex_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "turn.failed", "error": { "message": message } }));
         1
     };
-    if said.contains("[crash]") {
+    if own.contains("[crash]") {
         eprintln!("thread 'main' panicked at codex-rs/core/src/fake.rs:1:1");
         return 101;
     }
-    if said.contains("[usage-limit]") {
+    if own.contains("[usage-limit]") {
         return failed("You've hit your usage limit. Upgrade to Pro or try again later.");
     }
-    if said.contains("[auth-expired]") {
+    if own.contains("[auth-expired]") {
         return failed(
             "unexpected status 401 Unauthorized: token expired, please run `codex login`",
         );
     }
-    if said.contains("[offline]") {
+    if own.contains("[offline]") {
         return failed("stream disconnected before completion: error sending request");
     }
-    if said.contains("[slow]") {
+    if own.contains("[slow]") {
         slow_ticks(|i| {
             out(&json!({ "type": "item.completed",
                          "item": { "id": format!("r{i}"), "type": "reasoning", "text": format!("tick {i}") } }))
         });
         return 0;
     }
-    if said.contains("[unknown]") {
+    if own.contains("[unknown]") {
         out(&json!({ "type": "session.configured", "model": "x" }));
     }
-    delay(&said);
+    delay(&own);
     out(&json!({ "type": "item.started",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": null, "status": "in_progress" } }));
@@ -1010,7 +1021,7 @@ fn codex_turn(args: &[String]) -> i32 {
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": 0, "status": "completed" } }));
     let calls = tool_calls(&said);
-    let list = said.contains("[tools-list]");
+    let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
         let server = codex_server(args);
@@ -1029,7 +1040,7 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if said.contains("[big]") {
+    let mut text = if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)

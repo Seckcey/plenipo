@@ -113,6 +113,20 @@ pub fn worker_identity(
 /// role's model policy picks one for each worker (so the instructions stay the same when the
 /// policy changes).
 pub fn member_label(view: &OrgView<'_>, tool: Option<&str>, m: &TeamMember<'_>) -> String {
+    if view.persistent(m.position) {
+        // A full-time member does the task in its own conversation, with its own team (ADR-016).
+        let what = if let Some(p) = view.coordinates(&m.position.id) {
+            format!(", leads the project {}", p.name)
+        } else if let Some(d) = view.heads(&m.position.id) {
+            format!(", runs the {} department", d.name)
+        } else {
+            String::new()
+        };
+        return format!(
+            "{}{what}; full-time, it works on the task with its own team",
+            role_name(view, m.position)
+        );
+    }
     let base = match tool {
         Some(tool) => format!("{} on {tool}", role_name(view, m.position)),
         None => role_name(view, m.position).to_owned(),

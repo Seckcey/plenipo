@@ -6,17 +6,17 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use plenipo_ledger::{
-    AgentRoute, Ledger, NewPosition, OversightKind, PositionPatch, PositionState, ProjectSettings,
-    RoleType,
+    Ledger, NewPosition, OversightKind, PositionPatch, ProjectSettings, RoleType,
 };
 use plenipo_liaison::Liaison;
 use plenipo_router::Router;
 use plenipo_runtime::agent::{
-    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, Effort, InstallState, SessionStart,
+    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
 };
 use serde_json::{json, Value};
 
-use crate::directory::{allowed, decide, WorkforceDirectory};
+use crate::conversation::{self, ConversationPlan};
+use crate::directory::WorkforceDirectory;
 use crate::dto::*;
 use crate::error::{Result, WorkforceError};
 use crate::snapshot::{self, Inputs};
@@ -453,15 +453,18 @@ impl Workforce {
 
     // ---- Objectives ---------------------------------------------------------------------
 
-    /// Give a staffed persistent position's agent an objective: its session continues (or
+    /// Give a staffed persistent position's agent an objective: its conversation continues (or
     /// starts), with its team named in its instructions. Workers it delegates to appear under
-    /// its team's positions and leave the workforce when they finish. An agent starting a
+    /// its team's positions and leave the workforce when they finish; full-time members it
+    /// hands work to do it in their own conversations (Phase 8). An agent starting a
     /// conversation gets the AI tool and model its position's role policy picks now (Phase 6);
-    /// it keeps them for the whole conversation.
+    /// it keeps them for the whole conversation. `project_id` names the project the objective
+    /// is about (for a VP or manager: one of the projects its team runs).
     pub async fn give_objective(
         &self,
         position_id: &str,
         objective: &str,
+        project_id: Option<&str>,
     ) -> Result<AgentSessionDetail> {
         // Routing needs to know which AI tools are ready: finish detecting them first.
         let runtime = &self.inner.runtime;
@@ -473,41 +476,54 @@ impl Workforce {
             runtime.refresh().await;
         }
         let this = self.clone();
-        let id = position_id.to_owned();
-        let plan = tokio::task::spawn_blocking(move || this.plan_objective(&id))
-            .await
-            .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+        let (id, project) = (position_id.to_owned(), project_id.map(str::to_owned));
+        let (plan, project_note) =
+            tokio::task::spawn_blocking(move || this.plan_objective(&id, project.as_deref()))
+                .await
+                .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+        let objective = match project_note {
+            Some(note) => format!("{}\n\n{note}", objective.trim()),
+            None => objective.to_owned(),
+        };
         let liaison = &self.inner.liaison;
-        let detail = match plan.session_id {
-            Some(session_id) => {
-                liaison
-                    .resume_member_session(&session_id, objective, plan.workforce, plan.project_id)
-                    .await?
-            }
-            None => {
-                liaison
-                    .start_member_session(
-                        SessionStart {
-                            id: None,
-                            runtime_id: plan.runtime_id,
-                            model: plan.model,
-                            effort: plan.effort,
-                            title: Some(plan.title),
-                            metadata: Value::Null,
-                        },
-                        objective,
-                        plan.workforce,
-                        plan.project_id,
-                    )
-                    .await?
-            }
+        let detail = if plan.existing {
+            liaison
+                .resume_member_session(
+                    &plan.session_id,
+                    &objective,
+                    plan.workforce,
+                    plan.project_id,
+                )
+                .await?
+        } else {
+            liaison
+                .start_member_session(
+                    SessionStart {
+                        id: Some(plan.session_id),
+                        runtime_id: plan.runtime_id,
+                        model: plan.model,
+                        effort: plan.effort,
+                        title: Some(plan.title),
+                        metadata: Value::Null,
+                    },
+                    &objective,
+                    plan.workforce,
+                    plan.project_id,
+                )
+                .await?
         };
         Ok(detail)
     }
 
-    /// Check that `position_id` can take an objective and find its agent's session — or, for a
-    /// new conversation, the AI tool and model to start it on.
-    fn plan_objective(&self, position_id: &str) -> Result<ObjectivePlan> {
+    /// Check that `position_id` can take an objective and find its agent's conversation — or,
+    /// for a new one, the AI tool and model to start it on. With `project_id`, the objective
+    /// belongs to that project, which must be run by the position's team; the second value is
+    /// the line that names it for the agent.
+    fn plan_objective(
+        &self,
+        position_id: &str,
+        project_id: Option<&str>,
+    ) -> Result<(ConversationPlan, Option<String>)> {
         let l = self.ledger();
         let records = l.org_records()?;
         let view = OrgView::new(&records);
@@ -516,113 +532,38 @@ impl Workforce {
                 "position {position_id}"
             )))
         })?;
-        if position.state != PositionState::Active {
-            return Err(invalid(format!("{} has been archived", position.title)));
-        }
-        if !view.persistent(position) {
-            return Err(invalid(format!(
-                "{} is an on-call position: it takes tasks handed to it by its team's lead",
-                position.title
-            )));
-        }
-        let agent = l.position_incumbent(position_id)?.ok_or_else(|| {
-            invalid(format!(
-                "{} is vacant; hire an agent into it first",
-                position.title
-            ))
-        })?;
-        let project = view.project_of(position_id);
-        let project_id = project.map(|p| p.id.clone());
         let planner = self.inner.router.planner()?;
-        let mut workforce = json!({
-            "positionId": position_id,
-            "agentId": agent.id,
-            "projectId": project_id,
-        });
-        let not_allowed = |runtime_id: &str| {
-            invalid(format!(
-                "{} does not allow the {runtime_id} AI tool; change the project's allowed AI \
-                 tools or the position's AI tool",
-                project.map_or("The project", |p| p.name.as_str())
-            ))
-        };
-        // Its conversation continues on the AI tool it started on.
-        let conversation = match agent.runtime_id.as_deref() {
-            Some(runtime_id) => l.agent_sessions(&agent.id)?.into_iter().find(|s| {
-                s.state == plenipo_ledger::RuntimeSessionState::Open && s.runtime == runtime_id
-            }),
-            None => None,
-        };
-        if let Some(session) = conversation {
-            if !allowed(project, &session.runtime) {
-                return Err(not_allowed(&session.runtime));
-            }
-            if let Some((t, limit)) = planner
-                .tool(&session.runtime)
-                .and_then(|t| t.limit.as_ref().map(|l| (t, l)))
-            {
+        let mut plan = conversation::plan(l, &planner, &view, position)?;
+        let mut note = None;
+        if let Some(project_id) = project_id {
+            let project = records
+                .projects
+                .iter()
+                .find(|p| p.id == project_id && p.status == "active")
+                .ok_or_else(|| invalid("that project does not exist or has been archived"))?;
+            let supervisor = project
+                .coordinator_position_id
+                .as_deref()
+                .and_then(|c| view.active(c));
+            let runs_it = supervisor
+                .is_some_and(|s| s.id == position.id || view.chain_contains(&s.id, &position.id));
+            if !runs_it {
                 return Err(invalid(format!(
-                    "{}'s conversation is on {}, which {}. Give the objective again then, or hire \
-                     a new agent into the position to use another model",
-                    position.title,
-                    t.info.label,
-                    plenipo_router::engine::limit_words(limit, planner.now)
+                    "{} is not run by {}'s team",
+                    project.name, position.title
                 )));
             }
-            return Ok(ObjectivePlan {
-                session_id: Some(session.id),
-                runtime_id: session.runtime,
-                model: agent.model.clone(),
-                // A resumed conversation keeps its session's effort.
-                effort: None,
-                title: position.title.clone(),
-                workforce,
-                project_id,
-            });
+            if plan.project_id.as_deref() != Some(project_id) {
+                plan.project_id = Some(project_id.to_owned());
+                note = Some(match supervisor.filter(|s| s.id != position.id) {
+                    Some(s) => format!(
+                        "Project: {} (its supervisor: role:{}).",
+                        project.name, s.title
+                    ),
+                    None => format!("Project: {}.", project.name),
+                });
+            }
         }
-        // A new conversation: the owner's fixed choice, or what the role's policy picks now.
-        let decision = decide(&planner, position, project, &[]);
-        let Some(choice) = decision.choice.clone() else {
-            return Err(invalid(format!(
-                "{} cannot start: {}",
-                position.title, decision.reason
-            )));
-        };
-        if !allowed(project, &choice.runtime_id) {
-            return Err(not_allowed(&choice.runtime_id));
-        }
-        let routing = json!(decision);
-        if position.runtime_id.is_none() {
-            l.route_agent(
-                &agent.id,
-                &AgentRoute {
-                    runtime_id: choice.runtime_id.clone(),
-                    runtime_provider: Some(choice.company.clone()).filter(|c| !c.is_empty()),
-                    model: choice.model.clone(),
-                    routing: routing.clone(),
-                },
-                PLENIPO,
-            )?;
-        }
-        workforce["routing"] = routing;
-        Ok(ObjectivePlan {
-            session_id: None,
-            runtime_id: choice.runtime_id,
-            model: choice.model,
-            effort: choice.effort,
-            title: position.title.clone(),
-            workforce,
-            project_id,
-        })
+        Ok((plan, note))
     }
-}
-
-struct ObjectivePlan {
-    session_id: Option<String>,
-    runtime_id: String,
-    model: Option<String>,
-    effort: Option<Effort>,
-    title: String,
-    workforce: Value,
-    project_id: Option<String>,
 }

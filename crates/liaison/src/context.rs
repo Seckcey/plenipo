@@ -199,8 +199,9 @@ fn protocol_section(out: &mut String, destinations: &[Destination], limits: Prom
          it is needed.\n"
     ));
     out.push_str(
-        "- The other worker sees only the objective and the context you pass, and like you it \
-         cannot change files or use the network in this phase.\n\n",
+        "- The other worker sees only the objective and the context you pass. It works with its \
+         own permissions from the owner's settings; in the same objective it uses the same \
+         project files you do.\n\n",
     );
     out.push_str(
         "Plenipo checks each request, starts the other worker, and sends you the replies in \
@@ -283,7 +284,10 @@ pub fn child_prompt(
         delimited(&mut out, "context", &nonce, &r.text);
     }
     if !packet.artifacts.is_empty() {
-        out.push_str("\n## Artifacts\nReferences only; you cannot open files in this phase.\n");
+        out.push_str(
+            "\n## Artifacts\nReferences only: open them with Plenipo's tools if your permissions \
+             allow.\n",
+        );
         for a in &packet.artifacts {
             let place = a.path.as_deref().or(a.uri.as_deref()).unwrap_or("?");
             let hash = a
