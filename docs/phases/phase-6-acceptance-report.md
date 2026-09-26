@@ -18,7 +18,7 @@ Screenshots: [Settings → AI models](evidence/phase-6/models-settings.png) ·
 [the reason in the Ledger's trail](evidence/phase-6/routing-trail.png) ·
 [a usage limit holding work back](evidence/phase-6/models-usage-limit.png).
 
-Test totals: **412 Rust** (Linux) · **118 frontend** · **35 end-to-end**
+Test totals: **414 Rust** (Linux) · **118 frontend** · **35 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5 + 5
 Phase 6).
 
@@ -32,9 +32,13 @@ to jobs can build on it later.
 **Model menus (added at the owner's review).** Wherever a model is chosen — adding one to your
 list, hiring a fixed position, a new department's or project's lead, a position's **Edit title or
 AI model**, and Workers → Advanced — the model is picked from a menu of the AI tool's models: its
-default first, then the short names its CLI documents (Claude Code: opus, sonnet, haiku; Codex
-has none), your models, and the models seen in use, with **Type another name…** as a last resort.
-Short names are offered, never added to your list (ADR-011 §16).
+default first, then the models its CLI offers itself (Claude Code 2.1.283: fable, opus, sonnet,
+haiku; Codex 0.157.1: gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra,
+gpt-5.6-luna, gpt-5.5), your models, and the models seen in use, with **Type another name…** as a
+last resort. Each listed model carries the effort levels it accepts, and Settings offers only
+those (Haiku has no effort setting; Codex's levels are low to ultra — none of its models takes
+"minimal", which an earlier build offered). Listed models are offered, never added to your list
+(ADR-011 §15–16).
 
 On screen, model policies are "model choices", the preferred model the "first choice", fallbacks
 "backups", a position that follows its role's policy "Automatic", and providers "AI companies"
@@ -160,7 +164,7 @@ trail text. All Phase 5 tests pass with positions routed by the new engine.
 | ------------------------------------------------------------------------- | ---------------------------------------------- |
 | `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 118 frontend tests                      |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                           |
-| `cargo test --workspace`                                                  | Pass — 412 tests                               |
+| `cargo test --workspace`                                                  | Pass — 414 tests                               |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 35 of 35, including the 5 Phase 6 tests |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)    |
 | GitHub CI on the PR                                                       | Linked from the PR                             |

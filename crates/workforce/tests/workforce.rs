@@ -1249,11 +1249,11 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(p.agent.as_ref().unwrap().runtime_id, None, "not routed yet");
     assert_eq!(p.status, PositionStatus::Idle);
     h.prefer("Manager", &["Codex (default model)"]);
-    // The Manager runs Codex's default model at minimal effort.
+    // The Manager runs Codex's default model at low effort.
     let mut policy = h.policy("Manager");
     policy
         .efforts
-        .insert(h.model("Codex (default model)"), Effort::Minimal);
+        .insert(h.model("Codex (default model)"), Effort::Low);
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
 
     let first = h.objective(&head, "Plan the quarter").await;
@@ -1262,13 +1262,13 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(turn.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&turn),
-        "Codex (default model) is Manager's first choice and is ready. It runs at minimal \
+        "Codex (default model) is Manager's first choice and is ready. It runs at low \
          effort (Manager's setting for it)."
     );
     let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(
         h.rt.session(&conversation).await.unwrap().session.effort,
-        Some(Effort::Minimal)
+        Some(Effort::Low)
     );
     let routed = h
         .ledger

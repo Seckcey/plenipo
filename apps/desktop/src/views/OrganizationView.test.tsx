@@ -242,7 +242,7 @@ describe("Organization view", () => {
     const tool = within(form).getByRole("combobox", { name: "AI tool" });
     expect(tool).toHaveDisplayValue("Automatic (the role's model choices)");
     await user.selectOptions(tool, "codex");
-    // Codex has no short names or models seen in use: type one.
+    // A name Codex does not list: type it.
     await user.selectOptions(
       within(form).getByRole("combobox", { name: "Model" }),
       "Type another name…",
@@ -271,7 +271,7 @@ describe("Organization view", () => {
       within(dialog).getByRole("combobox", { name: /AI tool/ }),
       "claude-code",
     );
-    // Claude Code's short names, your models, and the models seen in use.
+    // Claude Code's own models, your models, and the models seen in use.
     const model = within(dialog).getByRole("combobox", { name: "Model" });
     await within(model).findByRole("option", { name: "sonnet" });
     expect(
@@ -280,6 +280,7 @@ describe("Organization view", () => {
         .map((o) => o.textContent),
     ).toEqual([
       "The AI tool's default",
+      "fable",
       "opus",
       "sonnet",
       "haiku",

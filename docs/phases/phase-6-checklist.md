@@ -56,9 +56,10 @@ coordinators.
   `--effort`, Codex `model_reasoning_effort`), the reason says it, and a conversation keeps it
   (Ledger schema 5).
 - **Model menus** (added at the owner's review, ADR-011 §16): wherever a model is chosen, a menu
-  of the AI tool's models — its default, the short names its CLI documents (Claude Code: opus,
-  sonnet, haiku), your models, and models seen in use — with typing a name as a last resort.
-  Short names are offered, never added to your list.
+  of the AI tool's models — its default, the models its CLI offers (Claude Code: fable, opus,
+  sonnet, haiku; Codex: GPT-6-Astra, GPT-6-Sol, GPT-6-Luna and its older listed models), your
+  models, and models seen in use — with typing a name as a last resort. They are offered, never
+  added to your list, and each carries the effort levels it accepts.
 - **Template defaults** (plan examples): Designer needs a model that sees and makes images;
   Code Reviewer and Security Auditor prefer another AI company; Documentation Writer prefers
   economical models; Senior Developer prefers premium ones. Seeded once per template role; the
@@ -117,12 +118,14 @@ Code Reviewer). Positions created before Phase 6 keep the AI tool you gave them 
    the model its next worker would get and why (the Designer shows "None right now": no model is
    marked as able to see and make images).
 3. **Add a model** → AI tool _Claude Code_ → **Model**: the menu lists _The AI tool's default
-   (already in your list)_, then Claude Code's short names (_opus_, _sonnet_, _haiku_) and any
-   models seen in use. Choose _sonnet_ (your name for it fills in as _Sonnet_), Effort _Medium_ →
-   **Add model**. The table shows its effort. (For Codex, pick a model seen in use, or **Type
-   another name…** with any name your Codex accepts.) The same menu appears wherever you choose a
-   model: hiring a fixed position, a new department's or project's lead, **Edit title or AI
-   model**, and Workers → Advanced.
+   (already in your list)_, then Claude Code's models (_fable_, _opus_, _sonnet_, _haiku_) and
+   any models seen in use. Choose _sonnet_ (your name for it fills in as _Sonnet_), Effort
+   _Medium_ → **Add model**. The table shows its effort. Try **Add a model** → _Codex_ too: its
+   menu lists _gpt-6-astra_, _gpt-6-sol_, _gpt-6-luna_ and Codex's older models, and Effort offers
+   only the levels the chosen model takes (up to _Ultra_ for GPT-6-Sol; _haiku_ has none). The
+   same menu appears wherever you choose a model: hiring a fixed position, a new department's or
+   project's lead, **Edit title or AI model**, and Workers → Advanced. **Type another name…** is
+   there for anything not listed.
 4. **Organization** → select _Website Supervisor_ → **Hire into team** → Role _Senior Developer_,
    Title _Backend Developer_, AI tool **Automatic** → **Hire**. Its node reads "Auto · Claude Code".
 5. **Settings** → **AI models** → _Senior Developer_ → **Change** → add _Codex (default model)_ →

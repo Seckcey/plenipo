@@ -15,11 +15,29 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnResult,
+    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
+    TurnResult,
 };
 use crate::dto::TokenUsage;
 
 pub const ID: &str = "codex";
+/// Effort levels of Codex's models: up to extra high, max, or ultra.
+const XHIGH: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::XHigh];
+const MAX: &[Effort] = &[
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::XHigh,
+    Effort::Max,
+];
+const ULTRA: &[Effort] = &[
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::XHigh,
+    Effort::Max,
+    Effort::Ultra,
+];
 const LABEL: &str = "Codex";
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -64,16 +82,20 @@ impl RuntimeAdapter for Codex {
                            write files or use the network until Plenipo Guard grants \
                            capabilities (Phase 7)."
                 .into(),
-            // `codex exec -c model_reasoning_effort=<level>`.
-            effort_levels: vec![
-                Effort::Minimal,
-                Effort::Low,
-                Effort::Medium,
-                Effort::High,
-                Effort::XHigh,
+            // `codex exec -c model_reasoning_effort=<level>`: every level one of its models
+            // accepts. Codex passes any value on, so Plenipo keeps to these.
+            effort_levels: ULTRA.to_vec(),
+            // The models Codex's own model picker lists (Codex 0.157.1), in its order, with the
+            // effort levels each accepts.
+            known_models: vec![
+                KnownModel::new("gpt-6-astra", "GPT-6-Astra", ULTRA),
+                KnownModel::new("gpt-6-sol", "GPT-6-Sol", ULTRA),
+                KnownModel::new("gpt-6-luna", "GPT-6-Luna", MAX),
+                KnownModel::new("gpt-5.6-sol", "GPT-5.6-Sol", ULTRA),
+                KnownModel::new("gpt-5.6-terra", "GPT-5.6-Terra", ULTRA),
+                KnownModel::new("gpt-5.6-luna", "GPT-5.6-Luna", MAX),
+                KnownModel::new("gpt-5.5", "GPT-5.5", XHIGH),
             ],
-            // Codex documents no short model names.
-            model_aliases: Vec::new(),
         }
     }
 
@@ -512,7 +534,7 @@ mod tests {
         let resume = Codex.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "t-1".into() },
             model: Some("gpt-x".into()),
-            effort: Some(Effort::Minimal),
+            effort: Some(Effort::Ultra),
             billing_confirmed: true,
         });
         assert_eq!(
@@ -526,12 +548,33 @@ mod tests {
                 "--model",
                 "gpt-x",
                 "-c",
-                "model_reasoning_effort=minimal",
+                "model_reasoning_effort=ultra",
                 "resume",
                 "t-1"
             ]
         );
         assert!(!Codex.preassigns_session_id());
+    }
+
+    #[test]
+    fn known_models_are_valid_names_within_codex_effort_levels() {
+        let caps = Codex.capabilities();
+        assert_eq!(caps.known_models[0].name, "gpt-6-astra");
+        for m in &caps.known_models {
+            assert_eq!(
+                crate::agent::service::validate_model(&m.name).unwrap(),
+                m.name
+            );
+            assert!(m
+                .effort_levels
+                .iter()
+                .all(|e| caps.effort_levels.contains(e)));
+        }
+        // No Codex model takes "minimal"; only some take "ultra".
+        assert!(!caps.effort_levels.contains(&Effort::Minimal));
+        assert!(!caps
+            .effort_levels_for(Some("gpt-6-luna"))
+            .contains(&Effort::Ultra));
     }
 
     #[test]

@@ -161,7 +161,7 @@ function ModelDialog({
   );
   const [name, setName] = useState(existing?.name ?? add.name ?? "");
   const [label, setLabel] = useState(existing?.label ?? add.label ?? "");
-  // Until the owner names it, the model's name follows the one chosen ("sonnet" → "Sonnet").
+  // Until the owner names it, the model's name follows the one chosen ("gpt-6-sol" → "GPT-6-Sol").
   const [labelEdited, setLabelEdited] = useState(existing !== null);
   const [features, setFeatures] = useState<ModelFeature[]>(
     existing?.features ?? add.features ?? [],
@@ -173,7 +173,7 @@ function ModelDialog({
   const [effort, setEffort] = useState<Effort | "">(existing?.effort ?? add.effort ?? "");
   const { pending, error, run } = useChange(onApply);
   const builtIn = existing?.builtIn ?? false;
-  const levels = effortLevels(snapshot, runtimeId);
+  const levels = effortLevels(snapshot, runtimeId, builtIn ? null : name.trim());
   // A level the chosen AI tool does not accept falls back to its default.
   const chosenEffort = effort !== "" && levels.includes(effort) ? effort : "";
 
@@ -181,8 +181,7 @@ function ModelDialog({
   const chooseName = (next: string) => {
     setName(next);
     if (labelEdited) return;
-    const alias = tool?.modelAliases.includes(next) ?? false;
-    setLabel(alias ? next.charAt(0).toUpperCase() + next.slice(1) : next);
+    setLabel(tool?.knownModels.find((k) => k.name === next)?.label ?? next);
   };
   // A model already in your list (other than this one) cannot be added again.
   const inYourList = (n: string) =>

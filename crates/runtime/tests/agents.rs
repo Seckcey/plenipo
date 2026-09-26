@@ -1288,7 +1288,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
                 id: Some(id.into()),
                 runtime_id: "codex".into(),
                 model: None,
-                effort: Some(Effort::Minimal),
+                effort: Some(Effort::Ultra),
                 title: Some("Chosen title\nsecond line".into()),
                 metadata: serde_json::json!({ "origin": "test" }),
             },
@@ -1306,7 +1306,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
         .unwrap();
     assert_eq!(started.session.id, id);
     assert_eq!(started.session.title, "Chosen title");
-    assert_eq!(started.session.effort, Some(Effort::Minimal));
+    assert_eq!(started.session.effort, Some(Effort::Ultra));
     assert_eq!(started.session.metadata["origin"], "test");
     let detail = settled(&h.rt, id, 1).await;
     let turn = &detail.turns[0];
@@ -1316,7 +1316,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
         Some("Turn 1: you said \"the prompt that is sent\". Previous: None.")
     );
     // Every turn of the conversation runs at its effort level.
-    let effort = "model_reasoning_effort=minimal".to_owned();
+    let effort = "model_reasoning_effort=ultra".to_owned();
     assert!(h.last_args().contains(&effort), "{:?}", h.last_args());
     h.rt.resume_session(id, "and again").await.unwrap();
     settled(&h.rt, id, 2).await;
@@ -1361,10 +1361,10 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
             },
         ),
         (
-            // Codex has no "max" effort level.
+            // No Codex model has a "minimal" effort level.
             SessionStart {
                 runtime_id: "codex".into(),
-                effort: Some(Effort::Max),
+                effort: Some(Effort::Minimal),
                 ..SessionStart::default()
             },
             TurnInput::owner("x"),

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use plenipo_runtime::agent::{AuthState, Effort};
+use plenipo_runtime::agent::{AuthState, Effort, KnownModel};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -199,9 +199,9 @@ pub struct ToolInfo {
     pub available: bool,
     /// Effort levels the AI tool accepts, lowest first (empty: none).
     pub effort_levels: Vec<Effort>,
-    /// Short model names the AI tool itself accepts (offered as choices, never assumed to be in
-    /// the owner's list).
-    pub model_aliases: Vec<String>,
+    /// Models the AI tool itself offers (offered as choices, never assumed to be in the owner's
+    /// list).
+    pub known_models: Vec<KnownModel>,
 }
 
 /// What happened to one model the router considered.

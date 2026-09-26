@@ -266,9 +266,10 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             Some(why) => note(CandidateVerdict::Skipped, why),
             None => {
                 note(CandidateVerdict::Chosen, String::new());
-                // The role's effort for this model, else the model's; only a level the AI tool
-                // accepts.
-                let accepted = |e: &Effort| info.capabilities.effort_levels.contains(e);
+                // The role's effort for this model, else the model's; only a level the model (or,
+                // for a model the AI tool does not list, the AI tool) accepts.
+                let levels = info.capabilities.effort_levels_for(m.name.as_deref());
+                let accepted = |e: &Effort| levels.contains(e);
                 let effort = policy
                     .efforts
                     .get(&m.id)
@@ -406,7 +407,7 @@ fn fix_sentence(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenipo_runtime::agent::{AuthStatus, Installation, RuntimeCapabilities};
+    use plenipo_runtime::agent::{AuthStatus, Installation, KnownModel, RuntimeCapabilities};
 
     const NOW: u64 = 1_760_000_000_000;
 
@@ -441,7 +442,7 @@ mod tests {
                     billing_checked_per_turn: false,
                     tool_posture: String::new(),
                     effort_levels: vec![Effort::Low, Effort::High],
-                    model_aliases: Vec::new(),
+                    known_models: vec![KnownModel::new("sonnet", "Sonnet", &[])],
                 },
                 install_hint: String::new(),
                 login_hint: String::new(),
@@ -578,6 +579,12 @@ mod tests {
             decide(&w, &policy).choice.unwrap().effort,
             Some(Effort::Low)
         );
+        // Nor one the model has no setting for (the AI tool lists Sonnet without effort levels).
+        let mut sonnet = prefer(&["sonnet"]);
+        sonnet.efforts.insert("sonnet".into(), Effort::High);
+        let d = decide(&w, &sonnet);
+        assert_eq!(d.choice.as_ref().unwrap().effort, None);
+        assert!(!d.reason.contains("effort"), "{}", d.reason);
     }
 
     #[test]

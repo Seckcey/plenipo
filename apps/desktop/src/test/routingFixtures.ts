@@ -1,9 +1,12 @@
 // Router DTO fixtures for tests.
-import type { RoleInfo, RolePolicy, RoutingSnapshot, ToolInfo } from "@plenipo/types";
+import type { Effort, RoleInfo, RolePolicy, RoutingSnapshot, ToolInfo } from "@plenipo/types";
 
 import { ROLES } from "./orgFixtures";
 
 const T0 = Date.UTC(2026, 8, 26, 15, 0, 0);
+
+const MAX: Effort[] = ["low", "medium", "high", "xhigh", "max"];
+const ULTRA: Effort[] = [...MAX, "ultra"];
 
 export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo => ({
   runtimeId,
@@ -15,11 +18,19 @@ export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo
   status: "Ready: signed in with a subscription",
   usageLimit: null,
   available: true,
-  effortLevels:
+  effortLevels: runtimeId === "codex" ? ULTRA : MAX,
+  knownModels:
     runtimeId === "codex"
-      ? ["minimal", "low", "medium", "high", "xhigh"]
-      : ["low", "medium", "high", "xhigh", "max"],
-  modelAliases: runtimeId === "codex" ? [] : ["opus", "sonnet", "haiku"],
+      ? [
+          { name: "gpt-6-sol", label: "GPT-6-Sol", effortLevels: ULTRA },
+          { name: "gpt-6-luna", label: "GPT-6-Luna", effortLevels: MAX },
+        ]
+      : [
+          { name: "fable", label: "Fable", effortLevels: MAX },
+          { name: "opus", label: "Opus", effortLevels: MAX },
+          { name: "sonnet", label: "Sonnet", effortLevels: MAX },
+          { name: "haiku", label: "Haiku", effortLevels: [] },
+        ],
   ...patch,
 });
 

@@ -15,12 +15,20 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome,
-    TurnResult,
+    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
+    TurnOutcome, TurnResult,
 };
 use crate::dto::TokenUsage;
 
 pub const ID: &str = "claude-code";
+/// `claude --effort`'s levels, which its current Fable, Opus, and Sonnet models all accept.
+const FRONTIER_EFFORT: &[Effort] = &[
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::XHigh,
+    Effort::Max,
+];
 const LABEL: &str = "Claude Code";
 
 /// Credential source Claude Code reports when it uses a subscription (OAuth) sign-in.
@@ -57,15 +65,16 @@ impl RuntimeAdapter for ClaudeCode {
                            Plenipo Guard grants capabilities (Phase 7)."
                 .into(),
             // `claude --effort <level>`.
-            effort_levels: vec![
-                Effort::Low,
-                Effort::Medium,
-                Effort::High,
-                Effort::XHigh,
-                Effort::Max,
+            effort_levels: FRONTIER_EFFORT.to_vec(),
+            // The model families `claude --model` accepts as aliases, each for its latest model
+            // (Claude Code 2.1.283: Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5; Haiku has no effort
+            // setting).
+            known_models: vec![
+                KnownModel::new("fable", "Fable", FRONTIER_EFFORT),
+                KnownModel::new("opus", "Opus", FRONTIER_EFFORT),
+                KnownModel::new("sonnet", "Sonnet", FRONTIER_EFFORT),
+                KnownModel::new("haiku", "Haiku", &[]),
             ],
-            // Aliases in `claude --model`'s own list (Claude Code 2.1.283).
-            model_aliases: ["opus", "sonnet", "haiku"].map(String::from).to_vec(),
         }
     }
 
@@ -529,12 +538,25 @@ mod tests {
     }
 
     #[test]
-    fn short_model_names_pass_model_validation() {
-        let aliases = ClaudeCode.capabilities().model_aliases;
-        assert_eq!(aliases, ["opus", "sonnet", "haiku"]);
-        for a in &aliases {
-            assert_eq!(&crate::agent::service::validate_model(a).unwrap(), a);
+    fn known_models_are_valid_names_with_their_own_effort_levels() {
+        let caps = ClaudeCode.capabilities();
+        let names: Vec<&str> = caps.known_models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["fable", "opus", "sonnet", "haiku"]);
+        for m in &caps.known_models {
+            assert_eq!(
+                crate::agent::service::validate_model(&m.name).unwrap(),
+                m.name
+            );
+            assert!(m
+                .effort_levels
+                .iter()
+                .all(|e| caps.effort_levels.contains(e)));
         }
+        assert_eq!(caps.effort_levels_for(Some("fable")), FRONTIER_EFFORT);
+        assert!(caps.effort_levels_for(Some("haiku")).is_empty());
+        // A model it does not know, or its default model: the CLI's own levels.
+        assert_eq!(caps.effort_levels_for(Some("claude-x")), FRONTIER_EFFORT);
+        assert_eq!(caps.effort_levels_for(None), FRONTIER_EFFORT);
     }
 
     #[test]

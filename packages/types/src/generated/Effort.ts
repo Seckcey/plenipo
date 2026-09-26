@@ -4,4 +4,4 @@
  * How much reasoning a model spends on a turn. Each runtime accepts some of these levels
  * ([`RuntimeCapabilities::effort_levels`]); `None` elsewhere means the runtime's own default.
  */
-export type Effort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type Effort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";

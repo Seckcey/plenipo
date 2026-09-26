@@ -107,7 +107,7 @@ impl Planner {
         // The model's own effort setting, when it is in the owner's list.
         let effort = listed.and_then(|m| m.effort).filter(|e| {
             self.tool(runtime_id)
-                .is_some_and(|t| t.info.capabilities.effort_levels.contains(e))
+                .is_some_and(|t| t.info.capabilities.effort_levels_for(model).contains(e))
         });
         let mut reason = format!("You set {title} to always use {label}.");
         if let Some(e) = effort {
@@ -320,7 +320,7 @@ impl Router {
                     usage_limit: t.limit.clone(),
                     available: not_ready.is_none() && t.limit.is_none(),
                     effort_levels: t.info.capabilities.effort_levels.clone(),
-                    model_aliases: t.info.capabilities.model_aliases.clone(),
+                    known_models: t.info.capabilities.known_models.clone(),
                 }
             })
             .collect();
@@ -444,7 +444,7 @@ mod tests {
     use super::*;
     use plenipo_ledger::{ExecutionRow, NewEvent, RoleTemplate, RoleType};
     use plenipo_runtime::agent::{
-        AuthState, AuthStatus, Effort, InstallState, Installation, RuntimeCapabilities,
+        AuthState, AuthStatus, Effort, InstallState, Installation, KnownModel, RuntimeCapabilities,
     };
 
     fn info(id: &str, label: &str, company: &str, ready: bool) -> AgentRuntimeInfo {
@@ -476,7 +476,7 @@ mod tests {
                 billing_checked_per_turn: false,
                 tool_posture: String::new(),
                 effort_levels: vec![Effort::Low, Effort::High],
-                model_aliases: vec!["quick".into()],
+                known_models: vec![KnownModel::new("quick", "Quick", &[Effort::Low])],
             },
             install_hint: String::new(),
             login_hint: String::new(),
@@ -543,8 +543,8 @@ mod tests {
             ["Alpha Code (default model)", "Beta CLI (default model)"]
         );
         assert!(s.models.iter().all(|m| m.built_in && m.name.is_none()));
-        // Each AI tool's short names are offered as choices; none is added to the list.
-        assert_eq!(s.tools[0].model_aliases, ["quick"]);
+        // Each AI tool's own models are offered as choices; none is added to the list.
+        assert_eq!(s.tools[0].known_models[0].name, "quick");
         let seeded = ledger.recent_events(1).unwrap().remove(0);
         assert_eq!(seeded.event_type, "router.models_added");
         // A second router on the same Ledger adds nothing.

@@ -324,7 +324,7 @@ function EffortPicker({
   onChange: (effort: Effort | undefined) => void;
 }) {
   const model = snapshot.models.find((m) => m.id === modelId);
-  const levels = model ? effortLevels(snapshot, model.runtimeId) : [];
+  const levels = model ? effortLevels(snapshot, model.runtimeId, model.name) : [];
   if (!model || levels.length === 0) return null;
   const own = model.effort ? EFFORT_LABEL[model.effort].toLowerCase() : "the AI tool's default";
   return (

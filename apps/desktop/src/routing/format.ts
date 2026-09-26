@@ -27,11 +27,21 @@ export const EFFORT_LABEL: Record<Effort, string> = {
   high: "High",
   xhigh: "Extra high",
   max: "Max",
+  ultra: "Ultra",
 };
 
-/** The effort levels an AI tool accepts (none: it has no effort setting). */
-export function effortLevels(snapshot: RoutingSnapshot, runtimeId: string): Effort[] {
-  return snapshot.tools.find((t) => t.runtimeId === runtimeId)?.effortLevels ?? [];
+/**
+ * The effort levels a model accepts: a model the AI tool lists has its own (none: no effort
+ * setting); any other model, or the AI tool's default, has the AI tool's.
+ */
+export function effortLevels(
+  snapshot: RoutingSnapshot,
+  runtimeId: string,
+  name?: string | null,
+): Effort[] {
+  const tool = snapshot.tools.find((t) => t.runtimeId === runtimeId);
+  const known = name ? tool?.knownModels.find((k) => k.name === name) : undefined;
+  return known?.effortLevels ?? tool?.effortLevels ?? [];
 }
 
 /** One group of model names an AI tool can run, in the order the model menus show them. */
@@ -41,9 +51,9 @@ export interface ModelGroup {
 }
 
 /**
- * The model names to offer for `runtimeId`, after "the AI tool's default": the tool's own short
- * names, then (with `yours`) the owner's models, then the names it reported running. Each name
- * appears once.
+ * The model names to offer for `runtimeId`, after "the AI tool's default": the models the tool
+ * itself offers, then (with `yours`) the owner's models, then the names it reported running. Each
+ * name appears once.
  */
 export function modelGroups(
   snapshot: RoutingSnapshot | null,
@@ -59,8 +69,8 @@ export function modelGroups(
   });
   const groups = [
     group(
-      `${tool?.label ?? "The AI tool"}'s short names`,
-      (tool?.modelAliases ?? []).map((name) => ({ name, label: name })),
+      `${tool?.label ?? "The AI tool"}'s models`,
+      (tool?.knownModels ?? []).map((k) => ({ name: k.name, label: k.name })),
     ),
     group(
       "Your models",

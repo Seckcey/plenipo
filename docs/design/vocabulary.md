@@ -72,7 +72,8 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | context size (tokens are pieces of words)    | context window                           |
 | why this model                               | routing explanation                      |
 | effort (how hard the model thinks)           | reasoning effort, thinking budget        |
-| short names (of an AI tool's models)         | model aliases                            |
+| the AI tool's models (e.g. Claude Code's)    | known models, model aliases, presets     |
+| Ultra (effort)                               | ultra                                    |
 | Extra high (effort)                          | xhigh                                    |
 
 ## Where technical words may stay

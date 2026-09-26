@@ -7,7 +7,7 @@ import { modelGroups } from "../../routing/format";
 const TYPE_A_NAME = "_type";
 
 export interface ModelPickerProps {
-  /** The model settings (short names, your models, models seen in use); `null` while loading. */
+  /** The model settings (the AI tool's models, yours, those seen in use); `null` while loading. */
   routing: RoutingSnapshot | null;
   runtimeId: string;
   /** The model name the AI tool is given; "" for the AI tool's default. */
@@ -22,7 +22,7 @@ export interface ModelPickerProps {
 }
 
 /**
- * Choose the model an AI tool runs: its default, its own short names, your models, the models
+ * Choose the model an AI tool runs: its default, the models it offers itself, your models, the models
  * it reported running, or — as a last resort — a name typed by hand. Starts over when the AI tool
  * changes.
  */

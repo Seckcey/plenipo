@@ -94,11 +94,12 @@ describe("Settings → AI models", () => {
         .map((o) => o.textContent),
     ).toEqual([
       "Its effort (the AI tool's default)",
-      "Minimal effort",
       "Low effort",
       "Medium effort",
       "High effort",
       "Extra high effort",
+      "Max effort",
+      "Ultra effort",
     ]);
     await user.selectOptions(codexEffort, "High effort");
     await user.click(within(form).getByRole("checkbox", { name: "Sees images" }));
@@ -190,14 +191,15 @@ describe("Settings → AI models", () => {
     await user.click(await screen.findByRole("button", { name: "Add a model" }));
     const dialog = screen.getByRole("dialog", { name: "Add a model" });
     const model = within(dialog).getByRole("combobox", { name: "Model" });
-    // The AI tool's default first, then Claude Code's short names and the models seen in use;
-    // ones already in your list are shown but not offered.
-    expect(
-      within(model)
+    const options = (select: HTMLElement) =>
+      within(select)
         .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual([
+        .map((o) => o.textContent);
+    // The AI tool's default first, then Claude Code's own models and the models seen in use;
+    // ones already in your list are shown but not offered.
+    expect(options(model)).toEqual([
       "The AI tool's default (already in your list)",
+      "fable",
       "opus (already in your list)",
       "sonnet",
       "haiku",
@@ -208,32 +210,58 @@ describe("Settings → AI models", () => {
       within(model)
         .getAllByRole("group")
         .map((g) => g.getAttribute("label")),
-    ).toEqual(["Claude Code's short names", "Seen in use"]);
+    ).toEqual(["Claude Code's models", "Seen in use"]);
     expect(
       within(model).getByRole("option", { name: "opus (already in your list)" }),
     ).toBeDisabled();
-    // Choosing a short name also names the model, until you name it yourself.
-    await user.selectOptions(model, "sonnet");
-    const label = within(dialog).getByRole("textbox", { name: "Your name for it" });
-    expect(label).toHaveValue("Sonnet");
+    // Choosing one also names the model, until you name it yourself.
+    await user.selectOptions(model, "fable");
+    expect(within(dialog).getByRole("textbox", { name: "Your name for it" })).toHaveValue("Fable");
     expect(
       within(dialog).queryByRole("textbox", { name: /Model name the AI tool accepts/ }),
     ).toBeNull();
+    // Effort offers the levels the chosen model takes; Haiku has no effort setting.
+    const effort = within(dialog).getByRole("combobox", { name: /^Effort/ });
+    await user.selectOptions(effort, "Max");
+    await user.selectOptions(model, "haiku");
+    expect(effort).toBeDisabled();
+    expect(effort).toHaveDisplayValue("The AI tool's default");
+    await user.selectOptions(model, "fable");
+    await user.selectOptions(effort, "Max");
     await user.click(within(dialog).getByRole("button", { name: "Add model" }));
     expect(api.saveModel).toHaveBeenLastCalledWith(
-      expect.objectContaining({ runtimeId: "claude-code", name: "sonnet", label: "Sonnet" }),
+      expect.objectContaining({
+        runtimeId: "claude-code",
+        name: "fable",
+        label: "Fable",
+        effort: "max",
+      }),
     );
 
-    // As a last resort, a name typed by hand; Codex offers no short names.
+    // Codex's own models; typing a name remains as a last resort.
     await user.click(await screen.findByRole("button", { name: "Add a model" }));
     const next = screen.getByRole("dialog", { name: "Add a model" });
     await user.selectOptions(within(next).getByRole("combobox", { name: "AI tool" }), "codex");
     const codexModel = within(next).getByRole("combobox", { name: "Model" });
-    expect(
-      within(codexModel)
-        .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual(["The AI tool's default (already in your list)", "Type another name…"]);
+    expect(options(codexModel)).toEqual([
+      "The AI tool's default (already in your list)",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "Type another name…",
+    ]);
+    await user.selectOptions(codexModel, "gpt-6-luna");
+    expect(within(next).getByRole("textbox", { name: "Your name for it" })).toHaveValue(
+      "GPT-6-Luna",
+    );
+    // GPT-6-Luna goes up to max effort, not ultra.
+    expect(options(within(next).getByRole("combobox", { name: /^Effort/ }))).toEqual([
+      "The AI tool's default",
+      "Low",
+      "Medium",
+      "High",
+      "Extra high",
+      "Max",
+    ]);
     await user.selectOptions(codexModel, "Type another name…");
     await user.type(
       within(next).getByRole("textbox", { name: /Model name the AI tool accepts/ }),

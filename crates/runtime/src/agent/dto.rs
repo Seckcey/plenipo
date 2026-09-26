@@ -81,9 +81,41 @@ pub struct RuntimeCapabilities {
     pub tool_posture: String,
     /// Effort levels the runtime accepts, lowest first; empty when it has no effort setting.
     pub effort_levels: Vec<Effort>,
-    /// Short model names the CLI itself accepts for its model option (aliases for its latest
-    /// models), offered as choices; empty when it documents none.
-    pub model_aliases: Vec<String>,
+    /// Models the CLI itself offers (its own aliases or model picker), most capable first;
+    /// offered as choices, never assumed to be in the owner's list.
+    pub known_models: Vec<KnownModel>,
+}
+
+impl RuntimeCapabilities {
+    /// The effort levels `model` accepts: a known model's own, otherwise the runtime's.
+    pub fn effort_levels_for(&self, model: Option<&str>) -> &[Effort] {
+        model
+            .and_then(|m| self.known_models.iter().find(|k| k.name == m))
+            .map_or(&self.effort_levels, |k| &k.effort_levels)
+    }
+}
+
+/// A model a CLI itself offers, as of the CLI version its adapter was checked against.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct KnownModel {
+    /// The name the CLI's model option takes, e.g. `sonnet` or `gpt-6-sol`.
+    pub name: String,
+    /// How the CLI names it, e.g. "Sonnet" or "GPT-6-Sol".
+    pub label: String,
+    /// Effort levels it accepts (empty: it has no effort setting).
+    pub effort_levels: Vec<Effort>,
+}
+
+impl KnownModel {
+    pub fn new(name: &str, label: &str, effort_levels: &[Effort]) -> Self {
+        Self {
+            name: name.into(),
+            label: label.into(),
+            effort_levels: effort_levels.to_vec(),
+        }
+    }
 }
 
 /// How much reasoning a model spends on a turn. Each runtime accepts some of these levels
@@ -99,6 +131,7 @@ pub enum Effort {
     #[serde(rename = "xhigh")]
     XHigh,
     Max,
+    Ultra,
 }
 
 impl Effort {
@@ -111,6 +144,7 @@ impl Effort {
             Effort::High => "high",
             Effort::XHigh => "xhigh",
             Effort::Max => "max",
+            Effort::Ultra => "ultra",
         }
     }
 
@@ -123,6 +157,7 @@ impl Effort {
             Effort::High => "high",
             Effort::XHigh => "extra high",
             Effort::Max => "max",
+            Effort::Ultra => "ultra",
         }
     }
 

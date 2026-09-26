@@ -525,7 +525,7 @@ mod tests {
                 billing_checked_per_turn: true,
                 tool_posture: String::new(),
                 effort_levels: Vec::new(),
-                model_aliases: Vec::new(),
+                known_models: Vec::new(),
             },
             install_hint: String::new(),
             login_hint: String::new(),

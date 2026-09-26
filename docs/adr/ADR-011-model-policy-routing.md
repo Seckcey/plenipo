@@ -45,7 +45,7 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
    (ADR-007) do not list models, so no model name is ever assumed: Plenipo shows the models each
    AI tool **reported running** (from the executions) as "seen in use", and the owner adds them.
    Capabilities are the owner's statement; an unmarked model is treated as unable. (Amended by
-   §16: model names are chosen from a menu that also offers the short names a CLI documents.)
+   §16: model names are chosen from a menu that also offers the models a CLI itself lists.)
 4. **Provider Registry** is the AI tools this build has adapters for, with their company,
    installation, sign-in, billing method, and usage-limit state (`ToolInfo`).
 5. **Role policy** (every field the plan lists): an ordered model list (first choice, then the
@@ -97,30 +97,39 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
     Effort is how much reasoning a model spends on a turn. Each adapter lists the levels its CLI
     accepts (`RuntimeCapabilities::effort_levels`) and passes the chosen one on every turn:
     Claude Code `--effort <level>` (low, medium, high, xhigh, max), Codex
-    `-c model_reasoning_effort=<level>` (minimal, low, medium, high, xhigh). A model in the
-    registry has an optional effort (none: the tool's default); a role's policy can set its own
-    effort for any model (`efforts`, by model ID). The engine picks the role's effort, else the
-    model's, and only a level the tool accepts; the decision records it (`RouteChoice.effort`)
-    and says it in the reason ("It runs at high effort"). A runtime session stores its effort
-    (Ledger schema 5, `runtime_sessions.effort`) so every turn of a conversation, including a
-    resumed one, runs at the same level; the runtime refuses a level its adapter does not list
-    (Codex itself accepts any value). A fixed position runs its model at the model's effort.
-    This is the building block for organization-wide policies that assign models and effort to
-    jobs, which a later phase can offer as presets over role policies.
+    `-c model_reasoning_effort=<level>` (low, medium, high, xhigh, max, ultra — the levels its
+    models accept; none takes "minimal"). A model the CLI itself lists (§16) carries its own
+    levels, which can be fewer (Claude Code's Haiku has no effort setting; Codex's GPT-6-Luna
+    stops at max, GPT-5.5 at extra high). A model in the registry has an optional effort (none:
+    the tool's default); a role's policy can set its own effort for any model (`efforts`, by
+    model ID). The engine picks the role's effort, else the model's, and only a level that model
+    accepts (`RuntimeCapabilities::effort_levels_for`); the decision records it
+    (`RouteChoice.effort`) and says it in the reason ("It runs at high effort"). Settings offers
+    only those levels. A runtime session stores its effort (Ledger schema 5,
+    `runtime_sessions.effort`) so every turn of a conversation, including a resumed one, runs at
+    the same level; the runtime refuses a level its adapter does not list (Codex itself accepts
+    any value). A fixed position runs its model at the model's effort. This is the building block
+    for organization-wide policies that assign models and effort to jobs, which a later phase can
+    offer as presets over role policies.
 
 16. **Model menus** (added after acceptance, at the owner's request). Wherever the owner chooses a
     model — adding one to the list, fixing a position (hire, a new department's or project's
     lead, the details panel), or starting a conversation from Workers — the model is picked from a
     menu of the chosen AI tool's models instead of typed: the AI tool's default first, then the
-    short names the CLI itself documents for its model option (`RuntimeCapabilities::model_aliases`,
-    shown as "<AI tool>'s short names"; Claude Code 2.1.283: `opus`, `sonnet`, `haiku`, from
-    `claude --model`'s own alias list; Codex documents none), then the owner's models (outside
-    the Add dialog), then the models seen in use; "Type another name…" remains as a last resort.
-    The short names are **offered, never added**: nothing enters the model list unless the owner
-    adds it, so §3's rule that no model is assumed to exist in the owner's list still holds, and a
-    short name that a CLI stops accepting fails that worker's task with the CLI's own message.
+    models the CLI itself offers (`RuntimeCapabilities::known_models`, shown as "<AI tool>'s
+    models"), then the owner's models (outside the Add dialog), then the models seen in use;
+    "Type another name…" remains as a last resort. The owner asked for every frontier model at
+    the very least, so each adapter lists what its CLI offers, as of the version checked:
+    Claude Code 2.1.283's model families from `claude --model`'s alias list — `fable`, `opus`,
+    `sonnet`, `haiku` (Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5) — and the models Codex
+    0.157.1's own model picker lists — `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`,
+    `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5` — each with the effort levels it accepts. These
+    are **offered, never added**: nothing enters the model list unless the owner adds it, so §3's
+    rule that no model is assumed to exist in the owner's list still holds, and a name a CLI stops
+    accepting fails that worker's task with the CLI's own message. A new CLI version that adds
+    models needs its adapter's list updated (until then, "seen in use" and typing cover them).
     Names already in the list are shown but not offered in the Add dialog. The adapters keep the
-    vendor knowledge; the Router passes it on (`ToolInfo.model_aliases`).
+    vendor knowledge; the Router passes it on (`ToolInfo.known_models`).
 
 ## Consequences
 
@@ -151,7 +160,7 @@ ADR-009 §8 made each position's runtime an explicit owner choice "until the Rou
 - **Routing a full-time agent on every objective** — would break its conversation whenever a
   policy or a tool's state changed.
 - **Seeding named models (aliases such as "opus")** — the plan forbids assuming marketing names;
-  the owner adds the names their tools accept. (§16 offers a CLI's documented short names in the
+  the owner adds the names their tools accept. (§16 offers the models a CLI itself lists in the
   model menus, but still adds nothing on the owner's behalf.)
 - **Switching company on a usage limit by default** — the plan's own option is to pause, and
   earlier phases promised that a usage limit never moves work to another AI company.
