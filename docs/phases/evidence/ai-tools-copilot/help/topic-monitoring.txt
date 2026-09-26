@@ -1,0 +1,170 @@
+Monitoring with OpenTelemetry:
+
+  The CLI can export traces and metrics via OpenTelemetry (OTel), giving you visibility into
+  agent interactions, LLM calls, tool executions, and token usage. All signal names and
+  attributes follow the OTel GenAI Semantic Conventions, so the data works with any
+  OTel-compatible backend (Jaeger, Grafana, Azure Monitor, Datadog, Honeycomb, Langfuse, etc.).
+
+  OTel is off by default. When disabled, no instrumentation or exporters are initialized.
+
+Activation:
+
+  OTel activates when any of these conditions are met:
+
+  - COPILOT_OTEL_ENABLED=true
+  - OTEL_EXPORTER_OTLP_ENDPOINT is set
+  - COPILOT_OTEL_FILE_EXPORTER_PATH is set
+
+Environment Variables:
+
+  COPILOT_OTEL_ENABLED                                 Explicitly enable OTel; defaults to "false".
+
+  OTEL_EXPORTER_OTLP_ENDPOINT                          OTLP endpoint URL. Setting this auto-enables OTel.
+
+  COPILOT_OTEL_EXPORTER_TYPE                           Copilot exporter backend: "otlp-http" (default) or "file".
+                                                       Auto-selects "file" when COPILOT_OTEL_FILE_EXPORTER_PATH is set.
+
+  OTEL_EXPORTER_OTLP_PROTOCOL                          OTLP HTTP protocol for "otlp-http": "http/json" (default) or "http/protobuf".
+                                                       Does not apply to the "file" exporter.
+                                                       OTEL_EXPORTER_OTLP_TRACES_PROTOCOL and
+                                                       OTEL_EXPORTER_OTLP_METRICS_PROTOCOL override it per signal.
+                                                       Unsupported values, including "grpc", warn and fall back.
+
+  COPILOT_OTEL_FILE_EXPORTER_PATH                      Write all signals to this file as JSON-lines.
+                                                       Setting this auto-enables OTel.
+
+  COPILOT_OTEL_SOURCE_NAME                             Instrumentation scope name; defaults to "github.copilot".
+
+  OTEL_SERVICE_NAME                                    Service name in resource attributes; defaults to "github-copilot".
+
+  OTEL_RESOURCE_ATTRIBUTES                             Extra resource attributes (comma-separated key=value pairs;
+                                                       use percent-encoding for special characters).
+
+  OTEL_EXPORTER_OTLP_HEADERS                           Auth headers for the OTLP exporter
+                                                       (e.g., "Authorization=Bearer token").
+                                                       Prefer env files or a secret manager over inline tokens.
+
+  OTEL_EXPORTER_OTLP_CERTIFICATE                       Path to a PEM file with extra CA certificate(s) to trust for
+                                                       the OTLP endpoint (e.g., a private/corporate CA). Merged with
+                                                       the OS trust store, so public-CA endpoints still validate.
+                                                       OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE and
+                                                       OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE override it per signal.
+
+  OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE                Path to the client certificate PEM for mutual TLS (mTLS).
+  OTEL_EXPORTER_OTLP_CLIENT_KEY                        Path to the matching unencrypted private key PEM. Both must be
+                                                       set together; passphrase-protected keys are not supported.
+                                                       OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE/_CLIENT_KEY and
+                                                       OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE/_CLIENT_KEY
+                                                       override them per signal.
+                                                       The CLIENT_* and CERTIFICATE settings only take effect with an
+                                                       https:// OTLP endpoint, and only once OpenTelemetry export is
+                                                       enabled (via OTEL_EXPORTER_OTLP_ENDPOINT, COPILOT_OTEL_ENABLED,
+                                                       COPILOT_OTEL_FILE_EXPORTER_PATH, or enterprise managed telemetry
+                                                       settings) and the otlp-http exporter is in use. The file exporter
+                                                       never resolves an OTLP endpoint or builds a TLS client, so these
+                                                       variables have no effect on it; COPILOT_OTEL_FILE_EXPORTER_PATH
+                                                       selects the file exporter only when COPILOT_OTEL_EXPORTER_TYPE is
+                                                       unset. When the otlp-http exporter is in use but the endpoint
+                                                       resolves to http:// (including the default
+                                                       http://localhost:4318), export is disabled rather than sent in
+                                                       cleartext; startup is not aborted. The CLI keeps running and
+                                                       never reports this on the console: at the default log level it
+                                                       surfaces only as a warning in the process log ($COPILOT_HOME/logs
+                                                       by default, or --log-dir if set), and --log-level error or none
+                                                       suppress that warning, leaving no signal at all. These TLS
+                                                       variables do not by themselves enable OpenTelemetry.
+                                                       Note: NODE_EXTRA_CA_CERTS does not affect the OTLP exporter,
+                                                       which uses a native (Rust) HTTP transport; use the variables
+                                                       above instead.
+
+  OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT   Capture full prompt/response content; defaults to "false".
+                                                       See "Content Capture" below.
+
+  OTEL_LOG_LEVEL                                       OTel diagnostic log level (not the CLI --log-level).
+                                                       One of: NONE, ERROR, WARN, INFO, DEBUG, VERBOSE, ALL.
+
+What Gets Exported:
+
+  Traces — a hierarchical span tree for each agent interaction:
+
+    invoke_agent                               Agent orchestration (all LLM calls + tool executions)
+      plan                                     Plan-mode task decomposition
+        chat <model>                           LLM calls used to generate the plan
+        execute_tool <tool>                    Tool calls used while planning
+      chat <model>                             Individual LLM API call
+      execute_tool <tool>                      Individual tool invocation
+
+  Spans carry attributes such as model name, token counts, durations, costs, and error info.
+  Subagent invocations are automatically linked into the same trace via context propagation.
+
+  Metrics:
+
+    gen_ai.client.operation.duration               LLM/agent call duration (histogram, seconds)
+    gen_ai.client.token.usage                      Token counts by type (histogram, tokens)
+    gen_ai.client.operation.time_to_first_chunk    Time to first streamed chunk (histogram, seconds)
+    gen_ai.client.operation.time_per_output_chunk  Time per streamed output chunk (histogram, seconds)
+    gen_ai.invoke_agent.duration                   Agent invocation duration (histogram, seconds)
+    gen_ai.invoke_workflow.duration                Workflow invocation duration (histogram, seconds)
+    gen_ai.invoke_agent.inference_calls            Model calls per agent invocation (histogram)
+    gen_ai.invoke_agent.tool_calls                 Tool calls per agent invocation (histogram)
+    gen_ai.execute_tool.duration                   Tool execution duration (histogram, seconds)
+    github.copilot.tool.call.count                 Tool invocations (counter)
+    github.copilot.tool.call.duration              Tool execution latency (histogram, seconds)
+    github.copilot.agent.turn.count                LLM round-trips per invocation (histogram)
+    github.copilot.changeboarding.model_nudge.count  Changeboarding model nudge allocations and conversions (counter)
+    github.copilot.mcp.server.connection.count     MCP server connection attempts (counter)
+    github.copilot.code.lines_added                Lines added by file-editing tools (counter)
+    github.copilot.code.lines_removed              Lines removed by file-editing tools (counter)
+    github.copilot.sandbox.operation.count         Sandbox posture transitions, deduplicated (counter)
+    github.copilot.sandbox.spawn.duration          Sandboxed process spawn latency (histogram, seconds)
+    github.copilot.sandbox.policy.path.count       Filesystem policy paths by access class (histogram)
+
+  Sandbox metrics are bounded operational signals, not a complete audit log: an unchanged
+  policy resolution is deduplicated rather than counted again. They never carry file paths,
+  commands, or proxy URLs as dimensions.
+
+Content Capture:
+
+  By default, no prompt content, responses, or tool arguments are captured — only metadata.
+  Set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true to also capture:
+
+  - Full prompt and response messages
+  - System instructions and tool definitions
+  - Tool call arguments and results
+  - Effective sandbox filesystem rules — the workspace, user-profile, and denied paths
+    granted to sandboxed commands. Exported as span-event attributes and also placed on
+    the internal sandbox decision session event, so SDK and extension subscribers
+    observe them as well
+  - Sandbox decision commands, denied resources, and executable basenames. The content
+    gate is applied before the internal session event is emitted, so SDK, JSON, and
+    extension subscribers receive the same metadata-only shape when capture is off
+
+  Warning: content capture may include sensitive information such as code, file contents,
+  and user prompts. Only enable in trusted environments.
+
+Examples:
+
+  # OTLP/HTTP to a local collector (e.g., Jaeger)
+  $ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 copilot
+
+  # OTLP/HTTP protobuf to a local collector
+  $ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+    copilot
+
+  # File-based output (offline / CI)
+  $ COPILOT_OTEL_FILE_EXPORTER_PATH=/tmp/copilot-otel.jsonl copilot
+
+  # Remote collector with authentication and content capture
+  $ OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com:4318 \
+    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer your-token" \
+    OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true \
+    copilot
+
+  # Enterprise collector behind a private CA with mutual TLS (mTLS)
+  $ OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.internal:4318 \
+    OTEL_EXPORTER_OTLP_CERTIFICATE=/etc/otel/ca.pem \
+    OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/etc/otel/client.pem \
+    OTEL_EXPORTER_OTLP_CLIENT_KEY=/etc/otel/client.key \
+    copilot
+

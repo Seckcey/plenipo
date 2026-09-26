@@ -1,0 +1,40 @@
+Session Limits Controls:
+
+  Session limits are opt-in. Usage accumulates across the entire session in both interactive and non-interactive runs.
+
+  Scope:
+
+    - In interactive sessions, /clear starts a fresh accounting window; used AI credits reset, and the current configured
+      limit stays in effect.
+    - In non-interactive prompt runs, usage accumulates across the whole run.
+    - Subagents share the same session limit as the parent session.
+
+  Options:
+
+    --max-ai-credits <credits>
+        Maximum AI credits for this session.
+        Minimum: 30 AI credits.
+
+  Accounting:
+
+    - The AI credit limit is a soft cap: usage is known only after a model response returns. A response can therefore exceed
+      or exhaust the limit before the CLI can observe that it has done so; the next model call is then blocked.
+    - Hidden model work such as compaction counts toward --max-ai-credits when it consumes AI credits, but does not
+      show as a visible assistant response.
+
+  Runtime feedback:
+
+    - The CLI shows limits timeline status around 50%, 75%, and 90% usage.
+    - Status lines use explicit values, for example: "Session limits: 0.5/1 AI credits used."
+    - If a session can make only one more model call, the timeline says: "If this session continues, the next model call is final; tools will be disabled."
+    - When session limits are reached, the timeline asks you to increase or unset the session limit before trying again.
+    - Run /limits with no arguments to view or edit limits for the current session.
+
+  Examples:
+
+    # Cap one session to the minimum allowed AI credit limit
+    $ copilot --max-ai-credits 30
+
+    # Set an AI credit limit for the current interactive session
+    /limits set max-ai-credits 30
+
