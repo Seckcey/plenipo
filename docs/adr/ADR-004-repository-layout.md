@@ -1,6 +1,6 @@
 # ADR-004: Minimal monorepo layout, grow crates per phase
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-25
 - **Phase:** 0
 
