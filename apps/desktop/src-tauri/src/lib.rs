@@ -6,6 +6,7 @@
 
 pub mod agent_host;
 pub mod commands;
+pub mod guard_host;
 pub mod ledger_host;
 pub mod runtime_host;
 pub mod smoke;
@@ -112,9 +113,25 @@ pub fn configure<R: Runtime>(
             tauri::async_runtime::spawn(liaison.clone().run());
             // Router (Phase 6): model registry and role model policies.
             let router = Router::new(ledger.clone(), agents.clone());
+            // Guard and the capability broker (Phase 7): permissions, Plenipo's tools for
+            // workers, approvals, and the Vault.
+            let (guard, broker) = guard_host::create(
+                app.handle(),
+                options.persistence,
+                ledger.clone(),
+                supervisor.clone(),
+                &agents,
+            );
+            guard_host::start(&broker);
             // Workforce (Phase 5): the organization, and Liaison's directory for its members,
             // whose workers the Router places.
             let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
+            // Built-in roles get their starting permission sets once (after they are seeded).
+            if let Err(e) = guard.seed_template_roles() {
+                eprintln!("[plenipo] could not give the built-in roles their permissions: {e}");
+            }
+            app.manage(guard);
+            app.manage(broker);
             app.manage(supervisor);
             app.manage(agents);
             app.manage(liaison);
@@ -195,6 +212,19 @@ pub fn configure<R: Runtime>(
             commands::set_role_policy,
             commands::set_routing_options,
             commands::clear_usage_limit,
+            commands::get_permissions,
+            commands::save_permission_set,
+            commands::remove_permission_set,
+            commands::assign_permissions,
+            commands::set_command_rules,
+            commands::set_blocked_files,
+            commands::set_sensitive_rule,
+            commands::set_guard_options,
+            commands::save_secret,
+            commands::remove_secret,
+            commands::get_approvals,
+            commands::resolve_approval,
+            commands::revoke_grant,
         ])
 }
 
@@ -326,7 +356,17 @@ mod ipc_boundary_tests {
         // Queries only: the reconciliation loop is not needed without running workers.
         let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
         let router = Router::new(ledger.clone(), agents.clone());
+        let (guard, broker) = guard_host::create(
+            app.handle(),
+            Persistence::InMemory,
+            ledger.clone(),
+            supervisor.clone(),
+            &agents,
+        );
         let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
+        guard.seed_template_roles().unwrap();
+        app.manage(guard);
+        app.manage(broker);
         app.manage(supervisor);
         app.manage(agents);
         app.manage(liaison);
@@ -966,7 +1006,7 @@ mod ipc_boundary_tests {
                 "repositoryUrl": "https://github.com/example/cloudline",
                 "localPath": "D:\\projects\\cloudline",
                 "allowedRuntimes": ["claude-code", "codex"],
-                "capabilityProfile": "development",
+                "capabilityProfile": "developer",
                 "departmentId": dept.id,
                 "coordinator": lead("Supervisor", "Cloudline Supervisor"),
             }}),
@@ -1476,5 +1516,447 @@ mod ipc_boundary_tests {
             s.options.on_usage_limit,
             plenipo_router::LimitBehavior::Wait
         );
+    }
+
+    // ---- Permissions, approvals, and the Vault (Phase 7) -----------------------------------
+
+    fn perms(
+        r: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+    ) -> plenipo_capabilities::PermissionsSnapshot {
+        body(r)
+    }
+
+    #[test]
+    fn permissions_are_configured_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let s = perms(invoke(&main, "get_permissions"));
+        assert_eq!(s.settings.capabilities.len(), 16);
+        let ids: Vec<&str> = s.settings.sets.iter().map(|x| x.id.as_str()).collect();
+        for id in [
+            "read-only",
+            "developer",
+            "reviewer",
+            "tester",
+            "writer",
+            "no-access",
+        ] {
+            assert!(ids.contains(&id), "{id}");
+        }
+        let dev = s
+            .settings
+            .roles
+            .iter()
+            .find(|r| r.role_name == "Senior Developer")
+            .unwrap();
+        assert_eq!(
+            dev.set_id.as_deref(),
+            Some("developer"),
+            "seeded from the template"
+        );
+        assert!(s.vault.available, "tests use a memory store");
+        assert!(
+            !s.tools.running,
+            "the mock app does not start the tool server"
+        );
+        let dev_role = dev.role_id.clone();
+        let s = perms(invoke_json(
+            &main,
+            "save_permission_set",
+            serde_json::json!({ "input": {
+                "name": "Docs only", "description": "Reads and writes files.",
+                "levels": { "filesystem.read": "allowed", "filesystem.write": "ask" },
+            }}),
+        ));
+        let docs = s
+            .settings
+            .sets
+            .iter()
+            .find(|x| x.name == "Docs only")
+            .unwrap()
+            .clone();
+        assert_eq!(docs.id, "docs-only");
+        let s = perms(invoke_json(
+            &main,
+            "assign_permissions",
+            serde_json::json!({ "target": "role", "id": dev_role, "setId": docs.id }),
+        ));
+        assert_eq!(
+            s.settings
+                .roles
+                .iter()
+                .find(|r| r.role_id == dev_role)
+                .unwrap()
+                .set_id
+                .as_deref(),
+            Some("docs-only")
+        );
+        let err = invoke_json(
+            &main,
+            "remove_permission_set",
+            serde_json::json!({ "setId": "docs-only" }),
+        )
+        .expect_err("in use");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("still used by 1 role(s)"),
+            "{err}"
+        );
+        let _ = perms(invoke_json(
+            &main,
+            "assign_permissions",
+            serde_json::json!({ "target": "role", "id": dev_role }),
+        ));
+        let _ = perms(invoke_json(
+            &main,
+            "remove_permission_set",
+            serde_json::json!({ "setId": "docs-only" }),
+        ));
+        // A department's limit.
+        let org: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": { "roleId": role_id(&body(invoke(&main, "get_organization")), "Manager"),
+                          "title": "Development Manager", "vacant": true },
+            }}),
+        ));
+        let dept = org.departments[0].id.clone();
+        let s = perms(invoke_json(
+            &main,
+            "assign_permissions",
+            serde_json::json!({ "target": "department", "id": dept, "setId": "read-only" }),
+        ));
+        assert_eq!(
+            s.settings.departments[0].set_id.as_deref(),
+            Some("read-only")
+        );
+        // Rules and options.
+        let s = perms(invoke_json(
+            &main,
+            "set_command_rules",
+            serde_json::json!({ "rules": { "approved": ["cargo test *"], "ask": [], "blocked": ["curl *"] } }),
+        ));
+        assert_eq!(s.settings.commands.approved, ["cargo test *"]);
+        let s = perms(invoke_json(
+            &main,
+            "set_blocked_files",
+            serde_json::json!({ "patterns": [".env", "*.pem"] }),
+        ));
+        assert_eq!(s.settings.blocked_files, [".env", "*.pem"]);
+        let s = perms(invoke_json(
+            &main,
+            "set_sensitive_rule",
+            serde_json::json!({ "kind": "dns", "rule": "block" }),
+        ));
+        let dns = s
+            .settings
+            .sensitive
+            .iter()
+            .find(|k| k.kind == plenipo_guard::SensitiveKind::Dns)
+            .unwrap();
+        assert_eq!(dns.rule, plenipo_guard::SensitiveRule::Block);
+        let s = perms(invoke_json(
+            &main,
+            "set_guard_options",
+            serde_json::json!({ "options": { "approvalMinutes": 5 } }),
+        ));
+        assert_eq!(s.settings.options.approval_minutes, 5);
+        // The Vault: the value goes in and never comes back out.
+        let s = perms(invoke_json(
+            &main,
+            "save_secret",
+            serde_json::json!({ "input": {
+                "name": "GitHub token", "envVar": "GH_TOKEN", "programs": ["gh"],
+                "value": "ghp_ipc_test_value_123",
+            }}),
+        ));
+        let secret = s.settings.secrets[0].clone();
+        assert_eq!(s.vault.stored, std::slice::from_ref(&secret.id));
+        assert!(!serde_json::to_string(&s)
+            .unwrap()
+            .contains("ghp_ipc_test_value_123"));
+        let s = perms(invoke_json(
+            &main,
+            "remove_secret",
+            serde_json::json!({ "secretId": secret.id }),
+        ));
+        assert!(s.settings.secrets.is_empty());
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let events = ledger.recent_events(500).unwrap();
+        assert!(!format!("{events:?}").contains("ghp_ipc_test_value_123"));
+        let types: Vec<String> = events.into_iter().map(|e| e.event_type).collect();
+        for want in [
+            "guard.defaults_added",
+            "guard.roles_seeded",
+            "guard.set_added",
+            "guard.role_assigned",
+            "guard.set_removed",
+            "guard.department_limited",
+            "guard.commands_changed",
+            "guard.files_changed",
+            "guard.sensitive_changed",
+            "guard.options_changed",
+            "vault.secret_added",
+            "vault.secret_removed",
+        ] {
+            assert!(types.iter().any(|t| t == want), "{want}");
+        }
+    }
+
+    #[test]
+    fn a_project_limit_must_be_one_of_the_permission_sets() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let org: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": { "roleId": role_id(&org, "Manager"), "title": "Development Manager", "vacant": true },
+            }}),
+        ));
+        let dept = org.departments[0].id.clone();
+        let project = |limit: &str| {
+            serde_json::json!({ "input": {
+                "name": "Website", "description": "", "allowedRuntimes": [],
+                "capabilityProfile": limit, "departmentId": dept,
+                "coordinator": { "roleId": role_id(&org, "Supervisor"), "title": "Website Supervisor", "vacant": true },
+            }})
+        };
+        let err =
+            invoke_json(&main, "create_project", project("development")).expect_err("unknown set");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("not one of your permission sets"),
+            "{err}"
+        );
+        let org: plenipo_workforce::OrgSnapshot =
+            body(invoke_json(&main, "create_project", project("read-only")));
+        assert_eq!(
+            org.projects[0].capability_profile.as_deref(),
+            Some("read-only")
+        );
+        let s = perms(invoke(&main, "get_permissions"));
+        let p = &s.settings.projects[0];
+        assert_eq!(p.set_id.as_deref(), Some("read-only"));
+        assert!(p.problem.as_deref().unwrap().contains("has no folder"));
+    }
+
+    #[test]
+    fn approvals_are_answered_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let ledger = app
+            .state::<std::sync::Arc<plenipo_ledger::Ledger>>()
+            .inner()
+            .clone();
+        let task = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "work".into(),
+                    priority: 2,
+                    ..plenipo_ledger::NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        ledger
+            .transition_task(&task.id, plenipo_ledger::TaskState::Running, "w", None)
+            .unwrap();
+        let far = plenipo_ledger::now_ms() + 600_000;
+        let a = ledger
+            .request_action_approval(
+                &task.id,
+                "shell.exec",
+                &serde_json::json!({ "summary": "run npm publish", "worker": "Backend Developer",
+                                     "capability": "shell.exec", "riskLabel": "Runs a program" }),
+                far,
+                "agent:codex",
+            )
+            .unwrap();
+        let q: plenipo_capabilities::ApprovalQueue = body(invoke(&main, "get_approvals"));
+        assert_eq!(q.pending.len(), 1);
+        assert_eq!(q.pending[0].summary, "run npm publish");
+        assert_eq!(q.pending[0].capability_label, "Run programs");
+        assert!(!q.pending[0].waiting, "no worker is waiting in this test");
+        let q: plenipo_capabilities::ApprovalQueue = body(invoke_json(
+            &main,
+            "resolve_approval",
+            serde_json::json!({ "approvalId": a.id, "approve": false }),
+        ));
+        assert!(q.pending.is_empty());
+        assert_eq!(
+            q.recent[0].status,
+            plenipo_capabilities::ApprovalStatus::Rejected
+        );
+        assert_eq!(q.recent[0].resolved_by.as_deref(), Some("owner"));
+        assert_eq!(
+            ledger.task(&task.id).unwrap().unwrap().state,
+            plenipo_ledger::TaskState::Running,
+            "the task continues"
+        );
+        let err = invoke_json(
+            &main,
+            "resolve_approval",
+            serde_json::json!({ "approvalId": a.id, "approve": true }),
+        )
+        .expect_err("answered once");
+        assert!(
+            err["message"].as_str().unwrap().contains("already refused"),
+            "{err}"
+        );
+        let err = invoke_json(
+            &main,
+            "revoke_grant",
+            serde_json::json!({ "grantId": SESSION }),
+        )
+        .expect_err("no such grant");
+        assert_eq!(err["kind"], "invalidInput");
+    }
+
+    #[test]
+    fn permission_commands_validate_input_and_accept_no_extra_fields() {
+        let app = app();
+        let main = window(&app, "main");
+        for (cmd, args) in [
+            (
+                "save_permission_set",
+                serde_json::json!({ "input": { "id": "../x", "name": "X", "description": "", "levels": {} } }),
+            ),
+            (
+                "save_permission_set",
+                serde_json::json!({ "input": { "name": "X", "description": "", "levels": { "root.everything": "allowed" } } }),
+            ),
+            (
+                "save_permission_set",
+                serde_json::json!({ "input": { "name": "X", "description": "", "levels": { "shell.exec": "always" } } }),
+            ),
+            (
+                "save_permission_set",
+                serde_json::json!({ "input": { "name": "X", "description": "", "levels": {}, "executable": "/bin/sh" } }),
+            ),
+            (
+                "save_permission_set",
+                serde_json::json!({ "input": { "name": "", "description": "", "levels": {} } }),
+            ),
+            (
+                "remove_permission_set",
+                serde_json::json!({ "setId": "developer" }),
+            ),
+            (
+                "remove_permission_set",
+                serde_json::json!({ "setId": "Developer!" }),
+            ),
+            (
+                "assign_permissions",
+                serde_json::json!({ "target": "project", "id": SESSION, "setId": "developer" }),
+            ),
+            (
+                "assign_permissions",
+                serde_json::json!({ "target": "role", "id": "../x", "setId": "developer" }),
+            ),
+            (
+                "assign_permissions",
+                serde_json::json!({ "target": "role", "id": SESSION, "setId": "developer" }),
+            ),
+            (
+                "set_command_rules",
+                serde_json::json!({ "rules": { "approved": ["/bin/rm *"], "ask": [], "blocked": [] } }),
+            ),
+            (
+                "set_command_rules",
+                serde_json::json!({ "rules": { "approved": [], "ask": [], "blocked": [], "shell": "bash" } }),
+            ),
+            (
+                "set_blocked_files",
+                serde_json::json!({ "patterns": ["!"] }),
+            ),
+            (
+                "set_sensitive_rule",
+                serde_json::json!({ "kind": "dns", "rule": "allow" }),
+            ),
+            (
+                "set_sensitive_rule",
+                serde_json::json!({ "kind": "everything", "rule": "ask" }),
+            ),
+            (
+                "set_guard_options",
+                serde_json::json!({ "options": { "approvalMinutes": 0 } }),
+            ),
+            (
+                "set_guard_options",
+                serde_json::json!({ "options": { "approvalMinutes": 5, "autoApprove": true } }),
+            ),
+            (
+                "save_secret",
+                serde_json::json!({ "input": { "name": "X", "programs": [] } }),
+            ),
+            (
+                "save_secret",
+                serde_json::json!({ "input": { "name": "X", "programs": ["gh"], "envVar": "PATH", "value": "abcdefgh" } }),
+            ),
+            (
+                "save_secret",
+                serde_json::json!({ "input": { "name": "X", "programs": [], "value": "x".repeat(40_001) } }),
+            ),
+            ("remove_secret", serde_json::json!({ "secretId": "../x" })),
+            (
+                "resolve_approval",
+                serde_json::json!({ "approvalId": "../x", "approve": true }),
+            ),
+            (
+                "resolve_approval",
+                serde_json::json!({ "approvalId": SESSION, "approve": true }),
+            ),
+            ("revoke_grant", serde_json::json!({ "grantId": "../x" })),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone()).expect_err(cmd);
+            assert!(
+                err["kind"] == "invalidInput" || err.is_string(),
+                "{cmd} {args}: {err}"
+            );
+        }
+        // Nothing was changed by the refusals.
+        let s = perms(invoke(&main, "get_permissions"));
+        assert!(s.settings.sets.iter().all(|x| x.built_in));
+        assert_eq!(s.settings.options.approval_minutes, 10);
+        assert!(s.settings.secrets.is_empty());
+    }
+
+    #[test]
+    fn permission_commands_denied_for_ungranted_windows_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        for cmd in [
+            "get_permissions",
+            "save_permission_set",
+            "remove_permission_set",
+            "assign_permissions",
+            "set_command_rules",
+            "set_blocked_files",
+            "set_sensitive_rule",
+            "set_guard_options",
+            "save_secret",
+            "remove_secret",
+            "get_approvals",
+            "resolve_approval",
+            "revoke_grant",
+        ] {
+            let args = serde_json::json!({ "approvalId": SESSION, "approve": true });
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
     }
 }

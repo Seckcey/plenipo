@@ -53,6 +53,19 @@ const COMMANDS: &[&str] = &[
     "set_role_policy",
     "set_routing_options",
     "clear_usage_limit",
+    "get_permissions",
+    "save_permission_set",
+    "remove_permission_set",
+    "assign_permissions",
+    "set_command_rules",
+    "set_blocked_files",
+    "set_sensitive_rule",
+    "set_guard_options",
+    "save_secret",
+    "remove_secret",
+    "get_approvals",
+    "resolve_approval",
+    "revoke_grant",
 ];
 
 fn main() {

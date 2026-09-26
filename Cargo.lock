@@ -2412,7 +2412,9 @@ dependencies = [
 name = "plenipo-desktop"
 version = "0.6.1"
 dependencies = [
+ "plenipo-capabilities",
  "plenipo-core",
+ "plenipo-guard",
  "plenipo-ledger",
  "plenipo-liaison",
  "plenipo-router",

@@ -59,7 +59,7 @@ impl PermissionSet {
 
 /// A permission set as the owner submits it (no `id`: a new one).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct PermissionSetInput {
     #[ts(optional)]
@@ -74,7 +74,7 @@ pub struct PermissionSetInput {
 /// `*` as the last word matches any remaining arguments, and `*` inside a word matches any
 /// characters, e.g. `cargo test *`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct CommandRules {
     /// Run without asking when the worker may run programs.
@@ -157,7 +157,7 @@ pub enum SensitiveRule {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct GuardOptions {
     /// How long an approval waits for the owner before it expires.
@@ -195,7 +195,7 @@ pub struct SecretInfo {
 /// A secret as the owner submits it. `value`: the secret itself, sent once and stored only in
 /// the operating system's protected storage; omit it to keep the stored value.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct SecretInput {
     #[ts(optional)]

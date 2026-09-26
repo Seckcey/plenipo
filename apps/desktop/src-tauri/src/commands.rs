@@ -9,11 +9,19 @@
 //! organization (Phase 5) is changed only through validated Workforce operations; the Ledger
 //! enforces its structure, and no command names a session, a prompt, or a path to open. Model
 //! policy (Phase 6) is configuration: the UI names AI tools, model names (validated like every
-//! model name), roles, and choices; it never selects a worker's AI tool directly.
+//! model name), roles, and choices; it never selects a worker's AI tool directly. Permissions
+//! (Phase 7) are configuration too: the UI edits permission sets, rules, and secret references,
+//! answers approvals, and revokes grants by ID. It can never run a tool itself, and a secret's
+//! value only goes in (to the operating system's protected storage), never back out.
 
 use std::sync::Arc;
 
+use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot};
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
+use plenipo_guard::{
+    CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
+    SensitiveRule,
+};
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
     NewTask, Task, TaskState, TaskTimeline,
@@ -584,20 +592,24 @@ pub async fn remove_department(
 #[tauri::command]
 pub async fn create_project(
     workforce: State<'_, Workforce>,
+    guard: State<'_, Guard>,
     input: ProjectInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_project(&input)?;
+    check_project_limit(&guard, input.capability_profile.as_deref()).await?;
     with_workforce(&workforce, move |w| w.create_project(&input)).await
 }
 
 #[tauri::command]
 pub async fn update_project(
     workforce: State<'_, Workforce>,
+    guard: State<'_, Guard>,
     project_id: String,
     input: ProjectInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("project", &project_id)?;
     validate_project(&input)?;
+    check_project_limit(&guard, input.capability_profile.as_deref()).await?;
     with_workforce(&workforce, move |w| w.update_project(&project_id, &input)).await
 }
 
@@ -813,6 +825,271 @@ pub async fn clear_usage_limit(
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_runtime_id(&runtime_id)?;
     with_router(&router, move |r| r.clear_limit(&runtime_id)).await
+}
+
+// ---- Permissions, approvals, and the Vault (Phase 7) ------------------------------------------
+
+/// Longest secret value accepted at the boundary (bytes); the Vault enforces 10,000
+/// characters.
+const MAX_SECRET_BYTES: usize = 40_000;
+/// Most entries in one list of rules.
+const MAX_RULES: usize = 300;
+
+fn guard_error(e: GuardError) -> CommandError {
+    if e.is_caller_error() {
+        CommandError::invalid_input(e.to_string())
+    } else {
+        CommandError::internal(e.to_string())
+    }
+}
+
+fn broker_error(e: BrokerError) -> CommandError {
+    if e.is_caller_error() {
+        CommandError::invalid_input(e.to_string())
+    } else {
+        CommandError::internal(e.to_string())
+    }
+}
+
+/// Run broker work (Ledger reads and writes, the operating system's secret store) off the main
+/// thread, then return the Permissions page as it is afterwards.
+async fn with_broker<T: Send + 'static>(
+    broker: &Broker,
+    f: impl FnOnce(&Broker) -> Result<T, BrokerError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let broker = broker.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&broker))
+        .await
+        .map_err(|e| CommandError::internal(format!("permissions task failed: {e}")))?
+        .map_err(broker_error)
+}
+
+async fn with_guard(
+    broker: &Broker,
+    f: impl FnOnce(&Guard) -> Result<(), GuardError> + Send + 'static,
+) -> Result<PermissionsSnapshot, CommandError> {
+    let broker = broker.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        f(broker.guard()).map_err(guard_error)?;
+        broker.snapshot().map_err(broker_error)
+    })
+    .await
+    .map_err(|e| CommandError::internal(format!("permissions task failed: {e}")))?
+}
+
+async fn check_project_limit(guard: &Guard, set_id: Option<&str>) -> Result<(), CommandError> {
+    let guard = guard.clone();
+    let set_id = set_id.map(str::to_owned);
+    tauri::async_runtime::spawn_blocking(move || guard.check_project_limit(set_id.as_deref()))
+        .await
+        .map_err(|e| CommandError::internal(format!("permissions task failed: {e}")))?
+        .map_err(guard_error)
+}
+
+/// A permission set's ID: a slug of lower-case letters, digits, and dashes.
+fn validate_set_id(id: &str) -> Result<(), CommandError> {
+    let ok = (1..=64).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok {
+        Ok(())
+    } else {
+        Err(CommandError::invalid_input("invalid permission set id"))
+    }
+}
+
+fn validate_rules(what: &str, list: &[String]) -> Result<(), CommandError> {
+    if list.len() > MAX_RULES {
+        return Err(CommandError::invalid_input(format!("too many {what}")));
+    }
+    list.iter().try_for_each(|r| bounded(what, r))
+}
+
+/// Everything Settings → Permissions shows: permission sets, who has which, the rules, the
+/// Vault's secret references (never values), workers using permissions now, and recent blocks.
+#[tauri::command]
+pub async fn get_permissions(
+    broker: State<'_, Broker>,
+) -> Result<PermissionsSnapshot, CommandError> {
+    with_broker(&broker, Broker::snapshot).await
+}
+
+/// Add a permission set (no `id`) or change one.
+#[tauri::command]
+pub async fn save_permission_set(
+    broker: State<'_, Broker>,
+    input: PermissionSetInput,
+) -> Result<PermissionsSnapshot, CommandError> {
+    if let Some(id) = &input.id {
+        validate_set_id(id)?;
+    }
+    bounded("the name", &input.name)?;
+    bounded("the description", &input.description)?;
+    with_guard(&broker, move |g| g.save_set(&input).map(|_| ())).await
+}
+
+/// Remove a permission set nothing uses (built-in sets stay).
+#[tauri::command]
+pub async fn remove_permission_set(
+    broker: State<'_, Broker>,
+    set_id: String,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_set_id(&set_id)?;
+    with_guard(&broker, move |g| g.remove_set(&set_id)).await
+}
+
+/// What a permission set is given to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AssignTarget {
+    /// The role's permissions (they grant).
+    Role,
+    /// A department's limit (it only narrows).
+    Department,
+}
+
+/// Give a role a permission set, or limit a department to one (`setId` absent: none / no
+/// limit). A project's limit is part of the project's settings.
+#[tauri::command]
+pub async fn assign_permissions(
+    broker: State<'_, Broker>,
+    target: AssignTarget,
+    id: String,
+    set_id: Option<String>,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_id(
+        match target {
+            AssignTarget::Role => "role",
+            AssignTarget::Department => "department",
+        },
+        &id,
+    )?;
+    if let Some(s) = &set_id {
+        validate_set_id(s)?;
+    }
+    with_guard(&broker, move |g| match target {
+        AssignTarget::Role => g.assign_role(&id, set_id.as_deref()),
+        AssignTarget::Department => g.assign_department(&id, set_id.as_deref()),
+    })
+    .await
+}
+
+/// Replace the approved, always-ask, and blocked command lists.
+#[tauri::command]
+pub async fn set_command_rules(
+    broker: State<'_, Broker>,
+    rules: CommandRules,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_rules("approved commands", &rules.approved)?;
+    validate_rules("always-ask commands", &rules.ask)?;
+    validate_rules("blocked commands", &rules.blocked)?;
+    with_guard(&broker, move |g| g.set_commands(&rules)).await
+}
+
+/// Replace the blocked-file patterns.
+#[tauri::command]
+pub async fn set_blocked_files(
+    broker: State<'_, Broker>,
+    patterns: Vec<String>,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_rules("file patterns", &patterns)?;
+    with_guard(&broker, move |g| g.set_blocked_files(&patterns)).await
+}
+
+/// Whether a kind of sensitive action asks (the default) or is blocked. It can never be
+/// allowed without asking.
+#[tauri::command]
+pub async fn set_sensitive_rule(
+    broker: State<'_, Broker>,
+    kind: SensitiveKind,
+    rule: SensitiveRule,
+) -> Result<PermissionsSnapshot, CommandError> {
+    with_guard(&broker, move |g| g.set_sensitive(kind, rule)).await
+}
+
+/// How long an approval waits for an answer.
+#[tauri::command]
+pub async fn set_guard_options(
+    broker: State<'_, Broker>,
+    options: GuardOptions,
+) -> Result<PermissionsSnapshot, CommandError> {
+    with_guard(&broker, move |g| g.set_options(&options)).await
+}
+
+/// Store a secret: its value goes to the operating system's protected storage, only its
+/// reference to Plenipo. The value is never returned.
+#[tauri::command]
+pub async fn save_secret(
+    broker: State<'_, Broker>,
+    input: SecretInput,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_optional_id("secret", input.id.as_deref())?;
+    bounded("the name", &input.name)?;
+    bounded_optional("the variable name", input.env_var.as_deref())?;
+    validate_rules("programs", &input.programs)?;
+    if input
+        .value
+        .as_ref()
+        .is_some_and(|v| v.len() > MAX_SECRET_BYTES)
+    {
+        return Err(CommandError::invalid_input("the secret is too long"));
+    }
+    with_broker(&broker, move |b| {
+        b.save_secret(&input)?;
+        b.snapshot()
+    })
+    .await
+}
+
+/// Remove a secret's value and its reference.
+#[tauri::command]
+pub async fn remove_secret(
+    broker: State<'_, Broker>,
+    secret_id: String,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_id("secret", &secret_id)?;
+    with_broker(&broker, move |b| {
+        b.remove_secret(&secret_id)?;
+        b.snapshot()
+    })
+    .await
+}
+
+/// Approvals waiting for an answer (oldest first) and recent outcomes.
+#[tauri::command]
+pub async fn get_approvals(broker: State<'_, Broker>) -> Result<ApprovalQueue, CommandError> {
+    with_broker(&broker, Broker::approvals).await
+}
+
+/// Approve or refuse one waiting request; returns the queue as it is afterwards.
+#[tauri::command]
+pub async fn resolve_approval(
+    broker: State<'_, Broker>,
+    approval_id: String,
+    approve: bool,
+) -> Result<ApprovalQueue, CommandError> {
+    validate_id("approval", &approval_id)?;
+    with_broker(&broker, move |b| {
+        b.resolve_approval(&approval_id, approve, OWNER)?;
+        b.approvals()
+    })
+    .await
+}
+
+/// End a worker's permissions now: its running programs stop, its waiting requests are
+/// refused, and it can use no more tools in this step.
+#[tauri::command]
+pub async fn revoke_grant(
+    broker: State<'_, Broker>,
+    grant_id: String,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_id("permission grant", &grant_id)?;
+    with_broker(&broker, move |b| {
+        b.revoke(&grant_id, OWNER)?;
+        b.snapshot()
+    })
+    .await
 }
 
 fn app_info_for(version: &str) -> AppInfo {

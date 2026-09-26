@@ -55,6 +55,19 @@
     "allow-remove-model",
     "allow-set-role-policy",
     "allow-set-routing-options",
-    "allow-clear-usage-limit"
+    "allow-clear-usage-limit",
+    "allow-get-permissions",
+    "allow-save-permission-set",
+    "allow-remove-permission-set",
+    "allow-assign-permissions",
+    "allow-set-command-rules",
+    "allow-set-blocked-files",
+    "allow-set-sensitive-rule",
+    "allow-set-guard-options",
+    "allow-save-secret",
+    "allow-remove-secret",
+    "allow-get-approvals",
+    "allow-resolve-approval",
+    "allow-revoke-grant"
   ]
 }
