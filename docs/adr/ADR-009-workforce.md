@@ -116,8 +116,9 @@ auditors, on the canvas itself.
 12. **Topology canvas.** The Organization view is a UniFi-style topology map built from
     Plenipo's own components and original glyphs (no UniFi assets): owner → organization →
     positions, left to right, with bus connectors, labelled link chips (department, project,
-    task), collapse toggles, live status on every node (dot plus text), animated links where
-    work is running, oversight as dashed labelled links, pan/zoom/fit controls, and a minimap.
+    a worker's runtime), collapse toggles, live status on every node (dot plus text), animated
+    links where work is running, oversight as dotted labelled links, pan/zoom/fit controls, and
+    a minimap.
     Dragging a node onto another opens a menu of the moves and assignments that are valid there;
     dragging a role from the hire palette onto a node hires into that team. Drags use pointer
     events (HTML5 drag-and-drop is intercepted by the Windows webview). Every drag has a keyboard

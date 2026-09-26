@@ -1,6 +1,7 @@
 # Phase 5 — Implementation Checklist
 
-**Status:** in progress on `claude/phase-5`.
+**Status:** implemented on `claude/phase-5`; awaiting owner acceptance (see the
+[acceptance report](phase-5-acceptance-report.md)).
 
 Source: `ROLLOUT_PLAN.md`, Phase 5 — Workforce and Organization Engine. Phase 4 is implemented
 and merged (PR #5); the owner asked to begin Phase 5 on 2026-09-26. Owner direction for the UI:
@@ -42,33 +43,33 @@ ephemeral workers.
 
 ## Deliverables
 
-- [ ] Organization schema: Ledger migration 0004 (positions, oversight, settings; project,
+- [x] Organization schema: Ledger migration 0004 (positions, oversight, settings; project,
       department, and agent columns), up/down and v3 → v4 tested
-- [ ] Department definitions (with their head position)
-- [ ] Role templates (seeded as data; custom roles)
-- [ ] Persistent managers (superintendent, department manager)
-- [ ] Persistent project coordinators (project configuration: repository, local directory,
+- [x] Department definitions (with their head position)
+- [x] Role templates (seeded as data; custom roles)
+- [x] Persistent managers (superintendent, department manager)
+- [x] Persistent project coordinators (project configuration: repository, local directory,
       department, coordinator role, allowed runtimes, default capability profile)
-- [ ] Ephemeral workers (spawned per task, retired when it ends)
-- [ ] Org tree UI: UniFi-style topology canvas (pan, zoom, fit, minimap, collapse, drag to
+- [x] Ephemeral workers (spawned per task, retired when it ends)
+- [x] Org tree UI: UniFi-style topology canvas (pan, zoom, fit, minimap, collapse, drag to
       move and assign, hire palette)
-- [ ] Agent cards (inspector) with status indicators
-- [ ] Task ownership views: running, waiting, queued, blocked, recently completed
-- [ ] Searchable list view (directory) with filters
-- [ ] Liaison role destinations through the Workforce directory
-- [ ] ADR-009; architecture, README, setup, configuration updated
+- [x] Agent cards (inspector) with status indicators
+- [x] Task ownership views: running, waiting, queued, blocked, recently completed
+- [x] Searchable list view (directory) with filters
+- [x] Liaison role destinations through the Workforce directory
+- [x] ADR-009; architecture, README, setup, configuration updated
 
 ## Phase 5 tests (from plan)
 
-- [ ] Create department
-- [ ] Create role
-- [ ] Assign manager
-- [ ] Create project coordinator
-- [ ] Coordinator creates child worker
-- [ ] Worker finishes and retires
-- [ ] Persistent coordinator survives restart
-- [ ] Department/project reassignment
-- [ ] Orphan prevention
+- [x] Create department
+- [x] Create role
+- [x] Assign manager
+- [x] Create project coordinator
+- [x] Coordinator creates child worker
+- [x] Worker finishes and retires
+- [x] Persistent coordinator survives restart
+- [x] Department/project reassignment
+- [x] Orphan prevention
 
 Also: routing refusals (unknown role, raw runtime from a member, runtime not allowed by the
 project), oversight routing, cycle prevention, title uniqueness, worker retirement on every
@@ -77,9 +78,46 @@ end to end through the real app.
 
 ## Acceptance criteria (from plan)
 
-- [ ] The user can view Development as a department, select a project, give a coordinator an
+- [x] The user can view Development as a department, select a project, give a coordinator an
       objective, and observe one or more workers appear under that coordinator and disappear
-      from active workforce after completion while history remains.
+      from active workforce after completion while history remains. (Fake CLIs, end to end;
+      owner check with the real CLIs below.)
+
+### Owner check on Windows (~20 minutes)
+
+1. Both CLIs installed and signed in (setup guide §3): **Runtimes** → **Re-check** shows both
+   **Ready**.
+2. **Organization** opens with You → Organization and a "Build your organization" card.
+   **Rename** it (for example _8 West Ventures_).
+3. **Create a department** → Name _Development_ → **Create department**. A _Development Manager_
+   appears to the right of the organization, with a "Development" chip on its link.
+4. **+ Project** → Department _Development_, Name _Website_, keep both runtimes ticked →
+   **Create project**. A _Website Coordinator_ appears under the manager with a "Website" chip.
+5. Build the team: drag **Senior Developer** from the Hire palette onto _Website Coordinator_ →
+   **Hire**; do the same for **Code Reviewer**. (Or select the coordinator, click a role in the
+   palette, and choose **Hire**.)
+6. Oversight: drag **Security Auditor** onto _Development Manager_ → **Hire**; then drag the new
+   _Security Auditor_ node onto _Website Coordinator_ → **Security auditor for Website
+   Coordinator's team**. A dotted "Security" link appears.
+7. Select _Website Coordinator_ and give it an objective: _"Write a Python function that checks
+   whether a string is a valid ISO 8601 date. Ask the Senior Developer to write it and the Code
+   Reviewer to review it, then give me the final version."_ → **Give objective**.
+   Expected: the coordinator shows **Working**, then **Waiting on team** while one or more
+   worker nodes appear under _Senior Developer_ / _Code Reviewer_ (dashed links, runtime chip,
+   **Working**); they disappear when done; the coordinator finishes **Idle**. (Criterion.)
+8. History remains: select _Senior Developer_ → **Former agents** shows the retired worker;
+   **Work → Recent** lists its task. **Activity** → the coordinator's task shows the delegation
+   tree and "Worker spawned for …" / "Worker finished and left the organization" in the
+   worker's trail.
+9. Close Plenipo (tray → **Quit**) and start it again: the organization is unchanged, and the
+   coordinator's details say "Continues its conversation."
+10. Optional: **List** view → filter by status; search for a position; collapse a team with
+    the "−" toggle on its trunk.
+
+Things only real CLIs can confirm (report anything odd): that a coordinator follows its
+instructions and hands work to its team by title (a request for anyone else is refused and
+explained, so the task still finishes), and how long a team round trip takes on real
+subscriptions.
 
 ## Out of scope
 

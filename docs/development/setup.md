@@ -80,6 +80,15 @@ Notes:
   its review as step 2. **Open worker session** shows the reviewer's own session; **Activity**
   shows the delegation tree and the full trail. Handoff workers get the same permissions as
   any worker.
+- The organization (Phase 5) uses the same runtimes. In **Organization**, create a department
+  (it comes with its manager) and a project in it (it comes with its coordinator; tick the
+  runtimes its workers may use), then drag roles from the **Hire** palette onto the
+  coordinator — or click a role and choose the supervisor. Select the coordinator and give it an
+  objective that names its team, for example: _"Add input validation to the signup form. Ask
+  the Senior Developer to implement it and the Code Reviewer to review it, then summarize."_
+  Each team member it hands work to appears under its position as a live worker and leaves
+  when its task ends. Every position's runtime is your choice (details panel → **Edit title,
+  runtime, or model**).
 
 ## 4. Build a release and installer
 
@@ -127,9 +136,12 @@ xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
 Set `PLENIPO_E2E_SCREENSHOTS=<dir>` to save screenshots. Each run uses a throwaway `HOME`, so
-it never touches your real Plenipo data. The Phase 3 and 4 tests put `plenipo-fake-agent` (a
+it never touches your real Plenipo data. The Phase 3–5 tests put `plenipo-fake-agent` (a
 test double that speaks the Claude Code and Codex stream formats and Liaison's handoff
 protocol) on `PATH` as `claude` and `codex`; they never start a real CLI or use an account.
+The Phase 5 tests build an organization on the canvas and give its coordinator objectives such
+as `[handoff:role:Senior Developer+delay:6000]`, which make the fake coordinator hand that
+position a task whose worker takes six seconds.
 
 ## 7. Linux (development / CI only)
 

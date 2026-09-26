@@ -5,13 +5,15 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 4 — Liaison handoffs between workers (implemented; awaiting owner
-> acceptance, so the version stays 0.4.0). The **Workers** view runs tasks on your own
-> signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing), with live
-> activity, normalized results, resume, and cancel. With handoffs allowed, a worker can ask a
-> worker on the other runtime for help — for example Codex asking Claude Code for a review —
-> and continues with the reply; every step is recorded in the durable local Ledger. Workers
-> cannot change files yet, and there are no departments yet. See
+> **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
+> acceptance, so the version stays 0.4.0). The **Organization** view is a live topology map of
+> your AI workforce: create departments and projects (each comes with its manager or
+> coordinator), drag roles from the hire palette onto a lead to build its team, drag positions
+> to change who they report to or to make them a team's reviewer, QA evaluator, or security
+> auditor, and give a coordinator an objective — its workers appear under it while they work
+> and leave when done, with every step in the durable local Ledger. Agents run on your own
+> signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing). Workers
+> cannot change files yet (capabilities arrive with Guard in Phase 7). See
 > [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
@@ -68,6 +70,8 @@ crates/liaison/          Plenipo Liaison: handoff protocol, context packets, rep
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
                          agent runtime adapters (Claude Code, Codex) and sessions
+crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
+                         role templates), live snapshot, role routing for Liaison
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
@@ -77,7 +81,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`workforce`, `guard`, …) are added when the
+Further crates from the plan (`router`, `guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation
