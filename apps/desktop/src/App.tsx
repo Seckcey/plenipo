@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import type { AppInfo } from "@plenipo/types";
 
-import { frontendReady, getAppInfo, type PlenipoCommandError } from "./api/commands";
+import {
+  frontendReady,
+  getAppInfo,
+  getLedgerStatus,
+  type PlenipoCommandError,
+} from "./api/commands";
 import { BrandMark } from "./components/BrandMark";
 import { Sidebar } from "./components/Sidebar";
 import { VIEWS, type ViewId } from "./components/views";
@@ -22,6 +27,12 @@ type CoreState =
 // UI position survives a webview reload (the backend owns everything else).
 const VIEW_KEY = "plenipo.view";
 const SELECTED_KEY = "plenipo.selectedExecution";
+const SELECTED_TASK_KEY = "plenipo.selectedTask";
+
+/** Notices that mean data may be at risk get alert styling; others are informational. */
+function isSevere(notice: string): boolean {
+  return /integrity|damaged|temporary|could not|not opened|newer/i.test(notice);
+}
 
 function readSession(key: string): string | null {
   try {
@@ -76,6 +87,17 @@ function Shell({ core }: { core: CoreState }) {
   const { state } = useRuntime();
   const [view, setView] = useState<ViewId>(initialView);
   const [selected, setSelected] = useState<string | null>(() => readSession(SELECTED_KEY));
+  const [selectedTask, setSelectedTask] = useState<string | null>(() =>
+    readSession(SELECTED_TASK_KEY),
+  );
+  const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
+  const [noticesDismissed, setNoticesDismissed] = useState(false);
+
+  useEffect(() => {
+    getLedgerStatus()
+      .then((status) => setLedgerNotices(status.notices))
+      .catch(() => undefined);
+  }, []);
   const activeCount = Object.values(state.executions).filter(isActive).length;
   const info = core.status === "ready" ? core.info : null;
 
@@ -87,6 +109,11 @@ function Shell({ core }: { core: CoreState }) {
     setSelected(id);
     writeSession(SELECTED_KEY, id);
   };
+  const selectTask = (id: string | null) => {
+    setSelectedTask(id);
+    writeSession(SELECTED_TASK_KEY, id);
+  };
+  const severe = ledgerNotices.some(isSevere);
 
   return (
     <div className="shell">
@@ -103,6 +130,24 @@ function Shell({ core }: { core: CoreState }) {
       <div className="shell__body">
         <Sidebar current={view} onNavigate={navigate} activeCount={activeCount} />
         <main className="shell__main">
+          {ledgerNotices.length > 0 && !noticesDismissed && (
+            <div
+              className={`banner${severe ? " banner--severe" : ""}`}
+              role={severe ? "alert" : "status"}
+            >
+              <div>
+                <strong>Ledger notice{ledgerNotices.length > 1 ? "s" : ""}</strong>
+                <ul>
+                  {ledgerNotices.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+              <button type="button" className="link" onClick={() => setNoticesDismissed(true)}>
+                Dismiss
+              </button>
+            </div>
+          )}
           {core.status === "error" && (
             <p className="status status--error" role="alert">
               Plenipo Core is unavailable: {core.error.message}
@@ -110,9 +155,11 @@ function Shell({ core }: { core: CoreState }) {
           )}
           {view === "organization" && <OrganizationView />}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
-          {view === "activity" && <ActivityView />}
+          {view === "activity" && (
+            <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
+          )}
           {view === "settings" && <SettingsView />}
-          {view === "diagnostics" && <DiagnosticsView info={info} />}
+          {view === "diagnostics" && <DiagnosticsView info={info} onTaskCreated={selectTask} />}
         </main>
       </div>
 

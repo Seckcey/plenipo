@@ -17,9 +17,16 @@ vi.mock("./api/commands", async (importOriginal) => {
     startExecution: vi.fn(),
     cancelExecution: vi.fn(),
     getExecutionOutput: vi.fn(),
+    getLedgerStatus: vi.fn(),
+    listTasks: vi.fn(),
+    listRecentEvents: vi.fn(),
+    getTaskTimeline: vi.fn(),
   };
 });
-vi.mock("./api/events", () => ({ subscribeRuntimeEvents: vi.fn() }));
+vi.mock("./api/events", () => ({
+  subscribeRuntimeEvents: vi.fn(),
+  subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
+}));
 
 const api = vi.mocked(commands);
 const subscribe = vi.mocked(events.subscribeRuntimeEvents);
@@ -60,6 +67,21 @@ function overview(executions: ExecutionRecord[] = []): RuntimeOverview {
   };
 }
 
+function ledgerStatus(notices: string[]) {
+  return {
+    path: "/data/ledger/plenipo.db",
+    schemaVersion: 1,
+    sizeBytes: 4096,
+    taskCount: 0,
+    eventCount: 0,
+    executionCount: 0,
+    notices,
+    lastIntegrityCheck: null,
+    lastBackup: null,
+    persistent: true,
+  };
+}
+
 function send(event: RuntimeEvent) {
   act(() => emit(event));
 }
@@ -78,6 +100,9 @@ beforeEach(() => {
   api.getExecutionOutput.mockImplementation((executionId) =>
     Promise.resolve({ executionId, lines: [], dropped: 0, available: true }),
   );
+  api.getLedgerStatus.mockResolvedValue(ledgerStatus([]));
+  api.listTasks.mockResolvedValue([]);
+  api.listRecentEvents.mockResolvedValue([]);
   subscribe.mockImplementation((handler) => {
     emit = handler;
     return Promise.resolve(() => undefined);
@@ -129,6 +154,30 @@ describe("App shell", () => {
     for (const name of ["Development", "Sales", "Marketing", "Westy"]) {
       expect(screen.queryByText(new RegExp(name))).not.toBeInTheDocument();
     }
+  });
+});
+
+describe("Ledger notices", () => {
+  it("shows severe ledger notices as an alert on every view", async () => {
+    api.getLedgerStatus.mockResolvedValue(
+      ledgerStatus([
+        "The ledger database failed its integrity check (malformed). It was moved to /x.corrupt-1",
+      ]),
+    );
+    render(<App />);
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("failed its integrity check");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows informational notices without alarm", async () => {
+    api.getLedgerStatus.mockResolvedValue(
+      ledgerStatus(["Imported 3 execution(s) from the previous history file into the ledger."]),
+    );
+    render(<App />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Imported 3 execution(s)");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
@@ -220,7 +269,7 @@ describe("Runtimes", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Activity" }));
-    expect(screen.getByText("Echo test started")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Activity" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Runtimes/ }));
     expect(screen.getByText("kept across views")).toBeInTheDocument();
     expect(api.getRuntimeOverview).toHaveBeenCalledTimes(1);

@@ -375,3 +375,145 @@ button {
 .facts dd.ok {
   color: var(--ok);
 }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs__tab {
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tabs__tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.view h3 {
+  margin: 18px 0 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.trail {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trail__item {
+  display: grid;
+  grid-template-columns: 56px 90px 1fr auto;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.trail__seq,
+.trail__item time,
+.trail__source {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.trail__item--rejected .trail__text {
+  color: var(--error);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.button--small {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.children {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.children li {
+  padding: 3px 0;
+}
+
+.banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.banner ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.banner--severe {
+  border-color: var(--error);
+}
+
+.banner--severe strong {
+  color: var(--error);
+}
+
+.status--ok {
+  color: var(--ok);
+}
+
+.path {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.badge--task-running {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.badge--task-succeeded {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.badge--task-failed {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.badge--task-blocked,
+.badge--task-awaitingApproval {
+  border-color: #e0a100;
+  color: #e0a100;
+}

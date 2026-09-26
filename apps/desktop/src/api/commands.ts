@@ -5,11 +5,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
+  BackupInfo,
   CommandError,
   CommandErrorKind,
   ExecutionOutput,
   ExecutionRecord,
+  ExportInfo,
+  IntegrityReport,
+  LedgerEvent,
+  LedgerStatus,
   RuntimeOverview,
+  SyntheticTaskAction,
+  Task,
+  TaskTimeline,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -77,4 +85,49 @@ export function cancelExecution(executionId: string): Promise<ExecutionRecord> {
 /** Buffered output, used to rebuild the view after navigation or a reload. */
 export function getExecutionOutput(executionId: string): Promise<ExecutionOutput> {
   return call<ExecutionOutput>("get_execution_output", { executionId });
+}
+
+// ---- Ledger -------------------------------------------------------------------------------
+
+export function getLedgerStatus(): Promise<LedgerStatus> {
+  return call<LedgerStatus>("get_ledger_status");
+}
+
+/** Tasks, newest first. */
+export function listTasks(): Promise<Task[]> {
+  return call<Task[]>("list_tasks");
+}
+
+/** A task's complete ordered activity trail and its direct children. */
+export function getTaskTimeline(taskId: string): Promise<TaskTimeline> {
+  return call<TaskTimeline>("get_task_timeline", { taskId });
+}
+
+/** Most recent ledger events, newest first. */
+export function listRecentEvents(): Promise<LedgerEvent[]> {
+  return call<LedgerEvent[]>("list_recent_events");
+}
+
+/** Diagnostics: create a synthetic task. */
+export function createSyntheticTask(): Promise<Task> {
+  return call<Task>("create_synthetic_task");
+}
+
+/** Diagnostics: act on a synthetic task. The ledger's state machine decides what is allowed. */
+export function advanceSyntheticTask(taskId: string, action: SyntheticTaskAction): Promise<Task> {
+  return call<Task>("advance_synthetic_task", { taskId, action });
+}
+
+export function runIntegrityCheck(): Promise<IntegrityReport> {
+  return call<IntegrityReport>("run_integrity_check");
+}
+
+/** Verified backup; Core chooses the location. */
+export function createLedgerBackup(): Promise<BackupInfo> {
+  return call<BackupInfo>("create_ledger_backup");
+}
+
+/** JSON export; Core chooses the location. */
+export function exportLedger(): Promise<ExportInfo> {
+  return call<ExportInfo>("export_ledger");
 }

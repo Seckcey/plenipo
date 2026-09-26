@@ -1,10 +1,17 @@
 import type { AppInfo } from "@plenipo/types";
 
+import { LedgerPanel } from "../components/LedgerPanel";
 import { formatTime } from "../runtime/format";
 import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
 
-export function DiagnosticsView({ info }: { info: AppInfo | null }) {
+export function DiagnosticsView({
+  info,
+  onTaskCreated,
+}: {
+  info: AppInfo | null;
+  onTaskCreated: (taskId: string) => void;
+}) {
   const { state } = useRuntime();
   const active = Object.values(state.executions).filter(isActive).length;
   return (
@@ -30,7 +37,9 @@ export function DiagnosticsView({ info }: { info: AppInfo | null }) {
         </div>
       </dl>
 
-      <h2>Notices</h2>
+      <LedgerPanel onTaskCreated={onTaskCreated} />
+
+      <h2>Runtime notices</h2>
       {state.notices.length === 0 ? (
         <p className="muted">None.</p>
       ) : (
