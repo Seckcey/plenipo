@@ -5,9 +5,10 @@ a persistent management hierarchy; Plenipo routes the work to coordinators and s
 worker agents, grants only the capabilities each task needs, supervises execution, and keeps
 a complete audit trail.
 
-> **Status:** Phase 1 — desktop shell and local runtime supervisor. Plenipo can launch,
-> observe, and terminate approved local processes (built-in diagnostics only) with live output
-> in the UI. There are no AI runtimes, departments, or tasks yet. See
+> **Status:** Phase 2 — Plenipo Ledger. Tasks, events, and executions are recorded in a
+> durable local SQLite ledger with a complete ordered activity trail, backups, and corruption
+> detection. Plenipo can also launch, observe, and terminate approved local processes
+> (built-in diagnostics only). There are no AI runtimes or departments yet. See
 > [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
@@ -36,19 +37,20 @@ No API keys, provider logins, or `.env` file are needed to build or launch.
 
 ## Common commands
 
-| Command                                                 | What it does                                            |
-| ------------------------------------------------------- | ------------------------------------------------------- |
-| `pnpm dev`                                              | Run the desktop app in development mode                 |
-| `pnpm build`                                            | Build the release app and Windows installer             |
-| `pnpm check`                                            | Versions, format, lint, typecheck, frontend tests       |
-| `pnpm test`                                             | Frontend unit tests (Vitest)                            |
-| `pnpm typecheck`                                        | TypeScript typecheck for all packages                   |
-| `pnpm lint`                                             | ESLint                                                  |
-| `pnpm format`                                           | Prettier (write)                                        |
-| `pnpm bindings`                                         | Regenerate TypeScript DTOs from Rust (`packages/types`) |
-| `cargo test --workspace`                                | Rust unit tests                                         |
-| `cargo clippy --workspace --all-targets -- -D warnings` | Rust lint                                               |
-| `cargo fmt --all`                                       | Rust format                                             |
+| Command                                                 | What it does                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| `pnpm dev`                                              | Run the desktop app in development mode                      |
+| `pnpm build`                                            | Build the release app and Windows installer                  |
+| `pnpm check`                                            | Versions, format, lint, typecheck, frontend tests            |
+| `pnpm test`                                             | Frontend unit tests (Vitest)                                 |
+| `pnpm typecheck`                                        | TypeScript typecheck for all packages                        |
+| `pnpm lint`                                             | ESLint                                                       |
+| `pnpm format`                                           | Prettier (write)                                             |
+| `pnpm bindings`                                         | Regenerate TypeScript DTOs from Rust (`packages/types`)      |
+| `pnpm e2e`                                              | End-to-end tests against the release build (see setup guide) |
+| `cargo test --workspace`                                | Rust unit tests                                              |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Rust lint                                                    |
+| `cargo fmt --all`                                       | Rust format                                                  |
 
 ## Repository layout
 
@@ -56,6 +58,7 @@ No API keys, provider logins, or `.env` file are needed to build or launch.
 apps/desktop/            React + TypeScript UI (Vite)
 apps/desktop/src-tauri/  Tauri 2 Rust backend: typed command boundary, capabilities
 crates/core/             Plenipo Core: provider-neutral domain types and shared DTOs
+crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, event trail
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
@@ -66,7 +69,7 @@ docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan (`ledger`, `liaison`, `guard`, …) are added when the
+Further crates from the plan (`liaison`, `guard`, …) are added when the
 phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation

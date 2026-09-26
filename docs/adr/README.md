@@ -20,3 +20,4 @@ architecture must be recorded here.
 | [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                      | Accepted |
 | [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Accepted |
 | [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                     | Accepted |
+| [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)        | Proposed |
