@@ -20,7 +20,7 @@ Coordinator as **VP / Manager / Supervisor**, the owner as **President**, and "A
 of "runtime" (ADR-010, [word list](../design/vocabulary.md)). This checklist keeps the plan's
 words where it quotes the plan.
 
-## Design decisions (details in ADR-009)
+## Design decisions (details in ADR-009, how the AI organization works)
 
 - **Positions and agents are separate.** A _position_ is a place in the organization chart
   (title, role, supervisor, runtime). A _persistent_ position (superintendent, department
@@ -70,8 +70,9 @@ words where it quotes the plan.
       place in existing Ledgers (no duplicates)
 - [x] Personalization → **Titles** in Settings: Business (default), U.S. Army, Navy, Air Force,
       Marine Corps, Coast Guard, Space Force, or Mafia; stored with the organization; display
-      only (agents keep the plain titles) — ADR-010
-- [x] ADR-009, ADR-010; architecture, README, setup, configuration updated
+      only (agents keep the plain titles) — ADR-010 (plain words and rank names)
+- [x] ADR-009 (how the AI organization works) and ADR-010 (plain words and rank names);
+      architecture, README, setup, configuration updated
 
 ## Phase 5 tests (from plan)
 
