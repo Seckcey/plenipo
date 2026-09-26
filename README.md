@@ -1,19 +1,21 @@
 # Plenipo
 
 Plenipo is a local-first desktop control plane for an AI workforce. You hand an outcome to
-a persistent management hierarchy; Plenipo routes the work to coordinators and specialist
-worker agents, grants only the capabilities each task needs, supervises execution, and keeps
-a complete audit trail.
+your AI organization — VPs, managers, and supervisors that stay on the job — and Plenipo routes
+the work to supervisors and specialist workers, grants only the permissions each task needs,
+watches over the work, and keeps a complete record of it.
 
 > **Status:** Phase 5 — Workforce and organization engine (implemented; awaiting owner
 > acceptance, so the version stays 0.5.0). The **Organization** view is a live topology map of
 > your AI workforce: create departments and projects (each comes with its manager or
-> coordinator), drag roles from the hire palette onto a lead to build its team, drag positions
+> supervisor), drag roles from the hire palette onto a lead to build its team, drag positions
 > to change who they report to or to make them a team's reviewer, QA evaluator, or security
-> auditor, and give a coordinator an objective — its workers appear under it while they work
-> and leave when done, with every step in the durable local Ledger. Agents run on your own
-> signed-in Claude Code and Codex CLIs (subscription sign-ins only, no API billing). Workers
-> cannot change files yet (capabilities arrive with Guard in Phase 7). See
+> auditor, and give a supervisor an objective — its workers appear under it while they work
+> and leave when done, with every step in the durable local Ledger. The chain of command reads
+> Worker → Supervisor → Manager → VP → President (you); **Settings → Personalization → Titles**
+> can rename the ranks after a U.S. military branch or the Mafia. Agents run on your own
+> signed-in Claude Code and Codex (subscription sign-ins only, no API billing). Workers cannot
+> change files yet (permissions arrive with Guard in Phase 7). See
 > [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
@@ -91,5 +93,6 @@ phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layou
 - [Configuration conventions](docs/development/configuration.md)
 - [Versioning](docs/development/versioning.md)
 - [Architecture Decision Records](docs/adr/README.md)
+- [Plain words: the words the app uses](docs/design/vocabulary.md)
 - [Phase checklists and acceptance reports](docs/phases/)
 - [Rollout plan](ROLLOUT_PLAN.md)

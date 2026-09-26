@@ -110,27 +110,28 @@ Current commands:
 Workforce commands (Phase 5). Every change returns the organization as it is afterwards
 (`OrgSnapshot`); the Ledger enforces the structure and a refused change rejects with the reason.
 
-| Command               | Input                            | Returns              | Purpose                                                                                   |
-| --------------------- | -------------------------------- | -------------------- | ----------------------------------------------------------------------------------------- |
-| `get_organization`    | —                                | `OrgSnapshot`        | Roles, departments, projects, positions with live status and workers, oversight, stats    |
-| `get_work`            | `positionId?`                    | `WorkView`           | A position's running, waiting, queued, and recent tasks, and its team's unfinished tasks  |
-| `rename_organization` | `name`                           | `OrgSnapshot`        | The organization's display name                                                           |
-| `create_role`         | `input` (`RoleInput`)            | `OrgSnapshot`        | A custom role (class and staffing)                                                        |
-| `create_department`   | `input` (`DepartmentInput`)      | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                       |
-| `update_department`   | `departmentId`, `input`          | `OrgSnapshot`        | Name, description, active                                                                 |
-| `remove_department`   | `departmentId`                   | `OrgSnapshot`        | Delete a department without projects; its head position is archived                       |
-| `create_project`      | `input` (`ProjectInput`)         | `OrgSnapshot`        | A project in a department with its coordinator; allowed runtimes, recorded path/profile   |
-| `update_project`      | `projectId`, `input`             | `OrgSnapshot`        | Settings (allowed runtimes are checked against every position under the project)          |
-| `archive_project`     | `projectId`                      | `OrgSnapshot`        | Archive the project and its whole team (refused while any of it has unfinished work)      |
-| `hire_position`       | `input` (`HireInput`)            | `OrgSnapshot`        | A new position under a lead (or the owner); a persistent one gets its agent               |
-| `fill_position`       | `positionId`                     | `OrgSnapshot`        | Hire an agent into a vacant persistent position                                           |
-| `vacate_position`     | `positionId`                     | `OrgSnapshot`        | Retire a persistent position's agent; the position stays                                  |
-| `update_position`     | `positionId`, `input`            | `OrgSnapshot`        | Title, runtime, model (a new runtime or model hires a new agent for a persistent one)     |
-| `move_position`       | `positionId`, `reportsTo`        | `OrgSnapshot`        | Change who it reports to (`null`: the owner); a moved coordinator takes its project along |
-| `archive_position`    | `positionId`                     | `OrgSnapshot`        | Archive (orphan prevention: no reports, not a head or coordinator, no unfinished work)    |
-| `assign_oversight`    | `overseerId`, `targetId`, `role` | `OrgSnapshot`        | Make an on-demand position a lead's team reviewer, QA evaluator, or security auditor      |
-| `end_oversight`       | `oversightId`                    | `OrgSnapshot`        | End an oversight assignment                                                               |
-| `give_objective`      | `positionId`, `objective`        | `AgentSessionDetail` | Give a staffed persistent position's agent an objective; Core chooses its session         |
+| Command                   | Input                            | Returns              | Purpose                                                                                   |
+| ------------------------- | -------------------------------- | -------------------- | ----------------------------------------------------------------------------------------- |
+| `get_organization`        | —                                | `OrgSnapshot`        | Roles, departments, projects, positions with live status and workers, oversight, stats    |
+| `get_work`                | `positionId?`                    | `WorkView`           | A position's running, waiting, queued, and recent tasks, and its team's unfinished tasks  |
+| `rename_organization`     | `name`                           | `OrgSnapshot`        | The organization's display name                                                           |
+| `set_organization_titles` | `titles` (`TitleTheme`)          | `OrgSnapshot`        | What the app calls the ranks (display only; ADR-010)                                      |
+| `create_role`             | `input` (`RoleInput`)            | `OrgSnapshot`        | A custom role (class and staffing)                                                        |
+| `create_department`       | `input` (`DepartmentInput`)      | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                       |
+| `update_department`       | `departmentId`, `input`          | `OrgSnapshot`        | Name, description, active                                                                 |
+| `remove_department`       | `departmentId`                   | `OrgSnapshot`        | Delete a department without projects; its head position is archived                       |
+| `create_project`          | `input` (`ProjectInput`)         | `OrgSnapshot`        | A project in a department with its coordinator; allowed runtimes, recorded path/profile   |
+| `update_project`          | `projectId`, `input`             | `OrgSnapshot`        | Settings (allowed runtimes are checked against every position under the project)          |
+| `archive_project`         | `projectId`                      | `OrgSnapshot`        | Archive the project and its whole team (refused while any of it has unfinished work)      |
+| `hire_position`           | `input` (`HireInput`)            | `OrgSnapshot`        | A new position under a lead (or the owner); a persistent one gets its agent               |
+| `fill_position`           | `positionId`                     | `OrgSnapshot`        | Hire an agent into a vacant persistent position                                           |
+| `vacate_position`         | `positionId`                     | `OrgSnapshot`        | Retire a persistent position's agent; the position stays                                  |
+| `update_position`         | `positionId`, `input`            | `OrgSnapshot`        | Title, runtime, model (a new runtime or model hires a new agent for a persistent one)     |
+| `move_position`           | `positionId`, `reportsTo`        | `OrgSnapshot`        | Change who it reports to (`null`: the owner); a moved coordinator takes its project along |
+| `archive_position`        | `positionId`                     | `OrgSnapshot`        | Archive (orphan prevention: no reports, not a head or coordinator, no unfinished work)    |
+| `assign_oversight`        | `overseerId`, `targetId`, `role` | `OrgSnapshot`        | Make an on-demand position a lead's team reviewer, QA evaluator, or security auditor      |
+| `end_oversight`           | `oversightId`                    | `OrgSnapshot`        | End an oversight assignment                                                               |
+| `give_objective`          | `positionId`, `objective`        | `AgentSessionDetail` | Give a staffed persistent position's agent an objective; Core chooses its session         |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -245,7 +246,17 @@ Decision record: [ADR-008](../adr/ADR-008-liaison.md).
 
 ## 8. Workforce (Phase 5)
 
-Decision record: [ADR-009](../adr/ADR-009-workforce.md).
+Decision records: [ADR-009](../adr/ADR-009-workforce.md) (the engine) and
+[ADR-010](../adr/ADR-010-plain-titles.md) (the words on screen).
+
+- **Words on screen.** The app shows the owner as President and the superintendent, department
+  manager, and project coordinator as VP, Manager, and Supervisor, with "AI tool" for runtime
+  and "full-time" / "on call" for persistent / on-demand
+  ([word list](../design/vocabulary.md)). The code keeps the names used below. The owner's
+  `TitleTheme` (stored in the organization's settings, returned in `OrgSnapshot.titles`) swaps
+  the rank names for a U.S. military branch's or the Mafia's in the UI only
+  (`apps/desktop/src/org/titles.ts`); agents always get the plain titles. Seeded role templates
+  carry their former names, and seeding renames such a role in place (`org.role_renamed`).
 
 - **Positions and agents.** A position is a place in the organization chart (title, role,
   supervisor, runtime, optional model). A _persistent_ position (superintendent, department

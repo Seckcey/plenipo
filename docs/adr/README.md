@@ -24,3 +24,4 @@ architecture must be recorded here.
 | [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)    | Accepted |
 | [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs   | Accepted |
 | [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas | Proposed |
+| [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks    | Proposed |

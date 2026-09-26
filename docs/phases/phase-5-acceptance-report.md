@@ -13,22 +13,30 @@ Screenshots: [empty organization](evidence/phase-5/org-empty.png) ·
 [workers under their positions](evidence/phase-5/org-workers-live.png) ·
 [after the workers left](evidence/phase-5/org-after-workers.png) ·
 [a worker's Ledger trail](evidence/phase-5/org-worker-trail.png) ·
+[U.S. Army titles after a restart](evidence/phase-5/org-army-titles.png) ·
 [list view after a restart](evidence/phase-5/org-list-after-restart.png).
 
-Test totals: **348 Rust** (Linux) · **100 frontend** · **30 end-to-end**
+Test totals: **351 Rust** (Linux) · **108 frontend** · **30 end-to-end**
 against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5 Phase 5).
 
-CI has no provider accounts, so every automated test drives `plenipo-fake-agent`, the test
-double installed as `claude` / `codex`. For Phase 5 a coordinator's objective such as
-`Ship the pricing page [handoff:role:Senior Developer+delay:6000]` makes the fake coordinator
-hand the Senior Developer a task — exactly the `role:` request a real coordinator is instructed
+**Owner direction during the phase:** plain, non-technical words on every screen, the chain of
+command Worker → Supervisor → Manager → VP → President (you), and a **Titles** choice that names
+the ranks after a U.S. military branch or the Mafia. The app now shows the plan's Superintendent /
+Department Manager / Project Coordinator as VP / Manager / Supervisor and says "AI tool" instead
+of "runtime" ([ADR-010](../adr/ADR-010-plain-titles.md),
+[word list](../design/vocabulary.md)). Quotes from the plan below keep the plan's words.
+
+CI has no AI tool accounts, so every automated test drives `plenipo-fake-agent`, the test
+double installed as `claude` / `codex`. For Phase 5 a supervisor's objective such as
+`Ship the pricing page [handoff:role:Senior Developer+delay:6000]` makes the fake supervisor
+hand the Senior Developer a task — exactly the `role:` request a real supervisor is instructed
 to write — whose worker takes six seconds, so it can be watched on the canvas.
 
 ## 1. Acceptance criterion → evidence
 
-| #   | Criterion (ROLLOUT_PLAN.md)                                                                                                                                                                                                                 | Result (fake CLIs) | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | The user can view Development as a department, select a project, give a coordinator an objective, and observe one or more workers appear under that coordinator and disappear from active workforce after completion while history remains. | **Pass**           | E2E `starts empty, then builds Development, its Website project, and the team` builds it on the canvas ([screenshot](evidence/phase-5/org-team.png)). E2E `acceptance: a coordinator's objective puts workers under it, and they leave when done`: the coordinator is selected, given an objective, and waits on its team while a worker appears under the Senior Developer and one under the Code Reviewer — dashed links, runtime chips, **Working**, "Live workers 2" ([screenshot](evidence/phase-5/org-workers-live.png)); both leave, the coordinator finishes **Idle**, "Live workers 0"; the Senior Developer still shows its retired worker and the task under **Work → Recent** ([screenshot](evidence/phase-5/org-after-workers.png)). E2E `the Ledger keeps the organization's trail`: the delegation tree and each worker's trail ("Worker spawned for …", "Worker finished and left the organization") ([screenshot](evidence/phase-5/org-worker-trail.png)). Integration `acceptance_workers_appear_under_the_coordinator_and_leave_when_done` checks the snapshot at every stage, the event order, and that agents, tasks, and trails remain. |
+| #   | Criterion (ROLLOUT_PLAN.md)                                                                                                                                                                                                                 | Result (fake CLIs) | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The user can view Development as a department, select a project, give a coordinator an objective, and observe one or more workers appear under that coordinator and disappear from active workforce after completion while history remains. | **Pass**           | E2E `starts empty, then builds Development, its Website project, and the team` builds it on the canvas ([screenshot](evidence/phase-5/org-team.png)). E2E `acceptance: a supervisor's objective puts workers under it, and they leave when done`: the supervisor (the plan's coordinator) is selected, given an objective, and waits on its team while a worker appears under the Senior Developer and one under the Code Reviewer — dashed links, AI tool chips, **Working**, "Live workers 2" ([screenshot](evidence/phase-5/org-workers-live.png)); both leave, the supervisor finishes **Idle**, "Live workers 0"; the Senior Developer still shows its retired worker and the task under **Work → Recent** ([screenshot](evidence/phase-5/org-after-workers.png)). E2E `the Ledger keeps the organization's trail`: the delegation tree and each worker's trail ("Worker brought in for …", "Worker finished and left the organization") ([screenshot](evidence/phase-5/org-worker-trail.png)). Integration `acceptance_workers_appear_under_the_coordinator_and_leave_when_done` checks the snapshot at every stage, the event order, and that agents, tasks, and trails remain. |
 
 ## 2. Required Phase 5 tests → evidence
 
@@ -36,17 +44,17 @@ Integration tests in `crates/workforce/tests/workforce.rs` run the real Workforc
 agent runtime, supervisor, adapters, and a file-backed Ledger against the fake CLIs; unit tests
 in `crates/ledger/src/workforce.rs` test every repository operation and rule.
 
-| Test (ROLLOUT_PLAN.md)                  | Result   | Evidence                                                                                                                                                                                                                                                                                            |
-| --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Create department                       | **Pass** | `plan_create_department_role_manager_and_project_coordinator` (the department comes with its head position, events in one transaction); Ledger `a_department_comes_with_its_head_and_a_project_with_its_coordinator`; IPC `the_organization_is_built_and_changed_through_ipc`; E2E build test       |
-| Create role                             | **Pass** | Same integration test (a custom on-demand role next to the seeded templates; duplicate names refused); `templates_cover_every_class_and_the_owners_oversight_roles`; frontend role dialog                                                                                                           |
-| Assign manager                          | **Pass** | Same integration test (a vacant head is filled: `org.agent_hired`); Ledger `a_persistent_position_keeps_one_incumbent_at_a_time` (one incumbent; a runtime change retires and rehires)                                                                                                              |
-| Create project coordinator              | **Pass** | Same integration test (the project comes with its coordinator under the department head; only known runtimes; the project's allowed runtimes bind the coordinator); E2E build test                                                                                                                  |
-| Coordinator creates child worker        | **Pass** | `acceptance_workers_appear_under_the_coordinator_and_leave_when_done` (two `role:` requests → two workers recorded with their child tasks in the Liaison transaction, on the positions' runtimes); Liaison `a_member_hands_work_to_its_team_and_the_worker_leaves_when_done`; E2E acceptance test   |
-| Worker finishes and retires             | **Pass** | Same tests (the worker retires in the transaction that ends its task); `a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on`; Ledger `a_spawned_worker_starts_and_retires_with_its_task` (success, failure, cancellation)                                                           |
-| Persistent coordinator survives restart | **Pass** | `plan_persistent_coordinator_survives_restart` (a new stack on the same Ledger file: same position, same agent, and the next objective resumes the same provider session); E2E `the organization and its coordinator survive a restart` ([screenshot](evidence/phase-5/org-list-after-restart.png)) |
-| Department/project reassignment         | **Pass** | `plan_department_and_project_reassignment` (moving a coordinator under another department's head moves its project, `org.project_reassigned`; a worker moved to another team leaves the project); Ledger `moves_prevent_cycles_and_reassign_projects`                                               |
-| Orphan prevention                       | **Pass** | `plan_orphan_prevention` (nobody left without a supervisor, no cycles, only persistent supervisors, no letting an agent go with unfinished work; archiving a project archives its whole team and ends oversight of it); Ledger `orphans_are_prevented`                                              |
+| Test (ROLLOUT_PLAN.md)                  | Result   | Evidence                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create department                       | **Pass** | `plan_create_department_role_manager_and_project_coordinator` (the department comes with its head position, events in one transaction); Ledger `a_department_comes_with_its_head_and_a_project_with_its_coordinator`; IPC `the_organization_is_built_and_changed_through_ipc`; E2E build test                          |
+| Create role                             | **Pass** | Same integration test (a custom on-demand role next to the seeded templates; duplicate names refused); `templates_cover_every_class_and_the_owners_oversight_roles`; frontend role dialog                                                                                                                              |
+| Assign manager                          | **Pass** | Same integration test (a vacant head is filled: `org.agent_hired`); Ledger `a_persistent_position_keeps_one_incumbent_at_a_time` (one incumbent; a runtime change retires and rehires)                                                                                                                                 |
+| Create project coordinator              | **Pass** | Same integration test (the project comes with its coordinator under the department head; only known runtimes; the project's allowed runtimes bind the coordinator); E2E build test                                                                                                                                     |
+| Coordinator creates child worker        | **Pass** | `acceptance_workers_appear_under_the_coordinator_and_leave_when_done` (two `role:` requests → two workers recorded with their child tasks in the Liaison transaction, on the positions' runtimes); Liaison `a_member_hands_work_to_its_team_and_the_worker_leaves_when_done`; E2E acceptance test                      |
+| Worker finishes and retires             | **Pass** | Same tests (the worker retires in the transaction that ends its task); `a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on`; Ledger `a_spawned_worker_starts_and_retires_with_its_task` (success, failure, cancellation)                                                                              |
+| Persistent coordinator survives restart | **Pass** | `plan_persistent_coordinator_survives_restart` (a new stack on the same Ledger file: same position, same agent, and the next objective resumes the same provider session); E2E `the organization, its supervisor, and the chosen titles survive a restart` ([screenshot](evidence/phase-5/org-list-after-restart.png)) |
+| Department/project reassignment         | **Pass** | `plan_department_and_project_reassignment` (moving a coordinator under another department's head moves its project, `org.project_reassigned`; a worker moved to another team leaves the project); Ledger `moves_prevent_cycles_and_reassign_projects`                                                                  |
+| Orphan prevention                       | **Pass** | `plan_orphan_prevention` (nobody left without a supervisor, no cycles, only persistent supervisors, no letting an agent go with unfinished work; archiving a project archives its whole team and ends oversight of it); Ledger `orphans_are_prevented`                                                                 |
 
 Also: routing refusals (`requests_outside_the_team_are_refused_and_explained`: an unknown role,
 a raw runtime from a member, a runtime the project does not allow — each refused with the reason
@@ -55,11 +63,15 @@ objectives only to staffed persistent positions and member sessions not continue
 (`objectives_go_only_to_staffed_persistent_positions`); oversight routing (an overseer is on the
 team it oversees); title uniqueness; the v3 → v4 upgrade (`phase4_ledger_upgrades_to_the_workforce`)
 and the down migration; snapshot unit tests (tree membership, statuses from open tasks, vacancies,
-unready runtimes, project policy on the nodes); IPC boundary tests for all 19 new commands (input
+unready runtimes, project policy on the nodes); IPC boundary tests for all 20 new commands (input
 validation, no extra fields, refusals record nothing, denied for ungranted windows and remote
 origins); frontend tests for the camera, the layout, the structure hints, the canvas (drag to
 hire, drag to reassign or assign oversight, refused drops, collapse, search, list view, dialogs,
-live reload), organization members in Workers, and the `org.*` trail descriptions.
+live reload), organization members in Workers, and the `org.*` trail descriptions. For the owner's
+words (ADR-010): title sets, plurals, and articles; rule messages in the chosen ranks; the map and
+details panel under Army titles; choosing titles in Settings; a template seeded under a former
+name renamed in place (`a_renamed_template_keeps_its_role_and_positions`); settings merges that
+keep other fields; and, end to end, Army titles chosen in Settings that survive a restart.
 
 ## 3. Defects found and fixed during Phase 5
 
@@ -77,6 +89,7 @@ live reload), organization members in Workers, and the `org.*` trail description
 | E2E (real app)        | "QA evaluator" lost its capitals mid-sentence ("the team's qa evaluator").                                                                                                                                                                                                                                      | Oversight roles have their own mid-sentence names.                                                                                                                                                               |
 | E2E (harness, flaky)  | A relaunch in the Phase 3 suite could ask for a WebDriver session before the native driver that tauri-driver starts was listening, and was refused.                                                                                                                                                             | The launcher waits for both drivers' ports.                                                                                                                                                                      |
 | CI (Windows, flaky)   | Since the Phase 4 fix merged from `main`, a finished turn reads as not running once its result is recorded, a moment before the runtime releases its session. Test helpers returned in that moment and a follow-up in the same session was refused as "already running" (`main` fails the same way on Windows). | The runtime, Liaison, and Workforce test helpers also wait for the release. Holding the release back 150 ms (not committed) failed 6 tests before the fix and none after.                                        |
+| E2E (real app)        | Right after a restart, **Fit** showed the organization at 48 % instead of 60 %: the canvas learns its size from a resize observer that reports only with the next painted frame, so a command in that moment used the 960 × 640 placeholder (a drop then would have mapped to the wrong node).                  | Fit, zoom, reveal, the drop hit-test, wheel, keys, and pointer-down measure the canvas when they run.                                                                                                            |
 
 ## 4. Deliverables
 
@@ -84,7 +97,7 @@ live reload), organization members in Workers, and the `org.*` trail description
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Organization schema                  | `crates/ledger/migrations/0004_workforce.{up,down}.sql`; `crates/ledger/src/workforce.rs` (rules in the transaction, `org.*` events)                                     |
 | Department definitions               | Departments with their head position (`create_department_with_head`); membership computed from the tree                                                                  |
-| Role templates                       | `crates/workforce/src/templates.rs` (ten templates seeded as data; custom roles)                                                                                         |
+| Role templates                       | `crates/workforce/src/templates.rs` (ten templates seeded as data; custom roles; leadership shown as VP, Manager, Supervisor, renamed in place in existing Ledgers)      |
 | Persistent managers and coordinators | Positions with one incumbent agent and one conversation (`crates/workforce/src/service.rs`: hire, fill, vacate, objectives)                                              |
 | Project configuration                | Name, repository, local directory (recorded), department, coordinator, allowed runtimes, capability profile (recorded)                                                   |
 | Ephemeral workers                    | Recorded with their child task by Liaison (`insert_worker`), retired with it (`follow_task`)                                                                             |
@@ -93,17 +106,21 @@ live reload), organization members in Workers, and the `org.*` trail description
 | Agent cards and status indicators    | Nodes (status dot plus text) and the details panel (`components/org/Inspector.tsx`)                                                                                      |
 | Task ownership views                 | Details panel → **Work** (running, waiting, queued, recent, team) via `get_work`                                                                                         |
 | Directory                            | List view with filters (`components/org/Directory.tsx`) and search                                                                                                       |
-| Commands                             | 19 Workforce commands (architecture overview §3), each granted by name                                                                                                   |
+| Commands                             | 20 Workforce commands (architecture overview §3), each granted by name                                                                                                   |
+| Plain words and Titles (owner)       | [Word list](../design/vocabulary.md); `apps/desktop/src/org/titles.ts`; Settings → Personalization → Titles (`set_organization_titles`)                                  |
 | Test double                          | `plenipo-fake-agent`: `role:` destinations and `[delay:MS]`                                                                                                              |
-| Decision record                      | [ADR-009](../adr/ADR-009-workforce.md)                                                                                                                                   |
+| Decision records                     | [ADR-009](../adr/ADR-009-workforce.md), [ADR-010](../adr/ADR-010-plain-titles.md)                                                                                        |
 
 ## 5. Security notes
 
 - The UI names positions, roles, and teams only. It cannot address a runtime session, pick a
   worker's session, or grant anything; every command validates its input, refuses unknown
   fields, and is granted by name (IPC tests).
-- Coordinators reach only the positions the owner put on their team; a request for anyone else,
-  or for a raw runtime, is refused with the reason, so every worker appears in the organization.
+- Supervisors reach only the positions the owner put on their team; a request for anyone else,
+  or for a raw AI tool address, is refused with the reason, so every worker appears in the
+  organization.
+- Title sets are display only: agents never receive a military or Mafia rank, so a persona
+  cannot reach an agent's instructions.
 - A project's allowed runtimes are enforced when hiring, when moving, when giving objectives,
   and when placing each worker; an empty list allows none. There is no fallback to another
   runtime.
@@ -122,17 +139,20 @@ live reload), organization members in Workers, and the `org.*` trail description
 | Only on-demand positions receive delegated tasks; managers do not delegate to coordinators yet | Dispatching into persistent sessions needs queueing and deadlock rules (Development MVP, Phase 8) | ADR-009 §9      |
 | Each position's runtime is the owner's explicit choice                                         | Model policy is Phase 6                                                                           | ADR-009 §8      |
 | Members address roles only, never raw runtimes                                                 | Every worker must appear in the organization                                                      | ADR-009 §5      |
+| Plain words on screen: VP / Manager / Supervisor / President instead of the plan's names       | Owner direction during the phase; the code keeps the plan's names                                 | ADR-010         |
+| Titles personalization (U.S. military branches, Mafia), not in the plan                        | Owner request; display only, stored with the organization                                         | ADR-010         |
 
 ## 7. Owner items
 
 | ID  | Item                                                                                                                                                                                             | Recommendation                   |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| O1  | ADR-009 is **Proposed** (ADR-008 is still Proposed too).                                                                                                                                         | Accept or amend.                 |
+| O1  | ADR-009 and ADR-010 are **Proposed**.                                                                                                                                                            | Accept or amend.                 |
 | O2  | Windows check with the **real** CLIs and your subscription sign-ins (~20 min): the steps in [phase-5-checklist.md](phase-5-checklist.md#owner-check-on-windows-20-minutes). Report anything odd. | Required for acceptance.         |
 | O3  | Version stays **0.5.0** until O2 passes; then **0.6.0** per the phase convention.                                                                                                                | Bump after O2.                   |
-| O4  | Phase 6 (Model Policy Engine) replaces the per-position runtime choice with policy.                                                                                                              | Say "start Phase 6" after O1–O2. |
+| O4  | Phase 6 (Model Policy Engine) replaces the per-position AI tool choice with policy.                                                                                                              | Say "start Phase 6" after O1–O2. |
+| O5  | Title sets: the military sets use rank names only (no insignia, seals, or logos, which are protected); the Mafia set is opt-in because some people find Mafia stereotypes offensive.             | Keep, rename, or drop any set.   |
 
-Things only the real CLIs can confirm (O2): that a coordinator follows its instructions and
+Things only the real CLIs can confirm (O2): that a supervisor follows its instructions and
 hands work to its team by title (a request for anyone else is refused and explained, so the task
 still finishes), and how long a team round trip takes on real subscriptions.
 
@@ -140,9 +160,9 @@ still finishes), and how long a team round trip takes on real subscriptions.
 
 | Check                                                                     | Result                                                                           |
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 100 frontend tests                                                        |
+| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 108 frontend tests                                                        |
 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                                                             |
-| `cargo test --workspace`                                                  | Pass — 348 tests, including 8 Workforce integration tests and 2 new Liaison ones |
+| `cargo test --workspace`                                                  | Pass — 351 tests, including 8 Workforce integration tests and 2 new Liaison ones |
 | `pnpm e2e` against the release build (Linux, Xvfb)                        | Pass — 30 of 30, including the 5 Phase 5 tests                                   |
 | Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)                                      |
 | GitHub CI on the PR                                                       | Linked from the PR                                                               |

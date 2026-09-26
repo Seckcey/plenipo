@@ -12,6 +12,14 @@ and security auditors, directly on the canvas.
 **Goal:** represent the company as departments, managers, coordinators, roles, projects, and
 ephemeral workers.
 
+**Owner direction during the phase (2026-09-26):** use simple, non-technical words in the
+product, and the chain of command people use — **Worker → Supervisor → Manager → VP →
+President** — plus a personalization option that names the ranks after a U.S. military branch
+or the Mafia. The app therefore shows the plan's Superintendent / Department Manager / Project
+Coordinator as **VP / Manager / Supervisor**, the owner as **President**, and "AI tool" instead
+of "runtime" (ADR-010, [word list](../design/vocabulary.md)). This checklist keeps the plan's
+words where it quotes the plan.
+
 ## Design decisions (details in ADR-009)
 
 - **Positions and agents are separate.** A _position_ is a place in the organization chart
@@ -57,7 +65,13 @@ ephemeral workers.
 - [x] Task ownership views: running, waiting, queued, blocked, recently completed
 - [x] Searchable list view (directory) with filters
 - [x] Liaison role destinations through the Workforce directory
-- [x] ADR-009; architecture, README, setup, configuration updated
+- [x] Plain words on every screen (owner direction): the word list in
+      [`docs/design/vocabulary.md`](../design/vocabulary.md); seeded leadership roles renamed in
+      place in existing Ledgers (no duplicates)
+- [x] Personalization → **Titles** in Settings: Business (default), U.S. Army, Navy, Air Force,
+      Marine Corps, Coast Guard, Space Force, or Mafia; stored with the organization; display
+      only (agents keep the plain titles) — ADR-010
+- [x] ADR-009, ADR-010; architecture, README, setup, configuration updated
 
 ## Phase 5 tests (from plan)
 
@@ -85,36 +99,40 @@ end to end through the real app.
 
 ### Owner check on Windows (~20 minutes)
 
-1. Both CLIs installed and signed in (setup guide §3): **Runtimes** → **Re-check** shows both
+1. Both CLIs installed and signed in (setup guide §3): **AI tools** → **Re-check** shows both
    **Ready**.
 2. **Organization** opens with You → Organization and a "Build your organization" card.
    **Rename** it (for example _8 West Ventures_).
 3. **Create a department** → Name _Development_ → **Create department**. A _Development Manager_
    appears to the right of the organization, with a "Development" chip on its link.
-4. **+ Project** → Department _Development_, Name _Website_, keep both runtimes ticked →
-   **Create project**. A _Website Coordinator_ appears under the manager with a "Website" chip.
-5. Build the team: drag **Senior Developer** from the Hire palette onto _Website Coordinator_ →
-   **Hire**; do the same for **Code Reviewer**. (Or select the coordinator, click a role in the
+4. **+ Project** → Department _Development_, Name _Website_, keep both AI tools ticked →
+   **Create project**. A _Website Supervisor_ appears under the manager with a "Website" chip.
+5. Build the team: drag **Senior Developer** from the Hire palette onto _Website Supervisor_ →
+   **Hire**; do the same for **Code Reviewer**. (Or select the supervisor, click a role in the
    palette, and choose **Hire**.)
 6. Oversight: drag **Security Auditor** onto _Development Manager_ → **Hire**; then drag the new
-   _Security Auditor_ node onto _Website Coordinator_ → **Security auditor for Website
-   Coordinator's team**. A dotted "Security" link appears.
-7. Select _Website Coordinator_ and give it an objective: _"Write a Python function that checks
+   _Security Auditor_ node onto _Website Supervisor_ → **Security auditor for Website
+   Supervisor's team**. A dotted "Security" link appears.
+7. Select _Website Supervisor_ and give it an objective: _"Write a Python function that checks
    whether a string is a valid ISO 8601 date. Ask the Senior Developer to write it and the Code
    Reviewer to review it, then give me the final version."_ → **Give objective**.
-   Expected: the coordinator shows **Working**, then **Waiting on team** while one or more
-   worker nodes appear under _Senior Developer_ / _Code Reviewer_ (dashed links, runtime chip,
-   **Working**); they disappear when done; the coordinator finishes **Idle**. (Criterion.)
+   Expected: the supervisor shows **Working**, then **Waiting on team** while one or more
+   worker nodes appear under _Senior Developer_ / _Code Reviewer_ (dashed links, AI tool chip,
+   **Working**); they disappear when done; the supervisor finishes **Idle**. (Criterion.)
 8. History remains: select _Senior Developer_ → **Former agents** shows the retired worker;
-   **Work → Recent** lists its task. **Activity** → the coordinator's task shows the delegation
-   tree and "Worker spawned for …" / "Worker finished and left the organization" in the
+   **Work → Recent** lists its task. **Activity** → the supervisor's task shows the delegation
+   tree and "Worker brought in for …" / "Worker finished and left the organization" in the
    worker's trail.
-9. Close Plenipo (tray → **Quit**) and start it again: the organization is unchanged, and the
-   coordinator's details say "Continues its conversation."
-10. Optional: **List** view → filter by status; search for a position; collapse a team with
+9. Titles: **Settings** → **Personalization** → **Titles** → _U.S. Army_. Back on
+   **Organization**, you are **General**, the manager is a **Captain**, the supervisor a
+   **Sergeant**, and the team **Privates** — job titles stay the same. Try _Mafia_ if you like,
+   then pick _Business_ again (or keep the one you prefer).
+10. Close Plenipo (tray → **Quit**) and start it again: the organization and your Titles choice
+    are unchanged, and the supervisor's details say "Continues its conversation."
+11. Optional: **List** view → filter by status; search for a position; collapse a team with
     the "−" toggle on its trunk.
 
-Things only real CLIs can confirm (report anything odd): that a coordinator follows its
+Things only real CLIs can confirm (report anything odd): that a supervisor follows its
 instructions and hands work to its team by title (a request for anyone else is refused and
 explained, so the task still finishes), and how long a team round trip takes on real
 subscriptions.
