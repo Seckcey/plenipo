@@ -1,6 +1,6 @@
 # ADR-008: Plenipo Liaison — message bus and cross-provider handoffs
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 4
 
