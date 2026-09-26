@@ -1,6 +1,7 @@
 # ADR-008: Plenipo Liaison — message bus and cross-provider handoffs
 
-- **Status:** Accepted (owner, 2026-09-26)
+- **Status:** Accepted (owner, 2026-09-26). The size limits in §1 and §4 are changed by
+  [ADR-012](ADR-012-brief-agent-messages.md) (brief messages between agents).
 - **Date:** 2026-09-26
 - **Phase:** 4
 
