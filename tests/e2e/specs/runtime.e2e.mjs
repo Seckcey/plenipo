@@ -35,7 +35,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
     const { browser } = app;
     await waitForText(browser, ".shell__wordmark", "Plenipo");
     const labels = await browser.$$("nav button").map((b) => b.getText());
-    for (const expected of ["Organization", "Runtimes", "Activity", "Settings", "Diagnostics"]) {
+    for (const expected of ["Organization", "AI tools", "Activity", "Settings", "Diagnostics"]) {
       assert.ok(
         labels.some((l) => l.startsWith(expected)),
         `nav has ${expected}`,
@@ -46,7 +46,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
 
   it("launches a process and streams stdout and stderr live", async () => {
     const { browser } = app;
-    await nav(browser, "Runtimes");
+    await nav(browser, "AI tools");
     await clickButton(browser, "Start Echo test");
 
     // Incremental: early lines are visible while the process is still running.
@@ -145,7 +145,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
     app = await launch(home);
     const b = app.browser;
     await waitForText(b, ".shell__wordmark", "Plenipo");
-    await nav(b, "Runtimes");
+    await nav(b, "AI tools");
     const item = await b.$('//button[contains(@aria-label, "Long-running process — Cancelled")]');
     await item.waitForExist({ timeout: 10_000 });
     await item.click();

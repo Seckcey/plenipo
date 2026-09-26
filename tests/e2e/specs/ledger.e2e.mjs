@@ -132,7 +132,7 @@ describe("Phase 2 ledger (real app)", () => {
 
   it("records runtime executions in the ledger", async () => {
     const { browser } = app;
-    await nav(browser, "Runtimes");
+    await nav(browser, "AI tools");
     await clickButton(browser, "Start Echo test");
     await waitForText(browser, LOG, "echo complete");
     await nav(browser, "Activity");
@@ -156,7 +156,7 @@ describe("Phase 2 ledger (real app)", () => {
     const after = await trailItems(browser);
     assert.deepEqual(after, trailBefore, "identical ordered trail after a hard kill");
     // Phase 1 runtime history also survived, via the ledger.
-    await nav(browser, "Runtimes");
+    await nav(browser, "AI tools");
     const item = await browser.$('//button[contains(@aria-label, "Echo test — Succeeded")]');
     await item.waitForExist({ timeout: 10_000 });
   });

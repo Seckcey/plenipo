@@ -1,11 +1,12 @@
 // Phase 5 end-to-end: the organization, in the real app, built and run from the Organization
 // canvas against fake `claude` and `codex` CLIs (plenipo-fake-agent). The owner creates the
-// Development department and a project, hires the coordinator's team, assigns oversight (by
-// dragging one position onto another, and from the details panel), gives the coordinator an
+// Development department and a project, hires the project supervisor's team, assigns oversight
+// (by dragging one position onto another, and from the details panel), gives the supervisor an
 // objective, and watches its workers appear under it and leave when their tasks finish. A marker
 // such as `[handoff:role:Senior Developer+delay:6000]` in the objective makes the fake
-// coordinator hand that position a task whose worker takes six seconds. Real CLIs are verified
-// by the owner (see the Phase 5 checklist).
+// supervisor hand that position a task whose worker takes six seconds. Finally the owner picks
+// Army ranks in Settings, and they survive a restart. Real CLIs are verified by the owner (see
+// the Phase 5 checklist).
 
 import assert from "node:assert/strict";
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -65,7 +66,7 @@ function nodes(browser) {
   );
 }
 
-/** Link chips on the canvas (department, project, a worker's runtime). */
+/** Link chips on the canvas (department, project, a worker's AI tool). */
 function chips(browser) {
   return browser.execute(() =>
     [...document.querySelectorAll(".topo-chip")].map((c) => c.textContent),
@@ -216,7 +217,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await waitForText(browser, ".shell__wordmark", "Plenipo");
     // The Organization view comes first, and nothing is hard-coded.
     await waitForText(browser, MAP, "Build your organization");
-    assert.deepEqual(await nodes(browser), ["You, owner", "Organization, organization"]);
+    assert.deepEqual(await nodes(browser), ["You, President", "Organization, organization"]);
     await screenshot(browser, "org-empty");
 
     await clickButton(browser, "Rename");
@@ -237,20 +238,20 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await submit(browser, 'form[aria-label="New department"]');
     await waitForNode(browser, "Development Manager, Idle");
 
-    // A project in Development comes with its coordinator, who reports to the department head.
+    // A project in Development comes with its supervisor, who reports to the department's manager.
     await clickButton(browser, "+ Project");
     await fill(browser, "New project", "Name", "Website");
     await submit(browser, 'form[aria-label="New project"]');
-    await waitForNode(browser, "Website Coordinator, Idle");
-    // The links into the head and the coordinator are labelled with the department and project.
+    await waitForNode(browser, "Website Supervisor, Idle");
+    // The links into the manager and the supervisor are labelled with the department and project.
     await waitUntil(async () => {
       const labels = await chips(browser);
       return labels.includes("Development") && labels.includes("Website");
     }, "department and project chips");
 
-    // The coordinator's team, and two specialists who report to the department head.
-    await hire(browser, "Website Coordinator", "Senior Developer");
-    await hire(browser, "Website Coordinator", "Code Reviewer");
+    // The supervisor's team, and two specialists who report to the department's manager.
+    await hire(browser, "Website Supervisor", "Senior Developer");
+    await hire(browser, "Website Supervisor", "Code Reviewer");
     await hire(browser, "Development Manager", "QA Engineer");
     await hire(browser, "Development Manager", "Security Auditor");
     assert.match(await glance(browser), /departments 1 projects 1 positions 6/);
@@ -258,27 +259,27 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
 
   it("assigns a security auditor by dragging and a QA evaluator from the details panel", async () => {
     const { browser } = app;
-    await dragNode(browser, "Security Auditor", "Website Coordinator");
+    await dragNode(browser, "Security Auditor", "Website Supervisor");
     const choice = await browser.$(
-      '//button[@role="menuitem" and starts-with(normalize-space(), "Security auditor for Website Coordinator")]',
+      '//button[@role="menuitem" and starts-with(normalize-space(), "Security auditor for Website Supervisor")]',
     );
     await choice.waitForClickable({ timeout: 10_000 });
     await choice.click();
-    await waitForText(browser, ".toasts", "is now Website Coordinator's security auditor");
+    await waitForText(browser, ".toasts", "is now Website Supervisor's security auditor");
 
     await select(browser, "QA Engineer");
     const assign = 'form[aria-label="Assign oversight"]';
     await (await browser.$(`${assign} select`)).selectByVisibleText("QA evaluator");
     await (
       await browser.$("(//form[@aria-label='Assign oversight']//select)[2]")
-    ).selectByVisibleText("Website Coordinator");
+    ).selectByVisibleText("Website Supervisor");
     await (await browser.$(`${assign} button[type="submit"]`)).click();
-    await waitForText(browser, DETAILS, "QA evaluator for Website Coordinator's team");
+    await waitForText(browser, DETAILS, "QA evaluator for Website Supervisor's team");
 
     // Both show on the canvas as oversight links and badges.
     await fit(browser);
     const map = await textOf(browser, MAP);
-    for (const part of ["Security → Website Coordinator", "QA → Website Coordinator"]) {
+    for (const part of ["Security → Website Supervisor", "QA → Website Supervisor"]) {
       assert.ok(map.includes(part), `${part} in the map`);
     }
     await closeDetails(browser);
@@ -286,16 +287,15 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await screenshot(browser, "org-team");
   });
 
-  it("acceptance: a coordinator's objective puts workers under it, and they leave when done", async () => {
+  it("acceptance: a supervisor's objective puts workers under it, and they leave when done", async () => {
     const { browser } = app;
-    await select(browser, "Website Coordinator");
+    await select(browser, "Website Supervisor");
     const form = 'form[aria-label="Give an objective"]';
     await (await browser.$(`${form} textarea`)).setValue(OBJECTIVE);
     await clickButton(browser, "Give objective");
 
-    // One worker under each position it handed work to, while the coordinator waits on them.
     // One worker under each position it handed work to — queued for a moment, then working —
-    // while the coordinator waits on them.
+    // while the supervisor waits on them.
     const working = (label) =>
       waitUntil(
         async () =>
@@ -305,20 +305,20 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
       );
     await working("Worker for Senior Developer: Review the answer above");
     await working("Worker for Code Reviewer: Review the answer above");
-    await waitForNode(browser, "Website Coordinator, Waiting on team");
+    await waitForNode(browser, "Website Supervisor, Waiting on team");
     assert.match(await glance(browser), /live workers 2/);
-    assert.ok((await chips(browser)).includes("Claude Code"), "the workers' runtime chips");
+    assert.ok((await chips(browser)).includes("Claude Code"), "the workers' AI tool chips");
     await closeDetails(browser);
     await fit(browser);
     await screenshot(browser, "org-workers-live");
 
-    // They finish and leave the active workforce; the coordinator continues and finishes.
+    // They finish and leave the active workforce; the supervisor continues and finishes.
     await waitUntil(
       async () => !(await nodes(browser)).some((l) => l.startsWith("Worker for")),
       "the workers to leave",
       45_000,
     );
-    await waitForNode(browser, "Website Coordinator, Idle", 30_000);
+    await waitForNode(browser, "Website Supervisor, Idle", 30_000);
     assert.match(await glance(browser), /live workers 0/);
 
     // History remains: the position remembers its former worker, and the work it did.
@@ -345,7 +345,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     const tree = '[aria-label="Delegation tree"]';
     await waitForText(browser, tree, "Review the answer above");
 
-    // A worker's own trail: spawned for its position, then retired with its task.
+    // A worker's own trail: brought in for its position, then retired with its task.
     await (
       await browser.$(
         '(//ol[@aria-label="Delegation tree"]//button[starts-with(normalize-space(), "Review the answer above")])[1]',
@@ -353,18 +353,36 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     ).click();
     await waitForText(browser, trail, "Worker finished and left the organization");
     const child = await textOf(browser, trail);
-    assert.match(child, /Worker spawned for (Senior Developer|Code Reviewer)/);
+    assert.match(child, /Worker brought in for (Senior Developer|Code Reviewer)/);
     await screenshot(browser, "org-worker-trail");
   });
 
-  it("the organization and its coordinator survive a restart", async () => {
+  it("the organization, its supervisor, and the chosen titles survive a restart", async () => {
+    // The owner calls the ranks by the Army's names instead.
+    await nav(app.browser, "Settings");
+    const titles = await app.browser.$('//label[.//span[normalize-space()="Titles"]]//select');
+    await titles.waitForExist({ timeout: 10_000 });
+    await titles.selectByVisibleText("U.S. Army");
+    await waitForText(app.browser, '.titles [role="status"]', "U.S. Army titles");
+    await nav(app.browser, "Organization");
+
     await app.close();
     app = await start();
     const { browser } = app;
     await waitForText(browser, "#org-title", "8 West Ventures");
+    // Ranks follow the choice; job titles stay as written.
+    await waitForNode(browser, "You, General");
+    await closeDetails(browser);
+    await fit(browser);
+    const map = await textOf(browser, MAP);
+    // The manager, the supervisor, and the team members.
+    for (const rank of ["Captain", "Sergeant", "Private"]) {
+      assert.ok(map.includes(rank), `${rank} in the map`);
+    }
+    await screenshot(browser, "org-army-titles");
     for (const label of [
       "Development Manager, Idle",
-      "Website Coordinator, Idle",
+      "Website Supervisor, Idle",
       "Senior Developer, Idle",
       "Code Reviewer, Idle",
       "QA Engineer, Idle",
@@ -372,11 +390,11 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     ]) {
       await waitForNode(browser, label);
     }
-    // The coordinator keeps its agent and conversation.
-    await select(browser, "Website Coordinator");
+    // The supervisor keeps its agent and conversation.
+    await select(browser, "Website Supervisor");
     await waitForText(browser, DETAILS, "Continues its conversation.");
     await clickButton(browser, "List");
-    await waitForText(browser, '[aria-label="Positions"]', "Website Coordinator");
+    await waitForText(browser, '[aria-label="Positions"]', "Website Supervisor");
     await screenshot(browser, "org-list-after-restart");
     await clickButton(browser, "Topology");
   });

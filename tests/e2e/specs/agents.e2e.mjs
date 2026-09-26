@@ -109,8 +109,8 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
   it("detects both runtimes, their versions, and subscription sign-in", async () => {
     const { browser } = app;
     await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Runtimes");
-    const cards = '[aria-label="Agent runtimes"]';
+    await nav(browser, "AI tools");
+    const cards = '[aria-label="AI tools"]';
     await waitUntil(
       async () => (await textOf(browser, cards)).match(/Ready/g)?.length === 2,
       "both runtimes ready",
@@ -194,7 +194,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     assert.match(text, /Agent: Turn 1: you said/);
     await screenshot(browser, "worker-ledger-trail");
     // Raw provider output stays available for diagnostics.
-    await nav(browser, "Runtimes");
+    await nav(browser, "AI tools");
     await (
       await browser.$('//button[contains(@aria-label, "Codex · turn 1 — Succeeded")]')
     ).waitForExist({ timeout: 10_000 });
@@ -224,9 +224,9 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
   it("refuses work when a runtime is signed out, with login guidance", async () => {
     const { browser } = app;
     setAuth("signed-out");
-    await nav(browser, "Runtimes");
+    await nav(browser, "AI tools");
     await clickButton(browser, "Re-check");
-    await waitForText(browser, '[aria-label="Agent runtimes"]', "Not signed in");
+    await waitForText(browser, '[aria-label="AI tools"]', "Not signed in");
     await nav(browser, "Workers");
     const radio = await browser.$('//label[.//span[normalize-space()="Codex"]]//input');
     await radio.click();
