@@ -16,16 +16,26 @@ The root `package.json` `version` is authoritative. These must match it:
 
 `pnpm versions:check` (run in CI) fails if any of these disagree.
 
-## Pre-1.0 rules
+## Version per phase (owner decision)
 
-While `0.y.z`:
+The **minor** version increases by one each time a rollout phase is accepted, until the MVP:
 
-- `y` (minor) increments when a rollout phase is accepted: Phase 0 → `0.1.0`, Phase 1 → `0.2.0`, …
-- `z` (patch) for fixes within a phase.
-- Pre-release tags for test builds: `0.2.0-alpha.1`.
+| Phase accepted                           | Version     |
+| ---------------------------------------- | ----------- |
+| 0 — Repository foundation                | `0.1.0`     |
+| 1 — Desktop shell and runtime supervisor | `0.2.0`     |
+| 2 — Ledger                               | `0.3.0`     |
+| 3 — Provider runtime adapters            | `0.4.0`     |
+| 4 — Liaison message bus                  | `0.5.0`     |
+| 5 — Workforce and organization engine    | `0.6.0`     |
+| 6 — Model policy and routing             | `0.7.0`     |
+| 7 — Capability broker, Guard, approvals  | `0.8.0`     |
+| **8 — Development Department MVP**       | **`1.0.0`** |
 
-`1.0.0` is reserved for the first release after the MVP boundary (Phase 8) that is fit for
-day-to-day use.
+- **Patch** (`z`) for fixes within a phase, e.g. `0.2.1`.
+- **Pre-release** tags for test builds, e.g. `0.3.0-alpha.1`.
+- After `1.0.0`, normal SemVer applies: minor for new features (Phases 9+), major for
+  breaking changes.
 
 ## Releasing
 

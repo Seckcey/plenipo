@@ -90,7 +90,18 @@ against the real release binary.
 | O2  | ADR-004 and ADR-005 are **Proposed**.                                                                                                 | Accept or amend.                                                                                                                                                            |
 | O3  | Versioning convention bumps the minor version on phase acceptance.                                                                    | On acceptance, bump to `0.2.0`.                                                                                                                                             |
 
-## 7. Phase boundary
+## 7. Owner sign-off (2026-09-26)
+
+| Item                                                                                                        | Outcome                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| M1–M3 manual checks on Windows 11 (installer, close-to-tray, tray Show / Stop all / Quit, no console flash) | **Passed** — reported by owner                                                                                |
+| O1 bundle identifier                                                                                        | Set to **`com.eightwest.plenipo`** by owner                                                                   |
+| O3 version                                                                                                  | Bumped to **`0.2.0`**; owner set the convention of one minor bump per phase until the MVP (Phase 8) = `1.0.0` |
+| O2 ADR-004 / ADR-005                                                                                        | Awaiting owner decision                                                                                       |
+
+Phase 1 is **accepted**.
+
+## 8. Phase boundary
 
 Phase 1 is complete. Phase 2 (Ledger: SQLite, migrations, task/event schema) does not expand
 privileges or add external integrations, so under ROLLOUT_PLAN §8.12 it does not require a

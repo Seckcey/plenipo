@@ -30,19 +30,19 @@ shipped JavaScript.
 
 ## Directories (Windows)
 
-Plenipo's bundle identifier is `com.eightwestventures.plenipo`. Tauri resolves:
+Plenipo's bundle identifier is `com.eightwest.plenipo`. Tauri resolves:
 
-| Purpose                       | Location                                             |
-| ----------------------------- | ---------------------------------------------------- |
-| Config                        | `%APPDATA%\com.eightwestventures.plenipo\`           |
-| Data (Ledger DB from Phase 2) | `%APPDATA%\com.eightwestventures.plenipo\`           |
-| Local data / cache            | `%LOCALAPPDATA%\com.eightwestventures.plenipo\`      |
-| Logs                          | `%LOCALAPPDATA%\com.eightwestventures.plenipo\logs\` |
+| Purpose                       | Location                                     |
+| ----------------------------- | -------------------------------------------- |
+| Config                        | `%APPDATA%\com.eightwest.plenipo\`           |
+| Data (Ledger DB from Phase 2) | `%APPDATA%\com.eightwest.plenipo\`           |
+| Local data / cache            | `%LOCALAPPDATA%\com.eightwest.plenipo\`      |
+| Logs                          | `%LOCALAPPDATA%\com.eightwest.plenipo\logs\` |
 
 Always resolve these through Tauri's path API (`app.path()`), never by hard-coding.
 
-> Changing the bundle identifier later moves these directories and orphans existing user data.
-> Treat it as fixed once real data exists.
+> The identifier was confirmed by the owner in Phase 1. Changing it later moves these
+> directories and orphans existing user data — treat it as fixed.
 
 ## Naming conventions
 
