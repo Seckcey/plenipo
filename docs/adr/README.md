@@ -19,3 +19,4 @@ architecture must be recorded here.
 | [002](ADR-002-local-first-architecture.md)   | Local-first architecture                        | Accepted |
 | [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                      | Accepted |
 | [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase  | Accepted |
+| [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                     | Accepted |
