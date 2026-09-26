@@ -112,7 +112,7 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
     case "org.agent_retired":
       return `Agent retired from ${title}${why}`;
     case "org.worker_spawned":
-      return `Worker spawned for ${title}`;
+      return `Worker brought in for ${title}`;
     case "org.worker_started":
       return "Worker started";
     case "org.worker_retired":

@@ -229,8 +229,8 @@ function Shell({ core }: { core: CoreState }) {
 
       <footer className="shell__footer">
         {activeCount > 0
-          ? `${activeCount} process${activeCount === 1 ? "" : "es"} running`
-          : "No providers or credentials required"}
+          ? `${activeCount} program${activeCount === 1 ? "" : "s"} running`
+          : "Ready · uses your own signed-in AI tools and never asks for passwords"}
       </footer>
     </div>
   );

@@ -110,7 +110,7 @@ describe("describeEvent (Phase 5 organization events)", () => {
       ),
     ).toBe("Security Auditor is now the security auditor for Website Coordinator's team");
     expect(describeEvent(event("org.worker_spawned", { title: "Senior Developer" }))).toBe(
-      "Worker spawned for Senior Developer",
+      "Worker brought in for Senior Developer",
     );
     expect(describeEvent(event("org.worker_retired", { lifecycle: "failed" }))).toBe(
       "Worker failed and left the organization",
