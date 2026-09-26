@@ -21,11 +21,19 @@ vi.mock("./api/commands", async (importOriginal) => {
     listTasks: vi.fn(),
     listRecentEvents: vi.fn(),
     getTaskTimeline: vi.fn(),
+    getAgentOverview: vi.fn(),
+    getAgentSession: vi.fn(),
+    refreshAgentRuntimes: vi.fn(),
+    startAgentSession: vi.fn(),
+    resumeAgentSession: vi.fn(),
+    cancelAgentTurn: vi.fn(),
+    closeAgentSession: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
   subscribeRuntimeEvents: vi.fn(),
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -104,6 +112,7 @@ beforeEach(() => {
   api.getLedgerStatus.mockResolvedValue(ledgerStatus([]));
   api.listTasks.mockResolvedValue([]);
   api.listRecentEvents.mockResolvedValue([]);
+  api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
   subscribe.mockImplementation((handler) => {
     emit = handler;
     return Promise.resolve(() => undefined);
@@ -122,7 +131,14 @@ describe("App shell", () => {
     render(<App />);
     expect(screen.getByText("Plenipo")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
-    for (const label of ["Organization", "Runtimes", "Activity", "Settings", "Diagnostics"]) {
+    for (const label of [
+      "Organization",
+      "Workers",
+      "Runtimes",
+      "Activity",
+      "Settings",
+      "Diagnostics",
+    ]) {
       expect(within(nav).getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
     expect(await screen.findByLabelText("Application version")).toHaveTextContent("v0.1.0");

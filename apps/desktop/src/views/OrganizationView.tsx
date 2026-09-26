@@ -10,8 +10,8 @@ export function OrganizationView() {
         <h2>No departments configured yet</h2>
         <p>
           Departments, managers, and project coordinators will appear here once the Workforce engine
-          is available. Until then, use <strong>Runtimes</strong> to verify that Plenipo can safely
-          supervise local processes.
+          is available. Until then, use <strong>Workers</strong> to give an objective directly to a
+          Claude Code or Codex worker, and <strong>Runtimes</strong> to check their sign-in.
         </p>
       </div>
     </section>
