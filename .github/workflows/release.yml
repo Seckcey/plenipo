@@ -5,11 +5,20 @@ name: Release
 # - Actions → Release → Run workflow (on `main`): releases the version in package.json. The tag
 #   `vX.Y.Z` is created on that commit only after the installer builds.
 # - Pushing a tag `vX.Y.Z`: releases that commit.
+#
+# The installer and the app are signed as 8 West Ventures, LLC through Azure Artifact Signing
+# (docs/development/code-signing.md). Run workflow with "dry run" ticked builds and signs from any
+# branch, checks the signature, and keeps the installer as a download; it publishes nothing.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build and sign only, publish nothing (any branch)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,7 +33,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Run workflow releases `main` only
-        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.dry_run
         shell: bash
         run: |
           echo "::error::Run the Release workflow on main (it was started on $GITHUB_REF_NAME)"
@@ -45,6 +54,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           pnpm versions:check
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry run: nothing is published, so the tag and release notes are not checked."
+            exit 0
+          fi
           version=$(node -p "require('./package.json').version")
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             tag="v$version"
@@ -68,9 +81,88 @@ jobs:
             exit 1
           fi
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-      - name: Build release app and NSIS installer
-        run: pnpm build
+      - name: Signing secrets are set
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is not set; see docs/development/code-signing.md"
+              exit 1
+            fi
+          done
+      - name: Install the signing tool
+        run: cargo install artifact-signing-cli --version 0.11.0 --locked
+      # The tool defaults to signtool at one fixed Windows SDK version and the Azure CLI at one
+      # fixed path, and stops if either is elsewhere. Find both, so a runner update cannot break it.
+      - name: Find signtool and the Azure CLI for the signing tool
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Where-Object { $_.Directory.Parent.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe (Windows SDK) was not found on this runner" }
+          $az = (Get-Command az.cmd -ErrorAction SilentlyContinue).Source
+          if (-not $az) { throw "The Azure CLI (az.cmd) was not found on this runner" }
+          "signtool: $($signtool.FullName)"
+          "Azure CLI: $az"
+          "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+          "AZURE_CLI_PATH=$az" >> $env:GITHUB_ENV
+      - name: Build release app and NSIS installer, signed
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
+        # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
+        run: |
+          # The tool signs in by running az.cmd, and Windows will not pass a line break to a batch
+          # file, so a secret pasted with one fails as "batch file arguments are invalid". Trim the
+          # ends, say which secret needed it (never its value), and refuse one broken in the middle.
+          foreach ($name in 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET') {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            $trimmed = $value.Trim()
+            if ($trimmed -ne $value) {
+              "::warning::Repository secret $name starts or ends with a space or line break; it was trimmed for this run. Save it again without one (docs/development/code-signing.md)."
+              [Environment]::SetEnvironmentVariable($name, $trimmed)
+            }
+            if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
+          }
+          pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+      # Kept before the check, so a dry run that fails the check still leaves the installer to look at.
+      - name: Keep the signed installer (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: plenipo-signed-installer-dry-run
+          path: target/release/bundle/nsis/*-setup.exe
+          retention-days: 7
+      # Checked inside the installer: that copy of the app is the one customers get. Tauri leaves
+      # target/release/plenipo-desktop.exe unsigned after bundling, so that file proves nothing.
+      - name: The installer and the app inside it are signed by 8 West Ventures, LLC, with a timestamp
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "No installer was built" }
+          $inside = Join-Path $env:RUNNER_TEMP "installer-contents"
+          & 7z x $installer.FullName "-o$inside" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not open $($installer.Name)" }
+          $app = Get-ChildItem $inside -Recurse -Filter plenipo-desktop.exe | Select-Object -First 1
+          if (-not $app) { throw "plenipo-desktop.exe is not inside $($installer.Name)" }
+          foreach ($f in @($installer, $app)) {
+            $s = Get-AuthenticodeSignature -FilePath $f.FullName
+            "{0}: {1}; signed by {2}; timestamped by {3}" -f $f.Name, $s.Status, $s.SignerCertificate.Subject, $s.TimeStamperCertificate.Subject
+            if ($s.Status -ne 'Valid') { throw "$($f.Name) is not validly signed: $($s.StatusMessage)" }
+            if ($s.SignerCertificate.Subject -notlike '*8 West Ventures, LLC*') { throw "$($f.Name) is signed by someone else: $($s.SignerCertificate.Subject)" }
+            # The certificate lasts only days; the timestamp keeps the signature valid after that.
+            if (-not $s.TimeStamperCertificate) { throw "$($f.Name) has no timestamp, so its signature would stop being valid within days" }
+          }
       - name: Publish GitHub release
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

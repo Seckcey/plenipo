@@ -1,0 +1,63 @@
+# Code signing
+
+Every Plenipo release is signed as **8 West Ventures, LLC**, so Windows shows that name instead of
+"Unknown publisher". Signing happens only in the Release workflow — never in CI, and never in a
+local `pnpm build`.
+
+## What signs it
+
+| Piece               | Value                                                                          |
+| ------------------- | ------------------------------------------------------------------------------ |
+| Service             | Azure Artifact Signing (formerly Trusted Signing)                              |
+| Account             | `eightwest-signing` (resource group `rg-milepost-signing`)                     |
+| Endpoint            | `https://eus.codesigning.azure.net`                                            |
+| Certificate profile | `eightwest-public` — Public Trust                                              |
+| Identity            | 8 West Ventures, LLC, verified; valid to **10/21/2028**                        |
+| App registration    | `plenipo-github-signing`, role **Artifact Signing Certificate Profile Signer** |
+| Tool                | `artifact-signing-cli` 0.11.0, run by Tauri's `signCommand`                    |
+| Config              | `apps/desktop/src-tauri/tauri.signing.conf.json`                               |
+
+Milepost signs with the same account and profile. The Basic plan includes one Public Trust profile
+and 5,000 signatures a month, shared by both apps; a Plenipo release uses a handful.
+
+The certificate behind the profile lasts only a few days and renews itself, so the expiry date on
+the profile moves forward on its own. Every signature carries a timestamp from Microsoft, which
+keeps it valid after that certificate expires; the Release workflow fails if one is missing.
+
+## GitHub secrets
+
+Repository **Settings → Secrets and variables → Actions**:
+
+| Secret                | Where it comes from                                            |
+| --------------------- | -------------------------------------------------------------- |
+| `AZURE_TENANT_ID`     | App registration → Overview → Directory (tenant) ID            |
+| `AZURE_CLIENT_ID`     | App registration → Overview → Application (client) ID          |
+| `AZURE_CLIENT_SECRET` | App registration → Certificates & secrets → the secret's Value |
+
+If any is missing, the Release workflow stops before building and says which one.
+
+## Check signing without releasing
+
+**Actions → Release → Run workflow**, pick any branch, tick **Dry run**. It builds, signs, checks
+that the installer and `plenipo-desktop.exe` are validly signed by 8 West Ventures, LLC with a
+timestamp, and keeps the installer as a download on the run page for 7 days. It creates no tag and
+no release.
+
+Run a dry run after changing anything here, and after renewing the client secret.
+
+## Dates that stop signing
+
+| When                                                 | What expires                 | Do                                                                       |
+| ---------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| The client secret's expiry (24 months from creation) | `AZURE_CLIENT_SECRET`        | New client secret, update the GitHub secret, dry run                     |
+| 10/21/2028                                           | 8 West's identity validation | Renew in Azure (**Identity validations → Renew**); it signs Milepost too |
+
+Microsoft emails reminders 60 days before the identity validation expires. The client secret sends
+none — keep it in a calendar.
+
+## After each release: SmartScreen
+
+A signature replaces "Unknown publisher" at once. Windows' blue "Windows protected your PC" screen
+can still appear for a new release until enough people have downloaded it; no certificate skips
+that. To speed it up, submit the signed installer at
+[microsoft.com/wdsi](https://www.microsoft.com/wdsi) as a software developer.

@@ -429,7 +429,13 @@ mod tests {
             ["second", "other"],
             "unrelated tasks are not turns"
         );
-        // Most recently active first.
+        // Most recently active first. Windows' clock moves in steps of about 15 ms, so wait
+        // until it has passed s-2's last activity: otherwise the touch can share its time, and
+        // the tie goes to the newer s-2.
+        let s2 = l.runtime_session("s-2").unwrap().unwrap().updated_at;
+        while crate::now_ms() <= s2 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         l.touch_runtime_session("s-1").unwrap();
         let listed: Vec<_> = l
             .list_runtime_sessions(10)
