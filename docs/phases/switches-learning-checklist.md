@@ -76,7 +76,7 @@ These are not in the rollout plan. They are recorded in two decision records:
 
 ## Docs
 
-- [x] ADR-021 and ADR-022 (Proposed); ADR-020 notes the amendment; the ADR index
+- [x] ADR-021 and ADR-022 (accepted by the owner on 2026-09-27); ADR-020 notes the amendment; the ADR index
 - [x] Architecture overview: the new commands and §12a
 - [x] Word list: switches, without asking, checks that a person is using a website, lessons
 - [x] README status, versioning guide (1.4.0), release notes `docs/releases/v1.4.0.md`

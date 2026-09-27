@@ -1,6 +1,6 @@
 # ADR-021: On/off switches in Settings
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
 - **Amends:** ADR-020 (Plenipo's browser and computer use), sections 4, 5, and 6

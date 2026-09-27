@@ -35,5 +35,5 @@ architecture must be recorded here.
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Accepted |
 | [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Accepted |
 | [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard (amended by 021)    | Accepted |
-| [021](ADR-021-settings-switches.md)             | On/off switches in Settings                                           | Proposed |
-| [022](ADR-022-workers-learn-from-work.md)       | Workers learn from their work                                         | Proposed |
+| [021](ADR-021-settings-switches.md)             | On/off switches in Settings                                           | Accepted |
+| [022](ADR-022-workers-learn-from-work.md)       | Workers learn from their work                                         | Accepted |

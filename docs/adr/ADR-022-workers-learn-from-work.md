@@ -1,6 +1,6 @@
 # ADR-022: Workers learn from their work
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
 

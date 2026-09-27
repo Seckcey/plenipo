@@ -67,19 +67,19 @@ Result: 3 of 3 pass.
 ## 5. Deviations
 
 - Not in the rollout plan: both features are recorded in ADR-021 (on/off switches in Settings)
-  and ADR-022 (workers learn from their work), both **Proposed**.
+  and ADR-022 (workers learn from their work), both **accepted by the owner** on 2026-09-27.
 - ADR-020 (Plenipo's browser and computer use) section 4 said sending, buying, and signing in
   **always** ask. ADR-021 amends it at the owner's request; off, the default, keeps it.
 - The owner's "CAPTCHA attempts" switch is not built (ADR-021, Alternatives considered).
 
 ## 6. Owner items
 
-| ID  | Item                                                                                                                                                                                                                                            | Recommendation                                |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| O1  | ADR-021 (on/off switches in Settings) — **Proposed**. Accepting it means the switches decide what workers may use, and that with a "without asking" switch on, workers send, buy, or press Sign in on your allowed websites without asking you. | Accept; keep the "without asking" ones off.   |
-| O2  | ADR-022 (workers learn from their work) — **Proposed**. Accepting it means workers write down lessons, you keep or discard each one (or let a role learn on its own), and kept lessons go to that role's later workers.                         | Accept.                                       |
-| O3  | Windows check (~20 min): the steps in [switches-learning-checklist.md](switches-learning-checklist.md#owner-check-on-windows-20-minutes).                                                                                                       | Recommended with v1.4.0; fixes go in a patch. |
-| O4  | If a role of your own has the **Screen, mouse, and keyboard** permission set, turn that switch on after updating (it starts off).                                                                                                               | After installing v1.4.0.                      |
+| ID  | Item                                                                                                                                                                                                                                                             | Recommendation                                |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| O1  | ADR-021 (on/off switches in Settings) — **Accepted** by the owner on 2026-09-27. It means the switches decide what workers may use, and that with a "without asking" switch on, workers send, buy, or press Sign in on your allowed websites without asking you. | Done; keep the "without asking" ones off.     |
+| O2  | ADR-022 (workers learn from their work) — **Accepted** by the owner on 2026-09-27. It means workers write down lessons, you keep or discard each one (or let a role learn on its own), and kept lessons go to that role's later workers.                         | Done.                                         |
+| O3  | Windows check (~20 min): the steps in [switches-learning-checklist.md](switches-learning-checklist.md#owner-check-on-windows-20-minutes).                                                                                                                        | Recommended with v1.4.0; fixes go in a patch. |
+| O4  | If a role of your own has the **Screen, mouse, and keyboard** permission set, turn that switch on after updating (it starts off).                                                                                                                                | After installing v1.4.0.                      |
 
 ## 7. Verification
 
