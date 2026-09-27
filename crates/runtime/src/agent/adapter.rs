@@ -104,12 +104,12 @@ pub struct Parsed {
     pub send: Vec<String>,
     /// The task is over: close the process's stdin so it can exit (ADR-015).
     pub close_input: bool,
-    /// Files the AI tool asked Plenipo to read or write for it (ADR-022). Plenipo carries each
+    /// Files the AI tool asked Plenipo to read or write for it (ADR-027). Plenipo carries each
     /// out through Guard and gives the answer to [`TurnParser::file_answered`].
     pub files: Vec<FileRequest>,
 }
 
-/// One file the AI tool asked Plenipo to read or write (ADR-022), numbered by the parser.
+/// One file the AI tool asked Plenipo to read or write (ADR-027), numbered by the parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRequest {
     pub id: u64,
@@ -156,7 +156,7 @@ pub trait TurnParser: Send {
     }
     /// One stdout line (JSON lines expected).
     fn line(&mut self, text: &str, truncated: bool) -> Parsed;
-    /// Plenipo's answer to the file request `id` from [`Parsed::files`] (ADR-022). Answers may
+    /// Plenipo's answer to the file request `id` from [`Parsed::files`] (ADR-027). Answers may
     /// come in any order, and while the task goes on.
     fn file_answered(&mut self, _id: u64, _answer: FileAnswer) -> Parsed {
         Parsed::none()

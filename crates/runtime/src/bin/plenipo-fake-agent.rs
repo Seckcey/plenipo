@@ -6,7 +6,7 @@
 //! format with the prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent …
 //! stdio` answers `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and
 //! stdout, asks permission before each tool call, and stops a slow task on `session/cancel`.
-//! `kimi acp` talks ACP too, like Kimi Code 0.34.0 (ADR-022): it takes its mode, model, and
+//! `kimi acp` talks ACP too, like Kimi Code 0.34.0 (ADR-027): it takes its mode, model, and
 //! thinking level through `session/set_config_option`, and asks Plenipo for the files it reads
 //! and writes (`fs/read_text_file`, `fs/write_text_file`) when Plenipo offers file access. Under
 //! any other name, `--personas` lists the persona names, one per line, so test helpers install
@@ -1806,7 +1806,7 @@ fn grok_agent(args: &[String]) -> i32 {
     0
 }
 
-// ---- Kimi (ACP, ADR-015 and ADR-022) ----------------------------------------------------------
+// ---- Kimi (ACP, ADR-015 and ADR-027) ----------------------------------------------------------
 
 /// The Kimi subscription's models, their names, and their thinking levels, as `session/new`
 /// lists them (0.34.0; the levels of K2.8 Preview and K3-256k are made up here).

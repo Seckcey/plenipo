@@ -1,9 +1,11 @@
-# ADR-022: Kimi over ACP, with its file reads and writes going through Plenipo
+# ADR-027: Kimi over ACP, with its file reads and writes going through Plenipo
 
 - **Status:** Accepted (by the owner, 2026-09-26)
-- **Date:** 2026-09-26 (numbered ADR-016 when accepted; renumbered ADR-022 on 2026-09-27
-  because `main` already uses ADR-016 for the Development department, ADR-018 to ADR-020 for
-  Phase 9 and Phase 10, and ADR-021 for the editions and license)
+- **Date:** 2026-09-26 (numbered ADR-016 when accepted; renumbered on 2026-09-27, first to
+  ADR-022 and then to ADR-027, because `main` already uses ADR-016 for the Development
+  department, ADR-018 to ADR-020 for Phase 9 and Phase 10, ADR-021 for the editions and license,
+  ADR-022 for subscription pricing, and ADR-023 and ADR-024 for switches and learning, and
+  Phase 11 uses ADR-025 and ADR-026. The decision itself did not change.)
 - **Phase:** 15 (adapter parts pulled forward, after v0.8.0)
 
 > **On screen** (ADR-010, plain words and rank names): nothing new. The owner sees "Kimi", its

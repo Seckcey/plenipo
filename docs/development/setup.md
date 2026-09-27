@@ -119,7 +119,7 @@ Notes:
   `%USERPROFILE%\.kimi-code\bin` (Plenipo also looks in that folder). To check the sign-in
   yourself, run `kimi provider list`: it should show `managed:kimi-code … source=oauth`, your
   Kimi subscription. What Plenipo checks and does
-  ([ADR-022](../adr/ADR-022-acp-file-access-through-plenipo.md), Kimi over ACP, with its file
+  ([ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md), Kimi over ACP, with its file
   reads and writes going through Plenipo):
   - Before every task it runs `kimi provider list`, and runs the task only when the Kimi
     subscription provider is there with `source=oauth`. Other providers you added to Kimi (an API

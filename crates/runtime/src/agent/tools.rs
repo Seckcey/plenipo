@@ -5,7 +5,7 @@
 //! ends — before the step's result is recorded.
 //!
 //! An AI tool that cannot switch its own file tools off may instead ask Plenipo for each file
-//! it reads or writes (ADR-022, Kimi over ACP): [`ToolProvider::file_access`] carries such a
+//! it reads or writes (ADR-027, Kimi over ACP): [`ToolProvider::file_access`] carries such a
 //! request out through Guard, exactly as the worker's own call of Plenipo's tool would be.
 
 use std::future::Future;
@@ -37,7 +37,7 @@ pub struct ToolServer {
     /// Longest one tool call may take (an approval waits inside a call).
     pub call_timeout: Duration,
     /// The names of the tools the server offers this step (`read_file`, `run_command`, …), for
-    /// AI tools that name a server's tool without the server (ADR-022).
+    /// AI tools that name a server's tool without the server (ADR-027).
     pub tools: Vec<String>,
 }
 
@@ -64,7 +64,7 @@ pub struct StepInfo<'a> {
 }
 
 /// A file an AI tool asks Plenipo to read or write for it, instead of opening the file itself
-/// (ADR-022). Paths are the AI tool's own: absolute, or relative to the project folder.
+/// (ADR-027). Paths are the AI tool's own: absolute, or relative to the project folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileAccess {
     /// Read a text file: all of it, or `limit` lines from line `line` (counted from 1).
@@ -98,7 +98,7 @@ pub trait ToolProvider: Send + Sync + 'static {
     /// before the step's result is recorded.
     fn close(&self, grant_id: &str);
     /// Read or write a file for the AI tool of the step holding `grant_id`, under the worker's
-    /// permissions (ADR-022): checked by Guard, recorded, and waiting for the owner when Guard
+    /// permissions (ADR-027): checked by Guard, recorded, and waiting for the owner when Guard
     /// says to ask. Default: refused.
     fn file_access(&self, grant_id: &str, access: FileAccess) -> Pending<FileAnswer> {
         let _ = (grant_id, access);

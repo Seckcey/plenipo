@@ -35,7 +35,8 @@ architecture must be recorded here.
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md)   | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Accepted |
 | [019](ADR-019-role-working-instructions.md)       | Every role knows its job: working instructions for all roles          | Accepted |
 | [020](ADR-020-browser-and-computer-use.md)        | Plenipo's browser and computer use, through Guard (amended by 023)    | Accepted |
-| [021](ADR-021-editions-and-license.md)            | Free and Pro editions under the Elastic License 2.0                   | Proposed |
-| [022](ADR-022-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                            | Accepted |
+| [021](ADR-021-editions-and-license.md)            | Free and Pro editions under the Elastic License 2.0                   | Accepted |
+| [022](ADR-022-subscription-and-license-check.md)  | Subscription pricing and the weekly license check                     | Accepted |
 | [023](ADR-023-settings-switches.md)               | On/off switches in Settings                                           | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)         | Workers learn from their work                                         | Accepted |
+| [027](ADR-027-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                            | Accepted |
