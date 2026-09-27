@@ -131,6 +131,24 @@ Notes:
   will run. Secrets (for example a GitHub token for `gh`) go under **Secrets**: the value is
   stored in Windows Credential Manager (look for `com.eightwest.plenipo` under **Windows
   Credentials**), never in Plenipo's files, and is passed only to the programs you name.
+- The Development department (Phase 8). Open **Projects → Set up a Development project**: name
+  the project, give its **Project folder** (a git repository with at least one commit) and, for
+  GitHub, its **Repository URL** (`https://github.com/<owner>/<name>`). Plenipo creates the
+  Development VP (if there is none yet), the project's Supervisor, and its team. Type an
+  objective in **Give an objective** — for example _"Implement the login page and get it ready
+  for review: a draft pull request."_ — and follow the **result** below it. Each objective works
+  on a new branch `plenipo/…` in its own working copy under
+  `%LOCALAPPDATA%\com.eightwest.plenipo\working-copies\`; your own checkout is never changed.
+  Merge the branch yourself when you are happy with it, and **Remove** the working copy when the
+  objective is done (the branch stays). To work in the folder itself instead, untick **Work on a
+  separate branch for each objective** in the project's settings.
+- GitHub (Phase 8, optional). Install GitHub CLI (`winget install --id GitHub.cli`), then run
+  `gh auth login` once in a terminal and choose your GitHub account. Workers can then read the
+  project's pull requests, checks, and issues, and ask to open a draft pull request (it always
+  waits for your approval). Instead of signing in, you can store a GitHub token under
+  **Settings → Permissions → Secrets** for the `gh` program, as `GH_TOKEN`. Add your project's
+  test command to **Approved** (for example `npm test *` or `cargo test *`) so QA can run it
+  without asking.
 
 ## 4. Build a release and installer
 
@@ -191,6 +209,13 @@ report a usage limit). The Phase 7 tests give a project a folder and hand its Se
 tool calls such as `<<tool:read_file {"path":"README.md"}>>`, which the fake worker makes
 through Plenipo's real tool relay (`plenipo-desktop --plenipo-tools=…`), then approve the push
 that stops for approval.
+The Phase 8 test sets up Development on the Projects page with a scratch git repository and a
+bare "server" repository next to it. Each member of the team follows a script
+(`~/.plenipo-fake-agent/script.json`: for each position title, one step per turn — what it
+says, the tools it calls, its handoffs, and its review verdict). `installFakeTools` also puts
+two stand-in programs on `PATH` (`plenipo-fake-agent --helpers`): `gh`, which records pull
+requests in a file next to it, and `verify FILE WORD`, a test that passes when the file
+contains the word.
 
 ## 7. Linux (development / CI only)
 

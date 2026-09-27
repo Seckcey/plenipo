@@ -393,7 +393,9 @@ impl SessionStore for LedgerSessionStore {
                     .map_err(|e| e.to_string())?;
                 let started = match handoff {
                     // Starting a handoff's child also marks the request dispatched.
-                    Some(_) => self.0.begin_handoff_turn(task_id, &session.id, &actor),
+                    Some(_) => self
+                        .0
+                        .begin_handoff_turn(task_id, &session.id, number, &actor),
                     None => self.0.transition_task(
                         task_id,
                         TaskState::Running,

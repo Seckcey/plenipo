@@ -19,6 +19,10 @@ pub enum RuntimeError {
     /// No worker slot is free right now (the global turn cap); try again later.
     #[error("{0}")]
     Busy(String),
+    /// This session is already working on a turn (running, or waiting to continue); it takes
+    /// the next one when that turn ends.
+    #[error("{0}")]
+    SessionBusy(String),
     /// The session is not waiting to continue that turn.
     #[error("{0}")]
     NotWaiting(String),

@@ -5,12 +5,15 @@
 
 use std::sync::Arc;
 
-use plenipo_ledger::{Ledger, NewWorker, Position, Project, Task};
+use plenipo_ledger::{ChildConversation, Ledger, NewWorker, Position, Project, Task};
 use plenipo_liaison::context::Destination;
-use plenipo_liaison::{Directory, Placement, Team};
+use plenipo_liaison::protocol::PROTOCOL;
+use plenipo_liaison::{Directory, MemberConversation, Placement, Team};
 use plenipo_router::{Planner, RouteDecision, RouteRequest, Router};
+use plenipo_runtime::agent::SessionStart;
 use serde_json::{json, Value};
 
+use crate::conversation;
 use crate::prompt::{member_identity, member_label, worker_identity};
 use crate::service::org_name;
 use crate::view::{OrgView, TeamMember};
@@ -23,6 +26,43 @@ pub struct WorkforceDirectory {
 impl WorkforceDirectory {
     pub fn new(ledger: Arc<Ledger>, router: Router) -> Self {
         Self { ledger, router }
+    }
+
+    /// A request to a full-time member (a VP's Supervisor, a manager's Supervisor): the member
+    /// does it in its own conversation, which keeps its memory, and no worker is brought in
+    /// (ADR-016). The member works on its own project, whose AI tools apply.
+    fn place_member(
+        &self,
+        view: &OrgView<'_>,
+        planner: &Planner,
+        target: &Position,
+    ) -> Result<Placement, String> {
+        let plan = conversation::plan(&self.ledger, planner, view, target).map_err(|e| {
+            format!("{e}. The owner can change this in Plenipo; do this part yourself meanwhile")
+        })?;
+        let label = planner
+            .tool(&plan.runtime_id)
+            .map_or_else(|| plan.runtime_id.clone(), |t| t.info.label.clone());
+        let mut workforce = plan.workforce.clone();
+        workforce["fullTime"] = json!(true);
+        let has_team = !view.team(&target.id).is_empty();
+        Ok(Placement {
+            address: format!("role:{}", target.title),
+            label: format!("{} ({label})", target.title),
+            runtime_id: plan.runtime_id.clone(),
+            model: plan.model.clone(),
+            effort: plan.effort,
+            worker: None,
+            conversation: Some(ChildConversation {
+                session_id: plan.session_id.clone(),
+                runtime_id: plan.runtime_id.clone(),
+                model: plan.model.clone(),
+                effort: plan.effort.map(|e| e.as_str().to_owned()),
+            }),
+            workforce,
+            identity: member_identity(view, &org_name(&self.ledger), target, has_team),
+            project_id: plan.project_id,
+        })
     }
 }
 
@@ -114,6 +154,18 @@ impl Directory for WorkforceDirectory {
         let destinations: Vec<Destination> = members
             .iter()
             .map(|m| {
+                if view.persistent(m.position) {
+                    // A full-time member: ready when it is staffed and its conversation can
+                    // take work (it may have to finish a current task first).
+                    let ready = conversation::plan(&self.ledger, &planner, &view, m.position)
+                        .map(|c| planner.unavailable(&c.runtime_id).is_none())
+                        .unwrap_or(false);
+                    return Destination {
+                        address: format!("role:{}", m.position.title),
+                        label: member_label(&view, None, m),
+                        ready,
+                    };
+                }
                 let decision = decide(&planner, m.position, project, &[]);
                 let ready = decision.choice.as_ref().is_some_and(|c| {
                     allowed(project, &c.runtime_id) && planner.unavailable(&c.runtime_id).is_none()
@@ -164,6 +216,9 @@ impl Directory for WorkforceDirectory {
         let member = find(&view, &team, name)?;
         let target = member.position;
         let planner = self.router.planner().map_err(|e| e.to_string())?;
+        if view.persistent(target) {
+            return self.place_member(&view, &planner, target);
+        }
         // The work is the lead's team's: its project, and that project's runtimes, apply
         // (also to an overseer from outside the project).
         let project = view.project_of(&lead.id);
@@ -198,7 +253,8 @@ impl Directory for WorkforceDirectory {
             runtime_id: choice.runtime_id.clone(),
             model: choice.model.clone(),
             effort: choice.effort,
-            worker: NewWorker {
+            conversation: None,
+            worker: Some(NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: target.id.clone(),
                 role_id: target.role_id.clone(),
@@ -207,7 +263,7 @@ impl Directory for WorkforceDirectory {
                 model: choice.model.clone(),
                 project_id: project_id.clone(),
                 routing: routing.clone(),
-            },
+            }),
             workforce: json!({
                 "positionId": target.id,
                 "agentId": agent_id,
@@ -221,6 +277,50 @@ impl Directory for WorkforceDirectory {
                 member.oversight.map(|o| (lead, o.kind)),
             ),
             project_id,
+        })
+    }
+
+    fn conversation(&self, workforce: &Value) -> Result<MemberConversation, String> {
+        let (Some(position_id), Some(agent_id)) = (
+            workforce["positionId"].as_str(),
+            workforce["agentId"].as_str(),
+        ) else {
+            return Err("this task does not name a member of the organization".into());
+        };
+        let records = self.ledger.org_records().map_err(|e| e.to_string())?;
+        let view = OrgView::new(&records);
+        let position = view
+            .position(position_id)
+            .ok_or_else(|| "that position is no longer part of the organization".to_owned())?;
+        let planner = self.router.planner().map_err(|e| e.to_string())?;
+        let plan = conversation::plan(&self.ledger, &planner, &view, position)
+            .map_err(|e| e.to_string())?;
+        if plan.workforce["agentId"].as_str() != Some(agent_id) {
+            return Err(format!(
+                "{} has a new agent since this task was handed over; hand it over again",
+                position.title
+            ));
+        }
+        let conversation = ChildConversation {
+            session_id: plan.session_id.clone(),
+            runtime_id: plan.runtime_id.clone(),
+            model: plan.model.clone(),
+            effort: plan.effort.map(|e| e.as_str().to_owned()),
+        };
+        let start = (!plan.existing).then(|| SessionStart {
+            id: Some(plan.session_id.clone()),
+            runtime_id: plan.runtime_id.clone(),
+            model: plan.model.clone(),
+            effort: plan.effort,
+            title: Some(plan.title.clone()),
+            metadata: json!({
+                "liaison": { "enabled": true, "origin": "member", "protocol": PROTOCOL },
+                "workforce": plan.workforce,
+            }),
+        });
+        Ok(MemberConversation {
+            conversation,
+            start,
         })
     }
 }

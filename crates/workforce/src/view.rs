@@ -7,8 +7,9 @@ use plenipo_ledger::{
     Department, OrgRecords, Oversight, Position, PositionState, Project, Role, RoleType,
 };
 
-/// A member of a lead's team: an on-demand position reporting to the lead, or one assigned to
-/// oversee the lead's team.
+/// A member of a lead's team: an on-demand position reporting to the lead, one assigned to
+/// oversee the lead's team, or a full-time position reporting to the lead (Phase 8: a VP hands
+/// objectives to its Supervisors, which do them in their own conversations).
 #[derive(Debug, Clone, Copy)]
 pub struct TeamMember<'a> {
     pub position: &'a Position,
@@ -94,6 +95,11 @@ impl<'a> OrgView<'a> {
         out
     }
 
+    /// `ancestor` is above `id` in the reporting lines.
+    pub fn chain_contains(&self, id: &str, ancestor: &str) -> bool {
+        self.chain(id).iter().skip(1).any(|p| p.id == ancestor)
+    }
+
     /// The department of `id`: the nearest department head at or above it.
     pub fn department_of(&self, id: &str) -> Option<&'a Department> {
         self.chain(id).into_iter().find_map(|p| self.heads(&p.id))
@@ -130,8 +136,10 @@ impl<'a> OrgView<'a> {
         }
     }
 
-    /// A lead's team: its active on-demand reports, then the active on-demand positions
-    /// assigned to oversee it.
+    /// A lead's team: its active on-demand reports, the active on-demand positions assigned to
+    /// oversee it, then its active full-time reports (ADR-016). Work only goes down the
+    /// reporting lines or to on-demand members, and reporting lines never loop, so no two
+    /// members can end up waiting on each other.
     pub fn team(&self, lead: &str) -> Vec<TeamMember<'a>> {
         let mut out: Vec<TeamMember<'a>> = self
             .reports(Some(lead))
@@ -157,6 +165,15 @@ impl<'a> OrgView<'a> {
                 }
             }
         }
+        out.extend(
+            self.reports(Some(lead))
+                .into_iter()
+                .filter(|p| self.persistent(p))
+                .map(|position| TeamMember {
+                    position,
+                    oversight: None,
+                }),
+        );
         out
     }
 

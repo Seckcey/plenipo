@@ -165,13 +165,20 @@ impl Guard {
         }
         let config = self.config()?;
         let mut probe = config.clone();
-        if probe.add_missing_builtins().is_empty() {
-            return Ok(());
+        if !probe.add_missing_builtins().is_empty() {
+            self.update("guard.sets_added", PLENIPO, |c| {
+                let added = c.add_missing_builtins();
+                Ok((!added.is_empty()).then(|| (json!({ "sets": added }), ())))
+            })?;
         }
-        self.update("guard.sets_added", PLENIPO, |c| {
-            let added = c.add_missing_builtins();
-            Ok((!added.is_empty()).then(|| (json!({ "sets": added }), ())))
-        })?;
+        // Built-in sets the owner never changed gain this version's permissions (Phase 8:
+        // GitHub).
+        if !self.config()?.upgrade_builtins().is_empty() {
+            self.update("guard.sets_updated", PLENIPO, |c| {
+                let updated = c.upgrade_builtins();
+                Ok((!updated.is_empty()).then(|| (json!({ "sets": updated }), ())))
+            })?;
+        }
         Ok(())
     }
 

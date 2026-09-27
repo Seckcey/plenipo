@@ -285,6 +285,17 @@ pub fn git_args(workspace: &Path, op: &[String]) -> Vec<String> {
     args
 }
 
+/// Variables GitHub's `gh` gets so it never waits for input or prints colors.
+pub fn gh_env() -> Vec<(String, String)> {
+    vec![
+        ("GH_PROMPT_DISABLED".into(), "1".into()),
+        ("GH_NO_UPDATE_NOTIFIER".into(), "1".into()),
+        ("GH_PAGER".into(), String::new()),
+        ("NO_COLOR".into(), "1".into()),
+        ("CLICOLOR".into(), "0".into()),
+    ]
+}
+
 /// Variables git gets so it never waits for input.
 pub fn git_env() -> Vec<(String, String)> {
     vec![

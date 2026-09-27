@@ -12,12 +12,14 @@ pub mod broker;
 pub mod dto;
 mod error;
 pub mod files;
+pub mod github;
 pub mod mcp;
 pub mod programs;
 pub mod relay;
 mod server;
 pub mod tools;
 pub mod vault;
+pub mod worktrees;
 
 pub use broker::{Broker, BrokerConfig, CallResult};
 pub use dto::*;
