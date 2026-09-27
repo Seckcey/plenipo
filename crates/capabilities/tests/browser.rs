@@ -1137,6 +1137,8 @@ async fn plan_user_takes_control() {
     // The tab stays open for the owner after the worker's step.
     tokio::time::sleep(Duration::from_millis(500)).await;
     h.owner_clicks("shop.test").await;
+    // The Supervisor's turn ends before it takes the next objective.
+    h.finished(&root).await;
 
     // The desktop: the owner moving the mouse takes it back.
     h.script(
