@@ -1,6 +1,7 @@
 # Repository presentation validation
 
 Review date: September 27, 2026. Base: `eb49e9f8e53e25ab7d66babd79b65dfeee6278f9`.
+Reconciled with main `30a77643760dfae4bab09593535a611a4d8f37dd` before final verification.
 Scope: repository docs, copied presentation assets, and GitHub About/topics/social preview.
 No app, website, dependency, workflow, license, or production changes are part of this work.
 
@@ -21,6 +22,9 @@ No app, website, dependency, workflow, license, or production changes are part o
   approval-switch caveat. SECURITY.md now describes that caveat. Already-merged ADR-029 and the
   browser broker also contradict the inherited absolute CAPTCHA guarantee; the policy now
   describes that limitation without providing operational instructions or importing PR #36.
+  FAQ and security wording account for ongoing CAPTCHA improvements: results depend on the
+  website, settings, and installed version; release notes establish what has shipped. No
+  unverified success rate or pending improvement is presented as a published capability.
 - GitHub reports Issues/Discussions enabled, wiki disabled, and private vulnerability reporting
   **disabled**. SECURITY.md and issue-template text no longer promise unavailable private intake.
   Enabling it or publishing an approved monitored contact remains an owner decision.
@@ -29,7 +33,7 @@ No app, website, dependency, workflow, license, or production changes are part o
 
 The local `pnpm check` passed: version alignment, repository formatting, lint, typecheck, 240
 shared UI tests, 175 desktop frontend tests, and 2 website tests. `git diff --check` passed.
-A link audit checked 99 local documentation/image targets and anchors with no failures.
+A final link audit checked 100 local documentation/image targets and anchors with no failures.
 The public website, release page, latest-release redirect, and Discussions returned HTTP 200;
 the issue-creation URL correctly redirects an unsigned-in visitor to GitHub login.
 
@@ -43,11 +47,29 @@ Actual GitHub README rendering was checked on `codex/github-discoverability` at 
 `1606b63`: Pip header in both light and dark themes, loaded image dimensions and selected source,
 real screenshot and caption, release guidance, tables, links, and rendered Mermaid hierarchy.
 Browser theme emulation is temporary and does not change account preferences.
+Durable captures: [light README](evidence/github-readme-light.png),
+[dark README](evidence/github-readme-dark.png),
+[installation guidance](evidence/github-readme-install.png), and
+[uploaded social preview](evidence/github-social-preview.png).
 
 Initial push occurred after local `pnpm check`, but before the repository-mandated Rust checks,
 under coordination guidance that was subsequently corrected. Full Rust/bindings verification is
 required before a further push and final integration; no pre-push Rust pass is claimed retroactively.
-Rust tooling is unavailable in the local documentation checkout. A separate isolated Coastline
-run will supply the required Rust and binding checks before the next push; exact-head GitHub CI
-also covers the Windows installer and real-app end-to-end checks. No desktop Docker, production
-release, or live provider task is part of this validation.
+Rust tooling is unavailable in the local documentation checkout. The required isolated Coastline
+run passed before the final push, on source `96d46029a5aa7d3edc88e40c02051797453b2b86`
+(tree `e4ebe822a20d0c5c2156589532149de359464e6e`):
+
+- `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+- `cargo test --workspace --locked`: **765 passed, 0 failed, 0 ignored**
+- `pnpm bindings`: **189 passed**, with no generated-file content or filename changes
+
+The run completed September 27 at 14:37:27 UTC with Rust 1.98.1, Debian Chromium 154, one
+build/test thread, a 2 GiB memory limit, and two CPUs. It held the shared test lock and used its
+own source, copied build cache, runtime, and container. A copied-cache path mismatch was fixed
+in the temporary test setup before the successful full run; no application source was changed.
+The test container was removed and the shared lock verified free. Only this receipt and copies
+of the reviewed PNG evidence follow that tested source. Final formatting and diff checks passed.
+
+All eight initial-head GitHub checks passed, including Windows installer/smoke and Linux real-app
+end-to-end checks. Final-head GitHub CI remains the coordinator's merge gate. No desktop Docker,
+production release, or live provider task is part of this validation.
