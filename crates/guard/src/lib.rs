@@ -8,8 +8,9 @@
 //! order — role, project, department, the target (inside the project folder, not a blocked file
 //! or command), the action's risk (the sensitive-action check), and the owner's explicit rules —
 //! and explains its decision in one plain sentence. The owner's **website lists** (Phase 10) say
-//! which websites workers may open in Plenipo's browser. Nothing here carries the action out: the
-//! capability broker (`plenipo-capabilities`) does, after asking Guard.
+//! which websites workers may open in Plenipo's browser; the owner's **servers** (Phase 11) say
+//! which servers workers may reach over SSH and what they may run there. Nothing here carries the
+//! action out: the capability broker (`plenipo-capabilities`) does, after asking Guard.
 
 pub mod commands;
 pub mod config;
@@ -21,6 +22,7 @@ pub mod paths;
 pub mod redact;
 pub mod registry;
 pub mod sensitive;
+pub mod servers;
 mod service;
 pub mod websites;
 
@@ -34,5 +36,9 @@ pub use error::{GuardError, Result};
 pub use paths::{PathRefusal, Resolved, Workspace};
 pub use redact::Redactor;
 pub use registry::Capability;
+pub use servers::{
+    classify, Classified, CommandClass, Environment, HostKey, HostKeyInput, Server, ServerApproval,
+    ServerCheck, ServerInput, ServerUse, SignIn,
+};
 pub use service::{scope_in, Guard, OWNER, PLENIPO, SETTING};
 pub use websites::{OtherSites, Site, SiteVerdict, WebsiteRules};

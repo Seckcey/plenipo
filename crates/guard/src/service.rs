@@ -338,6 +338,66 @@ impl Guard {
         Ok(())
     }
 
+    /// Add or change a server (Phase 11). Its secret values never reach Guard: the Vault keeps
+    /// them. Returns it.
+    pub fn save_server(
+        &self,
+        input: &crate::servers::ServerInput,
+    ) -> Result<crate::servers::Server> {
+        let input = input.without_secrets();
+        let roles: Vec<String> = self
+            .ledger()
+            .list_roles()?
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        let now = plenipo_ledger::now_ms();
+        let event = if input.id.is_some() {
+            "guard.server_changed"
+        } else {
+            "guard.server_added"
+        };
+        self.update(event, OWNER, |c| {
+            let (server, earlier) = c.save_server(&input, &roles, now)?;
+            let old_key = earlier
+                .as_ref()
+                .and_then(|e| e.host_key.as_ref())
+                .map(|k| k.fingerprint.clone());
+            let new_key = server.host_key.as_ref().map(|k| k.fingerprint.clone());
+            Ok(Some((
+                json!({
+                    "serverId": server.id,
+                    "name": server.name,
+                    "address": server.address(),
+                    "environment": server.environment,
+                    "signIn": server.sign_in,
+                    "hostKey": new_key,
+                    "pinned": new_key.is_some() && new_key != old_key,
+                    "previousHostKey": old_key.filter(|old| Some(old) != new_key.as_ref()),
+                    "roles": server.roles,
+                    "classes": server.classes,
+                    "approval": server.approval,
+                    "folders": server.folders,
+                    "forwards": server.forwards,
+                }),
+                server,
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Remove a server from the list (the Vault removes its secret values).
+    pub fn remove_server(&self, id: &str) -> Result<crate::servers::Server> {
+        self.update("guard.server_removed", OWNER, |c| {
+            let s = c.remove_server(id)?;
+            Ok(Some((
+                json!({ "serverId": s.id, "name": s.name, "address": s.address() }),
+                s,
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
     /// Record a secret's reference (the Vault stores its value). Returns it.
     pub fn save_secret(&self, input: &SecretInput) -> Result<SecretInfo> {
         let now = plenipo_ledger::now_ms();
@@ -567,6 +627,66 @@ mod tests {
         assert!(types.contains(&"guard.defaults_added".to_owned()));
         assert!(types.contains(&"guard.roles_seeded".to_owned()));
         assert!(types.contains(&"guard.role_assigned".to_owned()));
+    }
+
+    #[test]
+    fn servers_are_recorded_without_their_secrets() {
+        use crate::servers::*;
+        let l = ledger();
+        let g = Guard::new(l.clone());
+        let role = l.list_roles().unwrap()[0].id.clone();
+        let input = ServerInput {
+            name: "Dev box".into(),
+            host: "dev.example.com".into(),
+            user: "deploy".into(),
+            sign_in: SignIn::Password,
+            password: Some("hunter2-password".into()),
+            key: Some("-----BEGIN OPENSSH PRIVATE KEY-----\nabc".into()),
+            roles: vec![role.clone()],
+            classes: default_classes(Environment::Development),
+            host_key: Some(HostKeyInput {
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: format!("SHA256:{}", "b".repeat(43)),
+            }),
+            ..ServerInput::default()
+        };
+        let saved = g.save_server(&input).unwrap();
+        assert_eq!(saved.port, 22);
+        assert!(g
+            .save_server(&ServerInput {
+                roles: vec!["no-such-role".into()],
+                ..input.clone()
+            })
+            .is_err());
+        assert!(g.save_server(&input).is_err(), "names are unique");
+        // Pinning a new identity is recorded with the old one.
+        let repinned = g
+            .save_server(&ServerInput {
+                id: Some(saved.id.clone()),
+                host_key: Some(HostKeyInput {
+                    algorithm: "ssh-ed25519".into(),
+                    fingerprint: format!("SHA256:{}", "c".repeat(43)),
+                }),
+                ..input.clone()
+            })
+            .unwrap();
+        assert!(repinned.host_key.unwrap().fingerprint.ends_with('c'));
+        let changed = l.events_of_types(&["guard.server_changed"], 5).unwrap();
+        assert_eq!(changed[0].payload["pinned"], true);
+        assert!(changed[0].payload["previousHostKey"]
+            .as_str()
+            .unwrap()
+            .ends_with('b'));
+        let everything = format!(
+            "{}{:?}",
+            l.setting(SETTING).unwrap().unwrap(),
+            l.recent_events(100).unwrap()
+        );
+        assert!(!everything.contains("hunter2-password"));
+        assert!(!everything.contains("BEGIN OPENSSH"));
+        g.remove_server(&saved.id).unwrap();
+        assert!(g.config().unwrap().servers.is_empty());
+        assert!(g.remove_server(&saved.id).is_err());
     }
 
     #[test]

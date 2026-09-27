@@ -246,6 +246,8 @@ pub enum Risk {
     Web,
     /// Sees or uses this computer's screen, mouse, and keyboard (Phase 10).
     Screen,
+    /// Runs commands on a server over SSH (Phase 11).
+    Server,
 }
 
 impl Risk {
@@ -258,6 +260,7 @@ impl Risk {
             Self::External => "Reaches outside this computer",
             Self::Web => "Uses a website",
             Self::Screen => "Uses your screen, mouse, or keyboard",
+            Self::Server => "Runs commands on a server",
         }
     }
 }

@@ -107,6 +107,14 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
             &[(ComputerObserve, Allowed), (ComputerControl, Allowed)],
         ),
         set(
+            "servers",
+            "Servers",
+            "Runs commands over SSH on the servers you set up, as each server allows: which \
+             roles may use it, what kinds of commands, and in which folders. On production \
+             servers every command asks you first. No access to project files.",
+            &[(SshConnect, Allowed)],
+        ),
+        set(
             "no-access",
             "No access",
             "Conversation only: no files, programs, or git.",
@@ -193,6 +201,7 @@ pub fn template_sets() -> &'static [(&'static str, &'static str)] {
         ("Designer", "writer"),
         ("Researcher", "researcher"),
         ("Web Assistant", "web-assistant"),
+        ("Operations Engineer", "servers"),
     ]
 }
 

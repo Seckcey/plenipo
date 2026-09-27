@@ -1232,6 +1232,7 @@ impl Broker {
                 site,
                 approved: site_approved,
             }),
+            server: None,
         };
         let decision = evaluate(
             &config,

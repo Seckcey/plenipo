@@ -11,6 +11,7 @@ use crate::defaults;
 use crate::dto::*;
 use crate::error::{GuardError, Result};
 use crate::paths::valid_pattern;
+use crate::servers::{self, Server, ServerInput, MAX_SERVERS};
 use crate::websites::{self, WebsiteRules};
 
 pub const MAX_SETS: usize = 64;
@@ -34,6 +35,8 @@ pub struct GuardConfig {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10, ADR-020).
     pub websites: WebsiteRules,
+    /// The servers workers may use over SSH (Phase 11, ADR-023).
+    pub servers: Vec<Server>,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -442,6 +445,75 @@ impl GuardConfig {
             }
         };
         Ok(saved)
+    }
+
+    pub fn server(&self, id: &str) -> Option<&Server> {
+        self.servers.iter().find(|s| s.id == id)
+    }
+
+    /// A server by its name (as workers give it), ignoring case.
+    pub fn server_named(&self, name: &str) -> Option<&Server> {
+        let name = name.trim();
+        self.servers
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Add or change a server (never its secret values). `roles`: the IDs of roles that exist.
+    /// Returns it, and the one it replaced.
+    pub fn save_server(
+        &mut self,
+        input: &ServerInput,
+        roles: &[String],
+        now: u64,
+    ) -> Result<(Server, Option<Server>)> {
+        let existing = match &input.id {
+            Some(id) => Some(
+                self.servers
+                    .iter()
+                    .position(|s| &s.id == id)
+                    .ok_or_else(|| invalid("that server is no longer in the list"))?,
+            ),
+            None => None,
+        };
+        if let Some(r) = input.roles.iter().find(|r| !roles.contains(r)) {
+            return Err(invalid(format!("the role {r:?} no longer exists")));
+        }
+        let earlier = existing.map(|i| self.servers[i].clone());
+        let id = earlier
+            .as_ref()
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), |s| s.id.clone());
+        let server = servers::clean(input, &id, earlier.as_ref(), now).map_err(invalid)?;
+        if self
+            .servers
+            .iter()
+            .enumerate()
+            .any(|(i, s)| Some(i) != existing && s.name.eq_ignore_ascii_case(&server.name))
+        {
+            return Err(invalid(format!(
+                "a server named \"{}\" is already in the list",
+                server.name
+            )));
+        }
+        match existing {
+            Some(i) => self.servers[i] = server.clone(),
+            None => {
+                if self.servers.len() >= MAX_SERVERS {
+                    return Err(invalid(format!("at most {MAX_SERVERS} servers")));
+                }
+                self.servers.push(server.clone());
+            }
+        }
+        Ok((server, earlier))
+    }
+
+    pub fn remove_server(&mut self, id: &str) -> Result<Server> {
+        let i = self
+            .servers
+            .iter()
+            .position(|s| s.id == id)
+            .ok_or_else(|| invalid("that server is no longer in the list"))?;
+        Ok(self.servers.remove(i))
     }
 
     pub fn remove_secret(&mut self, id: &str) -> Result<SecretInfo> {

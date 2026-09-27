@@ -3,4 +3,4 @@
 /**
  * What kind of change an action makes, shown on approval cards.
  */
-export type Risk = "read" | "change" | "run" | "delete" | "external" | "web" | "screen";
+export type Risk = "read" | "change" | "run" | "delete" | "external" | "web" | "screen" | "server";
