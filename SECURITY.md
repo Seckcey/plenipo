@@ -62,6 +62,14 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 
+Programs a worker is allowed to run (the approved list, and anything you approve when asked)
+run with your own account, the same as if you had started them. Plenipo checks which program
+starts, and it gives a worker's tools only to the AI tool's own program and the programs that
+AI tool starts (ADR-033); it does not yet put those programs in a sandbox (a box that limits
+what a program can touch). A project's own build and test scripts run as part of a program
+like `cargo test` or `npm run`, so treat a project's scripts as code you trust, and approve
+script runners only for projects you trust.
+
 ## Out of scope
 
 - Whatever the AI models themselves decide to write or say. Plenipo constrains what a worker

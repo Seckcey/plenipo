@@ -180,6 +180,24 @@ impl Supervisor {
             .cloned()
     }
 
+    /// The process ID of the AI tool running `task_id` of agent session `session_id` now
+    /// (`None`: no such program runs, or its ID is not known yet). The capability broker
+    /// binds a step's tool ticket to this process and its children (ADR-033).
+    pub fn live_agent_pid(&self, session_id: &str, task_id: &str) -> Option<u32> {
+        let state = self.inner.lock();
+        state
+            .records
+            .iter()
+            .rev()
+            .find(|r| {
+                state.live.contains_key(&r.id)
+                    && r.agent
+                        .as_ref()
+                        .is_some_and(|a| a.session_id == session_id && a.task_id == task_id)
+            })
+            .and_then(|r| r.pid)
+    }
+
     pub fn output(&self, id: &str) -> Result<ExecutionOutput, RuntimeError> {
         let state = self.inner.lock();
         if !state.records.iter().any(|r| r.id == id) {

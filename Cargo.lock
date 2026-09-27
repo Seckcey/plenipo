@@ -3902,6 +3902,7 @@ dependencies = [
  "tokio-tungstenite",
  "ts-rs",
  "uuid",
+ "windows-sys 0.61.2",
  "x11rb",
  "xcap",
 ]

@@ -6,6 +6,7 @@
 //! recorded in the Ledger, and returned to the worker with secrets hidden.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
@@ -14,8 +15,8 @@ use plenipo_guard::engine::{doing, Request, Scope};
 use plenipo_guard::redact::Redactor;
 use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
-    Level, PathRefusal, Resolved, Risk, SensitiveKind, ServerCheck, ServerUse, SiteCheck, Verdict,
-    Workspace,
+    Level, PathRefusal, Resolved, Risk, SecretInfo, SensitiveKind, ServerCheck, ServerUse,
+    SiteCheck, Verdict, Workspace,
 };
 use plenipo_ledger::{
     Approval, ApprovalState, Ledger, NewEvent, NewWorkspace, Workspace as WorkingCopy,
@@ -37,6 +38,7 @@ use crate::desktop::{Desktop, SystemDesktop};
 use crate::dto::*;
 use crate::error::{BrokerError, Result};
 use crate::files;
+use crate::process::{self, Holders};
 use crate::programs::{self, Run};
 use crate::relay::{Ticket, ARG};
 use crate::screens::Evidence;
@@ -55,6 +57,15 @@ const GUARD: &str = "guard";
 const PLENIPO: &str = "plenipo";
 /// Longest detail kept in an event or approval card.
 const MAX_DETAIL: usize = 2000;
+/// Programs that run a project's own scripts: Plenipo never gives them stored secrets, since
+/// the scripts would get them too (ADR-033, approved programs run as the owner).
+const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "make", "npx"];
+/// What the worker is told when a secret bound to a script runner was withheld.
+const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pnpm, yarn, make, \
+                                or npx, because they run the project's own scripts.)";
+/// The notice where this computer offers no way to tell which program connects (ADR-033).
+const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
+                                a worker's tools, so a copied tool ticket cannot be refused.";
 
 #[derive(Debug, Clone)]
 pub struct BrokerConfig {
@@ -337,6 +348,52 @@ struct Refused {
     layer: Layer,
     reason: String,
     summary: String,
+}
+
+/// What became of a connection presenting a ticket (ADR-033).
+enum Admission {
+    /// From the AI tool's own process tree.
+    Admitted,
+    /// This computer cannot say which program connected.
+    Unchecked,
+    /// From another program (its process ID, when known).
+    Refused(Option<u32>),
+}
+
+/// The stored secrets one program gets.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SecretsGiven {
+    /// Variables to set.
+    env: Vec<(String, String)>,
+    /// Names of the secrets given (told to the worker).
+    used: Vec<String>,
+    /// Names of the secrets the owner bound to this program that Plenipo withheld, because
+    /// the program runs the project's own scripts (ADR-033).
+    withheld: Vec<String>,
+}
+
+/// The secrets the owner bound to `program` (its bare name), read with `read` (the Vault).
+fn secrets_for(
+    program: &str,
+    secrets: &[SecretInfo],
+    read: impl Fn(&str) -> Option<String>,
+) -> SecretsGiven {
+    let mut given = SecretsGiven::default();
+    let runner = SCRIPT_RUNNERS.contains(&program);
+    for s in secrets
+        .iter()
+        .filter(|s| s.programs.iter().any(|p| p == program))
+    {
+        if runner {
+            given.withheld.push(s.name.clone());
+            continue;
+        }
+        if let (Some(var), Some(value)) = (&s.env_var, read(&s.id)) {
+            given.env.push((var.clone(), value));
+            given.used.push(s.name.clone());
+        }
+    }
+    given
 }
 
 fn cap(text: &str, max: usize) -> String {
@@ -979,6 +1036,88 @@ impl Broker {
     /// The grant a ticket belongs to, while it is open.
     pub fn grant_for_ticket(&self, ticket: &str) -> Option<String> {
         self.state().tickets.get(ticket).cloned()
+    }
+
+    /// Whether a connection from `peer` to the tool server at `local`, presenting `grant_id`'s
+    /// ticket, may be served (ADR-033): it must come from the AI tool Plenipo started for that
+    /// grant's step, or from a program that AI tool started. Any other program that read the
+    /// ticket is refused, and the refusal is recorded for the owner
+    /// (`tool_server.ticket_refused`). Where this computer offers no way to tell (macOS), the
+    /// connection is served and that is recorded too (`tool_server.ticket_unchecked`).
+    pub(crate) async fn admit(&self, grant_id: &str, peer: SocketAddr, local: SocketAddr) -> bool {
+        let Some((task_id, session_id, worker)) = self
+            .state()
+            .grants
+            .get(grant_id)
+            .map(|g| (g.task_id.clone(), g.session_id.clone(), g.worker.clone()))
+        else {
+            return false;
+        };
+        // The AI tool's process is known once the supervisor has started it, right after the
+        // grant opened; a connection can only come later, but give a slow start a moment.
+        let mut root = None;
+        for _ in 0..40 {
+            root = self.inner.supervisor.live_agent_pid(&session_id, &task_id);
+            if root.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let admission =
+            tokio::task::spawn_blocking(move || match process::holders_of(peer, local) {
+                Holders::Unavailable => Admission::Unchecked,
+                Holders::Unknown => Admission::Refused(None),
+                Holders::Pids(pids) => match root {
+                    Some(root) => {
+                        match pids
+                            .iter()
+                            .copied()
+                            .find(|&pid| !process::descends_from(pid, root, process::parent_of))
+                        {
+                            None => Admission::Admitted,
+                            Some(stranger) => Admission::Refused(Some(stranger)),
+                        }
+                    }
+                    None => Admission::Refused(pids.first().copied()),
+                },
+            })
+            .await
+            .unwrap_or(Admission::Refused(None));
+        match admission {
+            Admission::Admitted => true,
+            Admission::Unchecked => {
+                self.notice(TICKET_UNCHECKED.into());
+                let _ = self.ledger().append_event(NewEvent {
+                    task_id: Some(task_id),
+                    source: GUARD.into(),
+                    event_type: "tool_server.ticket_unchecked".into(),
+                    payload: json!({
+                        "grantId": grant_id,
+                        "worker": worker,
+                        "reason": TICKET_UNCHECKED,
+                    }),
+                    ..NewEvent::default()
+                });
+                true
+            }
+            Admission::Refused(connecting) => {
+                let _ = self.ledger().append_event(NewEvent {
+                    task_id: Some(task_id),
+                    source: GUARD.into(),
+                    event_type: "tool_server.ticket_refused".into(),
+                    payload: json!({
+                        "grantId": grant_id,
+                        "worker": worker,
+                        "connectingPid": connecting,
+                        "expectedRootPid": root,
+                        "reason": "A program outside the worker's AI tool presented the \
+                                   worker's tool ticket; Plenipo closed the connection.",
+                    }),
+                    ..NewEvent::default()
+                });
+                false
+            }
+        }
     }
 
     fn end_grant(&self, grant_id: &str) {
@@ -1855,21 +1994,14 @@ impl Broker {
             args: Vec::new(),
         }
         .program_name();
-        let mut secrets_used = Vec::new();
-        if let Ok(config) = self.inner.guard.config() {
-            for s in config
-                .secrets
-                .iter()
-                .filter(|s| s.programs.contains(&program))
-            {
-                if let (Some(var), Ok(Some(value))) =
-                    (&s.env_var, vault::read(self.inner.store.as_ref(), &s.id))
-                {
-                    env.push((var.clone(), value));
-                    secrets_used.push(s.name.clone());
-                }
-            }
-        }
+        let given = match self.inner.guard.config() {
+            Ok(config) => secrets_for(&program, &config.secrets, |id| {
+                vault::read(self.inner.store.as_ref(), id).ok().flatten()
+            }),
+            Err(_) => SecretsGiven::default(),
+        };
+        env.extend(given.env);
+        let (secrets_used, withheld) = (given.used, given.withheld);
         let this = self.clone();
         let grant = grant_id.to_owned();
         let ran = programs::run(
@@ -1907,6 +2039,10 @@ impl Broker {
                         "(Given the stored secret(s) {} by Plenipo.)\n",
                         secrets_used.join(", ")
                     ));
+                }
+                if !withheld.is_empty() {
+                    text.push_str(SECRETS_WITHHELD);
+                    text.push('\n');
                 }
                 let output = ran.output.trim_end();
                 text.push_str(if output.is_empty() {
@@ -2931,4 +3067,57 @@ fn prepare(
             p
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn secret(name: &str, var: &str, programs: &[&str]) -> SecretInfo {
+        SecretInfo {
+            id: format!("id-{name}"),
+            name: name.into(),
+            env_var: Some(var.into()),
+            programs: programs.iter().map(|p| (*p).to_owned()).collect(),
+            ..SecretInfo::default()
+        }
+    }
+
+    /// ADR-033: a secret bound to a script runner is withheld, and the worker is told.
+    #[test]
+    fn stored_secrets_never_go_to_script_runners() {
+        let secrets = vec![
+            secret("Deploy key", "DEPLOY_KEY", &["gh", "npm", "make"]),
+            secret("Registry token", "NPM_TOKEN", &["npm"]),
+            secret("Other", "OTHER", &["cargo"]),
+        ];
+        let read = |id: &str| Some(format!("value-of-{id}"));
+        let gh = secrets_for("gh", &secrets, read);
+        assert_eq!(
+            gh.env,
+            vec![("DEPLOY_KEY".to_owned(), "value-of-id-Deploy key".to_owned())]
+        );
+        assert_eq!(gh.used, vec!["Deploy key"]);
+        assert!(gh.withheld.is_empty());
+        for runner in ["npm", "pnpm", "yarn", "make", "npx"] {
+            let given = secrets_for(runner, &secrets, read);
+            assert!(given.env.is_empty(), "{runner}");
+            assert!(given.used.is_empty(), "{runner}");
+        }
+        assert_eq!(
+            secrets_for("npm", &secrets, read).withheld,
+            vec!["Deploy key", "Registry token"]
+        );
+        assert_eq!(
+            secrets_for("make", &secrets, read).withheld,
+            vec!["Deploy key"]
+        );
+        // Nothing bound: nothing given, nothing withheld, nothing said.
+        assert_eq!(secrets_for("yarn", &secrets, read), SecretsGiven::default());
+        assert_eq!(
+            secrets_for("cargo", &secrets, |_| None),
+            SecretsGiven::default()
+        );
+        assert!(SECRETS_WITHHELD.contains("npm, pnpm, yarn, make, or npx"));
+    }
 }

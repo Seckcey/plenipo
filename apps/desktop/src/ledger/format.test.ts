@@ -205,6 +205,23 @@ describe("describeEvent (Phase 7 permissions)", () => {
     expect(describeEvent(event("guard.grant_revoked", { worker: "Reviewer" }))).toBe(
       "You revoked Reviewer's permissions",
     );
+    expect(
+      describeEvent(
+        event("tool_server.ticket_refused", {
+          worker: "Reviewer",
+          connectingPid: 4242,
+          expectedRootPid: 100,
+        }),
+      ),
+    ).toBe(
+      "Blocked: a program outside Reviewer's AI tool tried to use Reviewer's tools (program 4242; the AI tool is program 100)",
+    );
+    expect(describeEvent(event("tool_server.ticket_refused", { worker: "Reviewer" }))).toBe(
+      "Blocked: a program outside Reviewer's AI tool tried to use Reviewer's tools (program unknown; the AI tool is program unknown)",
+    );
+    expect(describeEvent(event("tool_server.ticket_unchecked", { worker: "Reviewer" }))).toBe(
+      "Plenipo could not check which program connected to Reviewer's tools on this computer, so it let it through",
+    );
     expect(sourceLabel("guard")).toBe("Guard");
   });
 

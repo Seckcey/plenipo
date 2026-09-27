@@ -146,6 +146,20 @@ describe("Settings → Permissions", () => {
     });
   });
 
+  it("says that approved programs run with the owner's account", async () => {
+    render(<PermissionSettings />);
+    await screen.findByRole("form", { name: "Command lists" });
+    // The note holds <code>npm run</code>, so match the whole paragraph's text.
+    const note = screen.getByText(
+      (_, el) =>
+        el?.tagName === "P" &&
+        /Approved programs run with your full account/.test(el.textContent ?? ""),
+    );
+    expect(note).toHaveTextContent(
+      "Approved programs run with your full account, and a project's own build and test scripts run as part of them. Approve script runners like npm run only for projects you trust.",
+    );
+  });
+
   it("saves the command and file lists, one per line", async () => {
     render(<PermissionSettings />);
     const commandsForm = await screen.findByRole("form", { name: "Command lists" });

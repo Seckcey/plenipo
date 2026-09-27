@@ -54,6 +54,14 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager.
 keyring = { version = "3.6", features = ["windows-native"] }
+# Which program holds a loopback connection, and its parents (ADR-033: the tool server binds
+# a ticket to the AI tool's process tree).
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
 # Screen capture for computer use (Phase 10).
 xcap = "0.9"
 
@@ -73,5 +81,12 @@ plenipo-router = { path = "../router" }
 plenipo-workforce = { path = "../workforce" }
 tempfile = "3"
 
-[lints]
-workspace = true
+[lints.rust]
+# The workspace forbids unsafe code. This crate denies it instead, so that exactly one module —
+# the Windows lookup of which program holds a loopback connection, behind the tool server's
+# ticket check (ADR-033) — may allow it for its calls into Windows. Everywhere else in this
+# crate, unsafe code is still a build error.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
