@@ -1,0 +1,20 @@
+services:
+  web:
+    image: ${PLENIPO_IMAGE:?Set the verified Plenipo website image}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PLENIPO_PORT:?Set a reserved host port}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.50
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

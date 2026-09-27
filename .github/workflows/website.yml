@@ -1,0 +1,38 @@
+name: Website
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["apps/website/**", ".github/workflows/website.yml"]
+  pull_request:
+    paths: ["apps/website/**", ".github/workflows/website.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  website:
+    name: Website build and origin checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Verify static site
+        working-directory: apps/website
+        run: |
+          node --test scripts/*.test.mjs
+          SOURCE_REVISION="$GITHUB_SHA" node scripts/build.mjs
+      - name: Build and test the production container
+        run: |
+          docker build --build-arg SOURCE_REVISION="$GITHUB_SHA" -t plenipo-website:ci apps/website
+          PLENIPO_IMAGE=plenipo-website:ci PLENIPO_PORT=14380 docker compose -p plenipo-website-ci -f apps/website/compose.yaml up -d --wait
+          curl --fail http://127.0.0.1:14380/healthz
+          curl --fail http://127.0.0.1:14380/ | grep -q 'Your AI workforce'
+          curl --fail http://127.0.0.1:14380/sitemap.xml | grep -q 'https://plenipo.8westit.com/'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:14380/missing)" = 404
+      - name: Stop CI container
+        if: always()
+        run: PLENIPO_IMAGE=plenipo-website:ci PLENIPO_PORT=14380 docker compose -p plenipo-website-ci -f apps/website/compose.yaml down
