@@ -7,6 +7,7 @@
 pub mod agent_host;
 pub mod commands;
 pub mod guard_host;
+pub mod indicator;
 pub mod ledger_host;
 pub mod runtime_host;
 pub mod smoke;
@@ -229,6 +230,15 @@ pub fn configure<R: Runtime>(
             commands::get_objective_report,
             commands::get_project_work,
             commands::remove_workspace,
+            commands::update_role,
+            commands::get_control_status,
+            commands::stop_all_control,
+            commands::take_over_control,
+            commands::allow_control,
+            commands::set_website_rules,
+            commands::get_browser_status,
+            commands::open_browser,
+            commands::get_screenshot,
         ])
 }
 
@@ -2094,6 +2104,159 @@ mod ipc_boundary_tests {
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
             assert!(
                 invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn control_and_websites_through_ipc() {
+        use plenipo_capabilities::control::ControlStatus;
+        let app = app();
+        let main = window(&app, "main");
+        // Nobody uses the browser or the desktop yet.
+        let status: ControlStatus = body(invoke(&main, "get_control_status"));
+        assert!(!status.stopped && status.sessions.is_empty());
+        // The emergency stop holds until allowed again.
+        let status: ControlStatus = body(invoke(&main, "stop_all_control"));
+        assert!(status.stopped);
+        let status: ControlStatus = body(invoke(&main, "allow_control"));
+        assert!(!status.stopped);
+        // Take over: session IDs are checked; nobody to take over is refused.
+        for bad in [
+            "x",
+            "browser:../x",
+            "window:0f8fad5b-d9cb-469f-a165-70867728950e",
+        ] {
+            let err = invoke_json(
+                &main,
+                "take_over_control",
+                serde_json::json!({ "sessionId": bad }),
+            )
+            .expect_err(bad);
+            assert_eq!(err["kind"], "invalidInput", "{bad}: {err}");
+        }
+        assert!(invoke_json(
+            &main,
+            "take_over_control",
+            serde_json::json!({ "sessionId": format!("browser:{SESSION}") }),
+        )
+        .is_err());
+        // Website lists: cleaned, and non-websites refused with the reason.
+        let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
+            &main,
+            "set_website_rules",
+            serde_json::json!({ "rules": {
+                "allowed": ["https://Example.com/x"], "blocked": ["linkedin.com"], "others": "block"
+            } }),
+        ));
+        assert_eq!(snap.settings.websites.allowed, ["example.com"]);
+        let err = invoke_json(
+            &main,
+            "set_website_rules",
+            serde_json::json!({ "rules": { "allowed": ["file:///etc"], "blocked": [], "others": "ask" } }),
+        )
+        .expect_err("not a website");
+        assert!(
+            err["message"].as_str().unwrap().contains("not a website"),
+            "{err}"
+        );
+        let err = invoke_json(
+            &main,
+            "set_website_rules",
+            serde_json::json!({ "rules": { "allowed": [], "blocked": [], "others": "allow" } }),
+        )
+        .expect_err("others is ask or block");
+        assert!(err.to_string().contains("unknown variant"), "{err}");
+        // Screenshots only by ID.
+        let err = invoke_json(
+            &main,
+            "get_screenshot",
+            serde_json::json!({ "artifactId": "../x" }),
+        )
+        .expect_err("bad id");
+        assert_eq!(err["kind"], "invalidInput");
+        assert!(invoke_json(
+            &main,
+            "get_screenshot",
+            serde_json::json!({ "artifactId": SESSION })
+        )
+        .is_err());
+        // The browser's status needs no browser to be running.
+        let browser: plenipo_capabilities::browser::BrowserStatus =
+            body(invoke(&main, "get_browser_status"));
+        assert!(!browser.running);
+        // Built-in roles keep their instructions; custom ones can be edited.
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let built_in = org.roles.iter().find(|r| r.template).unwrap();
+        assert!(!built_in.job.duties.is_empty());
+        let edit = serde_json::json!({ "name": "X", "description": "", "job": {
+            "duties": ["a"], "returns": [], "limits": [], "askLead": [] } });
+        let err = invoke_json(
+            &main,
+            "update_role",
+            serde_json::json!({ "roleId": built_in.id, "input": edit }),
+        )
+        .expect_err("built-in");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("built-in roles keep"),
+            "{err}"
+        );
+        let org: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_role",
+            serde_json::json!({ "input": { "name": "Bookkeeper", "description": "Books.",
+                "kind": "worker", "staffing": "onDemand",
+                "job": { "duties": ["enter receipts"], "returns": [], "limits": ["never pay"], "askLead": [] } } }),
+        ));
+        let role = org.roles.iter().find(|r| r.name == "Bookkeeper").unwrap();
+        assert_eq!(role.job.limits, ["never pay"]);
+        let org: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "update_role",
+            serde_json::json!({ "roleId": role.id, "input": edit }),
+        ));
+        assert!(org
+            .roles
+            .iter()
+            .any(|r| r.name == "X" && r.job.duties == ["a"]));
+    }
+
+    #[test]
+    fn the_control_sign_reaches_only_its_three_commands() {
+        let app = app();
+        let sign = window(&app, crate::indicator::LABEL);
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        assert!(invoke(&sign, "get_control_status").is_ok());
+        assert!(invoke(&sign, "stop_all_control").is_ok());
+        assert!(invoke(&main, "allow_control").is_ok());
+        for cmd in [
+            "get_permissions",
+            "allow_control",
+            "open_browser",
+            "set_website_rules",
+            "get_organization",
+        ] {
+            assert!(invoke(&sign, cmd).is_err(), "the sign must not reach {cmd}");
+        }
+        for cmd in [
+            "get_control_status",
+            "stop_all_control",
+            "take_over_control",
+            "allow_control",
+            "set_website_rules",
+            "get_browser_status",
+            "open_browser",
+            "get_screenshot",
+            "update_role",
+        ] {
+            assert!(invoke(&other, cmd).is_err(), "{cmd}");
+            assert!(
+                invoke_from(&main, cmd, "https://example.com").is_err(),
                 "{cmd}"
             );
         }

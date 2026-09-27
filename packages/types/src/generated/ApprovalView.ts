@@ -35,4 +35,12 @@ waiting: boolean,
 /**
  * The note recorded with the outcome.
  */
-note?: string, };
+note?: string, 
+/**
+ * The web page it concerns (Phase 10).
+ */
+url?: string, 
+/**
+ * A screenshot of the page as it was when it asked (an artifact ID; `get_screenshot`).
+ */
+screenshot?: string, };

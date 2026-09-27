@@ -68,6 +68,11 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
+    // Scripts Plenipo runs inside web pages of its browser (Phase 10).
+    files: ["crates/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     // E2E specs run in Node, but browser.execute() callbacks run inside the webview.
     files: ["tests/e2e/**/*.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },

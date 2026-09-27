@@ -242,6 +242,10 @@ pub enum Risk {
     Delete,
     /// Reaches outside this computer.
     External,
+    /// Uses a website in Plenipo's browser (Phase 10).
+    Web,
+    /// Sees or uses this computer's screen, mouse, and keyboard (Phase 10).
+    Screen,
 }
 
 impl Risk {
@@ -252,6 +256,8 @@ impl Risk {
             Self::Run => "Runs a program",
             Self::Delete => "Deletes files",
             Self::External => "Reaches outside this computer",
+            Self::Web => "Uses a website",
+            Self::Screen => "Uses your screen, mouse, or keyboard",
         }
     }
 }

@@ -9,6 +9,9 @@
 //! the owner's approval.
 
 pub mod broker;
+pub mod browser;
+pub mod control;
+pub mod desktop;
 pub mod dto;
 mod error;
 pub mod files;
@@ -16,6 +19,7 @@ pub mod github;
 pub mod mcp;
 pub mod programs;
 pub mod relay;
+pub mod screens;
 mod server;
 pub mod tools;
 pub mod vault;

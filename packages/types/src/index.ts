@@ -165,3 +165,17 @@ export type { Severity } from "./generated/Severity";
 export type { Workspace } from "./generated/Workspace";
 export type { WorkspaceFacts } from "./generated/WorkspaceFacts";
 export type { WorkspaceState } from "./generated/WorkspaceState";
+
+// Every role knows its job (ADR-019)
+export type { RoleJob } from "./generated/RoleJob";
+export type { RoleUpdate } from "./generated/RoleUpdate";
+
+// Browser automation and computer use (Phase 10)
+export type { BrowserStatus } from "./generated/BrowserStatus";
+export type { ControlKind } from "./generated/ControlKind";
+export type { ControlSession } from "./generated/ControlSession";
+export type { ControlState } from "./generated/ControlState";
+export type { ControlStatus } from "./generated/ControlStatus";
+export type { OtherSites } from "./generated/OtherSites";
+export type { Screenshot } from "./generated/Screenshot";
+export type { WebsiteRules } from "./generated/WebsiteRules";

@@ -5,14 +5,19 @@
 
 use std::sync::Arc;
 
+use plenipo_capabilities::browser::BrowserConfig;
+use plenipo_capabilities::control::ControlStatus;
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, OsSecretStore, SecretStore};
 use plenipo_guard::Guard;
 use plenipo_ledger::Ledger;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
-use tauri::{AppHandle, Manager as _, Runtime};
+use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
+
+/// Tauri event name carrying [`ControlStatus`] to every window (Phase 10).
+pub const CONTROL_EVENT: &str = "plenipo://control";
 
 /// Create Guard and the broker, and give the agent runtime its tools and secret filter.
 /// Never fails; problems become notices on the Permissions page.
@@ -24,7 +29,7 @@ pub fn create<R: Runtime>(
     agents: &AgentRuntime,
 ) -> (Guard, Broker) {
     let guard = Guard::new(ledger);
-    let (store, tickets, copies): (Arc<dyn SecretStore>, _, _) = match persistence {
+    let (store, tickets, data): (Arc<dyn SecretStore>, _, _) = match persistence {
         Persistence::AppData => {
             let data = app
                 .path()
@@ -33,8 +38,7 @@ pub fn create<R: Runtime>(
             (
                 Arc::new(OsSecretStore::new(app.config().identifier.clone())),
                 data.join("runtime").join("tool-tickets"),
-                // Each objective's branch and working copy (Phase 8, ADR-016).
-                data.join("working-copies"),
+                data,
             )
         }
         Persistence::InMemory => {
@@ -42,17 +46,34 @@ pub fn create<R: Runtime>(
             (
                 Arc::new(MemorySecretStore::default()),
                 temp.join("tool-tickets"),
-                temp.join("working-copies"),
+                temp,
             )
         }
     };
     // The AI tools start Plenipo itself as the relay (`--plenipo-tools=<ticket>`).
     let relay = std::env::current_exe().unwrap_or_default();
     let mut config = BrokerConfig::new(relay, tickets);
-    config.workspaces_dir = copies;
+    // Each objective's branch and working copy (Phase 8, ADR-016).
+    config.workspaces_dir = data.join("working-copies");
+    // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
+    config.browser = BrowserConfig::new(data.join("browser-profile"));
+    config.screenshots_dir = data.join("screenshots");
     let broker = Broker::new(guard.clone(), supervisor, store, config);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());
+    // Who uses the browser or the mouse and keyboard: every window, the tray, and the sign
+    // above all windows while a worker uses the mouse and keyboard (Phase 10).
+    let handle = app.clone();
+    broker.set_control_listener(Arc::new(move |status: &ControlStatus| {
+        if let Err(e) = handle.emit(CONTROL_EVENT, status) {
+            eprintln!("[plenipo] failed to emit control event: {e}");
+        }
+        let (app, status) = (handle.clone(), status.clone());
+        tauri::async_runtime::spawn(async move {
+            crate::tray::show_control(&app, &status);
+            crate::indicator::update(&app, &status);
+        });
+    }));
     (guard, broker)
 }
 

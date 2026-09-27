@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "indicator",
+  "description": "The sign above all windows while a worker uses the mouse and keyboard (Phase 10): it reads who has control, and can stop all control or take it over. Nothing else.",
+  "windows": ["control-indicator"],
+  "permissions": [
+    "core:event:default",
+    "allow-get-control-status",
+    "allow-stop-all-control",
+    "allow-take-over-control"
+  ]
+}

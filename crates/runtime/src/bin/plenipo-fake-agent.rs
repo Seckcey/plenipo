@@ -48,7 +48,8 @@
 //! `<<tool:NAME {json arguments}>>` in the objective call the Plenipo tool server given on the
 //! command line (Claude Code `--mcp-config`, Codex `-c mcp_servers.plenipo.*`) over MCP, in
 //! order, like the real CLI would; each result is added to the answer (`Tool NAME: …` or
-//! `Tool NAME failed: …`, then up to 20 more lines, indented). `[tools-list]` answers with the
+//! `Tool NAME failed: …`, then up to 20 more lines, indented; a picture in the result adds
+//! `[image: TYPE of N base64 characters]` to the first line). `[tools-list]` answers with the
 //! tools offered.
 
 use std::io::{Read as _, Write as _};
@@ -805,10 +806,30 @@ fn use_tools(
     let mut outcomes = Vec::new();
     for (name, args) in calls {
         let outcome = match mcp.request("tools/call", json!({ "name": name, "arguments": args })) {
-            Ok(r) => (
-                r["content"][0]["text"].as_str().unwrap_or("").to_owned(),
-                r["isError"].as_bool().unwrap_or(false),
-            ),
+            Ok(r) => {
+                let mut text = r["content"][0]["text"].as_str().unwrap_or("").to_owned();
+                // Pictures (Phase 10) are noted on the first line: type and size.
+                let images: Vec<String> = r["content"]
+                    .as_array()
+                    .map(|c| {
+                        c.iter()
+                            .filter(|x| x["type"] == "image")
+                            .map(|x| {
+                                format!(
+                                    "{} of {} base64 characters",
+                                    x["mimeType"].as_str().unwrap_or("?"),
+                                    x["data"].as_str().map_or(0, str::len)
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !images.is_empty() {
+                    let (first, rest) = text.split_once('\n').unwrap_or((text.as_str(), ""));
+                    text = format!("{first} [image: {}]\n{rest}", images.join("; "));
+                }
+                (text, r["isError"].as_bool().unwrap_or(false))
+            }
             Err(e) => (e, true),
         };
         outcomes.push((name.clone(), args.clone(), outcome.0, outcome.1));

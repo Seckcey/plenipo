@@ -72,6 +72,15 @@
     "allow-set-up-development",
     "allow-get-objective-report",
     "allow-get-project-work",
-    "allow-remove-workspace"
+    "allow-remove-workspace",
+    "allow-update-role",
+    "allow-get-control-status",
+    "allow-stop-all-control",
+    "allow-take-over-control",
+    "allow-allow-control",
+    "allow-set-website-rules",
+    "allow-get-browser-status",
+    "allow-open-browser",
+    "allow-get-screenshot"
   ]
 }
