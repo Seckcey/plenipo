@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { TerminalSettings as Settings, TerminalShell } from "@plenipo/types";
-import { ErrorState, LoadingState, StatusPill } from "@plenipo/ui";
+import { ErrorState, LoadingState, StatusPill, useStoredState } from "@plenipo/ui";
 
 import { getTerminalSettings, setTerminalShell, toCommandError } from "../api/commands";
+import { Toggle } from "../components/SwitchSettings";
 import { useLive } from "../pages/useLive";
+import { SCREEN_READER_KEY } from "../terminal/words";
 
 /**
  * Settings → Terminal (ADR-031, the terminal panel): the shell a new terminal on this PC starts —
@@ -16,7 +18,14 @@ export function TerminalSettings() {
     () => getTerminalSettings(),
     (e) => e.eventType.startsWith("terminal.") || e.eventType === "org.settings_changed",
   );
+  const [screenReader, setScreenReader] = useStoredState<boolean>(
+    SCREEN_READER_KEY,
+    false,
+    (v): v is boolean => typeof v === "boolean",
+  );
   const [pending, setPending] = useState<TerminalShell | null>(null);
+  // What the Ledger kept, until the settings are read again.
+  const [kept, setKept] = useState<{ value: Settings; over: Settings | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (live.status === "loading") return <LoadingState label="Loading the terminal settings" />;
@@ -29,14 +38,15 @@ export function TerminalSettings() {
       />
     );
   }
-  const s = live.value;
+  const s = kept && kept.over === live.value ? kept.value : live.value;
   const current = pending ?? s.shell;
 
   const choose = async (shell: TerminalShell) => {
     setPending(shell);
     setError(null);
+    const over = live.value;
     try {
-      await setTerminalShell(shell);
+      setKept({ value: await setTerminalShell(shell), over });
       live.reload();
     } catch (reason) {
       setError(toCommandError(reason).message);
@@ -91,8 +101,21 @@ export function TerminalSettings() {
             label={s.serversSwitchedOn ? "On" : "Off"}
           />{" "}
           {s.serversSwitchedOn
-            ? "You can open a terminal on the servers in Settings → Servers."
+            ? "Open one from New terminal in the Terminal panel. Your servers come from Settings → Servers."
             : "Turn on Settings → Switches → Remote computers (SSH) to open terminals on your servers."}
+        </p>
+      </section>
+      <section aria-labelledby="terminal-access">
+        <h3 id="terminal-access">Keyboard and screen readers</h3>
+        <Toggle
+          label="Screen reader support"
+          hint="Lets a screen reader read what the terminal shows. Applies to the terminals you open next."
+          checked={screenReader}
+          onChange={setScreenReader}
+        />
+        <p className="muted">
+          In a terminal, Tab belongs to the shell. Press F6 to go back to the terminal&apos;s tabs,
+          and Ctrl+` to hide or show the panel.
         </p>
       </section>
       <section aria-labelledby="terminal-open">

@@ -80,8 +80,12 @@ body {
   border-bottom: 1px solid var(--ui-border);
 }
 
-.terminal-panel__bar > .ui-tabs {
+.terminal-panel__tabs {
   flex: 1;
+  min-width: 0;
+}
+
+.terminal-panel__tabs > .ui-tabs {
   min-width: 0;
   overflow-x: auto;
   border-bottom: 0;
@@ -134,6 +138,12 @@ body {
 .terminal-view__screen {
   flex: 1;
   min-height: 0;
+}
+
+/* The space around the text is on xterm's own element, which its fit add-on takes away when it
+   counts the rows and columns that fit (on the box around it, a row could fall off the edge). */
+.terminal-view__screen .xterm {
+  height: 100%;
   padding: var(--ui-space-2) var(--ui-space-4);
 }
 
@@ -206,6 +216,12 @@ body {
   margin: var(--ui-space-8) 0 var(--ui-space-4);
   font-size: var(--ui-font-lg);
   font-weight: var(--ui-weight-semibold);
+}
+
+/* A library panel's title keeps the library's look inside an older page. */
+.view .ui-panel__head h2 {
+  margin: 0;
+  font-size: var(--ui-font-md);
 }
 
 .view__lead,
@@ -2711,6 +2727,13 @@ body {
 
 .ui-button.stop-all:hover:not(:disabled) {
   border-color: var(--ui-error-text);
+}
+
+/* While it works (after a click), it looks as it is: not clickable. */
+.ui-button.stop-all:disabled {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
 }
 
 .shell__footer-control {

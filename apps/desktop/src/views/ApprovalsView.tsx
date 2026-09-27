@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ApprovalQueue, PermissionsSnapshot } from "@plenipo/types";
-import { Button, StatusPill } from "@plenipo/ui";
+import { Button, StatusPill, Tag } from "@plenipo/ui";
 
 import { resolveApproval, revokeGrant } from "../api/commands";
 import { ApprovalCard, ApprovalOutcome } from "../components/permissions/ApprovalCard";
@@ -178,10 +178,7 @@ function Grants({
                 <td>
                   {g.permissions.map((p) => (
                     <span key={p.capability} title={LEVEL_LABEL[p.level]}>
-                      <StatusPill
-                        status={PILL_TONE.muted}
-                        label={`${p.label}${p.level === "ask" ? " (asks)" : ""}`}
-                      />
+                      <Tag label={`${p.label}${p.level === "ask" ? " (asks)" : ""}`} />
                     </span>
                   ))}
                 </td>

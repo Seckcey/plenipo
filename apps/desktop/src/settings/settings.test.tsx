@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { NoticeSettings, TerminalSettings as Terminal } from "@plenipo/types";
@@ -63,11 +64,17 @@ const terminal: Terminal = {
   open: [],
 };
 
+/** Settings, with the place's section kept as the app keeps it (a choice becomes the place's). */
+function Placed({ asked }: { asked: string | null }) {
+  const [section, setSection] = useState(asked);
+  return <SettingsView go={go} info={null} section={section} onSection={setSection} />;
+}
+
 function show(section: string | null = null) {
   return render(
     <RuntimeProvider>
       <AgentsProvider>
-        <SettingsView go={go} info={null} section={section} />
+        <Placed asked={section} />
       </AgentsProvider>
     </RuntimeProvider>,
   );
@@ -86,11 +93,20 @@ beforeEach(() => {
   api.getOrganization.mockResolvedValue(sampleOrganization());
   api.getPermissions.mockResolvedValue(samplePermissions());
   api.getLearning.mockResolvedValue({ enabled: true, autoRoles: [], waiting: [], kept: [] });
-  api.getNoticeSettings.mockResolvedValue(notices);
-  api.setNoticeSettings.mockImplementation((s) => Promise.resolve(s));
+  // The choices are kept, as the Ledger keeps them.
+  let kept = notices;
+  api.getNoticeSettings.mockImplementation(() => Promise.resolve(kept));
+  api.setNoticeSettings.mockImplementation((s) => {
+    kept = s;
+    return Promise.resolve(s);
+  });
   api.sendTestNotice.mockResolvedValue(undefined);
-  api.getTerminalSettings.mockResolvedValue(terminal);
-  api.setTerminalShell.mockImplementation((shell) => Promise.resolve({ ...terminal, shell }));
+  let shell = terminal;
+  api.getTerminalSettings.mockImplementation(() => Promise.resolve(shell));
+  api.setTerminalShell.mockImplementation((choice) => {
+    shell = { ...terminal, shell: choice };
+    return Promise.resolve(shell);
+  });
   api.getLocalPaths.mockResolvedValue([
     {
       label: "Everything that happened (the Ledger)",
@@ -163,9 +179,15 @@ describe("Settings in one place", () => {
     await user.click(
       screen.getByRole("switch", { name: "Only while Plenipo's window is not in front" }),
     );
+    // The second choice builds on the first (it never undoes it).
     await waitFor(() =>
-      expect(api.setNoticeSettings).toHaveBeenLastCalledWith({ ...notices, onlyWhenAway: false }),
+      expect(api.setNoticeSettings).toHaveBeenLastCalledWith({
+        ...notices,
+        finished: false,
+        onlyWhenAway: false,
+      }),
     );
+    expect(finished).toHaveAttribute("aria-checked", "false");
     await user.click(screen.getByRole("button", { name: "Send a test notice" }));
     expect(api.sendTestNotice).toHaveBeenCalled();
     expect(await screen.findByText(/^Sent\./)).toBeInTheDocument();

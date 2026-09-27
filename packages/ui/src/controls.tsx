@@ -393,7 +393,11 @@ export function Tabs<T extends string>({
               aria-label={t.closeLabel ?? "Close"}
               title={t.closeLabel ?? "Close"}
               tabIndex={selected ? 0 : -1}
-              onClick={t.onClose}
+              onClick={() => {
+                // As with Delete: the focus stays in the list, on a neighbouring tab.
+                refs.current[i === tabs.length - 1 ? i - 1 : i + 1]?.focus();
+                t.onClose?.();
+              }}
             >
               <Icon name="close" size={12} />
             </button>

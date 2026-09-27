@@ -436,7 +436,15 @@ function Shell({ core }: { core: CoreState }) {
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />
           )}
-          {view === "settings" && <SettingsView go={go} info={info} section={place.id} />}
+          {view === "settings" && (
+            <SettingsView
+              go={go}
+              info={info}
+              section={place.id}
+              // Choosing a section changes where you are, without a step for Back.
+              onSection={(section) => setPlace({ view: "settings", id: section })}
+            />
+          )}
           {view === "diagnostics" && (
             <DiagnosticsView
               info={info}

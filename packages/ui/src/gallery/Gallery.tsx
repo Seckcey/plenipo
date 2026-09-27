@@ -45,6 +45,7 @@ import {
   Sparkline,
   StatusDot,
   StatusPill,
+  Tag,
 } from "../status";
 import { STATUSES } from "../status-types";
 import { CellLink, DataTable } from "../table";
@@ -471,6 +472,10 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             {STATUSES.map((s) => (
               <StatusPill key={s} status={s} label={STATUS_WORDS[s]} />
             ))}
+          </Variant>
+          <Variant name="tag" caption="Tags (names, not states)">
+            <Tag label="Run programs" />
+            <Tag label="Handoff worker" />
           </Variant>
           <Variant name="count-badge" caption="Count badges">
             <CountBadge count={3} label="waiting for you" />

@@ -6,7 +6,7 @@ import type {
   AgentTurn,
   TurnStep,
 } from "@plenipo/types";
-import { Button, StatusPill } from "@plenipo/ui";
+import { Button, StatusPill, Tag } from "@plenipo/ui";
 
 import { toCommandError } from "../api/commands";
 import {
@@ -27,7 +27,7 @@ import {
 } from "../agents/store";
 import { useAgents } from "../agents/useAgents";
 import { ModelPicker } from "../components/models/ModelPicker";
-import { PILL_TONE, TASK_TONE } from "../components/tones";
+import { OUTCOME_TONE, PILL_TONE, TASK_TONE } from "../components/tones";
 import type { Go } from "../components/views";
 import { useRoutingOnce } from "../routing/useRouting";
 import { openHandoffs, useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
@@ -447,7 +447,7 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
     const parent = info.parentSessionId;
     return (
       <div className="card__meta">
-        <StatusPill status={PILL_TONE.muted} label="Handoff worker" /> Started by Plenipo Liaison
+        <Tag label="Handoff worker" /> Started by Plenipo Liaison
         {info.depth !== null && <> · depth {info.depth}</>}
         {parent && nav.canOpen(parent) && (
           <>
@@ -465,8 +465,7 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
   if (info.origin === "member") {
     return (
       <div className="card__meta">
-        <StatusPill status={PILL_TONE.ok} label="Organization member" /> Hands work to its team
-        through Liaison
+        <Tag label="Organization member" /> Hands work to its team through Liaison
         {openPosition}
       </div>
     );
@@ -581,7 +580,7 @@ function TurnCard({
         ) : (
           result && (
             <StatusPill
-              status={TASK_TONE[outcomeTone(result.outcome)]}
+              status={OUTCOME_TONE[outcomeTone(result.outcome)]}
               label={OUTCOME_LABEL[result.outcome]}
             />
           )

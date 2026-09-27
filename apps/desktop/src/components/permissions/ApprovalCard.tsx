@@ -1,5 +1,5 @@
 import type { ApprovalView } from "@plenipo/types";
-import { Button, StatusPill } from "@plenipo/ui";
+import { Button, StatusPill, Tag } from "@plenipo/ui";
 
 import { ago } from "../../org/format";
 import { ScreenshotView } from "../ScreenshotView";
@@ -71,8 +71,7 @@ export function ApprovalCard({
         <strong>Why it needs you:</strong> {a.reason}
       </p>
       <p className="approval__tags">
-        <StatusPill status={PILL_TONE.muted} label={a.capabilityLabel} />{" "}
-        {a.riskLabel && <StatusPill status={PILL_TONE.muted} label={a.riskLabel} />}{" "}
+        <Tag label={a.capabilityLabel} /> {a.riskLabel && <Tag label={a.riskLabel} />}{" "}
         {a.sensitiveLabel && <StatusPill status={PILL_TONE.bad} label={a.sensitiveLabel} />}
       </p>
       {!a.waiting && (

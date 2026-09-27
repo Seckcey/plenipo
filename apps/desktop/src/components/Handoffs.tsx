@@ -7,7 +7,7 @@ import {
   handoffOutcomeTone,
   handoffStateTone,
 } from "../agents/format";
-import { TASK_TONE } from "./tones";
+import { OUTCOME_TONE } from "./tones";
 
 function contextText(view: HandoffView): string {
   return view.context.length > 0
@@ -44,7 +44,7 @@ export function HandoffCard({
         <span className="handoff__to">→ {view.destinationLabel}</span>
         <span className="handoff__objective">{view.objective}</span>
         <StatusPill
-          status={TASK_TONE[handoffStateTone(view.state)]}
+          status={OUTCOME_TONE[handoffStateTone(view.state)]}
           label={HANDOFF_STATE_LABEL[view.state]}
         />
       </div>
@@ -59,7 +59,7 @@ export function HandoffCard({
           <summary>
             Reply:{" "}
             <StatusPill
-              status={TASK_TONE[handoffOutcomeTone(reply.outcome)]}
+              status={OUTCOME_TONE[handoffOutcomeTone(reply.outcome)]}
               label={HANDOFF_OUTCOME_LABEL[reply.outcome]}
             />
             {reply.state === "pending" && " · not delivered yet"}

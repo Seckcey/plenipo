@@ -42,6 +42,7 @@ use plenipo_guard::{
 use plenipo_ledger::{
     ActivityScope, ActivitySeries, BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError,
     LedgerEvent, LedgerStatus, NewTask, NoticeSettings, Task, TaskState, TaskTimeline, WorkRecord,
+    DB_FILE_NAME,
 };
 use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
 use plenipo_router::{
@@ -61,6 +62,7 @@ use plenipo_workforce::{
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
+use crate::runtime_host::Persistence;
 use crate::smoke::{SmokeTest, EXIT_READY};
 
 /// Return identity information about the running application.
@@ -639,32 +641,54 @@ pub async fn get_task_record(
 pub async fn get_local_paths<R: Runtime>(
     app: AppHandle<R>,
     ledger: State<'_, Arc<Ledger>>,
+    persistence: State<'_, Persistence>,
 ) -> Result<Vec<LocalPath>, CommandError> {
     use tauri::Manager as _;
-    let kept = ledger.path().is_some();
-    let data = app.path().app_local_data_dir().ok().filter(|_| kept);
     let shown = |p: &std::path::Path| p.display().to_string();
-    let temporary = "A temporary place (nothing is kept this session)".to_owned();
-    let mut paths = vec![
-        LocalPath {
-            label: "Plenipo's own files".into(),
-            path: data.as_deref().map_or_else(|| temporary.clone(), shown),
-            kept,
-        },
-        LocalPath {
-            label: "Everything that happened (the Ledger)".into(),
-            path: ledger.path().map_or_else(|| temporary.clone(), shown),
-            kept,
-        },
-        LocalPath {
-            label: "Backups and exports of the Ledger".into(),
-            path: ledger
-                .backups_dir()
-                .as_deref()
-                .map_or_else(|| temporary.clone(), shown),
-            kept,
-        },
-    ];
+    let temporary = || "A temporary place (nothing is kept this session)".to_owned();
+    // Plenipo's folder is used unless Plenipo runs for a test. The Ledger alone can be
+    // temporary: when its file could not be opened, this session's is kept in memory while
+    // the other folders are still used.
+    let data = app
+        .path()
+        .app_local_data_dir()
+        .ok()
+        .filter(|_| *persistence == Persistence::AppData);
+    let mut paths = vec![LocalPath {
+        label: "Plenipo's own files".into(),
+        path: data.as_deref().map_or_else(temporary, shown),
+        kept: data.is_some(),
+    }];
+    let (ledger_file, backups, kept) = match (ledger.path(), &data) {
+        (Some(file), _) => (
+            shown(file),
+            ledger.backups_dir().as_deref().map(shown),
+            true,
+        ),
+        (None, Some(data)) => {
+            let folder = data.join("ledger");
+            (
+                format!(
+                    "{} (could not be opened: this session's Ledger is temporary, see \
+                     Diagnostics)",
+                    shown(&folder.join(DB_FILE_NAME))
+                ),
+                Some(shown(&folder.join("backups"))),
+                false,
+            )
+        }
+        (None, None) => (temporary(), None, false),
+    };
+    paths.push(LocalPath {
+        label: "Everything that happened (the Ledger)".into(),
+        path: ledger_file,
+        kept,
+    });
+    paths.push(LocalPath {
+        label: "Backups and exports of the Ledger".into(),
+        kept: backups.is_some(),
+        path: backups.unwrap_or_else(temporary),
+    });
     if let Some(data) = data {
         for (label, folder) in [
             (

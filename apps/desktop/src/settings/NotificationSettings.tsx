@@ -53,8 +53,12 @@ export function NotificationSettings() {
     () => getNoticeSettings(),
     (e) => e.eventType === "org.settings_changed",
   );
-  // What the owner just chose, until the Ledger's answer arrives.
+  // What the owner just chose, until the Ledger's answer arrives; then what the Ledger kept,
+  // until the choices are read again (so a quick second change builds on the first).
   const [pending, setPending] = useState<NoticeSettings | null>(null);
+  const [kept, setKept] = useState<{ value: NoticeSettings; over: NoticeSettings | null } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<{
     state: "idle" | "sending" | "sent" | "failed";
@@ -71,13 +75,14 @@ export function NotificationSettings() {
       />
     );
   }
-  const shown = pending ?? live.value;
+  const shown = pending ?? (kept && kept.over === live.value ? kept.value : live.value);
 
   const choose = async (next: NoticeSettings) => {
     setPending(next);
     setError(null);
+    const over = live.value;
     try {
-      await setNoticeSettings(next);
+      setKept({ value: await setNoticeSettings(next), over });
       live.reload();
     } catch (reason) {
       setError(toCommandError(reason).message);
@@ -119,7 +124,7 @@ export function NotificationSettings() {
         <h3 id="notices-when">When Plenipo is open</h3>
         <Toggle
           label="Only while Plenipo's window is not in front"
-          hint="On: while you are looking at Plenipo, it tells you on screen instead. Off: a notice pops up either way."
+          hint="On: no pop-up while you are looking at Plenipo (Home and the bell show what needs you). Off: a notice pops up either way."
           checked={shown.onlyWhenAway}
           disabled={pending !== null}
           onChange={(on) => void choose({ ...shown, onlyWhenAway: on })}

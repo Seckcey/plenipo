@@ -85,7 +85,19 @@ export function AiToolsSettings({ go }: { go: Go }) {
       <RowList
         label="AI tools"
         items={rows}
-        empty={<EmptyState compact title="Looking for AI tools on this computer…" />}
+        state={state.status === "error" && rows.length === 0 ? "error" : "ready"}
+        error={state.error}
+        onRetry={() => void recheck()}
+        empty={
+          <EmptyState
+            compact
+            title={
+              state.status === "loading"
+                ? "Looking for AI tools on this computer…"
+                : "No AI tools found yet"
+            }
+          />
+        }
       />
       <ul className="settings">
         <li>
@@ -154,7 +166,7 @@ export function OrganizationSettings({ go }: { go: Go }) {
         count(d.projectIds.length, "project"),
       ].join(" · "),
       status: !d.active
-        ? { status: "offline", label: "Removed" }
+        ? { status: "offline", label: "Inactive" }
         : head
           ? { status: POSITION_STATUS[head.status], label: STATUS_LABEL[head.status] }
           : undefined,
@@ -338,8 +350,8 @@ export function AboutPlenipo({ info }: { info: AppInfo | null }) {
       <h3>Window behavior</h3>
       <ul className="settings">
         <li>
-          Closing the window while programs are running keeps them running; use the tray icon to
-          reopen Plenipo or stop them.
+          Closing the window while programs or your terminals are running keeps them running; use
+          the tray icon to reopen Plenipo or stop them.
         </li>
         <li>Quitting from the tray stops everything that is running and records how it ended.</li>
       </ul>

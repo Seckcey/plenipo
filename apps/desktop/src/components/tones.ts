@@ -35,3 +35,20 @@ export const PILL_TONE = {
   bad: "error",
   muted: "offline",
 } as const satisfies Record<string, Status>;
+
+/**
+ * A turn's or a handoff's outcome, through the task words the helpers in `agents/format.ts` use.
+ * There "blocked" is a refusal, a usage limit, or a sign-in needed: it needs the owner's
+ * attention (warn), unlike a task that waits on replies.
+ */
+export const OUTCOME_TONE: Record<
+  "queued" | "running" | "succeeded" | "failed" | "blocked" | "cancelled",
+  Status
+> = {
+  queued: "pending",
+  running: "ok",
+  succeeded: "ok",
+  failed: "error",
+  blocked: "warn",
+  cancelled: "offline",
+};

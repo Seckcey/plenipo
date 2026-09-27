@@ -102,6 +102,17 @@ export function MenuButton({
         placement === "above" && "ui-menu--above",
       )}
       ref={root}
+      // Escape closes the menu even when nothing in it can take the focus, and so does the
+      // focus leaving it (Tab away).
+      onKeyDown={(e) => {
+        if (open && e.key === "Escape") {
+          e.preventDefault();
+          close();
+        }
+      }}
+      onBlur={(e) => {
+        if (open && !root.current?.contains(e.relatedTarget)) setOpen(false);
+      }}
     >
       <button
         ref={button}

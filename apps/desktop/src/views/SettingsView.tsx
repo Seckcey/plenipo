@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { AppInfo } from "@plenipo/types";
 import { Icon, Tabs, useStoredState } from "@plenipo/ui";
 
@@ -35,11 +35,14 @@ export function SettingsView({
   go,
   info,
   section: asked = null,
+  onSection,
 }: {
   go: Go;
   info: AppInfo | null;
-  /** A section another page asked for. */
+  /** The section in the place (another page asked for it, or it was chosen here). */
   section?: string | null;
+  /** The owner chose a section: it becomes the place's, so Back and a restart come back to it. */
+  onSection?: ((section: SettingsSection) => void) | undefined;
 }) {
   const learning = useLearning();
   const [stored, setStored] = useStoredState<SettingsSection>(
@@ -47,19 +50,18 @@ export function SettingsView({
     "aiTools",
     isSettingsSection,
   );
-  // A section asked for opens once; after that the owner moves freely.
-  const [arrived, setArrived] = useState<string | null>(null);
-  let current = stored;
-  if (asked && asked !== arrived && isSettingsSection(asked)) {
-    setArrived(asked);
-    setStored(asked);
-    current = asked;
-  }
+  // The place's section, else the last one chosen.
+  const current = asked && isSettingsSection(asked) ? asked : stored;
+  // A section another page opened is the last one shown, for the next visit from the strip.
+  useEffect(() => {
+    if (asked && isSettingsSection(asked)) setStored(asked);
+  }, [asked, setStored]);
   const meta = SETTINGS_SECTIONS.find((s) => s.id === current) ?? SETTINGS_SECTIONS[0]!;
   const panel = useRef<HTMLDivElement>(null);
   /** Another section opens at its top (the page scrolls as one). */
   const choose = (next: SettingsSection) => {
     setStored(next);
+    onSection?.(next);
     panel.current?.closest("main")?.scrollTo?.({ top: 0 });
   };
 

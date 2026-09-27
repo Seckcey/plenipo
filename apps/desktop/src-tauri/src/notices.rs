@@ -131,11 +131,14 @@ pub fn start<R: Runtime>(
             .map_or_else(|| id.to_owned(), |r| r.label)
     };
     let show_loop = Arc::clone(&show);
+    // The thread holds the Ledger only while it reads a batch: the Ledger holds the listener,
+    // and the listener holds the sender, so when the Ledger is gone the channel closes and the
+    // thread ends.
+    let ledger = Arc::downgrade(&ledger);
     let spawned = std::thread::Builder::new()
         .name("plenipo-notices".into())
         .spawn(move || {
             let mut gate = NoticeGate::default();
-            // Ends when the Ledger (and its listener) is gone.
             while let Ok(first) = rx.recv() {
                 let mut batch = vec![first];
                 let until = Instant::now() + gather;
@@ -147,6 +150,9 @@ pub fn start<R: Runtime>(
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
                 }
+                let Some(ledger) = ledger.upgrade() else {
+                    break;
+                };
                 let settings = ledger.notice_settings().unwrap_or_default();
                 let notices: Vec<Notice> = batch
                     .iter()
@@ -264,6 +270,25 @@ mod tests {
         // Nothing else is on its way.
         std::thread::sleep(Duration::from_millis(400));
         assert_eq!(notices.kept().len(), 2);
+    }
+
+    #[test]
+    fn the_notices_thread_does_not_keep_the_ledger() {
+        let app = tauri::test::mock_app();
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let _notices = start(
+            app.handle(),
+            Arc::clone(&ledger),
+            None,
+            Output::Kept,
+            GATHER,
+        );
+        // Only this test holds the Ledger: when it goes, so do its listener and the channel,
+        // and the thread ends.
+        assert_eq!(Arc::strong_count(&ledger), 1);
+        let gone = Arc::downgrade(&ledger);
+        drop(ledger);
+        assert!(gone.upgrade().is_none());
     }
 
     #[test]

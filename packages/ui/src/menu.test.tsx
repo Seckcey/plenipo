@@ -53,6 +53,14 @@ describe("MenuButton", () => {
     button.focus();
     await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Nothing in it can take the focus: Escape still closes it, and so does Tab away.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(button).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.tab();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });
 
@@ -136,7 +144,8 @@ describe("Tabs with close buttons", () => {
     );
     await user.click(screen.getByRole("button", { name: "Close dev" }));
     expect(screen.queryByRole("tab", { name: "dev" })).toBeNull();
-    screen.getByRole("tab", { name: "shop" }).focus();
+    // The button's tab went: the focus is on its neighbour, not lost.
+    expect(screen.getByRole("tab", { name: "shop" })).toHaveFocus();
     await user.keyboard("{Delete}");
     expect(screen.queryByRole("tab", { name: "shop" })).toBeNull();
     expect(screen.getByRole("tab", { name: "pc" })).toHaveFocus();
