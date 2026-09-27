@@ -133,19 +133,7 @@ jobs:
             if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
           }
           pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
-      - name: The installer and the app are signed by 8 West Ventures, LLC, with a timestamp
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe) + @(Get-ChildItem target/release/plenipo-desktop.exe)
-          if ($files.Count -lt 2) { throw "Expected the installer and plenipo-desktop.exe; found: $($files.Name -join ', ')" }
-          foreach ($f in $files) {
-            $s = Get-AuthenticodeSignature -FilePath $f.FullName
-            "{0}: {1}; signed by {2}; timestamped by {3}" -f $f.Name, $s.Status, $s.SignerCertificate.Subject, $s.TimeStamperCertificate.Subject
-            if ($s.Status -ne 'Valid') { throw "$($f.Name) is not validly signed: $($s.StatusMessage)" }
-            if ($s.SignerCertificate.Subject -notlike '*8 West Ventures, LLC*') { throw "$($f.Name) is signed by someone else: $($s.SignerCertificate.Subject)" }
-            # The certificate lasts only days; the timestamp keeps the signature valid after that.
-            if (-not $s.TimeStamperCertificate) { throw "$($f.Name) has no timestamp, so its signature would stop being valid within days" }
-          }
+      # Kept before the check, so a dry run that fails the check still leaves the installer to look at.
       - name: Keep the signed installer (dry run)
         if: inputs.dry_run
         uses: actions/upload-artifact@v7
@@ -153,6 +141,26 @@ jobs:
           name: plenipo-signed-installer-dry-run
           path: target/release/bundle/nsis/*-setup.exe
           retention-days: 7
+      # Checked inside the installer: that copy of the app is the one customers get. Tauri leaves
+      # target/release/plenipo-desktop.exe unsigned after bundling, so that file proves nothing.
+      - name: The installer and the app inside it are signed by 8 West Ventures, LLC, with a timestamp
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "No installer was built" }
+          $inside = Join-Path $env:RUNNER_TEMP "installer-contents"
+          & 7z x $installer.FullName "-o$inside" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not open $($installer.Name)" }
+          $app = Get-ChildItem $inside -Recurse -Filter plenipo-desktop.exe | Select-Object -First 1
+          if (-not $app) { throw "plenipo-desktop.exe is not inside $($installer.Name)" }
+          foreach ($f in @($installer, $app)) {
+            $s = Get-AuthenticodeSignature -FilePath $f.FullName
+            "{0}: {1}; signed by {2}; timestamped by {3}" -f $f.Name, $s.Status, $s.SignerCertificate.Subject, $s.TimeStamperCertificate.Subject
+            if ($s.Status -ne 'Valid') { throw "$($f.Name) is not validly signed: $($s.StatusMessage)" }
+            if ($s.SignerCertificate.Subject -notlike '*8 West Ventures, LLC*') { throw "$($f.Name) is signed by someone else: $($s.SignerCertificate.Subject)" }
+            # The certificate lasts only days; the timestamp keeps the signature valid after that.
+            if (-not $s.TimeStamperCertificate) { throw "$($f.Name) has no timestamp, so its signature would stop being valid within days" }
+          }
       - name: Publish GitHub release
         if: ${{ !inputs.dry_run }}
         shell: bash
