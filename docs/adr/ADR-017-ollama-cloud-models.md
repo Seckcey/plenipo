@@ -1,6 +1,6 @@
 # ADR-017: Running Ollama's cloud models through the Ollama service on this PC
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 15 (adapter parts pulled forward, after v0.8.0)
 
@@ -69,6 +69,26 @@ tool needs its own decision record. This is that record.
    is "usage limited", with its reset time when Ollama gives one; the free plan's exact message is
    recorded the first time it is seen. Anything else is "AI tool unavailable" with Ollama's error
    text.
+
+## How it was built (2026-09-27)
+
+Two details changed while building, within the decision above:
+
+- **A helper run per task (§1).** Instead of calling the service from inside Plenipo, each task
+  and sign-in check runs Plenipo itself in a helper mode (`plenipo-desktop --plenipo-ollama
+chat|auth`), supervised like any AI tool's program. That keeps the task's ID, time limit,
+  cancel (stopping the helper closes the request), and restart handling with no second way of
+  running tasks. The helper is a small built-in HTTP client for `127.0.0.1` only, not `reqwest`;
+  it prints one line per event (session, thinking, text, answer, done, error), and never the
+  account's email or name (only the plan).
+- **Where the conversation is kept (§3).** The helper keeps each conversation's messages in the
+  session's own folder (`.plenipo-ollama-<id>.json`), beside the files of that worker's session.
+  The Ledger still records every objective and answer, as for the other AI tools. When the
+  history is longer than about 100,000 tokens, the oldest exchanges are left out and the model is
+  told so. A task that fails leaves the history unchanged.
+- **Models (§5).** Only `gpt-oss:120b-cloud` is listed as a known model, because it is the one
+  checked. The owner's other cloud models can be named for a position as `ollama list` shows
+  them; they run without a thinking setting until checked and added.
 
 ## Consequences
 

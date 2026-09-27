@@ -8,6 +8,7 @@ pub mod codex;
 pub mod discovery;
 pub mod dto;
 pub mod memory_store;
+pub mod ollama;
 pub mod service;
 pub mod tools;
 
@@ -16,7 +17,7 @@ pub use discovery::HostEnv;
 pub use dto::*;
 pub use memory_store::MemorySessionStore;
 pub use service::{
-    unavailable_outcome, AgentConfig, AgentRuntime, AgentSink, SessionChange, SessionStart,
+    unavailable_outcome, AgentConfig, AgentRuntime, AgentSink, Bridge, SessionChange, SessionStart,
     SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnRef, TurnTask,
     MAX_PROMPT_BYTES, OWNER, STEP_SEQ,
 };
@@ -27,5 +28,6 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
     vec![
         std::sync::Arc::new(claude_code::ClaudeCode),
         std::sync::Arc::new(codex::Codex),
+        std::sync::Arc::new(ollama::Ollama),
     ]
 }

@@ -1290,7 +1290,11 @@ mod ipc_boundary_tests {
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Claude Code (default model)", "Codex (default model)"]
+            [
+                "Claude Code (default model)",
+                "Codex (default model)",
+                "Ollama (default model)"
+            ]
         );
         assert!(s.tools.iter().all(|t| !t.available));
         assert!(!s.api_billing);
@@ -1519,7 +1523,7 @@ mod ipc_boundary_tests {
         }
         // Nothing was changed by the refusals.
         let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
-        assert_eq!(s.models.len(), 2);
+        assert_eq!(s.models.len(), 3);
         assert_eq!(
             s.options.on_usage_limit,
             plenipo_router::LimitBehavior::Wait

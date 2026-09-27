@@ -1,6 +1,6 @@
 //! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
-//! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`;
+//! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`, `ollama`;
 //! `.exe` on Windows); it answers like the real CLI named by its file stem: `--version`, the
 //! sign-in status command, and one turn in the provider's JSON-lines stream format with the
 //! prompt read from stdin. Under any other name, `--personas` lists the persona names, one per
@@ -37,6 +37,10 @@
 //! order, like the real CLI would; each result is added to the answer (`Tool NAME: …` or
 //! `Tool NAME failed: …`, then up to 20 more lines, indented). `[tools-list]` answers with the
 //! tools offered.
+//!
+//! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
+//! bridge (`--plenipo-ollama auth` and `--plenipo-ollama chat …`) in the bridge's output
+//! format, so tests point `AgentConfig::bridge` at it. It has no tools.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -49,7 +53,7 @@ type Answer = fn(&[String]) -> i32;
 
 /// Each AI tool this double stands in for: its executable name and how it answers. A new AI
 /// tool adds its persona here (docs/development/adding-an-ai-tool.md).
-const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex)];
+const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex), ("ollama", ollama)];
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -1041,5 +1045,101 @@ fn codex_turn(args: &[String]) -> i32 {
                  "item": { "id": "item_1", "type": "agent_message", "text": text } }));
     out(&json!({ "type": "turn.completed",
                  "usage": { "input_tokens": 20, "cached_input_tokens": 8, "output_tokens": 9 } }));
+    0
+}
+
+// ---- Ollama (and Plenipo's Ollama bridge) ---------------------------------------------------
+
+fn ollama(args: &[String]) -> i32 {
+    match (
+        args.first().map(String::as_str),
+        args.get(1).map(String::as_str),
+    ) {
+        (Some("--version"), _) => {
+            println!("ollama version is 0.34.4");
+            0
+        }
+        (Some("--plenipo-ollama"), Some("auth")) => ollama_auth(),
+        (Some("--plenipo-ollama"), Some("chat")) => ollama_turn(&args[1..]),
+        _ => {
+            eprintln!("fake ollama: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+fn ollama_auth() -> i32 {
+    match auth_mode() {
+        "signed-out" => {
+            out(&json!({ "signedIn": false }));
+            0
+        }
+        "unknown-status" => {
+            out(
+                &json!({ "error": "Ollama is not running on this PC (connection refused). Start Ollama." }),
+            );
+            1
+        }
+        _ => {
+            out(&json!({ "signedIn": true, "plan": "free" }));
+            0
+        }
+    }
+}
+
+fn ollama_turn(args: &[String]) -> i32 {
+    record_invocation(args);
+    let error = |message: &str| {
+        out(&json!({ "type": "error", "message": message }));
+        1
+    };
+    let (Some(model), Some(id)) = (flag(args, "--model"), flag(args, "--session")) else {
+        return error("No model or conversation ID was given");
+    };
+    let prompt = read_prompt();
+    if args.iter().any(|a| a == "--resume") && load_session(&id).is_none() {
+        return error("This conversation's history was not found; start a new conversation");
+    }
+    let (mode, said) = view(&prompt);
+    if said.contains("[malformed]") {
+        raw("{not json at all");
+        return 0;
+    }
+    if said.contains("[crash]") {
+        eprintln!("fake ollama bridge: crashed");
+        return 101;
+    }
+    out(&json!({ "type": "session", "id": id, "model": model }));
+    if said.contains("[usage-limit]") {
+        return error("429 usage limit: you have reached your hourly usage limit");
+    }
+    if said.contains("[auth-expired]") {
+        return error("401 unauthorized: sign in to Ollama (ollama signin). unauthorized");
+    }
+    if said.contains("[offline]") {
+        return error("Ollama is not running on this PC (connection refused). Start Ollama.");
+    }
+    if said.contains("[slow]") {
+        slow_ticks(|i| out(&json!({ "type": "thinking", "text": format!("tick {i}") })));
+        return 0;
+    }
+    if said.contains("[unknown]") {
+        out(&json!({ "type": "something-new" }));
+    }
+    delay(&said);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said);
+    let text = if said.contains("[big]") {
+        "B".repeat(1024 * 1024)
+    } else {
+        answer(n, &mode, &said, previous.as_deref(), &first)
+    };
+    out(&json!({ "type": "thinking", "text": "Thinking about it." }));
+    out(&json!({ "type": "text", "text": text }));
+    out(&json!({ "type": "answer", "text": text }));
+    out(
+        &json!({ "type": "done", "reason": "stop", "inputTokens": 20, "cachedTokens": 8,
+                 "outputTokens": 9, "durationMs": 5 }),
+    );
     0
 }

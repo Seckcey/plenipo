@@ -45,6 +45,18 @@ bar. They are also what the parser and the fake CLI must reproduce, so keep them
 If any bar item fails, stop. Write a finding instead of an adapter (see
 [Writing a finding](#writing-a-finding)).
 
+### AI tools reached through a service (bridged)
+
+Some AI tools have no program to start per task, only a service on this PC. Ollama is the
+example: [`ollama/mod.rs`](../../crates/runtime/src/agent/ollama/mod.rs) under ADR-017 (Ollama's
+cloud models through its service on your PC). Such an adapter returns `true` from `bridged()`.
+Its program is still found and its version read, but the sign-in check and every task run
+Plenipo's helper (`AgentConfig::bridge`, the desktop app itself with a helper argument) with
+`auth_args()` and `turn_args()`. The helper talks to the service and prints JSON lines the
+adapter's parser reads, so the task keeps its time limit, cancel, and records. An adapter whose
+workers cannot use Plenipo's tools yet returns `false` from `accepts_tools()`. Such a tool needs
+its own decision record (ADR-014 §7).
+
 ## 1. Identity and AI company
 
 ```rust

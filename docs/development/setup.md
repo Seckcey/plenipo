@@ -49,9 +49,9 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. AI tools: Claude Code and Codex (Phase 3, optional)
+## 3. AI tools: Claude Code, Codex, and Ollama (optional)
 
-The **Workers** view runs tasks on the Claude Code and Codex command-line tools that are already
+The **Workers** view runs tasks on the Claude Code, Codex, and Ollama tools that are already
 installed **and signed in with your subscription** on this computer. Plenipo never asks for a
 password or API key, and refuses API-key sign-ins (no API billing). The desktop apps do not need
 to be open.
@@ -60,6 +60,7 @@ to be open.
 | ----------- | --------------------------------------------------------- | ------------------------------------------------ |
 | Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account |
 | Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**  |
+| Ollama      | The installer from ollama.com/download                    | `ollama signin` — finish in the browser          |
 
 Then open **AI tools** in Plenipo and choose **Re-check**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -67,6 +68,16 @@ not signed in, API key), follow the hint on the card.
 
 Notes:
 
+- Ollama (ADR-017, Ollama's cloud models through its service on your PC): Plenipo uses only
+  **cloud models** (for example `gpt-oss:120b-cloud`), which run on Ollama's servers under your
+  ollama.com sign-in, so no graphics card is needed. Ollama must be running (its tray icon);
+  Plenipo talks to it only on `127.0.0.1:11434`, never uses an Ollama API key, and ignores
+  `OLLAMA_HOST`. The card shows "Signed in" with your plan (for example "Ollama sign-in (free
+  plan)"). Ollama workers are conversation only for now: they answer in text and cannot read
+  files or run programs. Plenipo keeps each Ollama conversation in its session folder
+  (`.plenipo-ollama-<id>.json`) and sends it with every task. To use another cloud model, name
+  it for a position (details panel → **Edit title, AI tool, or model**) exactly as
+  `ollama list` shows it after `ollama pull <name>`.
 - On Windows, Plenipo runs only native `.exe` builds. An npm-installed Claude Code (`claude.cmd`)
   is reported as unsupported — install the native build above. For Codex, Plenipo uses the
   native binary inside the npm package automatically.
