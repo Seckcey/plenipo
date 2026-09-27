@@ -120,7 +120,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       change around Plenipo)
 - [x] End-to-end: Kimi on the AI tools page, a Kimi task, its models in the model menu
 - [x] All pre-push checks from CLAUDE.md
-- [x] `pnpm e2e` against the release build (45 of 45 passed, Linux)
+- [x] `pnpm e2e` against the release build (51 of 51 passed on Linux after merging v1.3.0)
 - [ ] Owner's check on Windows with the real CLI: one task, resume, cancel, files through
       Guard, and a refusal —
       [acceptance report §6](ai-tools-kimi-acceptance-report.md#6-owner-check-on-windows-about-20-minutes)
