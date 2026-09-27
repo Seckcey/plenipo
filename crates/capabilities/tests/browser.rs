@@ -162,6 +162,13 @@ impl Drop for H {
 /// Web Assistant, a Researcher, and a Desk Operator (a custom role with the Screen, mouse, and keyboard set).
 /// Websites: shop.test allowed, blocked.test blocked, others ask.
 async fn harness(browser: Option<PathBuf>) -> H {
+    harness_with(browser, true).await
+}
+
+/// The harness; with `outside_port`, the browser also opens a DevTools port on `127.0.0.1` for
+/// the tests' own second connection (`outside`, the owner's hand). The app never passes that
+/// flag: Plenipo itself talks to the browser over the pipes it inherits, here as in the app.
+async fn harness_with(browser: Option<PathBuf>, outside_port: bool) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -226,6 +233,13 @@ async fn harness(browser: Option<PathBuf>) -> H {
         // CI containers and runners may not allow Chrome's sandbox; the test pages are ours.
         "--no-sandbox".into(),
     ];
+    if outside_port {
+        // Tests only (see `harness_with`): the browser takes the pipe and a port together.
+        broker_config
+            .browser
+            .extra_args
+            .push("--remote-debugging-port=0".into());
+    }
     broker_config.browser.limits.navigation = Duration::from_secs(20);
     // Several tests start a fresh browser at once. On a small CI runner one of them can take
     // longer than the 30 seconds Plenipo allows a single browser on the owner's PC.
@@ -511,7 +525,7 @@ impl H {
     }
 
     /// A second DevTools connection to the test browser, outside Plenipo (as the owner's own
-    /// hand would be).
+    /// hand would be), over the port the tests' harness adds; the app's browser has none.
     async fn outside(&self) -> Cdp {
         let text = std::fs::read_to_string(self.profile().join("DevToolsActivePort")).unwrap();
         let mut lines = text.lines();
@@ -720,6 +734,7 @@ async fn plan_browser_session_launch() {
     let status = h.broker.browser_status().await;
     assert!(status.running);
     assert_eq!(PathBuf::from(&status.profile), h.profile());
+    // The tests' own port (`harness_with`); the app's browser has none (see the pipe test).
     assert!(h.profile().join("DevToolsActivePort").is_file());
     let prefs: Value = serde_json::from_str(
         &std::fs::read_to_string(h.profile().join("Default").join("Preferences")).unwrap(),
@@ -740,6 +755,42 @@ async fn plan_browser_session_launch() {
     }
     h.broker.browser().close().await;
     assert!(!h.broker.browser_status().await.running);
+}
+
+/// Plenipo controls its browser over the two private pipes the browser inherits, not a network
+/// port. Started as the app starts it — without the tests' extra port — the browser leaves no
+/// `DevToolsActivePort` file in its profile (there is no port to tell of), and a worker reads a
+/// page all the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_browser_is_driven_over_a_pipe_with_no_port() {
+    let browser = need_browser!();
+    let h = harness_with(Some(browser), false).await;
+    let url = h.url("shop", "/");
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": url })),
+                tool("browser_read", json!({}))
+            ] }]),
+        )
+        .await;
+    assert!(
+        line(&text, "browser_open").contains("Opened \"Synthetic Shop\""),
+        "{text}"
+    );
+    assert!(text.contains("link \"Contact us\""), "{text}");
+    assert_eq!(h.events(&task.id, "capability.used").len(), 2);
+    let status = h.broker.browser_status().await;
+    assert!(status.running && status.problem.is_none(), "{status:?}");
+    assert!(
+        !h.profile().join("DevToolsActivePort").exists(),
+        "no port, so no file telling of one"
+    );
+    let run = h.broker.browser().execution_id().await.expect("its run");
+    h.broker.browser().close().await;
+    let record = h.sup.wait(&run).await.unwrap();
+    assert!(record.state.is_terminal(), "{record:?}");
 }
 
 /// Plan: screenshot capture. A screenshot of the page goes to the worker as a picture (for a

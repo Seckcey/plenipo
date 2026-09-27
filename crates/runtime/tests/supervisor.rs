@@ -773,12 +773,69 @@ async fn launch_validates_the_spec() {
                 ..base.clone()
             },
         ),
+        (
+            "pipes with stdin",
+            plenipo_runtime::LaunchSpec {
+                extra_pipes: Some(plenipo_runtime::ExtraPipes::create().unwrap().0),
+                stdin: Some(b"x".to_vec()),
+                ..base.clone()
+            },
+        ),
     ];
     for (what, s) in cases {
         let err = h.sup.launch(s).await.expect_err(what);
         assert!(err.is_caller_error(), "{what}: {err}");
     }
     assert!(h.sup.overview().executions.is_empty());
+}
+
+/// A program given extra pipes finds them as its descriptors 3 (to read) and 4 (to write), and
+/// its exit ends the pipe, because Plenipo closed its own copies of the child's ends at the
+/// start. The shell's `cat` copies 3 to 4 until 3 ends.
+#[cfg(unix)]
+#[tokio::test]
+async fn extra_pipes_reach_the_program_as_descriptors_3_and_4() {
+    use std::io::{Read as _, Write as _};
+    let h = harness();
+    let sh = h.sup.allow_executable(Path::new("/bin/sh")).unwrap();
+    let (pipes, ends) = plenipo_runtime::ExtraPipes::create().unwrap();
+    let record = h
+        .sup
+        .launch(plenipo_runtime::LaunchSpec {
+            profile_id: "pipes".into(),
+            label: "pipes".into(),
+            executable: sh,
+            args: vec!["-c".into(), "cat <&3 >&4".into()],
+            env: vec![],
+            working_dir: h.dir.path().to_path_buf(),
+            max_runtime: Duration::from_secs(30),
+            stdin: None,
+            stdin_feed: None,
+            max_line_bytes: None,
+            observer: None,
+            agent: None,
+            extra_pipes: Some(pipes),
+        })
+        .await
+        .unwrap();
+    let plenipo_runtime::PipeEnds {
+        mut writer,
+        mut reader,
+    } = ends;
+    let echoed = tokio::task::spawn_blocking(move || {
+        writer.write_all(b"through descriptor 3").unwrap();
+        drop(writer);
+        let mut back = String::new();
+        reader.read_to_string(&mut back).unwrap();
+        back
+    });
+    let echoed = tokio::time::timeout(WAIT, echoed).await.unwrap().unwrap();
+    assert_eq!(echoed, "through descriptor 3");
+    let record = tokio::time::timeout(WAIT, h.sup.wait(&record.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.state, ExecutionState::Succeeded, "{record:?}");
 }
 
 #[tokio::test]

@@ -176,7 +176,7 @@ mod os {
 
 #[cfg(windows)]
 mod os {
-    // The only unsafe code in Plenipo: calls into Windows for the TCP table and the process
+    // The only unsafe code in this crate: calls into Windows for the TCP table and the process
     // list, each with the reason it is sound written next to it (see this crate's lints).
     #![allow(unsafe_code)]
 

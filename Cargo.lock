@@ -4000,6 +4000,7 @@ name = "plenipo-runtime"
 version = "1.7.0"
 dependencies = [
  "dunce",
+ "libc",
  "process-wrap",
  "serde",
  "serde_json",

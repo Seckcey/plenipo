@@ -39,7 +39,9 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Secrets live in the Windows Credential Manager. Workers never see them, and secrets are redacted
   from the record.
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
-  passwords are never used.
+  passwords are never used. Plenipo controls its browser over a private pipe between the two
+  programs, not a network port, so no other program on your computer can connect to the browser
+  and drive it.
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)

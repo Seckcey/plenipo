@@ -596,9 +596,13 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   the owner chooses in Settings (ADR-028: Automatic, Edge, or Chrome, kept in Guard's settings;
   `PLENIPO_BROWSER` wins), started as a supervised program with its own profile in
   `<app data>/browser-profile` (Edge's) or `browser-profile-chrome` (Chrome's), with no password
-  saving, sync, or extensions, and a random DevTools port on `127.0.0.1`. A new choice is used
-  from the browser's next start. `cdp.rs` speaks the Chrome DevTools Protocol over a WebSocket (flattened
-  sessions); `tab.rs` gives each grant its own tab, with page helpers (`page.js`) in an isolated
+  saving, sync, or extensions. Plenipo controls it over two private pipes the browser inherits
+  (`--remote-debugging-pipe`: descriptors 3 and 4, handed over by the supervisor's
+  `LaunchSpec::extra_pipes`), never a DevTools network port, so no other program on the computer
+  can connect to it. A new choice is used from the browser's next start. `cdp.rs` speaks the
+  Chrome DevTools Protocol over that pipe (NUL-ended JSON texts, flattened sessions; a loopback
+  WebSocket only in the tests, which stand in for the owner's hand); `tab.rs` gives each grant
+  its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
   (sending, buying, signing in).
 - **Tools** (`tools.rs`, `broker/operate.rs`): `browser_open/read/screenshot/scroll/back`

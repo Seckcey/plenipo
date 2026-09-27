@@ -199,6 +199,7 @@ pub async fn run(
             max_line_bytes: Some(64 * 1024),
             observer: Some(tx),
             agent: None,
+            extra_pipes: None,
         })
         .await
         .map_err(|e| format!("the program could not be started: {e}"))?;

@@ -1573,6 +1573,7 @@ impl AgentRuntime {
                 provider_session_id: provider_session,
                 usage: None,
             })),
+            extra_pipes: None,
         };
         let ctx = TurnContext {
             runtime: self.clone(),
