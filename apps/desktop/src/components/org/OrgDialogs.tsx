@@ -688,7 +688,7 @@ function ProjectSettingsFields({
         <input
           value={value.localPath}
           maxLength={1000}
-          placeholder="D:\\projects\\website"
+          placeholder="D:\projects\website"
           onChange={(e) => onChange({ localPath: e.target.value })}
         />
       </Field>

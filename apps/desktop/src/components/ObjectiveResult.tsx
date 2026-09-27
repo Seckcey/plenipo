@@ -31,9 +31,10 @@ function firstLine(text: string, max = 160): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** "Codex · gpt-5.5", or "Codex · its default model" when the AI tool named none. */
 function toolAndModel(runtime: string | null, model: string | null): string {
   if (!runtime) return "—";
-  return model ? `${runtime} · ${model}` : runtime;
+  return `${runtime} · ${model ?? "its default model"}`;
 }
 
 function lines(added: number | null, removed: number | null): string {

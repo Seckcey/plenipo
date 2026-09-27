@@ -143,11 +143,12 @@ function exists(browser, selector) {
   return browser.execute((s) => document.querySelector(s) !== null, selector);
 }
 
+/** Scroll the page's content so `selector` is at the top (the window itself stays put). */
 function scrollTo(browser, selector) {
-  return browser.execute(
-    (s) => document.querySelector(s)?.scrollIntoView({ block: "start" }),
-    selector,
-  );
+  return browser.execute((s) => {
+    document.querySelector(s)?.scrollIntoView({ block: "start" });
+    document.scrollingElement.scrollTop = 0;
+  }, selector);
 }
 
 const field = (browser, form, label, tag = "input") =>
@@ -193,6 +194,7 @@ describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
       await field(browser, form, "Repository URL (optional)")
     ).setValue("https://github.com/example/website");
     await (await field(browser, form, "Project folder (optional)")).setValue(folder);
+    await browser.pause(300);
     await screenshot(browser, "development-setup");
     const submit = await browser.$(`form[aria-label="${form}"] button[type="submit"]`);
     await submit.click();
