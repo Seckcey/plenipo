@@ -44,12 +44,13 @@ Result: 3 of 3 pass.
 
 ## 3. Defects found and fixed
 
-| Defect                                                                                                                                 | Fix                                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| With sending set to **Blocked**, data a page sent after a click asked the owner instead of being refused (from v1.3.0)                 | `decide_held` refuses it                                                              |
-| A worker stopped by a switch was told about the emergency Stop                                                                         | The refusal checks the switches first and names Settings → Switches                   |
-| Workers' instructions told them to stop at a CAPTCHA, so they would never hand it over                                                 | The browser note and the Web Assistant's instructions point to `browser_person_check` |
-| A Supervisor's lesson could carry what its Web Assistant read on a website, without being flagged; so could a task that saw the screen | The check covers every task handed on from it, and screen use                         |
+| Defect                                                                                                                                                                   | Fix                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| With sending set to **Blocked**, data a page sent after a click asked the owner instead of being refused (from v1.3.0)                                                   | `decide_held` refuses it                                                              |
+| A worker stopped by a switch was told about the emergency Stop                                                                                                           | The refusal checks the switches first and names Settings → Switches                   |
+| Workers' instructions told them to stop at a CAPTCHA, so they would never hand it over                                                                                   | The browser note and the Web Assistant's instructions point to `browser_person_check` |
+| A Supervisor's lesson could carry what its Web Assistant read on a website, without being flagged; so could a task that saw the screen                                   | The check covers every task handed on from it, and screen use                         |
+| The Phase 10 end-to-end test read the new **Plenipo's browser** switch (same label, higher on the Settings page) instead of the browser's status box, and timed out (CI) | The test looks for the status box itself (`div.plenipo-browser`)                      |
 
 ## 4. Security notes
 
