@@ -3,7 +3,9 @@
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Amended by:** [ADR-023 (on/off switches in Settings)](ADR-023-settings-switches.md): with
   its switches on, sending, buying, and signing in go ahead without asking on allowed websites,
-  and a CAPTCHA can be handed to the owner (sections 4, 5, and 6)
+  and a CAPTCHA can be handed to the owner (sections 4, 5, and 6); and by
+  [ADR-028 (choosing Plenipo's browser)](ADR-028-choosing-plenipos-browser.md): the owner picks
+  Automatic, Edge, or Chrome in Settings, and each browser has its own profile folder (section 2)
 - **Date:** 2026-09-27
 - **Phase:** 10
 

@@ -1,5 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { BrowserStatus } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
@@ -24,6 +25,7 @@ vi.mock("../../api/commands", async (importOriginal) => {
     setWebsiteRules: vi.fn(),
     getBrowserStatus: vi.fn(),
     openBrowser: vi.fn(),
+    setBrowserChoice: vi.fn(),
   };
 });
 vi.mock("../../api/events", () => ({
@@ -31,6 +33,18 @@ vi.mock("../../api/events", () => ({
 }));
 
 const api = vi.mocked(commands);
+
+const edge: BrowserStatus = {
+  name: "Microsoft Edge",
+  running: false,
+  profile: "C:/Plenipo/browser-profile",
+  choice: "automatic",
+  options: [
+    { choice: "edge", name: "Microsoft Edge", installed: true },
+    { choice: "chrome", name: "Google Chrome", installed: true },
+  ],
+  fixed: false,
+};
 
 beforeEach(() => {
   api.getPermissions.mockResolvedValue(samplePermissions());
@@ -48,9 +62,8 @@ beforeEach(() => {
   ]) {
     f.mockResolvedValue(samplePermissions());
   }
-  const browser = { name: "Microsoft Edge", running: false, profile: "C:/Plenipo/browser" };
-  api.getBrowserStatus.mockResolvedValue(browser);
-  api.openBrowser.mockResolvedValue({ ...browser, running: true });
+  api.getBrowserStatus.mockResolvedValue(edge);
+  api.openBrowser.mockResolvedValue({ ...edge, running: true });
   void events;
 });
 
@@ -180,6 +193,47 @@ describe("Settings → Permissions", () => {
     await user.click(within(browser).getByRole("button", { name: "Open Plenipo's browser" }));
     expect(api.openBrowser).toHaveBeenCalledWith("https://example.com/login");
     expect(await within(browser).findByText("Open")).toBeInTheDocument();
+  });
+
+  it("chooses which browser is Plenipo's browser", async () => {
+    api.getBrowserStatus.mockResolvedValue({ ...edge, running: true });
+    api.setBrowserChoice.mockResolvedValue({
+      ...edge,
+      running: true,
+      choice: "chrome",
+      next: "Google Chrome",
+    });
+    render(<PermissionSettings />);
+    const browser = await screen.findByLabelText("Plenipo's browser");
+    const menu = await within(browser).findByLabelText("Browser");
+    expect(menu).toHaveValue("automatic");
+    await userEvent.setup().selectOptions(menu, "chrome");
+    expect(api.setBrowserChoice).toHaveBeenCalledWith("chrome");
+    expect(
+      await within(browser).findByText(/switches to Google Chrome the next time/),
+    ).toBeInTheDocument();
+    expect(within(browser).getByText(/Each browser keeps its own sign-ins/)).toBeInTheDocument();
+  });
+
+  it("offers only the browsers on this computer, and none when PLENIPO_BROWSER names one", async () => {
+    api.getBrowserStatus.mockResolvedValue({
+      ...edge,
+      options: [
+        { choice: "edge", name: "Microsoft Edge", installed: true },
+        { choice: "chrome", name: "Google Chrome", installed: false },
+      ],
+    });
+    render(<PermissionSettings />);
+    const browser = await screen.findByLabelText("Plenipo's browser");
+    const menu = await within(browser).findByLabelText("Browser");
+    const chrome = within(menu).getByRole("option", { name: "Google Chrome (not installed)" });
+    expect(chrome).toBeDisabled();
+    cleanup();
+    api.getBrowserStatus.mockResolvedValue({ ...edge, fixed: true });
+    render(<PermissionSettings />);
+    const fixed = await screen.findByLabelText("Plenipo's browser");
+    expect(await within(fixed).findByLabelText("Browser")).toBeDisabled();
+    expect(within(fixed).getByText(/PLENIPO_BROWSER setting/)).toBeInTheDocument();
   });
 
   it("sets what a sensitive action does and how long approvals wait", async () => {

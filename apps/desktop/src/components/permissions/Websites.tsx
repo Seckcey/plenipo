@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
-import type { BrowserStatus, OtherSites, PermissionsSnapshot } from "@plenipo/types";
+import type { BrowserChoice, BrowserStatus, OtherSites, PermissionsSnapshot } from "@plenipo/types";
 
-import { getBrowserStatus, openBrowser, setWebsiteRules, toCommandError } from "../../api/commands";
+import {
+  getBrowserStatus,
+  openBrowser,
+  setBrowserChoice,
+  setWebsiteRules,
+  toCommandError,
+} from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { Refusal } from "../models/shared";
 
@@ -79,7 +85,7 @@ export function Websites({ snapshot, onApply }: { snapshot: PermissionsSnapshot;
   );
 }
 
-/** Plenipo's browser: which one, its own profile, and opening it to sign in yourself. */
+/** Plenipo's browser: which one (ADR-028), its own profile, and opening it to sign in yourself. */
 function PlenipoBrowser() {
   const [status, setStatus] = useState<BrowserStatus | null>(null);
   const [address, setAddress] = useState("");
@@ -98,20 +104,53 @@ function PlenipoBrowser() {
       live = false;
     };
   }, []);
-  const open = async () => {
+  const act = async (work: () => Promise<BrowserStatus>) => {
     setPending(true);
     setError(null);
     try {
-      setStatus(await openBrowser(address));
+      setStatus(await work());
     } catch (e) {
       setError(toCommandError(e).message);
     } finally {
       setPending(false);
     }
   };
+  const open = () => act(() => openBrowser(address));
+  const choose = (choice: BrowserChoice) => act(() => setBrowserChoice(choice));
   return (
     <div className="plenipo-browser" aria-label="Plenipo's browser">
       <h4>Plenipo&apos;s browser</h4>
+      {status && (
+        <label className="field">
+          <span>Browser</span>
+          <select
+            value={status.choice}
+            disabled={pending || status.fixed}
+            onChange={(e) => void choose(e.target.value as BrowserChoice)}
+          >
+            <option value="automatic">
+              Automatic (Microsoft Edge, or Google Chrome without it)
+            </option>
+            {status.options.map((o) => (
+              <option key={o.choice} value={o.choice} disabled={!o.installed}>
+                {o.installed ? o.name : `${o.name} (not installed)`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {status?.fixed && (
+        <p className="muted">
+          The PLENIPO_BROWSER setting on this computer names the browser, so this choice does not
+          apply.
+        </p>
+      )}
+      {status?.next && (
+        <p className="muted">
+          Plenipo switches to {status.next} the next time its browser starts. Close its window to
+          switch now.
+        </p>
+      )}
       {status?.name ? (
         <p className="muted">
           {status.name}, with its own profile (your own browser, its sign-ins, and its saved
@@ -125,7 +164,8 @@ function PlenipoBrowser() {
       )}
       <p className="muted">
         Workers never sign in or type passwords. When a website needs you signed in, open it here
-        and sign in yourself; workers then use that sign-in until it expires.
+        and sign in yourself; workers then use that sign-in until it expires. Each browser keeps its
+        own sign-ins, so after you switch browsers, sign in to those websites again.
       </p>
       <div className="actions">
         <input
