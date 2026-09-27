@@ -1,6 +1,6 @@
 # Ollama (cloud models) — AI tool checklist
 
-**Status:** built on `claude/ai-tools-ollama`; waiting for the owner's check on Windows.
+**Status:** accepted on 2026-09-27 ([acceptance report](ai-tools-ollama-acceptance-report.md)).
 
 Adds Ollama's **cloud models** as an AI tool under ADR-014 (the rules for adding AI tools ahead of
 Phase 15). The owner has no dedicated graphics card, so Plenipo uses models that run on Ollama's
@@ -68,9 +68,14 @@ needs a paid Ollama plan", never a raw error. Plenipo never changes the plan.
 - [x] On screen: the AI tools page, Workers, and Settings name Ollama; the setup guide has its
       row and notes.
 
+## Owner's check (2026-09-27)
+
+- [x] The Ollama card shows Ready and "Ollama sign-in (free plan)".
+- [x] A task and a follow-up answer; a paid-plan model says it needs a paid plan.
+- [x] Signing out shows not signed in; signing back in restores it.
+- [x] Ollama not running: the card says so.
+
 ## Still to check
 
-- The owner's check on Windows: the Ollama card shows Ready and "Ollama sign-in (free plan)";
-  a task and a follow-up answer; signing out shows "sign-in required".
 - The free plan's usage-limit message (seen in use).
 - Follow-up: Plenipo's tools for Ollama workers through Guard (ADR-017 §4).

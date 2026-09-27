@@ -52,6 +52,7 @@ No `.env` file, API keys, or provider logins are required to build or launch.
 ## 3. AI tools: Claude Code, Codex, Grok, and Ollama (optional)
 
 <a id="3-ai-tools-claude-code-and-codex-phase-3-optional"></a>
+<a id="3-ai-tools-claude-code-codex-and-grok-optional"></a>
 
 The **Workers** view runs tasks on the Claude Code, Codex, Grok, and Ollama tools that are
 already installed **and signed in with your subscription** on this computer. Plenipo never asks
