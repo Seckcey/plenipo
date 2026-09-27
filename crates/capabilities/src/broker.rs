@@ -1306,6 +1306,23 @@ impl Broker {
                     // The card shows the page as it is now (Phase 10).
                     prepared.screenshot = self.approval_shot(grant_id, &task_id, &worker).await;
                 }
+                // A server's identity is checked before the owner is asked (Phase 11): never an
+                // approval for a command that cannot safely run.
+                if let Some(p) = &prepared.server {
+                    let who = Caller {
+                        grant_id,
+                        task_id: &task_id,
+                        worker: &worker,
+                        role_id: &scope.role_id,
+                        role_name: &scope.role_name,
+                    };
+                    if let Err(why) = self.connect_first(&who, &p.server).await {
+                        return CallResult::error(format!(
+                            "Not done: {why}. ({})",
+                            prepared.summary
+                        ));
+                    }
+                }
                 match self
                     .ask(
                         grant_id,

@@ -793,6 +793,33 @@ async fn plan_changed_host_key() {
         "{}",
         test.message
     );
+    // On a production server, the identity is checked before the owner is asked: no card for a
+    // command that cannot safely run.
+    let shop_port = h.shop.port;
+    h.shop.stop();
+    h.shop = Sshd::start(Options {
+        seed: 8,
+        port: shop_port,
+        user: "shop".into(),
+        password: SHOP_PASSWORD.into(),
+        ..Options::default()
+    })
+    .await;
+    let (task, text) = h
+        .run(
+            "Operations Engineer",
+            json!([{ "tools": [run_on("Shop", "uptime", &[])], "say": "Stopped." }]),
+        )
+        .await;
+    assert!(
+        result(&text, "ssh_run", 0).contains("Shop's identity changed"),
+        "{text}"
+    );
+    assert!(
+        h.events(&task.id, "approval.requested").is_empty(),
+        "never asked"
+    );
+    assert!(h.shop.seen().sign_ins.is_empty());
     // The owner checks the new identity and pins it: work goes on.
     let mut input = h.server_input("Dev box");
     input.host_key = Some(HostKeyInput {
@@ -809,13 +836,17 @@ async fn plan_changed_host_key() {
         )
         .await;
     assert!(result(&text, "ssh_run", 0).contains("Finished"), "{text}");
-    assert!(h
-        .broker
-        .servers()
-        .unwrap()
-        .servers
-        .iter()
-        .all(|s| s.identity_changed.is_none()));
+    let servers = h.broker.servers().unwrap().servers;
+    let identity = |name: &str| {
+        servers
+            .iter()
+            .find(|s| s.server.name == name)
+            .unwrap()
+            .identity_changed
+            .clone()
+    };
+    assert!(identity("Dev box").is_none(), "pinned again");
+    assert!(identity("Shop").is_some(), "still blocked until pinned");
 }
 
 /// Plan: denied role. A role the server does not list is blocked before any connection; a role
@@ -1260,8 +1291,18 @@ async fn plan_production_approval_gate() {
     );
     assert!(card.detail.contains("production server"), "{}", card.detail);
     assert!(card.detail.contains("Runs: uptime"), "{}", card.detail);
+    // The server's identity was checked before asking: the worker is connected while it waits,
+    // and the sign shows it in red.
+    let session = h
+        .broker
+        .control_status()
+        .sessions
+        .into_iter()
+        .find(|s| s.kind == ControlKind::Server)
+        .expect("connected while waiting");
+    assert!(session.production);
+    assert_eq!(session.detail.as_deref(), Some("Shop (production)"));
     h.broker.resolve_approval(&card.id, false, "owner").unwrap();
-    // The sign shows the production connection only once a command runs; first the refusal.
     let card = h.pending().await;
     h.until("the refusal to be recorded", |h| {
         h.events(&task.id, "approval.resolved").len() == 1
@@ -1310,8 +1351,6 @@ async fn plan_production_approval_gate() {
         "{}",
         card.detail
     );
-    // The sign shows production in red while the worker waits (it is connected only once a
-    // command runs: not yet).
     h.broker.resolve_approval(&card.id, false, "owner").unwrap();
     h.finished(&task.id).await;
     h.finished(&root).await;

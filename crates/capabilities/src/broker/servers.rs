@@ -721,6 +721,15 @@ impl Broker {
         }
     }
 
+    /// Connect (checking the server's identity) before the owner is asked about a command.
+    pub(super) async fn connect_first(
+        &self,
+        who: &Caller<'_>,
+        server: &Server,
+    ) -> std::result::Result<(), String> {
+        self.connection(who, server).await.map(|_| ())
+    }
+
     /// Forget a step's connection to a server that was lost or closed.
     async fn drop_connection(&self, who: &Caller<'_>, server_id: &str, why: &str) {
         let Some(use_) = self.ssh_use(who.grant_id) else {
