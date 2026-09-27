@@ -1,6 +1,6 @@
 # Phase 12A — Implementation Checklist
 
-**Status:** in progress on `claude/phase-12`.
+**Status:** complete on `claude/phase-12`. See the [acceptance report](phase-12a-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 12A — Visual Design System (UniFi-Style Console Aesthetic).
 Built on v1.6.0 (Phase 11, servers over SSH) and the plan change for the terminal panel
@@ -40,81 +40,81 @@ Details are in ADR-029.
 
 ### Design tokens
 
-- [ ] color: background, surface, surface-raised, border, text-primary, text-secondary,
+- [x] color: background, surface, surface-raised, border, text-primary, text-secondary,
       text-muted, accent, and status ramp (ok / warn / error / offline / pending)
-- [ ] typography scale (roughly 11–20px), tabular numerals for all metrics
-- [ ] spacing, radius (small, 4–8px), elevation, and motion tokens
-- [ ] light theme mapping of the same tokens; dark is the default
+- [x] typography scale (roughly 11–20px), tabular numerals for all metrics
+- [x] spacing, radius (small, 4–8px), elevation, and motion tokens
+- [x] light theme mapping of the same tokens; dark is the default
 
 ### Core layout shell
 
-- [ ] icon rail with active-section indicator and tooltips (names under the icons, the
+- [x] icon rail with active-section indicator and tooltips (names under the icons, the
       owner's choice)
-- [ ] collapsible left facet/filter panel (search box, grouped checkbox filters with counts,
+- [x] collapsible left facet/filter panel (search box, grouped checkbox filters with counts,
       range sliders, "Clear Filters")
-- [ ] top bar: scope selector (org / department / project), title, theme toggle,
+- [x] top bar: scope selector (org / department / project), title, theme toggle,
       notification badge
-- [ ] global banner slot for advisories and required actions, with an inline call-to-action
+- [x] global banner slot for advisories and required actions, with an inline call-to-action
       button and dismiss
 
 ### Component library
 
-- [ ] Entity card: title, status dot and subtype line, 24h activity strip with time axis
+- [x] Entity card: title, status dot and subtype line, 24h activity strip with time axis
       labels and a "Now" marker, a provider/owner row, and a footer row of small
       capability/resource icons
-- [ ] Card grid with responsive column count and a card/list view toggle
-- [ ] Dense data table: sortable columns, status dot column, tabular numeric columns, inline
+- [x] Card grid with responsive column count and a card/list view toggle
+- [x] Dense data table: sortable columns, status dot column, tabular numeric columns, inline
       links to parent entities, per-row selection checkboxes, column customization, page-size
       control, and a records counter
-- [ ] Facet filter panel bound to the table and grid
-- [ ] Detail split view: properties/toggles panel, live timeline scrubber, topology map, table
+- [x] Facet filter panel bound to the table and grid
+- [x] Detail split view: properties/toggles panel, live timeline scrubber, topology map, table
       below
-- [ ] Topology / relationship map: node tiles with status color fill, labeled connectors,
+- [x] Topology / relationship map: node tiles with status color fill, labeled connectors,
       per-node metric captions
-- [ ] Status primitives: dot, pill, activity strip, sparkline, health bar, count badge
-- [ ] Empty, loading (skeleton), and error states for every component above
+- [x] Status primitives: dot, pill, activity strip, sparkline, health bar, count badge
+- [x] Empty, loading (skeleton), and error states for every component above
 
 ### Documentation
 
-- [ ] `docs/design/design-system.md`: tokens, components, usage rules, density guidelines
-- [ ] Gallery page in the desktop app: every component, all states, both themes
+- [x] `docs/design/design-system.md`: tokens, components, usage rules, density guidelines
+- [x] Gallery page in the desktop app: every component, all states, both themes
 
 ## Technical implementation (plan)
 
-- [ ] Tokens as CSS custom properties, generated from a single TypeScript source
-- [ ] Components in a shared `packages/ui` workspace package; no screen-level ad-hoc styling
-- [ ] No hardcoded color literals in feature code; a lint rule enforces token usage
-- [ ] Virtualized tables and card grids (1,000+ rows, 100+ cards stay responsive)
-- [ ] Activity strips and timelines driven by the Phase 2 event model, with a defined
+- [x] Tokens as CSS custom properties, generated from a single TypeScript source
+- [x] Components in a shared `packages/ui` workspace package; no screen-level ad-hoc styling
+- [x] No hardcoded color literals in feature code; a lint rule enforces token usage
+- [x] Virtualized tables and card grids (1,000+ rows, 100+ cards stay responsive)
+- [x] Activity strips and timelines driven by the Phase 2 event model, with a defined
       downsampling strategy
 
 ## Existing screens
 
-- [ ] Every page moves onto the tokens and the new frame; what each page does stays the same
-- [ ] Settings → Servers works exactly as before (Phase 11 owner check still to come)
-- [ ] Existing unit and end-to-end tests pass unchanged, or with selector updates only
+- [x] Every page moves onto the tokens and the new frame; what each page does stays the same
+- [x] Settings → Servers works exactly as before (Phase 11 owner check still to come)
+- [x] Existing unit and end-to-end tests pass unchanged, or with selector updates only
 
 ## Tests (plan)
 
-- [ ] visual regression snapshots of the gallery in dark and light themes
-- [ ] token contrast check: all text/background pairs meet WCAG AA
-- [ ] status is distinguishable without color (dot plus label present in DOM)
-- [ ] keyboard navigation and focus-visible styling across rail, filters, table, and cards
-- [ ] virtualized table performance with 5,000 rows
-- [ ] responsive behavior at the minimum supported window size
+- [x] visual regression snapshots of the gallery in dark and light themes
+- [x] token contrast check: all text/background pairs meet WCAG AA
+- [x] status is distinguishable without color (dot plus label present in DOM)
+- [x] keyboard navigation and focus-visible styling across rail, filters, table, and cards
+- [x] virtualized table performance with 5,000 rows
+- [x] responsive behavior at the minimum supported window size
 
 ## Acceptance criteria (plan)
 
-- [ ] Every component in the library renders correctly in both themes with real and empty data.
-- [ ] Phase 12 screens can be assembled entirely from this library without introducing new
+- [x] Every component in the library renders correctly in both themes with real and empty data.
+- [x] Phase 12 screens can be assembled entirely from this library without introducing new
       one-off styles.
-- [ ] No feature code contains raw color values.
+- [x] No feature code contains raw color values.
 
 ## Before pushing
 
-- [ ] `pnpm check`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy --workspace --all-targets --locked -- -D warnings`
-- [ ] `cargo test --workspace --locked`
-- [ ] `pnpm bindings`, then no diff in `packages/types/src/generated`
-- [ ] `pnpm e2e` against the release build
+- [x] `pnpm check`
+- [x] `cargo fmt --all -- --check`
+- [x] `cargo clippy --workspace --all-targets --locked -- -D warnings`
+- [x] `cargo test --workspace --locked`
+- [x] `pnpm bindings`, then no diff in `packages/types/src/generated`
+- [x] `pnpm e2e` against the release build

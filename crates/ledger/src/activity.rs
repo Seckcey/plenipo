@@ -259,7 +259,13 @@ mod tests {
             .unwrap();
     }
 
-    fn event(l: &Ledger, task: Option<&str>, event_type: &str, payload: serde_json::Value, at: u64) {
+    fn event(
+        l: &Ledger,
+        task: Option<&str>,
+        event_type: &str,
+        payload: serde_json::Value,
+        at: u64,
+    ) {
         crate::lock(&l.conn)
             .execute(
                 "INSERT INTO events (id, task_id, source, event_type, payload, created_at)
@@ -305,7 +311,13 @@ mod tests {
         let l = ledger();
         let from = NOW - 7 * DAY;
         for i in 0..70 {
-            event(&l, None, "diagnostic.echo", json!({}), from + i * 2 * HOUR + 1);
+            event(
+                &l,
+                None,
+                "diagnostic.echo",
+                json!({}),
+                from + i * 2 * HOUR + 1,
+            );
         }
         let s = &l.activity(&[ActivityScope::All], from, NOW, 96).unwrap()[0];
         assert_eq!(s.bucket_ms, (7 * DAY).div_ceil(96));
@@ -326,17 +338,42 @@ mod tests {
             ("execution.timed_out", json!({})),
             ("ssh.host_key_changed", json!({})),
             ("approval.expired", json!({})),
-            ("task.state_changed", json!({ "from": "running", "to": "failed" })),
-            ("task.state_changed", json!({ "from": "running", "to": "blocked" })),
+            (
+                "task.state_changed",
+                json!({ "from": "running", "to": "failed" }),
+            ),
+            (
+                "task.state_changed",
+                json!({ "from": "running", "to": "blocked" }),
+            ),
         ] {
             event(&l, None, t, payload, at);
         }
         // Not problems:
-        event(&l, None, "task.state_changed", json!({ "from": "running", "to": "succeeded" }), at);
-        event(&l, None, "approval.resolved", json!({ "approved": false }), at);
+        event(
+            &l,
+            None,
+            "task.state_changed",
+            json!({ "from": "running", "to": "succeeded" }),
+            at,
+        );
+        event(
+            &l,
+            None,
+            "approval.resolved",
+            json!({ "approved": false }),
+            at,
+        );
         event(&l, None, "approval.requested", json!({}), at);
         let s = &l.activity(&[ActivityScope::All], from, NOW, 24).unwrap()[0];
-        assert_eq!(s.buckets[1], ActivityBucket { events: 13, problems: 10, waiting: 1 });
+        assert_eq!(
+            s.buckets[1],
+            ActivityBucket {
+                events: 13,
+                problems: 10,
+                waiting: 1
+            }
+        );
     }
 
     #[test]
@@ -380,9 +417,18 @@ mod tests {
         let bad = |scopes: &[ActivityScope], from: u64, to: u64, buckets: u32| {
             l.activity(scopes, from, to, buckets).unwrap_err()
         };
-        assert!(matches!(bad(&[ActivityScope::All], NOW, NOW, 96), LedgerError::InvalidInput(_)));
-        assert!(matches!(bad(&[ActivityScope::All], NOW - DAY, NOW, 0), LedgerError::InvalidInput(_)));
-        assert!(matches!(bad(&[ActivityScope::All], NOW - DAY, NOW, 289), LedgerError::InvalidInput(_)));
+        assert!(matches!(
+            bad(&[ActivityScope::All], NOW, NOW, 96),
+            LedgerError::InvalidInput(_)
+        ));
+        assert!(matches!(
+            bad(&[ActivityScope::All], NOW - DAY, NOW, 0),
+            LedgerError::InvalidInput(_)
+        ));
+        assert!(matches!(
+            bad(&[ActivityScope::All], NOW - DAY, NOW, 289),
+            LedgerError::InvalidInput(_)
+        ));
         assert!(matches!(
             bad(&[ActivityScope::All], NOW - 400 * DAY, NOW, 96),
             LedgerError::InvalidInput(_)
@@ -392,7 +438,10 @@ mod tests {
             LedgerError::NotFound(_)
         ));
         let many = vec![ActivityScope::All; MAX_ACTIVITY_SCOPES + 1];
-        assert!(matches!(bad(&many, NOW - DAY, NOW, 96), LedgerError::InvalidInput(_)));
+        assert!(matches!(
+            bad(&many, NOW - DAY, NOW, 96),
+            LedgerError::InvalidInput(_)
+        ));
         assert!(l.activity(&[], NOW - DAY, NOW, 96).unwrap().is_empty());
     }
 

@@ -192,9 +192,9 @@ pub async fn get_activity(
 ) -> Result<Vec<ActivitySeries>, CommandError> {
     if scopes.iter().any(|s| match s {
         ActivityScope::All => false,
-        ActivityScope::Department(id) | ActivityScope::Project(id) | ActivityScope::Position(id) => {
-            id.is_empty() || id.len() > 64
-        }
+        ActivityScope::Department(id)
+        | ActivityScope::Project(id)
+        | ActivityScope::Position(id) => id.is_empty() || id.len() > 64,
     }) {
         return Err(CommandError::invalid_input("invalid activity scope"));
     }

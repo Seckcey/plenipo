@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 11 and v1.4) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 12A and v1.7) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -289,6 +289,11 @@ cancelled` (terminal states are final).
 - Forward-only migrations with checksums and a verified pre-migration backup.
 - Corruption: quick check on open → quarantine + fresh ledger + prominent notice.
 - Backups (`VACUUM INTO`, verified, keep 10) and JSON export.
+- **Activity over time** (schema 8, Phase 12A): `Ledger::activity(scopes, from, to, buckets)`
+  counts events into fixed time buckets (with problems and requests for approval apart) for
+  everything, a department, a project, or a position and its team; the index
+  `events_by_created` keeps it fast. Desktop command `get_activity`; see
+  [the design system](../design/design-system.md#activity-over-time).
 
 ## 6. Agent runtimes (Phase 3)
 
@@ -714,6 +719,26 @@ and [ADR-026 (SSH built into Plenipo, not Windows' ssh.exe)](../adr/ADR-026-ssh-
   `guard.server_added`, `guard.server_changed`, `guard.server_removed`,
   `vault.server_sign_in_stored`. None carries a key, passphrase, or password.
 
+## 13a. Design system (Phase 12A)
+
+Decision record: [ADR-029](../adr/ADR-029-design-system.md). Details:
+[`docs/design/design-system.md`](../design/design-system.md).
+
+- **`packages/ui` (`@plenipo/ui`)** holds the design tokens, the component library, and their
+  styles; the desktop app imports it (`@plenipo/ui/styles.css` first, then its own page layouts).
+- **Tokens** are written once in `packages/ui/src/tokens.ts` and generated as CSS custom
+  properties (`--ui-…`, dark on `:root`, each theme on `[data-theme]`) and JSON; a test checks
+  the generated files and WCAG AA contrast in both themes.
+- **The frame:** `AppShell` with the left strip (`IconRail`, names under the icons), the top bar
+  (`ScopeSelector`, the page title, `ThemeToggle`, `NotificationBell`), and `BannerSlot`. The
+  theme is `<html data-theme>`, remembered in the webview's storage.
+- **No raw colors** in feature code: ESLint (TypeScript) and `scripts/check-colors.mjs` (CSS), run
+  by `pnpm lint`.
+- **Windowing:** tables and card grids draw only the rows on screen (`useVirtualWindow`).
+- **The Gallery** (Diagnostics → Open the gallery) renders every component in every state, in
+  either theme or both; the end-to-end test compares its computed styles with checked-in
+  snapshots.
+
 ## 14. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
@@ -728,19 +753,19 @@ From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent 
 adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**,
 **Vault**, the GitHub integration, Plenipo's browser and computer use, and SSH exist today.
 
-| Component    | Responsibility                                                                          | Introduced |
-| ------------ | --------------------------------------------------------------------------------------- | ---------- |
-| Desktop      | UI                                                                                      | Phase 0    |
-| Core         | Orchestration and domain logic, shared DTOs                                             | Phase 0    |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                          | Phase 1, 3 |
-| Ledger       | SQLite system of record ✅                                                              | Phase 2    |
-| Liaison      | Task/message/event bus ✅                                                               | Phase 4    |
-| Workforce    | Departments, roles, coordinators, workers ✅                                            | Phase 5    |
-| Router       | Role → provider/model selection ✅                                                      | Phase 6    |
-| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+   |
-| Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7    |
-| Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7    |
-| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+   |
+| Component    | Responsibility                                                                          | Introduced   |
+| ------------ | --------------------------------------------------------------------------------------- | ------------ |
+| Desktop      | UI, on the design system (`packages/ui`) ✅                                             | Phase 0, 12A |
+| Core         | Orchestration and domain logic, shared DTOs                                             | Phase 0      |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                          | Phase 1, 3   |
+| Ledger       | SQLite system of record ✅                                                              | Phase 2      |
+| Liaison      | Task/message/event bus ✅                                                               | Phase 4      |
+| Workforce    | Departments, roles, coordinators, workers ✅                                            | Phase 5      |
+| Router       | Role → provider/model selection ✅                                                      | Phase 6      |
+| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+     |
+| Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7      |
+| Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7      |
+| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+     |
 
 ## 16. Invariants every phase must keep
 
