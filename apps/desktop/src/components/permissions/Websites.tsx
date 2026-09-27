@@ -44,8 +44,9 @@ export function Websites({ snapshot, onApply }: { snapshot: PermissionsSnapshot;
         <strong>Check a website&apos;s terms before you allow it.</strong> Many websites forbid
         automated use in their terms, for example LinkedIn, Facebook, Instagram, X, TikTok, and
         Amazon (blocked to start with), and most banks and search engines. Plenipo&apos;s browser
-        acts under your name, and never gets past a CAPTCHA or other check that a person is using
-        the site. Prefer a website&apos;s official connection (API) when it has one.
+        acts under your name, and a worker tries a CAPTCHA (a check that a person is using the site)
+        at most 3 times before handing it to you. Prefer a website&apos;s official connection (API)
+        when it has one.
       </p>
       <form
         aria-label="Website lists"
