@@ -660,7 +660,7 @@ async fn start_work<R: Runtime>(app: &AppHandle<R>) -> Value {
                 NewTask {
                     requested_by: OWNER.into(),
                     objective: "Smoke test: a task left running".into(),
-                    metadata: json!({ "synthetic": true }),
+                    metadata: json!({ "smoke": true }),
                     ..NewTask::default()
                 },
                 OWNER,

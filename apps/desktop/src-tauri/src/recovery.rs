@@ -233,7 +233,14 @@ pub struct InProgress {
 
 /// Read what was in progress, before anything marks it stopped.
 pub fn in_progress(ledger: &Ledger) -> InProgress {
-    let tasks = ledger.unfinished_tasks().unwrap_or_default();
+    // Diagnostics' synthetic tasks are the owner's hand-made test tasks, not work: they are left
+    // exactly as they were (Phase 2: their trail survives a hard stop unchanged).
+    let tasks = ledger
+        .unfinished_tasks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| !flag(t, "synthetic"))
+        .collect();
     let programs = ledger
         .recent_executions(1000)
         .map(|rows| {
@@ -248,11 +255,15 @@ pub fn in_progress(ledger: &Ledger) -> InProgress {
     }
 }
 
-/// Diagnostics' synthetic tasks have no conversation to mark them stopped: mark them here.
-fn stop_synthetic(ledger: &Ledger, tasks: &[Task]) {
+fn flag(task: &Task, key: &str) -> bool {
+    task.metadata.get(key) == Some(&Value::Bool(true))
+}
+
+/// The launch test's task (`PLENIPO_SMOKE_SCENARIO=start-work`) has no conversation to mark it
+/// stopped: mark it here, as the services do for real work.
+fn stop_smoke_tasks(ledger: &Ledger, tasks: &[Task]) {
     for t in tasks {
-        let synthetic = t.metadata.get("synthetic") == Some(&Value::Bool(true));
-        if synthetic && !t.state.is_terminal() {
+        if flag(t, "smoke") && !t.state.is_terminal() {
             let _ = ledger.transition_task(
                 &t.id,
                 TaskState::Failed,
@@ -278,7 +289,7 @@ pub fn record(
     else {
         return None;
     };
-    stop_synthetic(ledger, &before.tasks);
+    stop_smoke_tasks(ledger, &before.tasks);
     // The objectives that stopped: the tasks with no parent (their children stopped with them).
     let roots: Vec<&String> = before
         .tasks
@@ -643,8 +654,19 @@ mod tests {
         );
         l.transition_task(&synthetic.id, TaskState::Running, "x", None)
             .unwrap();
+        let smoke = task(
+            &l,
+            "Smoke test: a task left running",
+            json!({ "smoke": true }),
+        );
+        l.transition_task(&smoke.id, TaskState::Running, "x", None)
+            .unwrap();
         let before = in_progress(&l);
-        assert_eq!(before.tasks.len(), 2);
+        assert_eq!(
+            before.tasks.len(),
+            2,
+            "Diagnostics' test tasks are not work"
+        );
         // What the services do at start: the conversation's turn is marked interrupted.
         l.transition_task(&conversation.id, TaskState::Failed, "plenipo", None)
             .unwrap();
@@ -654,10 +676,12 @@ mod tests {
             previous_version: Some("1.9.0".into()),
         };
         let id = record(&l, &end, &before, "1.9.0").unwrap();
-        // The synthetic task had nobody to stop it: recovery did.
+        // The launch test's task had nobody to stop it: recovery did. Diagnostics' test task is
+        // left as it was.
+        assert_eq!(l.task(&smoke.id).unwrap().unwrap().state, TaskState::Failed);
         assert_eq!(
             l.task(&synthetic.id).unwrap().unwrap().state,
-            TaskState::Failed
+            TaskState::Running
         );
         let tool = |id: &str| format!("tool {id}");
         let s = status(&l, &RecoveryState::default(), vec![], &tool).unwrap();
@@ -674,14 +698,15 @@ mod tests {
         assert_eq!(c.objective, "Summarize the sales call");
         assert_eq!(c.who.as_deref(), Some("tool claude-code"));
         assert!(c.can_run_again);
+        assert!(r.stopped_tasks.iter().all(|t| t.task_id != synthetic.id));
         let s = r
             .stopped_tasks
             .iter()
-            .find(|t| t.task_id == synthetic.id)
+            .find(|t| t.task_id == smoke.id)
             .unwrap();
         assert!(
             !s.can_run_again,
-            "a synthetic task has nobody to give it to"
+            "the launch test's task has nobody to give it to"
         );
         // Run again is shown once used.
         record_run_again(&l, &conversation.id, Some("new-task"));

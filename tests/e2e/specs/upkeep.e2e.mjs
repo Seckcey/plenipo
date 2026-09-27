@@ -259,7 +259,7 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     await openSettings(browser, "Updates");
     await waitForText(browser, ".settings-updates", `This version ${VERSION}`);
     await clickButton(browser, "Check now");
-    await waitForText(browser, ".settings-updates", `What's new in Plenipo ${next}`, 30_000);
+    await waitForText(browser, ".settings-updates", `Plenipo ${next} is ready to install`, 30_000);
     await waitForText(browser, ".settings-updates__notes", "One fix.");
     assert.ok(await exists(browser, "button.shell__update"), "the top bar says an update is ready");
     await screenshot(browser, "settings-updates-ready");

@@ -151,6 +151,10 @@ describe("Phase 2 ledger (real app)", () => {
     const { browser } = app;
     await waitForShell(browser);
     assert.equal(await (await browser.$(".banner--severe")).isExisting(), false, "no corruption");
+    // Phase 13: Plenipo says it closed unexpectedly (Diagnostics' test tasks are not work, so
+    // nothing is listed as stopped), until the owner says OK.
+    await waitForText(browser, ".banner--recovery", "Plenipo closed unexpectedly");
+    await clickButton(browser, "OK");
     await openActivityTask(browser, objective);
     await waitForText(browser, DETAIL, "Running");
     await waitForTrailLength(browser, trailBefore.length);
@@ -189,6 +193,9 @@ describe("Phase 2 ledger (real app)", () => {
     assert.match(banner, /moved to .*plenipo\.db\.corrupt-\d+/);
     assert.match(banner, /Backups are in/);
     await screenshot(browser, "corruption-banner");
+    // Phase 13: the run before ended the hard way too.
+    await waitForText(browser, ".banner--recovery", "Plenipo closed unexpectedly");
+    await clickButton(browser, "OK");
     // The app keeps working on a fresh ledger.
     await nav(browser, "Diagnostics");
     await clickButton(browser, "Create synthetic task");
