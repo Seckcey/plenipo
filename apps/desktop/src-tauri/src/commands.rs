@@ -34,8 +34,8 @@ use plenipo_guard::{
     SensitiveKind, SensitiveRule, ServerInput, Switches, WebsiteRules,
 };
 use plenipo_ledger::{
-    BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
-    NewTask, Task, TaskState, TaskTimeline,
+    ActivityScope, ActivitySeries, BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError,
+    LedgerEvent, LedgerStatus, NewTask, Task, TaskState, TaskTimeline,
 };
 use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
 use plenipo_router::{
@@ -178,6 +178,27 @@ pub async fn list_recent_events(
     ledger: State<'_, Arc<Ledger>>,
 ) -> Result<Vec<LedgerEvent>, CommandError> {
     with_ledger(&ledger, |l| l.recent_events(200)).await
+}
+
+/// Activity for each scope, counted into `buckets` time buckets over `[from, to)` (Phase 12A:
+/// the activity strips). The Ledger checks the range, the bucket count, and each scope.
+#[tauri::command]
+pub async fn get_activity(
+    ledger: State<'_, Arc<Ledger>>,
+    scopes: Vec<ActivityScope>,
+    from: u64,
+    to: u64,
+    buckets: u32,
+) -> Result<Vec<ActivitySeries>, CommandError> {
+    if scopes.iter().any(|s| match s {
+        ActivityScope::All => false,
+        ActivityScope::Department(id) | ActivityScope::Project(id) | ActivityScope::Position(id) => {
+            id.is_empty() || id.len() > 64
+        }
+    }) {
+        return Err(CommandError::invalid_input("invalid activity scope"));
+    }
+    with_ledger(&ledger, move |l| l.activity(&scopes, from, to, buckets)).await
 }
 
 /// Diagnostics: create a synthetic task to exercise the ledger end to end.

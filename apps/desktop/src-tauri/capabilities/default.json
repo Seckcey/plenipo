@@ -15,6 +15,7 @@
     "allow-list-tasks",
     "allow-get-task-timeline",
     "allow-list-recent-events",
+    "allow-get-activity",
     "allow-create-synthetic-task",
     "allow-advance-synthetic-task",
     "allow-run-integrity-check",

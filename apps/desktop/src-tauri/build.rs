@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "list_tasks",
     "get_task_timeline",
     "list_recent_events",
+    "get_activity",
     "create_synthetic_task",
     "advance_synthetic_task",
     "run_integrity_check",
