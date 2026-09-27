@@ -83,4 +83,17 @@ changing its application code. README conflicts retain the reviewed Pip presenta
 provider details. SECURITY retains accurate approval defaults and version-aware CAPTCHA
 wording, including the absence of an external solving service. The FAQ now acknowledges the
 merged checkbox and result-feedback improvements while distinguishing source from installers.
-The combined source requires fresh mandatory checks before the next push.
+The combined source `5fb36f92daf1a0819bf07f31110885422e5563ce`
+(tree `76075bc531a2c6eb41239a3679e22db8484b6781`) passed all mandatory checks before the next push:
+
+- Fresh `pnpm check`: version alignment, formatting, lint, types, 240 shared UI tests,
+  175 desktop tests, and 2 website tests.
+- Rust formatting and clippy: passed.
+- Full locked Rust suite: **767 passed, 0 failed, 0 ignored**, including all 18 browser tests
+  and the new synthetic CAPTCHA regression case.
+- `pnpm bindings`: **189 passed**, with no generated filenames or content changes.
+
+The repeated Coastline run used a new isolated source copy and the same bounded test setup.
+It completed at 15:00:38 UTC. Its container was removed and the shared lock verified free.
+Only this receipt follows that tested source. Final formatting and diff checks passed; the
+coordinator must verify GitHub CI at the pushed revision before merging.
