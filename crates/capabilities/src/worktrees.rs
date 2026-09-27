@@ -126,7 +126,10 @@ impl Git {
         }
     }
 
-    /// The repository `folder` is in, if it is one with at least one commit.
+    /// The repository `folder` is in, if it is one with at least one commit and the folder is
+    /// part of that commit. A folder inside a repository it is not committed to (ignored, not
+    /// yet added, or a build folder of some other project) has no working copy: one would not
+    /// contain its files.
     pub fn repository(&self, folder: &Path) -> Option<Repo> {
         let lines = self
             .run(folder, &["rev-parse", "--show-toplevel", "--show-prefix"])
@@ -146,6 +149,14 @@ impl Git {
             .to_owned();
         if head.is_empty() {
             return None;
+        }
+        if !subfolder.is_empty() {
+            let kind = self
+                .run(&top, &["cat-file", "-t", &format!("{head}:{subfolder}")])
+                .ok()?;
+            if kind.trim() != "tree" {
+                return None;
+            }
         }
         let branch = self
             .run(folder, &["symbolic-ref", "--short", "-q", "HEAD"])
@@ -358,6 +369,48 @@ mod tests {
         assert!(long.len() <= "plenipo/".len() + 41 + 9, "{long}");
         assert!(!long.contains("--"), "{long}");
         assert_eq!(branch_name("Ünïcode café", "x1"), "plenipo/n-code-caf-x1");
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    #[test]
+    fn only_a_folder_committed_to_its_repository_gets_working_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path().join("repo");
+        std::fs::create_dir_all(top.join("site")).unwrap();
+        std::fs::create_dir_all(top.join("build").join("tmp")).unwrap();
+        std::fs::write(top.join("site").join("index.html"), "hi\n").unwrap();
+        std::fs::write(top.join(".gitignore"), "build/\n").unwrap();
+        git_in(&top, &["init", "-q", "-b", "main"]);
+        git_in(&top, &["config", "user.name", "Test"]);
+        git_in(&top, &["config", "user.email", "test@example.com"]);
+        git_in(&top, &["add", "-A"]);
+        git_in(&top, &["commit", "-q", "-m", "Start"]);
+        std::fs::create_dir_all(top.join("new")).unwrap();
+        std::fs::write(top.join("new").join("a.txt"), "not added\n").unwrap();
+        let git = Git::find(dir.path().join("hooks")).expect("git is installed");
+
+        let repo = git.repository(&top).expect("the top folder");
+        assert_eq!(repo.subfolder, "");
+        assert_eq!(repo.branch.as_deref(), Some("main"));
+        let site = git
+            .repository(&top.join("site"))
+            .expect("a committed subfolder");
+        assert_eq!(site.subfolder, "site");
+        // An ignored folder (say, another project's build folder), and one not yet committed.
+        assert_eq!(git.repository(&top.join("build").join("tmp")), None);
+        assert_eq!(git.repository(&top.join("new")), None);
+        // Not a repository at all.
+        let plain = tempfile::tempdir().unwrap();
+        assert_eq!(git.repository(plain.path()), None);
     }
 
     #[test]

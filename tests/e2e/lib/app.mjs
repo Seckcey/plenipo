@@ -26,15 +26,16 @@ export function makeHome() {
 
 /**
  * Put the fake AI tools (plenipo-fake-agent) in `<home>/bin`: one copy for each AI tool it
- * stands in for (`plenipo-fake-agent --personas`). Returns the variables for `launch` that put
- * them first on PATH.
+ * stands in for (`plenipo-fake-agent --personas`), and for each other program (`--helpers`:
+ * GitHub's `gh` and a project test, `verify`). Returns the variables for `launch` that put them
+ * first on PATH.
  */
 export function installFakeTools(home) {
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });
-  const personas = execFileSync(FAKE_AGENT, ["--personas"], { encoding: "utf8" })
-    .split(/\r?\n/)
-    .filter(Boolean);
+  const names = (flag) =>
+    execFileSync(FAKE_AGENT, [flag], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
+  const personas = [...names("--personas"), ...names("--helpers")];
   for (const name of personas) {
     copyFileSync(FAKE_AGENT, join(bin, exeName(name)));
     chmodSync(join(bin, exeName(name)), 0o755);
