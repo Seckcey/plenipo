@@ -347,7 +347,8 @@ impl Workforce {
     /// Home (Phase 12): the objectives still going, those finished in the last week with their
     /// answers, and what is stuck (the last week).
     pub fn home(&self) -> Result<HomeView> {
-        const WEEK_MS: u64 = 7 * 24 * 3_600_000;
+        const DAY_MS: u64 = 24 * 3_600_000;
+        const WEEK_MS: u64 = 7 * DAY_MS;
         let l = self.ledger();
         let records = l.org_records()?;
         let view = OrgView::new(&records);
@@ -356,18 +357,20 @@ impl Workforce {
             .into_iter()
             .map(|a| a.task_id)
             .collect();
-        let since = plenipo_ledger::now_ms().saturating_sub(WEEK_MS);
-        let mut current = Vec::new();
-        let mut finished = Vec::new();
-        for root in l.org_objectives(400)? {
-            if !root.state.is_terminal() {
-                if current.len() < 50 {
-                    current.push(brief(l, &view, &pending, root, None)?);
-                }
-            } else if root.completed_at.unwrap_or(root.updated_at) >= since && finished.len() < 20 {
-                finished.push(brief(l, &view, &pending, root, None)?);
-            }
-        }
+        let now = plenipo_ledger::now_ms();
+        let since = now.saturating_sub(WEEK_MS);
+        let (going, finished_day) = l.objective_counts(now.saturating_sub(DAY_MS))?;
+        let current = l
+            .open_objectives(50)?
+            .into_iter()
+            .map(|root| brief(l, &view, &pending, root, None))
+            .collect::<Result<Vec<_>>>()?;
+        // The last to finish first.
+        let finished = l
+            .finished_objectives(since, 20)?
+            .into_iter()
+            .map(|root| brief(l, &view, &pending, root, None))
+            .collect::<Result<Vec<_>>>()?;
         let titles: HashMap<&str, &str> = records
             .positions
             .iter()
@@ -385,6 +388,8 @@ impl Workforce {
             current,
             finished,
             stuck,
+            going,
+            finished_day,
         })
     }
 

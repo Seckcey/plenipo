@@ -508,12 +508,16 @@ pub struct ObjectiveBrief {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct HomeView {
-    /// Newest first.
+    /// The newest 50, newest first.
     pub current: Vec<ObjectiveBrief>,
-    /// Newest first.
+    /// The last 20 to finish in the last week, the last to finish first.
     pub finished: Vec<ObjectiveBrief>,
     /// The newest problem of each piece of work still in trouble (the last week), newest first.
     pub stuck: Vec<StuckItem>,
+    /// How many objectives are going (all of them, not only those listed).
+    pub going: u32,
+    /// How many objectives finished in the last 24 hours (all of them).
+    pub finished_day: u32,
 }
 
 /// Something stuck (Home): its newest problem, and the task it belongs to.

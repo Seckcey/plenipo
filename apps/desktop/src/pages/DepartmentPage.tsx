@@ -120,7 +120,7 @@ export function DepartmentPage({
               <StatusPill status="offline" label={`No ${manager} yet`} />
             )
           ) : (
-            <StatusPill status="offline" label="Removed" />
+            <StatusPill status="offline" label="Inactive" />
           )
         }
         onBack={onBack}

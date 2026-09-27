@@ -9,6 +9,8 @@ import type {
 } from "@plenipo/types";
 import type { PipPose, Status } from "@plenipo/ui";
 
+import { describeEvent } from "../ledger/format";
+
 /** A task's state on the status ramp, with its word. */
 export const TASK_STATUS: Record<TaskState, { status: Status; label: string }> = {
   queued: { status: "pending", label: "Queued" },
@@ -20,10 +22,29 @@ export const TASK_STATUS: Record<TaskState, { status: Status; label: string }> =
   cancelled: { status: "offline", label: "Cancelled" },
 };
 
+/** Whether Core's error says the thing asked for isn't in the Ledger (not a failure to retry). */
+export function isNotFound(message: string): boolean {
+  return message.startsWith("not found");
+}
+
 /** The first line of a text, cut to `max` characters. */
 export function firstLine(text: string, max = 140): string {
   const line = text.trim().split("\n")[0] ?? "";
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/**
+ * How an event reads in a page's History: the Activity trail's words, without the AI tool's
+ * own conversation number (Diagnostics and the Activity trail keep it).
+ */
+export function historyLine(e: LedgerEvent): string {
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (e.eventType === "agent.session_bound") {
+    return typeof p.model === "string" && p.model !== ""
+      ? `Conversation started · model ${p.model}`
+      : "Conversation started";
+  }
+  return describeEvent(e);
 }
 
 /** How an event reads on the status ramp, when it is a problem or a request (else nothing). */
@@ -43,7 +64,7 @@ export function eventStatus(e: LedgerEvent): { status: Status; label: string } |
     case "liaison.delivery_failed":
       return { status: "error", label: "Failed" };
     case "liaison.waiting_for_member":
-      return { status: "pending", label: "Nobody to take it" };
+      return { status: "pending", label: "Waiting its turn" };
     case "approval.requested":
       return { status: "pending", label: "Waiting for you" };
     case "approval.resolved":
@@ -80,7 +101,7 @@ export interface HomeMood {
   stuck: number;
   working: number;
   /** Objectives finished in the last day. */
-  finishedToday: number;
+  finishedDay: number;
 }
 
 /** Pip's pose on Home: what matters most right now. */
@@ -90,7 +111,7 @@ export function homePip(m: HomeMood): PipPose {
   if (m.empty) return "welcome";
   if (m.waiting > 0) return "presenting";
   if (m.working > 0) return "coding";
-  if (m.finishedToday > 0) return "celebrating";
+  if (m.finishedDay > 0) return "celebrating";
   return "recharging";
 }
 
@@ -116,8 +137,8 @@ export function homeLine(m: HomeMood): string {
     parts.push(m.working === 1 ? "1 worker is working" : `${m.working} workers are working`);
   }
   if (parts.length === 0) {
-    return m.finishedToday > 0
-      ? `All quiet. ${count(m.finishedToday, "objective")} finished today.`
+    return m.finishedDay > 0
+      ? `All quiet. ${count(m.finishedDay, "objective")} finished in the last day.`
       : "All quiet. Nobody is working right now.";
   }
   const sentence =
@@ -137,9 +158,9 @@ export function projectPositions(org: OrgSnapshot, projectId: string): PositionI
   return org.positions.filter((p) => p.active && p.projectId === projectId);
 }
 
-/** Working, waiting on its team, or queued: a position with work in hand. */
+/** Working, or waiting on its team: a position at work now (not one queued for a slot). */
 export function isBusy(p: PositionInfo): boolean {
-  return p.status === "working" || p.status === "waiting" || p.status === "queued";
+  return p.status === "working" || p.status === "waiting";
 }
 
 /**

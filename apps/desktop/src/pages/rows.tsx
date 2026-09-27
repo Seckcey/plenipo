@@ -14,7 +14,7 @@ import { StatusPill, type RowItem, type Status } from "@plenipo/ui";
 import type { Go } from "../components/views";
 import { describeEvent } from "../ledger/format";
 import { POSITION_STATUS } from "../org/cards";
-import { STATUS_LABEL, WORKER_STATE_LABEL, ago, positionToolLabel } from "../org/format";
+import { STATUS_LABEL, ago, positionToolLabel } from "../org/format";
 import { TASK_STATUS, eventStatus, firstLine } from "./words";
 
 /**
@@ -45,10 +45,7 @@ export function workingRows(
           id: `${p.id}:${w.agentId}`,
           title: p.title,
           detail: firstLine(w.objective),
-          status: {
-            status: w.state === "running" ? "ok" : "pending",
-            label: WORKER_STATE_LABEL[w.state],
-          },
+          status: TASK_STATUS[w.state],
           meta: org.runtimes.find((r) => r.id === w.runtimeId)?.label ?? w.runtimeId,
           onOpen: () => go({ view: "worker", id: p.id }),
         });

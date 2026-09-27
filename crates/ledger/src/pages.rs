@@ -13,7 +13,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use crate::activity::{reach, Org, Reach};
@@ -24,6 +24,10 @@ use crate::Ledger;
 
 /// The most events one page of history holds.
 pub const MAX_PAGE_EVENTS: u32 = 200;
+
+/// How many of the newest events a page of a scope's history reads in order before it looks
+/// further back through the task index.
+const HISTORY_STRETCH: i64 = 20_000;
 
 /// Decisions: approvals answered or expired, refusals, handoffs refused, lessons kept or
 /// discarded, the owner's stops and take-overs, and why each worker got its AI tool.
@@ -40,11 +44,11 @@ pub const DECISIONS: &[&str] = &[
     "org.worker_spawned",
 ];
 
-/// Problems the owner may need to act on (What's stuck on Home).
+/// Problems the owner may need to act on (What's stuck on Home). A task waiting for its
+/// full-time worker to finish another task is ordinary queueing, not one of them.
 const PROBLEMS: &[&str] = &[
     "task.state_changed",
     "guard.denied",
-    "liaison.waiting_for_member",
     "liaison.dispatch_failed",
     "liaison.delivery_failed",
     "approval.expired",
@@ -135,26 +139,49 @@ impl Ledger {
                 Reach::Some {
                     positions,
                     projects,
-                } => events(
-                    c,
-                    &format!(
-                        "WITH scoped(id) AS (
-                             SELECT id FROM tasks
-                             WHERE json_extract(metadata, '$.workforce.positionId')
-                                   IN (SELECT value FROM json_each(?1))
-                                OR project_id IN (SELECT value FROM json_each(?2))
-                         )
-                         SELECT {} FROM events e
-                         WHERE e.seq < ?3
-                           AND (e.task_id IN (SELECT id FROM scoped)
-                                OR (e.task_id IS NULL
-                                    AND json_extract(e.payload, '$.positionId')
-                                        IN (SELECT value FROM json_each(?1))))
-                         ORDER BY e.seq DESC LIMIT ?4",
-                        rows::prefixed(EVENT_COLUMNS, "e")
-                    ),
-                    params![json_list(&positions), json_list(&projects), before, limit],
-                ),
+                } => {
+                    let (positions, projects) = (json_list(&positions), json_list(&projects));
+                    let query = |range: &str, limit: u32, plus: &str| {
+                        events(
+                            c,
+                            &format!(
+                                "WITH scoped(id) AS (
+                                     SELECT id FROM tasks
+                                     WHERE json_extract(metadata, '$.workforce.positionId')
+                                           IN (SELECT value FROM json_each(?1))
+                                        OR project_id IN (SELECT value FROM json_each(?2))
+                                 )
+                                 SELECT {} FROM events e
+                                 WHERE {range}
+                                   AND ({plus}e.task_id IN (SELECT id FROM scoped)
+                                        OR ({plus}e.task_id IS NULL
+                                            AND json_extract(e.payload, '$.positionId')
+                                                IN (SELECT value FROM json_each(?1))))
+                                 ORDER BY e.seq DESC LIMIT ?4",
+                                rows::prefixed(EVENT_COLUMNS, "e")
+                            ),
+                            params![positions, projects, before, limit],
+                        )
+                    };
+                    // The newest stretch of the Ledger first, read in order (fast when the
+                    // scope is busy); then, only if the page is not full, the scope's older
+                    // events through the task index (fast when the scope is quiet).
+                    let newest: i64 =
+                        c.query_row("SELECT coalesce(max(seq), 0) FROM events", [], |r| r.get(0))?;
+                    let upper = before.min(newest.saturating_add(1));
+                    let floor = upper.saturating_sub(HISTORY_STRETCH).max(0);
+                    let mut page = query(
+                        &format!("e.seq < ?3 AND e.seq < {upper} AND e.seq >= {floor}"),
+                        limit,
+                        // `+` keeps SQLite reading the stretch in order, not through the index.
+                        "+",
+                    )?;
+                    let got = u32::try_from(page.len()).unwrap_or(limit);
+                    if got < limit && floor > 0 {
+                        page.extend(query(&format!("e.seq < {floor}"), limit - got, "")?);
+                    }
+                    Ok(page)
+                }
             }
         })
     }
@@ -182,123 +209,191 @@ impl Ledger {
         })
     }
 
-    /// The organization's objectives (tasks with no parent that a position was given), newest
-    /// first.
-    pub fn org_objectives(&self, limit: u32) -> Result<Vec<Task>> {
+    /// The organization's objectives (tasks with no parent that a position was given) still
+    /// going, newest first.
+    pub fn open_objectives(&self, limit: u32) -> Result<Vec<Task>> {
+        self.objectives(
+            "state NOT IN ('succeeded', 'failed', 'cancelled')
+             ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+            params![limit.clamp(1, 1000)],
+        )
+    }
+
+    /// The organization's objectives that finished (succeeded, failed, or were cancelled)
+    /// since `since`, the last to finish first.
+    pub fn finished_objectives(&self, since: u64, limit: u32) -> Result<Vec<Task>> {
+        self.objectives(
+            "state IN ('succeeded', 'failed', 'cancelled')
+               AND coalesce(completed_at, updated_at) >= ?1
+             ORDER BY coalesce(completed_at, updated_at) DESC, rowid DESC LIMIT ?2",
+            params![
+                i64::try_from(since).unwrap_or(i64::MAX),
+                limit.clamp(1, 1000)
+            ],
+        )
+    }
+
+    /// How many of the organization's objectives are going, and how many finished since
+    /// `since` (all of them, not a page).
+    pub fn objective_counts(&self, since: u64) -> Result<(u32, u32)> {
+        self.read(|c| {
+            let (going, finished) = c.query_row(
+                "SELECT
+                     coalesce(sum(state NOT IN ('succeeded', 'failed', 'cancelled')), 0),
+                     coalesce(sum(state IN ('succeeded', 'failed', 'cancelled')
+                                  AND coalesce(completed_at, updated_at) >= ?1), 0)
+                 FROM tasks
+                 WHERE parent_task_id IS NULL
+                   AND json_extract(metadata, '$.workforce.positionId') IS NOT NULL",
+                [i64::try_from(since).unwrap_or(i64::MAX)],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+            )?;
+            Ok((
+                u32::try_from(going).unwrap_or(u32::MAX),
+                u32::try_from(finished).unwrap_or(u32::MAX),
+            ))
+        })
+    }
+
+    fn objectives(&self, rest: &str, args: impl rusqlite::Params) -> Result<Vec<Task>> {
         self.read(|c| {
             let mut stmt = c.prepare(&format!(
                 "SELECT {TASK_COLUMNS} FROM tasks
                  WHERE parent_task_id IS NULL
                    AND json_extract(metadata, '$.workforce.positionId') IS NOT NULL
-                 ORDER BY created_at DESC, rowid DESC LIMIT ?1"
+                   AND {rest}"
             ))?;
             let rows = stmt
-                .query_map([limit.clamp(1, 1000)], rows::task)?
+                .query_map(args, rows::task)?
                 .collect::<rusqlite::Result<_>>()?;
             Ok(rows)
         })
     }
 
     /// What is stuck (Home): the newest problem of each piece of work still in trouble since
-    /// `since`, newest first. A failed task counts until its objective succeeds; a refusal, an
-    /// expired approval, or a failed handoff while its task still runs; a handoff waiting for
-    /// a position nobody fills while it waits; a server whose ID changed until it is pinned
-    /// again.
+    /// `since`, newest first. Work is the company's: an objective given to a position and the
+    /// tasks under it (not Diagnostics' test tasks). A failed task counts until its objective
+    /// succeeds; a refusal, an expired approval, or a handoff that could not start or be
+    /// delivered while its task still runs. A server whose ID changed counts until it is set
+    /// right, as Settings → Servers decides: a new ID pinned, a later connection or test that
+    /// succeeds, or the server removed.
+    ///
+    /// Reads only the events since `since` (found through the time index), and asks about each
+    /// piece of work once.
     pub fn problems(&self, since: u64, limit: u32) -> Result<Vec<LedgerEvent>> {
         let limit = usize::try_from(limit.clamp(1, 200)).unwrap_or(200);
         let since = i64::try_from(since).unwrap_or(i64::MAX);
         self.read(|c| {
-            let marks = vec!["?"; PROBLEMS.len()].join(", ");
+            // Events are numbered in the order they happen: the first one since `since`
+            // bounds the scan.
+            let Some(first) = c
+                .query_row(
+                    "SELECT seq FROM events WHERE created_at >= ?1
+                     ORDER BY created_at, seq LIMIT 1",
+                    [since],
+                    |r| r.get::<_, i64>(0),
+                )
+                .optional()?
+            else {
+                return Ok(Vec::new());
+            };
+            let marks = (1..=PROBLEMS.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(", ");
             let mut args: Vec<rusqlite::types::Value> = PROBLEMS
                 .iter()
                 .map(|t| rusqlite::types::Value::Text((*t).to_owned()))
                 .collect();
+            args.push(rusqlite::types::Value::Integer(first));
             args.push(rusqlite::types::Value::Integer(since));
-            let candidates = events(
-                c,
-                &format!(
-                    "SELECT {EVENT_COLUMNS} FROM events
-                     WHERE event_type IN ({marks}) AND created_at >= ?{}
-                     ORDER BY seq DESC LIMIT 2000",
-                    PROBLEMS.len() + 1
-                ),
-                rusqlite::params_from_iter(args),
-            )?;
-            let state = |id: &str| -> Result<Option<TaskState>> {
-                Ok(
-                    c.query_row("SELECT state FROM tasks WHERE id = ?1", [id], |r| {
-                        r.get::<_, String>(0)
-                    })
-                    .ok()
-                    .and_then(|s| TaskState::parse(&s)),
-                )
-            };
-            let root_state = |id: &str| -> Result<Option<TaskState>> {
-                Ok(c.query_row(
+            let n = PROBLEMS.len();
+            let mut candidates = c.prepare(&format!(
+                "SELECT {EVENT_COLUMNS} FROM events
+                 WHERE seq >= ?{} AND event_type IN ({marks}) AND created_at >= ?{}
+                   AND (event_type <> 'task.state_changed'
+                        OR json_extract(payload, '$.to') = 'failed')
+                 ORDER BY seq DESC",
+                n + 1,
+                n + 2
+            ))?;
+            let mut rows = candidates.query(rusqlite::params_from_iter(args))?;
+            // The objective a task belongs to: whether it is the company's work, and its state.
+            let objective = |id: &str| -> Option<(bool, TaskState)> {
+                c.query_row(
                     "WITH RECURSIVE up(id, parent, depth) AS (
                          SELECT id, parent_task_id, 0 FROM tasks WHERE id = ?1
                          UNION ALL
                          SELECT t.id, t.parent_task_id, up.depth + 1
                          FROM tasks t JOIN up ON t.id = up.parent WHERE up.depth < 64
                      )
-                     SELECT t.state FROM tasks t
+                     SELECT json_extract(t.metadata, '$.workforce.positionId') IS NOT NULL
+                            AND coalesce(json_extract(t.metadata, '$.synthetic'), 0) = 0,
+                            t.state
+                     FROM tasks t
                      WHERE t.id = (SELECT id FROM up WHERE parent IS NULL)",
                     [id],
-                    |r| r.get::<_, String>(0),
+                    |r| Ok((r.get::<_, bool>(0)?, r.get::<_, String>(1)?)),
                 )
                 .ok()
-                .and_then(|s| TaskState::parse(&s)))
+                .and_then(|(company, state)| Some((company, TaskState::parse(&state)?)))
             };
-            let repinned = |server: &str, after: u64| -> Result<bool> {
-                Ok(c.query_row(
-                    "SELECT 1 FROM events WHERE event_type = 'guard.server_changed'
+            let running = |id: &str| -> bool {
+                c.query_row("SELECT state FROM tasks WHERE id = ?1", [id], |r| {
+                    r.get::<_, String>(0)
+                })
+                .ok()
+                .and_then(|s| TaskState::parse(&s))
+                .is_some_and(|s| !s.is_terminal())
+            };
+            let set_right = |server: &str, after: u64| -> bool {
+                c.query_row(
+                    "SELECT 1 FROM events
+                     WHERE seq > ?2
+                       AND event_type IN ('guard.server_changed', 'guard.server_removed',
+                                          'ssh.connected', 'ssh.tested')
                        AND json_extract(payload, '$.serverId') = ?1
-                       AND json_extract(payload, '$.pinned') = 1 AND created_at >= ?2 LIMIT 1",
+                       AND (event_type IN ('guard.server_removed', 'ssh.connected')
+                            OR (event_type = 'guard.server_changed'
+                                AND json_extract(payload, '$.pinned') = 1)
+                            OR (event_type = 'ssh.tested'
+                                AND json_extract(payload, '$.ok') = 1))
+                     LIMIT 1",
                     params![server, i64::try_from(after).unwrap_or(i64::MAX)],
                     |_| Ok(()),
                 )
-                .is_ok())
+                .is_ok()
             };
-            let mut seen: HashSet<String> = HashSet::new();
+            // Each piece of work is decided by its newest problem, once.
+            let mut decided: HashSet<String> = HashSet::new();
             let mut out = Vec::new();
-            for e in candidates {
-                if out.len() >= limit {
-                    break;
-                }
+            while out.len() < limit {
+                let Some(row) = rows.next()? else { break };
+                let e = rows::event(row)?;
                 let p = &e.payload;
-                // One problem per piece of work (a task, or a server).
                 let key = match (&e.task_id, e.event_type.as_str()) {
-                    (_, "ssh.host_key_changed") => {
-                        format!("server:{}", text(&p["serverId"]).unwrap_or_default())
-                    }
+                    (_, "ssh.host_key_changed") => match text(&p["serverId"]) {
+                        Some(server) => format!("server:{server}"),
+                        None => continue,
+                    },
                     (Some(t), _) => format!("task:{t}"),
                     (None, _) => continue,
                 };
-                if seen.contains(&key) {
+                if !decided.insert(key) {
                     continue;
                 }
-                let still = match e.event_type.as_str() {
-                    "task.state_changed" => {
-                        p["to"] == "failed"
-                            && e.task_id.as_deref().is_some_and(|t| {
-                                root_state(t)
-                                    .ok()
-                                    .flatten()
-                                    .is_none_or(|s| s != TaskState::Succeeded)
-                            })
+                let still = match (e.event_type.as_str(), e.task_id.as_deref()) {
+                    ("ssh.host_key_changed", _) => {
+                        text(&p["serverId"]).is_some_and(|s| !set_right(&s, e.seq))
                     }
-                    "ssh.host_key_changed" => text(&p["serverId"])
-                        .is_some_and(|s| !repinned(&s, e.created_at).unwrap_or(false)),
-                    _ => e
-                        .task_id
-                        .as_deref()
-                        .is_some_and(|t| state(t).ok().flatten().is_some_and(|s| !s.is_terminal())),
+                    ("task.state_changed", Some(t)) => objective(t)
+                        .is_some_and(|(company, state)| company && state != TaskState::Succeeded),
+                    (_, Some(t)) => objective(t).is_some_and(|(company, _)| company) && running(t),
+                    (_, None) => false,
                 };
-                if !still {
-                    continue;
+                if still {
+                    out.push(e);
                 }
-                seen.insert(key);
-                out.push(e);
             }
             Ok(out)
         })
@@ -541,22 +636,90 @@ mod tests {
         assert_eq!(ids.len(), 2);
     }
 
+    /// An objective given to a position: the company's work.
+    fn objective(l: &Ledger, text: &str) -> Task {
+        l.create_task(
+            NewTask {
+                requested_by: "owner".into(),
+                objective: text.into(),
+                priority: 2,
+                metadata: json!({ "workforce": { "positionId": "pos-shop" } }),
+                ..NewTask::default()
+            },
+            "owner",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn objectives_going_are_newest_first_and_finished_ones_last_to_finish_first() {
+        let l = ledger();
+        let older = objective(&l, "Order stock");
+        let newer = objective(&l, "Write the post");
+        let going = objective(&l, "Plan the week");
+        // Not the organization's: no position was given it.
+        let other = task(&l, "Try the AI tool");
+        for t in [&older, &newer, &going, &other] {
+            l.transition_task(&t.id, TaskState::Running, "w", None)
+                .unwrap();
+        }
+        // The newer one finishes first, the older one last.
+        l.transition_task(&newer.id, TaskState::Succeeded, "w", None)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        l.transition_task(&older.id, TaskState::Failed, "w", None)
+            .unwrap();
+        let ids = |tasks: Vec<Task>| tasks.into_iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(ids(l.open_objectives(50).unwrap()), [going.id.clone()]);
+        assert_eq!(
+            ids(l.finished_objectives(0, 20).unwrap()),
+            [older.id.clone(), newer.id.clone()]
+        );
+        assert_eq!(ids(l.finished_objectives(0, 1).unwrap()), [older.id]);
+        // Counted whole, not a page.
+        assert_eq!(l.objective_counts(0).unwrap(), (1, 2));
+        assert_eq!(
+            l.objective_counts(crate::now_ms() + 60_000).unwrap(),
+            (1, 0)
+        );
+        assert!(l
+            .finished_objectives(crate::now_ms() + 60_000, 20)
+            .unwrap()
+            .is_empty());
+    }
+
     #[test]
     fn what_is_stuck_is_one_problem_per_piece_of_work_still_in_trouble() {
         let l = ledger();
         // A failed objective: stuck.
-        let failed = task(&l, "Order stock");
+        let failed = objective(&l, "Order stock");
         fail(&l, &failed);
         // A failed step whose objective then succeeded: not stuck.
-        let done = task(&l, "Write the post");
+        let done = objective(&l, "Write the post");
         let step = child(&l, &done, "Draft", json!({}));
         fail(&l, &step);
         l.transition_task(&done.id, TaskState::Running, "w", None)
             .unwrap();
         l.transition_task(&done.id, TaskState::Succeeded, "w", None)
             .unwrap();
+        // Not the company's work: a task nobody in the organization was given, and
+        // Diagnostics' test task.
+        fail(&l, &task(&l, "Try the AI tool"));
+        let test = l
+            .create_task(
+                NewTask {
+                    requested_by: "owner".into(),
+                    objective: "Synthetic diagnostic task".into(),
+                    priority: 2,
+                    metadata: json!({ "synthetic": true }),
+                    ..NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        fail(&l, &test);
         // A refusal while its task still runs: stuck (once, however many).
-        let running = task(&l, "Clean the server");
+        let running = objective(&l, "Clean the server");
         l.transition_task(&running.id, TaskState::Running, "w", None)
             .unwrap();
         event(
@@ -571,40 +734,79 @@ mod tests {
             "guard.denied",
             json!({ "summary": "run rm -rf" }),
         );
-        // A changed server ID: stuck until pinned again.
+        // A task waiting for its full-time worker to finish another task: ordinary queueing.
+        let queued = objective(&l, "Next in line");
         event(
             &l,
-            None,
-            "ssh.host_key_changed",
-            json!({ "serverId": "s1", "server": "Shop" }),
+            Some(&queued.id),
+            "liaison.waiting_for_member",
+            json!({ "reason": "waiting for Senior Developer to finish its current task" }),
         );
-        event(
-            &l,
-            None,
-            "ssh.host_key_changed",
-            json!({ "serverId": "s2", "server": "Dev" }),
-        );
-        event(
-            &l,
-            None,
-            "guard.server_changed",
-            json!({ "serverId": "s2", "pinned": true }),
-        );
+        // A changed server ID: stuck until it is set right, as Settings → Servers decides.
+        for (server, fixed) in [
+            ("s1", None),
+            (
+                "s2",
+                Some(("guard.server_changed", json!({ "pinned": true }))),
+            ),
+            ("s3", Some(("ssh.tested", json!({ "ok": true })))),
+            (
+                "s4",
+                Some(("ssh.connected", json!({ "worker": "Operations Engineer" }))),
+            ),
+            ("s5", Some(("guard.server_removed", json!({})))),
+            // Saved again without a new ID, or a test that failed: still stuck.
+            (
+                "s6",
+                Some(("guard.server_changed", json!({ "pinned": false }))),
+            ),
+            ("s7", Some(("ssh.tested", json!({ "ok": false })))),
+        ] {
+            event(
+                &l,
+                None,
+                "ssh.host_key_changed",
+                json!({ "serverId": server, "server": server }),
+            );
+            if let Some((kind, mut payload)) = fixed {
+                payload["serverId"] = json!(server);
+                event(&l, None, kind, payload);
+            }
+        }
+        // A busy week of ordinary work does not push older problems out.
+        for _ in 0..2_100 {
+            event(
+                &l,
+                Some(&running.id),
+                "task.state_changed",
+                json!({ "from": "running", "to": "blocked" }),
+            );
+        }
         let stuck = l.problems(0, 50).unwrap();
-        let kinds: Vec<(&str, Option<&str>)> = stuck
+        let kinds: Vec<(&str, Option<&str>, Option<&str>)> = stuck
             .iter()
-            .map(|e| (e.event_type.as_str(), e.task_id.as_deref()))
+            .map(|e| {
+                (
+                    e.event_type.as_str(),
+                    e.task_id.as_deref(),
+                    e.payload["serverId"].as_str(),
+                )
+            })
             .collect();
         assert_eq!(
             kinds,
             [
-                ("ssh.host_key_changed", None),
-                ("guard.denied", Some(running.id.as_str())),
-                ("task.state_changed", Some(failed.id.as_str())),
+                ("ssh.host_key_changed", None, Some("s7")),
+                ("ssh.host_key_changed", None, Some("s6")),
+                ("ssh.host_key_changed", None, Some("s1")),
+                ("guard.denied", Some(running.id.as_str()), None),
+                ("task.state_changed", Some(failed.id.as_str()), None),
             ]
         );
-        assert_eq!(stuck[1].payload["summary"], "run rm -rf", "the newest");
-        assert_eq!(stuck[0].payload["serverId"], "s1");
+        assert_eq!(stuck[3].payload["summary"], "run rm -rf", "the newest");
+        // At most `limit`, newest first; nothing from before `since`.
+        assert_eq!(l.problems(0, 2).unwrap().len(), 2);
+        assert!(l.problems(crate::now_ms() + 60_000, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -808,6 +1010,30 @@ mod tests {
                 .len()
         });
         assert_eq!(dev, 50);
+        // And all of it, page by page: the newest stretch holds none of it, so each page looks
+        // further back; every event comes once, in order.
+        let mut seqs: Vec<u64> = Vec::new();
+        timed(
+            "the department's whole history, a page at a time",
+            &mut || {
+                let mut before = None;
+                loop {
+                    let page = l
+                        .scope_events(
+                            &ActivityScope::Department("dev".into()),
+                            before,
+                            MAX_PAGE_EVENTS,
+                        )
+                        .unwrap();
+                    let Some(last) = page.last() else { break };
+                    before = Some(last.seq);
+                    seqs.extend(page.iter().map(|e| e.seq));
+                }
+                seqs.len()
+            },
+        );
+        assert_eq!(seqs.len(), 3_000, "every event, each once");
+        assert!(seqs.windows(2).all(|w| w[0] > w[1]), "newest first");
         let res = timed("the other department's first page", &mut || {
             l.scope_events(&ActivityScope::Department("res".into()), None, 50)
                 .unwrap()

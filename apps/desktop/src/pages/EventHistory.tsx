@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LedgerEvent } from "@plenipo/types";
 import { Button, EmptyState, RowList, type RowItem } from "@plenipo/ui";
 
 import { toCommandError } from "../api/commands";
-import { describeEvent, shownInTrail } from "../ledger/format";
+import { shownInTrail } from "../ledger/format";
 import { ago } from "../org/format";
 import { anyEvent, useLive } from "./useLive";
-import { eventStatus } from "./words";
+import { eventStatus, historyLine } from "./words";
 
 /** Events per page of history. */
 export const HISTORY_PAGE = 50;
@@ -14,7 +14,8 @@ export const HISTORY_PAGE = 50;
 /**
  * A history of events, newest first, kept live: the newest page reloads as things happen, and
  * **Show older** adds the page before the oldest shown. `load(before)` reads the page before
- * the event numbered `before` (all of it when `before` is left out).
+ * the event numbered `before` (all of it when `before` is left out). Once older pages are shown,
+ * the events between them and a newest page that moved on are read too, so none go missing.
  */
 export function EventHistory({
   label,
@@ -50,6 +51,48 @@ export function EventHistory({
   });
   const olderEvents = older.key === historyKey ? older.events : [];
   const page = paging.key === historyKey ? paging : { error: null, busy: false };
+  // The newest `load` (callers pass a new function on every render).
+  const loadRef = useRef(load);
+  useLayoutEffect(() => {
+    loadRef.current = load;
+  });
+
+  // When many events arrive at once, the newest page moves past the events just above the
+  // older pages shown. Read those in between (a page at a time, until the older pages are
+  // reached), so the history stays whole.
+  const filling = useRef(false);
+  useEffect(() => {
+    const top = newest.value;
+    if (older.key !== historyKey || older.events.length === 0 || !top?.length) return;
+    if (filling.current) return;
+    const key = historyKey;
+    const reached = older.events.reduce((max, e) => Math.max(max, e.seq), 0);
+    let before = top.reduce((min, e) => Math.min(min, e.seq), Number.MAX_SAFE_INTEGER);
+    if (before <= reached) return;
+    const known = new Set([...top, ...older.events].map((e) => e.seq));
+    filling.current = true;
+    void (async () => {
+      const found: LedgerEvent[] = [];
+      try {
+        for (let round = 0; round < 20; round++) {
+          const between = await loadRef.current(before);
+          found.push(...between.filter((e) => !known.has(e.seq)));
+          const last = between.at(-1);
+          if (!last || between.length < HISTORY_PAGE || last.seq <= reached) break;
+          before = last.seq;
+        }
+      } catch {
+        // The next reload tries again.
+      } finally {
+        filling.current = false;
+      }
+      if (found.length > 0) {
+        setOlder((prev) =>
+          prev.key === key ? { ...prev, events: [...prev.events, ...found] } : prev,
+        );
+      }
+    })();
+  }, [newest.value, older, historyKey]);
 
   const seen = new Set<number>();
   const events = [...(newest.value ?? []), ...olderEvents]
@@ -88,11 +131,11 @@ export function EventHistory({
     const opens = e.taskId !== null && e.taskId !== currentTaskId && onOpenTask;
     return {
       id: String(e.seq),
-      title: describeEvent(e),
+      title: historyLine(e),
       status: eventStatus(e),
       meta: ago(e.createdAt, now),
       onOpen: opens ? () => onOpenTask(e.taskId!) : undefined,
-      openLabel: opens ? `${describeEvent(e)}. Open its task` : undefined,
+      openLabel: opens ? `${historyLine(e)}. Open its task` : undefined,
     };
   });
 

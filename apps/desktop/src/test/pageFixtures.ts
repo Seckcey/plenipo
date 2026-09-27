@@ -86,6 +86,8 @@ export function sampleHome(patch: Partial<HomeView> = {}): HomeView {
         },
       },
     ],
+    going: 1,
+    finishedDay: 1,
     ...patch,
   };
 }

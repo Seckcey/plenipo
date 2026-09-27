@@ -15,7 +15,7 @@ import {
 import { getTaskEvents, getTaskRecord, getTaskTimeline, getTaskTree } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import type { Go } from "../components/views";
-import { sourceLabel } from "../ledger/format";
+import { sourceLabel, toolName } from "../ledger/format";
 import { useOrganization } from "../org/useOrganization";
 import { useObjectiveReport } from "../projects/useProjectWork";
 import { useNow } from "../runtime/useNow";
@@ -24,7 +24,7 @@ import { PageMissing, Screenshots } from "./parts";
 import { approvalRows, decisionRows, pullRequestRows } from "./rows";
 import { taskPosition, treeMap } from "./tree";
 import { changesWork, useLive } from "./useLive";
-import { TASK_STATUS, count, firstLine, when } from "./words";
+import { TASK_STATUS, count, firstLine, isNotFound, when } from "./words";
 
 /**
  * A task's page (Phase 12): its objective and what counts as done, the delegation tree, its
@@ -44,37 +44,46 @@ export function TaskPage({
 }) {
   const now = useNow(30_000);
   const org = useOrganization().snapshot;
-  const timeline = useLive<TaskTimeline>(
-    id,
-    getTaskTimeline,
-    (e) => e.taskId === id || e.eventType.startsWith("task."),
-    500,
-  );
+  // The task and those around it come with its delegation tree (tasks only, no events).
   const tree = useLive<TaskTree>(id, getTaskTree, changesWork, 800);
+  const node = tree.value?.nodes.find((n) => n.task.id === id);
+  // A very large tree lists its first 500 tasks: a task past them is read on its own.
+  const alone = useLive<TaskTimeline>(
+    tree.value && !node ? id : null,
+    getTaskTimeline,
+    (e) => e.taskId === id,
+    1_000,
+  );
   const record = useLive<TaskRecord>(id, getTaskRecord, changesWork, 800);
-  const { report, error: reportError } = useObjectiveReport(tree.value?.rootId ?? null);
+  const task = node?.task ?? alone.value?.task ?? null;
+  const isRoot = task !== null && task.parentTaskId === null;
+  // The objective's result (built from all of its work) only on the objective's own page.
+  const { report, error: reportError } = useObjectiveReport(isRoot ? id : null);
 
-  if (timeline.status === "loading") {
+  if (tree.status === "loading" || (tree.value && !node && alone.status === "loading")) {
     return (
       <div className="page">
         <LoadingState label="Loading the task" lines={6} />
       </div>
     );
   }
-  const task = timeline.value?.task;
   if (!task) {
+    const error = tree.error ?? alone.error;
     return (
       <PageMissing
         kind="task"
         onBack={onBack}
         onHome={() => go({ view: "home", id: null })}
-        error={timeline.error}
-        onRetry={timeline.reload}
+        // A task that isn't in the Ledger (any more) is not an error to try again.
+        error={error && !isNotFound(error) ? error : null}
+        onRetry={() => {
+          tree.reload();
+          alone.reload();
+        }}
       />
     );
   }
 
-  const isRoot = task.parentTaskId === null;
   const positionId = taskPosition(task.metadata);
   const position = positionId ? org?.positions.find((p) => p.id === positionId) : undefined;
   const project = task.projectId ? org?.projects.find((p) => p.id === task.projectId) : undefined;
@@ -82,7 +91,6 @@ export function TaskPage({
   const map = tree.value ? treeMap(tree.value, org) : null;
   const rootId = tree.value?.rootId ?? null;
   const rootTask = tree.value?.nodes.find((n) => n.task.id === rootId)?.task;
-  const own = report?.tasks.find((t) => t.taskId === id);
   const approvals = record.value?.approvals ?? [];
   const status = TASK_STATUS[task.state];
 
@@ -125,7 +133,7 @@ export function TaskPage({
                 value: task.acceptanceCriteria.trim() ? (
                   <div className="page__text">{task.acceptanceCriteria}</div>
                 ) : (
-                  "No acceptance criteria were given"
+                  "Not said when it was given"
                 ),
               },
               {
@@ -135,7 +143,8 @@ export function TaskPage({
                     {position.title}
                   </CellLink>
                 ) : (
-                  (task.assignedTo ?? "Nobody yet")
+                  // A task handed to an AI tool directly names the tool.
+                  (node?.runtimeLabel ?? toolName(task.assignedTo) ?? "Nobody yet")
                 ),
               },
               { label: "Asked by", value: sourceLabel(task.requestedBy, { capitalize: true }) },
@@ -165,7 +174,12 @@ export function TaskPage({
                 : []),
               {
                 label: "Tasks under it",
-                value: count(timeline.value?.children.length ?? 0, "task"),
+                value: count(
+                  node
+                    ? (tree.value?.nodes.filter((n) => n.task.parentTaskId === id).length ?? 0)
+                    : (alone.value?.children.length ?? 0),
+                  "task",
+                ),
               },
               { label: "Created", value: when(task.createdAt, now) },
               ...(task.startedAt ? [{ label: "Started", value: when(task.startedAt, now) }] : []),
@@ -200,6 +214,7 @@ export function TaskPage({
             selectedId={id}
             state={tree.status}
             error={tree.error}
+            onRetry={tree.reload}
             onSelect={(taskId) => {
               if (taskId !== id) go({ view: "task", id: taskId });
             }}
@@ -207,13 +222,34 @@ export function TaskPage({
         </Panel>
 
         <Panel id="task-result" title="Result" wide>
-          {reportError && !report ? (
+          {!isRoot ? (
+            <EmptyState
+              compact
+              title={
+                task.state === "succeeded"
+                  ? "Finished"
+                  : task.state === "failed" || task.state === "cancelled"
+                    ? TASK_STATUS[task.state].label
+                    : "No result yet"
+              }
+              action={
+                rootTask ? (
+                  <Button size="sm" onClick={() => go({ view: "task", id: rootTask.id })}>
+                    Open the objective's result
+                  </Button>
+                ) : undefined
+              }
+            >
+              This task is one part of an objective. What it did is in its Activity below; the whole
+              result is on the objective's page.
+            </EmptyState>
+          ) : reportError && !report ? (
             <p className="page__note page__note--error" role="alert">
               Couldn't build the result: {reportError}
             </p>
           ) : !report ? (
             <LoadingState label="Loading the result" lines={3} />
-          ) : isRoot ? (
+          ) : (
             // The result keeps the look it has on the Projects page.
             <div className="view page__result">
               <ObjectiveResult
@@ -223,19 +259,6 @@ export function TaskPage({
                 onOpenApprovals={() => go({ view: "approvals", id: null })}
               />
             </div>
-          ) : (
-            <EmptyState
-              compact
-              title={
-                own?.summary
-                  ? firstLine(own.summary, 300)
-                  : task.state === "succeeded"
-                    ? "Finished, with nothing to report"
-                    : "No result yet"
-              }
-            >
-              This task is one part of an objective; its whole result is on the objective's page.
-            </EmptyState>
           )}
         </Panel>
 

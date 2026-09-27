@@ -48,8 +48,6 @@ import {
 
 type Approvals = ReturnType<typeof useApprovals>;
 
-const DAY_MS = 86_400_000;
-
 /** A stuck item's row: its task (or the server), what went wrong, and where to fix it. */
 function stuckRow(item: StuckItem, go: Go, now: number): RowItem {
   const what = describeEvent(item.event);
@@ -105,11 +103,12 @@ export function HomePage({
         org.positions.filter((p) => p.active),
       )
     : [];
-  const finishedToday =
-    home.value?.finished.filter((b) => (b.completedAt ?? b.createdAt) >= now - DAY_MS).length ?? 0;
+  const finishedDay = home.value?.finishedDay ?? 0;
+  // What couldn't be read is never shown as "nothing" (nothing waiting, nothing stuck).
+  const waitingError = approvals.error ?? learning.error;
   const mood: HomeMood = {
     loading: organization.status === "loading" || home.status === "loading",
-    failed: organization.status === "error" && home.status === "error",
+    failed: organization.status === "error" || home.status === "error" || waitingError !== null,
     empty:
       org !== null &&
       org.departments.length === 0 &&
@@ -118,7 +117,7 @@ export function HomePage({
     waiting: pending.length + lessons.length,
     stuck: stuck.length + unavailable.length,
     working: working.length,
-    finishedToday,
+    finishedDay,
   };
   const t = org ? titlesOf(org) : null;
 
@@ -147,19 +146,28 @@ export function HomePage({
   ];
 
   const stats: StatItem[] = [
-    {
-      label: "Waiting for you",
-      value: mood.waiting,
-      status: mood.waiting > 0 ? "pending" : "ok",
-      hint: `${count(pending.length, "request")}, ${count(lessons.length, "lesson")}`,
-      onOpen: () => go({ view: "approvals", id: null }),
-    },
-    {
-      label: "Stuck",
-      value: mood.stuck,
-      status: mood.stuck > 0 ? "error" : "ok",
-      hint: mood.stuck > 0 ? "See What's stuck" : "Nothing stuck",
-    },
+    waitingError
+      ? {
+          label: "Waiting for you",
+          value: "—",
+          hint: "Couldn't check",
+          onOpen: () => go({ view: "approvals", id: null }),
+        }
+      : {
+          label: "Waiting for you",
+          value: mood.waiting,
+          status: mood.waiting > 0 ? "pending" : "ok",
+          hint: `${count(pending.length, "request")}, ${count(lessons.length, "lesson")}`,
+          onOpen: () => go({ view: "approvals", id: null }),
+        },
+    home.status === "error"
+      ? { label: "Stuck", value: "—", hint: "Couldn't check" }
+      : {
+          label: "Stuck",
+          value: mood.stuck,
+          status: mood.stuck > 0 ? "error" : "ok",
+          hint: mood.stuck > 0 ? "See What's stuck" : "Nothing stuck",
+        },
     {
       label: "Working now",
       value: working.length,
@@ -169,14 +177,16 @@ export function HomePage({
     },
     {
       label: "Objectives going",
-      value: home.value?.current.length ?? "—",
+      value: home.value?.going ?? "—",
       hint: "Given to your company",
     },
     {
-      label: "Done in the last day",
-      value: finishedToday,
-      status: finishedToday > 0 ? "ok" : undefined,
-      hint: org ? `${count(org.stats.failed24h, "task")} failed` : undefined,
+      label: "Finished",
+      value: home.value ? finishedDay : "—",
+      status: finishedDay > 0 ? "ok" : undefined,
+      hint: org
+        ? `In the last day · ${count(org.stats.failed24h, "task")} failed`
+        : "In the last day",
       onOpen: () => go({ view: "activity", id: null }),
     },
   ];
@@ -221,7 +231,12 @@ export function HomePage({
           <RowList
             label="Waiting for you"
             items={waitingRows}
-            state={approvals.queue === null && !approvals.error ? "loading" : "ready"}
+            state={waitingError ? "error" : approvals.queue === null ? "loading" : "ready"}
+            error={waitingError}
+            onRetry={() => {
+              void approvals.reload();
+              void learning.reload();
+            }}
             empty={<EmptyState compact title="Nothing is waiting for you" />}
           />
         </Panel>

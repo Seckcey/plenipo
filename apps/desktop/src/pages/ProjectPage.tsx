@@ -264,8 +264,10 @@ export function ProjectPage({
             label="Task tree"
             nodes={map?.nodes ?? []}
             links={map?.links ?? []}
-            state={shown === null ? "ready" : tree.status}
-            error={tree.error}
+            // Until the objectives are read, the tree waits on them (and says so if they fail).
+            state={workState !== "ready" ? workState : shown === null ? "ready" : tree.status}
+            error={workState === "error" ? workError : tree.error}
+            onRetry={workState === "error" ? () => void reloadWork() : tree.reload}
             onSelect={(taskId) => go({ view: "task", id: taskId })}
             empty={<EmptyState compact title="No objectives yet, so no tasks to map" />}
           />

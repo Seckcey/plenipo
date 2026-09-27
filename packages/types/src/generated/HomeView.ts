@@ -8,14 +8,22 @@ import type { StuckItem } from "./StuckItem";
  */
 export type HomeView = { 
 /**
- * Newest first.
+ * The newest 50, newest first.
  */
 current: Array<ObjectiveBrief>, 
 /**
- * Newest first.
+ * The last 20 to finish in the last week, the last to finish first.
  */
 finished: Array<ObjectiveBrief>, 
 /**
  * The newest problem of each piece of work still in trouble (the last week), newest first.
  */
-stuck: Array<StuckItem>, };
+stuck: Array<StuckItem>, 
+/**
+ * How many objectives are going (all of them, not only those listed).
+ */
+going: number, 
+/**
+ * How many objectives finished in the last 24 hours (all of them).
+ */
+finishedDay: number, };

@@ -13,7 +13,7 @@ export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
   running: "Running",
   blocked: "Blocked",
-  awaitingApproval: "Awaiting approval",
+  awaitingApproval: "Waiting for you",
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -519,6 +519,11 @@ const TOOL_NAMES: Record<string, string> = {
   ollama: "Ollama",
 };
 
+/** An AI tool's name from its ID ("codex" → "Codex"); nothing for nothing. */
+export function toolName(id: string | null | undefined): string | null {
+  return id ? (TOOL_NAMES[id] ?? id) : null;
+}
+
 /**
  * Who recorded an event or asked for a task, in plain words: Plenipo's own parts are "Plenipo",
  * the owner is "you", and an agent is named by its AI tool (`agent:codex` → "Codex").
@@ -623,6 +628,11 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
       return `Handoff requests ignored${why}`;
     case "liaison.delivery_failed":
       return `Handoff replies could not be delivered${why}`;
+    case "liaison.waiting_for_member": {
+      // "waiting for Senior Developer to finish its current task"
+      const reason = brief(p.reason, 200);
+      return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) : "Waiting its turn";
+    }
   }
   return null;
 }

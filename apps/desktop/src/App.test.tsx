@@ -143,7 +143,7 @@ beforeEach(() => {
     ),
   );
   api.getProjectWork.mockResolvedValue(sampleWork());
-  api.getHome.mockResolvedValue({ current: [], finished: [], stuck: [] });
+  api.getHome.mockResolvedValue({ current: [], finished: [], stuck: [], going: 0, finishedDay: 0 });
   api.getScopeEvents.mockResolvedValue([]);
   api.getTaskEvents.mockResolvedValue([]);
   api.getProjectRecord.mockResolvedValue({ pullRequests: [], artifacts: [], decisions: [] });

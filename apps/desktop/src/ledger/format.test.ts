@@ -99,6 +99,15 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     expect(describeEvent(event("liaison.reply_refused", { reason: "wrong workflow" }))).toBe(
       "Reply refused: wrong workflow",
     );
+    // Ordinary queueing, in plain words (it was shown as its raw name before).
+    expect(
+      describeEvent(
+        event("liaison.waiting_for_member", {
+          reason: "waiting for Senior Developer to finish its current task",
+        }),
+      ),
+    ).toBe("Waiting for Senior Developer to finish its current task");
+    expect(describeEvent(event("liaison.waiting_for_member", {}))).toBe("Waiting its turn");
   });
 });
 
