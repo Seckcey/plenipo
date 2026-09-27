@@ -176,7 +176,24 @@ Prefer not to build it? [Download the latest Windows installer](https://github.c
 
 ## What's new
 
-Plenipo is built phase by phase. Current version: **v1.7.0**.
+Plenipo is built phase by phase. Current version: **v1.8.0**.
+
+<details>
+<summary><strong>v1.8.0 — Home, a page for everything, your terminal, and notices</strong> (Phase 12)</summary>
+
+Plenipo opens on **Home**, where Pip says how your company is doing: what waits for you, what's
+stuck, each department's health, the objectives going, who's working, and what just finished.
+Every department, project, worker, and task has its own page, with **Back**. The **Terminal**
+panel (Ctrl+`) lets you type on this PC or on your servers (the server's ID is checked first), and
+a watch tab shows each worker's server commands as they run, with **Stop** and **Disconnect**.
+Windows **pop-up notices** tell you when something needs you. **Settings** is one list of
+sections. The older pages use the same building blocks, and Plenipo wears its new logo and Pip.
+
+[Release notes](docs/releases/v1.8.0.md) · [ADR-031](docs/adr/ADR-031-terminal-panel.md) (the
+terminal panel) · [ADR-033](docs/adr/ADR-033-pages-notices-settings.md) (Home, the pages, notices,
+and Settings)
+
+</details>
 
 <details>
 <summary><strong>v1.7.0 — A new look</strong> (Phase 12A)</summary>

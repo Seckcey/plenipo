@@ -1333,6 +1333,8 @@ Phase 2 event model (for activity strips and timelines). Should land before or a
 
 # Phase 12 — Product UX, Notifications, Settings, and Operator Experience
 
+**Status: delivered in v1.8.0** (checklist and acceptance report in `docs/phases/phase-12-*`). Decisions: ADR-031 (the terminal panel, accepted) and ADR-033 (Home, a page for each thing, pop-up notices, and Settings in one place, proposed): Home is the first page; the plan's views are pages of one department, project, worker (a position), and task, with Back, and where you are comes back after a restart; Windows pop-up notices are decided by Plenipo from the Ledger and shown through `tauri-plugin-notification`, whose own commands no window may call; Settings is one list of sections, with local paths shown, not changed. At the owner's direction, the app wears the approved Plenipo + Pip brand kit (kept in `docs/brand/pip-brand-kit`). Real Windows notices, and the terminal with PowerShell and a real server, are checked by the owner on Windows.
+
 ## Goal
 
 Turn the proven engine into a desktop product that the owner can understand and operate without watching raw terminal output.

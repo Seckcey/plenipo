@@ -46,3 +46,5 @@ architecture must be recorded here.
 | [029](ADR-029-captcha-attempts.md)                | Workers try a CAPTCHA three times before handing it to the owner        | Accepted |
 | [030](ADR-030-design-system.md)                   | One design system for every screen                                      | Accepted |
 | [031](ADR-031-terminal-panel.md)                  | The terminal panel (amends 025)                                         | Accepted |
+| 032                                               | In pull request #36                                                     | —        |
+| [033](ADR-033-pages-notices-settings.md)          | Home, a page for each thing, pop-up notices, and Settings in one place  | Proposed |

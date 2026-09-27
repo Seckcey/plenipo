@@ -20,14 +20,15 @@ library. No new one-off styling." (ADR-030, one design system for every screen.)
   worker, and task; Windows pop-up notices when something needs the owner, with a place in
   Settings to choose which ones; Settings in one tidy place; the terminal panel.
 - **ADR-031 (the terminal panel): accepted**, with its choices: the panel at the bottom (it can
-  move to the right), opened with a **Terminal** button or **Ctrl+`**; Windows PowerShell by
-default; only opening and closing a terminal is recorded, never what the owner types; Guard
-does not check the owner's typing, but the server's pinned ID is still checked; the server
-terminal needs the **Remote computers (SSH)** switch; **Stop all** does not close the owner's
-terminals; two new libraries, `portable-pty`and`@xterm/xterm`.
+  move to the right), opened with a **Terminal** button or **Ctrl+\`**; Windows PowerShell by
+  default; only opening and closing a terminal is recorded, never what the owner types; Guard
+  does not check the owner's typing, but the server's pinned ID is still checked; the server
+  terminal needs the **Remote computers (SSH)** switch; **Stop all** does not close the owner's
+  terminals; two new libraries, `portable-pty` and `@xterm/xterm`.
 - Version **1.8.0**.
 - Free numbers on 2026-09-27 (check `main` and the open pull requests again before using one):
-  migration **0009**, ADR **032**.
+  migration **0009** (not needed: no Ledger migration), ADR **033** (ADR-032 is taken by pull
+  request #36).
 - Carried over from Phase 12A: the older pages take every color from the tokens but keep some of
   their own layout rules (their buttons, badges, and cards in `apps/desktop/src/styles.css`)
   until this phase rebuilds each page from the library (ADR-030 §8).
@@ -88,7 +89,7 @@ free ADR is **ADR-033**.
 ### Home, and a page for each department, project, worker, and task
 
 - **Home** is the first section on the left strip and the page Plenipo opens on. Pip greets the
-  owner (in Pacific time) and says in a line how things are. Then: **Waiting for you**
+  owner (by the time of day on this computer) and says in a line how things are. Then: **Waiting for you**
   (approvals and lessons, with Review), **What's stuck** (failed objectives, refused actions,
   handoffs with nobody to take them, positions that cannot work), **Departments** (a card each:
   health, its Manager, projects, workers, the 24-hour strip), **Current objectives**, **Who's
