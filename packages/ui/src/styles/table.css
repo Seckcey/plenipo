@@ -1,0 +1,160 @@
+/* The dense data table. */
+
+.ui-table {
+  display: grid;
+  align-content: start;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+.ui-table__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  min-height: var(--ui-control-height);
+}
+
+.ui-table__bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.ui-table__columns {
+  position: relative;
+}
+
+.ui-table__scroll {
+  overflow: auto;
+  min-height: 0;
+  border-top: 1px solid var(--ui-border);
+}
+
+.ui-table table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+}
+
+.ui-table th,
+.ui-table td {
+  height: var(--ui-row-height);
+  padding: 0 var(--ui-space-5);
+  border-bottom: 1px solid var(--ui-border);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+
+.ui-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 30px;
+  border-bottom-color: var(--ui-border-strong);
+  background: var(--ui-bg);
+  color: var(--ui-text-primary);
+  font-size: var(--ui-font-sm);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.ui-table td {
+  color: var(--ui-text-primary);
+}
+
+.ui-table tbody tr:hover td {
+  background: var(--ui-surface);
+}
+
+.ui-table__row--selected td,
+.ui-table tbody tr.ui-table__row--selected:hover td {
+  background: var(--ui-accent-soft);
+}
+
+.ui-table__num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-table__check {
+  width: 32px;
+  padding-right: 0 !important;
+}
+
+.ui-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-table__sort-icon {
+  opacity: 0;
+}
+
+/* In a number column the arrow goes before the name, so the name lines up with the numbers. */
+.ui-table__num .ui-table__sort {
+  flex-direction: row-reverse;
+}
+
+.ui-table__sort:hover .ui-table__sort-icon,
+.ui-table__sort--active .ui-table__sort-icon {
+  opacity: 1;
+}
+
+.ui-table__sort--active {
+  color: var(--ui-accent);
+}
+
+.ui-table__spacer td {
+  padding: 0;
+  border: 0;
+}
+
+.ui-table__skeleton td {
+  border-bottom-color: transparent;
+}
+
+.ui-table__empty {
+  height: auto !important;
+  padding: var(--ui-space-5) !important;
+  white-space: normal !important;
+}
+
+.ui-table__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.ui-table__records {
+  margin: 0 var(--ui-space-5) 0 var(--ui-space-3);
+}
+
+.ui-table__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.ui-table__page-size select {
+  height: 22px;
+  padding: 0 24px 0 var(--ui-space-3);
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-sm);
+  background-color: var(--ui-surface-sunken);
+  color: var(--ui-text-primary);
+}

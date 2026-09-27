@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { OrgSnapshot, PositionInfo, ProjectInfo, Workspace } from "@plenipo/types";
 
 import { giveObjective, removeWorkspace, setUpDevelopment, toCommandError } from "../api/commands";
@@ -370,12 +370,28 @@ function ProjectDetail({
 export function ProjectsView({
   onOpenTask,
   onOpenApprovals,
+  focusId = null,
+  onFocusHandled,
 }: {
   onOpenTask: (taskId: string) => void;
   onOpenApprovals: () => void;
+  /** A project to open (chosen in the top bar's "Showing" picker). */
+  focusId?: string | null;
+  onFocusHandled?: () => void;
 }) {
   const { snapshot, status, error, apply } = useOrganization();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(focusId);
+  // A project chosen in the top bar opens here (the same arrival pattern as the Organization).
+  const [arrived, setArrived] = useState<string | null>(null);
+  // Once the request is handled (cleared), the same place can be asked for again.
+  if (!focusId && arrived !== null) setArrived(null);
+  if (focusId && arrived !== focusId) {
+    setArrived(focusId);
+    setSelected(focusId);
+  }
+  useEffect(() => {
+    if (focusId && arrived === focusId) onFocusHandled?.();
+  }, [focusId, arrived, onFocusHandled]);
   const [settingUp, setSettingUp] = useState(false);
   const projects = (snapshot?.projects ?? []).filter((p) => p.active);
   const project = projects.find((p) => p.id === selected) ?? projects[0] ?? null;

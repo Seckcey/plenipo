@@ -150,7 +150,7 @@ Coming with the next release. If you are running Plenipo already,
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
-> Releases up to v1.6.0 have no limits at all — everything is unlocked while the split is being
+> Releases up to v1.7.0 have no limits at all — everything is unlocked while the split is being
 > built. When it ships, a Pro copy will check its subscription with 8 West about once a week,
 > sending only a license key id and a version number. A Free copy never checks in at all, and your
 > work never leaves your PC either way —
@@ -176,7 +176,23 @@ Prefer not to build it? [Download the latest Windows installer](https://github.c
 
 ## What's new
 
-Plenipo is built phase by phase. Current version: **v1.6.0**.
+Plenipo is built phase by phase. Current version: **v1.7.0**.
+
+<details>
+<summary><strong>v1.7.0 — A new look</strong> (Phase 12A)</summary>
+
+Every page now sits in one frame and uses one set of building blocks: a left strip with each
+section's icon and its name under it, a top bar with **Showing** (your whole organization, a
+department, or a project), light or dark, and a bell for requests waiting for you, and notices
+above the page. Text is smaller and tighter, so more fits. Status always has a word and its own
+mark shape, never color alone. Diagnostics → **Open the gallery** shows every building block in
+both themes, with your real departments and projects and their last 24 hours of activity from the
+Ledger. What each page does is unchanged.
+
+[Release notes](docs/releases/v1.7.0.md) · [ADR-030](docs/adr/ADR-030-design-system.md) (one
+design system for every screen) · [Design system](docs/design/design-system.md)
+
+</details>
 
 <details>
 <summary><strong>v1.6.0 — Servers</strong> (Phase 11)</summary>

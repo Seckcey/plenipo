@@ -1209,3 +1209,48 @@ pub struct NewLessons {
     /// Keep them at once (the role learns on its own); otherwise they wait for the owner.
     pub keep: bool,
 }
+
+/// Which part of the organization an activity series covers (Phase 12A, ADR-030 §7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "id", rename_all = "camelCase")]
+#[ts(export)]
+pub enum ActivityScope {
+    /// Everything in the Ledger.
+    All,
+    /// A department: its projects' tasks and the work of every position under its head.
+    Department(String),
+    /// A project: its tasks and the work of its supervisor's team.
+    Project(String),
+    /// A position and the positions reporting to it.
+    Position(String),
+}
+
+/// One time bucket of an activity series.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ActivityBucket {
+    /// Everything recorded in the bucket.
+    pub events: u32,
+    /// Failures, refusals, and timeouts (a task blocked on handoff replies is not a problem).
+    pub problems: u32,
+    /// Requests for the owner's approval.
+    pub waiting: u32,
+}
+
+/// Events counted in fixed time buckets, for activity strips and timelines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ActivitySeries {
+    /// Start of the first bucket (ms since the Unix epoch).
+    #[ts(type = "number")]
+    pub from: u64,
+    /// End of the last bucket (ms since the Unix epoch).
+    #[ts(type = "number")]
+    pub to: u64,
+    /// Width of each bucket (ms).
+    #[ts(type = "number")]
+    pub bucket_ms: u64,
+    pub buckets: Vec<ActivityBucket>,
+}

@@ -172,6 +172,7 @@ pub fn configure<R: Runtime>(
             commands::list_tasks,
             commands::get_task_timeline,
             commands::list_recent_events,
+            commands::get_activity,
             commands::create_synthetic_task,
             commands::advance_synthetic_task,
             commands::run_integrity_check,
@@ -659,6 +660,29 @@ mod ipc_boundary_tests {
         assert_eq!(tasks.len(), 2);
         let events: Vec<plenipo_ledger::LedgerEvent> = body(invoke(&main, "list_recent_events"));
         assert_eq!(events[0].event_type, "task.state_changed");
+        // Activity strips count the same events (Phase 12A).
+        let now = plenipo_ledger::now_ms();
+        let series: Vec<plenipo_ledger::ActivitySeries> = body(invoke_json(
+            &main,
+            "get_activity",
+            serde_json::json!({
+                "scopes": [{ "kind": "all" }],
+                "from": now - 86_400_000,
+                "to": now + 1,
+                "buckets": 96,
+            }),
+        ));
+        assert_eq!(series[0].buckets.len(), 96);
+        let counted: u32 = series[0].buckets.iter().map(|b| b.events).sum();
+        assert_eq!(counted as usize, events.len());
+        for bad in [
+            serde_json::json!({ "scopes": [{ "kind": "project", "id": "" }], "from": 0, "to": 1, "buckets": 1 }),
+            serde_json::json!({ "scopes": [{ "kind": "all" }], "from": 5, "to": 5, "buckets": 96 }),
+            serde_json::json!({ "scopes": [{ "kind": "all" }], "from": 0, "to": 1, "buckets": 5000 }),
+        ] {
+            let err = invoke_json(&main, "get_activity", bad).unwrap_err();
+            assert_eq!(err["kind"], "invalidInput", "{err}");
+        }
         let report: plenipo_ledger::IntegrityReport = body(invoke(&main, "run_integrity_check"));
         assert!(report.ok);
     }
@@ -732,6 +756,26 @@ mod ipc_boundary_tests {
         ] {
             assert!(invoke(&other, cmd).is_err(), "{cmd}");
         }
+    }
+
+    #[test]
+    fn activity_is_denied_to_other_windows_the_sign_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        // Valid arguments, so a refusal comes from the permission list, not from bad input.
+        let now = plenipo_ledger::now_ms();
+        let args = serde_json::json!({
+            "scopes": [{ "kind": "all" }],
+            "from": now - 86_400_000,
+            "to": now,
+            "buckets": 96,
+        });
+        assert!(invoke_json(&main, "get_activity", args.clone()).is_ok());
+        assert!(invoke_json(&other, "get_activity", args.clone()).is_err());
+        assert!(invoke_json(&sign, "get_activity", args.clone()).is_err());
+        assert!(invoke_with(&main, "get_activity", args, "https://example.com").is_err());
     }
 
     #[test]

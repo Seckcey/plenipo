@@ -136,6 +136,17 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | folders (on a server)                                                      | remote working directory policy                                |
 | forwarded port                                                             | SSH local port forward, direct-tcpip tunnel                    |
 | Disconnect (you stop a worker's server work)                               | Take over (for server sessions), terminate session             |
+| Showing (where you are: everything, a department, or a project)            | scope selector, context switcher                               |
+| Notifications (the bell: what waits for you)                               | notification badge, alert center                               |
+| notices (above the page)                                                   | banners, banner slot, advisories                               |
+| Switch to the light theme / dark theme                                     | theme toggle, color scheme                                     |
+| Gallery (every building block of the screens)                              | component gallery, storybook                                   |
+| activity (a strip of the last 24 hours)                                    | activity strip, sparkline, time series                         |
+| Cards / List (how a list is shown)                                         | card/list view toggle                                          |
+| Columns (choose which ones show)                                           | column customization                                           |
+| Rows per page                                                              | page size                                                      |
+| Filters / Clear filters                                                    | facets, facet panel, reset                                     |
+| Live / Back to live (a timeline)                                           | live mode, scrubber                                            |
 
 ## Where technical words may stay
 

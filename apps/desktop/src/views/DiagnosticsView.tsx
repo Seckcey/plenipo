@@ -1,4 +1,5 @@
 import type { AppInfo } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { LedgerPanel } from "../components/LedgerPanel";
 import { LiaisonPanel } from "../components/LiaisonPanel";
@@ -9,9 +10,12 @@ import { useRuntime } from "../runtime/useRuntime";
 export function DiagnosticsView({
   info,
   onTaskCreated,
+  onOpenGallery,
 }: {
   info: AppInfo | null;
   onTaskCreated: (taskId: string) => void;
+  /** The Gallery of every building block (Phase 12A). */
+  onOpenGallery?: () => void;
 }) {
   const { state } = useRuntime();
   const active = Object.values(state.executions).filter(isActive).length;
@@ -37,6 +41,17 @@ export function DiagnosticsView({
           <dd>{active}</dd>
         </div>
       </dl>
+
+      {onOpenGallery && (
+        <p className="diagnostics__gallery">
+          <Button size="sm" icon="gallery" onClick={onOpenGallery}>
+            Open the gallery
+          </Button>
+          <span className="muted">
+            Every building block of Plenipo's screens, in light and dark, for checking the look.
+          </span>
+        </p>
+      )}
 
       <LedgerPanel onTaskCreated={onTaskCreated} />
 

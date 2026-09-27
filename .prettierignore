@@ -6,3 +6,5 @@ node_modules/
 apps/desktop/src-tauri/gen/
 packages/types/src/generated/
 ROLLOUT_PLAN.md
+packages/ui/src/generated/
+tests/e2e/snapshots/

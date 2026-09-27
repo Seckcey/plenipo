@@ -132,8 +132,30 @@ export async function launch(home, extraEnv = {}) {
       await exited;
       await waitForPortFree(PORT);
       await waitForPortFree(PORT + 1);
+      stopLeftoverBrowser(home);
     },
   };
+}
+
+/**
+ * Plenipo closes its browser when it quits, but close() can stop the app before that finishes.
+ * The browser runs in its own process group, so it would outlive the app, stay on the test
+ * display, and keep the keyboard focus from the next suite's window (which then draws no focus
+ * outlines). Stop any browser still running on this test's profile.
+ */
+function stopLeftoverBrowser(home) {
+  if (process.platform === "win32") return; // there, the app's children die with it (Job Object)
+  const profile = join(home, ".local", "share", "com.eightwest.plenipo", "browser-profile");
+  const out = execFileSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" });
+  for (const line of out.split("\n")) {
+    const [pid, ...args] = line.trim().split(/\s+/);
+    if (!pid || !args.join(" ").includes(profile)) continue;
+    try {
+      process.kill(Number(pid), "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
 }
 
 /** PIDs of running Plenipo app processes (excluding diagnostic children). */

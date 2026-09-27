@@ -1,0 +1,332 @@
+/* Status primitives: every status is a mark with its own shape and a word (ADR-030 §5). */
+
+.ui-status--ok,
+.ui-pill--ok,
+.ui-map__tile--ok,
+.ui-badge--ok {
+  --mark: var(--ui-ok);
+  --mark-text: var(--ui-ok-text);
+  --mark-soft: var(--ui-ok-soft);
+}
+
+.ui-status--warn,
+.ui-pill--warn,
+.ui-map__tile--warn,
+.ui-badge--warn {
+  --mark: var(--ui-warn);
+  --mark-text: var(--ui-warn-text);
+  --mark-soft: var(--ui-warn-soft);
+}
+
+.ui-status--error,
+.ui-pill--error,
+.ui-map__tile--error,
+.ui-badge--error {
+  --mark: var(--ui-error);
+  --mark-text: var(--ui-error-text);
+  --mark-soft: var(--ui-error-soft);
+}
+
+.ui-status--offline,
+.ui-pill--offline,
+.ui-map__tile--offline,
+.ui-badge--offline {
+  --mark: var(--ui-offline);
+  --mark-text: var(--ui-offline-text);
+  --mark-soft: var(--ui-surface-raised);
+}
+
+.ui-status--pending,
+.ui-pill--pending,
+.ui-map__tile--pending,
+.ui-badge--pending {
+  --mark: var(--ui-pending);
+  --mark-text: var(--ui-pending-text);
+  --mark-soft: var(--ui-pending-soft);
+}
+
+.ui-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ui-status__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The mark: ok ● filled, warn ▲, error ◆, offline ○ ring, pending ◐ half. */
+.ui-status__mark {
+  flex: none;
+  width: var(--ui-dot-size);
+  height: var(--ui-dot-size);
+  border-radius: 50%;
+  background: var(--mark, var(--ui-offline));
+}
+
+.ui-status--warn .ui-status__mark,
+.ui-pill--warn .ui-status__mark,
+.ui-map__tile--warn .ui-status__mark {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.ui-status--error .ui-status__mark,
+.ui-pill--error .ui-status__mark,
+.ui-map__tile--error .ui-status__mark {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.ui-status--offline .ui-status__mark,
+.ui-pill--offline .ui-status__mark,
+.ui-map__tile--offline .ui-status__mark {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--mark);
+}
+
+.ui-status--pending .ui-status__mark,
+.ui-pill--pending .ui-status__mark,
+.ui-map__tile--pending .ui-status__mark {
+  background: linear-gradient(90deg, var(--mark) 50%, transparent 50%);
+  box-shadow: inset 0 0 0 1.5px var(--mark);
+}
+
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  height: 20px;
+  padding: 0 var(--ui-space-4);
+  border-radius: var(--ui-radius-pill);
+  background: var(--mark-soft);
+  color: var(--mark-text);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+  white-space: nowrap;
+}
+
+.ui-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--ui-space-2);
+  border-radius: var(--ui-radius-pill);
+  background: var(--mark, var(--ui-accent-fill));
+  color: var(--ui-on-accent);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ui-badge--accent {
+  background: var(--ui-accent-fill);
+  color: var(--ui-on-accent);
+}
+
+.ui-badge--ok,
+.ui-badge--warn,
+.ui-badge--pending,
+.ui-badge--offline {
+  background: var(--mark-soft);
+  color: var(--mark-text);
+  box-shadow: inset 0 0 0 1px var(--mark);
+}
+
+.ui-badge--error {
+  background: var(--ui-error);
+  color: var(--ui-on-error);
+}
+
+.ui-health {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 120px;
+}
+
+.ui-health__caption {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.ui-health__track {
+  position: relative;
+  height: 6px;
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+  overflow: hidden;
+}
+
+.ui-health__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--ui-ok);
+}
+
+.ui-health--warn .ui-health__fill {
+  background: var(--ui-warn);
+}
+
+.ui-health--error .ui-health__fill {
+  background: var(--ui-error);
+}
+
+.ui-health--pending .ui-health__fill {
+  background: var(--ui-pending);
+}
+
+.ui-health--offline .ui-health__fill {
+  background: var(--ui-offline);
+}
+
+.ui-spark {
+  overflow: visible;
+  color: var(--ui-accent);
+}
+
+.ui-spark--ok {
+  color: var(--ui-ok);
+}
+
+.ui-spark--warn {
+  color: var(--ui-warn);
+}
+
+.ui-spark--error {
+  color: var(--ui-error);
+}
+
+.ui-spark__line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.ui-spark__dot {
+  fill: currentColor;
+}
+
+.ui-spark--empty {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+/* The 24-hour activity strip. */
+.ui-strip {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 0;
+}
+
+.ui-strip__bar {
+  position: relative;
+  display: flex;
+  gap: 1px;
+  height: var(--ui-strip-height);
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--ui-surface-sunken);
+}
+
+.ui-strip__seg {
+  flex: 1;
+  min-width: 0;
+  background: var(--ui-border);
+}
+
+/* Not color alone: each kind has its own height, which still reads when a segment is 1 px wide.
+   Work fills the lower half, waiting for approval three quarters, and only a problem fills the
+   whole height, so problems stand up above the rest. */
+.ui-strip__seg--low,
+.ui-strip__seg--mid,
+.ui-strip__seg--high {
+  background: linear-gradient(to top, var(--ui-ok) 50%, transparent 50%);
+}
+
+.ui-strip__seg--low {
+  opacity: 0.45;
+}
+
+.ui-strip__seg--mid {
+  opacity: 0.72;
+}
+
+.ui-strip__seg--waiting {
+  background: linear-gradient(to top, var(--ui-pending) 75%, transparent 75%);
+}
+
+.ui-strip__seg--problem {
+  background: var(--ui-error);
+}
+
+.ui-strip__now {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  bottom: -2px;
+  width: 2px;
+  background: var(--ui-text-primary);
+}
+
+/* Start, middle, and end; the middle label sits under the middle of the strip. */
+.ui-strip__axis {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+  line-height: var(--ui-leading-tight);
+}
+
+.ui-strip__axis > :last-child {
+  justify-self: end;
+}
+
+.ui-strip__axis-now {
+  color: var(--ui-text-secondary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.ui-strip--loading .ui-strip__bar {
+  background: linear-gradient(
+    90deg,
+    var(--ui-skeleton-base) 0%,
+    var(--ui-skeleton-shine) 50%,
+    var(--ui-skeleton-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: ui-shimmer 1.4s linear infinite;
+}
+
+.ui-strip--error .ui-strip__bar {
+  background: var(--ui-error-soft);
+}
+
+.ui-strip__message {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+  line-height: var(--ui-leading-tight);
+}
+
+.ui-strip--error .ui-strip__message {
+  color: var(--ui-error-text);
+}
+
+@keyframes ui-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

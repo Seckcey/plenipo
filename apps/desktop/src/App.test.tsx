@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
-import { emptyOrganization } from "./test/orgFixtures";
+import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
+import { sampleWork } from "./test/projectFixtures";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -41,6 +42,8 @@ vi.mock("./api/commands", async (importOriginal) => {
     stopAllControl: vi.fn(),
     takeOverControl: vi.fn(),
     allowControl: vi.fn(),
+    getActivity: vi.fn(),
+    getProjectWork: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -115,6 +118,23 @@ function send(event: RuntimeEvent) {
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
+  delete document.documentElement.dataset.theme;
+  api.getActivity.mockImplementation((scopes, from, to, buckets = 96) =>
+    Promise.resolve(
+      scopes.map(() => ({
+        from,
+        to,
+        bucketMs: Math.ceil((to - from) / buckets),
+        buckets: Array.from({ length: buckets }, (_, i) => ({
+          events: i % 7 === 0 ? 3 : 0,
+          problems: i === 90 ? 1 : 0,
+          waiting: 0,
+        })),
+      })),
+    ),
+  );
+  api.getProjectWork.mockResolvedValue(sampleWork());
   api.getAppInfo.mockResolvedValue({
     name: "Plenipo",
     version: "0.1.0",
@@ -408,7 +428,9 @@ describe("AI tools page", () => {
     expect(within(nav).getByLabelText("1 waiting for you")).toHaveTextContent("1");
     const user = userEvent.setup();
     await user.click(
-      within(banner.closest(".banner") as HTMLElement).getByRole("button", { name: "Review" }),
+      within(banner.closest(".banner--approval") as HTMLElement).getByRole("button", {
+        name: "Review",
+      }),
     );
     const card = await screen.findByRole("article", {
       name: "Backend Developer wants to git push origin",
@@ -512,5 +534,112 @@ describe("AI tools page", () => {
         "You disconnected Operations Engineer from Shop (production). It stopped.",
       ),
     );
+  });
+});
+
+describe("The frame (Phase 12A)", () => {
+  it("switches light and dark from the top bar, and remembers the choice", async () => {
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Switch to the light theme" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("plenipo.theme")).toBe("light");
+    await user.click(screen.getByRole("button", { name: "Switch to the dark theme" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("names each section under its icon, and marks the current one", async () => {
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const org = within(nav).getByRole("button", { name: "Organization" });
+    expect(org).toHaveAttribute("aria-current", "page");
+    expect(within(org).getByText("Organization")).toBeVisible();
+    expect(org).toHaveAttribute("title", expect.stringContaining("departments"));
+    await userEvent.setup().click(within(nav).getByRole("button", { name: "Settings" }));
+    expect(within(nav).getByRole("button", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.querySelector(".ui-topbar__title")).toHaveTextContent("Settings");
+  });
+
+  it("rings the bell for requests waiting for you, and opens Approvals", async () => {
+    api.getApprovals.mockResolvedValue(sampleQueue());
+    render(<App />);
+    const bell = await screen.findByRole("button", {
+      name: "Notifications: 1 waiting for your approval",
+    });
+    await userEvent.setup().click(bell);
+    expect(
+      await screen.findByRole("article", { name: "Backend Developer wants to git push origin" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".ui-topbar__title")).toHaveTextContent("Approvals");
+  });
+
+  it("opens a project or a department from the Showing picker", async () => {
+    api.getOrganization.mockResolvedValue(sampleOrganization());
+    render(<App />);
+    const user = userEvent.setup();
+    const picker = await screen.findByRole("combobox", { name: "Showing" });
+    await waitFor(() =>
+      expect(within(picker).getByRole("option", { name: "Q4 Campaign" })).toBeInTheDocument(),
+    );
+    expect(within(picker).getByRole("group", { name: "Departments" })).toBeInTheDocument();
+    await user.selectOptions(picker, "project:pr-camp");
+    const list = await screen.findByRole("list", { name: "Projects" });
+    expect(within(list).getByRole("button", { name: /Q4 Campaign/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(sessionStorage.getItem("plenipo.scope")).toBe("project:pr-camp");
+    // Picking another project there, then the same one again, opens it again.
+    await user.click(within(list).getByRole("button", { name: /Website Relaunch/ }));
+    await user.selectOptions(picker, "all");
+    await user.selectOptions(picker, "project:pr-camp");
+    await waitFor(() =>
+      expect(within(list).getByRole("button", { name: /Q4 Campaign/ })).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
+    );
+    await user.selectOptions(picker, "department:d-eng");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("button", { name: "Organization" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Leaving by the strip goes back to the whole organization (nothing filters by it yet).
+    await user.click(within(nav).getByRole("button", { name: "Settings" }));
+    expect(picker).toHaveValue("all");
+    expect(sessionStorage.getItem("plenipo.scope")).toBeNull();
+  });
+
+  it("opens the Gallery from Diagnostics, with real departments and projects first", async () => {
+    api.getOrganization.mockResolvedValue(sampleOrganization());
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Diagnostics" }));
+    await user.click(await screen.findByRole("button", { name: "Open the gallery" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Gallery" })).toBeInTheDocument();
+    const live = await screen.findByRole("region", { name: "From your organization" });
+    const card = await within(live).findByRole("article", {
+      name: "Website Relaunch, Waiting on team",
+    });
+    expect(
+      await within(card).findByRole("img", {
+        name: /Website Relaunch activity\. Last 24 hours: 42 events, 1 problem/,
+      }),
+    ).toBeInTheDocument();
+    expect(api.getActivity).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { kind: "department", id: "d-eng" },
+        { kind: "project", id: "pr-web" },
+      ]),
+      expect.any(Number),
+      expect.any(Number),
+      96,
+    );
+    // The page shows every building block too.
+    expect(screen.getByRole("table", { name: "Workers" })).toHaveAttribute("aria-rowcount", "5001");
   });
 });

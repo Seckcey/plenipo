@@ -1,0 +1,188 @@
+/* Entity cards, the card grid, and its list view. */
+
+.ui-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  gap: var(--ui-space-3);
+  height: var(--ui-card-height);
+  min-width: 0;
+  padding: var(--ui-space-5);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+  transition: border-color var(--ui-motion-fast) var(--ui-ease);
+}
+
+.ui-card--interactive:hover {
+  border-color: var(--ui-border-strong);
+}
+
+.ui-card--selected,
+.ui-card--selected:hover {
+  border-color: var(--ui-accent);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+
+.ui-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.ui-card__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.ui-card__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The whole card opens the entity; buttons inside it stay above this layer. */
+.ui-card__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.ui-card__open:focus-visible {
+  outline: none;
+}
+
+/* The permission icons (with their tooltips) and a tag stay above the whole-card button. */
+.ui-card__foot,
+.ui-card__head > :not(.ui-card__open) {
+  position: relative;
+  z-index: 1;
+}
+
+.ui-card__open:focus-visible::after {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.ui-card__sub {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+  min-width: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.ui-card__subtype {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-text-muted);
+}
+
+.ui-card__owner {
+  align-self: start;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  min-width: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Always the last row, and the same height with icons or words, so the lines in a row of cards
+   match up. */
+.ui-card__foot {
+  grid-row: 5;
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--ui-icon-size) + var(--ui-space-3) + 1px);
+  padding-top: var(--ui-space-3);
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-text-secondary);
+}
+
+.ui-card__resources {
+  display: flex;
+  gap: var(--ui-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-card__none {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.ui-card--skeleton {
+  align-content: start;
+  gap: var(--ui-space-5);
+}
+
+.ui-collection {
+  display: grid;
+  align-content: start;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.ui-collection__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+}
+
+.ui-collection__count {
+  margin-right: auto;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.ui-collection__scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+.ui-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-grid__cell {
+  min-width: 0;
+}
+
+.ui-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+}
+
+.ui-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-6);
+  padding: 0 var(--ui-space-5);
+  border-bottom: 1px solid var(--ui-border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ui-list__row:last-child {
+  border-bottom: 0;
+}
