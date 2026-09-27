@@ -8,6 +8,11 @@
 !macro PLENIPO_QUIT_RUNNING
   nsis_tauri_utils::FindProcessCurrentUser "${MAINBINARYNAME}.exe"
   Pop $R9
+  ; $R5 = 1: Plenipo is quitting by itself (asked here, or an update), so wait for it.
+  StrCpy $R5 0
+  ${If} $UpdateMode = 1
+    StrCpy $R5 1
+  ${EndIf}
   ${If} $R9 = 0
     ${If} $UpdateMode <> 1
       ReadRegStr $R8 SHCTX "${UNINSTKEY}" "DisplayVersion"
@@ -18,10 +23,15 @@
         ${If} $R7 >= 0
           DetailPrint "Asking Plenipo to stop its work and quit..."
           Exec '"$INSTDIR\${MAINBINARYNAME}.exe" --quit'
+          StrCpy $R5 1
         ${EndIf}
       ${EndIf}
     ${EndIf}
-    ; Wait up to 30 seconds for it to finish.
+  ${EndIf}
+  ; Wait up to 30 seconds for it to finish. An older Plenipo that was not asked is left to the
+  ; installer's own check, which offers to close it.
+  ${If} $R9 = 0
+  ${AndIf} $R5 = 1
     StrCpy $R6 0
     ${Do}
       Sleep 500

@@ -173,7 +173,7 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Keep Plenipo in the tray (closing hides the window; the work goes on)       | background daemon, service, minimize to tray                           |
 | Start Plenipo with Windows                                                  | autostart, launch at login, Run key                                    |
 | Start and close (Settings)                                                  | lifecycle settings, startup behavior                                   |
-| Plenipo closed unexpectedly / Windows restarted while Plenipo was running   | crash, unclean shutdown, reboot detected                               |
+| Plenipo closed unexpectedly / Windows closed Plenipo (restart, sign-out)    | crash, unclean shutdown, reboot detected                               |
 | Plenipo was stopped while updating the Ledger                               | interrupted migration                                                  |
 | the window stopped responding and was reloaded / opened again               | WebView crash, renderer process failure                                |
 | Run again / Leave stopped (a task Plenipo's closing stopped)                | resume, retry, re-enqueue / discard                                    |

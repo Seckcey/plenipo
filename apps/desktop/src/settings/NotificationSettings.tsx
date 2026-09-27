@@ -43,7 +43,7 @@ const KINDS: readonly { key: Kind; label: string; hint: string }[] = [
   {
     key: "plenipo",
     label: "Plenipo itself",
-    hint: "Plenipo closed unexpectedly or Windows restarted while it ran, or a new version is ready.",
+    hint: "Plenipo closed unexpectedly or Windows closed it, or a new version is ready.",
   },
 ];
 

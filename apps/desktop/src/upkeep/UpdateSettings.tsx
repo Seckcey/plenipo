@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { UpdateStatus } from "@plenipo/types";
 import { Button, ErrorState, LoadingState, PropertyList, StatusPill } from "@plenipo/ui";
 
@@ -7,13 +7,29 @@ import type { Go } from "../components/views";
 import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
 import { updateLine } from "./words";
+import { useShown } from "./useShown";
+
+/** How often the update state is read again (it lives in Plenipo, not only in the Ledger). */
+const LOOK_AGAIN_MS = 60_000;
 
 function useUpdates() {
-  return useLive<UpdateStatus>(
+  const live = useLive<UpdateStatus>(
     "updates",
     () => getUpdateStatus(),
     (e) => e.eventType.startsWith("plenipo.update"),
   );
+  // A check that finds a version already announced writes nothing new to the Ledger (after a
+  // restart, say): look again now and then, and when the window comes to the front.
+  const { reload } = live;
+  useEffect(() => {
+    const timer = setInterval(reload, LOOK_AGAIN_MS);
+    window.addEventListener("focus", reload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", reload);
+    };
+  }, [reload]);
+  return live;
 }
 
 /**
@@ -44,14 +60,14 @@ export function UpdateMark({ go }: { go: Go }) {
  */
 export function UpdateSettings() {
   const live = useUpdates();
-  const [shown, setShown] = useState<UpdateStatus | null>(null);
+  const [current, setShown] = useShown(live);
   const [busy, setBusy] = useState<"check" | "install" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Installing would stop running work: ask first. */
   const [confirm, setConfirm] = useState<string | null>(null);
 
   if (live.status === "loading") return <LoadingState label="Loading updates" />;
-  const s = shown ?? live.value;
+  const s = current;
   if (!s) {
     return <ErrorState title="Couldn't load updates" message={live.error} onRetry={live.reload} />;
   }

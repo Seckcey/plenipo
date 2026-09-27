@@ -77,7 +77,7 @@ It goes in **Settings → Secrets and variables → Actions**:
 | `PLENIPO_UPDATER_PUBLIC_KEY`         | Variable | Everything in `plenipo-updater.key.pub` (the public half) |
 
 The Release workflow builds the public half into Plenipo, signs the installer with the private
-half (`createUpdaterArtifacts`, in `tauri.signing.conf.json` only), checks that signature and the
+half (`tauri signer sign --app-version`, after the 8 West signature), checks that signature and the
 version in it before publishing, and attaches `Plenipo_<version>_x64-setup.exe.sig` and
 `latest.json` to the release. Each copy of Plenipo reads `latest.json` from the newest release.
 If any of the three is missing, the Release workflow stops before building and says which.

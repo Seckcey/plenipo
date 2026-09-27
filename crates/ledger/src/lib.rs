@@ -230,6 +230,19 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// One setting read straight from the Ledger file at `db_path`, read-only: no layout change, no
+/// repair, no refusal of a newer layout. For the uninstaller, which must find the secrets Plenipo
+/// kept even when the Ledger is from a newer Plenipo or cannot be opened normally.
+pub fn setting_in_file(db_path: &Path, key: &str) -> Result<Option<serde_json::Value>> {
+    let conn = Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let text: Option<String> = rusqlite::OptionalExtension::optional(conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [key],
+        |r| r.get(0),
+    ))?;
+    Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
+}
+
 pub(crate) fn backups_dir(db_path: &Path) -> PathBuf {
     db_path
         .parent()

@@ -303,7 +303,6 @@ impl Ledger {
         })
     }
 
-    /// Session turns that never reached a final state (left when Plenipo stopped).
     /// Every task not finished yet (queued, running, blocked, or waiting for an approval),
     /// oldest first. After an unclean end, these are the tasks Plenipo was in the middle of.
     pub fn unfinished_tasks(&self) -> Result<Vec<Task>> {
@@ -320,6 +319,7 @@ impl Ledger {
         })
     }
 
+    /// Session turns that never reached a final state (left when Plenipo stopped).
     pub fn unfinished_session_tasks(&self) -> Result<Vec<Task>> {
         self.read(|c| {
             let mut stmt = c.prepare(&format!(

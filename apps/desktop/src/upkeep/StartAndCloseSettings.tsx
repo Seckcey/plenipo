@@ -5,6 +5,7 @@ import { ErrorState, LoadingState } from "@plenipo/ui";
 import { getStartAndClose, setStartAndClose, toCommandError } from "../api/commands";
 import { Toggle } from "../components/SwitchSettings";
 import { useLive } from "../pages/useLive";
+import { useShown } from "./useShown";
 
 /** The choices for closing the window, in plain words. */
 const CLOSE_CHOICES: readonly { value: CloseWindow; label: string; hint: string }[] = [
@@ -35,12 +36,12 @@ export function StartAndCloseSettings() {
     () => getStartAndClose(),
     (e) => e.eventType === "org.settings_changed",
   );
-  const [shown, setShown] = useState<StartAndClose | null>(null);
+  const [current, setShown] = useShown(live);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (live.status === "loading") return <LoadingState label="Loading Start and close" />;
-  const s = shown ?? live.value;
+  const s = current;
   if (!s) {
     return (
       <ErrorState

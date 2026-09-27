@@ -49,3 +49,4 @@ workspace = true
 [dev-dependencies]
 tauri = { version = "2", features = ["test", "tray-icon"] }
 tempfile = "3"
+rusqlite = { version = "0.40", features = ["bundled"] }

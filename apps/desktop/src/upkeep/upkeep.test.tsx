@@ -78,7 +78,7 @@ describe("words", () => {
     const now = new Date(2026, 8, 27, 16, 0).getTime();
     expect(recoveryTitle(r, now)).toBe("Plenipo closed unexpectedly at 3:14 PM");
     expect(recoveryTitle({ ...r, cause: "windowsRestart" }, now)).toBe(
-      "Windows restarted at 3:14 PM while Plenipo was running",
+      "Windows closed Plenipo at 3:14 PM (a restart, a shutdown, or signing out)",
     );
     expect(recoveryTitle({ ...r, cause: "unknown", lastSeenAt: null }, now)).toBe(
       "Plenipo did not close normally last time",
@@ -87,6 +87,9 @@ describe("words", () => {
       "These 2 tasks were stopped. Nothing runs again until you choose Run again.",
     );
     expect(recoveryLead({ ...r, stoppedTasks: [] })).toBe(
+      "1 program that was running was stopped.",
+    );
+    expect(recoveryLead({ ...r, stoppedTasks: [], stoppedPrograms: 0 })).toBe(
       "Nothing was running. Plenipo is running again.",
     );
     expect(recoveryLead({ ...r, cause: "layoutChange", stoppedTasks: [] })).toMatch(
@@ -292,6 +295,17 @@ describe("Settings → Updates", () => {
     render(<UpdateMark go={go} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: /Update ready/ }));
     expect(go).toHaveBeenCalledWith({ view: "settings", id: "updates" });
+  });
+
+  it("looks again when the window comes to the front, with no new Ledger event", async () => {
+    api.getUpdateStatus.mockResolvedValue(upToDate());
+    render(<UpdateMark go={go} />);
+    await waitFor(() => expect(api.getUpdateStatus).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /Update ready/ })).toBeNull();
+    // The daily check found a version it had announced before (after a restart, say).
+    api.getUpdateStatus.mockResolvedValue(updateReady());
+    window.dispatchEvent(new Event("focus"));
+    expect(await screen.findByRole("button", { name: /Update ready/ })).toBeInTheDocument();
   });
 });
 

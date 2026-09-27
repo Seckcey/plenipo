@@ -686,6 +686,8 @@ fn backups_of_each_kind_are_listed_newest_first_and_kept_to_their_limits() {
     }
     l.backup_of_kind(BackupKind::BeforeUpgrade, Some("1.8.0"))
         .unwrap();
+    // A later millisecond, so "newest first" has one answer.
+    std::thread::sleep(std::time::Duration::from_millis(3));
     let manual = l.backup(None).unwrap();
     let list = l.backups().unwrap();
     // Seven days of daily backups, the upgrade one, and the manual one.
@@ -763,6 +765,87 @@ fn a_restore_happens_at_the_next_start_and_keeps_the_ledger_as_it_was() {
     assert_eq!(undo.kind, BackupKind::BeforeRestore);
     let old = Ledger::open(&l.backups_dir().unwrap().join(&kept)).unwrap();
     assert!(old.task(&after).unwrap().is_some());
+}
+
+#[test]
+fn the_oldest_before_restore_backup_can_itself_be_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let name_of = |info: &plenipo_ledger::BackupInfo| {
+        Path::new(&info.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    // Three "before a restore" backups (the most kept), the oldest with the first task.
+    let (first, oldest) = {
+        let l = Ledger::open(&path).unwrap();
+        let first = new_task(&l, "in the oldest");
+        let oldest = name_of(&l.backup_of_kind(BackupKind::BeforeRestore, None).unwrap());
+        for n in 0..2 {
+            std::thread::sleep(std::time::Duration::from_millis(3));
+            new_task(&l, &format!("later {n}"));
+            l.backup_of_kind(BackupKind::BeforeRestore, None).unwrap();
+        }
+        (first.id, oldest)
+    };
+    backups::request_restore(&path, &oldest).unwrap();
+    // Restoring keeps the Ledger as it is (a fourth), and must not delete the one it restores.
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    assert_eq!(
+        outcome.restored.as_ref().map(|b| b.name.as_str()),
+        Some(oldest.as_str()),
+        "{}",
+        outcome.message
+    );
+    let l = Ledger::open(&path).unwrap();
+    assert!(l.task(&first).unwrap().is_some());
+    assert_eq!(
+        l.list_tasks(100).unwrap().len(),
+        1,
+        "only what the oldest had"
+    );
+    let kinds: Vec<_> = l
+        .backups()
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.kind == BackupKind::BeforeRestore)
+        .collect();
+    assert_eq!(kinds.len(), 4, "the newest three, and the one restored");
+    assert!(
+        kinds.iter().any(|b| b.name == oldest),
+        "the restored one is kept"
+    );
+}
+
+#[test]
+fn a_restore_keeps_what_was_only_in_the_write_ahead_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let name = {
+        let l = Ledger::open(&path).unwrap();
+        let info = l.backup_of_kind(BackupKind::Daily, None).unwrap();
+        Path::new(&info.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    backups::request_restore(&path, &name).unwrap();
+    // Work written after the backup, still open (so still in the write-ahead log) as the
+    // restore starts, as when Plenipo stopped the hard way.
+    let l = Ledger::open(&path).unwrap();
+    let late = new_task(&l, "written just before the restore");
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    drop(l);
+    let kept = outcome.kept_as.clone().expect("kept first");
+    let old = Ledger::open(&dir.path().join("ledger").join("backups").join(&kept)).unwrap();
+    assert!(
+        old.task(&late.id).unwrap().is_some(),
+        "the Ledger as it was, with its latest work, is kept: {}",
+        outcome.message
+    );
 }
 
 #[test]

@@ -201,21 +201,23 @@ pub fn configure<R: Runtime>(
                 .and_then(|_| ledger_host::ledger_path(app.handle()).ok());
             let restored = db.as_deref().and_then(ledger_host::apply_pending_restore);
             let existed = db.as_ref().is_some_and(|p| p.exists());
-            if let (Some(keeper), Some(db)) = (&keeper, &db) {
-                if ledger_host::needs_layout_change(db) {
-                    keeper.set_phase(recovery::Phase::ChangingLayout);
-                }
+            // A layout change backs the Ledger up itself, first (`pre-migration-v<n>`).
+            let changes_layout =
+                existed && db.as_deref().is_some_and(ledger_host::needs_layout_change);
+            if let (Some(keeper), true) = (&keeper, changes_layout) {
+                keeper.set_phase(recovery::Phase::ChangingLayout);
             }
             let ledger = ledger_host::open(app.handle(), options.persistence);
             if let Some(keeper) = &keeper {
                 keeper.set_phase(recovery::Phase::Running);
                 keeper.keep_beating();
             }
+            // A new version backs up the Ledger before anything writes to it (unless its layout
+            // change just did).
+            backup_host::before_upgrade(&ledger, existed, changes_layout, &version);
             if let Some(restored) = &restored {
                 ledger_host::record_restore(&ledger, restored);
             }
-            // A new version backs up the Ledger before anything writes to it.
-            backup_host::before_upgrade(&ledger, existed, &version);
             // What was in progress when the last run ended, before the services mark it
             // stopped.
             let before = if previous.is_unclean() {
@@ -291,13 +293,13 @@ pub fn configure<R: Runtime>(
                     );
                 }
             }
-            manage_upkeep(
-                app.handle(),
-                RunNote(keeper),
-                problems,
-                updates,
-                start_close::started_in_tray(&args),
-            );
+            // Started by Windows at sign-in: stay in the tray (ADR-036), unless this start is a
+            // restart Plenipo asked for itself (a restore), which shows the window.
+            let in_tray = start_close::started_in_tray(&args)
+                && !data
+                    .as_deref()
+                    .is_some_and(start_close::shows_after_restart);
+            manage_upkeep(app.handle(), RunNote(keeper), problems, updates, in_tray);
             if options.window_watch {
                 window_watch::start(
                     app.handle(),
@@ -321,9 +323,8 @@ pub fn configure<R: Runtime>(
                     log::warn!("system tray unavailable: {e}");
                 }
             }
-            // Started by Windows at sign-in: stay in the tray (ADR-036). Otherwise show the
-            // window, which starts hidden so that nothing flashes.
-            if !start_close::started_in_tray(&args) {
+            // Otherwise show the window, which starts hidden so that nothing flashes.
+            if !in_tray {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                 }
@@ -577,6 +578,16 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             }
         }
         RunEvent::Exit => {
+            // Not after Plenipo's own shutdown (which removed the note): Windows is ending the
+            // session (a restart, a shutdown, or signing out) and closes Plenipo, as it closes
+            // every program, before the work can be stopped. Say so in the note, for the next
+            // start (ADR-036 item 7).
+            if let Some(note) = app.try_state::<RunNote>() {
+                if let Some(keeper) = note.0.as_ref().filter(|k| k.is_running()) {
+                    log::warn!("Windows is ending the session; Plenipo is being closed");
+                    keeper.set_phase(recovery::Phase::EndedByWindows);
+                }
+            }
             if let Some(logs) = logs::installed() {
                 logs.flush();
             }
@@ -3162,14 +3173,21 @@ mod ipc_boundary_tests {
             ("check_for_updates", serde_json::json!({})),
             ("install_update", serde_json::json!({ "stopWork": true })),
         ] {
-            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
-            assert!(
-                invoke_json(&sign, cmd, args.clone()).is_err(),
-                "the sign must not reach {cmd}"
-            );
-            assert!(
-                invoke_with(&main, cmd, args, "https://example.com").is_err(),
-                "{cmd} from a web page"
+            // Refused by the permissions (not by the command itself, which would say something
+            // else about these arguments).
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args, "https://example.com"),
+                "a web page",
             );
         }
     }

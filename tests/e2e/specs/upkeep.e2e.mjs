@@ -261,10 +261,14 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     await clickButton(browser, "Check now");
     await waitForText(browser, ".settings-updates", `Plenipo ${next} is ready to install`, 30_000);
     await waitForText(browser, ".settings-updates__notes", "One fix.");
-    assert.ok(await exists(browser, "button.shell__update"), "the top bar says an update is ready");
+    // The top bar follows the Ledger's "a new version is ready" event.
+    await waitUntil(() => exists(browser, "button.shell__update"), "Update ready in the top bar");
     await screenshot(browser, "settings-updates-ready");
 
     await clickButton(browser, "Install now");
+    // The terminal opened above is work going: Plenipo asks before stopping it.
+    await waitForText(browser, ".settings-updates", "Work is running.");
+    await clickButton(browser, "Stop the work and install");
     await waitForText(browser, ".settings-updates", "Updates are installed on Windows only.");
     // This version keeps working.
     await waitForText(browser, '[aria-label="Application version"]', `v${VERSION}`);

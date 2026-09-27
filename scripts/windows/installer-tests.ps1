@@ -100,8 +100,10 @@ function Start-Plenipo([string] $Scenario = '', [switch] $NoWait) {
   return Read-Report
 }
 
-function Wait-Report([scriptblock] $Ready, [string] $What) {
-  Wait-Until { $r = Read-Report; $null -ne $r -and (& $Ready $r) } 150 $What
+# ($Check, not $Ready: PowerShell looks names up through the callers, and Wait-Until's own
+# $Ready would be found first, calling itself forever.)
+function Wait-Report([scriptblock] $Check, [string] $What) {
+  Wait-Until { $r = Read-Report; $null -ne $r -and (& $Check $r) } 150 $What
   return Read-Report
 }
 
@@ -296,7 +298,11 @@ try {
   # through Windows' desktop (as the signed-in person, not as administrator), which a CI machine
   # may not have: then that last step is the owner's check.
   $setup = "Plenipo_${Next}_x64-setup"
-  Wait-Until { @(Get-Process -Name $setup -ErrorAction SilentlyContinue).Count -ge 1 -or (Plenipo-Processes).Count -ge 1 } 60 'the downloaded installer to start'
+  try {
+    Wait-Until { @(Get-Process -Name $setup -ErrorAction SilentlyContinue).Count -ge 1 -or (Plenipo-Processes).Count -ge 1 } 60 'the downloaded installer to start'
+  } catch {
+    Write-Host 'The installer finished before it was seen (it is quick); its result is checked below.'
+  }
   Wait-Until { @(Get-Process -Name $setup -ErrorAction SilentlyContinue).Count -eq 0 } 180 'the downloaded installer to finish'
   try {
     Wait-Until { (Plenipo-Processes).Count -ge 1 } 30 'the installer to open Plenipo again'

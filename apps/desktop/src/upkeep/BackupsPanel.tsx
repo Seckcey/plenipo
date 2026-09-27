@@ -13,6 +13,7 @@ import { formatBytes } from "../ledger/format";
 import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
 import { backupKind } from "./words";
+import { useShown } from "./useShown";
 
 /**
  * The Ledger's backups and Restore (Phase 13): made once a day, before a new version first
@@ -25,13 +26,13 @@ export function BackupsPanel() {
     () => listLedgerBackups(),
     (e) => e.eventType.startsWith("ledger."),
   );
-  const [shown, setShown] = useState<LedgerBackups | null>(null);
+  const [current, setShown] = useShown(live);
   const [confirm, setConfirm] = useState<LedgerBackup | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   if (live.status === "loading") return <LoadingState label="Loading the backups" />;
-  const b = shown ?? live.value;
+  const b = current;
   if (!b) {
     return (
       <ErrorState title="Couldn't load the backups" message={live.error} onRetry={live.reload} />
@@ -93,8 +94,7 @@ export function BackupsPanel() {
       )}
       {b.backups.length === 0 ? (
         <EmptyState compact title="No backups yet">
-          Plenipo makes the first one about ten minutes after it starts, once no work is going. Or
-          choose Create backup.
+          Plenipo makes the first one about ten minutes after it starts. Or choose Create backup.
         </EmptyState>
       ) : (
         <table className="table backups__table">

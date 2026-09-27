@@ -47,6 +47,9 @@ pub enum Phase {
     /// Changing the Ledger's layout (a migration).
     ChangingLayout,
     Running,
+    /// Windows is ending the session (a restart, a shutdown, or signing out) and is closing
+    /// Plenipo, as it closes every program.
+    EndedByWindows,
 }
 
 /// The note Plenipo keeps while it runs.
@@ -92,7 +95,9 @@ pub fn previous_end(note: &Path, boot_ms: Option<u64>) -> PreviousEnd {
     };
     let cause = if note.phase == Phase::ChangingLayout {
         RecoveryCause::LayoutChange
-    } else if boot_ms.is_some_and(|boot| boot > note.heartbeat_at) {
+    } else if note.phase == Phase::EndedByWindows
+        || boot_ms.is_some_and(|boot| boot > note.heartbeat_at)
+    {
         RecoveryCause::WindowsRestart
     } else {
         RecoveryCause::Crash
@@ -144,7 +149,7 @@ impl RunNoteKeeper {
             }),
             finished: AtomicBool::new(false),
         });
-        keeper.write();
+        keeper.update(|_| {});
         keeper
     }
 
@@ -152,27 +157,33 @@ impl RunNoteKeeper {
         &self.path
     }
 
-    fn write(&self) {
+    /// Change the note and write it. The lock is held while writing, and [`Self::finish`] takes
+    /// it too, so a heartbeat can never write the note again after a clean exit removed it.
+    fn update(&self, change: impl FnOnce(&mut RunNote)) {
+        let mut note = self.note.lock().unwrap_or_else(|p| p.into_inner());
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
-        let note = self.note.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        change(&mut note);
         if let Err(e) = write_atomic(&self.path, &note) {
             log::warn!("the note that Plenipo is running could not be written: {e}");
         }
     }
 
     pub fn set_phase(&self, phase: Phase) {
-        self.note.lock().unwrap_or_else(|p| p.into_inner()).phase = phase;
-        self.write();
+        self.update(|note| {
+            note.phase = phase;
+            note.heartbeat_at = plenipo_ledger::now_ms();
+        });
     }
 
     pub fn beat(&self) {
-        self.note
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .heartbeat_at = plenipo_ledger::now_ms();
-        self.write();
+        self.update(|note| note.heartbeat_at = plenipo_ledger::now_ms());
+    }
+
+    /// The run has not ended cleanly (yet).
+    pub fn is_running(&self) -> bool {
+        !self.finished.load(Ordering::SeqCst)
     }
 
     /// Write the heartbeat every [`HEARTBEAT`] until the run ends.
@@ -191,6 +202,7 @@ impl RunNoteKeeper {
 
     /// A clean exit: remove the note.
     pub fn finish(&self) {
+        let _note = self.note.lock().unwrap_or_else(|p| p.into_inner());
         if !self.finished.swap(true, Ordering::SeqCst) {
             let _ = std::fs::remove_file(&self.path);
         }
@@ -332,7 +344,9 @@ pub fn record(
 pub fn sentence(cause: RecoveryCause) -> &'static str {
     match cause {
         RecoveryCause::Crash => "Plenipo closed unexpectedly.",
-        RecoveryCause::WindowsRestart => "Windows restarted while Plenipo was running.",
+        RecoveryCause::WindowsRestart => {
+            "Windows closed Plenipo (a restart, a shutdown, or signing out) while it was running."
+        }
         RecoveryCause::LayoutChange => {
             "Plenipo was stopped while it was updating the Ledger's layout; the unfinished step \
              was undone and done again."
@@ -568,6 +582,12 @@ mod tests {
         // Unknown boot time: a crash is the safe reading.
         match previous_end(&path, None) {
             PreviousEnd::Unclean { cause, .. } => assert_eq!(cause, RecoveryCause::Crash),
+            other => panic!("{other:?}"),
+        }
+        // Windows said it was ending the session (a sign-out, with no restart after it).
+        let path = note(dir.path(), 2_000_000, Phase::EndedByWindows);
+        match previous_end(&path, Some(1_000_000)) {
+            PreviousEnd::Unclean { cause, .. } => assert_eq!(cause, RecoveryCause::WindowsRestart),
             other => panic!("{other:?}"),
         }
     }

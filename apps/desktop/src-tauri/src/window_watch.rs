@@ -67,6 +67,9 @@ pub struct WindowWatch {
     /// When the window was last closed to be opened again (ms): closing the only window must
     /// not quit Plenipo then.
     reopened_at: AtomicU64,
+    /// When the watch last looked (ms). A long gap means the computer slept (or its clock
+    /// jumped): the page gets its time again instead of being reloaded.
+    last_step: AtomicU64,
 }
 
 /// How long after closing a window to reopen it a "last window closed" is not a quit.
@@ -99,10 +102,19 @@ impl WindowWatch {
     /// Decide the next step. `showing`: the window is visible and not minimized; `focused`: it
     /// is in front.
     pub fn step(&self, showing: bool, focused: bool, now: u64, timing: Timing) -> Step {
+        let quiet_ms = u64::try_from(timing.quiet.as_millis()).unwrap_or(u64::MAX);
+        let previous_step = self.last_step.swap(now, Ordering::SeqCst);
         let last = self.last_alive.load(Ordering::SeqCst);
         let was_showing = self.was_showing.swap(showing, Ordering::SeqCst);
         if last == 0 {
             return Step::Nothing; // the page has not started yet
+        }
+        if previous_step != 0
+            && (now < previous_step || now.saturating_sub(previous_step) >= quiet_ms)
+        {
+            // The watch itself was paused (the computer slept) or the clock jumped.
+            self.last_alive.store(now, Ordering::SeqCst);
+            return Step::Nothing;
         }
         if !showing {
             return Step::Nothing;
@@ -115,7 +127,6 @@ impl WindowWatch {
         if !(focused || self.page_visible.load(Ordering::SeqCst)) {
             return Step::Nothing;
         }
-        let quiet_ms = u64::try_from(timing.quiet.as_millis()).unwrap_or(u64::MAX);
         if now.saturating_sub(last) < quiet_ms {
             return Step::Nothing;
         }
@@ -215,33 +226,42 @@ mod tests {
         every: Duration::from_secs(5),
     };
 
+    /// Look every 5 seconds, as the watch does, from `from` to `to`: the steps taken, with when.
+    fn watch(w: &WindowWatch, from: u64, to: u64, focused: bool) -> Vec<(u64, Step)> {
+        (from..=to)
+            .step_by(5_000)
+            .map(|now| (now, w.step(true, focused, now, T)))
+            .filter(|(_, s)| *s != Step::Nothing)
+            .collect()
+    }
+
     #[test]
     fn a_quiet_page_is_reloaded_then_reopened_then_left() {
         let w = WindowWatch::default();
         // Nothing before the page has started.
         assert_eq!(w.step(true, true, 100_000, T), Step::Nothing);
         w.alive(true, 100_000);
-        assert_eq!(w.step(true, true, 101_000, T), Step::Nothing);
-        assert_eq!(w.step(true, true, 129_000, T), Step::Nothing);
-        assert_eq!(w.step(true, true, 131_000, T), Step::Reload);
-        // The reload gets its own quiet period.
-        assert_eq!(w.step(true, true, 150_000, T), Step::Nothing);
-        assert_eq!(w.step(true, true, 162_000, T), Step::Reopen);
-        assert_eq!(w.step(true, true, 193_000, T), Step::GiveUp);
-        assert_eq!(w.step(true, true, 300_000, T), Step::Nothing);
+        // Quiet for 30 seconds: reloaded; each step gets its own quiet period; then left.
+        assert_eq!(
+            watch(&w, 105_000, 400_000, true),
+            [
+                (130_000, Step::Reload),
+                (160_000, Step::Reopen),
+                (190_000, Step::GiveUp)
+            ]
+        );
     }
 
     #[test]
     fn the_first_sign_of_life_after_a_step_says_what_brought_it_back() {
         let w = WindowWatch::default();
-        w.alive(true, 1);
-        w.step(true, true, 2, T);
-        assert_eq!(w.step(true, true, 40_000, T), Step::Reload);
-        assert_eq!(w.alive(true, 41_000), Some(false), "reloaded");
-        assert_eq!(w.alive(true, 42_000), None, "said once");
-        assert_eq!(w.step(true, true, 80_000, T), Step::Reload);
-        assert_eq!(w.step(true, true, 120_000, T), Step::Reopen);
-        assert_eq!(w.alive(true, 121_000), Some(true), "reopened");
+        w.alive(true, 1_000);
+        assert_eq!(watch(&w, 5_000, 35_000, true), [(35_000, Step::Reload)]);
+        assert_eq!(w.alive(true, 36_000), Some(false), "reloaded");
+        assert_eq!(w.alive(true, 37_000), None, "said once");
+        assert_eq!(watch(&w, 40_000, 70_000, true), [(70_000, Step::Reload)]);
+        assert_eq!(watch(&w, 75_000, 100_000, true), [(100_000, Step::Reopen)]);
+        assert_eq!(w.alive(true, 101_000), Some(true), "reopened");
     }
 
     #[test]
@@ -258,6 +278,31 @@ mod tests {
     }
 
     #[test]
+    fn waking_from_sleep_gives_the_page_its_time_again() {
+        let w = WindowWatch::default();
+        w.alive(true, 1_000);
+        w.step(true, true, 2_000, T);
+        w.step(true, true, 7_000, T);
+        // The computer slept for an hour: the first look after it is not a reason to reload.
+        assert_eq!(w.step(true, true, 3_607_000, T), Step::Nothing);
+        assert_eq!(w.step(true, true, 3_612_000, T), Step::Nothing);
+        // A page that still does not answer is reloaded after its quiet time.
+        let mut now = 3_612_000;
+        let mut step = Step::Nothing;
+        while step == Step::Nothing && now < 3_700_000 {
+            now += 5_000;
+            step = w.step(true, true, now, T);
+        }
+        assert_eq!(step, Step::Reload);
+        assert!(now >= 3_637_000, "{now}");
+        // A clock set back is not a reason either.
+        let w = WindowWatch::default();
+        w.alive(true, 50_000);
+        w.step(true, true, 51_000, T);
+        assert_eq!(w.step(true, true, 10_000, T), Step::Nothing);
+    }
+
+    #[test]
     fn closing_the_window_to_reopen_it_is_not_a_quit_for_a_while() {
         let w = WindowWatch::default();
         assert!(!w.is_reopening(1_000));
@@ -271,9 +316,8 @@ mod tests {
     fn a_page_that_said_it_is_hidden_is_watched_only_when_in_front() {
         let w = WindowWatch::default();
         w.alive(false, 1_000); // covered by other windows: WebView2 may slow its timers
-        w.step(true, false, 2_000, T);
-        assert_eq!(w.step(true, false, 100_000, T), Step::Nothing);
+        assert!(watch(&w, 2_000, 100_000, false).is_empty());
         // In front, it must answer.
-        assert_eq!(w.step(true, true, 100_500, T), Step::Reload);
+        assert_eq!(w.step(true, true, 102_000, T), Step::Reload);
     }
 }

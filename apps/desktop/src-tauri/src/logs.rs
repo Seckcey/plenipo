@@ -44,7 +44,12 @@ pub struct LogFiles {
 struct Writer {
     file: Option<File>,
     size: u64,
+    /// A rotation failed (another program has the file open): not tried again before this.
+    rotate_after: Option<std::time::Instant>,
 }
+
+/// After a failed rotation, how long to keep writing to the current file before trying again.
+const ROTATE_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Only recognizable secrets, until the Vault's filter replaces it.
 fn pattern_filter() -> Filter {
@@ -118,22 +123,27 @@ impl LogFiles {
         Ok(())
     }
 
-    /// `plenipo.log` becomes `plenipo.1.log`, and so on; the oldest is deleted.
+    /// `plenipo.log` becomes `plenipo.1.log`, and so on; the oldest is deleted. The current
+    /// file moves first: when it cannot (another program has it open on Windows), nothing is
+    /// deleted or moved, and writing goes on in the current file.
     fn rotate(&self, writer: &mut Writer) -> io::Result<()> {
         writer.file = None;
-        let oldest = self.path(self.keep - 1);
-        if self.keep > 1 && oldest.exists() {
-            fs::remove_file(&oldest)?;
+        let moving = self.dir.join(format!("{FILE_NAME}.rotating"));
+        if let Err(e) = fs::rename(self.path(0), &moving) {
+            self.reopen(writer)?;
+            return Err(e);
         }
-        for n in (0..self.keep.saturating_sub(1)).rev() {
-            let from = self.path(n);
-            if from.exists() {
-                fs::rename(&from, self.path(n + 1))?;
+        if self.keep > 1 {
+            let _ = fs::remove_file(self.path(self.keep - 1));
+            for n in (1..self.keep - 1).rev() {
+                let from = self.path(n);
+                if from.exists() {
+                    let _ = fs::rename(&from, self.path(n + 1));
+                }
             }
+            let _ = fs::rename(&moving, self.path(1));
         }
-        if self.keep == 1 {
-            let _ = fs::remove_file(self.path(0));
-        }
+        let _ = fs::remove_file(&moving);
         self.reopen(writer)
     }
 
@@ -153,13 +163,21 @@ impl LogFiles {
         if writer.file.is_none() && self.reopen(&mut writer).is_err() {
             return;
         }
-        if writer.size + line.len() as u64 > self.max_bytes && writer.size > 0 {
-            if let Err(e) = self.rotate(&mut writer) {
-                if self.echo {
-                    eprintln!("[plenipo] could not rotate the log files: {e}");
+        let may_rotate = writer
+            .rotate_after
+            .is_none_or(|at| std::time::Instant::now() >= at);
+        if writer.size + line.len() as u64 > self.max_bytes && writer.size > 0 && may_rotate {
+            match self.rotate(&mut writer) {
+                Ok(()) => writer.rotate_after = None,
+                Err(e) => {
+                    if self.echo {
+                        eprintln!("[plenipo] could not rotate the log files: {e}");
+                    }
+                    writer.rotate_after = Some(std::time::Instant::now() + ROTATE_RETRY);
+                    if writer.file.is_none() {
+                        return;
+                    }
                 }
-                writer.file = None;
-                return;
             }
         }
         if let Some(file) = writer.file.as_mut() {
@@ -278,6 +296,31 @@ mod tests {
         assert!(read(&files[0]).contains("line number 039"));
         let all: String = files.iter().map(|f| read(f)).collect();
         assert!(!all.contains("line number 000"));
+    }
+
+    #[test]
+    fn a_file_that_cannot_move_keeps_the_older_files_and_every_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = LogFiles::with_limits(dir.path(), 200, 3).unwrap();
+        fs::write(dir.path().join("plenipo.1.log"), "older").unwrap();
+        fs::write(dir.path().join("plenipo.2.log"), "oldest").unwrap();
+        // As when another program holds plenipo.log open on Windows: it cannot be moved.
+        let blocker = dir.path().join(format!("{FILE_NAME}.rotating"));
+        fs::create_dir(&blocker).unwrap();
+        fs::write(blocker.join("x"), "").unwrap();
+        for n in 0..40 {
+            logs.write(Level::Info, "plenipo", &format!("line number {n:03}"));
+        }
+        logs.flush();
+        assert_eq!(read(&dir.path().join("plenipo.1.log")), "older");
+        assert_eq!(read(&dir.path().join("plenipo.2.log")), "oldest");
+        let current = read(&dir.path().join(FILE_NAME));
+        for n in 0..40 {
+            assert!(
+                current.contains(&format!("line number {n:03}")),
+                "line {n} kept"
+            );
+        }
     }
 
     #[test]

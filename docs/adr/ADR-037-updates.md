@@ -68,9 +68,11 @@ Plenipo's own update code does this, not Tauri's add-on, so that:
 - and every step can be tested on a PC with no internet (the tests use a local test server and a
   throwaway test key).
 
-A copy of Plenipo built anywhere but the Release workflow (CI, a developer's PC) has no public
-key built in, so it **cannot install updates** and says so; it can still show you the newest
-version and a link to it.
+A copy of Plenipo built on a developer's PC has no public key built in, so it **cannot install
+updates** and says so; it can still show you the newest version and a link to it. CI's test copies
+(the Windows installer tests and the end-to-end tests) are built with a throwaway key made in each
+run and look for updates on `127.0.0.1` only, so the tests can install an update the way Plenipo
+does; those copies are never released.
 
 ### 3. When Plenipo checks, and what you see
 

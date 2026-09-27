@@ -77,15 +77,17 @@ the work.
    run it again. Plenipo does not restart itself after a crash: Windows' "restart after a crash"
    registration needs low-level code the project does not allow (`unsafe_code = "forbid"`), and
    a restart helper that watches Plenipo could restart it in a loop when you meant to end it.
-7. **When Windows restarts** (an update, or you restart the PC) while Plenipo runs, Plenipo
-   stops its work cleanly and records it. When you sign in again it starts (if **Start with
-   Windows** is on, or if Windows reopens apps) and tells you: "Windows restarted at 3:04 AM
-   while 1 task was running. It was stopped." with **Run again**.
-8. **Plenipo tells a crash from a restart** with a small "Plenipo is running" note it keeps in
-   its own folder (the version, when it started, and a heartbeat every 30 seconds; never task
-   text or secrets). If the note is still there at the next start, the last run did not end
-   cleanly; if Windows started after the last heartbeat, it was a Windows restart or a power
-   cut, otherwise a crash.
+7. **When Windows restarts, shuts down, or signs you out** while Plenipo runs, Windows closes
+   Plenipo, as it closes every program, and does not wait for its work to stop the normal way.
+   Plenipo notes it in its "running" note as it is closed; the work that was going stops with it.
+   When you sign in again it starts (if **Start with Windows** is on, or when you open it) and
+   tells you: "Windows closed Plenipo at 3:04 AM (a restart, a shutdown, or signing out)", with
+   the task that was running and **Run again**.
+8. **Plenipo tells a crash from Windows closing it** with a small "Plenipo is running" note it
+   keeps in its own folder (the version, when it started, a heartbeat every 30 seconds, and the
+   step it is on; never task text or secrets). If the note is still there at the next start, the
+   last run did not end cleanly; if Plenipo noted that Windows was closing it, or Windows started
+   after the last heartbeat (a restart or a power cut), it was Windows; otherwise a crash.
 
 **Deviation from the plan:** there is no separate service or daemon program. The plan's
 "background service/daemon" is the Plenipo program in the tray, and "separate UI lifecycle from

@@ -146,13 +146,16 @@ fn capitalized(s: &str) -> String {
 /// Plenipo started again after an unclean end (Phase 13): what happened and what stopped.
 fn recovered_notice(p: &Value) -> Notice {
     let title = match text(p, "cause") {
-        Some("windowsRestart") => "Windows restarted while Plenipo was running",
+        Some("windowsRestart") => "Windows closed Plenipo while it was running",
         Some("layoutChange") => "Plenipo was stopped while updating the Ledger",
         Some("crash") => "Plenipo closed unexpectedly",
         _ => "Plenipo did not close normally",
     };
     let stopped = p["stoppedTasks"].as_array().map_or(0, Vec::len);
+    let programs = p["stoppedPrograms"].as_u64().unwrap_or(0);
     let body = match stopped {
+        0 if programs == 1 => "1 program that was running was stopped.".to_owned(),
+        0 if programs > 1 => format!("{programs} programs that were running were stopped."),
         0 => "Nothing was running. Plenipo is running again.".to_owned(),
         1 => "1 task was stopped. Open Plenipo to run it again or leave it stopped.".to_owned(),
         n => {
@@ -713,8 +716,19 @@ mod tests {
         assert!(may_notify(&recovered.event_type));
         let n = l.notice_for(&recovered, &tool).unwrap().unwrap();
         assert_eq!(n.kind, NoticeKind::Plenipo);
-        assert_eq!(n.title, "Windows restarted while Plenipo was running");
+        assert_eq!(n.title, "Windows closed Plenipo while it was running");
         assert!(n.body.starts_with("2 tasks were stopped."), "{}", n.body);
+        // No task, but a program was running: it says so, not "nothing".
+        let program = l
+            .append_event(crate::NewEvent {
+                source: "plenipo".into(),
+                event_type: "plenipo.recovered".into(),
+                payload: json!({ "cause": "crash", "stoppedTasks": [], "stoppedPrograms": 1 }),
+                ..crate::NewEvent::default()
+            })
+            .unwrap();
+        let n = l.notice_for(&program, &tool).unwrap().unwrap();
+        assert_eq!(n.body, "1 program that was running was stopped.");
         let ready = l
             .append_event(crate::NewEvent {
                 source: "plenipo".into(),

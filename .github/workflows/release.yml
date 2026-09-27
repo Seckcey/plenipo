@@ -130,9 +130,7 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          # The updater signature (Tauri's signing tool) and the public half built into Plenipo.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # The updater key's public half, built into Plenipo (ADR-037).
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
@@ -150,6 +148,19 @@ jobs:
             if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
           }
           pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+      # ADR-037: the finished installer (already signed as 8 West above) gets the updater
+      # signature, over its final bytes and naming this version, with Tauri's signing tool.
+      - name: Sign the installer with the updater key, for this version
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          installer=(target/release/bundle/nsis/*-setup.exe)
+          test -f "${installer[0]}"
+          pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
+            "$GITHUB_WORKSPACE/${installer[0]}"
       - name: The updater signature is Plenipo's, for this version, and latest.json is written
         shell: bash
         env:
@@ -166,6 +177,13 @@ jobs:
           # The same check Plenipo makes before installing: the key built into it, this version.
           cargo run --release --locked -p plenipo-capabilities --example verify_update -- \
             "${installer[0]}" "$sig" "$version"
+          # Plenipo never offers a pre-release as an update, so a pre-release has no latest.json.
+          case "$version" in
+            *-*)
+              echo "A pre-release: no latest.json (updates offer full releases only)."
+              exit 0
+              ;;
+          esac
           notes="docs/releases/v$version.md"
           if [ ! -f "$notes" ]; then notes="$RUNNER_TEMP/no-notes.md"; printf '# v%s\n' "$version" > "$notes"; fi
           node scripts/update-manifest.mjs "$version" "${installer[0]}" "$sig" "$notes" \
@@ -221,11 +239,18 @@ jobs:
           fi
           installer=(target/release/bundle/nsis/*-setup.exe)
           test -f "${installer[0]}"
-          # The updater signature and latest.json go with it (ADR-037).
+          # The updater signature and latest.json go with it (ADR-037); a pre-release has no
+          # latest.json.
           test -f "${installer[0]}.sig"
-          test -f target/release/bundle/nsis/latest.json
-          gh release create "$RELEASE_TAG" "${installer[@]}" "${installer[0]}.sig" \
-            target/release/bundle/nsis/latest.json \
+          assets=("${installer[@]}" "${installer[0]}.sig")
+          case "$RELEASE_TAG" in
+            *-*) ;;
+            *)
+              test -f target/release/bundle/nsis/latest.json
+              assets+=(target/release/bundle/nsis/latest.json)
+              ;;
+          esac
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
             "${tag_source[@]}" \
             --title "$title" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \

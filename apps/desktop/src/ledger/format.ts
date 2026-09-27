@@ -124,7 +124,7 @@ export function describeEvent(e: LedgerEvent): string {
 
 const RECOVERY_WORDS: Record<string, string> = {
   crash: "Plenipo closed unexpectedly",
-  windowsRestart: "Windows restarted while Plenipo was running",
+  windowsRestart: "Windows closed Plenipo (a restart, a shutdown, or signing out)",
   layoutChange: "Plenipo was stopped while updating the Ledger's layout",
 };
 

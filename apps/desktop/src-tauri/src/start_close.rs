@@ -9,6 +9,8 @@
 //! - **One Plenipo at a time**: opening it again shows the one already running; opening it with
 //!   [`QUIT_ARG`] asks the running one to quit cleanly (the installer uses it).
 
+use std::path::Path;
+
 use plenipo_core::{CloseWindow, StartAndClose};
 use plenipo_ledger::Ledger;
 use serde_json::json;
@@ -60,6 +62,25 @@ pub fn set_close_window(ledger: &Ledger, choice: CloseWindow) -> plenipo_ledger:
 /// Plenipo was started by Windows at sign-in.
 pub fn started_in_tray(args: &[String]) -> bool {
     args.iter().skip(1).any(|a| a == IN_TRAY_ARG)
+}
+
+/// Marks a restart Plenipo asked for itself (after a restore, or an update that could not
+/// start): the window shows after it even if the first start was in the tray. In the `run`
+/// folder of Plenipo's own folder.
+pub const SHOW_AFTER_RESTART: &str = "show-window-after-restart";
+
+/// Ask the next start to show the window (before a restart Plenipo asks for itself).
+pub fn show_after_restart(data_dir: &Path) {
+    let run = data_dir.join("run");
+    let _ = std::fs::create_dir_all(&run);
+    if let Err(e) = std::fs::write(run.join(SHOW_AFTER_RESTART), b"") {
+        log::warn!("the window may stay in the tray after the restart: {e}");
+    }
+}
+
+/// Whether this start follows a restart Plenipo asked for (the mark is used once).
+pub fn shows_after_restart(data_dir: &Path) -> bool {
+    std::fs::remove_file(data_dir.join("run").join(SHOW_AFTER_RESTART)).is_ok()
 }
 
 /// Plenipo was opened to ask the running one to quit.
@@ -195,6 +216,15 @@ mod tests {
         l.merge_setting(PREFERENCES, &json!({ FIELD: 42 }), "x")
             .unwrap();
         assert_eq!(close_window(&l), CloseWindow::KeepWhileWorking);
+    }
+
+    #[test]
+    fn a_restart_plenipo_asked_for_shows_the_window_once() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!shows_after_restart(dir.path()));
+        show_after_restart(dir.path());
+        assert!(shows_after_restart(dir.path()));
+        assert!(!shows_after_restart(dir.path()), "used once");
     }
 
     #[test]

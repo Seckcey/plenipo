@@ -232,12 +232,41 @@ pub async fn set_start_and_close<R: Runtime>(
 
 // ---- Backups and restore -----------------------------------------------------------------------
 
+/// The Ledger's file: the open one's, or, when Plenipo runs on a temporary Ledger because it
+/// could not open its own (one from a newer Plenipo, after going back to an older version), that
+/// file, so its backups can still be listed and restored.
+fn ledger_file<R: Runtime>(app: &AppHandle<R>, ledger: &Ledger) -> Option<std::path::PathBuf> {
+    if let Some(path) = ledger.path() {
+        return Some(path.to_owned());
+    }
+    let kept = matches!(
+        app.try_state::<Persistence>().as_deref(),
+        Some(Persistence::AppData)
+    );
+    kept.then(|| crate::ledger_host::ledger_path(app).ok())
+        .flatten()
+        .filter(|p| p.exists())
+}
+
+fn overview(file: Option<&std::path::Path>) -> Result<LedgerBackups, plenipo_ledger::LedgerError> {
+    match file {
+        Some(path) => plenipo_ledger::backups::overview_at(path),
+        None => Ok(LedgerBackups {
+            backups: Vec::new(),
+            pending_restore: None,
+            folder: None,
+        }),
+    }
+}
+
 /// Every backup of the Ledger, newest first, and a restore waiting for the next start.
 #[tauri::command]
-pub async fn list_ledger_backups(
+pub async fn list_ledger_backups<R: Runtime>(
+    app: AppHandle<R>,
     ledger: State<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
-    with_ledger(&ledger, Ledger::backups_overview).await
+    let file = ledger_file(&app, &ledger);
+    with_ledger(&ledger, move |_| overview(file.as_deref())).await
 }
 
 /// Restore the Ledger from one of its backups, named from the list (never a path). Plenipo
@@ -254,8 +283,9 @@ pub async fn restore_ledger_backup<R: Runtime>(
             "that is not one of the Ledger's backups",
         ));
     }
+    let file = ledger_file(&app, &ledger);
     let overview = with_ledger(&ledger, move |l| {
-        let path = l.path().ok_or_else(|| {
+        let path = file.as_deref().ok_or_else(|| {
             plenipo_ledger::LedgerError::InvalidInput(
                 "a temporary Ledger has no backups to restore".into(),
             )
@@ -267,7 +297,7 @@ pub async fn restore_ledger_backup<R: Runtime>(
             payload: json!({ "backup": backup.name }),
             ..NewEvent::default()
         })?;
-        l.backups_overview()
+        overview(Some(path))
     })
     .await?;
     log::warn!("a restore of the Ledger was asked for; Plenipo restarts to do it");
@@ -277,14 +307,16 @@ pub async fn restore_ledger_backup<R: Runtime>(
 
 /// Forget a restore that was asked for but has not happened yet.
 #[tauri::command]
-pub async fn cancel_ledger_restore(
+pub async fn cancel_ledger_restore<R: Runtime>(
+    app: AppHandle<R>,
     ledger: State<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
-    with_ledger(&ledger, |l| {
-        if let Some(path) = l.path() {
+    let file = ledger_file(&app, &ledger);
+    with_ledger(&ledger, move |_| {
+        if let Some(path) = file.as_deref() {
             plenipo_ledger::backups::cancel_restore(path)?;
         }
-        l.backups_overview()
+        overview(file.as_deref())
     })
     .await
 }
@@ -299,6 +331,9 @@ fn restart_plenipo<R: Runtime>(app: &AppHandle<R>) {
             .ok();
         crate::stop_work(&app).await;
         crate::mark_stopped(&app);
+        if let Ok(data) = app.path().app_local_data_dir() {
+            start_close::show_after_restart(&data);
+        }
         app.request_restart();
     });
 }
@@ -400,7 +435,7 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
             "name": b.name, "kind": b.kind, "createdAt": b.created_at,
             "sizeBytes": b.size_bytes, "restorable": b.restorable,
         })).collect::<Vec<_>>(),
-        "lastRun": recovery_status_off_thread(app).await.ok(),
+        "lastRun": recovery_status_off_thread(app).await.ok().map(|s| last_run(&s)),
         "startAndClose": start_close::settings(app, &ledger),
         "updates": app.state::<Arc<Updates>>().status(),
         "aiTools": tools,
@@ -409,6 +444,23 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
             "programs": supervisor.as_ref().map(|s| s.overview().notices),
             "permissions": app.try_state::<Guard>().map(|g| g.notices()),
         },
+    })
+}
+
+/// How the last run ended, for the diagnostics file: the cause, times, and counts, never what
+/// the stopped tasks were about (their objectives are the owner's words).
+fn last_run(status: &RecoveryStatus) -> Value {
+    json!({
+        "recovery": status.recovery.as_ref().map(|r| json!({
+            "cause": r.cause,
+            "lastSeenAt": r.last_seen_at,
+            "foundAt": r.found_at,
+            "previousVersion": r.previous_version,
+            "stoppedTasks": r.stopped_tasks.len(),
+            "stoppedPrograms": r.stopped_programs,
+        })),
+        "window": status.window,
+        "settingsProblems": status.settings_problems.iter().map(|p| &p.label).collect::<Vec<_>>(),
     })
 }
 
@@ -500,6 +552,9 @@ async fn install<R: Runtime>(
                  the work that was running was stopped. Plenipo restarts now."
             );
             updates.install_failed(&ledger, message.clone());
+            if let Ok(data) = app.path().app_local_data_dir() {
+                start_close::show_after_restart(&data);
+            }
             app.request_restart();
             Err(CommandError::internal(message))
         }
@@ -675,4 +730,44 @@ async fn start_work<R: Runtime>(app: &AppHandle<R>) -> Value {
     .ok()
     .flatten();
     json!({ "execution": execution, "task": task })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plenipo_core::{Recovery, RecoveryCause, SettingsProblem, StoppedTask};
+
+    #[test]
+    fn the_diagnostics_file_says_how_the_last_run_ended_without_what_the_tasks_were() {
+        let status = RecoveryStatus {
+            recovery: Some(Recovery {
+                id: "e1".into(),
+                cause: RecoveryCause::Crash,
+                last_seen_at: Some(1),
+                found_at: 2,
+                previous_version: Some("1.9.0".into()),
+                stopped_tasks: vec![StoppedTask {
+                    task_id: "t1".into(),
+                    objective: "Email the confidential price list to Dana".into(),
+                    who: Some("Sales Manager".into()),
+                    can_run_again: true,
+                    run_again_as: None,
+                }],
+                stopped_programs: 1,
+            }),
+            window: None,
+            settings_problems: vec![SettingsProblem {
+                key: "guard".into(),
+                label: "Permissions".into(),
+                message: "expected a list at line 3".into(),
+            }],
+        };
+        let text = last_run(&status).to_string();
+        assert!(text.contains("\"cause\":\"crash\""), "{text}");
+        assert!(text.contains("\"stoppedTasks\":1"), "{text}");
+        assert!(text.contains("Permissions"), "{text}");
+        for private in ["confidential", "Dana", "Sales Manager", "t1"] {
+            assert!(!text.contains(private), "{private} in {text}");
+        }
+    }
 }

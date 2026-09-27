@@ -14,6 +14,7 @@ import type { Go } from "../components/views";
 import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
 import { recoveryLead, recoveryTitle } from "./words";
+import { useShown } from "./useShown";
 
 /** Ledger events after which recovery has something new to say. */
 function relevant(eventType: string): boolean {
@@ -37,10 +38,10 @@ export function RecoveryBanners({ go }: { go: Go }) {
     () => getRecoveryStatus(),
     (e) => relevant(e.eventType),
   );
-  const [shown, setShown] = useState<RecoveryStatus | null>(null);
+  const [current, setShown] = useShown(live);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const status = shown ?? live.value;
+  const status = current;
   if (!status) return null;
 
   const act = async (key: string, work: () => Promise<RecoveryStatus>) => {

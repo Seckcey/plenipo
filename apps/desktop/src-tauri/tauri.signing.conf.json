@@ -16,7 +16,6 @@
           "%1"
         ]
       }
-    },
-    "createUpdaterArtifacts": true
+    }
   }
 }

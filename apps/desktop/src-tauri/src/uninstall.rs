@@ -5,11 +5,9 @@
 //! happens in this mode: no window, no tray, no work.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use plenipo_capabilities::vault::{self, SecretStore};
-use plenipo_guard::Guard;
-use plenipo_ledger::{Ledger, DB_FILE_NAME};
+use plenipo_ledger::DB_FILE_NAME;
 
 /// The argument the uninstaller passes.
 pub const FORGET_SECRETS_ARG: &str = "--plenipo-forget-secrets";
@@ -34,9 +32,14 @@ pub fn forget_secrets(data: &Path, store: &dyn SecretStore) -> Result<usize, Str
     if !db.exists() {
         return Ok(0);
     }
-    let ledger = Arc::new(Ledger::open(&db).map_err(|e| e.to_string())?);
-    let config = Guard::new(ledger).config().map_err(|e| e.to_string())?;
-    let (removed, problems) = vault::forget_all(store, &config);
+    // Read straight from the file: a Ledger from a newer Plenipo, or with damaged settings, must
+    // still give up the names of the secrets Plenipo kept.
+    let ids = match plenipo_ledger::setting_in_file(&db, plenipo_guard::SETTING) {
+        Ok(Some(settings)) => vault::stored_ids_in(&settings),
+        Ok(None) => Vec::new(),
+        Err(e) => return Err(format!("the Ledger could not be read ({e})")),
+    };
+    let (removed, problems) = vault::forget_ids(store, &ids);
     if problems.is_empty() {
         Ok(removed)
     } else {
@@ -72,8 +75,11 @@ pub fn maybe_run_from_args(mut args: impl Iterator<Item = String>) -> Option<i32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
     use plenipo_capabilities::MemorySecretStore;
-    use plenipo_guard::SecretInput;
+    use plenipo_guard::{Guard, SecretInput};
+    use plenipo_ledger::Ledger;
 
     #[test]
     fn deleting_my_data_forgets_every_secret_plenipo_kept() {
@@ -113,6 +119,24 @@ mod tests {
             assert_eq!(config.secrets.len(), 2);
         }
         assert!(store.stored() > 2, "the long one is kept in pieces");
+        // A later Plenipo changed the Ledger's layout (this one would refuse to open it) and
+        // its permission settings no longer read as a whole: the secrets' names still do.
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, checksum, applied_at) \
+                 VALUES (999, 'future', 'x', 0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE settings SET value = json_set(value, '$.sets', 'not a list') \
+                 WHERE key = 'guard'",
+                [],
+            )
+            .unwrap();
+        }
+        assert!(Ledger::open(&db).is_err(), "a newer layout is refused");
         assert_eq!(forget_secrets(dir.path(), &store).unwrap(), 2);
         assert_eq!(store.stored(), 0, "nothing is left behind");
         // Again, or with no Ledger at all: nothing to do.

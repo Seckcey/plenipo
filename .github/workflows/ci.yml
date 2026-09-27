@@ -179,14 +179,23 @@ jobs:
           $version = node -p "require('./package.json').version"
           ./scripts/windows/installer-tests.ps1 -NewInstaller $new -OldInstaller $old -Version $version `
             -UpdaterKey "$env:RUNNER_TEMP\test-updater.key" -UpdatesDir "$env:RUNNER_TEMP\updates"
+      # The logs and the last report are on another drive than the workspace: gather them first.
+      - name: Gather Plenipo's log files (when a test failed)
+        if: failure()
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'windows-logs'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $logs = Join-Path $env:LOCALAPPDATA 'com.eightwest.plenipo\logs'
+          if (Test-Path $logs) { Copy-Item "$logs\*" $out -Force }
+          $report = Join-Path $env:RUNNER_TEMP 'plenipo-report.json'
+          if (Test-Path $report) { Copy-Item $report $out -Force }
       - name: Plenipo's log files (when a test failed)
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: plenipo-windows-logs
-          path: |
-            ~/AppData/Local/com.eightwest.plenipo/logs/
-            ${{ runner.temp }}/plenipo-report.json
+          path: windows-logs/
           if-no-files-found: ignore
           retention-days: 7
       # This run's installer trusts this run's throwaway updater key (see above): for testing

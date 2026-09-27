@@ -99,7 +99,10 @@ impl Updates {
     }
 
     pub fn status(&self) -> UpdateStatus {
-        let inner = self.lock();
+        self.status_of(&self.lock())
+    }
+
+    fn status_of(&self, inner: &Inner) -> UpdateStatus {
         let message = inner.message.clone().or_else(|| {
             (!self.can_install()).then(|| {
                 "This copy of Plenipo was not built by 8 West's Release workflow, so it cannot \
@@ -136,15 +139,24 @@ impl Updates {
     /// Ask GitHub (through Guard) whether a newer version exists. A newer one is recorded in
     /// the Ledger once per version, which shows the owner a notice.
     pub async fn check_now(&self, guard: &Guard, ledger: &Ledger) -> UpdateStatus {
-        if self.lock().state == UpdateState::Installing {
-            return self.status();
+        {
+            let mut inner = self.lock();
+            if inner.state == UpdateState::Installing {
+                return self.status_of(&inner);
+            }
+            inner.state = UpdateState::Checking;
+            inner.message = None;
         }
-        self.set(UpdateState::Checking, None);
         let result = updates::check(guard, &self.source, &self.version).await;
         let now = plenipo_ledger::now_ms();
         {
             let mut inner = self.lock();
             inner.last_checked_at = Some(now);
+            if inner.state == UpdateState::Installing {
+                // Install now started while this check was on its way: it keeps its state (only
+                // one install at a time), and what it installs was checked by its own download.
+                return self.status_of(&inner);
+            }
             match &result {
                 Ok(Some(release)) => {
                     inner.state = UpdateState::Available;
@@ -184,7 +196,15 @@ impl Updates {
         if !self.can_install() {
             return Err(self.status().message.unwrap_or_default());
         }
-        self.set(UpdateState::Installing, None);
+        {
+            // One install at a time: the check and the change are one step.
+            let mut inner = self.lock();
+            if inner.state == UpdateState::Installing {
+                return Err("The update is already being installed.".into());
+            }
+            inner.state = UpdateState::Installing;
+            inner.message = None;
+        }
         match updates::download(guard, &self.source, &release).await {
             Ok(bytes) => Ok((release, bytes)),
             Err(e) => {
@@ -315,6 +335,30 @@ mod tests {
             url: "https://github.com/Seckcey/plenipo/releases/download/x".into(),
             signature: "s".into(),
         }
+    }
+
+    #[test]
+    fn a_check_that_ends_while_installing_leaves_the_install_alone() {
+        let u = Updates::new(
+            "1.9.0",
+            UpdateSource {
+                endpoint: RELEASES_ENDPOINT.into(),
+                public_key: Some("key".into()),
+            },
+        );
+        u.lock().available = Some(release("1.10.0"));
+        u.set(UpdateState::Installing, None);
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let guard = Guard::new(Arc::clone(&ledger));
+        let s = tauri::async_runtime::block_on(u.check_now(&guard, &ledger));
+        assert_eq!(
+            s.state,
+            UpdateState::Installing,
+            "a check never starts mid-install"
+        );
+        let again = tauri::async_runtime::block_on(u.download(&guard));
+        assert!(again.unwrap_err().contains("already being installed"));
+        assert_eq!(u.status().state, UpdateState::Installing);
     }
 
     #[test]

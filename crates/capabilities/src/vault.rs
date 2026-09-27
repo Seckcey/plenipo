@@ -234,17 +234,47 @@ pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
         .collect()
 }
 
+/// The IDs [`stored_ids`] gives, read leniently from the permission settings as stored (JSON),
+/// so settings that no longer read as a whole still give up the secrets' names.
+pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
+    let ids = |list: &str| -> Vec<String> {
+        settings
+            .get(list)
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|i| i.get("id").and_then(|id| id.as_str()).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    ids("secrets")
+        .into_iter()
+        .chain(
+            ids("servers")
+                .iter()
+                .flat_map(|s| crate::broker::servers::vault_ids(s)),
+        )
+        .collect()
+}
+
 /// Remove every value Plenipo keeps for `config` (with their pieces). Returns how many were
 /// removed and what could not be.
 pub fn forget_all(
     store: &dyn SecretStore,
     config: &plenipo_guard::GuardConfig,
 ) -> (usize, Vec<String>) {
+    forget_ids(store, &stored_ids(config))
+}
+
+/// Remove the values kept under `ids` (with their pieces).
+pub fn forget_ids(store: &dyn SecretStore, ids: &[String]) -> (usize, Vec<String>) {
     let mut removed = 0;
     let mut problems = Vec::new();
-    for id in stored_ids(config) {
-        let there = matches!(store.get(&id), Ok(Some(_)));
-        match erase(store, &id) {
+    for id in ids {
+        let there = matches!(store.get(id), Ok(Some(_)));
+        match erase(store, id) {
             Ok(()) if there => removed += 1,
             Ok(()) => {}
             Err(e) => problems.push(format!("{id}: {e}")),

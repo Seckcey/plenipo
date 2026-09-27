@@ -257,13 +257,18 @@ pub fn list_backups(dir: &Path) -> Result<Vec<LedgerBackup>> {
 
 /// Keep only the newest `kind` backups (see [`BackupKind::keep`]).
 fn prune_kind(dir: &Path, kind: BackupKind) -> Result<()> {
+    prune_kind_except(dir, kind, None)
+}
+
+/// Keep only the newest of `kind`, never deleting `except` (the backup being restored).
+fn prune_kind_except(dir: &Path, kind: BackupKind, except: Option<&str>) -> Result<()> {
     let Some(keep) = kind.keep() else {
         return Ok(());
     };
     let mut of_kind: Vec<(u64, String)> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .filter_map(|e| e.file_name().to_str().map(str::to_owned))
-        .filter(|n| BackupKind::of_file(n) == Some(kind))
+        .filter(|n| BackupKind::of_file(n) == Some(kind) && Some(n.as_str()) != except)
         .map(|n| (stamp_of(&n).unwrap_or(0), n))
         .collect();
     of_kind.sort();
@@ -327,6 +332,18 @@ pub fn request_restore(db_path: &Path, name: &str) -> Result<LedgerBackup> {
     Ok(backup)
 }
 
+/// The backups of the Ledger file at `db_path`, and a restore waiting for the next start, read
+/// from its folder alone. Plenipo uses it too when it could not open that file (one from a newer
+/// Plenipo, after going back to an older version): its backups can still be restored.
+pub fn overview_at(db_path: &Path) -> Result<LedgerBackups> {
+    let dir = backups_dir(db_path);
+    Ok(LedgerBackups {
+        backups: list_backups(&dir)?,
+        pending_restore: pending_restore(db_path),
+        folder: Some(dir.display().to_string()),
+    })
+}
+
 /// A restore waiting for the next start, if any.
 pub fn pending_restore(db_path: &Path) -> Option<String> {
     let text = std::fs::read(restore_request_path(db_path)).ok()?;
@@ -353,55 +370,108 @@ fn side_file(db_path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Keep the Ledger as it is now before a restore replaces it: a verified backup if it can be
-/// read, otherwise its files moved aside. Returns what it was kept as.
-fn keep_current(db_path: &Path) -> std::result::Result<Option<String>, String> {
+/// How the Ledger as it was before a restore was kept.
+enum Kept {
+    /// A verified backup (listed in Diagnostics), by name.
+    Backup(String),
+    /// It could not be read, so its files were moved aside, untouched, under this name.
+    MovedAside(String),
+}
+
+impl Kept {
+    fn name(&self) -> &str {
+        match self {
+            Self::Backup(n) | Self::MovedAside(n) => n,
+        }
+    }
+
+    fn words(&self) -> String {
+        match self {
+            Self::Backup(n) => format!(
+                "The Ledger as it was before is kept as the backup {n}, so you can go back to it."
+            ),
+            Self::MovedAside(n) => format!(
+                "The Ledger as it was before could not be read; its files were moved aside, \
+                 untouched, as {n} next to the Ledger."
+            ),
+        }
+    }
+}
+
+/// Whether the Ledger file at `db_path` can be read (a quick check of its pages).
+fn readable(db_path: &Path) -> bool {
+    Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .and_then(|c| c.query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0)))
+        .is_ok_and(|r| r == "ok")
+}
+
+/// Keep the Ledger as it is now before a restore replaces it. One that can be read is backed
+/// up and checked, or the restore stops (a full disk must never cost the owner their Ledger);
+/// its write-ahead log is emptied into it first, so nothing is only in that log. One that
+/// cannot be read has its files moved aside, untouched.
+fn keep_current(db_path: &Path) -> std::result::Result<Option<Kept>, String> {
     if !db_path.exists() {
         return Ok(None);
     }
-    let dir = backups_dir(db_path);
-    let snap = Connection::open(db_path)
-        .map_err(|e| e.to_string())
-        .and_then(|c| {
-            snapshot(&c, &dir, BackupKind::BeforeRestore.prefix()).map_err(|e| e.to_string())
-        });
-    let kept = match snap {
-        Ok(info) if info.verified => Path::new(&info.path)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned()),
-        _ => {
-            // Unreadable: move its files aside, untouched, next to the Ledger.
-            let stamp = crate::now_ms();
-            let name = db_path
-                .file_name()
-                .map_or_else(|| "plenipo.db".into(), |n| n.to_string_lossy().into_owned());
-            for suffix in ["", "-wal", "-shm"] {
-                let from = side_file(db_path, suffix);
-                if from.exists() {
-                    let to = db_path.with_file_name(format!("{name}{suffix}.replaced-{stamp}"));
-                    std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
-                }
-            }
-            Some(format!("{name}.replaced-{stamp}"))
+    if readable(db_path) {
+        let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .map_err(|e| e.to_string())?;
+        let info = snapshot(
+            &conn,
+            &backups_dir(db_path),
+            BackupKind::BeforeRestore.prefix(),
+        )
+        .map_err(|e| format!("it could not be backed up first ({e})"))?;
+        if !info.verified {
+            let _ = std::fs::remove_file(&info.path);
+            return Err("its backup failed its integrity check".into());
         }
-    };
-    let _ = prune_kind(&dir, BackupKind::BeforeRestore);
-    Ok(kept)
+        drop(conn);
+        let name = Path::new(&info.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return Ok(Some(Kept::Backup(name)));
+    }
+    let stamp = crate::now_ms();
+    let name = db_path
+        .file_name()
+        .map_or_else(|| "plenipo.db".into(), |n| n.to_string_lossy().into_owned());
+    for suffix in ["", "-wal", "-shm"] {
+        let from = side_file(db_path, suffix);
+        if from.exists() {
+            let to = db_path.with_file_name(format!("{name}{suffix}.replaced-{stamp}"));
+            std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(Some(Kept::MovedAside(format!("{name}.replaced-{stamp}"))))
 }
 
 /// Before the Ledger at `db_path` is opened: carry out a restore that was asked for. Returns
 /// `None` when none was asked for. On any problem the Ledger is left as it was.
+///
+/// Nothing is changed until the backup is copied next to the Ledger and checked, and the
+/// Ledger as it is now is kept; then the copy takes the Ledger's place in one rename, so a
+/// restore stopped at any point leaves either the old Ledger or the restored one, never a
+/// missing or half-written file.
 pub fn apply_pending_restore(db_path: &Path) -> Option<RestoreOutcome> {
     let request_path = restore_request_path(db_path);
     let text = std::fs::read(&request_path).ok()?;
-    // Remove the request first: a restore that fails, or Plenipo stopping halfway, must not
-    // be tried again at every start.
-    let _ = std::fs::remove_file(&request_path);
     let failed = |why: String| RestoreOutcome {
         restored: None,
         kept_as: None,
         message: format!("The Ledger was not restored: {why} Your Ledger was not changed."),
     };
+    // Remove the request first: a restore that fails, or Plenipo stopping halfway, must not be
+    // tried again at every start (and a request that cannot be removed would restore again at
+    // every start, undoing what was done since).
+    if let Err(e) = std::fs::remove_file(&request_path) {
+        return Some(failed(format!(
+            "the note asking for it could not be removed ({e}), and it would restore again at \
+             every start."
+        )));
+    }
     let Ok(request) = serde_json::from_slice::<RestoreRequest>(&text) else {
         return Some(failed(
             "the note asking for it was damaged, so Plenipo could not tell which backup to use."
@@ -412,44 +482,62 @@ pub fn apply_pending_restore(db_path: &Path) -> Option<RestoreOutcome> {
         Ok(b) => b,
         Err(e) => return Some(failed(format!("{}.", plain(&e)))),
     };
-    let kept_as = match keep_current(db_path) {
+    let staged = side_file(db_path, ".restoring");
+    let _ = std::fs::remove_file(&staged);
+    let copied = std::fs::copy(backups_dir(db_path).join(&backup.name), &staged);
+    if let Err(e) = copied {
+        let _ = std::fs::remove_file(&staged);
+        return Some(failed(format!("the backup could not be copied ({e}).")));
+    }
+    if !verify(&staged) {
+        let _ = std::fs::remove_file(&staged);
+        return Some(failed(
+            "the copy of the backup failed its integrity check.".into(),
+        ));
+    }
+    let kept = match keep_current(db_path) {
         Ok(kept) => kept,
         Err(e) => {
+            let _ = std::fs::remove_file(&staged);
             return Some(failed(format!(
-                "the Ledger as it is now could not be kept first ({e})."
-            )))
+                "the Ledger as it is now could not be kept first: {e}."
+            )));
         }
     };
-    // The new file must not meet the old one's write-ahead log.
-    for suffix in ["", "-wal", "-shm"] {
-        let path = side_file(db_path, suffix);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
-                return Some(RestoreOutcome {
-                    restored: None,
-                    kept_as,
-                    message: format!(
-                        "The Ledger was not restored: its file could not be replaced ({e})."
-                    ),
-                });
-            }
-        }
-    }
-    if let Err(e) = std::fs::copy(backups_dir(db_path).join(&backup.name), db_path) {
-        return Some(RestoreOutcome {
+    let kept_as = kept.as_ref().map(|k| k.name().to_owned());
+    let not_replaced = |e: std::io::Error| {
+        let _ = std::fs::remove_file(&staged);
+        RestoreOutcome {
             restored: None,
             kept_as: kept_as.clone(),
             message: format!(
-                "The Ledger could not be restored ({e}). The Ledger as it was is kept as {}.",
-                kept_as.as_deref().unwrap_or("a backup")
+                "The Ledger was not restored: its file could not be replaced ({e}). {}",
+                kept.as_ref().map_or_else(String::new, Kept::words)
             ),
-        });
+        }
+    };
+    // The restored file must not meet the old one's write-ahead log (emptied above).
+    for suffix in ["-wal", "-shm"] {
+        let path = side_file(db_path, suffix);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                return Some(not_replaced(e));
+            }
+        }
     }
-    let message = match &kept_as {
-        Some(kept) => format!(
-            "The Ledger was restored from the backup {}. The Ledger as it was before is kept as \
-             the backup {kept}, so you can go back to it.",
-            backup.name
+    if let Err(e) = std::fs::rename(&staged, db_path) {
+        return Some(not_replaced(e));
+    }
+    let _ = prune_kind_except(
+        &backups_dir(db_path),
+        BackupKind::BeforeRestore,
+        Some(&backup.name),
+    );
+    let message = match &kept {
+        Some(k) => format!(
+            "The Ledger was restored from the backup {}. {}",
+            backup.name,
+            k.words()
         ),
         None => format!("The Ledger was restored from the backup {}.", backup.name),
     };
@@ -515,11 +603,14 @@ impl Ledger {
 
     /// The backups, and the restore waiting for the next start.
     pub fn backups_overview(&self) -> Result<LedgerBackups> {
-        Ok(LedgerBackups {
-            backups: self.backups()?,
-            pending_restore: self.path().and_then(pending_restore),
-            folder: self.backups_dir().map(|d| d.display().to_string()),
-        })
+        match self.path() {
+            Some(path) => overview_at(path),
+            None => Ok(LedgerBackups {
+                backups: Vec::new(),
+                pending_restore: None,
+                folder: None,
+            }),
+        }
     }
 }
 

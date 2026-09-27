@@ -47,7 +47,8 @@ pub struct StartAndCloseInput {
 pub enum RecoveryCause {
     /// Plenipo closed unexpectedly (it crashed, or was ended from Task Manager).
     Crash,
-    /// Windows restarted, or the computer lost power, while Plenipo was running.
+    /// Windows closed Plenipo (a restart, a shutdown, or signing out), or the computer lost power,
+    /// while it was running.
     WindowsRestart,
     /// Plenipo stopped while it was changing the Ledger's layout (a migration).
     LayoutChange,

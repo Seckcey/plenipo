@@ -16,7 +16,7 @@ export function recoveryTitle(recovery: Recovery, now: number = Date.now()): str
   const at = recovery.lastSeenAt ? ` at ${when(recovery.lastSeenAt, now)}` : "";
   const titles: Record<RecoveryCause, string> = {
     crash: `Plenipo closed unexpectedly${at}`,
-    windowsRestart: `Windows restarted${at} while Plenipo was running`,
+    windowsRestart: `Windows closed Plenipo${at} (a restart, a shutdown, or signing out)`,
     layoutChange: `Plenipo was stopped${at} while updating the Ledger`,
     unknown: "Plenipo did not close normally last time",
   };
@@ -30,7 +30,12 @@ export function recoveryLead(recovery: Recovery): string {
     recovery.cause === "layoutChange"
       ? "Nothing was lost: the unfinished step was undone and done again, with a backup from before it. "
       : "";
-  if (n === 0) return `${layout}Nothing was running. Plenipo is running again.`;
+  if (n === 0) {
+    const programs = recovery.stoppedPrograms;
+    if (programs === 1) return `${layout}1 program that was running was stopped.`;
+    if (programs > 1) return `${layout}${programs} programs that were running were stopped.`;
+    return `${layout}Nothing was running. Plenipo is running again.`;
+  }
   return `${layout}${n === 1 ? "This task was stopped" : `These ${n} tasks were stopped`}. Nothing runs again until you choose Run again.`;
 }
 

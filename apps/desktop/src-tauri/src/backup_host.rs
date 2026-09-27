@@ -68,7 +68,12 @@ pub fn last_version(ledger: &Ledger) -> Option<String> {
 /// Plenipo used this Ledger last, back it up first ("before every upgrade") and record the
 /// change. `existed`: the Ledger's file was there before this start (not a fresh install).
 /// Returns the backup's name when one was made.
-pub fn before_upgrade(ledger: &Ledger, existed: bool, version: &str) -> Option<String> {
+pub fn before_upgrade(
+    ledger: &Ledger,
+    existed: bool,
+    changed_layout: bool,
+    version: &str,
+) -> Option<String> {
     ledger.path()?;
     let last = last_version(ledger);
     if last.as_deref() == Some(version) {
@@ -85,6 +90,10 @@ pub fn before_upgrade(ledger: &Ledger, existed: bool, version: &str) -> Option<S
         });
         if recent_update {
             log::info!("a backup was made just before this update; no second one is needed");
+        } else if changed_layout {
+            log::info!(
+                "the Ledger was backed up before its layout changed; no second one is needed"
+            );
         } else {
             let from = last.as_deref().unwrap_or("earlier");
             match ledger.backup_of_kind(BackupKind::BeforeUpgrade, Some(from)) {
@@ -223,12 +232,12 @@ mod tests {
     fn a_new_version_backs_up_the_ledger_before_its_first_use() {
         let (_dir, l) = ledger();
         // A fresh install: nothing to back up, the version is kept.
-        assert_eq!(before_upgrade(&l, false, "1.9.0"), None);
+        assert_eq!(before_upgrade(&l, false, false, "1.9.0"), None);
         assert_eq!(last_version(&l).as_deref(), Some("1.9.0"));
         // The same version again: nothing.
-        assert_eq!(before_upgrade(&l, true, "1.9.0"), None);
+        assert_eq!(before_upgrade(&l, true, false, "1.9.0"), None);
         // A new version: a backup named after the version before.
-        let made = before_upgrade(&l, true, "1.10.0").unwrap();
+        let made = before_upgrade(&l, true, false, "1.10.0").unwrap();
         assert!(made.starts_with("pre-upgrade-1.9.0-"), "{made}");
         assert_eq!(last_version(&l).as_deref(), Some("1.10.0"));
         let changed = l.events_of_types(&["plenipo.version_changed"], 5).unwrap();
@@ -239,17 +248,21 @@ mod tests {
     #[test]
     fn a_ledger_from_before_1_9_is_backed_up_as_an_earlier_version() {
         let (_dir, l) = ledger();
-        let made = before_upgrade(&l, true, "1.9.0").unwrap();
+        let made = before_upgrade(&l, true, false, "1.9.0").unwrap();
         assert!(made.starts_with("pre-upgrade-earlier-"), "{made}");
     }
 
     #[test]
     fn an_update_that_already_made_a_backup_is_not_backed_up_twice() {
         let (_dir, l) = ledger();
-        before_upgrade(&l, false, "1.9.0");
+        before_upgrade(&l, false, false, "1.9.0");
         l.backup_of_kind(BackupKind::BeforeUpdate, Some("1.10.0"))
             .unwrap();
-        assert_eq!(before_upgrade(&l, true, "1.10.0"), None);
+        assert_eq!(before_upgrade(&l, true, false, "1.10.0"), None);
         assert_eq!(last_version(&l).as_deref(), Some("1.10.0"));
+        // A new version whose layout change backed the Ledger up first: no second backup, and
+        // the new version is still recorded.
+        assert_eq!(before_upgrade(&l, true, true, "1.11.0"), None);
+        assert_eq!(last_version(&l).as_deref(), Some("1.11.0"));
     }
 }

@@ -66,7 +66,7 @@ Written before building, from a map of the code.
 - [x] **Signed installer path** — the Release workflow signs as 8 West Ventures, LLC (as before)
       and now also signs the installer with the updater key, checks that signature and its
       version, and publishes `.sig` and `latest.json` (`.github/workflows/release.yml`,
-      `scripts/update-manifest.mjs`, `tauri.signing.conf.json`).
+      `scripts/update-manifest.mjs`).
 - [x] **Uninstall** — keeps the Ledger, backups, and settings unless "Also delete my Plenipo data"
       is ticked (`/DELETEAPPDATA` when silent), which also removes the secrets in Windows
       Credential Manager (`uninstall.rs`); Start with Windows and shortcuts always go.
@@ -100,7 +100,7 @@ Written before building, from a map of the code.
       ([report, section 3](phase-13-acceptance-report.md#3-recovery-states)):
   - [x] UI crash — the window is reloaded, then reopened; the work goes on.
   - [x] Daemon crash — Plenipo closed unexpectedly: what stopped, Run again or Leave stopped.
-  - [x] Windows reboot — Windows restarted while Plenipo was running: the same, with the cause.
+  - [x] Windows reboot — Windows closed Plenipo (a restart, a shutdown, or signing out): the same, with the cause.
   - [x] Provider process crash — the AI tool stopped unexpectedly: only its task stops, and shows
         in What's stuck (as before; the label is now plain words).
   - [x] Incomplete task — listed with Run again (a new task, same request, same worker) or Leave
