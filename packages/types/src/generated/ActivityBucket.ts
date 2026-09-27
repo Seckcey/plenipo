@@ -9,7 +9,7 @@ export type ActivityBucket = {
  */
 events: number, 
 /**
- * Failures, blocks, and refusals.
+ * Failures, refusals, and timeouts (a task blocked on handoff replies is not a problem).
  */
 problems: number, 
 /**
