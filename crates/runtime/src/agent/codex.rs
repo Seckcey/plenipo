@@ -555,6 +555,7 @@ mod tests {
             effort: None,
             billing_confirmed: true,
             tools: None,
+            working_dir: PathBuf::new(),
         }
     }
 
@@ -581,6 +582,7 @@ mod tests {
             effort: None,
             billing_confirmed: true,
             tools: Some(tools),
+            working_dir: PathBuf::new(),
         });
         let settings: Vec<&String> = args
             .iter()
@@ -627,6 +629,7 @@ mod tests {
             effort: Some(Effort::Ultra),
             billing_confirmed: true,
             tools: None,
+            working_dir: PathBuf::new(),
         });
         assert_eq!(
             resume,

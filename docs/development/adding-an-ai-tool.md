@@ -3,11 +3,13 @@
 This is Plenipo's adapter contract, the "provider adapter SDK/contract" of `ROLLOUT_PLAN.md`
 Phase 15. It walks through the `RuntimeAdapter` trait in
 [`crates/runtime/src/agent/adapter.rs`](../../crates/runtime/src/agent/adapter.rs), using the
-two adapters that ship today as worked examples:
-[`claude_code.rs`](../../crates/runtime/src/agent/claude_code.rs) (Claude Code) and
-[`codex.rs`](../../crates/runtime/src/agent/codex.rs) (Codex).
+adapters that ship today as worked examples:
+[`claude_code.rs`](../../crates/runtime/src/agent/claude_code.rs) (Claude Code),
+[`codex.rs`](../../crates/runtime/src/agent/codex.rs) (Codex), and, for a tool that talks over
+ACP, [`grok.rs`](../../crates/runtime/src/agent/grok.rs) (Grok; see
+[§11](#11-a-tool-that-talks-over-acp)).
 
-Three decision records set the rules:
+Four decision records set the rules:
 
 - **ADR-014 (adding AI tools ahead of Phase 15)** covers the bar every tool must pass, one branch
   per tool, and what stays out.
@@ -15,6 +17,8 @@ Three decision records set the rules:
   rules every adapter follows.
 - **ADR-011 (how Plenipo picks each worker's AI model)** covers what the model and effort
   settings are for.
+- **ADR-015 (running AI tools over ACP)** lets a tool whose one-task mode cannot read the prompt
+  from stdin run over ACP instead, where the prompt also goes in on stdin.
 
 In code, an AI tool is a _runtime_ and its company is a _provider_. On screen they are "AI tool"
 and "AI company" ([word list](../design/vocabulary.md)).
@@ -29,18 +33,18 @@ checklist (`docs/phases/ai-tools-<tool>-checklist.md`). These outputs are the ev
 bar. They are also what the parser and the fake CLI must reproduce, so keep them word for word
 (with account names and keys removed).
 
-| Check                  | Record                                                                                                                                           | Bar item |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| Install                | The official install command, where the executable lands, and whether Windows gets a real `.exe` or only an npm `.cmd` shim.                     | 1        |
-| Version                | `<cli> --version` (or its equivalent).                                                                                                           | 5        |
-| One task, no questions | The prompt piped on stdin, with the flags for non-interactive, structured output. It must exit by itself.                                        | 1, 2     |
-| Output                 | The raw output of that task: every line, including the session ID, the final answer, and token usage.                                            | 2        |
-| Resume                 | A second task that resumes the first one's session by ID and remembers it.                                                                       | 5        |
-| Sign-in status         | The status command's output when signed in with the subscription, when signed out, and with an API key (or the CLI's documented wording for it). | 3, 4     |
-| Errors                 | The exact text of a usage limit and of an expired sign-in (as seen, or from the CLI's docs or source).                                           | 2        |
-| Models and effort      | The models the CLI itself offers (its picker or `--help`) and the effort levels each one accepts.                                                | —        |
-| Least privilege        | The flags that keep it from writing files or using the network. Without any, stop and ask the owner.                                             | —        |
-| Credentials in the env | Every environment variable the CLI reads for keys, tokens, or cloud billing, so the adapter never passes them.                                   | 3        |
+| Check                  | Record                                                                                                                                                       | Bar item |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| Install                | The official install command, where the executable lands, and whether Windows gets a real `.exe` or only an npm `.cmd` shim.                                 | 1        |
+| Version                | `<cli> --version` (or its equivalent).                                                                                                                       | 5        |
+| One task, no questions | The prompt piped on stdin, with the flags for non-interactive, structured output. It must exit by itself. If it cannot read stdin, check its ACP mode (§11). | 1, 2     |
+| Output                 | The raw output of that task: every line, including the session ID, the final answer, and token usage.                                                        | 2        |
+| Resume                 | A second task that resumes the first one's session by ID and remembers it.                                                                                   | 5        |
+| Sign-in status         | The status command's output when signed in with the subscription, when signed out, and with an API key (or the CLI's documented wording for it).             | 3, 4     |
+| Errors                 | The exact text of a usage limit and of an expired sign-in (as seen, or from the CLI's docs or source).                                                       | 2        |
+| Models and effort      | The models the CLI itself offers (its picker or `--help`) and the effort levels each one accepts.                                                            | —        |
+| Least privilege        | The flags that keep it from writing files or using the network. Without any, stop and ask the owner.                                                         | —        |
+| Credentials in the env | Every environment variable the CLI reads for keys, tokens, or cloud billing, so the adapter never passes them.                                               | 3        |
 
 If any bar item fails, stop. Write a finding instead of an adapter (see
 [Writing a finding](#writing-a-finding)).
@@ -321,6 +325,7 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
     vec![
         std::sync::Arc::new(claude_code::ClaudeCode),
         std::sync::Arc::new(codex::Codex),
+        std::sync::Arc::new(grok::Grok),
         std::sync::Arc::new(gemini::Gemini),   // for example
     ]
 }
@@ -336,7 +341,7 @@ That is all the registration there is. The following pick the tool up on their o
 ## 10. Setup guide and screen text
 
 - **Setup guide.** Add a row to the table in
-  [`setup.md` §3](setup.md#3-ai-tools-claude-code-and-codex-phase-3-optional) with the official
+  [`setup.md` §3](setup.md#3-ai-tools-claude-code-codex-and-grok-optional) with the official
   install command and the subscription sign-in command. Add notes for anything the owner needs:
   the Windows build Plenipo runs, and what workers can do. Use plain words.
 - **Screen text that names the AI tools.** Today these still say "Claude Code and Codex". The
@@ -348,6 +353,40 @@ That is all the registration there is. The following pick the tool up on their o
   - the Activity trail's tool names (`TOOL_NAMES` in `apps/desktop/src/ledger/format.ts`);
   - the README's introduction and quick start.
 
+## 11. A tool that talks over ACP
+
+Some CLIs cannot read the prompt from stdin in their one-task mode but have an **ACP** mode
+(Agent Client Protocol: JSON-RPC 2.0, one message per line on stdin and stdout). ADR-015 (running
+AI tools over ACP) lets Plenipo use it. Everything, the prompt included, still goes in on stdin,
+and each task is still one supervised process. Grok is the example
+([`grok.rs`](../../crates/runtime/src/agent/grok.rs)).
+
+What differs from a one-way adapter:
+
+- **The parser is the shared driver.** `parser()` returns an
+  [`AcpTurn`](../../crates/runtime/src/agent/acp.rs) built from an `AcpTask`: the tool's label,
+  the conversation, its folder (`TurnRequest::working_dir`), Plenipo's tool server, the model, and
+  any `_meta` the tool needs to open a session (Grok: an agent profile with none of its own
+  tools). The driver sends `initialize`, then `session/new` (or `session/resume` /
+  `session/load`), then the prompt; it answers permission requests (Plenipo's tool server yes,
+  anything else no) and never sends `authenticate`.
+- **How the task talks.** `TurnParser::open()` returns the opening lines instead of `None`, so
+  the service keeps stdin open ([`StdinFeed`](../../crates/runtime/src/profile.rs)). Each
+  `Parsed` can carry lines to `send` and `close_input` when the task is over.
+  `TurnParser::cancel()` asks the tool to stop (`session/cancel`) before Plenipo ends the
+  process.
+- **Arguments** start the ACP mode (Grok: `agent --no-leader … stdio`) with the model and effort.
+  The conversation ID goes in the messages, not the arguments; `preassigns_session_id()` stays
+  `false`, because the tool picks the ID.
+- **Billing.** An ACP task does not say which credential it uses, so set
+  `billing_checked_per_turn: false`: only a status check that shows a subscription lets a task
+  run. Turn the tool's own API-key sign-in off in `fixed_env()` when it has a switch for it (Grok:
+  `GROK_DISABLE_API_KEY_AUTH=1`). The contract suite allows such a fixed `…DISABLE…=1` switch; every
+  other name is checked for credential words.
+- **The fake CLI** answers ACP messages: see the `grok` persona in `plenipo-fake-agent`
+  (`initialize`, `session/new`/`resume`/`load`, `session/prompt`, a permission request before
+  each tool call, `session/cancel` during `[slow]`).
+
 ## Checklist for a tool branch
 
 Copy this into `docs/phases/ai-tools-<tool>-checklist.md` and tick it as you go.
@@ -355,7 +394,8 @@ Copy this into `docs/phases/ai-tools-<tool>-checklist.md` and tick it as you go.
 ```markdown
 ## Bar (ADR-014 — adding AI tools ahead of Phase 15), checked on the real CLI
 
-- [ ] Official CLI with a non-interactive mode (prompt on stdin, exits by itself) — evidence:
+- [ ] Official CLI with a non-interactive mode (prompt on stdin, directly or over ACP per ADR-015;
+      exits by itself) — evidence:
 - [ ] Structured or streaming output (session ID, answer, errors) — evidence:
 - [ ] Subscription sign-in only; no API key or password ever needed — evidence:
 - [ ] Sign-in status check tells a subscription from an API key — evidence:

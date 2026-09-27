@@ -1,6 +1,7 @@
 # ADR-007: Provider runtime adapters (Codex, Claude Code)
 
-- **Status:** Accepted (owner, 2026-09-26)
+- **Status:** Accepted (owner, 2026-09-26). [ADR-015](ADR-015-acp-ai-tools.md) (running AI tools
+  over ACP) adds a second way to run a task, for AI tools whose one-task mode cannot read stdin.
 - **Date:** 2026-09-26
 - **Phase:** 3
 
