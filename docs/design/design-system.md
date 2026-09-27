@@ -1,6 +1,6 @@
 # Plenipo's design system
 
-**Decision:** ADR-029 (one design system for every screen), accepted by the owner on 2026-09-27.
+**Decision:** ADR-030 (one design system for every screen), accepted by the owner on 2026-09-27.
 **Plan:** `ROLLOUT_PLAN.md`, Phase 12A. **Package:** `packages/ui` (`@plenipo/ui`).
 **See it:** Diagnostics → **Open the gallery** shows every component, in every state, in either
 theme or both side by side.
@@ -63,8 +63,9 @@ failed, refused, production · `offline` idle, not running · `pending` waiting 
 queue).
 
 **Contrast.** A unit test checks every text/background pair in both themes against WCAG AA: 4.5:1
-for text (including links and status words on every surface and tint), 3:1 for status marks and
-control outlines.
+for text (text, links, and status words on every surface; each status word on its own tint; body
+text on every tint), 3:1 for status marks, control outlines, and lines that carry meaning (map
+connectors).
 
 ### Type, spacing, shape, motion
 
@@ -113,22 +114,25 @@ All live in `packages/ui/src`, with tests next to them. Each has empty, loading,
 ## Large lists
 
 `DataTable` and `CardGrid` draw only what is on screen (a small windowing helper,
-`useVirtualWindow`; no extra library). 5,000 table rows and hundreds of cards scroll smoothly;
-the tests check both.
+`useVirtualWindow`; no extra library). 5,000 table rows and hundreds of cards scroll smoothly:
+unit tests scroll both, and the end-to-end test scrolls and sorts 5,000 rows in the real app.
 
 ## Activity over time
 
 Strips and timelines come from the Ledger (the Phase 2 event model):
 
 - `Ledger::activity` (desktop command `get_activity`) counts events in fixed time buckets for a
-  scope: everything, a department (its projects and every position under its head), a project
-  (its tasks and its Supervisor's team), or a position (and the positions under it).
+  scope: everything, a department (its projects and every position under its head, down to the
+  head of another department), a project (its tasks and its Supervisor's team, down to another
+  project's Supervisor), or a position (and the positions under it).
 - **Downsampling:** a series always has the same number of buckets (96 for 24 hours: 15 minutes
   each). A longer range makes each bucket wider; counts are added up, so nothing is dropped.
   `downsample()` merges buckets the same way on screen; sparklines average.
-- Each bucket also counts **problems** (failures, blocks, refusals) and **requests for approval**,
-  drawn in red and violet. Busy buckets are drawn in three steps of green relative to the busiest
-  one.
+- Each bucket also counts **problems** (failures, refusals, timeouts, a changed server ID) and
+  **requests for approval**. A task that is blocked while it waits for handoff replies is normal
+  work, not a problem. Not color alone: work fills the lower half of the strip, waiting for
+  approval three quarters (violet), and a problem the whole height (red), so problems stand up
+  above the rest. Busy buckets are drawn in three steps of green relative to the busiest one.
 - Migration 0008 adds an index on event times, so the query stays fast on a large Ledger.
 
 ## Testing the look
@@ -140,8 +144,9 @@ Strips and timelines come from the Ledger (the Phase 2 event model):
   intended change, run `PLENIPO_E2E_UPDATE_SNAPSHOTS=1 pnpm e2e` and check the new files in.
   Screenshots are saved for people to look at; pixel-by-pixel comparison is not used, because
   fonts render slightly differently from one computer to the next.
-- **Status without color**, **keyboard use and focus outlines**, **5,000 rows**, and **the
-  smallest window (800 × 560)** are tested in the library's unit tests and in the real app.
+- **Status without color**, **keyboard use and focus outlines**, and **5,000 rows** are tested in
+  the library's unit tests and in the real app. **The smallest window (800 × 560)** is tested
+  only in the real app (unit tests have no layout).
 
 ## Adding a component
 

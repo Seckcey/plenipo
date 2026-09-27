@@ -189,7 +189,7 @@ mark shape, never color alone. Diagnostics → **Open the gallery** shows every 
 both themes, with your real departments and projects and their last 24 hours of activity from the
 Ledger. What each page does is unchanged.
 
-[Release notes](docs/releases/v1.7.0.md) · [ADR-029](docs/adr/ADR-029-design-system.md) (one
+[Release notes](docs/releases/v1.7.0.md) · [ADR-030](docs/adr/ADR-030-design-system.md) (one
 design system for every screen) · [Design system](docs/design/design-system.md)
 
 </details>

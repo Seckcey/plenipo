@@ -1,8 +1,10 @@
-# ADR-030: The terminal panel
+# ADR-031: The terminal panel
 
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Phase:** 12
+- **Number:** first written as ADR-030; renumbered when ADR-029 (workers try a CAPTCHA three
+  times) reached main first.
 - **Amends:** ADR-025 (servers over SSH, through Guard), sections 4 and 11
 
 ## Context
@@ -32,7 +34,7 @@ can accept both.
 - The owner drags its edge to resize it. Plenipo remembers, on this computer, whether it was
   open, its size, and its side, and brings it back the same after a restart.
 - **Several tabs at once**, each with a close button. Tabs are built from the Phase 12A design
-  system (ADR-029): the same tabs, status marks, and buttons as every other screen.
+  system (ADR-030): the same tabs, status marks, and buttons as every other screen.
 - **Production servers are red** in their tabs (a red mark and the word PRODUCTION), as in
   Settings → Servers, the approval cards, and the sign.
 

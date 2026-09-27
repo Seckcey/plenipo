@@ -15,7 +15,7 @@ network-operations console rather than a set of separately styled pages."
 
 ## Owner decisions (2026-09-27)
 
-- ADR-029 (one design system for every screen): **accepted.** Every screen uses the same
+- ADR-030 (one design system for every screen): **accepted.** Every screen uses the same
   building blocks; no screen gets its own one-off style.
 - The left strip shows **names under the icons** (UniFi shows icons only). View options come
   later.
@@ -24,7 +24,7 @@ network-operations console rather than a set of separately styled pages."
 
 ## Design decisions
 
-Details are in ADR-029.
+Details are in ADR-030.
 
 - One package, `@plenipo/ui` (`packages/ui`), for tokens, components, and their styles.
 - Tokens written once in `packages/ui/src/tokens.ts`; `tokens.css` and `tokens.json` are
@@ -82,7 +82,9 @@ Details are in ADR-029.
 ## Technical implementation (plan)
 
 - [x] Tokens as CSS custom properties, generated from a single TypeScript source
-- [x] Components in a shared `packages/ui` workspace package; no screen-level ad-hoc styling
+- [x] Components in a shared `packages/ui` workspace package; new screens draw nothing of their
+      own. Today's pages keep their own layout rules (colors from the tokens) until Phase 12
+      rebuilds each one from the library (ADR-030 §8); see the acceptance report
 - [x] No hardcoded color literals in feature code; a lint rule enforces token usage
 - [x] Virtualized tables and card grids (1,000+ rows, 100+ cards stay responsive)
 - [x] Activity strips and timelines driven by the Phase 2 event model, with a defined

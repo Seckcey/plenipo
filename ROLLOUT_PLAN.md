@@ -1247,7 +1247,7 @@ Phase 7 and stable Runtime/Ledger.
 
 # Phase 12A — Visual Design System (UniFi-Style Console Aesthetic)
 
-**Status: delivered in v1.7.0** (checklist and acceptance report in `docs/phases/phase-12a-*`). Decision: ADR-029 (one design system for every screen), with the owner's choices: names under the icons on the left strip (view options later) and 13 px text. Visual regression is checked as computed-style snapshots of the Gallery in both themes, not pixel images (ADR-029 §9). The design system is in `packages/ui`, documented in `docs/design/design-system.md`.
+**Status: delivered in v1.7.0** (checklist and acceptance report in `docs/phases/phase-12a-*`). Decision: ADR-030 (one design system for every screen), with the owner's choices: names under the icons on the left strip (view options later) and 13 px text. Visual regression is checked as computed-style snapshots of the Gallery in both themes, not pixel images (ADR-030 §9). The design system is in `packages/ui`, documented in `docs/design/design-system.md`.
 
 ## Goal
 

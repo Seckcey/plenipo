@@ -721,7 +721,7 @@ and [ADR-026 (SSH built into Plenipo, not Windows' ssh.exe)](../adr/ADR-026-ssh-
 
 ## 13a. Design system (Phase 12A)
 
-Decision record: [ADR-029](../adr/ADR-029-design-system.md). Details:
+Decision record: [ADR-030](../adr/ADR-030-design-system.md). Details:
 [`docs/design/design-system.md`](../design/design-system.md).
 
 - **`packages/ui` (`@plenipo/ui`)** holds the design tokens, the component library, and their

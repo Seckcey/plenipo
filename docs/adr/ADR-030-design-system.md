@@ -1,8 +1,10 @@
-# ADR-029: One design system for every screen
+# ADR-030: One design system for every screen
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 12A
+- **Number:** first written as ADR-029. ADR-029 (workers try a CAPTCHA three times) reached main
+  first, so this decision is ADR-030. Nothing in it changed.
 
 ## Context
 
@@ -83,11 +85,13 @@ Built once, used by every screen, each with empty, loading, and error states:
 ### 7. Activity strips come from the Ledger
 
 - A Ledger query counts events in fixed time buckets for a scope: everything, a department (its
-  projects and every position under its head), a project, or a position.
+  projects and every position under its head, down to the head of another department), a
+  project, or a position.
 - **Downsampling:** a strip always has the same number of buckets (96 for 24 hours: 15 minutes
   each). A longer range makes each bucket wider; counts are added up, so nothing is dropped.
-  Each bucket also counts problems (failures, blocks, refusals) and requests for approval, so a
-  strip can show red or amber where they happened.
+  Each bucket also counts problems (failures, refusals, timeouts) and requests for approval, so a
+  strip can show red or violet where they happened. A task blocked while it waits for handoff
+  replies is normal work, not a problem.
 - Migration 0008 adds one index (events by time) so the query stays fast on a large Ledger. No
   table changes.
 
