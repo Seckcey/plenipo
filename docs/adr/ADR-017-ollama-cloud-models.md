@@ -86,9 +86,12 @@ chat|auth`), supervised like any AI tool's program. That keeps the task's ID, ti
   The Ledger still records every objective and answer, as for the other AI tools. When the
   history is longer than about 100,000 tokens, the oldest exchanges are left out and the model is
   told so. A task that fails leaves the history unchanged.
-- **Models (§5).** Only `gpt-oss:120b-cloud` is listed as a known model, because it is the one
-  checked. The owner's other cloud models can be named for a position as `ollama list` shows
-  them; they run without a thinking setting until checked and added.
+- **Models (§5).** The owner's eight cloud models are listed, with the thinking levels
+  `ollama show` gives for each (evidence in `models/` of the fixtures): gpt-oss 120B (low,
+  medium, high); Kimi K3, DeepSeek V4 Pro, DeepSeek V4.1 Flash, GLM-5.3, and GLM-5.3 Flash (low,
+  high, max); MiniMax M3 and Nemotron 3 Ultra (no thinking setting: MiniMax lists no levels,
+  Nemotron only on or off, on by default). Other cloud models can be named for a position as
+  `ollama list` shows them.
 
 ## Consequences
 

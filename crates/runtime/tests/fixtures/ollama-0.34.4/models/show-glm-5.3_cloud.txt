@@ -1,0 +1,13 @@
+Model
+    architecture        glm_dsa_moe
+    parameters          753329940480
+    context length      1048576
+    embedding length    0
+    quantization        FP8
+
+  Capabilities
+    completion
+    thinking
+        levels     low, high, max
+        default    max
+    tools

@@ -1,0 +1,9 @@
+NAME                         ID              SIZE    MODIFIED
+nemotron-3-ultra:cloud       fc1664751465    -       Less than a second ago
+kimi-k3:cloud                630e737485bd    -       1 second ago
+deepseek-v4-pro:cloud        47d1ad2bea02    -       3 seconds ago
+minimax-m3:cloud             6f927c9f5b08    -       4 seconds ago
+glm-5.3-flash:cloud          3e780905abc0    -       5 seconds ago
+glm-5.3:cloud                8477dab3e25b    -       7 seconds ago
+deepseek-v4.1-flash:cloud    e04da138d31e    -       8 seconds ago
+gpt-oss:120b-cloud           ac7f7a1e7785    -       10 seconds ago

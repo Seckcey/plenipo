@@ -30,6 +30,10 @@ const LABEL: &str = "Ollama";
 pub const DEFAULT_MODEL: &str = "gpt-oss:120b-cloud";
 /// gpt-oss's thinking levels (`ollama show`: low, medium, high).
 const GPT_OSS: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
+/// Thinking levels of DeepSeek, GLM, and Kimi's cloud models (`ollama show`: low, high, max).
+const TO_MAX: &[Effort] = &[Effort::Low, Effort::High, Effort::Max];
+/// Every level any listed model takes, lowest first.
+const ALL: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High, Effort::Max];
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Ollama;
@@ -61,14 +65,22 @@ impl RuntimeAdapter for Ollama {
             tool_posture: "Conversation only: an Ollama worker can answer, write, and review \
                            text, but cannot read files or run programs yet."
                 .into(),
-            effort_levels: GPT_OSS.to_vec(),
-            // Cloud models checked on the owner's PC (`ollama show`, `/api/tags`). Other cloud
-            // models can be named by the owner; they run without a thinking setting.
-            known_models: vec![KnownModel::new(
-                DEFAULT_MODEL,
-                "gpt-oss 120B (cloud)",
-                GPT_OSS,
-            )],
+            // `think` in `/api/chat`: every level one of these models accepts.
+            effort_levels: ALL.to_vec(),
+            // The cloud models the owner chose, checked on the owner's PC with `ollama show`
+            // (Ollama 0.34.4, 2026-09-27), with the thinking levels each lists. MiniMax M3 lists
+            // no levels and Nemotron 3 Ultra only on or off (on by default), so they have no
+            // setting. Other cloud models can be named as `ollama list` shows them.
+            known_models: vec![
+                KnownModel::new(DEFAULT_MODEL, "gpt-oss 120B", GPT_OSS),
+                KnownModel::new("kimi-k3:cloud", "Kimi K3", TO_MAX),
+                KnownModel::new("deepseek-v4-pro:cloud", "DeepSeek V4 Pro", TO_MAX),
+                KnownModel::new("deepseek-v4.1-flash:cloud", "DeepSeek V4.1 Flash", TO_MAX),
+                KnownModel::new("glm-5.3:cloud", "GLM-5.3", TO_MAX),
+                KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash", TO_MAX),
+                KnownModel::new("minimax-m3:cloud", "MiniMax M3", &[]),
+                KnownModel::new("nemotron-3-ultra:cloud", "Nemotron 3 Ultra", &[]),
+            ],
         }
     }
 
@@ -376,7 +388,13 @@ mod tests {
 
     #[test]
     fn known_models_are_valid_names() {
-        for m in &Ollama.capabilities().known_models {
+        let caps = Ollama.capabilities();
+        assert_eq!(caps.known_models.len(), 8);
+        assert_eq!(caps.effort_levels_for(Some("kimi-k3:cloud")), TO_MAX);
+        assert!(caps
+            .effort_levels_for(Some("nemotron-3-ultra:cloud"))
+            .is_empty());
+        for m in &caps.known_models {
             assert_eq!(
                 crate::agent::service::validate_model(&m.name).unwrap(),
                 m.name

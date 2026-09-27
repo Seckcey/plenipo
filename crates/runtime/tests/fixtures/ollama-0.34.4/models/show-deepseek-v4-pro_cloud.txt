@@ -1,0 +1,13 @@
+Model
+    architecture        deepseek4
+    parameters          1650497936906
+    context length      1048576
+    embedding length    4096
+    quantization        FP8
+
+  Capabilities
+    completion
+    tools
+    thinking
+        levels     false, low, high, max
+        default    low
