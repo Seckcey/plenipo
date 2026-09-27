@@ -38,6 +38,8 @@ import {
   positionMap,
 } from "../../org/rules";
 import { rankName, roleLabel, titlesOf, withArticle } from "../../org/titles";
+import { RoleLessons } from "../../learning/Lessons";
+import { useLearning } from "../../learning/useLearning";
 import { Glyph } from "./Glyph";
 import { StatusPill } from "./OrgNode";
 
@@ -162,6 +164,7 @@ const JOB_HEADINGS: [keyof RoleJob, string][] = [
 
 /** What the position's role does: its description and working instructions (ADR-019). */
 function RoleJobSection({ role, onEdit }: { role: RoleInfo; onEdit: (id: string) => void }) {
+  const learning = useLearning();
   const lists = JOB_HEADINGS.filter(([k]) => role.job[k].length > 0);
   return (
     <Section title={`What the ${role.name} role does`}>
@@ -192,6 +195,7 @@ function RoleJobSection({ role, onEdit }: { role: RoleInfo; onEdit: (id: string)
           </button>
         </div>
       )}
+      <RoleLessons learning={learning} roleId={role.id} roleName={role.name} />
     </Section>
   );
 }

@@ -179,3 +179,9 @@ export type { ControlStatus } from "./generated/ControlStatus";
 export type { OtherSites } from "./generated/OtherSites";
 export type { Screenshot } from "./generated/Screenshot";
 export type { WebsiteRules } from "./generated/WebsiteRules";
+export type { Switches } from "./generated/Switches";
+// Learning (ADR-024)
+export type { Lesson } from "./generated/Lesson";
+export type { LessonState } from "./generated/LessonState";
+export type { LearningSettings } from "./generated/LearningSettings";
+export type { LearningSnapshot } from "./generated/LearningSnapshot";

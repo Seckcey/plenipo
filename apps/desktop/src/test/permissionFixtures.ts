@@ -81,6 +81,15 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
       ],
       options: { approvalMinutes: 10 },
       websites: { allowed: ["example.com"], blocked: ["linkedin.com"], others: "ask" },
+      switches: {
+        browser: true,
+        desktop: false,
+        sendWithoutAsking: false,
+        buyWithoutAsking: false,
+        signInWithoutAsking: false,
+        captchaToOwner: true,
+        screenshots: true,
+      },
       secrets: [
         {
           id: "secret-1",

@@ -7,40 +7,48 @@ import { Refusal } from "../components/models/shared";
 import { LEVEL_LABEL } from "../guard/format";
 import { useApprovals, usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
+import { NewLessons } from "../learning/Lessons";
+import { useLearning, type Learning } from "../learning/useLearning";
 import { ago } from "../org/format";
 import { useNow } from "../runtime/useNow";
 
 type Approvals = ReturnType<typeof useApprovals>;
 
 /**
- * Approvals: requests waiting for you (approval cards), workers using permissions now (with
- * Revoke), requests Guard blocked, and your recent answers. `approvals` is the app's live queue
+ * Approvals: requests waiting for you (approval cards), new lessons workers learned (ADR-024),
+ * workers using permissions now (with Revoke), requests Guard blocked, and your recent answers. `approvals` is the app's live queue
  * (so an answer updates the sidebar count and the banner at once); without it the page keeps
  * its own.
  */
 export function ApprovalsView({
   onOpenTask,
   approvals,
+  learning,
 }: {
   onOpenTask?: (taskId: string) => void;
   approvals?: Approvals;
+  learning?: Learning;
 }) {
-  return approvals ? (
-    <ApprovalsPage approvals={approvals} onOpenTask={onOpenTask} />
+  return approvals && learning ? (
+    <ApprovalsPage approvals={approvals} learning={learning} onOpenTask={onOpenTask} />
   ) : (
     <OwnQueue onOpenTask={onOpenTask} />
   );
 }
 
 function OwnQueue({ onOpenTask }: { onOpenTask?: ((taskId: string) => void) | undefined }) {
-  return <ApprovalsPage approvals={useApprovals()} onOpenTask={onOpenTask} />;
+  return (
+    <ApprovalsPage approvals={useApprovals()} learning={useLearning()} onOpenTask={onOpenTask} />
+  );
 }
 
 function ApprovalsPage({
   approvals,
+  learning,
   onOpenTask,
 }: {
   approvals: Approvals;
+  learning: Learning;
   onOpenTask?: ((taskId: string) => void) | undefined;
 }) {
   const permissions = usePermissions();
@@ -54,6 +62,7 @@ function ApprovalsPage({
         needs asking.
       </p>
       <Queue queue={approvals.queue} error={approvals.error} now={now} onApply={approvals.apply} />
+      <NewLessons learning={learning} />
       <Grants
         snapshot={permissions.snapshot}
         now={now}

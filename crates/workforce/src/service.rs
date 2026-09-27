@@ -152,8 +152,52 @@ impl Workforce {
             }
             Err(e) => this.notice(format!("Could not add the built-in role templates: {e}")),
         }
+        // Lessons from workers' answers (ADR-024).
+        crate::learning::watch(&ledger);
         liaison.set_directory(Arc::new(WorkforceDirectory::new(ledger, router)));
         this
+    }
+
+    // ---- Learning (ADR-024) ----------------------------------------------------------------
+
+    /// Learning's settings and the lessons waiting and kept.
+    pub fn learning(&self) -> Result<crate::learning::LearningSnapshot> {
+        crate::learning::snapshot(&self.inner.ledger)
+    }
+
+    /// Worker learning on or off (Settings → Switches).
+    pub fn set_learning(&self, enabled: bool) -> Result<crate::learning::LearningSnapshot> {
+        crate::learning::set_enabled(&self.inner.ledger, enabled)?;
+        self.learning()
+    }
+
+    /// Whether a role learns on its own (its lessons kept without asking).
+    pub fn set_role_learning(
+        &self,
+        role_id: &str,
+        auto: bool,
+    ) -> Result<crate::learning::LearningSnapshot> {
+        crate::learning::set_role(&self.inner.ledger, role_id, auto)?;
+        self.learning()
+    }
+
+    /// Keep (in the owner's wording, when given) or discard a waiting lesson.
+    pub fn decide_lesson(
+        &self,
+        lesson_id: &str,
+        keep: bool,
+        text: Option<&str>,
+    ) -> Result<crate::learning::LearningSnapshot> {
+        self.inner
+            .ledger
+            .decide_lesson(lesson_id, keep, text, OWNER)?;
+        self.learning()
+    }
+
+    /// Remove a kept lesson: the role's later workers no longer get it.
+    pub fn remove_lesson(&self, lesson_id: &str) -> Result<crate::learning::LearningSnapshot> {
+        self.inner.ledger.remove_lesson(lesson_id, OWNER)?;
+        self.learning()
     }
 
     fn notices(&self) -> MutexGuard<'_, Vec<String>> {

@@ -44,7 +44,8 @@ After the MVP:
 | Grok joins the AI tools (ADR-015)                                  | `1.1.0` |
 | Ollama's cloud models join the AI tools (ADR-017)                  | `1.2.0` |
 | Phase 10 — Browser automation and computer use (Phase 9 postponed) | `1.3.0` |
-| Kimi joins the AI tools (ADR-022)                                  | `1.4.0` |
+| Switches in Settings and workers learning (ADR-023, ADR-024)       | `1.4.0` |
+| Kimi joins the AI tools (ADR-022)                                  | `1.5.0` |
 
 ## Releasing
 

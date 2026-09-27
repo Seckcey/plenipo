@@ -226,7 +226,8 @@
       actingUntil = on ? Date.now() + 5000 : 0;
     },
     // The on-page sign: "active" (a worker is using the browser), "owner" (the owner took
-    // control), "stopped", or "off".
+    // control), "handed" (the owner is solving a check that a person is using the site),
+    // "stopped", or "off".
     sign(state, worker) {
       wanted = { state, worker: String(worker || "") };
       draw();
@@ -257,11 +258,16 @@
     }
     if (overlay.state === wanted.state + wanted.worker) return;
     overlay.state = wanted.state + wanted.worker;
-    const color = { active: "#1f6feb", owner: "#1a7f37", stopped: "#cf222e" }[wanted.state];
+    const color = { active: "#1f6feb", owner: "#1a7f37", stopped: "#cf222e", handed: "#8250df" }[
+      wanted.state
+    ];
     const words = {
       active: `${wanted.worker || "A worker"} is using this browser for Plenipo`,
       owner: `You have control. ${wanted.worker || "The worker"} stopped.`,
       stopped: "Stopped by you in Plenipo.",
+      handed: `Please solve this check yourself, then press Approve in Plenipo. ${
+        wanted.worker || "The worker"
+      } waits.`,
     }[wanted.state];
     overlay.root.innerHTML = `
       <style>

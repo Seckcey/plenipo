@@ -251,7 +251,11 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
     await browser.pause(500);
     assert.ok(!(await exists(browser, 'form[aria-label="Website lists"] [role="alert"]')));
     // Plenipo's browser is found, with its own profile.
-    await waitForText(browser, '[aria-label="Plenipo\'s browser"]', "with its own profile");
+    await waitForText(
+      browser,
+      'div.plenipo-browser[aria-label="Plenipo\'s browser"]',
+      "with its own profile",
+    );
     await browser.execute(() =>
       document.querySelector("#websites-title")?.scrollIntoView({ block: "start" }),
     );

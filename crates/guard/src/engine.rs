@@ -168,11 +168,37 @@ pub fn level_for(config: &GuardConfig, scope: &Scope, c: Capability) -> LevelFor
             &mut checks,
         );
     }
+    // The owner's switches (ADR-023): a feature turned off is off for everyone.
+    if let Some(off) = switched_off(config, c) {
+        checks.push(Check {
+            layer: Layer::Rule,
+            verdict: Verdict::Deny,
+            note: off.to_owned(),
+        });
+        if level > Level::Blocked {
+            level = Level::Blocked;
+            layer = Layer::Rule;
+            reason = off.to_owned();
+        }
+    }
     LevelFor {
         level,
         layer,
         reason,
         checks,
+    }
+}
+
+/// Why `c` is off for every worker, when a switch turned its feature off (ADR-023).
+pub fn switched_off(config: &GuardConfig, c: Capability) -> Option<&'static str> {
+    match c {
+        Capability::BrowserNavigate | Capability::BrowserAutomate if !config.switches.browser => {
+            Some("Plenipo's browser is switched off (Settings → Switches)")
+        }
+        Capability::ComputerObserve | Capability::ComputerControl if !config.switches.desktop => {
+            Some("the screen, mouse, and keyboard are switched off (Settings → Switches)")
+        }
+        _ => None,
     }
 }
 
@@ -318,6 +344,7 @@ pub fn evaluate(
     }
     // The website (Phase 10): blocked ones never open; local addresses only when allowed by name.
     let mut site_asks = None;
+    let mut site_allowed = false;
     if let Some(check) = request.site {
         let shown = check.site.shown();
         match websites::check(&config.websites, check.site) {
@@ -358,7 +385,8 @@ pub fn evaluate(
                 )
             }
             SiteVerdict::Ask if !check.approved => site_asks = Some(shown),
-            SiteVerdict::Allowed(_) | SiteVerdict::Ask | SiteVerdict::Blank => {}
+            SiteVerdict::Allowed(_) => site_allowed = true,
+            SiteVerdict::Ask | SiteVerdict::Blank => {}
         }
     }
     if let Some(cmd) = request.command {
@@ -385,7 +413,27 @@ pub fn evaluate(
                 .and_then(|c| sensitive::command(c, request.workspace))
         })
         .or_else(|| request.script.and_then(sensitive::script));
-    if let Some((kind, because)) = found {
+    // The owner's website switches (ADR-023): on a website on the allowed list, sending, buying,
+    // or signing in may go ahead without asking. A kind set to blocked stays blocked, and the
+    // role's own "ask me" level still asks (below).
+    let without_asking = |kind: SensitiveKind| {
+        request.capability == Capability::BrowserAutomate
+            && site_allowed
+            && config.sensitive_rule(kind) == SensitiveRule::Ask
+            && config.switches.without_asking(kind) == Some(true)
+    };
+    if let Some((kind, because)) = found.filter(|(kind, _)| without_asking(*kind)) {
+        checks.push(Check {
+            layer: Layer::Risk,
+            verdict: Verdict::Allow,
+            note: format!(
+                "{because} ({}); you let workers do this on your allowed websites without asking \
+                 (Settings → Switches)",
+                kind.label()
+            ),
+        });
+    }
+    if let Some((kind, because)) = found.filter(|(kind, _)| !without_asking(*kind)) {
         let (verdict, reason) = match config.sensitive_rule(kind) {
             SensitiveRule::Ask => (
                 Verdict::Ask,
@@ -791,6 +839,116 @@ mod tests {
             ..Scope::default()
         };
         assert_eq!(eval(&c, &r, &buy).verdict, Verdict::Deny);
+    }
+
+    /// The owner's switches (ADR-023): a feature switched off is off for every worker; the
+    /// website switches let sending, buying, and signing in go ahead without asking, but only
+    /// on allowed websites, never over a "blocked" rule, and never past a role's "ask me".
+    #[test]
+    fn switches_turn_features_off_and_let_website_actions_go_ahead() {
+        let mut c = config();
+        c.assign_role("web", Some("web-assistant")).unwrap();
+        c.set_websites(&WebsiteRules {
+            allowed: vec!["shop.example".into()],
+            blocked: vec![],
+            others: OtherSites::Ask,
+        })
+        .unwrap();
+        let s = Scope {
+            role_id: "web".into(),
+            role_name: "Web Assistant".into(),
+            ..Scope::default()
+        };
+        // Defaults: the browser on, the screen off, every website action asks.
+        assert!(!Switches::default().desktop);
+        assert_eq!(
+            level_for(&c, &s, Capability::BrowserAutomate).level,
+            Level::Allowed
+        );
+        let act = |c: &GuardConfig, address: &str, kind: SensitiveKind| {
+            let site = Site::parse(address).unwrap();
+            let mut r = request(Capability::BrowserAutomate, &[], None);
+            r.summary = "click \"Send\"";
+            r.site = Some(SiteCheck {
+                site: &site,
+                approved: true,
+            });
+            r.inherent = Some((kind, "it submits a form"));
+            eval(c, &s, &r)
+        };
+        let shop = "https://shop.example/form";
+        assert_eq!(act(&c, shop, SensitiveKind::Outbound).verdict, Verdict::Ask);
+        c.set_switches(&Switches {
+            send_without_asking: true,
+            ..Switches::default()
+        });
+        let sent = act(&c, shop, SensitiveKind::Outbound);
+        assert_eq!(sent.verdict, Verdict::Allow);
+        assert!(sent
+            .checks
+            .iter()
+            .any(|k| k.note.contains("without asking (Settings → Switches)")));
+        // Only sending: buying still asks; and only on allowed websites.
+        assert_eq!(act(&c, shop, SensitiveKind::Payment).verdict, Verdict::Ask);
+        assert_eq!(
+            act(&c, "https://other.example/form", SensitiveKind::Outbound).verdict,
+            Verdict::Ask,
+            "a website you approved once is not on the allowed list"
+        );
+        // A "blocked" rule wins over the switch.
+        c.set_sensitive(SensitiveKind::Outbound, SensitiveRule::Block);
+        assert_eq!(
+            act(&c, shop, SensitiveKind::Outbound).verdict,
+            Verdict::Deny
+        );
+        c.set_sensitive(SensitiveKind::Outbound, SensitiveRule::Ask);
+        // Buying and signing in have their own switches.
+        c.set_switches(&Switches {
+            buy_without_asking: true,
+            sign_in_without_asking: true,
+            ..Switches::default()
+        });
+        assert_eq!(
+            act(&c, shop, SensitiveKind::Payment).verdict,
+            Verdict::Allow
+        );
+        assert_eq!(act(&c, shop, SensitiveKind::SignIn).verdict, Verdict::Allow);
+        assert_eq!(act(&c, shop, SensitiveKind::Outbound).verdict, Verdict::Ask);
+        // Switching the browser off blocks both browser permissions, whatever the role's set.
+        c.set_switches(&Switches {
+            browser: false,
+            ..Switches::default()
+        });
+        let off = act(&c, shop, SensitiveKind::Outbound);
+        assert_eq!((off.verdict, off.layer), (Verdict::Deny, Layer::Rule));
+        assert!(
+            off.reason.contains("Plenipo's browser is switched off"),
+            "{}",
+            off.reason
+        );
+        assert_eq!(
+            levels_for(&c, &s)[&Capability::BrowserNavigate],
+            Level::Blocked
+        );
+        // The screen, mouse, and keyboard stay off until switched on.
+        c.assign_role("desk", Some("computer-use")).unwrap();
+        let desk = Scope {
+            role_id: "desk".into(),
+            role_name: "Desk Operator".into(),
+            ..Scope::default()
+        };
+        assert_eq!(
+            level_for(&c, &desk, Capability::ComputerObserve).level,
+            Level::Blocked
+        );
+        c.set_switches(&Switches {
+            desktop: true,
+            ..Switches::default()
+        });
+        assert_eq!(
+            level_for(&c, &desk, Capability::ComputerObserve).level,
+            Level::Allowed
+        );
     }
 
     #[test]

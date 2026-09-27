@@ -13,6 +13,7 @@ mod conversation;
 pub mod directory;
 pub mod dto;
 pub mod error;
+pub mod learning;
 pub mod outcome;
 mod prompt;
 mod service;
@@ -22,5 +23,6 @@ mod view;
 
 pub use dto::*;
 pub use error::{Result, WorkforceError};
+pub use learning::{LearningSettings, LearningSnapshot};
 pub use outcome::ObjectiveReport;
 pub use service::{Workforce, OWNER, PLENIPO};

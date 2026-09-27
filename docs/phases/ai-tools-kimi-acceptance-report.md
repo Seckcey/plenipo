@@ -2,7 +2,7 @@
 
 **Branch:** `claude/ai-tools-kimi` · **Status:** built, tested with the fake Kimi, and checked by
 the owner on Windows with the real CLI on 2026-09-27 (§6, §8). Ready for review; releases as
-v1.4.0 ([release notes](../releases/v1.4.0.md)).
+v1.5.0 ([release notes](../releases/v1.5.0.md)).
 
 Decisions: ADR-014 (adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and
 [ADR-022](../adr/ADR-022-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
