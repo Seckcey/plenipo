@@ -13,7 +13,18 @@ change has to pass, and the few house rules that keep the codebase consistent.
   write it.
 - **Security problem?** Do not open an issue. See [`SECURITY.md`](SECURITY.md).
 
-## Getting set up
+## Your first contribution
+
+You do not need to build the app to improve a confusing documentation step or report a
+reproducible bug. Useful starting points:
+
+- Check the Windows setup instructions against your own machine and describe the exact missing step.
+- Submit a small bug reproduction with the version and expected result; see [SUPPORT.md](SUPPORT.md).
+- Contribute a real app screenshot with its version and synthetic or sanitized data. See
+  [the screenshot guide](docs/images/README.md). Do not submit generated UI mockups as product evidence.
+- Browse [open issues](https://github.com/Seckcey/plenipo/issues), and comment before starting a larger change.
+
+## Getting set up locally
 
 Full step-by-step Windows instructions, including the Rust and Node versions and the optional AI
 tools, are in [`docs/development/setup.md`](docs/development/setup.md).
@@ -32,7 +43,9 @@ Grok, Kimi, or Ollama.
 
 ## The checks your change must pass
 
-Run all of these locally before you push. CI runs the same set, on Windows.
+Run all of these locally before you push. CI checks the frontend and Rust on Linux and also
+builds, tests, and smoke-tests the Windows installer. Explain any check you could not run;
+do not describe an unrun check as passing.
 
 ```powershell
 pnpm check                                                   # versions, format, lint, typecheck, frontend tests
@@ -72,8 +85,8 @@ is visible on screen, include a screenshot.
 
 ## How contributions are licensed
 
-Plenipo is licensed under the [Elastic License 2.0](LICENSE) and ships in a Free and a paid Pro
-edition ([`docs/editions.md`](docs/editions.md)). So that contributed code can go into both:
+Plenipo is licensed under the [Elastic License 2.0](LICENSE), with Free and paid Pro editions
+planned ([`docs/editions.md`](docs/editions.md)). So that contributed code can go into both:
 
 By opening a pull request, you confirm that the work is yours to give, and you license it to 8 West
 Ventures, LLC under the Elastic License 2.0 together with a perpetual, worldwide, royalty-free,
