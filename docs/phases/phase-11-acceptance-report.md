@@ -147,7 +147,8 @@ built into Plenipo rather than Windows' `ssh.exe`.
 ## 8. Owner items
 
 - **O1.** Accept or change ADR-025 (servers over SSH, through Guard).
-- **O2.** Accept or change ADR-026 (SSH built into Plenipo, not Windows' ssh.exe).
+- **O2.** ~~Accept or change ADR-026 (SSH built into Plenipo, not Windows' ssh.exe).~~ Accepted by
+  the owner, 2026-09-27: keeping russh up to date is fine.
 - **O3.** Run the Windows check against a real server of yours (checklist, ~45 minutes).
 - **O4.** Servers are recorded as Free (your answer, 2026-09-27).
 

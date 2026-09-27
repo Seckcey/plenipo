@@ -1,6 +1,6 @@
 # ADR-026: SSH built into Plenipo (the russh library), not Windows' ssh.exe
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27: "I don't mind maintaining it")
 - **Date:** 2026-09-27
 - **Phase:** 11
 - **Goes with:** [ADR-025 (servers over SSH, through Guard)](ADR-025-servers-over-ssh.md), which

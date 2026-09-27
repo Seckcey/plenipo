@@ -40,6 +40,6 @@ architecture must be recorded here.
 | [023](ADR-023-settings-switches.md)               | On/off switches in Settings                                             | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)         | Workers learn from their work                                           | Accepted |
 | [025](ADR-025-servers-over-ssh.md)                | Servers over SSH, through Guard                                         | Proposed |
-| [026](ADR-026-ssh-built-in.md)                    | SSH built into Plenipo (russh), not Windows' ssh.exe                    | Proposed |
+| [026](ADR-026-ssh-built-in.md)                    | SSH built into Plenipo (russh), not Windows' ssh.exe                    | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                              | Accepted |
 | [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                  | Accepted |
