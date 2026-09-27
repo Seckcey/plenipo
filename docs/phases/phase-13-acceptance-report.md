@@ -1,12 +1,12 @@
 # Phase 13 — Acceptance Report
 
-|              |                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 13 — Windows Service, Installer, Updates, and Recovery                                                                                                                                                                                                                                                                                                                        |
-| **Branch**   | `claude/phase-13` ([PR #70](https://github.com/Seckcey/plenipo/pull/70))                                                                                                                                                                                                                                                                                                      |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and `pnpm e2e` against the release build (71 tests; the browser group, which needs Chrome, runs on GitHub). GitHub CI: Rust, Frontend, E2E (Linux), and Windows, where the installer tests install, run, crash, upgrade, update, and uninstall the real installer — see the pull request. |
-| **Date**     | 2026-09-27                                                                                                                                                                                                                                                                                                                                                                    |
-| **Result**   | All three acceptance criteria and all nine Phase 13 tests pass; every deliverable is built. Version **1.9.0**. Decisions: ADR-036 (background work) and ADR-037 (updates), both accepted by the owner and built. A real Windows restart, Start with Windows after signing in, and a real update from GitHub are the owner's checks on Windows (section 7).                    |
+|              |                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 13 — Windows Service, Installer, Updates, and Recovery                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Branch**   | `claude/phase-13` ([PR #70](https://github.com/Seckcey/plenipo/pull/70))                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and `pnpm e2e` against the release build (71 tests; the browser group, which needs Chrome, runs on GitHub). GitHub CI: Rust, Frontend, E2E (Linux), and Windows, where the installer tests install, run, crash, upgrade, update, and uninstall the real installer: all green on the final commit, every Windows step passing (the installer even opened Plenipo again after the update). |
+| **Date**     | 2026-09-27                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Result**   | All three acceptance criteria and all nine Phase 13 tests pass; every deliverable is built. Version **1.9.0**. Decisions: ADR-036 (background work) and ADR-037 (updates), both accepted by the owner and built. A real Windows restart, Start with Windows after signing in, and a real update from GitHub are the owner's checks on Windows (section 7).                                                                                                                   |
 
 Screenshots (from the end-to-end run in the real app):
 
@@ -17,7 +17,7 @@ Screenshots (from the end-to-end run in the real app):
 - **Diagnostics:** [backups of the Ledger](evidence/phase-13/diagnostics-backups.png) ·
   [a diagnostics file saved](evidence/phase-13/diagnostics-file.png)
 
-Test totals: **894 Rust** · **542 frontend** (304 design system + 238 app) ·
+Test totals: **915 Rust** · **543 frontend** (304 design system + 239 app) ·
 **77 end-to-end** tests against the real release binary · **the Windows installer tests**
 on GitHub's Windows machine (section 6).
 
@@ -157,10 +157,10 @@ finding before it was fixed. All were confirmed; all are fixed:
 
 ## 6. Test totals
 
-- **894 Rust** tests (Linux), including the recovery (8), window watch (6), backups (Ledger
+- **915 Rust** tests (Linux), including the recovery (8), window watch (6), backups (Ledger
   7, desktop 5), updates (capabilities 5, desktop 6, Guard 3), logs (7), diagnostics (2),
   uninstall (2), and the IPC checks.
-- **542 frontend** tests: **304** in the design system and **238** in the app.
+- **543 frontend** tests: **304** in the design system and **239** in the app.
 - **77 end-to-end** tests against the real release binary (Linux), including **4 new** in
   the Phase 13 group.
 - **The Windows installer tests** on GitHub's Windows machine (in every pull request's Windows
