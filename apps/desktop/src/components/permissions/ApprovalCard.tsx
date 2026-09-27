@@ -1,8 +1,10 @@
 import type { ApprovalView } from "@plenipo/types";
+import { Button, StatusPill, Tag } from "@plenipo/ui";
 
 import { ago } from "../../org/format";
 import { ScreenshotView } from "../ScreenshotView";
 import { EnvironmentBadge } from "../servers/ServerSettings";
+import { PILL_TONE } from "../tones";
 import { APPROVAL_STATUS_LABEL, timeLeft } from "../../guard/format";
 
 /**
@@ -39,7 +41,7 @@ export function ApprovalCard({
         <h3 className="approval__title">
           {a.worker} wants to {a.summary}
         </h3>
-        <span className="pill pill--warn">{timeLeft(a.expiresAt, now)}</span>
+        <StatusPill status={PILL_TONE.warn} label={timeLeft(a.expiresAt, now)} />
       </header>
       <p className="approval__meta">
         {where}
@@ -69,9 +71,8 @@ export function ApprovalCard({
         <strong>Why it needs you:</strong> {a.reason}
       </p>
       <p className="approval__tags">
-        <span className="pill">{a.capabilityLabel}</span>{" "}
-        {a.riskLabel && <span className="pill">{a.riskLabel}</span>}{" "}
-        {a.sensitiveLabel && <span className="pill pill--bad">{a.sensitiveLabel}</span>}
+        <Tag label={a.capabilityLabel} /> {a.riskLabel && <Tag label={a.riskLabel} />}{" "}
+        {a.sensitiveLabel && <StatusPill status={PILL_TONE.bad} label={a.sensitiveLabel} />}
       </p>
       {!a.waiting && (
         <p className="muted">
@@ -80,17 +81,12 @@ export function ApprovalCard({
         </p>
       )}
       <div className="actions">
-        <button type="button" className="button" disabled={pending} onClick={() => onAnswer(true)}>
+        <Button variant="primary" disabled={pending} onClick={() => onAnswer(true)}>
           Approve
-        </button>
-        <button
-          type="button"
-          className="button button--danger"
-          disabled={pending}
-          onClick={() => onAnswer(false)}
-        >
+        </Button>
+        <Button variant="danger" disabled={pending} onClick={() => onAnswer(false)}>
           Deny
-        </button>
+        </Button>
         <span className="muted">Asked {ago(a.requestedAt, now)}</span>
       </div>
     </article>
@@ -100,10 +96,14 @@ export function ApprovalCard({
 /** A settled request, in a line. */
 export function ApprovalOutcome({ approval: a, now }: { approval: ApprovalView; now: number }) {
   const tone =
-    a.status === "approved" ? "pill--ok" : a.status === "rejected" ? "pill--bad" : "pill--warn";
+    a.status === "approved"
+      ? PILL_TONE.ok
+      : a.status === "rejected"
+        ? PILL_TONE.bad
+        : PILL_TONE.warn;
   return (
     <li className="approval-outcome">
-      <span className={`pill ${tone}`}>{APPROVAL_STATUS_LABEL[a.status]}</span>{" "}
+      <StatusPill status={tone} label={APPROVAL_STATUS_LABEL[a.status]} />{" "}
       <strong>{a.worker}</strong>: {a.summary}
       <span className="table__sub">
         {a.resolvedAt ? ago(a.resolvedAt, now) : ""}

@@ -1,0 +1,43 @@
+/* A read-only log of program output (the terminal's watch tabs). */
+
+.ui-log {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--ui-space-4) var(--ui-space-5);
+  background: var(--ui-terminal-bg);
+  color: var(--ui-terminal-fg);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-sm);
+  line-height: var(--ui-leading-base);
+}
+
+.ui-log__line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ui-log__line--command {
+  margin-top: var(--ui-space-3);
+  color: var(--ui-terminal-bright-blue);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.ui-log__line--error {
+  color: var(--ui-terminal-red);
+}
+
+.ui-log__line--muted {
+  color: var(--ui-terminal-bright-black);
+}
+
+.ui-log__line--ok {
+  color: var(--ui-terminal-green);
+}
+
+.ui-log__line--warn {
+  color: var(--ui-terminal-yellow);
+}
+
+.ui-log__empty {
+  color: var(--ui-terminal-bright-black);
+}

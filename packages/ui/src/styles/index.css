@@ -1,9 +1,12 @@
 /* Plenipo's design system (ADR-030): tokens first, then every component's styles. */
 @import "../generated/tokens.css";
 @import "./base.css";
+@import "./brand.css";
 @import "./controls.css";
 @import "./status.css";
 @import "./states.css";
+@import "./log.css";
+@import "./page.css";
 @import "./cards.css";
 @import "./table.css";
 @import "./facets.css";

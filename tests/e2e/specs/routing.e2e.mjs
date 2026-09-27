@@ -20,6 +20,8 @@ import {
   nav,
   screenshot,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -153,7 +155,7 @@ function listed(browser) {
  * role's effort for some of them (`efforts`: model label → option text).
  */
 async function preferForSeniorDeveloper(browser, labels, efforts = {}) {
-  await nav(browser, "Settings");
+  await openSettings(browser, "AI models");
   await waitForText(browser, ROLES, "Senior Developer");
   await clickButton(browser, "Change Senior Developer's model choices");
   await (await browser.$(DEV_CHOICES)).waitForExist({ timeout: 10_000 });
@@ -221,8 +223,8 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
 
   it("Settings → AI models lists the AI tools' default models and every role's next worker", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "AI models");
     await waitForText(browser, ROLES, "Senior Developer");
     const models = await textOf(browser, '[aria-labelledby="models-title"]');
     for (const m of [
@@ -444,7 +446,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForNode(browser, "Website Supervisor, Idle", 30_000);
 
     // Waiting is the default: no move to Claude Code, and Settings says why.
-    await nav(browser, "Settings");
+    await openSettings(browser, "AI models");
     await waitUntil(
       async () => (await roleRow(browser, "Senior Developer")).includes("None right now"),
       "the Senior Developer to wait for Codex",

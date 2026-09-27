@@ -18,6 +18,8 @@ import {
   nav,
   screenshot,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -126,8 +128,8 @@ describe("Phase 7 Guard, capability broker, and approvals (real app, fake CLIs)"
 
   it("Settings → Permissions shows each role's permission set, the rules, and the Vault", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "Permissions");
     await waitForText(browser, '[aria-labelledby="who-title"]', "Senior Developer");
     const dev = await browser.$('select[aria-label="Senior Developer\'s permission set"]');
     assert.equal(await dev.getValue(), "developer");
@@ -154,6 +156,7 @@ describe("Phase 7 Guard, capability broker, and approvals (real app, fake CLIs)"
     await browser.pause(500);
     assert.ok(!(await exists(browser, 'form[aria-label="Command lists"] [role="alert"]')));
     await nav(browser, "Organization");
+    // Settings comes back on the section you left it at (Permissions).
     await nav(browser, "Settings");
     await waitUntil(
       async () =>

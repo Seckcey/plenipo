@@ -19,7 +19,10 @@ import {
   launch,
   makeHome,
   nav,
+  openSettings,
+  pictureShown,
   screenshot,
+  waitForShell,
   waitUntil,
 } from "../lib/app.mjs";
 
@@ -210,8 +213,15 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
 
   it("starts empty, then builds Development, its Website project, and the team", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    // The Organization view comes first, and nothing is hard-coded.
+    await waitForShell(browser);
+    // Home comes first: Pip welcomes a new company, and nothing is hard-coded.
+    await waitForText(browser, ".ui-hero", "ready for its first department");
+    await waitUntil(
+      () => pictureShown(browser, '.ui-hero img[data-pip="welcome"]'),
+      "Pip waving hello on Home",
+    );
+    await screenshot(browser, "home-empty");
+    await nav(browser, "Organization");
     await waitForText(browser, MAP, "Build your organization");
     assert.deepEqual(await nodes(browser), ["You, President", "Organization, organization"]);
     await screenshot(browser, "org-empty");
@@ -355,7 +365,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
 
   it("the organization, its supervisor, and the chosen titles survive a restart", async () => {
     // The owner calls the ranks by the Army's names instead.
-    await nav(app.browser, "Settings");
+    await openSettings(app.browser, "Personalization");
     const titles = await app.browser.$('//label[.//span[normalize-space()="Titles"]]//select');
     await titles.waitForExist({ timeout: 10_000 });
     await titles.selectByVisibleText("U.S. Army");
@@ -365,6 +375,8 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await app.close();
     app = await start();
     const { browser } = app;
+    await waitForShell(browser);
+    await nav(browser, "Organization");
     await waitForText(browser, "#org-title", "8 West Ventures");
     // Ranks follow the choice; job titles stay as written.
     await waitForNode(browser, "You, General");

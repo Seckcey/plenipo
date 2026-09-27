@@ -3,9 +3,10 @@
 //! with the owner's SSH agent, running one command at a time on a channel with its output as it
 //! arrives, stopping it, and forwarding a local port through it.
 //!
-//! What is never done: forwarding the owner's SSH agent, X11, asking for a terminal, sending
-//! environment variables, or reaching any computer but the one named. The server is checked
-//! before Plenipo signs in, so nothing about the owner's key or password reaches a server whose
+//! What is never done: forwarding the owner's SSH agent, X11, sending environment variables, or
+//! reaching any computer but the one named. A terminal and a shell are asked for only for the
+//! owner's own terminal (Phase 12, ADR-031), never for a worker. The server is checked before
+//! Plenipo signs in, so nothing about the owner's key or password reaches a server whose
 //! identity changed.
 
 use std::net::SocketAddr;
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use plenipo_guard::CommandLine;
 use russh::client::{self, Handle, Handler};
 use russh::keys::{self, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
-use russh::{ChannelMsg, Disconnect, Sig};
+use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect, Sig};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
@@ -626,6 +627,73 @@ impl Connection {
             }
         };
         (ending, started.elapsed())
+    }
+}
+
+/// The owner's terminal on a server (Phase 12, ADR-031): its channel, split so the owner's
+/// typing and the server's output can flow at the same time.
+pub struct ShellChannel {
+    pub read: ChannelReadHalf,
+    pub write: ChannelWriteHalf<client::Msg>,
+    /// Output that arrived while Plenipo waited for the server's answers (shown first).
+    pub early: Vec<u8>,
+}
+
+/// How long the server has to answer a request for a terminal or a shell.
+const SHELL_ANSWER: Duration = Duration::from_secs(15);
+
+/// Wait for the server's answer to the request just sent on this channel. Output that comes
+/// first is kept in `early`.
+async fn answered(
+    read: &mut ChannelReadHalf,
+    what: &str,
+    early: &mut Vec<u8>,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + SHELL_ANSWER;
+    loop {
+        match tokio::time::timeout_at(deadline, read.wait()).await {
+            Ok(Some(ChannelMsg::Success)) => return Ok(()),
+            Ok(Some(ChannelMsg::Failure)) => return Err(format!("the server refused {what}")),
+            Ok(Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. })) => {
+                early.extend_from_slice(&data);
+            }
+            // Window sizes and the like: not the answer yet.
+            Ok(Some(_)) => {}
+            Ok(None) => return Err(format!("the server closed the channel instead of {what}")),
+            Err(_) => {
+                return Err(format!(
+                    "the server did not answer the request for {what} within {} seconds",
+                    SHELL_ANSWER.as_secs()
+                ))
+            }
+        }
+    }
+}
+
+impl Connection {
+    /// Open the owner's terminal on this connection (ADR-031): a terminal (`pty-req`, sized
+    /// `cols` × `rows`) and then a shell, on a channel of their own. Only the owner's terminal
+    /// asks for these; a worker's commands never do (they run one program at a time, with
+    /// `exec`, through Guard). No agent forwarding, X11, or environment variables are asked for.
+    pub async fn open_shell(&self, cols: u32, rows: u32) -> Result<ShellChannel, String> {
+        let channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("the server would not open a channel ({e})"))?;
+        let (mut read, write) = channel.split();
+        let mut early = Vec::new();
+        write
+            .request_pty(true, "xterm-256color", cols, rows, 0, 0, &[])
+            .await
+            .map_err(|e| format!("asking for a terminal failed ({e})"))?;
+        answered(&mut read, "a terminal", &mut early).await?;
+        write
+            .request_shell(true)
+            .await
+            .map_err(|e| format!("asking for a shell failed ({e})"))?;
+        answered(&mut read, "a shell", &mut early).await?;
+        Ok(ShellChannel { read, write, early })
     }
 }
 

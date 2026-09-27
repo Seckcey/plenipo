@@ -22,6 +22,8 @@ import {
   nav,
   screenshot,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -167,8 +169,8 @@ describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
 
   it("the project's test is an approved command", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "Permissions");
     const approved = await field(
       browser,
       "Command lists",

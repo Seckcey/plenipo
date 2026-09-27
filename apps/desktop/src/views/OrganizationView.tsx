@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import type { OrgSnapshot, OversightRole, PositionInfo } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import {
   archivePosition,
@@ -43,6 +44,7 @@ import { Glyph } from "../components/org/Glyph";
 import { HirePalette } from "../components/org/HirePalette";
 import { Inspector, type InspectorActions } from "../components/org/Inspector";
 import { ConfirmDialog, Modal } from "../components/org/Modal";
+import type { Go } from "../components/views";
 import {
   EditDepartmentDialog,
   EditProjectDialog,
@@ -156,11 +158,14 @@ function readCollapsed(): Set<string> {
 export function OrganizationView({
   onOpenSession,
   onOpenTask,
+  onOpenPage,
   focusId = null,
   onFocusHandled,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** Opens the page of a position, department, or project (Phase 12). */
+  onOpenPage?: Go | undefined;
   /** A position to show on arrival (from another view). */
   focusId?: string | null;
   onFocusHandled?: () => void;
@@ -298,6 +303,7 @@ export function OrganizationView({
       confirm: (request) => setDialog({ kind: "confirm", ...request }),
       openSession: onOpenSession,
       openTask: onOpenTask,
+      openPage: onOpenPage,
       api: {
         fill: fillPosition,
         vacate: vacatePosition,
@@ -310,7 +316,7 @@ export function OrganizationView({
         archiveProject,
       },
     }),
-    [run, reload, onOpenSession, onOpenTask],
+    [run, reload, onOpenSession, onOpenTask, onOpenPage],
   );
 
   // ---- Drag and drop -------------------------------------------------------------------------
@@ -458,9 +464,9 @@ export function OrganizationView({
           <div className="empty">
             <h2>The organization could not be loaded</h2>
             <p className="status status--error">{org.error}</p>
-            <button type="button" className="button" onClick={() => void org.reload()}>
+            <Button variant="primary" onClick={() => void org.reload()}>
               Try again
-            </button>
+            </Button>
           </div>
         ) : (
           <p className="muted">Loading the organization…</p>
@@ -618,20 +624,18 @@ export function OrganizationView({
                   </li>
                 </ol>
                 <div className="actions">
-                  <button
-                    type="button"
-                    className="button"
+                  <Button
+                    variant="primary"
                     onClick={() => setDialog({ kind: "newDepartment", reportsTo: null })}
                   >
                     Create a department
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--quiet"
+                  </Button>
+                  <Button
+                    variant="quiet"
                     onClick={() => setDialog({ kind: "hire", roleId: null, reportsTo: null })}
                   >
                     Hire {withArticle(rankName(titles, "superintendent"))}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -808,12 +812,12 @@ function RenameDialog({
           </p>
         )}
         <footer className="modal__footer">
-          <button type="button" className="button button--quiet" onClick={onCancel}>
+          <Button variant="quiet" onClick={onCancel}>
             Cancel
-          </button>
-          <button type="submit" className="button" disabled={pending || name.trim() === ""}>
+          </Button>
+          <Button type="submit" variant="primary" disabled={pending || name.trim() === ""}>
             Save
-          </button>
+          </Button>
         </footer>
       </form>
     </Modal>

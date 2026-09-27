@@ -82,6 +82,10 @@ describe("labels", () => {
   it("ends the axis with Now when the series ends now", () => {
     expect(axisLabels({ from, to: now }, now)[2]).toBe("Now");
     expect(axisLabels({ from, to: now - 3 * 3_600_000 }, now)[2]).not.toBe("Now");
+    // A week reads as dates, not times of day.
+    const [start, , end] = axisLabels({ from: now - 7 * DAY_MS, to: now }, now);
+    expect(start).toMatch(/^Sep \d+$/);
+    expect(end).toBe("Now");
   });
 
   it("describes ranges and totals in words", () => {

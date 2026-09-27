@@ -47,3 +47,4 @@ architecture must be recorded here.
 | [030](ADR-030-design-system.md)                   | One design system for every screen                                                | Accepted |
 | [031](ADR-031-terminal-panel.md)                  | The terminal panel (amends 025)                                                   | Accepted |
 | [032](ADR-032-captcha-checkbox-and-verdict.md)    | Workers see the CAPTCHA they try, and hear how each try went (amends 029)         | Accepted |
+| [033](ADR-033-pages-notices-settings.md)          | Home, a page for each thing, pop-up notices, and Settings in one place            | Proposed |

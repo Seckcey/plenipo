@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { OrgSnapshot, RoleInfo } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { STAFFING_LABEL } from "../../org/format";
 import { hireableRoles } from "../../org/rules";
@@ -91,23 +92,15 @@ export function HirePalette({
       {group("Team members", members)}
       {open && (
         <div className="palette__more">
-          <button
-            type="button"
-            className="button button--small button--quiet"
-            onClick={onNewDepartment}
-          >
+          <Button variant="quiet" size="sm" onClick={onNewDepartment}>
             + Department
-          </button>
-          <button
-            type="button"
-            className="button button--small button--quiet"
-            onClick={onNewProject}
-          >
+          </Button>
+          <Button variant="quiet" size="sm" onClick={onNewProject}>
             + Project
-          </button>
-          <button type="button" className="button button--small button--quiet" onClick={onNewRole}>
+          </Button>
+          <Button variant="quiet" size="sm" onClick={onNewRole}>
             + Role
-          </button>
+          </Button>
         </div>
       )}
     </aside>

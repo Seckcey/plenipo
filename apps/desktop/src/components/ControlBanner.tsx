@@ -1,3 +1,5 @@
+import { Button } from "@plenipo/ui";
+
 import type { Control } from "../control/useControl";
 import { sessionWords, takeOverLabel } from "../control/words";
 
@@ -43,23 +45,19 @@ export function ControlBanner({ control }: { control: Control }) {
               {s.production && <span className="env env--production">PRODUCTION</span>}
               {words.detail && <div className="muted control__detail">{words.detail}</div>}
               {s.state === "active" && (
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   disabled={pending}
                   onClick={() => void control.takeOver(s.id)}
                 >
                   {takeOverLabel(s)}
-                </button>
+                </Button>
               )}
               {s.state === "takenOver" && (
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
-                  onClick={() => control.dismiss(s.id)}
-                >
+                <Button variant="quiet" size="sm" onClick={() => control.dismiss(s.id)}>
                   Dismiss
-                </button>
+                </Button>
               )}
             </div>
           );
@@ -72,24 +70,24 @@ export function ControlBanner({ control }: { control: Control }) {
       </div>
       <div className="control__actions">
         {active.length > 0 && (
-          <button
-            type="button"
-            className="button button--stop"
+          <Button
+            variant="danger"
+            className="stop-all"
             disabled={pending}
             onClick={() => void control.stopAll()}
           >
             Stop all
-          </button>
+          </Button>
         )}
         {status.stopped && (
-          <button
-            type="button"
-            className="button button--small"
+          <Button
+            variant="primary"
+            size="sm"
             disabled={pending}
             onClick={() => void control.allow()}
           >
             Allow again
-          </button>
+          </Button>
         )}
       </div>
     </div>

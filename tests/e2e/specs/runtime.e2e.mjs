@@ -18,6 +18,7 @@ import {
   waitForText,
   waitPidGone,
   waitUntil,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -33,7 +34,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
 
   it("opens the branded shell with navigation and no errors", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     const labels = await browser.$$("nav button").map((b) => b.getText());
     for (const expected of ["Organization", "AI tools", "Activity", "Settings", "Diagnostics"]) {
       assert.ok(
@@ -144,7 +145,7 @@ describe("Phase 1 runtime supervisor (real app)", () => {
     // Relaunch with the same data directory.
     app = await launch(home);
     const b = app.browser;
-    await waitForText(b, ".shell__wordmark", "Plenipo");
+    await waitForShell(b);
     await nav(b, "AI tools");
     const item = await b.$('//button[contains(@aria-label, "Long-running process — Cancelled")]');
     await item.waitForExist({ timeout: 10_000 });

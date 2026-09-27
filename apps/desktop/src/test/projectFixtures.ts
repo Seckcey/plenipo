@@ -46,6 +46,8 @@ export function sampleWork(patch: Partial<ProjectWork> = {}): ProjectWork {
         failed: 0,
         waitingApprovals: 1,
         branch: "plenipo/add-a-contact-page-corr0001",
+        projectId: "pr-web",
+        answer: null,
       },
       {
         rootTaskId: "task-obj-0",
@@ -59,6 +61,8 @@ export function sampleWork(patch: Partial<ProjectWork> = {}): ProjectWork {
         failed: 0,
         waitingApprovals: 0,
         branch: null,
+        projectId: "pr-web",
+        answer: "The typo is fixed.",
       },
     ],
     workingCopies: [workingCopy()],

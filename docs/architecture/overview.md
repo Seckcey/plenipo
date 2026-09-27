@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 12A and v1.7) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 12 and v1.8) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -76,7 +76,8 @@ operations itself. This is enforced by:
    not listed there cannot be invoked.
 2. **Capability grants.** `src-tauri/capabilities/default.json` grants the `main` window
    `core:default` plus each app command by name. There are no filesystem, shell, HTTP, or
-   process plugins installed.
+   process plugins installed. The one plugin, `tauri-plugin-notification` (Phase 12), is used
+   from Rust only: its own commands are granted to no window.
 3. **Single IPC client.** `apps/desktop/src/api/commands.ts` is the only module allowed to
    call `invoke` (ESLint `no-restricted-imports`).
 4. **Content Security Policy.** `tauri.conf.json` restricts scripts to `'self'` and network
@@ -747,6 +748,44 @@ Decision record: [ADR-030](../adr/ADR-030-design-system.md). Details:
   either theme or both; the end-to-end test compares its computed styles with checked-in
   snapshots.
 
+## 13b. Home, the pages, the terminal, notices, and Settings (Phase 12)
+
+Decision records: [ADR-031](../adr/ADR-031-terminal-panel.md) (the terminal panel) and
+[ADR-033](../adr/ADR-033-pages-notices-settings.md) (Home, the pages, notices, and Settings).
+
+- **Where you are** is a place (`components/views.ts`: a section, or the page of one department,
+  project, worker, or task with its ID), kept on this computer (`plenipo.place`), with a Back
+  trail for this window. The pages (`apps/desktop/src/pages/`) are built from `@plenipo/ui`'s page
+  parts (`PageHeader`, `Panel`, `RowList`, `StatGrid`, `Hero`) and read Core live (`useLive`:
+  reloaded after the Ledger events that may change them).
+- **Page queries** (Ledger `pages.rs`, on the existing tables): a scope's events a page at a time
+  (`scope_events`), a task tree's events (`tree_events`), what is stuck (`problems`: one problem
+  per piece of work still in trouble, read from the last week's events only), and a project's or
+  task's pull requests, screenshots, and decisions (`work_record`). Workforce `home()` adds the
+  objectives going and those finished (the last to finish first). History pages hold at most 200
+  events; a scope's history reads the newest 20,000 events in order first, then looks further
+  back through the task index only when the page is not full.
+- **The terminal** (ADR-031): `crates/capabilities/src/terminal.rs` runs the owner's shell in a
+  pseudo terminal (`portable-pty`, ConPTY on Windows; a kill-on-close Job Object per shell) or
+  relays a server's shell channel (`ssh.rs` `open_shell`, the owner's only); `broker/terminals.rs`
+  opens, tracks, and records them (`terminal.opened`, `terminal.closed`), apart from every
+  worker's grant, so Stop all never reaches them. Output streams to the page on a Tauri channel;
+  nothing typed or shown is recorded. Watch tabs are built in the page from the Ledger's `ssh.*`
+  events; their **Stop** ends only the worker's command running now (`stop_server_command`).
+  The terminals end with the page that shows them (a reload of the main window closes them), when
+  Plenipo quits, and, for servers, when Remote computers (SSH) is switched off. While a worker
+  controls the screen, mouse, and keyboard, the terminal takes no typing (it could be the
+  worker's) until the owner takes over. Closing the window while a terminal is open hides Plenipo
+  to the tray, as running work does.
+- **Notices:** a Ledger listener hands each committed event that may matter
+  (`notices::may_notify`) to a background thread (`src-tauri/src/notices.rs`), which asks the
+  Ledger what it means for the owner (`Ledger::notice_for`), keeps the kinds the owner wants
+  (`NoticeSettings`, in the `preferences` setting), gathers those that arrive together
+  (`NoticeGate`: one notice for a burst, none repeated within a minute), and shows it unless
+  Plenipo's window is in front and the owner asked for that. "Send a test notice" shows one now.
+- **Settings** is one list of sections (`views/SettingsView.tsx`, `settings/`); the last one comes
+  back, and another page can open a section. Local paths are read-only (`get_local_paths`).
+
 ## 14. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
@@ -761,19 +800,19 @@ From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent 
 adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**,
 **Vault**, the GitHub integration, Plenipo's browser and computer use, and SSH exist today.
 
-| Component    | Responsibility                                                                          | Introduced   |
-| ------------ | --------------------------------------------------------------------------------------- | ------------ |
-| Desktop      | UI, on the design system (`packages/ui`) ✅                                             | Phase 0, 12A |
-| Core         | Orchestration and domain logic, shared DTOs                                             | Phase 0      |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                          | Phase 1, 3   |
-| Ledger       | SQLite system of record ✅                                                              | Phase 2      |
-| Liaison      | Task/message/event bus ✅                                                               | Phase 4      |
-| Workforce    | Departments, roles, coordinators, workers ✅                                            | Phase 5      |
-| Router       | Role → provider/model selection ✅                                                      | Phase 6      |
-| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+     |
-| Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7      |
-| Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7      |
-| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+     |
+| Component    | Responsibility                                                                          | Introduced  |
+| ------------ | --------------------------------------------------------------------------------------- | ----------- |
+| Desktop      | UI, on the design system (`packages/ui`) ✅; Home and the pages, terminal, notices ✅   | Phase 0, 12 |
+| Core         | Orchestration and domain logic, shared DTOs                                             | Phase 0     |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                          | Phase 1, 3  |
+| Ledger       | SQLite system of record ✅                                                              | Phase 2     |
+| Liaison      | Task/message/event bus ✅                                                               | Phase 4     |
+| Workforce    | Departments, roles, coordinators, workers ✅                                            | Phase 5     |
+| Router       | Role → provider/model selection ✅                                                      | Phase 6     |
+| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+    |
+| Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7     |
+| Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7     |
+| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+    |
 
 ## 16. Invariants every phase must keep
 

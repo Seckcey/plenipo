@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { ApprovalQueue, PermissionsSnapshot } from "@plenipo/types";
+import { Button, StatusPill, Tag } from "@plenipo/ui";
 
 import { resolveApproval, revokeGrant } from "../api/commands";
 import { ApprovalCard, ApprovalOutcome } from "../components/permissions/ApprovalCard";
 import { Refusal } from "../components/models/shared";
+import { PILL_TONE } from "../components/tones";
 import { LEVEL_LABEL } from "../guard/format";
 import { useApprovals, usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
@@ -175,56 +177,47 @@ function Grants({
                 </td>
                 <td>
                   {g.permissions.map((p) => (
-                    <span key={p.capability} className="pill" title={LEVEL_LABEL[p.level]}>
-                      {p.label}
-                      {p.level === "ask" ? " (asks)" : ""}
+                    <span key={p.capability} title={LEVEL_LABEL[p.level]}>
+                      <Tag label={`${p.label}${p.level === "ask" ? " (asks)" : ""}`} />
                     </span>
                   ))}
                 </td>
                 <td>
                   {g.used} done · {g.blocked} blocked · {g.asked} asked
-                  {g.revoked && <span className="pill pill--bad">Revoked</span>}
+                  {g.revoked && <StatusPill status={PILL_TONE.bad} label="Revoked" />}
                 </td>
                 <td>
                   {onOpenTask && (
-                    <button
-                      type="button"
-                      className="button button--small button--quiet"
-                      onClick={() => onOpenTask(g.taskId)}
-                    >
+                    <Button variant="quiet" size="sm" onClick={() => onOpenTask(g.taskId)}>
                       Open task
-                    </button>
+                    </Button>
                   )}{" "}
                   {!g.revoked &&
                     (confirming === g.grantId ? (
                       <>
-                        <button
-                          type="button"
-                          className="button button--small button--danger"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           disabled={pending}
                           onClick={() =>
                             void run(() => revokeGrant(g.grantId)).then(() => setConfirming(null))
                           }
                         >
                           Revoke now
-                        </button>{" "}
-                        <button
-                          type="button"
-                          className="button button--small button--quiet"
-                          onClick={() => setConfirming(null)}
-                        >
+                        </Button>{" "}
+                        <Button variant="quiet" size="sm" onClick={() => setConfirming(null)}>
                           Keep
-                        </button>
+                        </Button>
                       </>
                     ) : (
-                      <button
-                        type="button"
-                        className="button button--small button--danger"
+                      <Button
+                        variant="danger"
+                        size="sm"
                         aria-label={`Revoke ${g.worker}'s permissions`}
                         onClick={() => setConfirming(g.grantId)}
                       >
                         Revoke
-                      </button>
+                      </Button>
                     ))}
                 </td>
               </tr>
@@ -259,8 +252,8 @@ function Blocked({
         <ul className="blocked">
           {snapshot.blocked.map((b, i) => (
             <li key={`${b.at}-${i}`} className="blocked__item">
-              <span className="pill pill--bad">Blocked</span> <strong>{b.worker}</strong> tried to{" "}
-              {b.summary}
+              <StatusPill status={PILL_TONE.bad} label="Blocked" /> <strong>{b.worker}</strong>{" "}
+              tried to {b.summary}
               <span className="table__sub">
                 {b.reason} · {ago(b.at, now)}
               </span>

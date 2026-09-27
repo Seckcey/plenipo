@@ -56,6 +56,14 @@ export function StatusPill({
   );
 }
 
+/**
+ * A plain tag: a name, not a state ("Run programs", "Handoff worker"). No mark, because a status
+ * mark always means a state.
+ */
+export function Tag({ label, className }: { label: string; className?: string | undefined }) {
+  return <span className={cx("ui-tag", className)}>{label}</span>;
+}
+
 /** A number in a small badge ("3"), with its meaning spoken ("3 waiting for you"). */
 export function CountBadge({
   count,

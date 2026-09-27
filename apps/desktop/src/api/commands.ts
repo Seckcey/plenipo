@@ -2,7 +2,7 @@
 // This is the ONLY module that calls `invoke`. Components import these functions,
 // never `@tauri-apps/api/core` directly (enforced by ESLint).
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   ActivityScope,
   ActivitySeries,
@@ -63,6 +63,16 @@ import type {
   Switches,
   LearningSnapshot,
   WorkView,
+  HomeView,
+  LocalPath,
+  NoticeSettings,
+  TaskRecord,
+  WorkRecord,
+  TerminalEvent,
+  TerminalInfo,
+  TerminalPlace,
+  TerminalSettings,
+  TerminalShell,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -621,4 +631,110 @@ export function checkServerIdentity(host: string, port: number): Promise<ServerI
 /** Connect with the pinned server ID, sign in, and leave. */
 export function testServer(serverId: string): Promise<ServerTest> {
   return call("test_server", { serverId });
+}
+
+/**
+ * The owner's Stop in a worker's watch tab (Phase 12, ADR-031): the command running now is sent
+ * TERM, then KILL. The worker's step goes on (Disconnect ends it: `takeOverControl`).
+ */
+export function stopServerCommand(commandId: string): Promise<void> {
+  return call<void>("stop_server_command", { commandId });
+}
+
+// ---- The owner's terminal (Phase 12, ADR-031) ---------------------------------------------------
+
+/** Settings → Terminal: the shell for this PC, the choices, and the terminals open now. */
+export function getTerminalSettings(): Promise<TerminalSettings> {
+  return call<TerminalSettings>("get_terminal_settings");
+}
+
+/** Choose the shell a new terminal on this PC starts. */
+export function setTerminalShell(shell: TerminalShell): Promise<TerminalSettings> {
+  return call<TerminalSettings>("set_terminal_shell", { shell });
+}
+
+/**
+ * Open a terminal for the owner, on this PC or on a server. What it shows arrives through
+ * `onEvent`, as it happens (it can start before the promise resolves).
+ */
+export function openTerminal(
+  place: TerminalPlace,
+  cols: number,
+  rows: number,
+  onEvent: (event: TerminalEvent) => void,
+): Promise<TerminalInfo> {
+  const events = new Channel<TerminalEvent>();
+  events.onmessage = onEvent;
+  return call<TerminalInfo>("open_terminal", { place, cols, rows, events });
+}
+
+/** What the owner types (or pastes). */
+export function writeTerminal(terminalId: string, data: string): Promise<void> {
+  return call<void>("write_terminal", { terminalId, data });
+}
+
+/** The terminal's size changed (in characters). */
+export function resizeTerminal(terminalId: string, cols: number, rows: number): Promise<void> {
+  return call<void>("resize_terminal", { terminalId, cols, rows });
+}
+
+/** Close a terminal: its shell, and the programs it started, end. */
+export function closeTerminal(terminalId: string): Promise<void> {
+  return call<void>("close_terminal", { terminalId });
+}
+
+// ---- The pages (Phase 12) --------------------------------------------------------------------------
+
+/** Home: objectives still going, those finished in the last week with their answers, and what is stuck. */
+export function getHome(): Promise<HomeView> {
+  return call<HomeView>("get_home");
+}
+
+/**
+ * A department's, project's, or position's history (or everything): newest first, before event
+ * `before` for the next page.
+ */
+export function getScopeEvents(
+  scope: ActivityScope,
+  limit = 50,
+  before?: number,
+): Promise<LedgerEvent[]> {
+  return call<LedgerEvent[]>("get_scope_events", { scope, limit, before: before ?? null });
+}
+
+/** A task's events with those of every task under it, newest first. */
+export function getTaskEvents(taskId: string, limit = 50, before?: number): Promise<LedgerEvent[]> {
+  return call<LedgerEvent[]>("get_task_events", { taskId, limit, before: before ?? null });
+}
+
+/** A project's pull requests, artifacts, and recent decisions. */
+export function getProjectRecord(projectId: string): Promise<WorkRecord> {
+  return call<WorkRecord>("get_project_record", { projectId });
+}
+
+/** A task's pull requests, artifacts, decisions, and approvals (with the tasks under it). */
+export function getTaskRecord(taskId: string): Promise<TaskRecord> {
+  return call<TaskRecord>("get_task_record", { taskId });
+}
+
+// ---- Notices (Phase 12) ----------------------------------------------------------------------
+
+/** Settings → Notifications: which pop-up notices you get, and when. */
+export function getNoticeSettings(): Promise<NoticeSettings> {
+  return call<NoticeSettings>("get_notice_settings");
+}
+
+/** Keep your choices for pop-up notices. */
+export function setNoticeSettings(settings: NoticeSettings): Promise<NoticeSettings> {
+  return call<NoticeSettings>("set_notice_settings", { settings });
+}
+
+/** Show a notice now, to check that the computer shows Plenipo's notices. */
+export function sendTestNotice(): Promise<void> {
+  return call<void>("send_test_notice");
+}
+
+/** Settings → Local paths: where Plenipo keeps its files on this computer (read only). */
+export function getLocalPaths(): Promise<LocalPath[]> {
+  return call<LocalPath[]>("get_local_paths");
 }

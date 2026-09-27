@@ -5,8 +5,10 @@ import type {
   ReviewVerdict,
   Severity,
 } from "@plenipo/types";
+import { Button, StatusPill, type Status } from "@plenipo/ui";
 
 import { WORKER_STATE_LABEL, ago, plural } from "../org/format";
+import { PILL_TONE, TASK_TONE } from "./tones";
 
 const VERDICT_LABEL: Record<ReviewVerdict, string> = {
   approve: "Approved",
@@ -24,6 +26,13 @@ const APPROVAL_LABEL: Record<ReportApprovalState, string> = {
   approved: "Approved",
   denied: "Not approved",
   expired: "Expired",
+};
+
+const APPROVAL_TONE: Record<ReportApprovalState, Status> = {
+  waiting: PILL_TONE.warn,
+  approved: PILL_TONE.ok,
+  denied: PILL_TONE.muted,
+  expired: PILL_TONE.muted,
 };
 
 function firstLine(text: string, max = 160): string {
@@ -59,9 +68,7 @@ function TaskRow({
           {task.summary && <div className="muted">{firstLine(task.summary, 220)}</div>}
         </div>
         <div className="result__task-side">
-          <span className={`badge badge--task-${task.state}`}>
-            {WORKER_STATE_LABEL[task.state]}
-          </span>
+          <StatusPill status={TASK_TONE[task.state]} label={WORKER_STATE_LABEL[task.state]} />
           {onOpenTask && (
             <button type="button" className="link" onClick={() => onOpenTask(task.taskId)}>
               Details
@@ -82,10 +89,13 @@ export function ObjectiveResult({
   report,
   onOpenTask,
   onOpenApprovals,
+  openLabel = "Open in Activity",
 }: {
   report: ObjectiveReport;
   onOpenTask?: (taskId: string) => void;
   onOpenApprovals?: () => void;
+  /** The words of the link that opens the objective's own task; `null` leaves it out (its page). */
+  openLabel?: string | null;
 }) {
   const tests = report.checks.filter((c) => c.test);
   const passed = tests.filter((c) => c.ok).length;
@@ -106,12 +116,10 @@ export function ObjectiveResult({
           </p>
         </div>
         <div className="result__task-side">
-          <span className={`badge badge--task-${report.state}`}>
-            {WORKER_STATE_LABEL[report.state]}
-          </span>
-          {onOpenTask && (
+          <StatusPill status={TASK_TONE[report.state]} label={WORKER_STATE_LABEL[report.state]} />
+          {onOpenTask && openLabel && (
             <button type="button" className="link" onClick={() => onOpenTask(report.rootTaskId)}>
-              Open in Activity
+              {openLabel}
             </button>
           )}
         </div>
@@ -174,20 +182,16 @@ export function ObjectiveResult({
           <div className="section-header">
             <h3>Approvals</h3>
             {waiting.length > 0 && onOpenApprovals && (
-              <button type="button" className="button button--small" onClick={onOpenApprovals}>
+              <Button variant="primary" size="sm" onClick={onOpenApprovals}>
                 Review in Approvals
-              </button>
+              </Button>
             )}
           </div>
           <ul className="result__list">
             {report.approvals.map((a) => (
               <li key={a.approvalId}>
                 <strong>{a.who}</strong>: {a.summary}{" "}
-                <span
-                  className={`pill${a.state === "waiting" ? " pill--warn" : a.state === "approved" ? " pill--ok" : ""}`}
-                >
-                  {APPROVAL_LABEL[a.state]}
-                </span>
+                <StatusPill status={APPROVAL_TONE[a.state]} label={APPROVAL_LABEL[a.state]} />
               </li>
             ))}
           </ul>
@@ -261,11 +265,10 @@ export function ObjectiveResult({
                   </th>
                   <td>{lines(f.added, f.removed)}</td>
                   <td>
-                    {f.committed ? (
-                      <span className="pill pill--ok">Committed</span>
-                    ) : (
-                      <span className="pill pill--warn">Not committed</span>
-                    )}
+                    <StatusPill
+                      status={f.committed ? PILL_TONE.ok : PILL_TONE.warn}
+                      label={f.committed ? "Committed" : "Not committed"}
+                    />
                   </td>
                   <td>
                     <code>{f.branch}</code>
@@ -297,11 +300,10 @@ export function ObjectiveResult({
                   </th>
                   <td>{c.who}</td>
                   <td>
-                    {c.ok ? (
-                      <span className="pill pill--ok">Passed</span>
-                    ) : (
-                      <span className="pill pill--bad">Failed</span>
-                    )}
+                    <StatusPill
+                      status={c.ok ? PILL_TONE.ok : PILL_TONE.bad}
+                      label={c.ok ? "Passed" : "Failed"}
+                    />
                   </td>
                 </tr>
               ))}
@@ -317,9 +319,10 @@ export function ObjectiveResult({
             {report.reviews.map((r) => (
               <li key={`${r.taskId}-${r.at}`}>
                 <strong>{r.who}</strong>:{" "}
-                <span className={`pill ${r.verdict === "approve" ? "pill--ok" : "pill--warn"}`}>
-                  {VERDICT_LABEL[r.verdict]}
-                </span>{" "}
+                <StatusPill
+                  status={r.verdict === "approve" ? PILL_TONE.ok : PILL_TONE.warn}
+                  label={VERDICT_LABEL[r.verdict]}
+                />{" "}
                 <span className="muted">
                   {plural(r.findings, "finding")} · {ago(r.at)}
                 </span>
@@ -344,11 +347,16 @@ export function ObjectiveResult({
               {report.findings.map((f, i) => (
                 <tr key={`${f.taskId}-${i}`}>
                   <td>
-                    <span
-                      className={`pill ${f.severity === "minor" ? "" : f.blocking ? "pill--bad" : "pill--warn"}`}
-                    >
-                      {SEVERITY_LABEL[f.severity]}
-                    </span>
+                    <StatusPill
+                      status={
+                        f.severity === "minor"
+                          ? PILL_TONE.muted
+                          : f.blocking
+                            ? PILL_TONE.bad
+                            : PILL_TONE.warn
+                      }
+                      label={SEVERITY_LABEL[f.severity]}
+                    />
                     {f.blocking && <span className="table__sub">Must be fixed</span>}
                   </td>
                   <th scope="row">
@@ -375,9 +383,10 @@ export function ObjectiveResult({
               <li key={b.workspaceId}>
                 <code>{b.branch}</code>
                 {b.baseRef && <span className="muted"> from {b.baseRef}</span>}{" "}
-                <span className={`pill${b.pushed ? " pill--ok" : ""}`}>
-                  {b.pushed ? "Pushed" : "Not pushed"}
-                </span>
+                <StatusPill
+                  status={b.pushed ? PILL_TONE.ok : PILL_TONE.muted}
+                  label={b.pushed ? "Pushed" : "Not pushed"}
+                />
                 <div className="muted">
                   {plural(b.commits.length, "commit")}
                   {b.uncommitted > 0 && ` · ${plural(b.uncommitted, "file")} not committed`}

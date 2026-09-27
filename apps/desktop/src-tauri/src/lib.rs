@@ -9,11 +9,13 @@ pub mod commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
+pub mod notices;
 pub mod runtime_host;
 pub mod smoke;
 pub mod tray;
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -21,6 +23,7 @@ use plenipo_router::Router;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use plenipo_workforce::Workforce;
+use tauri::webview::PageLoadEvent;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
 
 use runtime_host::Persistence;
@@ -29,11 +32,14 @@ use smoke::{SmokeMode, SmokeTest};
 /// How long quitting waits for owned processes to be terminated and recorded.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
-/// Environment-dependent pieces, so tests can run without a tray or on-disk state.
+/// Environment-dependent pieces, so tests can run without a tray, on-disk state, or the
+/// system's notices.
 #[derive(Debug, Clone, Copy)]
 pub struct ShellOptions {
     pub tray: bool,
     pub persistence: Persistence,
+    /// Where pop-up notices go (the system's, or kept for tests).
+    pub notices: notices::Output,
 }
 
 impl Default for ShellOptions {
@@ -41,6 +47,7 @@ impl Default for ShellOptions {
         Self {
             tray: true,
             persistence: Persistence::AppData,
+            notices: notices::Output::System,
         }
     }
 }
@@ -89,6 +96,9 @@ pub fn configure<R: Runtime>(
     options: ShellOptions,
 ) -> Builder<R> {
     builder
+        // The notification plugin shows Plenipo's notices. Its own commands are granted to no
+        // window (capabilities/default.json), so only Plenipo decides what a notice says.
+        .plugin(tauri_plugin_notification::init())
         .manage(smoke)
         .manage(ShutdownState::default())
         .setup(move |app| {
@@ -98,6 +108,7 @@ pub fn configure<R: Runtime>(
             }
             let ledger = ledger_host::open(app.handle(), options.persistence);
             app.manage(ledger.clone());
+            app.manage(options.persistence);
             let supervisor =
                 runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
             let agents = agent_host::create(
@@ -124,6 +135,14 @@ pub fn configure<R: Runtime>(
                 &agents,
             );
             guard_host::start(&broker);
+            // Pop-up notices (Phase 12): what needs the owner, from each committed event.
+            app.manage(Arc::new(notices::start(
+                app.handle(),
+                ledger.clone(),
+                Some(agents.clone()),
+                options.notices,
+                notices::GATHER,
+            )));
             // Workforce (Phase 5): the organization, and Liaison's directory for its members,
             // whose workers the Router places.
             let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
@@ -148,16 +167,29 @@ pub fn configure<R: Runtime>(
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window must not silently kill running work: hide to the tray
-            // instead. With nothing running (or no tray to come back from), close normally.
+            // Closing the window must not silently kill running work (a program, or the
+            // owner's terminal): hide to the tray instead. With nothing running (or no tray to
+            // come back from), close normally.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 let active = app
                     .try_state::<Supervisor>()
                     .map_or(0, |s| s.active_count());
-                if window.label() == "main" && active > 0 && tray::exists(app) {
+                let terminals = app
+                    .try_state::<plenipo_capabilities::Broker>()
+                    .map_or(0, |b| b.open_terminals().len());
+                if window.label() == "main" && active + terminals > 0 && tray::exists(app) {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+            }
+        })
+        .on_page_load(|webview, payload| {
+            // The terminals belong to the page that shows them: when the main window's page
+            // loads again (a reload), the terminals it showed end instead of running unseen.
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Started {
+                if let Some(broker) = webview.try_state::<plenipo_capabilities::Broker>() {
+                    broker.close_all_terminals("the window was reloaded");
                 }
             }
         })
@@ -173,6 +205,9 @@ pub fn configure<R: Runtime>(
             commands::get_task_timeline,
             commands::list_recent_events,
             commands::get_activity,
+            commands::get_scope_events,
+            commands::get_task_events,
+            commands::get_project_record,
             commands::create_synthetic_task,
             commands::advance_synthetic_task,
             commands::run_integrity_check,
@@ -190,6 +225,12 @@ pub fn configure<R: Runtime>(
             commands::get_liaison_overview,
             commands::get_organization,
             commands::get_work,
+            commands::get_home,
+            commands::get_task_record,
+            commands::get_notice_settings,
+            commands::set_notice_settings,
+            commands::send_test_notice,
+            commands::get_local_paths,
             commands::rename_organization,
             commands::set_organization_titles,
             commands::create_role,
@@ -252,6 +293,13 @@ pub fn configure<R: Runtime>(
             commands::remove_server,
             commands::check_server_identity,
             commands::test_server,
+            commands::stop_server_command,
+            commands::get_terminal_settings,
+            commands::set_terminal_shell,
+            commands::open_terminal,
+            commands::write_terminal,
+            commands::resize_terminal,
+            commands::close_terminal,
         ])
 }
 
@@ -274,6 +322,17 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 if let Some(liaison) = app.try_state::<Liaison>() {
                     liaison.shutdown();
                 }
+                // The owner's terminals end with Plenipo (and their closing is recorded).
+                if let Some(broker) = app.try_state::<plenipo_capabilities::Broker>() {
+                    broker.close_all_terminals("Plenipo closed");
+                    // A server terminal waits up to 2 s for the server to answer its close.
+                    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+                    while !broker.open_terminals().is_empty()
+                        && std::time::Instant::now() < deadline
+                    {
+                        tokio_sleep(Duration::from_millis(25)).await;
+                    }
+                }
                 let mut stopped = 0;
                 if let Some(agents) = app.try_state::<AgentRuntime>() {
                     stopped += agents.shutdown(SHUTDOWN_GRACE).await;
@@ -289,6 +348,12 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             });
         }
     }
+}
+
+async fn tokio_sleep(d: Duration) {
+    tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d))
+        .await
+        .ok();
 }
 
 /// Treat SIGTERM/SIGINT (logout, `kill`, Ctrl+C in a dev terminal) like "Quit": run the
@@ -365,6 +430,7 @@ mod ipc_boundary_tests {
             ShellOptions {
                 tray: false,
                 persistence: Persistence::InMemory,
+                notices: notices::Output::Kept,
             },
         )
         .build(tauri::generate_context!())
@@ -372,6 +438,7 @@ mod ipc_boundary_tests {
         // The mock runtime does not run `setup`; install the ledger and runtime the same way.
         let ledger = ledger_host::open(app.handle(), Persistence::InMemory);
         app.manage(ledger.clone());
+        app.manage(Persistence::InMemory);
         let supervisor =
             runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger.clone());
         let agents = agent_host::create(
@@ -390,6 +457,13 @@ mod ipc_boundary_tests {
             supervisor.clone(),
             &agents,
         );
+        app.manage(Arc::new(notices::start(
+            app.handle(),
+            ledger.clone(),
+            Some(agents.clone()),
+            notices::Output::Kept,
+            Duration::from_millis(100),
+        )));
         let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
         guard.seed_template_roles().unwrap();
         app.manage(guard);
@@ -2484,6 +2558,239 @@ mod ipc_boundary_tests {
                 "{cmd}"
             );
         }
+    }
+
+    /// The pages (Phase 12): Home, and the history and records of a department, project,
+    /// position, or task. The main window only; bad scopes and IDs are refused.
+    #[test]
+    fn the_pages_read_through_ipc_for_the_main_window_only() {
+        use plenipo_capabilities::TaskRecord;
+        use plenipo_ledger::{LedgerEvent, WorkRecord};
+        use plenipo_workforce::HomeView;
+        let app = app();
+        let main = window(&app, "main");
+        let home: HomeView = body(invoke(&main, "get_home"));
+        assert!(home.current.is_empty() && home.finished.is_empty() && home.stuck.is_empty());
+        let all = serde_json::json!({ "scope": { "kind": "all" }, "limit": 20 });
+        let events: Vec<LedgerEvent> = body(invoke_json(&main, "get_scope_events", all.clone()));
+        assert!(events.len() <= 20);
+        let err = invoke_json(
+            &main,
+            "get_scope_events",
+            serde_json::json!({ "scope": { "kind": "department", "id": "" }, "limit": 5 }),
+        )
+        .expect_err("an empty ID");
+        assert_eq!(err["kind"], "invalidInput");
+        // A department that does not exist is plainly refused.
+        assert!(invoke_json(
+            &main,
+            "get_scope_events",
+            serde_json::json!({ "scope": { "kind": "department", "id": SESSION }, "limit": 5 }),
+        )
+        .is_err());
+        let task = serde_json::json!({ "taskId": SESSION, "limit": 10 });
+        let tree: Vec<LedgerEvent> = body(invoke_json(&main, "get_task_events", task.clone()));
+        assert!(tree.is_empty());
+        let project = serde_json::json!({ "projectId": SESSION });
+        let record: WorkRecord = body(invoke_json(&main, "get_project_record", project.clone()));
+        assert!(record.pull_requests.is_empty());
+        let task_record: TaskRecord = body(invoke_json(
+            &main,
+            "get_task_record",
+            serde_json::json!({ "taskId": SESSION }),
+        ));
+        assert!(task_record.approvals.is_empty());
+        for bad in ["../x", "not an id"] {
+            assert!(invoke_json(
+                &main,
+                "get_task_record",
+                serde_json::json!({ "taskId": bad })
+            )
+            .is_err());
+            assert!(invoke_json(
+                &main,
+                "get_project_record",
+                serde_json::json!({ "projectId": bad })
+            )
+            .is_err());
+        }
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            ("get_home", serde_json::json!({})),
+            ("get_scope_events", all),
+            ("get_task_events", task),
+            ("get_project_record", project),
+            ("get_task_record", serde_json::json!({ "taskId": SESSION })),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
+    }
+
+    /// The owner's terminal (Phase 12, ADR-031): its commands work in the main window, take a
+    /// place and never a program, and are refused to every other window, the sign, and web
+    /// pages, so nothing but the owner can type into it.
+    #[test]
+    fn the_terminal_is_the_owners_alone() {
+        use plenipo_capabilities::{TerminalInfo, TerminalSettings};
+        let app = app();
+        let main = window(&app, "main");
+        let settings: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
+        assert_eq!(settings.shells.len(), 3);
+        assert!(settings.open.is_empty());
+        let open = |place: serde_json::Value| serde_json::json!({ "place": place, "cols": 80, "rows": 24, "events": "__CHANNEL__:7" });
+        // A place, never a program: anything more, or a server ID that is not an ID, is refused.
+        for bad in [
+            serde_json::json!({ "kind": "thisPc", "program": "calc.exe" }),
+            serde_json::json!({ "kind": "server", "serverId": "../x" }),
+            serde_json::json!({ "kind": "program", "path": "C:/Windows/System32/cmd.exe" }),
+        ] {
+            assert!(
+                invoke_json(&main, "open_terminal", open(bad.clone())).is_err(),
+                "{bad}"
+            );
+        }
+        let err = invoke_json(
+            &main,
+            "open_terminal",
+            open(serde_json::json!({ "kind": "server", "serverId": SESSION })),
+        )
+        .expect_err("no such server");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("no longer in the list"),
+            "{err}"
+        );
+        let info: TerminalInfo = body(invoke_json(
+            &main,
+            "open_terminal",
+            open(serde_json::json!({ "kind": "thisPc" })),
+        ));
+        assert_eq!(info.title, "This PC");
+        let id = info.id.clone();
+        let typed = serde_json::json!({ "terminalId": id, "data": "echo hi\r" });
+        let size = serde_json::json!({ "terminalId": id, "cols": 100, "rows": 30 });
+        assert!(invoke_json(&main, "write_terminal", typed.clone()).is_ok());
+        assert!(invoke_json(&main, "resize_terminal", size.clone()).is_ok());
+        let err = invoke_json(
+            &main,
+            "write_terminal",
+            serde_json::json!({ "terminalId": id, "data": "x".repeat(70_000) }),
+        )
+        .expect_err("too much at once");
+        assert_eq!(err["kind"], "invalidInput");
+        // Nobody else, even with a real terminal and valid arguments: the refusal comes from the
+        // permission list, not from bad input.
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let close = serde_json::json!({ "terminalId": id });
+        let stop = serde_json::json!({ "commandId": SESSION });
+        for (cmd, args) in [
+            ("get_terminal_settings", serde_json::json!({})),
+            (
+                "set_terminal_shell",
+                serde_json::json!({ "shell": "commandPrompt" }),
+            ),
+            (
+                "open_terminal",
+                open(serde_json::json!({ "kind": "thisPc" })),
+            ),
+            ("write_terminal", typed.clone()),
+            ("resize_terminal", size.clone()),
+            ("close_terminal", close.clone()),
+            ("stop_server_command", stop.clone()),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd} from a web page"
+            );
+        }
+        let open_now: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
+        assert_eq!(open_now.open.len(), 1, "still open, untouched");
+        assert!(invoke_json(&main, "close_terminal", close).is_ok());
+        // Stopping a command that is not running is refused plainly.
+        let err = invoke_json(&main, "stop_server_command", stop).expect_err("nothing runs");
+        assert!(
+            err["message"].as_str().unwrap().contains("not running"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn notices_and_local_paths_are_the_main_windows_alone() {
+        use plenipo_ledger::NoticeSettings;
+        let app = app();
+        let main = window(&app, "main");
+        let settings: NoticeSettings = body(invoke(&main, "get_notice_settings"));
+        assert_eq!(settings, NoticeSettings::default());
+        let quiet = serde_json::json!({ "settings": {
+            "approvals": true, "checks": true, "problems": true, "finished": false,
+            "lessons": false, "onlyWhenAway": false,
+        } });
+        let kept: NoticeSettings = body(invoke_json(&main, "set_notice_settings", quiet.clone()));
+        assert!(!kept.finished && !kept.lessons && !kept.only_when_away);
+        // Anything else in the choices is refused.
+        let extra = serde_json::json!({ "settings": { "approvals": "yes" } });
+        assert!(invoke_json(&main, "set_notice_settings", extra).is_err());
+        // Where Plenipo keeps its files: shown, never chosen from the screen.
+        let paths: Vec<plenipo_core::LocalPath> = body(invoke(&main, "get_local_paths"));
+        assert_eq!(paths.len(), 3, "a temporary Ledger has only its own three");
+        assert!(paths.iter().all(|p| !p.kept));
+        // The test notice says Plenipo's own words; nothing from the page goes into it.
+        assert!(invoke(&main, "send_test_notice").is_ok());
+        let shown = app.state::<Arc<notices::Notices>>().kept();
+        assert_eq!(shown, vec![notices::test_notice()]);
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            ("get_notice_settings", serde_json::json!({})),
+            ("set_notice_settings", quiet.clone()),
+            ("send_test_notice", serde_json::json!({})),
+            ("get_local_paths", serde_json::json!({})),
+            (
+                "plugin:notification|notify",
+                serde_json::json!({ "options": { "title": "x" } }),
+            ),
+            (
+                "plugin:notification|is_permission_granted",
+                serde_json::json!({}),
+            ),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd} from a web page"
+            );
+        }
+        // The page cannot send a notice of its own either: the plugin is there, but its
+        // commands are granted to no window.
+        let err = invoke_json(
+            &main,
+            "plugin:notification|notify",
+            serde_json::json!({ "options": { "title": "x" } }),
+        )
+        .expect_err("not granted");
+        assert!(err.to_string().contains("not allowed"), "{err}");
+        assert_eq!(app.state::<Arc<notices::Notices>>().kept().len(), 1);
     }
 
     #[test]

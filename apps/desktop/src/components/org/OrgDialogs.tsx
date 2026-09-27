@@ -16,6 +16,7 @@ import type {
   RoleUpdate,
   Staffing,
 } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { STAFFING_LABEL } from "../../org/format";
 import {
@@ -29,6 +30,7 @@ import { RANKS, rankName, roleLabel, titlesOf, withArticle, type TitleSet } from
 import { usePermissionSets } from "../../guard/usePermissions";
 import { useRoutingOnce } from "../../routing/useRouting";
 import { ModelPicker } from "../models/ModelPicker";
+import { PILL_TONE } from "../tones";
 import { Modal } from "./Modal";
 
 /** Resolves with the refusal to show, or `null` once done. */
@@ -100,12 +102,12 @@ function Footer({
 }) {
   return (
     <footer className="modal__footer">
-      <button type="button" className="button button--quiet" onClick={onCancel}>
+      <Button variant="quiet" onClick={onCancel}>
         Cancel
-      </button>
-      <button type="submit" className="button" disabled={pending || disabled}>
+      </Button>
+      <Button type="submit" variant="primary" disabled={pending || disabled}>
         {pending ? "Working…" : label}
-      </button>
+      </Button>
     </footer>
   );
 }
@@ -671,7 +673,7 @@ function ProjectSettingsFields({
               onChange={(e) => toggle(r.id, e.target.checked)}
             />
             <span className="choice__label">{r.label}</span>
-            {!r.ready && <span className="pill pill--warn">Not ready</span>}
+            {!r.ready && <StatusPill status={PILL_TONE.warn} label="Not ready" />}
           </label>
         ))}
       </fieldset>

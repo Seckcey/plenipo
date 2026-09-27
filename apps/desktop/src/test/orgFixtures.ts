@@ -294,3 +294,61 @@ export function sampleOrganization(): OrgSnapshot {
     generatedAt: T0,
   };
 }
+
+/**
+ * A large organization for the plan's "large org tree" test: a VP, `departments` departments,
+ * each with `projects` projects of `workers` on-call workers (and a worker working in each
+ * project).
+ */
+export function largeOrganization(departments = 20, projects = 5, workers = 10): OrgSnapshot {
+  const positions: PositionInfo[] = [position("p-super", "VP", "r-super", null)];
+  const depts: DepartmentInfo[] = [];
+  const projs: ProjectInfo[] = [];
+  for (let d = 0; d < departments; d++) {
+    const dept = `d-${d}`;
+    const head = `p-head-${d}`;
+    positions.push(
+      position(head, `Department ${d} Manager`, "r-manager", "p-super", {
+        departmentId: dept,
+        headsDepartmentId: dept,
+      }),
+    );
+    const ids: string[] = [];
+    for (let p = 0; p < projects; p++) {
+      const proj = `pr-${d}-${p}`;
+      const lead = `p-lead-${d}-${p}`;
+      ids.push(proj);
+      projs.push(project(proj, `Project ${d}.${p}`, dept, lead));
+      positions.push(
+        position(lead, `Project ${d}.${p} Supervisor`, "r-coord", head, {
+          departmentId: dept,
+          projectId: proj,
+          coordinatesProjectId: proj,
+        }),
+      );
+      for (let w = 0; w < workers; w++) {
+        positions.push(
+          position(`p-w-${d}-${p}-${w}`, `Worker ${d}.${p}.${w}`, "r-dev", lead, {
+            departmentId: dept,
+            projectId: proj,
+            ...(w === 0
+              ? {
+                  status: "working" as const,
+                  workers: [worker(`a-${d}-${p}`, { objective: `Build part ${d}.${p}` })],
+                }
+              : {}),
+          }),
+        );
+      }
+    }
+    depts.push(department(dept, `Department ${d}`, head, ids));
+  }
+  return {
+    ...emptyOrganization(),
+    name: "Large Company",
+    departments: depts,
+    projects: projs,
+    positions,
+    stats: stats(positions, depts.length, projs.length),
+  };
+}

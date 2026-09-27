@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BrowserChoice, BrowserStatus, OtherSites, PermissionsSnapshot } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import {
   getBrowserStatus,
@@ -10,6 +11,7 @@ import {
 } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { Refusal } from "../models/shared";
+import { PILL_TONE } from "../tones";
 
 type Apply = (s: PermissionsSnapshot) => void;
 
@@ -75,9 +77,9 @@ export function Websites({ snapshot, onApply }: { snapshot: PermissionsSnapshot;
           </select>
         </label>
         <div className="actions">
-          <button type="submit" className="button" disabled={pending}>
+          <Button type="submit" variant="primary" disabled={pending}>
             Save websites
-          </button>
+          </Button>
         </div>
         <Refusal error={error} />
       </form>
@@ -156,9 +158,10 @@ function PlenipoBrowser() {
         <p className="muted">
           {status.name}, with its own profile (your own browser, its sign-ins, and its saved
           passwords are never used). It never saves passwords.{" "}
-          <span className={`pill ${status.running ? "pill--ok" : ""}`}>
-            {status.running ? "Open" : "Not open"}
-          </span>
+          <StatusPill
+            status={status.running ? PILL_TONE.ok : PILL_TONE.muted}
+            label={status.running ? "Open" : "Not open"}
+          />
         </p>
       ) : (
         status && <p className="form-error">{status.problem}</p>
@@ -175,14 +178,14 @@ function PlenipoBrowser() {
           value={address}
           onChange={(e) => setAddress(e.target.value)}
         />
-        <button
-          type="button"
-          className="button button--small"
+        <Button
+          variant="primary"
+          size="sm"
           disabled={pending || !status?.name}
           onClick={() => void open()}
         >
           Open Plenipo&apos;s browser
-        </button>
+        </Button>
       </div>
       <Refusal error={error} />
     </div>

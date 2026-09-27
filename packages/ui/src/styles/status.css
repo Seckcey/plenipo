@@ -109,6 +109,19 @@
   white-space: nowrap;
 }
 
+.ui-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-pill);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+  white-space: nowrap;
+}
+
 .ui-badge {
   display: inline-grid;
   place-items: center;

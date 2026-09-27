@@ -1,0 +1,103 @@
+import type { IconName } from "@plenipo/ui";
+
+/** The sections of Settings, one at a time (Phase 12). */
+export type SettingsSection =
+  | "aiTools"
+  | "aiModels"
+  | "permissions"
+  | "organization"
+  | "servers"
+  | "switches"
+  | "notifications"
+  | "terminal"
+  | "personalization"
+  | "localPaths"
+  | "diagnostics"
+  | "about";
+
+/** Each section: its name on the list, and a line about it at its top. */
+export const SETTINGS_SECTIONS: readonly {
+  id: SettingsSection;
+  label: string;
+  icon: IconName;
+  lead: string;
+}[] = [
+  {
+    id: "aiTools",
+    label: "AI tools",
+    icon: "aiTools",
+    lead: "The AI tools on this computer, and whether each is signed in. Plenipo uses their own sign-in and never asks for passwords.",
+  },
+  {
+    id: "aiModels",
+    label: "AI models",
+    icon: "list",
+    lead: "The models each role's workers use: a first choice, and backups tried in order.",
+  },
+  {
+    id: "permissions",
+    label: "Permissions",
+    icon: "shield",
+    lead: "What workers may do on this computer, what always asks you first, and the secrets they may use.",
+  },
+  {
+    id: "organization",
+    label: "Organization",
+    icon: "organization",
+    lead: "Your departments and projects. Add or change them on the Organization map.",
+  },
+  {
+    id: "servers",
+    label: "Servers",
+    icon: "server",
+    lead: "The servers workers may reach, how Plenipo signs in, and the rules for each.",
+  },
+  {
+    id: "switches",
+    label: "Switches",
+    icon: "settings",
+    lead: "Turn whole features on or off.",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    icon: "bell",
+    lead: "Which pop-up notices Windows shows you when something needs you.",
+  },
+  {
+    id: "terminal",
+    label: "Terminal",
+    icon: "terminal",
+    lead: "The shell your terminal on this PC starts.",
+  },
+  {
+    id: "personalization",
+    label: "Personalization",
+    icon: "user",
+    lead: "What the app calls the ranks, and how it looks.",
+  },
+  {
+    id: "localPaths",
+    label: "Local paths",
+    icon: "file",
+    lead: "Where Plenipo keeps its files on this computer.",
+  },
+  {
+    id: "diagnostics",
+    label: "Diagnostics",
+    icon: "diagnostics",
+    lead: "How Plenipo is doing, and the technical details for troubleshooting.",
+  },
+  {
+    id: "about",
+    label: "About Plenipo",
+    icon: "info",
+    lead: "The version you have, and how Plenipo keeps you in charge.",
+  },
+];
+
+export const SETTINGS_SECTION_KEY = "plenipo.settings.section";
+
+export function isSettingsSection(v: unknown): v is SettingsSection {
+  return SETTINGS_SECTIONS.some((s) => s.id === v);
+}

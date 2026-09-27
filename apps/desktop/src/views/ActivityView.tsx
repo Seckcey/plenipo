@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import type { LedgerEvent, Task, TaskTimeline, TaskTree } from "@plenipo/types";
+import { Button, StatusPill, Tabs } from "@plenipo/ui";
 
 import { HANDOFF_OUTCOME_LABEL } from "../agents/format";
 import { ScreenshotView } from "../components/ScreenshotView";
+import { TASK_TONE } from "../components/tones";
+import type { Go } from "../components/views";
 import {
   advanceSyntheticTask,
   getTaskTimeline,
@@ -26,7 +29,7 @@ import { formatTime } from "../runtime/format";
 type Tab = "tasks" | "events";
 
 function TaskBadge({ task }: { task: Task }) {
-  return <span className={`badge badge--task-${task.state}`}>{TASK_STATE_LABEL[task.state]}</span>;
+  return <StatusPill status={TASK_TONE[task.state]} label={TASK_STATE_LABEL[task.state]} />;
 }
 
 /** `step` numbers a task's own trail (1, 2, 3…); the global ledger sequence is in the tooltip. */
@@ -115,9 +118,12 @@ function DelegationTree({
 export function ActivityView({
   selectedTaskId,
   onSelectTask,
+  onOpenPage,
 }: {
   selectedTaskId: string | null;
   onSelectTask: (id: string | null) => void;
+  /** Opens a task's page (Phase 12). */
+  onOpenPage?: Go | undefined;
 }) {
   const feed = useLedgerFeed();
   const [tab, setTab] = useState<Tab>("tasks");
@@ -176,26 +182,15 @@ export function ActivityView({
         Every task change is recorded in the Ledger in order, and the record survives restarts.
       </p>
 
-      <div className="tabs" role="tablist" aria-label="Activity views">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "tasks"}
-          className="tabs__tab"
-          onClick={() => setTab("tasks")}
-        >
-          Tasks
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "events"}
-          className="tabs__tab"
-          onClick={() => setTab("events")}
-        >
-          All events
-        </button>
-      </div>
+      <Tabs<Tab>
+        label="Activity views"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "tasks", label: "Tasks" },
+          { value: "events", label: "All events" },
+        ]}
+      />
 
       {feed.status === "error" && (
         <p className="status status--error" role="alert">
@@ -268,20 +263,30 @@ export function ActivityView({
                       </button>
                     )}
                   </div>
+                  {onOpenPage && (
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      icon="chevronRight"
+                      onClick={() => onOpenPage({ view: "task", id: task.id })}
+                    >
+                      Open the task's page
+                    </Button>
+                  )}
                 </div>
 
                 {synthetic && ACTIONS_FOR[task.state].length > 0 && (
                   <div className="actions" aria-label="Synthetic task actions">
                     {ACTIONS_FOR[task.state].map((action) => (
-                      <button
+                      <Button
                         key={action}
-                        type="button"
-                        className="button button--small"
+                        variant="primary"
+                        size="sm"
                         disabled={pending}
                         onClick={() => void act(task.id, action)}
                       >
                         {ACTION_LABEL[action]}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}

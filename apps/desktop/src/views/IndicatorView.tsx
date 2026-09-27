@@ -1,3 +1,5 @@
+import { Button } from "@plenipo/ui";
+
 import { useControl } from "../control/useControl";
 
 /**
@@ -21,23 +23,23 @@ export function IndicatorView() {
         <span className="muted">Moving the mouse takes control back.</span>
       </div>
       {desktop && (
-        <button
-          type="button"
-          className="button button--small button--quiet"
+        <Button
+          variant="quiet"
+          size="sm"
           disabled={control.pending}
           onClick={() => void control.takeOver(desktop.id)}
         >
           Take over
-        </button>
+        </Button>
       )}
-      <button
-        type="button"
-        className="button button--stop"
+      <Button
+        variant="danger"
+        className="stop-all"
         disabled={control.pending}
         onClick={() => void control.stopAll()}
       >
         Stop
-      </button>
+      </Button>
     </div>
   );
 }

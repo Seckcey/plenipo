@@ -1,10 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { OrgSnapshot, PositionInfo, ProjectInfo, Workspace } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { giveObjective, removeWorkspace, setUpDevelopment, toCommandError } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import { ConfirmDialog } from "../components/org/Modal";
 import { SetUpDevelopmentDialog } from "../components/org/OrgDialogs";
+import { TASK_TONE } from "../components/tones";
+import type { Go } from "../components/views";
+import { POSITION_STATUS } from "../org/cards";
 import { STATUS_LABEL, WORKER_STATE_LABEL, ago, plural } from "../org/format";
 import { canTakeObjective, positionMap } from "../org/rules";
 import { rankName, titlesOf } from "../org/titles";
@@ -107,13 +111,13 @@ function ObjectiveForm({
             ))}
           </select>
         </label>
-        <button
+        <Button
           type="submit"
-          className="button"
+          variant="primary"
           disabled={pending || busy || vacant || objective.trim() === ""}
         >
           {pending ? "Sending…" : "Give objective"}
-        </button>
+        </Button>
       </div>
       {taker && (
         <p className="muted">
@@ -199,14 +203,14 @@ function WorkingCopies({
             </td>
             <td>
               {w.state === "active" && (
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   aria-label={`Remove the working copy of ${w.branch}`}
                   onClick={() => onRemove(w)}
                 >
                   Remove
-                </button>
+                </Button>
               )}
             </td>
           </tr>
@@ -221,11 +225,13 @@ function ProjectDetail({
   project,
   onOpenTask,
   onOpenApprovals,
+  onOpenPage,
 }: {
   snapshot: OrgSnapshot;
   project: ProjectInfo;
   onOpenTask: (taskId: string) => void;
   onOpenApprovals: () => void;
+  onOpenPage?: Go | undefined;
 }) {
   const t = titlesOf(snapshot);
   const { work, error, apply } = useProjectWork(project.id);
@@ -245,6 +251,16 @@ function ProjectDetail({
           <h2>{project.name}</h2>
           {project.description && <p className="muted">{project.description}</p>}
         </div>
+        {onOpenPage && (
+          <Button
+            size="sm"
+            variant="quiet"
+            icon="chevronRight"
+            onClick={() => onOpenPage({ view: "project", id: project.id })}
+          >
+            Open the project's page
+          </Button>
+        )}
       </header>
       <dl className="kv" aria-label="About the project">
         <dt>Department</dt>
@@ -292,9 +308,7 @@ function ProjectDetail({
                 onClick={() => setSelected(o.rootTaskId)}
               >
                 <span>{firstLine(o.objective) || "(no objective)"}</span>
-                <span className={`badge badge--task-${o.state}`}>
-                  {WORKER_STATE_LABEL[o.state]}
-                </span>
+                <StatusPill status={TASK_TONE[o.state]} label={WORKER_STATE_LABEL[o.state]} />
                 <span className="execution__meta">
                   {o.positionTitle ? `${o.positionTitle} · ` : ""}
                   {ago(o.createdAt)} · {plural(o.tasks, "task")}
@@ -317,11 +331,25 @@ function ProjectDetail({
         </p>
       )}
       {report && report.rootTaskId === shown && (
-        <ObjectiveResult
-          report={report}
-          onOpenTask={onOpenTask}
-          onOpenApprovals={onOpenApprovals}
-        />
+        <>
+          {onOpenPage && (
+            <div className="actions">
+              <Button
+                size="sm"
+                variant="quiet"
+                icon="chevronRight"
+                onClick={() => onOpenPage({ view: "task", id: report.rootTaskId })}
+              >
+                Open the objective's page
+              </Button>
+            </div>
+          )}
+          <ObjectiveResult
+            report={report}
+            onOpenTask={onOpenTask}
+            onOpenApprovals={onOpenApprovals}
+          />
+        </>
       )}
 
       <h3>Working copies</h3>
@@ -370,11 +398,14 @@ function ProjectDetail({
 export function ProjectsView({
   onOpenTask,
   onOpenApprovals,
+  onOpenPage,
   focusId = null,
   onFocusHandled,
 }: {
   onOpenTask: (taskId: string) => void;
   onOpenApprovals: () => void;
+  /** Opens a project's or a task's page (Phase 12). */
+  onOpenPage?: Go | undefined;
   /** A project to open (chosen in the top bar's "Showing" picker). */
   focusId?: string | null;
   onFocusHandled?: () => void;
@@ -409,9 +440,9 @@ export function ProjectsView({
           </p>
         </div>
         {snapshot && (
-          <button type="button" className="button" onClick={() => setSettingUp(true)}>
+          <Button variant="primary" onClick={() => setSettingUp(true)}>
             Set up a Development project
-          </button>
+          </Button>
         )}
       </div>
 
@@ -454,7 +485,12 @@ export function ProjectsView({
                       onClick={() => setSelected(p.id)}
                     >
                       <span>{p.name}</span>
-                      {lead && <span className="pill">{STATUS_LABEL[lead.status]}</span>}
+                      {lead && (
+                        <StatusPill
+                          status={POSITION_STATUS[lead.status]}
+                          label={STATUS_LABEL[lead.status]}
+                        />
+                      )}
                       <span className="execution__meta">
                         {department?.name ?? "No department"}
                         {lead ? ` · ${lead.title}` : ""}
@@ -471,6 +507,7 @@ export function ProjectsView({
             project={project}
             onOpenTask={onOpenTask}
             onOpenApprovals={onOpenApprovals}
+            onOpenPage={onOpenPage}
           />
         </div>
       )}

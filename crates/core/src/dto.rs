@@ -51,6 +51,19 @@ impl AppInfo {
     }
 }
 
+/// A folder or file where Plenipo keeps something on this computer (Settings → Local paths).
+/// Shown to the owner, never opened or changed from the screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LocalPath {
+    /// What it holds, in plain words ("Everything that happened").
+    pub label: String,
+    pub path: String,
+    /// `false`: Plenipo is using a temporary place for it this session (nothing is kept).
+    pub kept: bool,
+}
+
 /// Category of a command failure. Stable, machine-readable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

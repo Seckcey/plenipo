@@ -23,6 +23,8 @@ import {
   nav,
   screenshot as save,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -222,8 +224,8 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
 
   it("Settings → Servers: add a production server, check and pin its server ID, and test it", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "Servers");
     await waitUntil(() => exists(browser, "#servers-title"), "the Servers section");
     await waitForText(browser, ".servers", "Production servers are marked in red.");
     // Remote computers (SSH) start switched off (Settings → Switches), and the section says so.
@@ -271,7 +273,8 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
       document.querySelector("#servers-title")?.scrollIntoView({ block: "start" }),
     );
     await screenshot(browser, "servers-settings");
-    // Turn remote computers on for workers.
+    // Turn remote computers on for workers (Settings → Switches).
+    await openSettings(browser, "Switches");
     const sshSwitch = 'button[role="switch"][aria-label="Remote computers (SSH)"]';
     assert.equal(await (await browser.$(sshSwitch)).getAttribute("aria-checked"), "false");
     await (await browser.$(sshSwitch)).click();
@@ -279,14 +282,15 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
       async () => (await (await browser.$(sshSwitch)).getAttribute("aria-checked")) === "true",
       "the Remote computers (SSH) switch to turn on",
     );
-    await waitUntil(
-      async () => !(await textOf(browser, ".servers")).includes("are switched off"),
-      "the switched-off notice to go",
-    );
     await browser.execute(() =>
       document.querySelector("#switches-features")?.scrollIntoView({ block: "start" }),
     );
     await screenshot(browser, "server-switch");
+    await openSettings(browser, "Servers");
+    await waitUntil(
+      async () => !(await textOf(browser, ".servers")).includes("are switched off"),
+      "the switched-off notice to go",
+    );
   });
 
   it("builds an Operations team with an Operations Engineer", async () => {
@@ -331,6 +335,16 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
     await waitForText(browser, CONTROL, "PRODUCTION");
     await waitForText(browser, ".shell__footer", "Operations Engineer is connected to Shop");
     await screenshot(browser, "server-sign");
+    // The terminal panel opened a watch tab for the worker's server work (Phase 12, ADR-031):
+    // each command Guard let through and its output, read-only, with the password hidden.
+    const watch = 'section[aria-label="Terminal"]';
+    await waitForText(browser, `${watch} [role="tablist"]`, "Operations Engineer · Shop", 30_000);
+    await waitForText(browser, watch, "$ uptime");
+    await waitForText(browser, watch, "load average");
+    await waitForText(browser, watch, "[hidden by Plenipo: secret setting]");
+    assert.ok(!(await textOf(browser, watch)).includes(PASSWORD), "the password is hidden");
+    assert.ok(!(await exists(browser, `${watch} .xterm-helper-textarea`)), "no place to type");
+    await screenshot(browser, "terminal-watch");
     await clickButton(browser, "Disconnect");
     await waitForText(
       browser,
@@ -378,7 +392,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
     // Another computer answers at the same address.
     sshd = await startSshd(9, port);
     await delegate(browser, "Check the shop server again", [onShop("uptime")]);
-    await nav(browser, "Settings");
+    await openSettings(browser, "Servers");
     await waitUntil(() => exists(browser, SHOP_CARD), "the Shop server");
     await waitForText(browser, SHOP_CARD, "This server's ID changed", 60_000);
     await waitForText(browser, SHOP_CARD, sshd.fingerprint);

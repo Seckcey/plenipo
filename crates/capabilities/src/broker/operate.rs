@@ -901,9 +901,16 @@ impl Broker {
                         cap(&purpose, 120)
                     ),
                     format!("{}\npurpose: {purpose}", cap(&text, 500)),
-                    ControlWork::ScreenType { text },
+                    ControlWork::ScreenType { text: text.clone() },
                 );
-                p.inherent_owned = classify::purpose(&purpose);
+                p.inherent_owned = if text.contains(['\n', '\r']) {
+                    Some((
+                        SensitiveKind::Outbound,
+                        "a new line presses Enter, which can send or submit something".into(),
+                    ))
+                } else {
+                    classify::purpose(&purpose)
+                };
                 p
             }
             Action::ScreenKeys { keys, purpose } => {
@@ -918,7 +925,11 @@ impl Broker {
                         keys: parts.clone(),
                     },
                 );
-                p.inherent_owned = if parts.contains(&KeyPart::Enter) {
+                // Ctrl+M and Ctrl+J are Enter in a terminal.
+                let enter = parts.contains(&KeyPart::Enter)
+                    || (parts.contains(&KeyPart::Ctrl)
+                        && matches!(parts.last(), Some(KeyPart::Char('m' | 'j'))));
+                p.inherent_owned = if enter {
                     Some((
                         SensitiveKind::Outbound,
                         "pressing Enter can send or submit something".into(),
@@ -2140,6 +2151,10 @@ impl Broker {
     /// wait for is refused. Guard refuses their later calls; unlike the emergency stop, nothing
     /// else changes.
     pub async fn switch_off_control(&self, kind: ControlKind) -> Result<ControlStatus> {
+        if kind == ControlKind::Server {
+            // The owner's server terminals work only while the switch is on (ADR-031).
+            self.close_server_terminals("you switched Remote computers (SSH) off");
+        }
         let stopped = self.inner.control.stop_kind(kind);
         for s in &stopped {
             let pending: Vec<String> = self

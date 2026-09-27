@@ -2,7 +2,8 @@
 //! test. Never shipped.
 //!
 //! `plenipo-test-sshd [--port N] [--seed N] [--user NAME] [--password TEXT] [--file PATH=TEXT]
-//! [--authorized PUBLIC_KEY_FILE]`
+//! [--authorized PUBLIC_KEY_FILE] [--shell on]` (`--shell on`: give the owner's terminal a small
+//! shell; workers never ask for one)
 //! prints `{"port":…,"fingerprint":"SHA256:…","algorithm":"ssh-ed25519"}` on one line, then serves
 //! on 127.0.0.1 until it is stopped.
 
@@ -27,6 +28,7 @@ async fn main() {
                         .expect("an OpenSSH public key"),
                 );
             }
+            "--shell" => options.shell = value == "on",
             "--file" => {
                 let (path, text) = value.split_once('=').expect("--file PATH=TEXT");
                 options.files.insert(path.into(), format!("{text}\n"));

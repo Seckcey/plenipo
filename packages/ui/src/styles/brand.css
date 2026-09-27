@@ -1,0 +1,50 @@
+/* Plenipo's brand: the P, the logo, and Pip (the owner's kit, docs/brand/pip-brand-kit). */
+
+.ui-brand-mark,
+.ui-logo {
+  display: block;
+  flex: none;
+}
+
+.ui-brand__rail--primary {
+  stroke: var(--ui-brand-primary);
+}
+
+.ui-brand__rail--middle {
+  stroke: var(--ui-brand-middle);
+}
+
+.ui-brand__rail--inner {
+  stroke: var(--ui-brand-inner);
+}
+
+.ui-brand__ink {
+  fill: var(--ui-brand-ink);
+}
+
+.ui-brand__o {
+  fill: var(--ui-brand-primary);
+}
+
+.ui-pip {
+  display: block;
+  flex: none;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ui-pip--sm {
+  width: var(--ui-pip-sm);
+  height: var(--ui-pip-sm);
+}
+
+.ui-pip--md {
+  width: var(--ui-pip-md);
+  height: var(--ui-pip-md);
+}
+
+.ui-pip--lg {
+  width: var(--ui-pip-lg);
+  height: var(--ui-pip-lg);
+}

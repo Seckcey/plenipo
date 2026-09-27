@@ -92,6 +92,9 @@ pub(super) struct SshUse {
     shown: Mutex<BTreeMap<String, (String, Environment)>>,
     /// Becomes `Some(why)` when the step's commands must stop.
     stop: watch::Sender<Option<String>>,
+    /// Each command running now (by its ID), and how to stop just that one: the owner's Stop in
+    /// its watch tab (Phase 12, ADR-031).
+    commands: Mutex<HashMap<String, watch::Sender<Option<String>>>>,
     forwards: Mutex<Vec<(String, String, Forward)>>,
     running: AtomicUsize,
 }
@@ -102,6 +105,7 @@ impl Default for SshUse {
             connections: tokio::sync::Mutex::new(HashMap::new()),
             shown: Mutex::new(BTreeMap::new()),
             stop: watch::channel(None).0,
+            commands: Mutex::new(HashMap::new()),
             forwards: Mutex::new(Vec::new()),
             running: AtomicUsize::new(0),
         }
@@ -301,7 +305,13 @@ impl Broker {
             .map(|g| Arc::clone(&g.ssh))
     }
 
-    fn event(&self, task_id: Option<&str>, source: &str, event_type: &str, payload: Value) {
+    pub(super) fn event(
+        &self,
+        task_id: Option<&str>,
+        source: &str,
+        event_type: &str,
+        payload: Value,
+    ) {
         let _ = self.ledger().append_event(NewEvent {
             task_id: task_id.map(str::to_owned),
             source: source.into(),
@@ -566,7 +576,7 @@ impl Broker {
     }
 
     /// The sign-in for `server`, from the Vault.
-    fn credential(&self, server: &Server) -> std::result::Result<Credential, String> {
+    pub(super) fn credential(&self, server: &Server) -> std::result::Result<Credential, String> {
         let store = self.inner.store.as_ref();
         let read = |id: String| {
             vault::read(store, &id).map_err(|e| format!("{} could not be read: {e}", store.label()))
@@ -846,15 +856,36 @@ impl Broker {
             let log = Arc::clone(&log);
             move |stream: Stream, bytes: &[u8]| lock(&log).add(stream, bytes)
         };
+        // This command stops when the owner presses Stop in its watch tab, or when the whole
+        // step's server work stops.
+        let (stop_this, stopped) = watch::channel(None::<String>);
+        lock(&use_.commands).insert(command_id.clone(), stop_this.clone());
+        let relay = {
+            let mut step = use_.stop.subscribe();
+            tokio::spawn(async move {
+                let why = loop {
+                    if let Some(why) = step.borrow_and_update().clone() {
+                        break why;
+                    }
+                    if step.changed().await.is_err() {
+                        break "its worker's step ended".to_owned();
+                    }
+                };
+                stop_this.send_if_modified(|v| {
+                    if v.is_none() {
+                        *v = Some(why);
+                        true
+                    } else {
+                        false
+                    }
+                });
+            })
+        };
         let (ending, elapsed) = connection
-            .run(
-                &line,
-                sink,
-                use_.stop.subscribe(),
-                timeout,
-                &self.inner.config.ssh,
-            )
+            .run(&line, sink, stopped, timeout, &self.inner.config.ssh)
             .await;
+        relay.abort();
+        lock(&use_.commands).remove(&command_id);
         use_.running.fetch_sub(1, Ordering::SeqCst);
         ticker.abort();
         let text = {
@@ -1063,6 +1094,42 @@ impl Broker {
             )),
             facts: Value::Null,
         }
+    }
+
+    /// The owner's Stop in a worker's watch tab (Phase 12, ADR-031): the command running now is
+    /// sent TERM, then KILL (as when its step stops). The worker's step goes on; the worker is
+    /// told it was stopped and not to run it again unless the owner asks.
+    pub fn stop_server_command(&self, command_id: &str) -> Result<()> {
+        let found = {
+            let s = self.state();
+            s.grants.values().find_map(|g| {
+                lock(&g.ssh.commands)
+                    .get(command_id)
+                    .cloned()
+                    .map(|tx| (tx, g.task_id.clone(), g.worker.clone(), g.id.clone()))
+            })
+        };
+        let Some((tx, task_id, worker, grant_id)) = found else {
+            return Err(BrokerError::Invalid(
+                "that command is not running any more".into(),
+            ));
+        };
+        let why = "you pressed Stop".to_owned();
+        tx.send_if_modified(|v| {
+            if v.is_none() {
+                *v = Some(why.clone());
+                true
+            } else {
+                false
+            }
+        });
+        self.event(
+            Some(&task_id),
+            "owner",
+            "ssh.command_stop_requested",
+            json!({ "commandId": command_id, "grantId": grant_id, "worker": worker }),
+        );
+        Ok(())
     }
 
     /// Stop a step's server work: its running commands are sent TERM, then KILL; then its

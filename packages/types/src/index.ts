@@ -208,3 +208,22 @@ export type { ServerView } from "./generated/ServerView";
 export type { ServersSnapshot } from "./generated/ServersSnapshot";
 export type { SignIn } from "./generated/SignIn";
 export type { StoredSignIn } from "./generated/StoredSignIn";
+
+// The owner's terminal (Phase 12, ADR-031)
+export type { ShellOption } from "./generated/ShellOption";
+export type { TerminalEvent } from "./generated/TerminalEvent";
+export type { TerminalInfo } from "./generated/TerminalInfo";
+export type { TerminalPlace } from "./generated/TerminalPlace";
+export type { TerminalSettings } from "./generated/TerminalSettings";
+export type { TerminalShell } from "./generated/TerminalShell";
+
+// The pages (Phase 12)
+export type { ArtifactView } from "./generated/ArtifactView";
+export type { HomeView } from "./generated/HomeView";
+export type { StuckItem } from "./generated/StuckItem";
+export type { LocalPath } from "./generated/LocalPath";
+export type { NoticeKind } from "./generated/NoticeKind";
+export type { NoticeSettings } from "./generated/NoticeSettings";
+export type { PullRequestRef } from "./generated/PullRequestRef";
+export type { TaskRecord } from "./generated/TaskRecord";
+export type { WorkRecord } from "./generated/WorkRecord";

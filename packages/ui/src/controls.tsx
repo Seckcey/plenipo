@@ -288,29 +288,57 @@ export function Segmented<T extends string>({
 }
 
 /** Tabs with arrow-key movement between them (WAI-ARIA tabs pattern). */
+/** One tab. With `onClose`, a close button sits beside it (and Delete on the tab closes it). */
+export interface TabItem<T extends string> {
+  value: T;
+  label: ReactNode;
+  badge?: ReactNode;
+  onClose?: (() => void) | undefined;
+  /** The close button's name, e.g. "Close the terminal on Shop". */
+  closeLabel?: string | undefined;
+}
+
 export function Tabs<T extends string>({
   label,
   value,
   tabs,
   onChange,
   idPrefix,
+  orientation = "horizontal",
+  className,
 }: {
   label: string;
   value: T;
-  tabs: readonly { value: T; label: ReactNode; badge?: ReactNode }[];
+  tabs: readonly TabItem<T>[];
   onChange: (next: T) => void;
-  /** Tab `i` gets id `${idPrefix}-tab-${value}` and controls `${idPrefix}-panel-${value}`. */
-  idPrefix?: string;
+  /**
+   * Tab `i` gets id `${idPrefix}-tab-${value}`; the selected tab controls
+   * `${idPrefix}-panel-${value}` (the panel on screen, which a page may render alone).
+   */
+  idPrefix?: string | undefined;
+  /** Vertical: a list of sections (arrow keys up and down). */
+  orientation?: "horizontal" | "vertical";
+  className?: string | undefined;
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [back, forward] =
+    orientation === "vertical" ? ["ArrowUp", "ArrowDown"] : ["ArrowLeft", "ArrowRight"];
   const move = (e: KeyboardEvent, index: number) => {
     const last = tabs.length - 1;
+    const tab = tabs[index];
+    if (e.key === "Delete" && tab?.onClose) {
+      e.preventDefault();
+      // Focus stays in the list: on the tab after it, or the one before the last.
+      refs.current[index === last ? index - 1 : index + 1]?.focus();
+      tab.onClose();
+      return;
+    }
     const next =
-      e.key === "ArrowRight"
+      e.key === forward
         ? index === last
           ? 0
           : index + 1
-        : e.key === "ArrowLeft"
+        : e.key === back
           ? index === 0
             ? last
             : index - 1
@@ -321,32 +349,61 @@ export function Tabs<T extends string>({
               : null;
     if (next === null) return;
     e.preventDefault();
-    const tab = tabs[next];
-    if (tab) onChange(tab.value);
+    const to = tabs[next];
+    if (to) onChange(to.value);
     refs.current[next]?.focus();
   };
   return (
-    <div className="ui-tabs" role="tablist" aria-label={label}>
-      {tabs.map((t, i) => (
-        <button
-          key={t.value}
-          ref={(el) => {
-            refs.current[i] = el;
-          }}
-          type="button"
-          role="tab"
-          id={idPrefix ? `${idPrefix}-tab-${t.value}` : undefined}
-          aria-controls={idPrefix ? `${idPrefix}-panel-${t.value}` : undefined}
-          aria-selected={value === t.value}
-          tabIndex={value === t.value ? 0 : -1}
-          className="ui-tabs__tab"
-          onClick={() => onChange(t.value)}
-          onKeyDown={(e) => move(e, i)}
-        >
-          {t.label}
-          {t.badge}
-        </button>
-      ))}
+    <div
+      className={cx("ui-tabs", orientation === "vertical" && "ui-tabs--vertical", className)}
+      role="tablist"
+      aria-label={label}
+      aria-orientation={orientation}
+    >
+      {tabs.map((t, i) => {
+        const selected = value === t.value;
+        const tab = (
+          <button
+            key={t.value}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={idPrefix ? `${idPrefix}-tab-${t.value}` : undefined}
+            aria-controls={idPrefix && selected ? `${idPrefix}-panel-${t.value}` : undefined}
+            aria-selected={selected}
+            aria-keyshortcuts={t.onClose ? "Delete" : undefined}
+            tabIndex={selected ? 0 : -1}
+            className="ui-tabs__tab"
+            onClick={() => onChange(t.value)}
+            onKeyDown={(e) => move(e, i)}
+          >
+            {t.label}
+            {t.badge}
+          </button>
+        );
+        if (!t.onClose) return tab;
+        return (
+          <div key={t.value} className="ui-tabs__item" role="presentation">
+            {tab}
+            <button
+              type="button"
+              className="ui-tabs__close"
+              aria-label={t.closeLabel ?? "Close"}
+              title={t.closeLabel ?? "Close"}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => {
+                // As with Delete: the focus stays in the list, on a neighbouring tab.
+                refs.current[i === tabs.length - 1 ? i - 1 : i + 1]?.focus();
+                t.onClose?.();
+              }}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
