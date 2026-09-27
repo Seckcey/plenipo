@@ -147,6 +147,44 @@
       "backgroundImage": "none"
     }
   },
+  "tag": {
+    ".ui-tag": {
+      "color": [
+        169,
+        178,
+        193,
+        1
+      ],
+      "backgroundColor": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "borderTopColor": [
+        38,
+        43,
+        52,
+        1
+      ],
+      "borderLeftColor": [
+        38,
+        43,
+        52,
+        1
+      ],
+      "borderTopWidth": "1px",
+      "borderLeftWidth": "1px",
+      "borderTopLeftRadius": "999px",
+      "fontSize": "11px",
+      "fontWeight": "600",
+      "paddingTop": "0px",
+      "paddingLeft": "8px",
+      "opacity": "1",
+      "stroke": "none",
+      "backgroundImage": "none"
+    }
+  },
   "count-badge": {
     ".ui-badge": {
       "color": [
