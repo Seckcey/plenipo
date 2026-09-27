@@ -14,7 +14,8 @@ use plenipo_guard::engine::{doing, Request, Scope};
 use plenipo_guard::redact::Redactor;
 use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
-    Level, PathRefusal, Resolved, Risk, SensitiveKind, SiteCheck, Verdict, Workspace,
+    Level, PathRefusal, Resolved, Risk, SensitiveKind, ServerCheck, ServerUse, SiteCheck, Verdict,
+    Workspace,
 };
 use plenipo_ledger::{
     Approval, ApprovalState, Ledger, NewEvent, NewWorkspace, Workspace as WorkingCopy,
@@ -43,8 +44,10 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod operate;
+mod servers;
 
 use operate::{CallContext, ControlWork, DesktopUse};
+use servers::{Caller, ServerPrep, SshUse, SshWork};
 
 /// Source of Guard's own events.
 const GUARD: &str = "guard";
@@ -74,6 +77,8 @@ pub struct BrokerConfig {
     pub browser: BrowserConfig,
     /// Where screenshots are kept as evidence (Phase 10).
     pub screenshots_dir: PathBuf,
+    /// Time limits for SSH connections to the owner's servers (Phase 11).
+    pub ssh: crate::ssh::Limits,
 }
 
 impl BrokerConfig {
@@ -89,6 +94,7 @@ impl BrokerConfig {
             call_timeout: Duration::from_secs(60 * 60),
             command_timeout: Duration::from_secs(10 * 60),
             approval_minute: Duration::from_secs(60),
+            ssh: crate::ssh::Limits::default(),
         }
     }
 }
@@ -157,6 +163,8 @@ struct Grant {
     approved_sites: HashSet<String>,
     /// Its use of the screen, mouse, and keyboard.
     desktop: DesktopUse,
+    /// Its use of the owner's servers (Phase 11).
+    ssh: Arc<SshUse>,
 }
 
 impl Grant {
@@ -266,6 +274,11 @@ struct Prepared {
     site: Option<plenipo_guard::Site>,
     /// A screenshot for the approval card (Phase 10).
     screenshot: Option<String>,
+    /// The server it uses, for Guard (Phase 11).
+    server: Option<ServerPrep>,
+    /// It only reads Plenipo's own settings or gives something up (listing servers,
+    /// disconnecting): never asks, though the permission must not be blocked.
+    harmless: bool,
     work: Work,
 }
 
@@ -291,6 +304,8 @@ enum Work {
     },
     /// Plenipo's browser or the screen (Phase 10).
     Control(ControlWork),
+    /// One of the owner's servers (Phase 11).
+    Ssh(SshWork),
     /// Push the objective's branch, then open a draft pull request for it (Phase 8).
     PullRequest {
         git: PathBuf,
@@ -477,13 +492,12 @@ impl Broker {
         let known: Vec<(String, String)> = secrets
             .iter()
             .filter_map(|s| {
-                self.inner
-                    .store
-                    .get(&s.id)
+                vault::read(self.inner.store.as_ref(), &s.id)
                     .ok()
                     .flatten()
                     .map(|v| (v, s.name.clone()))
             })
+            .chain(self.server_secrets())
             .collect();
         *self
             .inner
@@ -699,6 +713,7 @@ impl Broker {
             tab: None,
             approved_sites: HashSet::new(),
             desktop: DesktopUse::default(),
+            ssh: Arc::default(),
         };
         {
             let mut s = self.state();
@@ -958,6 +973,13 @@ impl Broker {
             g
         };
         let Some(mut grant) = removed else { return };
+        self.close_servers(
+            Arc::clone(&grant.ssh),
+            grant.id.clone(),
+            grant.task_id.clone(),
+            grant.worker.clone(),
+            "the worker's step ended".into(),
+        );
         self.end_control(
             &grant.id,
             &grant.task_id,
@@ -1161,8 +1183,10 @@ impl Broker {
             }
         };
         let control = tools::is_control(tool);
-        // The owner stopped control, or took it over (Phase 10).
-        if let Some(why) = control
+        let server_tool = tools::is_server(tool);
+        // The owner stopped control, or took it over (Phase 10), or disconnected the worker from
+        // its servers (Phase 11).
+        if let Some(why) = (control || server_tool)
             .then(|| self.control_refusal(grant_id, tool))
             .flatten()
         {
@@ -1187,6 +1211,8 @@ impl Broker {
         };
         let prepared = if control {
             self.prepare_control(grant_id, tool, action, &worker).await
+        } else if server_tool {
+            self.prepare_server(tool, action, &config)
         } else {
             prepare(tool, action, &at, self.inner.config.command_timeout)
         };
@@ -1232,9 +1258,21 @@ impl Broker {
                 site,
                 approved: site_approved,
             }),
-            server: None,
+            server: prepared.server.as_ref().map(|p| ServerCheck {
+                server: &p.server,
+                role_id: &scope.role_id,
+                role_name: &scope.role_name,
+                what: match (&p.classified, &p.forward) {
+                    (Some(classified), _) => ServerUse::Run {
+                        classified,
+                        cwd: p.cwd.as_deref(),
+                    },
+                    (None, Some(to)) => ServerUse::Forward { to },
+                    (None, None) => ServerUse::Connect,
+                },
+            }),
         };
-        let decision = evaluate(
+        let mut decision = evaluate(
             &config,
             &request,
             &current,
@@ -1243,6 +1281,11 @@ impl Broker {
                 revoked,
             },
         );
+        // Listing servers and disconnecting never ask (Phase 11).
+        if prepared.harmless && decision.verdict == Verdict::Ask {
+            decision.verdict = Verdict::Allow;
+            decision.reason = "Allowed: it only lists the servers or disconnects.".into();
+        }
         let detail = self.redact(&prepared.detail);
         let mut approval_id = None;
         match decision.verdict {
@@ -1317,7 +1360,20 @@ impl Broker {
         let approved = approval_id.is_some();
         let mut images = Vec::new();
         let mut evidence = (None, None);
+        let mut server_facts = Value::Null;
         let (outcome, execution) = match prepared.work {
+            Work::Ssh(work) => {
+                let who = Caller {
+                    grant_id,
+                    task_id: &task_id,
+                    worker: &worker,
+                    role_id: &scope.role_id,
+                    role_name: &scope.role_name,
+                };
+                let done = self.carry_out_ssh(&who, work).await;
+                server_facts = done.facts;
+                (done.result, None)
+            }
             Work::Control(work) => {
                 let ctx = CallContext {
                     grant_id,
@@ -1377,6 +1433,7 @@ impl Broker {
                 "pullRequest": pull_request,
                 "screenshot": evidence.0,
                 "url": evidence.1,
+                "server": server_facts,
             }),
             ..NewEvent::default()
         });
@@ -1465,6 +1522,9 @@ impl Broker {
             "sessionId": self.state().grants.get(grant_id).map(|g| g.session_id.clone()),
             "url": prepared.site.as_ref().map(|s| s.url.clone()),
             "screenshot": prepared.screenshot,
+            "server": prepared.server.as_ref().map(|p| p.server.name.clone()),
+            "environment": prepared.server.as_ref().map(|p| p.server.environment),
+            "address": prepared.server.as_ref().map(|p| p.server.address()),
         });
         let (tx, rx) = oneshot::channel();
         let approval = self
@@ -1623,8 +1683,8 @@ impl Broker {
             ),
             Work::Delete(p) => (blocking(Box::new(move || files::delete(&p))).await, None),
             Work::Missing(why) => (Err(why), None),
-            Work::Control(_) => (
-                Err("browser and screen work is carried out elsewhere".into()),
+            Work::Control(_) | Work::Ssh(_) => (
+                Err("browser, screen, and server work is carried out elsewhere".into()),
                 None,
             ),
             Work::Program {
@@ -1729,7 +1789,9 @@ impl Broker {
                 .iter()
                 .filter(|s| s.programs.contains(&program))
             {
-                if let (Some(var), Ok(Some(value))) = (&s.env_var, self.inner.store.get(&s.id)) {
+                if let (Some(var), Ok(Some(value))) =
+                    (&s.env_var, vault::read(self.inner.store.as_ref(), &s.id))
+                {
                     env.push((var.clone(), value));
                     secrets_used.push(s.name.clone());
                 }
@@ -1842,6 +1904,9 @@ impl Broker {
             note: None,
             url: s("url"),
             screenshot: s("screenshot"),
+            server: s("server"),
+            environment: serde_json::from_value(p["environment"].clone()).ok(),
+            address: s("address"),
         }
     }
 
@@ -1913,7 +1978,7 @@ impl Broker {
                 .map(|c| c.secrets)
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|s| store.get(&s.id).ok().flatten().is_some())
+                .filter(|s| vault::read(store.as_ref(), &s.id).ok().flatten().is_some())
                 .map(|s| s.id)
                 .collect(),
             Err(_) => Vec::new(),
@@ -2011,7 +2076,7 @@ impl ToolProvider for Broker {
         };
         Some(format!(
             "You have no Plenipo tools in this task ({why}), so you cannot open or change files, \
-             run programs, use git, or use websites here. Work from what you are given; if your \
+             run programs, use git, or use websites or servers here. Work from what you are given; if your \
              job needs more, say so in your answer and your lead or the owner can arrange it."
         ))
     }
@@ -2040,7 +2105,8 @@ fn note_for(
         .any(|c| c.needs_folder() && c.has_tools() && permitted(*c));
     lines.push(format!(
         "You can use Plenipo's tools (the \"plenipo\" tools) for {project}. They are the only way \
-         to open or change its files, run programs, use git, or use websites and the screen; your \
+         to open or change its files, run programs, use git, or use websites, the screen, and \
+         servers; your \
          AI tool's own tools are not available for this."
     ));
     match (workspace, place) {
@@ -2135,6 +2201,9 @@ fn note_for(
              it back by moving the mouse."
                 .into(),
         );
+    }
+    if permitted(Capability::SshConnect) {
+        lines.push(servers::server_note().into());
     }
     lines.push(
         "Every use is checked and recorded. If a tool says an action was blocked or not \
@@ -2233,6 +2302,8 @@ fn prepare(
             inherent_owned: None,
             site: None,
             screenshot: None,
+            server: None,
+            harmless: false,
             work,
         }
     };

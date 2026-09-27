@@ -13,6 +13,12 @@ use crate::error::{BrokerError, Result};
 
 /// Longest secret value accepted.
 pub const MAX_SECRET_CHARS: usize = 10_000;
+/// Longest piece kept in one entry. Windows Credential Manager holds at most 2,560 bytes per
+/// entry, stored as UTF-16 (1,280 characters), so a longer value — such as an RSA private key —
+/// is kept in pieces (Phase 11).
+pub const PIECE_CHARS: usize = 1_000;
+/// What the first entry of a value kept in pieces holds, before the number of pieces.
+const PIECES: &str = "plenipo-pieces/v1:";
 
 /// Where secret values are kept.
 pub trait SecretStore: Send + Sync + 'static {
@@ -88,6 +94,9 @@ pub struct MemorySecretStore {
     values: Mutex<HashMap<String, String>>,
     /// When set, every operation fails with this (to test an unavailable store).
     pub broken: Option<String>,
+    /// When set, longer values are refused, as Windows Credential Manager refuses more than
+    /// 1,280 characters.
+    pub limit: Option<usize>,
 }
 
 impl MemorySecretStore {
@@ -111,6 +120,9 @@ impl SecretStore for MemorySecretStore {
     }
 
     fn set(&self, id: &str, value: &str) -> std::result::Result<(), String> {
+        if self.limit.is_some_and(|l| value.chars().count() > l) {
+            return Err("the value is too long for one entry".into());
+        }
         self.map()?.insert(id.to_owned(), value.to_owned());
         Ok(())
     }
@@ -125,6 +137,74 @@ impl SecretStore for MemorySecretStore {
     }
 }
 
+fn piece_id(id: &str, n: usize) -> String {
+    format!("{id}.piece{n}")
+}
+
+/// Keep `value` under `id`: in one entry, or in pieces when it is longer than [`PIECE_CHARS`].
+/// Pieces from an earlier, longer value are removed.
+pub fn put(store: &dyn SecretStore, id: &str, value: &str) -> std::result::Result<(), String> {
+    let chars: Vec<char> = value.chars().collect();
+    let earlier = pieces_of(store, id)?;
+    if chars.len() <= PIECE_CHARS {
+        store.set(id, value)?;
+    } else {
+        let pieces: Vec<String> = chars
+            .chunks(PIECE_CHARS)
+            .map(|c| c.iter().collect())
+            .collect();
+        for (n, piece) in pieces.iter().enumerate() {
+            store.set(&piece_id(id, n + 1), piece)?;
+        }
+        store.set(id, &format!("{PIECES}{}", pieces.len()))?;
+        for n in pieces.len() + 1..=earlier {
+            store.delete(&piece_id(id, n))?;
+        }
+        return Ok(());
+    }
+    for n in 1..=earlier {
+        store.delete(&piece_id(id, n))?;
+    }
+    Ok(())
+}
+
+/// How many pieces the value under `id` is kept in (0: one entry, or none).
+fn pieces_of(store: &dyn SecretStore, id: &str) -> std::result::Result<usize, String> {
+    Ok(store
+        .get(id)?
+        .and_then(|v| v.strip_prefix(PIECES).and_then(|n| n.parse().ok()))
+        .unwrap_or(0))
+}
+
+/// The value kept under `id` (joined again if it is kept in pieces).
+pub fn read(store: &dyn SecretStore, id: &str) -> std::result::Result<Option<String>, String> {
+    let Some(first) = store.get(id)? else {
+        return Ok(None);
+    };
+    let Some(n) = first
+        .strip_prefix(PIECES)
+        .and_then(|n| n.parse::<usize>().ok())
+    else {
+        return Ok(Some(first));
+    };
+    let mut value = String::new();
+    for i in 1..=n {
+        match store.get(&piece_id(id, i))? {
+            Some(piece) => value.push_str(&piece),
+            None => return Err(format!("part {i} of {n} of the stored value is missing")),
+        }
+    }
+    Ok(Some(value))
+}
+
+/// Remove the value kept under `id`, with its pieces.
+pub fn erase(store: &dyn SecretStore, id: &str) -> std::result::Result<(), String> {
+    for n in 1..=pieces_of(store, id)? {
+        store.delete(&piece_id(id, n))?;
+    }
+    store.delete(id)
+}
+
 fn unavailable(label: &str, why: &str) -> BrokerError {
     BrokerError::Invalid(format!(
         "Plenipo could not use {label} to keep the secret: {why}"
@@ -132,7 +212,11 @@ fn unavailable(label: &str, why: &str) -> BrokerError {
 }
 
 fn check_value(value: &str) -> Result<()> {
-    if value.is_empty() || value.chars().count() > MAX_SECRET_CHARS || value.contains('\0') {
+    if value.is_empty()
+        || value.chars().count() > MAX_SECRET_CHARS
+        || value.contains('\0')
+        || value.starts_with(PIECES)
+    {
         return Err(BrokerError::Invalid(format!(
             "a secret's value must be 1–{MAX_SECRET_CHARS} characters"
         )));
@@ -157,15 +241,13 @@ pub fn save(guard: &Guard, store: &dyn SecretStore, input: &SecretInput) -> Resu
     match &input.id {
         Some(id) => {
             if let Some(v) = value {
-                store
-                    .set(id, v)
-                    .map_err(|e| unavailable(store.label(), &e))?;
+                put(store, id, v).map_err(|e| unavailable(store.label(), &e))?;
             }
             Ok(guard.save_secret(&reference)?)
         }
         None => {
             let info = guard.save_secret(&reference)?;
-            if let Err(e) = store.set(&info.id, value.unwrap_or_default()) {
+            if let Err(e) = put(store, &info.id, value.unwrap_or_default()) {
                 // Keep no reference to a value that was not stored.
                 let _ = guard.remove_secret(&info.id);
                 return Err(unavailable(store.label(), &e));
@@ -177,9 +259,7 @@ pub fn save(guard: &Guard, store: &dyn SecretStore, input: &SecretInput) -> Resu
 
 /// Remove a secret's value and its reference.
 pub fn remove(guard: &Guard, store: &dyn SecretStore, id: &str) -> Result<SecretInfo> {
-    store
-        .delete(id)
-        .map_err(|e| unavailable(store.label(), &e))?;
+    erase(store, id).map_err(|e| unavailable(store.label(), &e))?;
     guard.remove_secret(id).map_err(|e| match e {
         GuardError::Invalid(m) => BrokerError::Invalid(m),
         other => other.into(),
@@ -243,6 +323,47 @@ mod tests {
         remove(&g, &store, &info.id).unwrap();
         assert!(store.get(&info.id).unwrap().is_none());
         assert!(g.config().unwrap().secrets.is_empty());
+    }
+
+    #[test]
+    fn long_values_are_kept_in_pieces() {
+        let store = MemorySecretStore {
+            limit: Some(1_280),
+            ..MemorySecretStore::default()
+        };
+        let long: String = (0..3_400)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect();
+        assert!(store.set("k", &long).is_err(), "too long for one entry");
+        put(&store, "k", &long).unwrap();
+        assert_eq!(read(&store, "k").unwrap().as_deref(), Some(long.as_str()));
+        assert_eq!(pieces_of(&store, "k").unwrap(), 4);
+        // A shorter value replaces it, and the pieces go.
+        put(&store, "k", "short value").unwrap();
+        assert_eq!(read(&store, "k").unwrap().as_deref(), Some("short value"));
+        assert!(store.get("k.piece1").unwrap().is_none());
+        put(&store, "k", &long).unwrap();
+        erase(&store, "k").unwrap();
+        assert!(read(&store, "k").unwrap().is_none());
+        assert!(store.get("k.piece4").unwrap().is_none());
+        // Secrets use it too.
+        let g = guard();
+        let info = save(
+            &g,
+            &store,
+            &SecretInput {
+                name: "Long token".into(),
+                value: Some(long.clone()),
+                ..SecretInput::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read(&store, &info.id).unwrap().as_deref(),
+            Some(long.as_str())
+        );
+        remove(&g, &store, &info.id).unwrap();
+        assert!(store.get(&piece_id(&info.id, 1)).unwrap().is_none());
     }
 
     #[test]

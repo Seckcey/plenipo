@@ -411,6 +411,46 @@ pub const TOOLS: &[ToolDef] = &[
         description: "Give the mouse and keyboard back to the owner when you are done with them.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
+    ToolDef {
+        name: "ssh_servers",
+        capability: Capability::SshConnect,
+        risk: Risk::Read,
+        description: "List the servers you may use over SSH: each one's name, whether it is a development, staging, or production server, the folders commands run in, the kinds of commands it allows, and when the owner is asked.",
+        schema: || json!({ "type": "object", "properties": {} }),
+    },
+    ToolDef {
+        name: "ssh_run",
+        capability: Capability::SshConnect,
+        risk: Risk::Server,
+        description: "Run a program on a server over SSH: the server's name (from ssh_servers), the program, and each argument separately, like \"systemctl\" with [\"status\", \"nginx\"]. No shell: pipes, ;, &&, redirects, and $(…) are passed as plain text to the program. It runs in the server's first allowed folder unless you give another (cwd). The output comes back when it ends; the owner sees it as it arrives. On production servers every command waits for the owner's approval.",
+        schema: || json!({ "type": "object", "properties": {
+            "server": { "type": "string", "description": "The server's name, as ssh_servers lists it" },
+            "program": { "type": "string", "description": "Program name, like systemctl, tail, git, or wp" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "cwd": { "type": "string", "description": "Folder to run in: one of the server's allowed folders, or a folder inside the first one" },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 1800, "description": "Time limit (default 300)" }
+        }, "required": ["server", "program"] }),
+    },
+    ToolDef {
+        name: "ssh_forward",
+        capability: Capability::SshConnect,
+        risk: Risk::Server,
+        description: "Forward a port on this computer to a port the server can reach (such as its database on localhost:5432), only where the server's settings allow it, with your reason. It always waits for the owner's approval, and closes when your step ends.",
+        schema: || json!({ "type": "object", "properties": {
+            "server": { "type": "string" },
+            "to": { "type": "string", "description": "host:port as the server sees it, like localhost:5432" },
+            "reason": { "type": "string", "description": "Why you need it, in one line (the owner sees this)" }
+        }, "required": ["server", "to", "reason"] }),
+    },
+    ToolDef {
+        name: "ssh_disconnect",
+        capability: Capability::SshConnect,
+        risk: Risk::Read,
+        description: "Close your connection to a server (or, with no server, to all of them) when you are done with it.",
+        schema: || json!({ "type": "object", "properties": {
+            "server": { "type": "string" }
+        } }),
+    },
 ];
 
 /// A tool of Plenipo's browser or of the screen (Phase 10).
@@ -422,6 +462,11 @@ pub fn is_control(tool: &ToolDef) -> bool {
             | Capability::ComputerObserve
             | Capability::ComputerControl
     )
+}
+
+/// A tool for the owner's servers (Phase 11).
+pub fn is_server(tool: &ToolDef) -> bool {
+    tool.capability == Capability::SshConnect
 }
 
 pub fn find(name: &str) -> Option<&'static ToolDef> {
@@ -565,6 +610,22 @@ pub enum Action {
         purpose: String,
     },
     ScreenRelease,
+    SshServers,
+    SshRun {
+        server: String,
+        program: String,
+        args: Vec<String>,
+        cwd: Option<String>,
+        timeout: Option<u64>,
+    },
+    SshForward {
+        server: String,
+        to: String,
+        reason: String,
+    },
+    SshDisconnect {
+        server: Option<String>,
+    },
 }
 
 /// Longest pull request title and description.
@@ -672,6 +733,15 @@ fn purpose(args: &Value, key: &str) -> Result<String, String> {
 
 fn coordinate(args: &Value, key: &str) -> Result<Option<u32>, String> {
     number(args, key, 0, 100_000).map(|n| n.map(|n| n as u32))
+}
+
+/// A server's name as a worker gives it.
+fn server_name(args: &Value) -> Result<String, String> {
+    let n = text(args, "server")?.trim();
+    if n.is_empty() || n.chars().count() > 60 || n.chars().any(char::is_control) {
+        return Err("\"server\" is a server's name, as ssh_servers lists it".into());
+    }
+    Ok(n.to_owned())
 }
 
 /// Read a call's arguments.
@@ -963,6 +1033,50 @@ pub fn parse(tool: &ToolDef, args: &Value) -> Result<Action, String> {
             }
         }
         "screen_release_control" => Action::ScreenRelease,
+        "ssh_servers" => Action::SshServers,
+        "ssh_run" => {
+            let program = text(args, "program")?.trim();
+            if program.is_empty()
+                || program.chars().count() > 200
+                || program.chars().any(|c| c.is_control() || c.is_whitespace())
+            {
+                return Err(
+                    "\"program\" must be a program name without spaces; give arguments in \"args\""
+                        .into(),
+                );
+            }
+            let cwd = opt_text(args, "cwd")?;
+            if cwd
+                .as_deref()
+                .is_some_and(|c| c.chars().count() > 300 || c.chars().any(char::is_control))
+            {
+                return Err("\"cwd\" must be one line of at most 300 characters".into());
+            }
+            Action::SshRun {
+                server: server_name(args)?,
+                program: program.to_owned(),
+                args: strings(args, "args", MAX_ARGS)?,
+                cwd,
+                timeout: number(args, "timeoutSeconds", 1, 1800)?,
+            }
+        }
+        "ssh_forward" => {
+            let to = text(args, "to")?.trim();
+            if to.is_empty() || to.len() > 260 || to.chars().any(char::is_control) {
+                return Err("\"to\" is host:port, like localhost:5432".into());
+            }
+            Action::SshForward {
+                server: server_name(args)?,
+                to: to.to_owned(),
+                reason: purpose(args, "reason")?,
+            }
+        }
+        "ssh_disconnect" => Action::SshDisconnect {
+            server: match args.get("server") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(server_name(args)?),
+            },
+        },
         other => return Err(format!("unknown tool {other}")),
     })
 }
@@ -1047,6 +1161,49 @@ mod tests {
         .is_err());
         assert!(is_control(find("browser_open").unwrap()));
         assert!(!is_control(find("read_file").unwrap()));
+    }
+
+    #[test]
+    fn server_arguments_are_checked() {
+        assert_eq!(
+            call(
+                "ssh_run",
+                json!({ "server": " Dev box ", "program": "systemctl", "args": ["status", "nginx"] })
+            )
+            .unwrap(),
+            Action::SshRun {
+                server: "Dev box".into(),
+                program: "systemctl".into(),
+                args: vec!["status".into(), "nginx".into()],
+                cwd: None,
+                timeout: None,
+            }
+        );
+        assert!(
+            call(
+                "ssh_run",
+                json!({ "server": "x", "program": "systemctl restart" })
+            )
+            .is_err(),
+            "no shell strings"
+        );
+        assert!(call("ssh_run", json!({ "program": "ls" })).is_err());
+        assert!(call(
+            "ssh_run",
+            json!({ "server": "x", "program": "ls", "timeoutSeconds": 0 })
+        )
+        .is_err());
+        assert!(call(
+            "ssh_forward",
+            json!({ "server": "x", "to": "localhost:5432" })
+        )
+        .is_err());
+        assert_eq!(
+            call("ssh_disconnect", json!({})).unwrap(),
+            Action::SshDisconnect { server: None }
+        );
+        assert!(is_server(find("ssh_run").unwrap()));
+        assert!(!is_control(find("ssh_run").unwrap()));
     }
 
     #[test]

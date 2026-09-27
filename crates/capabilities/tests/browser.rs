@@ -984,7 +984,7 @@ async fn plan_global_stop() {
         .await;
     assert!(
         h.text(&t2.id)
-            .contains("The owner stopped all browser and desktop control"),
+            .contains("The owner stopped all browser, desktop, and server work"),
         "{}",
         h.text(&t2.id)
     );

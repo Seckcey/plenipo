@@ -1,7 +1,8 @@
-//! Who is using Plenipo's browser or this computer's mouse and keyboard right now, and the
-//! owner's controls over them (Phase 10, ADR-020): **Take over** (the owner takes control and
-//! that worker stops) and the emergency **Stop** (all control halts at once, and stays stopped
-//! until the owner allows it again). The desktop app shows this state on every page, in the
+//! Who is using Plenipo's browser, this computer's mouse and keyboard, or one of the owner's
+//! servers right now, and the owner's controls over them (Phase 10, ADR-020; servers: Phase 11,
+//! ADR-023): **Take over** (the owner takes control and that worker stops; for a server,
+//! **Disconnect**) and the emergency **Stop** (all control halts at once, and stays stopped until
+//! the owner allows it again). The desktop app shows this state on every page, in the
 //! system tray, and — while a worker uses the mouse and keyboard — in a window above all others.
 
 use std::collections::BTreeMap;
@@ -19,6 +20,8 @@ pub enum ControlKind {
     Browser,
     /// This computer's mouse and keyboard (and screen).
     Desktop,
+    /// One or more of the owner's servers, over SSH (Phase 11).
+    Server,
 }
 
 /// Where a use of the browser or the desktop stands.
@@ -54,6 +57,9 @@ pub struct ControlSession {
     pub last_action: Option<String>,
     #[ts(type = "number")]
     pub since: u64,
+    /// A server session includes a production server (Phase 11): shown in red.
+    #[serde(default)]
+    pub production: bool,
 }
 
 /// Everything the owner sees about control, on every page and in the tray.
@@ -108,6 +114,7 @@ pub fn session_id(kind: ControlKind, grant_id: &str) -> String {
     match kind {
         ControlKind::Browser => format!("browser:{grant_id}"),
         ControlKind::Desktop => format!("desktop:{grant_id}"),
+        ControlKind::Server => format!("server:{grant_id}"),
     }
 }
 
@@ -167,6 +174,7 @@ impl ControlCenter {
             detail,
             last_action: None,
             since: plenipo_ledger::now_ms(),
+            production: false,
         };
         {
             let mut i = self.inner();
@@ -190,6 +198,20 @@ impl ControlCenter {
             if last_action.is_some() {
                 s.last_action = last_action;
             }
+            i.revision += 1;
+        }
+        self.changed();
+    }
+
+    /// Where a server session is connected now, and whether that includes a production server.
+    pub fn servers(&self, id: &str, detail: String, production: bool) {
+        {
+            let mut i = self.inner();
+            let Some(s) = i.sessions.get_mut(id) else {
+                return;
+            };
+            s.detail = Some(detail);
+            s.production = production;
             i.revision += 1;
         }
         self.changed();

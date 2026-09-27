@@ -1,6 +1,6 @@
 //! System tray: show the window, see how many programs are running, stop them, or quit; and
-//! (Phase 10) see who uses Plenipo's browser or the mouse and keyboard, and stop all of it at
-//! once.
+//! (Phase 10) see who uses Plenipo's browser or the mouse and keyboard, or (Phase 11) is connected
+//! to a server, and stop all of it at once.
 
 use plenipo_capabilities::control::{ControlKind, ControlState, ControlStatus};
 use plenipo_capabilities::Broker;
@@ -18,7 +18,7 @@ pub struct Tray<R: Runtime> {
 }
 
 /// What the tray says about control.
-const NO_CONTROL: &str = "No worker is using the browser or the mouse and keyboard";
+const NO_CONTROL: &str = "No worker is using the browser, the mouse and keyboard, or a server";
 
 pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Plenipo", true, None::<&str>)?;
@@ -26,7 +26,7 @@ pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let stop_control = MenuItem::with_id(
         app,
         "stop_control",
-        "Stop all browser and desktop control",
+        "Stop all browser, desktop, and server work",
         true,
         None::<&str>,
     )?;
@@ -90,7 +90,7 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
                 });
             }
         }
-        // The emergency stop (Phase 10): all browser and desktop control halts at once.
+        // The emergency stop (Phase 10): all browser, desktop, and server work halts at once.
         "stop_control" => {
             if let Some(broker) = app.try_state::<Broker>() {
                 let broker = broker.inner().clone();
@@ -137,7 +137,7 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
 /// What the tray says about workers using the browser or the mouse and keyboard (Phase 10).
 pub fn control_words(status: &ControlStatus) -> String {
     if status.stopped {
-        return "Control is stopped: no worker may use the browser or the desktop".into();
+        return "Stopped: no worker may use the browser, the desktop, or a server".into();
     }
     let active: Vec<String> = status
         .sessions
@@ -146,6 +146,12 @@ pub fn control_words(status: &ControlStatus) -> String {
         .map(|s| match s.kind {
             ControlKind::Browser => format!("{} is using Plenipo's browser", s.worker),
             ControlKind::Desktop => format!("{} is using your mouse and keyboard", s.worker),
+            ControlKind::Server => format!(
+                "{} is connected to {}{}",
+                s.worker,
+                s.detail.as_deref().unwrap_or("a server"),
+                if s.production { " — PRODUCTION" } else { "" }
+            ),
         })
         .collect();
     match active.as_slice() {
@@ -190,6 +196,7 @@ mod tests {
             detail: None,
             last_action: None,
             since: 0,
+            production: false,
         };
         status
             .sessions
@@ -205,7 +212,17 @@ mod tests {
             control_words(&status),
             "Web Assistant is using Plenipo's browser (and 1 more)"
         );
+        let mut ops = session("Operations Engineer", ControlKind::Server);
+        ops.detail = Some("Shop (production)".into());
+        ops.production = true;
+        assert_eq!(
+            control_words(&ControlStatus {
+                sessions: vec![ops],
+                ..ControlStatus::default()
+            }),
+            "Operations Engineer is connected to Shop (production) — PRODUCTION"
+        );
         status.stopped = true;
-        assert!(control_words(&status).starts_with("Control is stopped"));
+        assert!(control_words(&status).starts_with("Stopped:"));
     }
 }
