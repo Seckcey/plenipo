@@ -181,7 +181,7 @@ impl Guard {
             })?;
         }
         // Built-in sets the owner never changed gain this version's permissions (Phase 8:
-        // GitHub; v1.1: the Writer set commits, websites have tools).
+        // GitHub; v1.3: the Writer set commits, websites have tools).
         if !self.config()?.upgrade_builtins().is_empty() {
             self.update("guard.sets_updated", PLENIPO, |c| {
                 let updated = c.upgrade_builtins();

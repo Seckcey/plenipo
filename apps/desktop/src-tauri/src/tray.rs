@@ -1,4 +1,4 @@
-//! System tray: show the window, see how many runtimes are active, stop them, or quit; and
+//! System tray: show the window, see how many programs are running, stop them, or quit; and
 //! (Phase 10) see who uses Plenipo's browser or the mouse and keyboard, and stop all of it at
 //! once.
 
@@ -30,8 +30,8 @@ pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let active = MenuItem::with_id(app, "active", "No active runtimes", false, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop_all", "Stop all runtimes", true, None::<&str>)?;
+    let active = MenuItem::with_id(app, "active", "No programs running", false, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop_all", "Stop all programs", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Plenipo", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -119,16 +119,16 @@ pub fn exists<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.try_state::<Tray<R>>().is_some()
 }
 
-/// Update the tray's active-runtime count.
+/// Update the tray's count of running programs.
 pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let (Some(tray), Some(sup)) = (app.try_state::<Tray<R>>(), app.try_state::<Supervisor>())
     else {
         return;
     };
     let text = match sup.active_count() {
-        0 => "No active runtimes".to_owned(),
-        1 => "1 active runtime".to_owned(),
-        n => format!("{n} active runtimes"),
+        0 => "No programs running".to_owned(),
+        1 => "1 program running".to_owned(),
+        n => format!("{n} programs running"),
     };
     let _ = tray.active.set_text(&text);
     let _ = tray.icon.set_tooltip(Some(format!("Plenipo — {text}")));

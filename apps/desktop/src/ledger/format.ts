@@ -186,6 +186,8 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "Plenipo Guard's starting permission settings were stored";
     case "guard.sets_added":
       return "Built-in permission sets were added back";
+    case "guard.sets_updated":
+      return "Built-in permission sets you had not changed were brought up to date";
     case "guard.roles_seeded":
       return "Built-in roles got their starting permission sets";
     case "guard.set_added":

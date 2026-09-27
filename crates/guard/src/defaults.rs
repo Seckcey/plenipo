@@ -101,7 +101,7 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
         ),
         set(
             "computer-use",
-            "Computer use",
+            "Screen, mouse, and keyboard",
             "Sees the screen and, as a last resort, uses the mouse and keyboard. Taking control \
              always asks you first, with the worker's reason.",
             &[(ComputerObserve, Allowed), (ComputerControl, Allowed)],
@@ -116,7 +116,7 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
 }
 
 /// Built-in sets as earlier versions of Plenipo made them (before GitHub tools, Phase 8; before
-/// the Writer set could commit and websites had tools, v1.1): a set the owner never changed is
+/// the Writer set could commit and websites had tools, v1.3): a set the owner never changed is
 /// brought up to date; a changed one is left alone.
 pub fn earlier_sets() -> Vec<PermissionSet> {
     use Capability::*;

@@ -283,6 +283,9 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
       "You allowed browser and desktop control again",
     );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
+    expect(describeEvent(event("guard.sets_updated", { sets: ["writer"] }))).toBe(
+      "Built-in permission sets you had not changed were brought up to date",
+    );
     expect(
       describeEvent(event("org.role_updated", { name: "Scout", formerly: "Researcher 2" })),
     ).toBe("Role renamed from Researcher 2 to Scout");

@@ -31,3 +31,5 @@ architecture must be recorded here.
 | [014](ADR-014-adding-ai-tools.md)               | Adding AI tools ahead of Phase 15                                     | Accepted |
 | [016](ADR-016-development-department.md)        | Development department: delegation, working copies, GitHub, result    | Proposed |
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
+| [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Proposed |
+| [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard                     | Proposed |

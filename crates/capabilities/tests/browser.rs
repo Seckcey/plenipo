@@ -157,7 +157,7 @@ impl Drop for H {
 }
 
 /// Operations → Web tasks (no folder), led by a Web Supervisor (Claude Code) whose team is a
-/// Web Assistant, a Researcher, and a Desk Operator (a custom role with the Computer use set).
+/// Web Assistant, a Researcher, and a Desk Operator (a custom role with the Screen, mouse, and keyboard set).
 /// Websites: shop.test allowed, blocked.test blocked, others ask.
 async fn harness(browser: Option<PathBuf>) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();

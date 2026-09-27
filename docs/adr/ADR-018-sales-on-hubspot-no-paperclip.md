@@ -43,7 +43,7 @@ has as its CRM, and wants Phase 10 (browser automation and computer use) first.
 - **Order of work:** Phase 8 → Phase 10 → Phase 9 when the owner schedules it → Phase 11 and on.
   The plan's rule "work only on the earliest incomplete phase" (§8.3) skips Phase 9 while it is
   postponed.
-- **Versions:** Phase 10 is released as v1.1.0; Phase 9 will be a later minor version.
+- **Versions:** Phase 10 is released as v1.3.0 (v1.1.0 and v1.2.0 went to the Grok and Ollama AI tools); Phase 9 will be a later minor version.
 - **History stays as written.** Earlier checklists and acceptance reports that mention Paperclip
   describe what was planned then; only the plan and the living documents (architecture
   overview, README) change.

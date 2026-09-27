@@ -5,7 +5,21 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 8 — the Development department (v1.0.0, the first full release). Tell
+> **Status:** Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
+> on websites that have no official connection — in **Plenipo's own browser**, never yours: it
+> has its own profile, so your sign-ins and saved passwords are never used. **Settings →
+> Permissions → Websites** says which websites workers may open, which never, and whether others
+> ask you first. Submitting a form, buying, signing in, and sending anything always wait for your
+> approval, with a screenshot of the page. Workers never type passwords or secrets, and never get
+> past a CAPTCHA: when a website needs you signed in, you sign in yourself. As a last resort, a
+> worker you allow can see the screen and use the mouse and keyboard, and taking control asks
+> you every time. Whenever a worker uses the browser or the desktop, a sign on every page says so,
+> with **Take over** and **Stop all**; the Windows tray has the same Stop. Every step is in the
+> Activity trail with its screenshot. Every role now also knows its job — what it does, what it
+> hands back, its limits, and when to ask for help — and you can write the same for your own
+> roles. Phase 9 (Sales) is postponed: a new Sales department on HubSpot comes later.
+>
+> Phase 8 — the Development department (accepted, v1.0.0, the first full release). Tell
 > Development what you want — "implement the login page in Website and get it ready for review" —
 > and it gets done without you opening Claude Code or Codex. **Projects → Set up a Development
 > project** creates the Development department with its VP, the project with its Supervisor, and
@@ -109,7 +123,9 @@ crates/guard/            Plenipo Guard: permission registry and sets, policy eng
                          confinement, command rules, sensitive actions, secret redaction
 crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
                          program, git, and GitHub tools, working copies (a branch per
-                         objective), approvals, Vault (OS credential store)
+                         objective), approvals, Vault (OS credential store), Plenipo's
+                         browser, screenshots, the screen, mouse, and keyboard, and the
+                         control center (sign, Stop, Take over)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
