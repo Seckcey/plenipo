@@ -86,6 +86,8 @@ not asked to write any. Lessons already kept stay, and come back when it is on a
   force a review. Files are the owner's own, a lower risk.
 - Instructions grow by up to 20 lines per role.
 - The lessons are part of the Ledger export (`lessons` table).
+- **Worker learning is a Pro feature** (the owner's decision, 2026-09-27; ADR-021, Free and Pro
+  editions). Like everything else, it is unlocked until the Free and Pro split ships.
 
 ## Alternatives considered
 

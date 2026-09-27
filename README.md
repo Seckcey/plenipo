@@ -134,10 +134,10 @@ Coming with the next release. If you are running Plenipo already,
 
 ## Free and Pro
 
-| Edition  | What you get                                                                                                                             |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
-| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
+| Edition  | What you get                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature.                     |
+| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it — and workers that learn from their work. |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
