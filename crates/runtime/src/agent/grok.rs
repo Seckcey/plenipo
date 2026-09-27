@@ -6,7 +6,9 @@
 //! Grok's shared background "leader"). Grok gets none of its own tools, subagents, memory, or
 //! web access, and none of the owner's Claude Code or Cursor settings; a worker with
 //! permissions gets Plenipo's tool server (Phase 7), and Plenipo refuses every other tool
-//! request.
+//! request. A request is Plenipo's tool server's only by the tool name Grok itself sets
+//! (`mcp__plenipo__…` in `_meta.toolName` or `toolName`), never by what the model wrote as the
+//! call's arguments, and each approval covers one action.
 //!
 //! Billing (ADR-007 §4): `GROK_DISABLE_API_KEY_AUTH=1` makes Grok refuse API keys, including a
 //! key set on a model in its own settings; the sign-in check (`grok models`, whose first line

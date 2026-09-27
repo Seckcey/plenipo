@@ -57,8 +57,9 @@
 //! the answer (`Tool NAME: …` or `Tool NAME failed: …`, then up to 20 more lines, indented; a
 //! picture in the result adds `[image: TYPE of N base64 characters]` to the first line).
 //! `[tools-list]` answers with the tools offered. Grok asks permission first (as `use_tool` on
-//! the server); `[own-tool]` makes it ask for one of its own tools too, and the answer says
-//! whether that was allowed. `last-acp.json` records what Plenipo sent to open the session,
+//! the server, naming the server's tool itself in `_meta.toolName`, `mcp__plenipo__NAME`);
+//! `[own-tool]` makes it ask for one of its own tools too, and the answer says whether that was
+//! allowed. `last-acp.json` records what Plenipo sent to open the session,
 //! and `authenticate-called` appears if Plenipo ever asked Grok to sign in.
 //!
 //! Kimi asks for a tool server's tool by the tool's own name. Its own tools have markers too:
@@ -1502,16 +1503,27 @@ impl GrokAgent {
         }
     }
 
-    /// Ask permission like the real CLI; `Some(true)` when allowed.
-    fn permission(&mut self, title: &str, raw_input: Value) -> Option<bool> {
+    /// Ask permission like the real CLI; `Some(true)` when allowed. A tool server's tool is
+    /// named by the tool itself in `_meta.toolName` (`mcp__plenipo__NAME`): that, never the
+    /// call's input (which the model writes), is how Plenipo knows the call is its own.
+    fn permission(
+        &mut self,
+        title: &str,
+        tool_name: Option<&str>,
+        raw_input: Value,
+    ) -> Option<bool> {
         self.next_request += 1;
         let id = 1000 + self.next_request;
+        let mut tool_call = json!({ "toolCallId": format!("call_{id}"), "title": title,
+                                    "kind": "other", "rawInput": raw_input });
+        if let Some(name) = tool_name {
+            tool_call["_meta"] = json!({ "toolName": name });
+        }
         out(&json!({
             "jsonrpc": "2.0", "id": id, "method": "session/request_permission",
             "params": {
                 "sessionId": self.session,
-                "toolCall": { "toolCallId": format!("call_{id}"), "title": title, "kind": "other",
-                              "rawInput": raw_input },
+                "toolCall": tool_call,
                 "options": [
                     { "optionId": "allow", "name": "Allow", "kind": "allow_once" },
                     { "optionId": "reject", "name": "Reject", "kind": "reject_once" }
@@ -1666,7 +1678,11 @@ impl GrokAgent {
         delay(&said);
         let mut extra = Vec::new();
         if said.contains("[own-tool]") {
-            let allowed = self.permission("run_terminal_command", json!({ "command": "rm -rf ~" }));
+            let allowed = self.permission(
+                "run_terminal_command",
+                None,
+                json!({ "command": "rm -rf ~" }),
+            );
             extra.push(format!("Own tool allowed: {}.", allowed == Some(true)));
         }
         let calls = tool_calls(&said);
@@ -1677,7 +1693,8 @@ impl GrokAgent {
             let mut refused = Vec::new();
             for (name, input) in calls {
                 let raw_input = json!({ "server": "plenipo", "tool": name, "arguments": input });
-                if self.permission("use_tool", raw_input) == Some(true) {
+                let tool_name = format!("mcp__plenipo__{name}");
+                if self.permission("use_tool", Some(&tool_name), raw_input) == Some(true) {
                     permitted.push((name, input));
                 } else {
                     refused.push((

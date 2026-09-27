@@ -314,8 +314,10 @@ and writes going through Plenipo).
   shared driver `agent/acp.rs`: `initialize`, `session/new` or `session/resume`, then the prompt,
   all on stdin. The parser's `open()` gives the first lines; the supervisor keeps stdin open
   (`StdinFeed`) for the lines each `Parsed` sends, and closes it when the task is over. The
-  driver answers the tool's permission requests (Plenipo's tool server yes, anything else no)
-  and never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
+  driver answers the tool's permission requests (Plenipo's tool server yes, anything else no; a
+  call counts as Plenipo's only by the tool name the AI tool itself sets, `mcp__plenipo__…`,
+  never by what the model wrote as the call's input, and each approval covers one action) and
+  never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
   seconds before the process tree is ended.
 - **File access through Plenipo (ADR-027).** Kimi (`kimi acp`) uses the same driver, with the
   options its own unswitchable tools need. `initialize` offers file reads and writes, so Kimi

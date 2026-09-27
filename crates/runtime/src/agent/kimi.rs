@@ -10,7 +10,9 @@
 //!   carries it out through Guard under the worker's permissions (none for a worker without);
 //! - Kimi's own shell is always refused (workers run programs with Plenipo's `run_command`), and
 //!   so is every other request but Plenipo's tool server and file changes by a worker that may
-//!   change files; no approval ever covers a whole session;
+//!   change files; a request is Plenipo's tool server's only by the tool's name in its title
+//!   (never a shell command, and never from what the model wrote as the call's input), and each
+//!   call allowed that way is noted in the activity; no approval ever covers a whole session;
 //! - Kimi's mode is `default` (it asks before acting), or `plan` (read-only) for a worker without
 //!   permissions, never `auto` or `yolo`: the task stops if Kimi reports another mode;
 //! - the model and thinking level are session settings (`session/set_config_option`), set before
