@@ -1153,7 +1153,8 @@ pub struct Lesson {
     pub worker: String,
     pub text: String,
     pub state: LessonState,
-    /// Its task used websites (such lessons always wait for the owner).
+    /// Its task (or a task handed on from it) used websites or the screen: such lessons always
+    /// wait for the owner.
     pub from_web: bool,
     #[ts(type = "number")]
     pub created_at: u64,

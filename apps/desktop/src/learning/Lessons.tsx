@@ -44,15 +44,15 @@ function LessonCard({
       <header className="approval__header">
         <h3 className="approval__title">{lesson.worker} learned something</h3>
         {lesson.fromWeb && (
-          <span className="pill pill--warn" title="Its task used websites">
+          <span className="pill pill--warn" title="Its task used websites or your screen">
             From a task that used websites
           </span>
         )}
       </header>
       {lesson.fromWeb && (
         <p className="muted">
-          This task read web pages, so check that the lesson is really what the worker learned, not
-          something a website told it to write.
+          This task (or a worker it handed work to) read web pages or your screen, so check that the
+          lesson is really what the worker learned, not something a website told it to write.
         </p>
       )}
       <label className="field">
@@ -152,7 +152,7 @@ export function RoleLessons({
       )}
       <Toggle
         label="Learn on its own"
-        hint="On: this role's lessons are kept without asking you (lessons from tasks that used websites still ask)."
+        hint="On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask)."
         checked={s.autoRoles.includes(roleId)}
         disabled={pending}
         onChange={(on) => void run(() => setRoleLearning(roleId, on))}

@@ -1,6 +1,9 @@
 # ADR-020: Plenipo's browser and computer use, through Guard
 
 - **Status:** Accepted (by the owner, 2026-09-27)
+- **Amended by:** [ADR-021 (on/off switches in Settings)](ADR-021-settings-switches.md): with
+  its switches on, sending, buying, and signing in go ahead without asking on allowed websites,
+  and a CAPTCHA can be handed to the owner (sections 4, 5, and 6)
 - **Date:** 2026-09-27
 - **Phase:** 10
 

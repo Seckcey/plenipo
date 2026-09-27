@@ -10,13 +10,26 @@ watches over the work, and keeps a complete record of it.
 > models ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its
 > service on your PC). Each uses your own sign-in; Plenipo never uses API keys.
 >
-> **Status:** Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
+> **Status:** v1.4.0 — switches in Settings, and workers that learn from their work.
+> **Settings → Switches** turns Plenipo's browser and the screen, mouse, and keyboard on or off
+> for every worker (the screen starts off), and decides whether workers may send, buy, or press
+> Sign in **without asking you** on your allowed websites (off to start: they ask). When a
+> website shows a CAPTCHA, the worker hands it to you and waits while you solve it; workers
+> never try to solve one. Screenshots in the Activity trail can be switched off (approval cards
+> keep theirs). Workers now write down short **lessons** from their work: you keep, edit, or
+> discard each one on the Approvals page, or let a role **learn on its own**, and kept lessons
+> go to that role's later workers. Lessons from tasks that used websites or your screen always
+> ask you first. See [ADR-021 (on/off switches in Settings)](docs/adr/ADR-021-settings-switches.md)
+> and [ADR-022 (workers learn from their work)](docs/adr/ADR-022-workers-learn-from-work.md).
+>
+> Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (accepted, v1.3.0). Workers can now do tasks
 > on websites that have no official connection — in **Plenipo's own browser**, never yours: it
 > has its own profile, so your sign-ins and saved passwords are never used. **Settings →
 > Permissions → Websites** says which websites workers may open, which never, and whether others
-> ask you first. Submitting a form, buying, signing in, and sending anything always wait for your
-> approval, with a screenshot of the page. Workers never type passwords or secrets, and never get
-> past a CAPTCHA: when a website needs you signed in, you sign in yourself. As a last resort, a
+> ask you first. Submitting a form, buying, signing in, and sending anything wait for your
+> approval, with a screenshot of the page (v1.4: unless you let workers do it without asking on
+> your allowed websites). Workers never type passwords or secrets, and never get past a CAPTCHA:
+> when a website needs you signed in, you sign in yourself. As a last resort, a
 > worker you allow can see the screen and use the mouse and keyboard, and taking control asks
 > you every time. Whenever a worker uses the browser or the desktop, a sign on every page says so,
 > with **Take over** and **Stop all**; the Windows tray has the same Stop. Every step is in the

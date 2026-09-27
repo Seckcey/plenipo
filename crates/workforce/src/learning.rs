@@ -2,7 +2,8 @@
 //! `plenipo-lesson` block: one to three short lessons that would help the next worker in its
 //! role. Plenipo records them in the Ledger (secrets are already hidden in every answer); each
 //! waits for the owner's Keep or Discard unless the owner lets that role learn on its own.
-//! Lessons from a task that used websites always wait: a website must not be able to plant one.
+//! Lessons from a task that used websites or the screen (itself or any task handed on from it)
+//! always wait: a website must not be able to plant one.
 //! Kept lessons go into the instructions of the role's later workers.
 
 use std::sync::{Arc, Weak};
@@ -28,7 +29,7 @@ pub struct LearningSettings {
     /// Worker learning (Settings → Switches). Off: no lessons are recorded or used.
     pub enabled: bool,
     /// Roles that learn on their own: their lessons are kept without asking (except lessons
-    /// from tasks that used websites).
+    /// from tasks that used websites or the screen).
     pub auto_roles: Vec<String>,
 }
 
@@ -144,7 +145,7 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     else {
         return Ok(Vec::new());
     };
-    let from_web = ledger.task_used_websites(task_id)?;
+    let from_web = ledger.task_used_web_or_screen(task_id)?;
     let keep = !from_web && s.auto_roles.contains(&position.role_id);
     Ok(ledger.add_lessons(
         &NewLessons {

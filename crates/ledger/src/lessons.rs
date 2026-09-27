@@ -241,16 +241,20 @@ impl Ledger {
         })
     }
 
-    /// The task used Plenipo's browser (its lessons may carry what a website said, so they
-    /// always wait for the owner).
-    pub fn task_used_websites(&self, task_id: &str) -> Result<bool> {
+    /// The task, or any task handed on from it, used Plenipo's browser or saw the screen. Its
+    /// lessons may carry what a website or another program said, so they always wait for the
+    /// owner.
+    pub fn task_used_web_or_screen(&self, task_id: &str) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
-                "SELECT EXISTS (SELECT 1 FROM events WHERE task_id = ?1 AND ( \
-                   (event_type = 'capability.used' \
-                    AND json_extract(payload, '$.capability') LIKE 'browser.%') \
-                   OR (event_type = 'control.started' \
-                    AND json_extract(payload, '$.kind') = 'browser')))",
+                "WITH RECURSIVE tree(id) AS ( \
+                   SELECT ?1 UNION ALL \
+                   SELECT t.id FROM tasks t JOIN tree ON t.parent_task_id = tree.id) \
+                 SELECT EXISTS (SELECT 1 FROM events JOIN tree ON events.task_id = tree.id \
+                   WHERE (event_type = 'capability.used' \
+                     AND (json_extract(payload, '$.capability') LIKE 'browser.%' \
+                       OR json_extract(payload, '$.capability') LIKE 'computer.%')) \
+                   OR event_type = 'control.started')",
                 [task_id],
                 |r| r.get(0),
             )?)
@@ -393,9 +397,47 @@ mod tests {
             .unwrap();
         assert_eq!(added[0].state, LessonState::Kept);
         assert!(added[0].decided_at.is_some());
-        assert!(!l.task_used_websites(&t).unwrap());
+        assert!(!l.task_used_web_or_screen(&t).unwrap());
         assert!(l
             .add_lessons(&new("no-such-role", &t, &["x"], false), "a")
             .is_err());
+    }
+
+    #[test]
+    fn web_or_screen_use_anywhere_below_a_task_counts() {
+        let (_d, l) = ledger();
+        let (parent, other) = (task(&l), task(&l));
+        let child = l
+            .create_task(
+                NewTask {
+                    objective: "Look it up".into(),
+                    requested_by: "owner".into(),
+                    parent_task_id: Some(parent.clone()),
+                    ..NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap()
+            .id;
+        let used = |task: &str, capability: &str| {
+            l.append_event(crate::dto::NewEvent {
+                task_id: Some(task.to_owned()),
+                execution_id: None,
+                source: "guard".into(),
+                destination: None,
+                event_type: "capability.used".into(),
+                payload: serde_json::json!({ "capability": capability }),
+            })
+            .unwrap();
+        };
+        used(&parent, "files.read");
+        assert!(!l.task_used_web_or_screen(&parent).unwrap());
+        // A website read by a task handed on from it counts for the task that handed it on.
+        used(&child, "browser.navigate");
+        assert!(l.task_used_web_or_screen(&parent).unwrap());
+        assert!(l.task_used_web_or_screen(&child).unwrap());
+        // So does seeing the screen.
+        used(&other, "computer.observe");
+        assert!(l.task_used_web_or_screen(&other).unwrap());
     }
 }

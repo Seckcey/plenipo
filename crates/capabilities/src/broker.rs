@@ -2149,11 +2149,13 @@ fn note_for(
     }
     if permitted(Capability::BrowserAutomate) {
         lines.push(
-            "Submitting a form, buying, signing in, and sending anything always wait for the \
-             owner's approval, and so does data a page sends after your click. Never type \
-             passwords, one-time codes, card details, or other secrets, and never try to get past \
-             a CAPTCHA: when a page needs a sign-in or a check that a person is there, stop and \
-             say that the owner should take over."
+            "Submitting a form, buying, signing in, and sending anything wait for the owner's \
+             approval unless the owner lets workers do them without asking on this website, and \
+             so does data a page sends after your click. Never type passwords, one-time codes, \
+             card details, or other secrets: when a page needs a sign-in, stop and say that the \
+             owner should sign in. Never try to answer a CAPTCHA (a check that a person is \
+             there): hand it to the owner with browser_person_check and wait, or, if that is \
+             refused, stop and say so."
                 .into(),
         );
     }
