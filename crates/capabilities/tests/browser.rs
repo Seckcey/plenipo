@@ -36,7 +36,9 @@ use plenipo_workforce::{
 use serde_json::{json, Value};
 use support::site::Site;
 
-const WAIT: Duration = Duration::from_secs(90);
+/// Upper bounds only: a passing test never waits this long. They leave room for a browser that is
+/// slow to start (see `launch_timeout` below).
+const WAIT: Duration = Duration::from_secs(150);
 const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
 fn exe_name(stem: &str) -> String {
@@ -184,7 +186,7 @@ async fn harness(browser: Option<PathBuf>) -> H {
         HOME_VAR.into(),
         dir.path().join("home").display().to_string(),
     )];
-    config.turn_timeout = Duration::from_secs(120);
+    config.turn_timeout = Duration::from_secs(180);
     let rt = AgentRuntime::new(
         config,
         builtin_adapters(),
@@ -225,6 +227,9 @@ async fn harness(browser: Option<PathBuf>) -> H {
         "--no-sandbox".into(),
     ];
     broker_config.browser.limits.navigation = Duration::from_secs(20);
+    // Several tests start a fresh browser at once. On a small CI runner one of them can take
+    // longer than the 30 seconds Plenipo allows a single browser on the owner's PC.
+    broker_config.browser.launch_timeout = Duration::from_secs(90);
     let broker = Broker::new(
         guard.clone(),
         sup.clone(),
