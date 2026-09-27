@@ -45,4 +45,4 @@ architecture must be recorded here.
 | [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                  | Accepted |
 | [029](ADR-029-captcha-attempts.md)                | Workers try a CAPTCHA three times before handing it to the owner        | Accepted |
 | [030](ADR-030-design-system.md)                   | One design system for every screen                                      | Accepted |
-| [031](ADR-031-terminal-panel.md)                  | The terminal panel (amends 025)                                         | Proposed |
+| [031](ADR-031-terminal-panel.md)                  | The terminal panel (amends 025)                                         | Accepted |
