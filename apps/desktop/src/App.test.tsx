@@ -182,7 +182,7 @@ async function openRuntimes() {
 describe("App shell", () => {
   it("renders the branded shell with navigation and reports ready", async () => {
     render(<App />);
-    expect(screen.getByText("Plenipo")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Plenipo" })).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
     for (const label of [
       "Organization",

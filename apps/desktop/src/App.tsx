@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { AppInfo } from "@plenipo/types";
 import {
   AppShell,
@@ -33,6 +40,9 @@ import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
 import { useOrganizationNames } from "./org/useOrganizationNames";
+import { TerminalButton, TerminalPanel } from "./terminal/TerminalPanel";
+import { TerminalProvider } from "./terminal/TerminalProvider";
+import { useTerminal } from "./terminal/useTerminal";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -111,7 +121,9 @@ export function App() {
   return (
     <RuntimeProvider>
       <AgentsProvider>
-        <Shell core={core} />
+        <TerminalProvider>
+          <Shell core={core} />
+        </TerminalProvider>
       </AgentsProvider>
     </RuntimeProvider>
   );
@@ -136,6 +148,7 @@ function Shell({ core }: { core: CoreState }) {
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
+  const { measure: measureWork, panel: terminalPanel, size: terminalSize } = useTerminal();
 
   // Every view shares one scroll area: open each view at its top, not where the last one was.
   useLayoutEffect(() => {
@@ -230,12 +243,7 @@ function Shell({ core }: { core: CoreState }) {
       }
       topBar={
         <TopBar
-          start={
-            <>
-              <span className="shell__wordmark">Plenipo</span>
-              <ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />
-            </>
-          }
+          start={<ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />}
           title={VIEW_TITLES[view]}
           end={
             <>
@@ -244,6 +252,7 @@ function Shell({ core }: { core: CoreState }) {
                   v{info.version}
                 </span>
               )}
+              <TerminalButton />
               <ThemeToggle theme={theme} onChange={setTheme} />
               <NotificationBell
                 count={approvalCount}
@@ -270,94 +279,101 @@ function Shell({ core }: { core: CoreState }) {
         </footer>
       }
     >
-      <main
-        className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
-        ref={main}
+      <div
+        ref={measureWork}
+        className={`shell__work shell__work--${terminalPanel.side}`}
+        style={{ "--terminal-size": `${terminalSize}px` } as CSSProperties}
       >
-        <BannerSlot>
-          <ControlBanner control={control} />
-          {ledgerNotices.length > 0 && !noticesDismissed && (
-            <Banner
-              tone={severe ? "error" : "info"}
-              role={severe ? "alert" : "status"}
-              className={severe ? "banner--severe" : "banner--notice"}
-              title={`Ledger notice${ledgerNotices.length > 1 ? "s" : ""}`}
-              onDismiss={() => setNoticesDismissed(true)}
-            >
-              <ul className="banner__list">
-                {ledgerNotices.map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
-            </Banner>
+        <main
+          className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
+          ref={main}
+        >
+          <BannerSlot>
+            <ControlBanner control={control} />
+            {ledgerNotices.length > 0 && !noticesDismissed && (
+              <Banner
+                tone={severe ? "error" : "info"}
+                role={severe ? "alert" : "status"}
+                className={severe ? "banner--severe" : "banner--notice"}
+                title={`Ledger notice${ledgerNotices.length > 1 ? "s" : ""}`}
+                onDismiss={() => setNoticesDismissed(true)}
+              >
+                <ul className="banner__list">
+                  {ledgerNotices.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </Banner>
+            )}
+            {waiting.length > 0 && view !== "approvals" && (
+              <Banner
+                tone="pending"
+                role="status"
+                className="banner--approval"
+                title={
+                  waiting.length === 1
+                    ? `${waiting[0]?.worker ?? "A worker"} is waiting for your approval`
+                    : `${waiting.length} requests are waiting for your approval`
+                }
+                action={
+                  <Button size="sm" variant="primary" onClick={() => navigate("approvals")}>
+                    Review
+                  </Button>
+                }
+              >
+                {waiting.length === 1 && <div className="muted">{waiting[0]?.summary}</div>}
+              </Banner>
+            )}
+          </BannerSlot>
+          {core.status === "error" && (
+            <p className="status status--error" role="alert">
+              Plenipo Core is unavailable: {core.error.message}
+            </p>
           )}
-          {waiting.length > 0 && view !== "approvals" && (
-            <Banner
-              tone="pending"
-              role="status"
-              className="banner--approval"
-              title={
-                waiting.length === 1
-                  ? `${waiting[0]?.worker ?? "A worker"} is waiting for your approval`
-                  : `${waiting.length} requests are waiting for your approval`
-              }
-              action={
-                <Button size="sm" variant="primary" onClick={() => navigate("approvals")}>
-                  Review
-                </Button>
-              }
-            >
-              {waiting.length === 1 && <div className="muted">{waiting[0]?.summary}</div>}
-            </Banner>
+          {view === "organization" && (
+            <OrganizationView
+              onOpenSession={openSession}
+              onOpenTask={openTask}
+              focusId={orgFocus}
+              onFocusHandled={clearOrgFocus}
+            />
           )}
-        </BannerSlot>
-        {core.status === "error" && (
-          <p className="status status--error" role="alert">
-            Plenipo Core is unavailable: {core.error.message}
-          </p>
-        )}
-        {view === "organization" && (
-          <OrganizationView
-            onOpenSession={openSession}
-            onOpenTask={openTask}
-            focusId={orgFocus}
-            onFocusHandled={clearOrgFocus}
-          />
-        )}
-        {view === "projects" && (
-          <ProjectsView
-            onOpenTask={openTask}
-            onOpenApprovals={() => navigate("approvals")}
-            focusId={projectFocus}
-            onFocusHandled={clearProjectFocus}
-          />
-        )}
-        {view === "workers" && (
-          <WorkersView
-            selectedSessionId={selectedSession}
-            onSelectSession={selectSession}
-            onShowExecution={showExecution}
-            onOpenRuntimes={() => navigate("runtimes")}
-            onOpenPosition={openPosition}
-          />
-        )}
-        {view === "approvals" && (
-          <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
-        )}
-        {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
-        {view === "activity" && (
-          <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
-        )}
-        {view === "settings" && <SettingsView />}
-        {view === "diagnostics" && (
-          <DiagnosticsView
-            info={info}
-            onTaskCreated={selectTask}
-            onOpenGallery={() => navigate("gallery")}
-          />
-        )}
-        {view === "gallery" && <GalleryView theme={theme} />}
-      </main>
+          {view === "projects" && (
+            <ProjectsView
+              onOpenTask={openTask}
+              onOpenApprovals={() => navigate("approvals")}
+              focusId={projectFocus}
+              onFocusHandled={clearProjectFocus}
+            />
+          )}
+          {view === "workers" && (
+            <WorkersView
+              selectedSessionId={selectedSession}
+              onSelectSession={selectSession}
+              onShowExecution={showExecution}
+              onOpenRuntimes={() => navigate("runtimes")}
+              onOpenPosition={openPosition}
+            />
+          )}
+          {view === "approvals" && (
+            <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
+          )}
+          {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
+          {view === "activity" && (
+            <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
+          )}
+          {view === "settings" && <SettingsView />}
+          {view === "diagnostics" && (
+            <DiagnosticsView
+              info={info}
+              onTaskCreated={selectTask}
+              onOpenGallery={() => navigate("gallery")}
+            />
+          )}
+          {view === "gallery" && <GalleryView theme={theme} />}
+        </main>
+        <TerminalPanel theme={theme} />
+      </div>
     </AppShell>
   );
 }

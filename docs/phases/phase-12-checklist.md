@@ -1,6 +1,6 @@
 # Phase 12 — Implementation Checklist
 
-**Status:** not started. Built on v1.7.0 (Phase 12A, the design system).
+**Status:** in progress (2026-09-27). Built on v1.7.0 (Phase 12A, the design system).
 
 Source: `ROLLOUT_PLAN.md`, Phase 12 — Product UX, Notifications, Settings, and Operator
 Experience, and [ADR-031 (the terminal panel)](../adr/ADR-031-terminal-panel.md).
@@ -33,6 +33,113 @@ terminals; two new libraries, `portable-pty`and`@xterm/xterm`.
   until this phase rebuilds each page from the library (ADR-030 §8).
 - Still open, not part of this phase: ADR-025 (servers over SSH, through Guard) is proposed, and
   the owner's Phase 11 check on Windows with a real server is still to do.
+
+## Design (2026-09-27)
+
+Written before building, from a map of the code. Numbers checked on 2026-09-27: version
+**1.8.0**; no Ledger migration is needed (new queries use the existing tables and indexes, and the
+owner's preferences use the existing `settings` table); **ADR-032** is taken by PR #36, so the next
+free ADR is **ADR-033**.
+
+### Brand (owner request, 2026-09-27)
+
+- The owner's approved Plenipo + Pip brand kit is kept byte for byte in
+  `docs/brand/pip-brand-kit` (its manifest lists a checksum for every file; git stores the folder
+  as-is).
+- The app icon (window, taskbar, tray, installer) is the kit's three-rail P on the kit's navy.
+- `@plenipo/ui` gets `PlenipoMark` (the P), `PlenipoLogo` (the P, "lenipo", and Pip on the n,
+  drawn from the kit's outlined wordmark, colored by four brand tokens so it follows the theme),
+  and `Pip` (all 15 poses, 400 px copies of the kit's artwork). `EmptyState` and `ErrorState` can
+  show Pip beside their words.
+- Pip is on Home (his pose follows what is happening), beside every page's "nothing here yet",
+  in the terminal panel, in Settings → About, and in the Gallery.
+
+### The terminal (ADR-031)
+
+- **Backend:** `crates/capabilities/src/terminal.rs` runs a shell in a pseudo terminal
+  (`portable-pty`; ConPTY on Windows) and relays a server's shell channel;
+  `broker/terminals.rs` opens, tracks, and records terminals, apart from every worker's grant (so
+  Stop all never reaches them); `ssh.rs` gains `Connection::open_shell` (`pty-req` then `shell`,
+  for the owner only). On Windows each shell lives in its own kill-on-close Job Object
+  (`win32job`), and no terminal opens while Plenipo runs as administrator (`is_elevated`); both
+  are safe wrappers, because the workspace forbids unsafe code. Off Windows (development, CI,
+  and the end-to-end tests) the shell is `$SHELL`, else `/bin/sh`.
+- **Commands (main window only):** `get_terminal_settings`, `set_terminal_shell`,
+  `open_terminal` (output streams back on a Tauri `ipc::Channel`, base64), `write_terminal`,
+  `resize_terminal`, `close_terminal`, and `stop_server_command` (the watch tab's Stop). A
+  terminal is opened by naming a place (this PC, or a server's ID), never a program or a path.
+- **Recorded:** `terminal.opened` and `terminal.closed` (where, when, how long, why), with no
+  task. Never what is typed or shown.
+- **Stop in a watch tab:** each worker's server command now has its own stop signal (the step's
+  stop still reaches it), so the owner's Stop ends only the command running now (TERM, then
+  KILL); it is recorded (`ssh.command_stop_requested`, and the command's `ssh.command_finished`
+  says "you pressed Stop"). **Disconnect** is the existing `take_over_control("server:…")`.
+- **Screen:** `apps/desktop/src/terminal/`: a provider (panel open, size, and side kept in
+  `localStorage` under `plenipo.terminal`), the panel (library `Tabs` with close buttons, a
+  `MenuButton` for **New terminal**, a `ResizeHandle`), the owner's terminal (`@xterm/xterm` and
+  its fit add-on; colors from new `terminal-…` tokens with contrast pairs), and watch tabs built
+  from the Ledger feed (`ssh.connected`, `ssh.command_started`, `ssh.output`,
+  `ssh.command_finished`, `ssh.disconnected`, and refused `ssh_run` calls). **Ctrl+`** and the
+  **Terminal** button in the top bar show and hide it.
+- **Test server:** `plenipo-test-sshd --shell on` gives the owner's terminal a small shell (a
+  prompt, echo, `echo`, `whoami`, `hostname`, `pwd`, `size`, `exit`); without it, a terminal and
+  a shell are refused and counted, as before, so the worker checks stay true.
+
+### Home, and a page for each department, project, worker, and task
+
+- **Home** is the first section on the left strip and the page Plenipo opens on. Pip greets the
+  owner (in Pacific time) and says in a line how things are. Then: **Waiting for you**
+  (approvals and lessons, with Review), **What's stuck** (failed objectives, refused actions,
+  handoffs with nobody to take them, positions that cannot work), **Departments** (a card each:
+  health, its Manager, projects, workers, the 24-hour strip), **Current objectives**, **Who's
+  working**, and **Just finished**.
+- **Department, Project, Worker, and Task pages** open from Home, the Organization map, the
+  Projects and Workers pages, the Activity trail, and each other (not from the strip). The top
+  bar says where you are ("Department · Operations") with **Back**. Each is a detail page from the
+  library: properties on the left, activity in the middle, a map or table below.
+  - **Department:** its Manager, projects, current workers, queue, and activity history (strip,
+    week, and the events).
+  - **Project:** its Supervisor, folder and repository, the task tree of each objective, running
+    workers, branches and pull requests, artifacts (screenshots), and recent decisions.
+  - **Worker** (a position): role, AI tool and model (and why), current task, permissions in
+    use, the conversation, and its event history.
+  - **Task:** objective and acceptance criteria, the delegation tree, the activity stream (live),
+    artifacts, approvals, and the final result.
+- **New queries** (Ledger, Workforce, broker) behind a few new commands: `get_home` (objectives
+  open and recently finished, with their answers, and what's stuck), `get_scope_events` (events
+  of a department, project, or position, newest first, a page at a time), `get_project_record`
+  (pull requests, artifacts, decisions), and `get_task_record` (approvals, artifacts, decisions of
+  a task and the tasks under it). Decisions are: approvals answered or expired, refusals,
+  handoffs refused, lessons kept or discarded, and why each worker got its AI tool.
+- Where you are (page and item) is kept for this window and comes back after a restart.
+
+### Windows pop-up notices
+
+- `tauri-plugin-notification` (v2). Plenipo decides in Rust (`notices.rs`), from each committed
+  Ledger event: **Waiting for your OK** (an approval), **A check to solve** (a CAPTCHA handed to
+  you), **Problems** (an objective failed, a server ID changed, an AI tool signed out or at its
+  usage limit), **Finished work** (an objective's result is ready), and **Lessons** (a worker
+  learned something). Several at once become one notice; the same notice is not repeated within
+  a minute.
+- **Settings → Notifications** chooses each kind, and "only while Plenipo's window is not in
+  front"; **Send a test notice** checks them. Kept in the Ledger's settings (`preferences`).
+- A real notice needs the installed app's identity, so the decision is tested by unit and IPC
+  tests, and the owner checks real notices on Windows.
+
+### Settings in one tidy place
+
+- A list of sections on the left, one section at a time (the last one comes back): **AI tools**
+  (each tool and its sign-in state), **AI models** (role choices, first choice and backups in
+  order), **Permissions** (permission sets and approval rules), **Organization** (departments and
+  projects), **Servers** (unchanged), **Switches**, **Notifications**, **Terminal**,
+  **Personalization**, **Local paths** (where Plenipo keeps its files, read-only), **Diagnostics**
+  (a summary, and the raw details page), and **About Plenipo**.
+
+### The older pages
+
+- Each page's own buttons, badges, pills, tabs, and cards (`styles.css`) are replaced by the
+  library's `Button`, `StatusPill`, `CountBadge`, `Tabs`, and panels; what each page does stays
+  the same. `styles.css` keeps only page layout, from tokens.
 
 ## Deliverables (plan)
 

@@ -1,7 +1,7 @@
 import type { LedgerEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
-import { describeEvent, eventOutput, shownInTrail, sourceLabel } from "./format";
+import { describeEvent, eventOutput, lasted, shownInTrail, sourceLabel } from "./format";
 
 const event = (eventType: string, payload: Record<string, unknown>): LedgerEvent => ({
   seq: 1,
@@ -417,5 +417,45 @@ describe("describeEvent (learning, ADR-024)", () => {
     expect(describeEvent(event("learning.switched", { enabled: false }))).toBe(
       "You switched worker learning off",
     );
+  });
+});
+
+describe("describeEvent (Phase 12 terminal)", () => {
+  it("says where a terminal opened and how long it stayed open, never what was typed", () => {
+    expect(
+      describeEvent(
+        event("terminal.opened", { place: "server", title: "Shop", environment: "production" }),
+      ),
+    ).toBe("You opened a terminal on Shop (PRODUCTION)");
+    expect(
+      describeEvent(
+        event("terminal.opened", {
+          place: "thisPc",
+          title: "This PC",
+          shell: "Windows PowerShell",
+        }),
+      ),
+    ).toBe("You opened a terminal on this PC (Windows PowerShell)");
+    expect(
+      describeEvent(
+        event("terminal.closed", {
+          place: "server",
+          title: "Dev box",
+          seconds: 312.4,
+          why: "you closed it",
+        }),
+      ),
+    ).toBe("The terminal on Dev box closed after 5 minutes: you closed it");
+    expect(
+      describeEvent(event("ssh.command_stop_requested", { worker: "Operations Engineer" })),
+    ).toBe("You pressed Stop on Operations Engineer's command");
+  });
+
+  it("says how long in plain words", () => {
+    expect(lasted(1)).toBe("1 second");
+    expect(lasted(59.4)).toBe("59 seconds");
+    expect(lasted(60)).toBe("1 minute");
+    expect(lasted(3900)).toBe("1 hour 5 minutes");
+    expect(lasted(7200)).toBe("2 hours");
   });
 });

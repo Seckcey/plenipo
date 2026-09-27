@@ -1,6 +1,5 @@
-import { IconRail, type RailItem } from "@plenipo/ui";
+import { IconRail, PlenipoLogo, type RailItem } from "@plenipo/ui";
 
-import { BrandMark } from "./BrandMark";
 import { VIEWS, type ViewId } from "./views";
 
 /**
@@ -36,7 +35,8 @@ export function Sidebar({
     <IconRail<ViewId>
       current={current}
       onSelect={onNavigate}
-      brand={<BrandMark size={26} />}
+      // The logo from the owner's brand kit: the P, "lenipo", and Pip on the n.
+      brand={<PlenipoLogo height={28} />}
       items={VIEWS.map((v) => {
         const b = badge(v.id);
         return {

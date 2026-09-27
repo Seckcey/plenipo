@@ -2,7 +2,7 @@
 // This is the ONLY module that calls `invoke`. Components import these functions,
 // never `@tauri-apps/api/core` directly (enforced by ESLint).
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   ActivityScope,
   ActivitySeries,
@@ -63,6 +63,11 @@ import type {
   Switches,
   LearningSnapshot,
   WorkView,
+  TerminalEvent,
+  TerminalInfo,
+  TerminalPlace,
+  TerminalSettings,
+  TerminalShell,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -621,4 +626,54 @@ export function checkServerIdentity(host: string, port: number): Promise<ServerI
 /** Connect with the pinned server ID, sign in, and leave. */
 export function testServer(serverId: string): Promise<ServerTest> {
   return call("test_server", { serverId });
+}
+
+/**
+ * The owner's Stop in a worker's watch tab (Phase 12, ADR-031): the command running now is sent
+ * TERM, then KILL. The worker's step goes on (Disconnect ends it: `takeOverControl`).
+ */
+export function stopServerCommand(commandId: string): Promise<void> {
+  return call<void>("stop_server_command", { commandId });
+}
+
+// ---- The owner's terminal (Phase 12, ADR-031) ---------------------------------------------------
+
+/** Settings → Terminal: the shell for this PC, the choices, and the terminals open now. */
+export function getTerminalSettings(): Promise<TerminalSettings> {
+  return call<TerminalSettings>("get_terminal_settings");
+}
+
+/** Choose the shell a new terminal on this PC starts. */
+export function setTerminalShell(shell: TerminalShell): Promise<TerminalSettings> {
+  return call<TerminalSettings>("set_terminal_shell", { shell });
+}
+
+/**
+ * Open a terminal for the owner, on this PC or on a server. What it shows arrives through
+ * `onEvent`, as it happens (it can start before the promise resolves).
+ */
+export function openTerminal(
+  place: TerminalPlace,
+  cols: number,
+  rows: number,
+  onEvent: (event: TerminalEvent) => void,
+): Promise<TerminalInfo> {
+  const events = new Channel<TerminalEvent>();
+  events.onmessage = onEvent;
+  return call<TerminalInfo>("open_terminal", { place, cols, rows, events });
+}
+
+/** What the owner types (or pastes). */
+export function writeTerminal(terminalId: string, data: string): Promise<void> {
+  return call<void>("write_terminal", { terminalId, data });
+}
+
+/** The terminal's size changed (in characters). */
+export function resizeTerminal(terminalId: string, cols: number, rows: number): Promise<void> {
+  return call<void>("resize_terminal", { terminalId, cols, rows });
+}
+
+/** Close a terminal: its shell, and the programs it started, end. */
+export function closeTerminal(terminalId: string): Promise<void> {
+  return call<void>("close_terminal", { terminalId });
 }

@@ -110,6 +110,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (control !== null) return control;
   const server = describeServerEvent(e.eventType, p);
   if (server !== null) return server;
+  const terminal = describeTerminalEvent(e.eventType, p);
+  if (terminal !== null) return terminal;
   const learned = describeLearningEvent(e.eventType, p);
   if (learned !== null) return learned;
   if (e.eventType.startsWith("org.")) {
@@ -372,6 +374,8 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
     }
     case "ssh.disconnected":
       return `${worker} disconnected from ${server}${str(p.why) ? ` (${str(p.why)})` : ""}`;
+    case "ssh.command_stop_requested":
+      return `You pressed Stop on ${worker}'s command`;
     case "ssh.forward_opened":
       return `${worker} forwarded ${str(p.local) ?? "a local port"} to ${str(p.to) ?? "a port"} through ${server}${
         str(p.reason) ? ` — ${brief(p.reason, 200)}` : ""
@@ -397,6 +401,39 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
     case "vault.server_sign_in_stored": {
       const what = Array.isArray(p.stored) ? (p.stored as unknown[]).map(String).join(", ") : "";
       return `Sign-in stored for ${server}${what ? `: ${what}` : ""} (the value is never shown)`;
+    }
+  }
+  return null;
+}
+
+/** "5 minutes", "1 hour 5 minutes", "12 seconds": how long something lasted. */
+export function lasted(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} second${s === 1 ? "" : "s"}`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return `${h} hour${h === 1 ? "" : "s"}${rest ? ` ${rest} minute${rest === 1 ? "" : "s"}` : ""}`;
+}
+
+/**
+ * Phase 12: the owner's terminal (ADR-031). Only that one opened and closed is recorded, never
+ * what was typed or shown.
+ */
+function describeTerminalEvent(type: string, p: Record<string, unknown>): string | null {
+  const where = p.place === "thisPc" ? "this PC" : (str(p.title) ?? "a server");
+  const production = p.environment === "production" ? " (PRODUCTION)" : "";
+  switch (type) {
+    case "terminal.opened":
+      return `You opened a terminal on ${where}${production}${
+        p.place === "thisPc" && str(p.shell) ? ` (${str(p.shell)})` : ""
+      }`;
+    case "terminal.closed": {
+      const how = typeof p.seconds === "number" ? ` after ${lasted(p.seconds)}` : "";
+      return `The terminal on ${where}${production} closed${how}${
+        str(p.why) ? `: ${str(p.why)}` : ""
+      }`;
     }
   }
   return null;
