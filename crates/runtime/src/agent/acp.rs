@@ -18,7 +18,7 @@
 //! Unknown messages are ignored and counted (ADR-007 §7).
 //!
 //! For an AI tool whose own tools cannot be switched off, an adapter turns on **file access
-//! through Plenipo** (ADR-018, Kimi over ACP): `initialize` offers file reads and writes, and
+//! through Plenipo** (ADR-021, Kimi over ACP): `initialize` offers file reads and writes, and
 //! each `fs/read_text_file` / `fs/write_text_file` becomes a [`FileRequest`] that Plenipo carries
 //! out through Guard under the worker's permissions (a worker without them has every file
 //! request refused). The tool's own file changes are allowed only for a worker that may change
@@ -51,7 +51,7 @@ const SETTING: u64 = 10;
 /// Most tool calls remembered by ID (a permission request may not repeat the call's kind).
 const MAX_CALLS: usize = 256;
 /// Plenipo's tool that writes files: only a worker whose grant offers it may let the AI tool
-/// change files (ADR-018).
+/// change files (ADR-021).
 const WRITE_TOOL: &str = "write_file";
 
 /// What an ACP adapter tells the driver about one task.
@@ -67,14 +67,14 @@ pub struct AcpTask {
     pub model: Option<String>,
     /// Extra `_meta` fields for opening the session (for example an agent profile).
     pub session_meta: Option<Value>,
-    /// File access through Plenipo (ADR-018): see the module notes.
+    /// File access through Plenipo (ADR-021): see the module notes.
     pub file_access: bool,
     /// Settings sent with `session/set_config_option` after the conversation opens and before
     /// the prompt, in order, as (option ID, value). The option IDs `model` and `mode` are also
     /// what the task reports and checks.
     pub settings: Vec<(String, String)>,
     /// When not empty, the only modes the tool may be in once the prompt is sent; the task
-    /// stops if it reports another (ADR-018 §4).
+    /// stops if it reports another (ADR-021 §4).
     pub allowed_modes: Vec<String>,
     /// Reopen a conversation with `session/load` even when the tool offers `session/resume`.
     pub load_to_resume: bool,
@@ -517,7 +517,7 @@ impl AcpTurn {
             ))
         };
         // Each approval covers one action (ADR-013); with file access through Plenipo, never a
-        // whole session (ADR-018).
+        // whole session (ADR-021).
         let wanted: &[&str] = match (&refusal, self.task.file_access) {
             (None, true) => &["allow_once"],
             (None, false) => &["allow_once", "allow_always"],
@@ -553,7 +553,7 @@ impl AcpTurn {
         parsed
     }
 
-    /// The tool asks Plenipo to read or write a file for it (ADR-018).
+    /// The tool asks Plenipo to read or write a file for it (ADR-021).
     fn file(&mut self, id: &Value, write: bool, params: &Value) -> Parsed {
         let path = params
             .get("path")

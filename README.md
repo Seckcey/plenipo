@@ -9,7 +9,7 @@ watches over the work, and keeps a complete record of it.
 > [ADR-015](docs/adr/ADR-015-acp-ai-tools.md), running AI tools over ACP), Ollama's cloud models
 > ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its service
 > on your PC), and now Kimi (Moonshot AI's Kimi Code, over ACP with every file it reads or writes
-> going through Plenipo — [ADR-018](docs/adr/ADR-018-acp-file-access-through-plenipo.md), Kimi
+> going through Plenipo — [ADR-021](docs/adr/ADR-021-acp-file-access-through-plenipo.md), Kimi
 > over ACP, with its file reads and writes going through Plenipo). Each uses your own sign-in;
 > Plenipo never uses API keys.
 >

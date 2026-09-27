@@ -32,4 +32,4 @@ architecture must be recorded here.
 | [015](ADR-015-acp-ai-tools.md)                    | Running AI tools over ACP                                          | Accepted |
 | [016](ADR-016-development-department.md)          | Development department: delegation, working copies, GitHub, result | Proposed |
 | [017](ADR-017-ollama-cloud-models.md)             | Ollama cloud models through its service                            | Accepted |
-| [018](ADR-018-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                         | Accepted |
+| [021](ADR-021-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                         | Accepted |

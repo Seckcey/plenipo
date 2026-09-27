@@ -1,6 +1,6 @@
 // Phase 3 end-to-end: agent runtimes in the real app, driven through the UI against fake
 // `claude`, `codex`, `grok`, and `kimi` CLIs (plenipo-fake-agent) that speak each provider's
-// format (Grok and Kimi over ACP, ADR-015; Kimi's files through Plenipo, ADR-018).
+// format (Grok and Kimi over ACP, ADR-015; Kimi's files through Plenipo, ADR-021).
 // Real CLIs with real sign-ins are verified by the owner (see the Phase 3 checklist).
 
 import assert from "node:assert/strict";

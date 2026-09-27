@@ -20,7 +20,7 @@ Four decision records set the rules:
   settings are for.
 - **ADR-015 (running AI tools over ACP)** lets a tool whose one-task mode cannot read the prompt
   from stdin run over ACP instead, where the prompt also goes in on stdin.
-- **ADR-018 (Kimi over ACP, with its file reads and writes going through Plenipo)** covers an
+- **ADR-021 (Kimi over ACP, with its file reads and writes going through Plenipo)** covers an
   ACP tool whose own tools cannot be switched off: Plenipo offers it file access and answers each
   file request through Guard.
 
@@ -403,7 +403,7 @@ What differs from a one-way adapter:
   (`initialize`, `session/new`/`resume`/`load`, `session/prompt`, a permission request before
   each tool call, `session/cancel` during `[slow]`).
 
-### When the tool's own tools cannot be switched off (ADR-018)
+### When the tool's own tools cannot be switched off (ADR-021)
 
 Kimi is the example ([`kimi.rs`](../../crates/runtime/src/agent/kimi.rs)). Its built-in tools
 have no off switch, so the adapter turns on the driver's options for such a tool in its

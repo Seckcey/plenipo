@@ -5,10 +5,11 @@ owner's check on Windows with the real CLI (see the
 [acceptance report](ai-tools-kimi-acceptance-report.md), §6).
 
 Adds Kimi Code, Moonshot AI's official coding CLI, as an AI tool under ADR-014 (the rules for
-adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and ADR-018 (Kimi over
+adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and ADR-021 (Kimi over
 ACP, with its file reads and writes going through Plenipo), accepted by the owner on 2026-09-26.
-ADR-018 was numbered ADR-016 when accepted; it was renumbered on 2026-09-27 because `main`
-already uses ADR-016 for the Development department. Guide:
+ADR-021 was numbered ADR-016 when accepted; it was renumbered on 2026-09-27 because `main`
+already uses ADR-016 for the Development department and ADR-018 to ADR-020 for Phase 9 and
+Phase 10. Guide:
 [`adding-an-ai-tool.md`](../development/adding-an-ai-tool.md), §11. The owner checked the real CLI
 on Windows 11 with a Kimi subscription; the raw outputs are in
 [`crates/runtime/tests/fixtures/kimi-0.34.0/`](../../crates/runtime/tests/fixtures/kimi-0.34.0/README.md).
@@ -49,7 +50,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       (`0.34.0`), `session/load` with the conversation ID (checked on the real CLI).
       **Owner check:** resume and cancel in Plenipo.
 - [x] Least privilege: flags that stop writes and network — no flag can switch Kimi's own tools
-      off, so ADR-018: every file Kimi reads or writes comes to Plenipo and goes through Guard,
+      off, so ADR-021: every file Kimi reads or writes comes to Plenipo and goes through Guard,
       its own shell is refused, and its mode is `default` (or `plan` for a worker without
       permissions). **Owner check:** Kimi's approved writes come to Plenipo, and its web tools
       (if any) ask first.
@@ -66,7 +67,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       `%USERPROFILE%\.kimi-code`
 - [x] Turn arguments: `acp`; the conversation, mode, model, and thinking level travel in ACP
       messages
-- [x] Parser: the shared ACP driver (`acp.rs`) with ADR-018's options — file access through
+- [x] Parser: the shared ACP driver (`acp.rs`) with ADR-021's options — file access through
       Guard, session settings, allowed modes, `session/load` to resume, tool names in titles,
       and the refusal of models outside `kimi-code/…`
 - [x] Capabilities: tool posture, thinking levels (low, high, max), the four `kimi-code/…`
@@ -74,7 +75,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
 - [x] Unit tests in the module, using the recorded outputs (`tests/fixtures/kimi-0.34.0/`)
 - [x] Plenipo's tool server wired in (ACP `mcpServers`), tested through the real broker and relay
 
-## ADR-018 (Kimi over ACP, with its file reads and writes going through Plenipo) — what it asked for
+## ADR-021 (Kimi over ACP, with its file reads and writes going through Plenipo) — what it asked for
 
 - [x] §1 Kimi runs over ACP through the shared driver, one `kimi acp` per task
 - [x] §2 `initialize` offers `fs.readTextFile` and `fs.writeTextFile`, and no terminal; each

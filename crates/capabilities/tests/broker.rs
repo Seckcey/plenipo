@@ -555,7 +555,7 @@ fn own_read(path: &Path) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_kimi_worker_reads_only_through_guard_and_never_uses_its_own_shell() {
-    // Kimi (ADR-018): every file Kimi reads comes to Plenipo, which answers it through Guard;
+    // Kimi (ADR-021): every file Kimi reads comes to Plenipo, which answers it through Guard;
     // its own file changes need a worker that may change files, and its shell is refused.
     let h = harness_on("kimi").await;
     let task = h
