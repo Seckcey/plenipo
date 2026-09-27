@@ -1,0 +1,3 @@
+managed:kimi-code  type=kimi  models=4  source=oauth
+
+Default model: kimi-code/k3

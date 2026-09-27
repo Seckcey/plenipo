@@ -49,22 +49,24 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. AI tools: Claude Code, Codex, Grok, and Ollama (optional)
+## 3. AI tools: Claude Code, Codex, Grok, Kimi, and Ollama (optional)
 
 <a id="3-ai-tools-claude-code-and-codex-phase-3-optional"></a>
 <a id="3-ai-tools-claude-code-codex-and-grok-optional"></a>
+<a id="3-ai-tools-claude-code-codex-grok-and-ollama-optional"></a>
 
-The **Workers** view runs tasks on the Claude Code, Codex, Grok, and Ollama tools that are
+The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, and Ollama tools that are
 already installed **and signed in with your subscription** on this computer. Plenipo never asks
 for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
 apps do not need to be open.
 
-| AI tool     | Install (PowerShell)                                      | Sign in (once, in a terminal)                                                  |
-| ----------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build) | `claude auth login` — choose your Claude account                               |
-| Codex       | `npm install -g @openai/codex` (needs Node.js)            | `codex login` — choose **Sign in with ChatGPT**                                |
-| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
-| Ollama      | The installer from ollama.com/download                    | `ollama signin` — finish in the browser                                        |
+| AI tool     | Install (PowerShell)                                            | Sign in (once, in a terminal)                                                  |
+| ----------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build)       | `claude auth login` — choose your Claude account                               |
+| Codex       | `npm install -g @openai/codex` (needs Node.js)                  | `codex login` — choose **Sign in with ChatGPT**                                |
+| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)          | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
+| Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code) | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
+| Ollama      | The installer from ollama.com/download                          | `ollama signin` — finish in the browser                                        |
 
 Then open **AI tools** in Plenipo and choose **Re-check**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -113,8 +115,42 @@ Notes:
     high).
   - Keep Grok up to date with `grok update`. Plenipo was checked with 1.0.41; an old version
     (1.0.13, for example) may not have the options Plenipo uses.
+- Kimi (Moonshot AI's Kimi Code, checked with version 0.34.0). The installer puts `kimi.exe` in
+  `%USERPROFILE%\.kimi-code\bin` (Plenipo also looks in that folder). To check the sign-in
+  yourself, run `kimi provider list`: it should show `managed:kimi-code … source=oauth`, your
+  Kimi subscription. What Plenipo checks and does
+  ([ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md), Kimi over ACP, with its file
+  reads and writes going through Plenipo):
+  - Before every task it runs `kimi provider list`, and runs the task only when the Kimi
+    subscription provider is there with `source=oauth`. Other providers you added to Kimi (an API
+    key, for example) are never used.
+  - It runs only the subscription's models (`kimi-code/…`) and names one on every task (K3 when
+    you choose none), so a different default in Kimi's own settings is never used. It passes no
+    Kimi or Moonshot key variables, and never reads `%USERPROFILE%\.kimi-code`.
+  - Kimi's one-task mode takes the task text only on its command line and changes files without
+    asking, so Plenipo runs `kimi acp` and talks to it over ACP
+    ([ADR-015](../adr/ADR-015-acp-ai-tools.md), running AI tools over ACP): one program per task,
+    and the task text goes in on its input.
+  - Kimi's own tools cannot be switched off, so every file Kimi reads or writes comes to Plenipo,
+    which answers it through Guard with the worker's permissions: inside the project folder,
+    never a blocked file, secrets hidden, recorded, and with your approval where you asked for
+    it. A worker without permissions gets every file refused.
+  - Kimi's own command line is always refused; workers run programs with Plenipo's
+    `run_command`. Plenipo approves each request once, never "for this session".
+  - Kimi runs in its **default** mode (it asks before acting), or **plan** (read-only) for a
+    worker without permissions — never **auto** or **yolo**. If Kimi switches itself to another
+    mode, Plenipo stops the task.
+  - Models (Kimi 0.34.0, signed in): **kimi-code/k3** ("K3", Kimi's default; thinking low, high,
+    or max), **kimi-code/k3-256k** ("K3-256k"), **kimi-code/kimi-for-coding** ("K2.8 Preview"),
+    and **kimi-code/kimi-for-coding-highspeed** ("K2.7 Code Highspeed"; thinking low — its other
+    level, "on", is not one Plenipo offers). Plenipo sets the model and thinking level at the
+    start of each task.
+  - Kimi still loads your own Kimi settings, such as skills you installed and `AGENTS.md` files.
+    Files it reads for them go through Plenipo too, so the folder rules still apply.
+  - Kimi reports no token counts, so its tasks show none.
 - Workers you start in **Workers** cannot change anything: Claude Code and Grok run with none of
-  their own tools (conversation only), Codex in its read-only sandbox, each conversation in its own empty folder
+  their own tools (conversation only), Kimi in its read-only mode with every file refused, Codex
+  in its read-only sandbox, each conversation in its own empty folder
   under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`. Organization
   workers get Plenipo's own tools, within their permissions (below).
 - Handoffs (Phase 4) need two AI tools Ready. In **Workers**, tick **Allow handoffs to other

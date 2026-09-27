@@ -1,0 +1,6 @@
+Usage: kimi login [options]
+
+Authenticate with Kimi Code CLI via the device-code flow.
+
+Options:
+  -h, --help  Show help.

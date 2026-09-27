@@ -1,0 +1,5 @@
+{"role":"meta","type":"system.version","version":"0.34.0"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_wrPeT7mkAgMUeuQUbE1HPmYC","function":{"name":"Write","arguments":"{\"path\":\"test2.txt\",\"content\":\"hi\"}"}}]}
+{"role":"tool","tool_call_id":"tool_wrPeT7mkAgMUeuQUbE1HPmYC","content":"Wrote 2 bytes to test2.txt"}
+{"role":"assistant","content":"Created `test2.txt` with \"hi\"."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_3d631bbb-581e-4da0-b46f-f0569b539c88","command":"kimi -r session_3d631bbb-581e-4da0-b46f-f0569b539c88","content":"To resume this session: kimi -r session_3d631bbb-581e-4da0-b46f-f0569b539c88"}

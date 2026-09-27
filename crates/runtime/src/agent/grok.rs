@@ -214,6 +214,7 @@ impl RuntimeAdapter for Grok {
             tools: request.tools.clone(),
             model: request.model.clone(),
             session_meta: Some(json!({ "agentProfile": profile(request.tools.is_some()) })),
+            ..AcpTask::default()
         }))
     }
 }
@@ -450,6 +451,7 @@ mod tests {
                 args: vec!["--plenipo-tools=t".into()],
                 config_file: "/app/t.json".into(),
                 call_timeout: std::time::Duration::from_secs(9),
+                tools: Vec::new(),
             }),
             ..TurnRequest::default()
         };

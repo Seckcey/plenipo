@@ -5,9 +5,9 @@
 1. **Launching requires nothing.** Plenipo must start with zero environment variables and no
    config file. Every setting has a safe default.
 2. **No secrets in files Plenipo reads from the repo or environment.** Provider credentials are
-   never stored in `.env`, config files, or SQLite. Plenipo uses the Claude Code, Codex, and Grok
-   CLIs' own existing sign-ins (Phase 3, ADR-007; Grok, ADR-015) and never reads their credential
-   files; from Phase 7,
+   never stored in `.env`, config files, or SQLite. Plenipo uses the Claude Code, Codex, Grok,
+   and Kimi CLIs' own existing sign-ins (Phase 3, ADR-007; Grok, ADR-015; Kimi, ADR-027) and
+   never reads their credential files; from Phase 7,
    secrets are referenced through Windows Credential Manager (Plenipo Vault) by handle, not value.
 3. **User settings live in the per-user app data directory**, not next to the executable.
 4. **Environment variables are for development and automation only**, never for end-user
@@ -45,6 +45,7 @@ environment (ADR-007), and the ones Plenipo sets itself:
 | Claude Code | `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_GIT_BASH_PATH`, proxy and CA variables (`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, …) | `DISABLE_AUTOUPDATER=1` |
 | Codex       | `CODEX_HOME`, proxy and CA variables                                                                                                            | —                       |
 | Grok        | `GROK_HOME`, proxy and CA variables                                                                                                             | see below               |
+| Kimi        | proxy and CA variables                                                                                                                          | —                       |
 
 Grok (ADR-015, running AI tools over ACP) gets `GROK_DISABLE_API_KEY_AUTH=1` (Grok itself refuses
 API keys, including a key set on a model in its own settings), `GROK_DISABLE_AUTOUPDATER=1`, and
@@ -53,10 +54,15 @@ switches that keep it to the least it can do until Guard grants permissions: `GR
 run on xAI's side), and `GROK_CLAUDE_*_ENABLED=0` / `GROK_CURSOR_*_ENABLED=0` for skills, hooks,
 tool servers, agents, and rules (so it does not load your Claude Code or Cursor settings).
 
+Kimi (ADR-027, Kimi over ACP, with its file reads and writes going through Plenipo) finds its
+settings and sign-in in your user folder (`%USERPROFILE%\.kimi-code`, which Plenipo never
+reads), so it needs no variable of its own. Its model and thinking level are set in the ACP
+session, not in variables.
+
 API keys and cloud-provider switches (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `OPENAI_API_KEY`, `CODEX_API_KEY`,
 `XAI_API_KEY`, `GROK_CODE_XAI_API_KEY`, `GROK_DEPLOYMENT_KEY`, Grok's auth-provider, OIDC, and
-endpoint variables, …) are
+endpoint variables, any Kimi or Moonshot variable, …) are
 **never** passed, so a worker cannot silently bill an API account.
 
 ## Directories (Windows)

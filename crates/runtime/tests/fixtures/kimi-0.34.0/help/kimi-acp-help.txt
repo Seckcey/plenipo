@@ -1,0 +1,8 @@
+Usage: kimi acp [options]
+
+Run kimi-code as an Agent Client Protocol (ACP) server over stdio.
+
+Options:
+  --login     Run the device-code login flow then exit (entry point for ACP terminal-auth).
+              (default: false)
+  -h, --help  Show help.

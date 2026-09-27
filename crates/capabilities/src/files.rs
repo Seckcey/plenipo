@@ -131,6 +131,36 @@ pub fn read(file: &Resolved, offset: usize, limit: usize) -> Out {
     Ok(out)
 }
 
+/// A text file exactly as it is, for an AI tool's own reads (ADR-027): all of it, or `limit`
+/// lines from line `offset` (from 1), with their line endings. Never cut short silently.
+pub fn read_text(file: &Resolved, offset: usize, limit: usize) -> Out {
+    let meta = fs::metadata(&file.abs).map_err(|e| io(file.shown(), &e))?;
+    if meta.is_dir() {
+        return Err(format!("{} is a folder, not a file", file.shown()));
+    }
+    if meta.len() > MAX_READ_FILE {
+        return Err(format!(
+            "{} is {} bytes; files over {MAX_READ_FILE} bytes cannot be read",
+            file.shown(),
+            meta.len()
+        ));
+    }
+    let bytes = fs::read(&file.abs).map_err(|e| io(file.shown(), &e))?;
+    if is_binary(&bytes) {
+        return Err(format!("{} is a binary file", file.shown()));
+    }
+    let text =
+        String::from_utf8(bytes).map_err(|_| format!("{} is not UTF-8 text", file.shown()))?;
+    if offset <= 1 && limit == usize::MAX {
+        return Ok(text);
+    }
+    Ok(text
+        .split_inclusive('\n')
+        .skip(offset.saturating_sub(1))
+        .take(limit)
+        .collect())
+}
+
 pub fn search(
     workspace: &Workspace,
     start: &Resolved,
@@ -355,6 +385,25 @@ mod tests {
             "build folders are skipped: {out}"
         );
         assert!(!out.contains(".env"), "blocked files are skipped: {out}");
+    }
+
+    #[test]
+    fn read_text_keeps_the_file_as_it_is() {
+        let (_d, ws) = setup();
+        let f = ws.resolve("docs/crlf.txt").unwrap();
+        write(&f, "one\r\ntwo\r\nthree").unwrap();
+        let f = ws.resolve("docs/crlf.txt").unwrap();
+        assert_eq!(read_text(&f, 1, usize::MAX).unwrap(), "one\r\ntwo\r\nthree");
+        assert_eq!(read_text(&f, 2, 1).unwrap(), "two\r\n");
+        assert_eq!(read_text(&f, 3, 5).unwrap(), "three");
+        assert_eq!(read_text(&f, 9, 5).unwrap(), "");
+        let dir = ws.resolve("docs").unwrap();
+        assert!(read_text(&dir, 1, usize::MAX).is_err());
+        let bin = ws.resolve("docs/b.bin").unwrap();
+        std::fs::write(&bin.abs, [0u8, 1, 2]).unwrap();
+        assert!(read_text(&bin, 1, usize::MAX)
+            .unwrap_err()
+            .contains("binary"));
     }
 
     #[test]

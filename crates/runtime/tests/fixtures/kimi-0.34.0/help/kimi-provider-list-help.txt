@@ -1,0 +1,7 @@
+Usage: kimi provider list [options]
+
+Show configured providers and their model counts.
+
+Options:
+  --json      Emit the raw providers/models config as JSON. (default: false)
+  -h, --help  Show help.

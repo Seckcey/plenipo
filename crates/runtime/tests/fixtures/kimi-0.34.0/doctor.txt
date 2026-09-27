@@ -1,0 +1,6 @@
+Kimi doctor
+
+OK config.toml  C:/Users/<user>/.kimi-code/config.toml
+OK tui.toml     C:\Users\<user>\.kimi-code\tui.toml
+
+All checked config files are valid.

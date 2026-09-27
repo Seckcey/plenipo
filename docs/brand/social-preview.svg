@@ -33,8 +33,10 @@
       <text x="268" y="524" fill="#6AA6FF" text-anchor="middle">Codex</text>
       <rect x="324" y="498" width="84" height="40" rx="20" fill="#101B2C" stroke="#23344D" />
       <text x="366" y="524" fill="#6AA6FF" text-anchor="middle">Grok</text>
-      <rect x="418" y="498" width="98" height="40" rx="20" fill="#101B2C" stroke="#23344D" />
-      <text x="467" y="524" fill="#6AA6FF" text-anchor="middle">Ollama</text>
+      <rect x="418" y="498" width="84" height="40" rx="20" fill="#101B2C" stroke="#23344D" />
+      <text x="460" y="524" fill="#6AA6FF" text-anchor="middle">Kimi</text>
+      <rect x="512" y="498" width="98" height="40" rx="20" fill="#101B2C" stroke="#23344D" />
+      <text x="561" y="524" fill="#6AA6FF" text-anchor="middle">Ollama</text>
     </g>
 
     <text x="80" y="592" fill="#4E637D" font-size="16">Windows 11 · Tauri + Rust · Your own sign-ins, never API keys</text>

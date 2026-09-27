@@ -3,7 +3,7 @@
 Plenipo is one app and one public codebase. A license key decides how far it scales and which
 business departments you can create.
 
-> **Status:** this page is the plan, not what ships today. Releases up to v1.4.0 have no license
+> **Status:** this page is the plan, not what ships today. Releases up to v1.5.0 have no license
 > check and no limits — everything is unlocked. The Free and Pro split arrives in a coming release
 > ([ADR-021](adr/ADR-021-editions-and-license.md), Free and Pro editions under the Elastic
 > License, and [ADR-022](adr/ADR-022-subscription-and-license-check.md), subscription pricing
@@ -18,7 +18,7 @@ business departments you can create.
 | Workers on the job at the same time                            | 3              | Unlimited |
 | Development department (developer, reviewer, QA, docs)         | Yes            | Yes       |
 | Sales department on HubSpot, and business departments after it | No             | Yes       |
-| AI tools: Claude Code, Codex, Grok, Ollama                     | All            | All       |
+| AI tools: Claude Code, Codex, Grok, Kimi, Ollama               | All            | All       |
 | Your own sign-ins, never API keys                              | Yes            | Yes       |
 | Which AI model each role gets, and how hard it thinks          | Yes            | Yes       |
 | Permissions, Guard, folder limits, and your approval           | Yes            | Yes       |
@@ -36,8 +36,8 @@ business departments you can create.
   Vault, the control center with **Take over** and **Stop all**, the switches in **Settings →
   Switches**, and the full record in the Ledger.
   Nothing that keeps a worker in bounds is ever behind a paid tier.
-- **Every AI tool.** Free is not limited to one vendor. Claude Code, Codex, Grok, and Ollama all
-  work on the Free edition, on your own sign-ins.
+- **Every AI tool.** Free is not limited to one vendor. Claude Code, Codex, Grok, Kimi, and Ollama
+  all work on the Free edition, on your own sign-ins.
 - **The whole chain of command.** Worker → Supervisor → Manager → VP → President, with one
   department and one project.
 - **The source.** You can read it, build it, change it, and run your build.

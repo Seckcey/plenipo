@@ -368,6 +368,7 @@ const TOOL_NAMES: Record<string, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
   grok: "Grok",
+  kimi: "Kimi",
   ollama: "Ollama",
 };
 

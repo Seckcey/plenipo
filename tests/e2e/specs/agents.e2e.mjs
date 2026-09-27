@@ -1,6 +1,6 @@
 // Phase 3 end-to-end: agent runtimes in the real app, driven through the UI against fake
-// `claude`, `codex`, and `grok` CLIs (plenipo-fake-agent) that speak each provider's format
-// (Grok over ACP, ADR-015).
+// `claude`, `codex`, `grok`, and `kimi` CLIs (plenipo-fake-agent) that speak each provider's
+// format (Grok and Kimi over ACP, ADR-015; Kimi's files through Plenipo, ADR-027).
 // Real CLIs with real sign-ins are verified by the owner (see the Phase 3 checklist).
 
 import assert from "node:assert/strict";
@@ -103,16 +103,17 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForText(browser, ".shell__wordmark", "Plenipo");
     await nav(browser, "AI tools");
     const cards = '[aria-label="AI tools"]';
-    // Claude Code, Codex, and Grok are Ready; Ollama is found too, and Ready only when an Ollama
-    // service is signed in on this machine (the fake plays only its program).
+    // Claude Code, Codex, Grok, and Kimi are Ready; Ollama is found too, and Ready only when an
+    // Ollama service is signed in on this machine (the fake plays only its program).
     await waitUntil(
-      async () => (await textOf(browser, cards)).match(/Ready/g)?.length >= 3,
+      async () => (await textOf(browser, cards)).match(/Ready/g)?.length >= 4,
       "every AI tool ready",
     );
     const text = await textOf(browser, cards);
     assert.match(text, /Claude Code[\s\S]*v2\.1\.999[\s\S]*Signed in \(subscription\)/);
     assert.match(text, /Codex[\s\S]*v0\.99\.0[\s\S]*ChatGPT sign-in/);
     assert.match(text, /Grok[\s\S]*xAI[\s\S]*v1\.0\.99[\s\S]*grok\.com sign-in/);
+    assert.match(text, /Kimi[\s\S]*Moonshot AI[\s\S]*v0\.34\.99[\s\S]*Kimi sign-in/);
     assert.match(text, /Ollama[\s\S]*v0\.34\.4/);
     assert.doesNotMatch(text, /owner@example\.com/, "no account identifiers shown");
     await screenshot(browser, "agent-runtimes");
@@ -152,6 +153,19 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     assert.match(t.text, /30 in \(12 cached\) · 9 out/);
     await waitForText(browser, ".detail__header", "Grok conversation");
     await screenshot(browser, "worker-result-grok");
+  });
+
+  it("launches a Kimi task over ACP, and Plenipo refuses Kimi's own shell", async () => {
+    const { browser } = app;
+    await startTask(browser, "Kimi", "Hello Kimi [own-shell]");
+    const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Kimi result");
+    assert.match(t.text, /Turn 1: you said "Hello Kimi \[own-shell\]"\. Previous: None\./);
+    assert.match(t.text, /Shell answer: reject\./);
+    await waitForText(browser, ".detail__header", "Kimi conversation");
+    // The refusal is in the task's activity, in plain words.
+    await (await browser.$('//summary[contains(., "Live activity")]')).click();
+    await waitForText(browser, TURNS, "Workers run programs with Plenipo's run_command tool");
+    await screenshot(browser, "worker-result-kimi");
   });
 
   it("A5: resumes both sessions in the same provider session", async () => {

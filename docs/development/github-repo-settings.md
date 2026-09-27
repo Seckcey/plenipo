@@ -13,7 +13,7 @@ Repository home page → right sidebar → **About** → the gear icon.
 **Description** — paste exactly:
 
 ```text
-Run your own AI workforce on your PC. Hand it an outcome and a team of AI workers, supervisors, and managers gets it done — with permissions, approvals, and a full record. Uses your Claude Code, Codex, Grok, and Ollama sign-ins, not API keys.
+Run your own AI workforce on your PC. Hand it an outcome and a team of AI workers, supervisors, and managers gets it done — with permissions, approvals, and a full record. Uses your Claude Code, Codex, Grok, Kimi, and Ollama sign-ins, not API keys.
 ```
 
 **Website** — the 8 West product page for Plenipo once it exists. Until then:
