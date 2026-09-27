@@ -1,6 +1,10 @@
 # ADR-021: Free and Pro editions under the Elastic License 2.0
 
 - **Status:** Accepted
+- **Amended by:** [ADR-022](ADR-022-subscription-and-license-check.md) (subscription pricing
+  and the weekly license check), which replaces **decision 5** below. Pro is a subscription,
+  so the key cannot be verified offline forever; decision 5's "the check is local" is no
+  longer how Plenipo works. Every other decision here stands.
 - **Date:** 2026-09-27
 - **Phase:** 10 (recorded after the browser work, alongside opening the repository up)
 

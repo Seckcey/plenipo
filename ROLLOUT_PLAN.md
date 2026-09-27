@@ -1088,28 +1088,36 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 ## Goal
 
-Make the Free and Pro split real. A license key, verified on the owner's own PC with no network call, unlocks Pro. Free limits are enforced in one place, are impossible to hit silently, and never cost the owner work they have already done. Accepted in ADR-021 (Free and Pro editions under the Elastic License 2.0); the edition table is `docs/editions.md`.
+Make the Free and Pro split real. Pro is a subscription: a signed key in the Vault, plus a quiet weekly check with 8 West, decides the edition. Plenipo keeps working offline for 30 days at a time, and a Free install never contacts 8 West at all. Free limits are enforced in one place, are impossible to hit silently, and lapsing never costs the owner work they have already done. Accepted in ADR-021 (Free and Pro editions under the Elastic License 2.0) and ADR-022 (subscription pricing and the weekly license check, which replaces ADR-021 decision 5). The edition table and the prices are `docs/editions.md`.
 
 ## Deliverables
 
-- `crates/licensing/`: edition model, key verification, entitlement snapshot
-- signed license key format (edition, holder, key id, issue date, update window)
-- local verification against a public key embedded in the app
+- `crates/licensing/`: edition model, key verification, entitlement snapshot, check-in client
+- signed license key carrying edition, holder, key id, plan, and paid-through date
+- local signature verification against a public key compiled into the app, on every start
+- weekly check-in to the 8 West license service, sending the key id and app version and nothing else
+- 30-day offline grace, fail-open on every error
 - license storage in the Vault (Windows Credential Manager)
-- **Settings -> License** screen: enter a key, see the edition and who it is for, remove the key
+- **Settings -> License**: enter a key, see the plan and renewal date, see when it last checked, remove the key
 - single enforcement point: `Entitlements::check(limit)` -> Allowed, or Blocked with a plain-words reason
 - Free limits enforced in Workforce: 1 department, 1 project, 3 workers on the job at once
 - business departments (Sales on HubSpot and those after it) gated to Pro at the setup flow
-- plain-words limit message naming what Pro adds, on every blocked path
-- Ledger events for every license action, with the key itself redacted
+- plain-words message on every blocked path, naming what Pro adds
+- Ledger events for every license action and check-in result, with the key redacted
 - lapse behavior that never deletes, hides, or breaks existing departments, projects, or history
-- `docs/editions.md` status note updated from "the plan" to what ships
+- `docs/editions.md` updated with the prices and what the check-in sends
 
 ## Technical Implementation
 
-Key format: a short signed token carrying edition, holder, key id, issue date, and update window. Ed25519. The public key is compiled into the app; the signing key belongs to 8 West, stays offline, and is never in the repository.
+Key format: a short signed token (Ed25519) carrying edition, holder, key id, plan, and paid-through date. The public key is compiled into the app; the signing key belongs to 8 West, stays offline, and is never in the repository. The signature is verified locally at every start, with no network.
 
-Verification is local and offline — no activation server, no account, no telemetry, no usage reporting, consistent with ADR-002 (local-first architecture). A machine with no network verifies exactly the same as one with it.
+**The weekly check.** A subscription can only work if Plenipo can learn that someone stopped paying, so Pro installs check in at most once every seven days. The request carries the key id and the app version. It never carries project or folder names, file paths, objectives, task text, worker output, model choices, or anything from the Ledger. **A Free install never checks in at all** — an owner who has not paid never contacts 8 West.
+
+**Fail-open, always.** No internet, server down, timeout, bad response, DNS failure: Pro stays on and the check retries later. Pro drops in exactly two cases — the service explicitly reports the subscription ended, or 30 days pass with no successful check. A license service outage must never take Pro away from a paying customer, and Plenipo must stay usable on a plane.
+
+Cancellation drops Pro at the end of the paid period, never the moment someone cancels.
+
+Clock handling: grace is measured against the later of the system clock and the most recent time the service reported, so winding the clock back does not extend grace. A clock set forward is treated as the owner's problem to explain, not as fraud to punish.
 
 New crate rather than a module in Core, per ADR-004 (grow crates per phase). Workforce, and each business department's setup flow, ask `licensing` for entitlements; nothing else decides for itself whether an owner is Pro.
 
@@ -1117,44 +1125,49 @@ One enforcement point, not many. Every limit resolves through `Entitlements::che
 
 Free limits count live positions, not history. Three workers on the job means three at once; a project that has finished a hundred tasks is still within Free.
 
-**Update window, not expiry.** The key's date bounds which versions it unlocks, not how long Plenipo runs. A lapsed key keeps Pro on every version released inside its window — the owner keeps what they paid for. This is the recommended default and needs the owner's pricing decision before implementation.
-
 **Lapse is never destructive.** If a Pro owner drops to Free holding three departments, nothing is deleted, hidden, or stopped. Existing work stays visible, readable, and runnable to completion. Only *creating* something new past a Free limit is blocked. Destroying an owner's work over billing would be worse for Plenipo than any revenue it protected.
 
 No hardware binding, no machine fingerprinting, no anti-tamper beyond the signature check. The Elastic License 2.0 makes working around the check a breach of licence; the code marks the boundary, the licence enforces it. Obfuscation would cost real support pain for no real protection on a source-available desktop app.
 
-Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them.
+Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them. All four AI tools stay in Free.
 
 ## Tests
 
 - valid key accepted; tampered payload rejected; wrong signing key rejected; malformed key rejected
-- key for a version outside the update window: Pro on versions inside it, Free on those outside
 - Free: second department blocked, second project blocked, fourth simultaneous worker blocked
 - Free: the whole Development flow completes on 1 department, 1 project, 3 workers
 - Pro: departments, projects, and workers all unlimited
 - business department setup blocked on Free, allowed on Pro
 - key entered -> Pro applies without restarting the app; key removed -> Free, with nothing deleted
 - lapse with three departments: everything still listed, readable, and runnable; only new creation blocked
+- **no internet: Pro stays on through day 30 and drops on day 31**
+- **service down, 500, timeout, garbage response: Pro stays on and the check retries**
+- **service reports cancelled: Pro stays until the end of the paid period, then drops**
+- **check-in body contains the key id and app version and nothing else, asserted byte for byte**
+- **a Free install makes no outbound request at all**
+- clock wound backwards does not extend the 30-day grace
 - every blocked path returns the plain-words message, snapshot tested against the vocabulary
-- verification performs no outbound request, asserted with the network unavailable
-- Ledger records entered, accepted, rejected, and removed, with the key redacted
+- Ledger records entered, accepted, rejected, removed, and each check-in result, with the key redacted
 - permissions, approvals, and Guard behave identically on Free and Pro
 
 ## Acceptance Criteria
 
-An owner with no key runs a full Development objective end to end on one department, one project, and three workers. Attempting a second project shows a plain message naming what Pro adds, and nothing fails silently. Entering a valid key unlocks Pro immediately with no restart and no network. Removing the key returns to Free with no data lost and nothing hidden. Every license action is in the Ledger with the key redacted.
+An owner with no key runs a full Development objective end to end on one department, one project, and three workers, and their Plenipo never contacts 8 West. Attempting a second project shows a plain message naming what Pro adds, and nothing fails silently. Entering a valid key unlocks Pro immediately with no restart. A Pro machine taken offline keeps Pro for 30 days. With the license service switched off entirely, Pro stays on. Removing the key returns to Free with no data lost and nothing hidden. Every license action is in the Ledger with the key redacted, and the check-in body is exactly the key id and the app version.
 
 ## Dependencies
 
-Phase 5 (workforce engine, for where limits are counted), Phase 7 (Guard and the Vault, for where the key is stored). Accepted in ADR-021. The Settings -> License screen lands here and is restyled with the rest of Settings in Phase 12A.
+Phase 5 (workforce engine, for where limits are counted), Phase 7 (Guard and the Vault, for where the key is stored). Accepted in ADR-021 and ADR-022. The Settings -> License screen lands here and is restyled with the rest of Settings in Phase 12A.
+
+The 8 West license service is separate infrastructure, not built in this phase. This phase ships against a written request and response contract and a local test double, so every case above can be tested without the real service existing.
 
 Phase 11A runs before Phase 11 and before the postponed Phase 9: the Sales department is a Pro department, so the gate exists before the department it gates.
 
 ## Out of Scope
 
-- online activation, accounts, sign-in, telemetry, or usage reporting of any kind
+- the 8 West license service itself, and its hosting — separate infrastructure
+- payment processing, checkout, key delivery, failed-payment chasing, refunds, and sales tax — a business system outside the app
+- accounts, sign-in, telemetry, analytics, crash reporting, or usage reporting of any kind
 - hardware binding or machine fingerprinting
-- payment processing, checkout, and key delivery — a business system outside the app
 - obfuscation or anti-tamper beyond signature verification
 - gating any safety, permission, approval, or record feature behind Pro
 - gating any AI tool behind Pro; all four stay in Free
