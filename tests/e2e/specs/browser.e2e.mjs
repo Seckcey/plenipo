@@ -166,6 +166,31 @@ const shotShown = (browser, scope) =>
     `a screenshot in ${scope}`,
   ).then(() => browser.pause(500));
 
+/**
+ * When a wait fails, print the objective's Activity trail (the worker's tool results say why a
+ * browser step failed, for example that the browser could not start), then fail as before.
+ */
+async function explainOnFailure(browser, objective, work) {
+  try {
+    return await work();
+  } catch (error) {
+    try {
+      await nav(browser, "Activity");
+      const task = await browser.$(`//button[starts-with(@aria-label, "${objective}")]`);
+      await task.click();
+      await browser.pause(1000);
+      const trees = await browser.$$('//ol[@aria-label="Delegation tree"]//button');
+      if (trees.length > 1) await trees[trees.length - 1].click();
+      await browser.pause(1500);
+      console.error(`--- Activity trail of "${objective}" ---`);
+      console.error(await textOf(browser, '[aria-label="Activity trail"]'));
+    } catch (e) {
+      console.error(`(could not read the Activity trail: ${e})`);
+    }
+    throw error;
+  }
+}
+
 /** A Plenipo tool call in the fake agent's objective. */
 const tool = (name, args) => `<<tool:${name} ${JSON.stringify(args)}>>`;
 
@@ -261,7 +286,9 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
       tool("browser_open", { url: url("localhost", "/") }),
     ]);
     // While the worker waits, the sign on every page says who is using the browser.
-    await waitForText(browser, ".banner--approval", "is waiting for your approval", 60_000);
+    await explainOnFailure(browser, "Contact the shop", () =>
+      waitForText(browser, ".banner--approval", "is waiting for your approval", 60_000),
+    );
     await waitForText(browser, CONTROL, "Web Assistant is using Plenipo's browser");
     await waitForText(browser, ".shell__footer", "Web Assistant is using Plenipo's browser");
     await screenshot(browser, "control-banner");
