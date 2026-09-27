@@ -59,7 +59,7 @@ export function SettingsView() {
           a worker on another AI tool for help through Plenipo Liaison — workers never contact each
           other directly. Liaison records a sub-task, passes on only the context the worker chose
           (up to a limit), and brings the reply back to the same piece of work. Limits: 3 levels
-          deep, 3 requests per answer, 5 reply rounds per task, 12 handoffs per piece of work. A
+          deep, 3 requests per answer, 8 reply rounds per task, 16 handoffs per piece of work. A
           worker&apos;s permissions come from your settings for its role and project; a request for
           more permissions is recorded but never grants anything.
         </li>

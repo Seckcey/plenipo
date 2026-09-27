@@ -1,0 +1,195 @@
+Command Sandboxing (experimental):
+
+  When sandboxing is enabled, shell commands run inside an OS-level sandbox with
+  restricted filesystem and network access, limiting the blast radius of a
+  command the agent runs. Built-in file edits aren't OS-sandboxed, but still
+  follow the same policy on a best-effort basis.
+
+  Command sandboxing is an experimental feature. The `/sandbox` command (and its
+  `enable`/`disable` subcommands) is only registered when experimental features
+  are on, or when a managed policy forces sandboxing on; otherwise it returns
+  "Unknown command". Enable experimental features with the `--experimental` flag
+  or `/settings experimental on` (staff sessions have it available by default).
+
+Underlying technology:
+
+  Sandboxing is powered by Microsoft Execution Containers (MXC), which provides a
+  cross-platform abstraction over each operating system's native isolation
+  primitives. Copilot CLI describes the policy it wants (which paths are
+  readable/writable, whether network is allowed, and so on) and MXC enforces it
+  using the appropriate OS backend for your platform.
+
+  To learn more about MXC, see https://github.com/microsoft/mxc
+
+Disabled vs. enabled:
+
+  Disabled (the default)  Shell commands run directly on your machine with the
+                          same access your user account has. The agent can read,
+                          write, and delete anywhere you can, reach any network
+                          your machine can, and use your credentials without
+                          restriction. No git/`gh` tokens are injected into a
+                          sandbox because there is no sandbox.
+
+  Enabled                 Shell commands are launched inside an MXC sandbox that
+                          enforces your configured policy. Access outside the
+                          allowed paths is blocked, network is constrained to
+                          what the policy permits, and git/`gh` credentials are
+                          injected only when you opt in. Commands that try to
+                          step outside the policy fail rather than affecting the
+                          rest of your system, unless you explicitly bypass the
+                          sandbox for that command. Note that the sandbox still
+                          inherits your shell environment apart from a fixed
+                          blocklist, so other credentials already present in your
+                          environment (for example `AWS_ACCESS_KEY_ID`) remain
+                          visible to sandboxed commands.
+
+Supported hosts:
+
+  macOS    Uses the MXC Seatbelt backend (`sandbox-exec`).
+  Linux    Uses the MXC bubblewrap backend; requires `bwrap` 0.5.0+ on PATH.
+           Every sandbox also runs in a private network namespace, which
+           requires `slirp4netns`, util-linux 2.35+ (`unshare` with
+           `--map-current-user` and `--keep-caps`, plus `nsenter`),
+           `iptables`, `ip6tables`, both `-restore` binaries, and read/write
+           access to `/dev/net/tun`.
+           Unprivileged hosts normally need the `nf_tables` iptables backend.
+  Windows  Uses MXC ProcessContainer with BaseContainer. Supported versions:
+           https://aka.ms/ghcp-sandbox-os-support
+
+  The host-support check probes for `sandbox-exec` on macOS and a new-enough
+  `bwrap` on Linux; on Windows it requires BaseContainer and a compatible
+  policy. Sandboxing is unavailable on other hosts. On Linux, install `bwrap`
+  if `/sandbox` reports that sandboxing isn't supported. The probe does not
+  check the namespace prerequisites above, so if a sandboxed command fails
+  during startup, install or enable them; MXC names the missing or incompatible
+  prerequisite.
+
+  If sandboxing is already on when you start a session on a host that can't run
+  it — from `--sandbox`, a saved `sandbox.enabled`, or an organization policy —
+  every sandboxed shell command and every sandboxed MCP/LSP server fails.
+  Copilot prints a startup warning saying so. Turn sandboxing off with
+  `/sandbox disable` (or set `sandbox.enabled` to false in `settings.json`) to
+  keep working. To fix the host, install the required Linux tools or update
+  Windows.
+
+  When an organization policy enforces sandboxing, a local
+  `sandbox.enabled: false` is overridden by the managed floor. If the policy
+  leaves `allowBypass` on, you can approve a per-command bypass, or run
+  `/sandbox disable` to turn sandboxing off for the rest of the current session
+  — that choice isn't saved, so a new session starts sandboxed again and
+  `/sandbox enable` restores it sooner. If the policy sets
+  `allowBypass: false`, sandboxing is mandatory, `/sandbox disable` is refused,
+  and a host that can't run the sandbox can't run shell commands at all;
+  contact your administrator, who can deploy the prerequisites or scope the
+  policy.
+
+What you can lock down:
+
+  With sandboxing enabled you (and your organization) can restrict how the agent
+  interacts with your machine along several dimensions:
+
+  Filesystem   Grant read/write only to specific paths, grant read-only access
+               to others, and deny paths outright. By default access is limited
+               to your working directory, PATH directories, the temp directory,
+               and your user profile. Everything else is inaccessible unless you
+               add it to the policy.
+
+  Network      Allow or block outbound network connections, and separately allow
+               or block connections to your local network, so commands can't
+               exfiltrate data or reach internal services you haven't approved.
+
+  Credentials  Decide whether git and `gh` credentials are injected into
+               sandboxed commands. These tokens are never injected while the
+               sandbox is disabled, and you can keep them out of the sandbox
+               entirely. This control covers only git/`gh` injection; other
+               credentials already present in your shell environment are still
+               inherited unless they fall under the runtime's env blocklist.
+
+  Subprocesses Choose whether local (stdio) MCP servers and LSP servers are also
+               spawned inside the sandbox so they inherit the same restrictions.
+               Remote (HTTP/SSE) MCP servers are never sandboxed.
+
+  Keychain     On macOS, control whether the system keychain is reachable from
+               inside the sandbox.
+
+  Bypass       Optionally allow (or forbid) a per-command escape hatch that lets
+               a single command opt out of the sandbox when it needs
+               unrestricted access.
+
+Enabling and disabling:
+
+  /sandbox            Show the current status. In interactive mode, opens a
+                      dialog to configure the sandbox policy.
+  /sandbox enable     Turn command sandboxing on.
+  /sandbox disable    Turn command sandboxing off.
+
+  Enabling seeds a sensible starting policy: filesystem access is limited to your
+  working directory, PATH directories, the temp directory, and your user profile;
+  outbound network connections are allowed; git/`gh` credentials are injected for
+  sandboxed commands; and a per-command bypass escape hatch is available.
+
+Configuration:
+
+  Settings are stored in `settings.json` under the `sandbox` key. Edit them there
+  or via the `/sandbox` dialog.
+
+  `enabled`: whether command sandboxing is on.
+
+  `addCurrentWorkingDirectory`: grant read/write access to the current working
+    directory; on by default when enabling.
+
+  `allowDevToolAccess`: auto-grant access to the dev-tool locations builds need;
+    on by default. Read access covers common dev-tool caches, toolchains, and
+    registry/proxy config in their default locations (for example `~/.npmrc`,
+    `~/.m2/settings.xml`), so builds resolve custom registries without your
+    exporting `CARGO_HOME`/`GOPATH`/etc. Read/write access covers shared scratch
+    caches (go-build, ccache, sccache, Gradle), Cargo's registry and git stores,
+    and the Unix `gh` cache at `$XDG_CACHE_HOME/gh` or `~/.cache/gh`. Cargo's
+    installed binaries are read-only; its config and credentials are not granted.
+    A cache you have moved gets the same grants its default location would, and
+    no more. Move it either with an environment variable (`NUGET_PACKAGES`,
+    `GOMODCACHE`, `npm_config_cache`, `GRADLE_USER_HOME`, `CARGO_HOME`, and the
+    like) or in the tool's own config file (NuGet, npm, pnpm, Yarn, Maven, Go,
+    pip, Bundler). Both are read from your own environment and home directory,
+    never from a config file in the repository you are working in.
+
+    Grants are scoped per command: only the ecosystems the command invokes,
+    plus those implied by the build manifests sitting in your working directory
+    (`Cargo.toml`, `go.mod`, `package.json`, `pom.xml`, and the like). A
+    `make` recipe that shells out to `cargo` therefore still gets the Rust
+    caches, and a cwd with no Java manifest keeps `~/.m2` ungranted. Manifests
+    are matched by file name only. Other tool homes found through your
+    environment are granted regardless, but a cache you have moved is granted
+    only to commands that use its own ecosystem.
+
+    The trade-off: sandboxed commands can read those config files — including
+    any registry tokens they hold — and can write to caches shared with your
+    other projects. Dedicated credential stores (`~/.ssh`, `credentials.toml`,
+    and the like) stay excluded either way. Turn this off if you'd rather grant
+    build paths explicitly through `readonlyPaths`/`readwritePaths`.
+
+  `allowBypass`: allow a single command to opt out of the sandbox when it needs
+    unrestricted access (a per-command escape hatch).
+
+  `auth.git` / `auth.gh`: inject git and `gh` credentials into sandboxed commands so
+    authenticated git/`gh` operations keep working inside the sandbox. Tokens are
+    never injected while the sandbox is disabled.
+
+  `sandboxMcpServers` / `sandboxLspServers`: whether local (stdio) MCP servers and
+    LSP servers are also spawned inside the sandbox. Remote (HTTP/SSE) MCP servers
+    are never sandboxed.
+
+  `userPolicy.filesystem.readwritePaths` / `readonlyPaths` / `deniedPaths`: extra
+    paths to grant read/write, grant read-only, or deny.
+
+  `userPolicy.network.allowOutbound`: allow outbound network connections.
+
+  `userPolicy.network.allowLocalNetwork`: allow connections to the local network.
+
+  `userPolicy.seatbelt.keychainAccess` (macOS): allow access to the system
+    keychain from inside the sandbox.
+
+Learn more:
+
+  For details on cloud and local sandboxes, see
+  https://docs.github.com/en/copilot/concepts/about-cloud-and-local-sandboxes

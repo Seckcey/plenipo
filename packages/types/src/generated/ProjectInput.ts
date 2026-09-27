@@ -3,6 +3,11 @@ import type { LeadInput } from "./LeadInput";
 
 export type ProjectInput = { name: string, description: string, repositoryUrl?: string, localPath?: string, allowedRuntimes: Array<string>, capabilityProfile?: string, 
 /**
+ * A branch and working copy per objective (Phase 8); absent: on for a new project,
+ * unchanged for an existing one.
+ */
+branchPerObjective?: boolean, 
+/**
  * Creating only: the department and the coordinator.
  */
 departmentId?: string, coordinator?: LeadInput, };

@@ -18,6 +18,7 @@ mod rows;
 mod sessions;
 mod tasks;
 pub mod workforce;
+mod workspaces;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};

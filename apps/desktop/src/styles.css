@@ -2607,3 +2607,87 @@ button {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.8rem;
 }
+
+/* ---- Projects and results (Phase 8) ------------------------------------------------------- */
+
+.objectives {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.objective-form {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.objective-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.objective-form__row .field {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+.objective-form p {
+  margin: 0;
+}
+
+.result {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.result__answer {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.result__list,
+.result__tasks,
+.result__commits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result__list > li,
+.result__task {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.result__list > li:last-child,
+.result__task:last-child {
+  border-bottom: 0;
+}
+
+.result__commits {
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+
+.result__task-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.result code,
+.project code {
+  overflow-wrap: anywhere;
+}

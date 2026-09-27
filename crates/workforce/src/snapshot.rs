@@ -394,6 +394,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 capability_profile: p.capability_profile.clone(),
                 coordinator_position_id: p.coordinator_position_id.clone(),
                 active: p.status == "active",
+                branch_per_objective: p.branch_per_objective,
                 created_at: p.created_at,
             })
             .collect(),
@@ -765,10 +766,11 @@ mod tests {
         // A worker's lead is its supervisor; a persistent position leads itself.
         assert_eq!(view.lead_of(&o.developer).unwrap().id, o.coordinator);
         assert_eq!(view.lead_of(&o.coordinator).unwrap().id, o.coordinator);
-        // The manager's team is its on-demand QA engineer only (the coordinator is persistent).
+        // The manager's team: its on-demand QA engineer, then its full-time coordinator, which
+        // takes work in its own conversation (Phase 8).
         assert_eq!(
             titles(view.team(&o.head).iter().map(|m| m.position).collect()),
-            ["QA Engineer"]
+            ["QA Engineer", "Cloudline Coordinator"]
         );
     }
 

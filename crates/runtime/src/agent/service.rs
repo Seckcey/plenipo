@@ -1187,6 +1187,25 @@ impl AgentRuntime {
     /// cancelExecution: stop the session's running turn — or end its wait — and return once it
     /// is recorded.
     pub async fn cancel_turn(&self, session_id: &str) -> Result<AgentSessionDetail, RuntimeError> {
+        self.cancel(session_id, None).await
+    }
+
+    /// Stop `task_id` in `session_id` — only if that is the turn the session is working on now
+    /// (running or waiting). A member of the organization keeps one conversation for all its
+    /// work, so stopping one of its tasks must never stop another (Phase 8, ADR-016).
+    pub async fn cancel_task(
+        &self,
+        session_id: &str,
+        task_id: &str,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        self.cancel(session_id, Some(task_id)).await
+    }
+
+    async fn cancel(
+        &self,
+        session_id: &str,
+        expected: Option<&str>,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
         enum Target {
             Running(String, Option<String>, watch::Receiver<bool>),
             Waiting(String),
@@ -1200,6 +1219,22 @@ impl AgentRuntime {
                 .ok_or_else(|| {
                     RuntimeError::NotReady("No turn is running in this session.".into())
                 })?;
+            if let Some(expected) = expected {
+                match active.task_id.as_deref() {
+                    Some(t) if t == expected => {}
+                    // Its task is recorded a moment after the turn is reserved; retry then.
+                    None => {
+                        return Err(RuntimeError::NotReady(
+                            "The turn is still starting; try again in a moment.".into(),
+                        ))
+                    }
+                    Some(_) => {
+                        return Err(RuntimeError::NotReady(format!(
+                            "Task {expected} is not the turn this session is working on."
+                        )))
+                    }
+                }
+            }
             match active.claim {
                 Claim::Wait => {
                     let task = active.task_id.clone().unwrap_or_default();
@@ -1307,18 +1342,25 @@ impl AgentRuntime {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(existing) = state.active.get(session_id) {
-            return Err(RuntimeError::NotReady(match (existing.claim, claim) {
-                (Claim::Close, _) => "This session is being closed.".into(),
-                (Claim::Wait, _) => "This session's turn is waiting to continue (for example for \
-                                     handoff replies). Cancel the turn to stop waiting."
-                    .into(),
-                (Claim::Turn, Claim::Close) => {
-                    "A turn is running in this session. Cancel it first.".into()
-                }
-                (Claim::Turn, _) => {
-                    "A turn is already running in this session. Wait for it or cancel it.".into()
-                }
-            }));
+            return Err(match (existing.claim, claim) {
+                (Claim::Close, _) => RuntimeError::NotReady("This session is being closed.".into()),
+                (Claim::Wait, Claim::Turn) => RuntimeError::SessionBusy(
+                    "This session's turn is waiting to continue (for example for handoff \
+                     replies). Cancel the turn to stop waiting."
+                        .into(),
+                ),
+                (Claim::Wait, _) => RuntimeError::NotReady(
+                    "This session's turn is waiting to continue (for example for handoff \
+                     replies). Cancel the turn to stop waiting."
+                        .into(),
+                ),
+                (Claim::Turn, Claim::Close) => RuntimeError::NotReady(
+                    "A turn is running in this session. Cancel it first.".into(),
+                ),
+                (Claim::Turn, _) => RuntimeError::SessionBusy(
+                    "A turn is already running in this session. Wait for it or cancel it.".into(),
+                ),
+            });
         }
         let turns = state
             .active

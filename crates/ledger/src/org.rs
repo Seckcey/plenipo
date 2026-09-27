@@ -93,11 +93,12 @@ pub(crate) fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         allowed_runtimes: serde_json::from_str(&r.get::<_, String>(9)?).unwrap_or_default(),
         capability_profile: r.get(10)?,
         status: r.get(11)?,
+        branch_per_objective: r.get::<_, i64>(12)? != 0,
     })
 }
 pub(crate) const PROJECT_COLS: &str = "id, name, local_path, repository_url, department_id, \
     metadata, created_at, description, coordinator_position_id, allowed_runtimes, \
-    capability_profile, status";
+    capability_profile, status, branch_per_objective";
 
 pub(crate) fn agent_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentInstance> {
     Ok(AgentInstance {

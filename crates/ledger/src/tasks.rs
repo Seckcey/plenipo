@@ -201,6 +201,28 @@ impl Ledger {
         })
     }
 
+    /// The objectives (tasks without a parent) whose trees have work for `project_id` — the
+    /// objective itself or anything handed on from it — newest first.
+    pub fn project_objectives(&self, project_id: &str, limit: u32) -> Result<Vec<Task>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "WITH RECURSIVE up(id, parent, depth) AS (
+                     SELECT id, parent_task_id, 0 FROM tasks WHERE project_id = ?1
+                     UNION
+                     SELECT t.id, t.parent_task_id, up.depth + 1
+                     FROM tasks t JOIN up ON t.id = up.parent WHERE up.depth < 64
+                 )
+                 SELECT {TASK_COLUMNS} FROM tasks
+                 WHERE id IN (SELECT id FROM up WHERE parent IS NULL)
+                 ORDER BY created_at DESC, rowid DESC LIMIT ?2"
+            ))?;
+            let rows = stmt
+                .query_map(params![project_id, limit], rows::task)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
     /// The top of `id`'s parent chain (the task itself when it has no parent).
     pub fn task_root(&self, id: &str) -> Result<Task> {
         self.read(|c| {

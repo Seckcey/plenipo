@@ -16,7 +16,7 @@ pub mod protocol;
 mod service;
 pub mod store;
 
-pub use directory::{Directory, Placement, Team};
+pub use directory::{is_full_time, Directory, MemberConversation, Placement, Team};
 pub use dto::*;
 pub use error::{LiaisonError, Result};
 pub use service::{Liaison, LiaisonConfig, ACTOR};

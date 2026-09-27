@@ -92,6 +92,16 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | the AI tool's models (e.g. Claude Code's)    | known models, model aliases, presets     |
 | Ultra (effort)                               | ultra                                    |
 | Extra high (effort)                          | xhigh                                    |
+| working copy (of the project folder)         | worktree, git worktree                   |
+| branch                                       | branch (fine as is)                      |
+| pull request                                 | PR                                       |
+| result (of an objective)                     | outcome report, objective report         |
+| open findings (from a review)                | unresolved findings                      |
+| Changes requested / Approved (a review)      | request-changes / approve                |
+| Committed / Not committed (a file)           | staged, dirty, working tree              |
+| Pushed (a branch, to the server)             | published, upstream                      |
+| Projects (the page)                          | project dashboard                        |
+| hands it to (a lead to its team)             | delegates, dispatches                    |
 
 ## Where technical words may stay
 
@@ -106,8 +116,8 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 
 ## Known leftovers
 
-None known on the main screens (Organization, Workers, AI tools, Activity, Approvals, Settings,
-including AI models and Permissions); the
+None known on the main screens (Organization, Projects, Workers, AI tools, Activity, Approvals,
+Settings, including AI models and Permissions); the
 Diagnostics page and raw output keep technical details on purpose. Some refusal messages from
 earlier phases can still use an engineering word in rare error cases. Report any technical word
 you find on a screen, and fix it with this list.

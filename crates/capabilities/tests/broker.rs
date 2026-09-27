@@ -241,6 +241,7 @@ async fn harness() -> H {
             local_path: Some(folder.display().to_string()),
             allowed_runtimes: vec!["claude-code".into(), "codex".into()],
             capability_profile: None,
+            branch_per_objective: None,
             department_id: Some(department),
             coordinator: Some(lead(
                 &role("Supervisor"),
@@ -304,7 +305,7 @@ impl H {
     async fn objective(&self, objective: &str) -> String {
         let d = self
             .workforce
-            .give_objective(&self.supervisor, objective)
+            .give_objective(&self.supervisor, objective, None)
             .await
             .unwrap();
         d.turns.last().unwrap().task_id.clone()
@@ -1049,6 +1050,7 @@ async fn project_and_department_limits_narrow_a_role() {
                 local_path: p.local_path.clone(),
                 allowed_runtimes: p.allowed_runtimes.clone(),
                 capability_profile: Some("read-only".into()),
+                branch_per_objective: None,
                 department_id: None,
                 coordinator: None,
             },
@@ -1111,6 +1113,7 @@ async fn a_project_without_a_folder_gives_no_file_tools_and_says_so() {
                 local_path: None,
                 allowed_runtimes: p.allowed_runtimes.clone(),
                 capability_profile: None,
+                branch_per_objective: None,
                 department_id: None,
                 coordinator: None,
             },

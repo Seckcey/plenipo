@@ -191,6 +191,53 @@ pub const TOOLS: &[ToolDef] = &[
             "branch": { "type": "string", "description": "Default: the current branch" }
         } }),
     },
+    ToolDef {
+        name: "github_pr_list",
+        capability: Capability::GithubRead,
+        risk: Risk::Read,
+        description: "List the project's pull requests on GitHub (open ones unless state says otherwise).",
+        schema: || json!({ "type": "object", "properties": {
+            "state": { "type": "string", "enum": ["open", "closed", "merged", "all"] },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+        } }),
+    },
+    ToolDef {
+        name: "github_pr_view",
+        capability: Capability::GithubRead,
+        risk: Risk::Read,
+        description: "Show one of the project's pull requests on GitHub: title, state, branches, review decision, and description. Without a number: the pull request of this objective's branch.",
+        schema: || json!({ "type": "object", "properties": {
+            "number": { "type": "integer", "minimum": 1 }
+        } }),
+    },
+    ToolDef {
+        name: "github_pr_checks",
+        capability: Capability::GithubRead,
+        risk: Risk::Read,
+        description: "Show the checks (CI results) of one of the project's pull requests on GitHub. Without a number: the pull request of this objective's branch.",
+        schema: || json!({ "type": "object", "properties": {
+            "number": { "type": "integer", "minimum": 1 }
+        } }),
+    },
+    ToolDef {
+        name: "github_issue_view",
+        capability: Capability::GithubRead,
+        risk: Risk::Read,
+        description: "Show one of the project's issues on GitHub.",
+        schema: || json!({ "type": "object", "properties": {
+            "number": { "type": "integer", "minimum": 1 }
+        }, "required": ["number"] }),
+    },
+    ToolDef {
+        name: "github_pr_create",
+        capability: Capability::GithubWrite,
+        risk: Risk::External,
+        description: "Open a draft pull request for this objective's branch on the project's GitHub repository: pushes the branch, then opens the pull request. Always waits for the owner's approval.",
+        schema: || json!({ "type": "object", "properties": {
+            "title": { "type": "string" },
+            "body": { "type": "string", "description": "What changed, how it was tested, and anything left to do" }
+        }, "required": ["title"] }),
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static ToolDef> {
@@ -264,7 +311,28 @@ pub enum Action {
         remote: String,
         branch: Option<String>,
     },
+    GithubPrList {
+        state: String,
+        limit: u32,
+    },
+    GithubPrView {
+        number: Option<u64>,
+    },
+    GithubPrChecks {
+        number: Option<u64>,
+    },
+    GithubIssueView {
+        number: u64,
+    },
+    GithubPrCreate {
+        title: String,
+        body: String,
+    },
 }
+
+/// Longest pull request title and description.
+pub const MAX_TITLE_CHARS: usize = 256;
+pub const MAX_BODY_CHARS: usize = 20_000;
 
 fn text<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
@@ -477,6 +545,45 @@ pub fn parse(tool: &ToolDef, args: &Value) -> Result<Action, String> {
                 .map(|b| git_name("branch", &b))
                 .transpose()?,
         },
+        "github_pr_list" => Action::GithubPrList {
+            state: match opt_text(args, "state")?.as_deref() {
+                None => "open".into(),
+                Some(s @ ("open" | "closed" | "merged" | "all")) => s.to_owned(),
+                Some(_) => return Err("\"state\" is open, closed, merged, or all".into()),
+            },
+            limit: number(args, "limit", 1, 50)?.unwrap_or(20) as u32,
+        },
+        "github_pr_view" => Action::GithubPrView {
+            number: number(args, "number", 1, u64::from(u32::MAX))?,
+        },
+        "github_pr_checks" => Action::GithubPrChecks {
+            number: number(args, "number", 1, u64::from(u32::MAX))?,
+        },
+        "github_issue_view" => Action::GithubIssueView {
+            number: number(args, "number", 1, u64::from(u32::MAX))?
+                .ok_or("\"number\" (the issue's number) is required")?,
+        },
+        "github_pr_create" => {
+            let title = text(args, "title")?.trim();
+            if title.is_empty()
+                || title.chars().count() > MAX_TITLE_CHARS
+                || title.contains(['\n', '\0'])
+            {
+                return Err(format!(
+                    "the title must be one line of 1–{MAX_TITLE_CHARS} characters"
+                ));
+            }
+            let body = opt_text(args, "body")?.unwrap_or_default();
+            if body.chars().count() > MAX_BODY_CHARS || body.contains('\0') {
+                return Err(format!(
+                    "the description is limited to {MAX_BODY_CHARS} characters"
+                ));
+            }
+            Action::GithubPrCreate {
+                title: title.to_owned(),
+                body,
+            }
+        }
         other => return Err(format!("unknown tool {other}")),
     })
 }
@@ -487,6 +594,34 @@ mod tests {
 
     fn call(name: &str, args: Value) -> Result<Action, String> {
         parse(find(name).unwrap(), &args)
+    }
+
+    #[test]
+    fn github_arguments_are_checked() {
+        assert_eq!(
+            call("github_pr_list", json!({})).unwrap(),
+            Action::GithubPrList {
+                state: "open".into(),
+                limit: 20
+            }
+        );
+        assert!(call("github_pr_list", json!({ "state": "--all" })).is_err());
+        assert!(call("github_pr_list", json!({ "limit": 500 })).is_err());
+        assert_eq!(
+            call("github_pr_view", json!({})).unwrap(),
+            Action::GithubPrView { number: None }
+        );
+        assert!(call("github_pr_view", json!({ "number": -3 })).is_err());
+        assert!(call("github_issue_view", json!({})).is_err());
+        assert!(call("github_pr_create", json!({ "title": "" })).is_err());
+        assert!(call("github_pr_create", json!({ "title": "two\nlines" })).is_err());
+        assert_eq!(
+            call("github_pr_create", json!({ "title": " Add login " })).unwrap(),
+            Action::GithubPrCreate {
+                title: "Add login".into(),
+                body: String::new()
+            }
+        );
     }
 
     #[test]

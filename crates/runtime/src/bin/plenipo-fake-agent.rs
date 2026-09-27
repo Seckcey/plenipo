@@ -29,7 +29,20 @@
 //!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
 //!   objective (tool markers inside it are the worker's, not the requester's).
 //!
+//! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
+//! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
+//! Supervisor hand on to the Developer).
+//!
 //! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
+//!
+//! Scripts (Phase 8): with `script.json` in the state folder — an object from a position's
+//! title to a list of steps — a worker whose instructions name that position (its identity
+//! line, or its conversation's) answers each turn with the next unused step instead of the
+//! markers:
+//! `{"say": "text", "tools": [["write_file", {…}], …], "review": {…}, "handoffs": [{"to":
+//! "role:…", "objective": "…", "context": […]}], "delay": MS, "crash": true, "usageLimit":
+//! true}` (every field optional). `review` is written as a `plenipo-review` block. Steps are
+//! claimed with files in `script-used/`, so workers running at once never share one.
 //!
 //! Plenipo's tools (Phase 7): the note Plenipo puts before a prompt is set aside, and markers
 //! `<<tool:NAME {json arguments}>>` in the objective call the Plenipo tool server given on the
@@ -55,6 +68,11 @@ type Answer = fn(&[String]) -> i32;
 /// tool adds its persona here (docs/development/adding-an-ai-tool.md).
 const PERSONAS: &[(&str, Answer)] = &[("claude", claude), ("codex", codex), ("ollama", ollama)];
 
+/// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
+/// and `verify FILE WORD`, a project's test (it passes when FILE, in the folder it runs in,
+/// contains WORD). Listed by `--helpers`, never among the AI tools.
+const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify)];
+
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
     let persona = args
@@ -64,10 +82,19 @@ pub fn main() {
         .unwrap_or_default();
     let rest = &args[1..];
     let names: Vec<&str> = PERSONAS.iter().map(|(name, _)| *name).collect();
-    let code = match PERSONAS.iter().find(|(name, _)| *name == persona) {
+    let code = match PERSONAS
+        .iter()
+        .chain(HELPERS)
+        .find(|(name, _)| *name == persona)
+    {
         Some((_, answer)) => answer(rest),
         None if rest == ["--personas"] => {
             println!("{}", names.join("\n"));
+            0
+        }
+        None if rest == ["--helpers"] => {
+            let helpers: Vec<&str> = HELPERS.iter().map(|(name, _)| *name).collect();
+            println!("{}", helpers.join("\n"));
             0
         }
         None => {
@@ -312,6 +339,9 @@ fn review(dest: &str, objective: &str) -> Value {
 /// Handoff blocks asked for by markers in the objective.
 fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
     let mut blocks = Vec::new();
+    let full = said;
+    let own = outside_braces(said);
+    let said = own.as_str();
     for spec in markers(said, "handoff") {
         let (head, rest) = spec
             .split_once('>')
@@ -349,7 +379,7 @@ fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
         request["capabilities"] = json!(["filesystem.read"]);
         blocks.push(handoff_block(&request));
     }
-    for spec in braced(said, "handoff") {
+    for spec in braced(full, "handoff") {
         if let Some((dest, objective)) = spec.split_once('|') {
             blocks.push(handoff_block(&json!({
                 "to": dest.trim(),
@@ -420,6 +450,114 @@ fn slow_ticks(mut tick: impl FnMut(u32)) {
         tick(i);
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+// ---- Scripts (Phase 8) ----------------------------------------------------------------------
+
+/// One scripted answer.
+#[derive(Debug, Clone, Default)]
+struct Step {
+    say: String,
+    tools: Vec<(String, Value)>,
+    review: Option<Value>,
+    handoffs: Vec<Value>,
+    delay: Option<u64>,
+    crash: bool,
+    usage_limit: bool,
+}
+
+impl Step {
+    fn read(v: &Value) -> Self {
+        Self {
+            say: v["say"].as_str().unwrap_or("Done.").to_owned(),
+            tools: v["tools"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| Some((t[0].as_str()?.to_owned(), t[1].clone())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            review: v.get("review").filter(|r| !r.is_null()).cloned(),
+            handoffs: v["handoffs"].as_array().cloned().unwrap_or_default(),
+            delay: v["delay"].as_u64(),
+            crash: v["crash"].as_bool().unwrap_or(false),
+            usage_limit: v["usageLimit"].as_bool().unwrap_or(false),
+        }
+    }
+
+    /// The behavior markers this step stands for.
+    fn markers(&self) -> String {
+        let mut m = String::new();
+        if self.crash {
+            m.push_str("[crash] ");
+        }
+        if self.usage_limit {
+            m.push_str("[usage-limit] ");
+        }
+        if let Some(ms) = self.delay {
+            m.push_str(&format!("[delay:{ms}] "));
+        }
+        m
+    }
+
+    /// The answer: what it says, its review block, and its handoff blocks.
+    fn answer(&self) -> String {
+        let mut parts = vec![self.say.clone()];
+        if let Some(review) = &self.review {
+            parts.push(format!("```plenipo-review\n{review}\n```"));
+        }
+        for h in &self.handoffs {
+            parts.push(handoff_block(h));
+        }
+        parts.join("\n\n")
+    }
+}
+
+/// The position a prompt's identity line names ("Your position: X, the …" or "You are working
+/// as X (…").
+fn identity_title(prompt: &str) -> Option<String> {
+    for line in prompt.lines() {
+        if let Some(rest) = line.strip_prefix("Your position: ") {
+            return rest.split_once(", the ").map(|(t, _)| t.trim().to_owned());
+        }
+        if let Some(rest) = line.strip_prefix("You are working as ") {
+            return rest.split_once(" (").map(|(t, _)| t.trim().to_owned());
+        }
+    }
+    None
+}
+
+/// The next unused scripted step for the position this turn works as, if a script names it.
+fn script_step(prompt: &str, session: &str) -> Option<Step> {
+    let dir = state_dir();
+    let script: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("script.json")).ok()?).ok()?;
+    let title_file = dir.join("sessions").join(format!("{session}.title"));
+    let title = match identity_title(prompt) {
+        Some(t) => {
+            let _ = std::fs::write(&title_file, &t);
+            t
+        }
+        None => std::fs::read_to_string(&title_file).ok()?,
+    };
+    let steps = script[title.as_str()].as_array()?;
+    let used = dir.join("script-used");
+    let _ = std::fs::create_dir_all(&used);
+    let key: String = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    for (i, step) in steps.iter().enumerate() {
+        let claim = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(used.join(format!("{key}.{i}")));
+        if claim.is_ok() {
+            return Some(Step::read(step));
+        }
+    }
+    None
 }
 
 // ---- Plenipo's tools (MCP) ------------------------------------------------------------------
@@ -787,8 +925,15 @@ fn claude_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
+    // A script step (Phase 8) stands in for markers; markers inside a `{{handoff:…}}` are that
+    // request's worker's, not this one's.
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
 
-    if said.contains("[malformed]") {
+    if own.contains("[malformed]") {
         raw("<html>502 Bad Gateway</html>");
         raw("this is not json");
         return 0;
@@ -827,31 +972,34 @@ fn claude_turn(args: &[String]) -> i32 {
         slow_ticks(|_| {});
         return 0;
     }
-    if said.contains("[crash]") {
+    if own.contains("[crash]") {
         delta("Starting");
         eprintln!("fatal: simulated crash");
         return 70;
     }
-    if said.contains("[usage-limit]") {
+    if own.contains("[usage-limit]") {
         return result_error("Claude AI usage limit reached|1760000000");
     }
-    if said.contains("[auth-expired]") {
+    if own.contains("[auth-expired]") {
         return result_error("OAuth token has expired. Please run /login");
     }
-    if said.contains("[offline]") {
+    if own.contains("[offline]") {
         return result_error("API Error: Connection error.");
     }
-    if said.contains("[slow]") {
+    if own.contains("[slow]") {
         slow_ticks(|i| delta(&format!("tick {i} ")));
         return 0;
     }
-    if said.contains("[unknown]") {
+    if own.contains("[unknown]") {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
         out(&json!({ "type": "system", "subtype": "compact_boundary" }));
     }
-    delay(&said);
-    let calls = tool_calls(&said);
-    let list = said.contains("[tools-list]");
+    delay(&own);
+    let calls = match &scripted {
+        Some(step) => step.tools.clone(),
+        None => tool_calls(&said),
+    };
+    let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
         // Like the real CLI: only servers from --mcp-config, and only tools --allowedTools allows.
@@ -875,7 +1023,9 @@ fn claude_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if said.contains("[big]") {
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)
@@ -899,6 +1049,153 @@ fn claude_turn(args: &[String]) -> i32 {
                    "cache_read_input_tokens": 5, "output_tokens": 7 }
     }));
     0
+}
+
+// ---- A project's test (Phase 8) -------------------------------------------------------------
+
+fn verify(args: &[String]) -> i32 {
+    let (Some(file), Some(word)) = (args.first(), args.get(1)) else {
+        eprintln!("usage: verify FILE WORD");
+        return 2;
+    };
+    match std::fs::read_to_string(file) {
+        Ok(text) if text.contains(word.as_str()) => {
+            println!("1 test passed: {file} says {word}");
+            0
+        }
+        Ok(_) => {
+            println!("1 test FAILED: {file} does not say {word}");
+            1
+        }
+        Err(e) => {
+            println!("1 test FAILED: cannot read {file}: {e}");
+            1
+        }
+    }
+}
+
+// ---- GitHub's gh (Phase 8) ------------------------------------------------------------------
+
+/// The fake gh keeps its pull requests next to its own executable (Plenipo runs programs with
+/// its own environment, so each test's copy has its own state). `signed-out` there makes every
+/// command fail as unauthenticated unless GH_TOKEN is set; `last-env.txt` lists the variable
+/// names of the last run (never values).
+fn gh_dir() -> PathBuf {
+    let dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("gh-state")))
+        .unwrap_or_else(|| state_dir().join("gh"));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn gh_prs() -> Vec<Value> {
+    std::fs::read_to_string(gh_dir().join("prs.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn gh(args: &[String]) -> i32 {
+    let dir = gh_dir();
+    let mut names: Vec<String> = std::env::vars_os()
+        .map(|(k, _)| k.to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let _ = std::fs::write(dir.join("last-env.txt"), names.join("\n"));
+    let _ = std::fs::write(dir.join("last-args.json"), json!(args).to_string());
+    if args.first().map(String::as_str) == Some("--version") {
+        println!("gh version 2.99.0 (fake)");
+        return 0;
+    }
+    if dir.join("signed-out").exists() && std::env::var_os("GH_TOKEN").is_none() {
+        eprintln!("To get started with GitHub CLI, please run:  gh auth login");
+        return 4;
+    }
+    let repo = flag(args, "--repo").unwrap_or_default();
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let find = |sel: &str| {
+        gh_prs().into_iter().find(|p| {
+            p["number"].as_u64().map(|n| n.to_string()).as_deref() == Some(sel)
+                || p["headRefName"] == sel
+        })
+    };
+    match words.as_slice() {
+        ["pr", "create", ..] => {
+            let mut prs = gh_prs();
+            let head = flag(args, "--head").unwrap_or_default();
+            if prs.iter().any(|p| p["headRefName"] == head.as_str()) {
+                eprintln!("a pull request for branch \"{head}\" already exists");
+                return 1;
+            }
+            let number = prs.len() + 1;
+            let url = format!("https://github.com/{repo}/pull/{number}");
+            prs.push(json!({
+                "number": number,
+                "title": flag(args, "--title").unwrap_or_default(),
+                "body": flag(args, "--body").unwrap_or_default(),
+                "state": "OPEN",
+                "isDraft": args.iter().any(|a| a == "--draft"),
+                "headRefName": head,
+                "baseRefName": flag(args, "--base").unwrap_or_else(|| "main".into()),
+                "url": url,
+                "reviewDecision": "",
+                "mergeable": "MERGEABLE",
+            }));
+            let _ = std::fs::write(dir.join("prs.json"), json!(prs).to_string());
+            println!("{url}");
+            0
+        }
+        ["pr", "list", ..] => {
+            let state = flag(args, "--state").unwrap_or_else(|| "open".into());
+            let prs: Vec<Value> = gh_prs()
+                .into_iter()
+                .filter(|p| state == "all" || p["state"].as_str() == Some(&state.to_uppercase()))
+                .collect();
+            println!("{}", json!(prs));
+            0
+        }
+        ["pr", "view", sel, ..] => match find(sel) {
+            Some(pr) => {
+                println!("{pr}");
+                0
+            }
+            None => {
+                eprintln!("no pull requests found for branch \"{sel}\"");
+                1
+            }
+        },
+        ["pr", "checks", sel, ..] => match find(sel) {
+            Some(_) => {
+                println!(
+                    "{}",
+                    json!([{ "name": "CI / test", "state": "SUCCESS", "bucket": "pass",
+                             "workflow": "CI",
+                             "link": format!("https://github.com/{repo}/actions/runs/1") }])
+                );
+                0
+            }
+            None => {
+                eprintln!("no pull requests found for branch \"{sel}\"");
+                1
+            }
+        },
+        ["issue", "view", number, ..] => {
+            println!(
+                "{}",
+                json!({ "number": number.parse::<u64>().unwrap_or(0),
+                        "title": format!("Issue {number}"), "state": "OPEN",
+                        "url": format!("https://github.com/{repo}/issues/{number}"),
+                        "body": "The login page should remember the user's email.",
+                        "labels": [] })
+            );
+            0
+        }
+        _ => {
+            eprintln!("fake gh: unknown command {args:?}");
+            64
+        }
+    }
 }
 
 // ---- Codex --------------------------------------------------------------------------------
@@ -967,7 +1264,14 @@ fn codex_turn(args: &[String]) -> i32 {
     if let Mode::Worker { granted, .. } = &mut mode {
         *granted = noted;
     }
-    if said.contains("[malformed]") {
+    // A script step (Phase 8) stands in for markers; markers inside a `{{handoff:…}}` are that
+    // request's worker's, not this one's.
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
+    if own.contains("[malformed]") {
         raw("Reading prompt from stdin...");
         raw("{not json at all");
         return 0;
@@ -981,40 +1285,43 @@ fn codex_turn(args: &[String]) -> i32 {
         out(&json!({ "type": "turn.failed", "error": { "message": message } }));
         1
     };
-    if said.contains("[crash]") {
+    if own.contains("[crash]") {
         eprintln!("thread 'main' panicked at codex-rs/core/src/fake.rs:1:1");
         return 101;
     }
-    if said.contains("[usage-limit]") {
+    if own.contains("[usage-limit]") {
         return failed("You've hit your usage limit. Upgrade to Pro or try again later.");
     }
-    if said.contains("[auth-expired]") {
+    if own.contains("[auth-expired]") {
         return failed(
             "unexpected status 401 Unauthorized: token expired, please run `codex login`",
         );
     }
-    if said.contains("[offline]") {
+    if own.contains("[offline]") {
         return failed("stream disconnected before completion: error sending request");
     }
-    if said.contains("[slow]") {
+    if own.contains("[slow]") {
         slow_ticks(|i| {
             out(&json!({ "type": "item.completed",
                          "item": { "id": format!("r{i}"), "type": "reasoning", "text": format!("tick {i}") } }))
         });
         return 0;
     }
-    if said.contains("[unknown]") {
+    if own.contains("[unknown]") {
         out(&json!({ "type": "session.configured", "model": "x" }));
     }
-    delay(&said);
+    delay(&own);
     out(&json!({ "type": "item.started",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": null, "status": "in_progress" } }));
     out(&json!({ "type": "item.completed",
                  "item": { "id": "item_0", "type": "command_execution", "command": "bash -lc ls",
                            "aggregated_output": "", "exit_code": 0, "status": "completed" } }));
-    let calls = tool_calls(&said);
-    let list = said.contains("[tools-list]");
+    let calls = match &scripted {
+        Some(step) => step.tools.clone(),
+        None => tool_calls(&said),
+    };
+    let list = own.contains("[tools-list]");
     let mut used = Vec::new();
     if !calls.is_empty() || list {
         let server = codex_server(args);
@@ -1033,7 +1340,9 @@ fn codex_turn(args: &[String]) -> i32 {
         }
         used = tool_lines(&names, list, &outcomes);
     }
-    let mut text = if said.contains("[big]") {
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
         answer(n, &mode, &said, previous.as_deref(), &first)

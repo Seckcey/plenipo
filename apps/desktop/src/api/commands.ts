@@ -16,6 +16,7 @@ import type {
   GuardOptions,
   CommandErrorKind,
   DepartmentInput,
+  DevelopmentInput,
   ExecutionOutput,
   ExecutionRecord,
   ExportInfo,
@@ -25,12 +26,14 @@ import type {
   LedgerStatus,
   LiaisonOverview,
   ModelInput,
+  ObjectiveReport,
   OrgSnapshot,
   OversightRole,
   PermissionSetInput,
   PermissionsSnapshot,
   PositionPatchInput,
   ProjectInput,
+  ProjectWork,
   RoleInput,
   RolePolicy,
   RoutingOptions,
@@ -340,10 +343,42 @@ export function endOversight(oversightId: string): Promise<OrgSnapshot> {
 
 /**
  * Give a staffed persistent position's agent an objective. Core builds its instructions and
- * chooses its session; the UI names only the position.
+ * chooses its session; the UI names only the position. With `projectId`, the objective belongs
+ * to that project (which the position's team must run).
  */
-export function giveObjective(positionId: string, objective: string): Promise<AgentSessionDetail> {
-  return call<AgentSessionDetail>("give_objective", { positionId, objective });
+export function giveObjective(
+  positionId: string,
+  objective: string,
+  projectId?: string,
+): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("give_objective", {
+    positionId,
+    objective,
+    ...(projectId ? { projectId } : {}),
+  });
+}
+
+// ---- Development and projects (Phase 8) ---------------------------------------------------
+
+/** Set up a software project in the Development department: the department and its VP when
+ * missing, then the project with its Supervisor and the standard team. */
+export function setUpDevelopment(input: DevelopmentInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("set_up_development", { input });
+}
+
+/** Plenipo's result for an objective (any task of it), built from the Ledger. */
+export function getObjectiveReport(taskId: string): Promise<ObjectiveReport> {
+  return call<ObjectiveReport>("get_objective_report", { taskId });
+}
+
+/** A project's objectives and working copies. */
+export function getProjectWork(projectId: string): Promise<ProjectWork> {
+  return call<ProjectWork>("get_project_work", { projectId });
+}
+
+/** Remove a working copy's folder (its branch stays in the repository). */
+export function removeWorkspace(workspaceId: string): Promise<ProjectWork> {
+  return call<ProjectWork>("remove_workspace", { workspaceId });
 }
 
 // ---- Model policy and routing (Phase 6) ---------------------------------------------------
