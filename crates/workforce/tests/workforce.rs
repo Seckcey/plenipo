@@ -522,6 +522,94 @@ async fn a_custom_role_gets_its_owners_working_instructions() {
     .contains("at most 12 lines"));
 }
 
+/// Workers learn from their work (ADR-022): a lesson in a worker's answer waits for the owner;
+/// kept, it is in the instructions of the role's later workers; a role that learns on its own
+/// keeps them at once; with learning switched off, nothing is recorded or used.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn workers_learn_lessons_the_owner_keeps() {
+    use plenipo_ledger::LessonState;
+    use plenipo_workforce::learning;
+    let h = harness().await;
+    let org = h.development();
+    let supervisor = h.role("Supervisor");
+    let answer = |lesson: &str| {
+        let script = serde_json::json!({
+            "Cloudline Coordinator": [
+                { "say": format!("Done.\n```plenipo-lesson\n- {lesson}\n```") }
+            ]
+        });
+        let dir = h.dir.path().join("home").join(".plenipo-fake-agent");
+        // A new script starts from its first step.
+        let _ = std::fs::remove_dir_all(dir.join("script-used"));
+        std::fs::write(dir.join("script.json"), script.to_string()).unwrap();
+    };
+    let lessons = |state: LessonState| {
+        h.ledger
+            .lessons(state, Some(&supervisor), 20)
+            .unwrap()
+            .into_iter()
+            .map(|l| l.text)
+            .collect::<Vec<_>>()
+    };
+    let until = |what: &str, pred: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + WAIT;
+        while !pred() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    };
+    // The instructions ask for lessons, and there are none yet.
+    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
+    assert!(told.contains("```plenipo-lesson"), "{told}");
+    assert!(!told.contains("have learned"));
+
+    answer("Read the release notes before planning.");
+    let task = h.objective(&org.coordinator, "Plan the release.").await;
+    h.finished(&task).await;
+    until("the lesson", &|| !lessons(LessonState::Waiting).is_empty());
+    let snap = h.workforce.learning().unwrap();
+    let waiting = &snap.waiting[0];
+    assert_eq!(waiting.text, "Read the release notes before planning.");
+    assert_eq!(waiting.worker, "Cloudline Coordinator");
+    assert!(!waiting.from_web);
+    assert!(
+        !learning::instructions(&h.ledger, &supervisor, "Supervisor")
+            .contains("Read the release notes")
+    );
+    // Kept in the owner's words, it is in the next workers' instructions.
+    h.workforce
+        .decide_lesson(&waiting.id, true, Some("Read the release notes first."))
+        .unwrap();
+    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
+    assert!(told.contains("- Read the release notes first."), "{told}");
+
+    // A role that learns on its own keeps them at once.
+    h.workforce.set_role_learning(&supervisor, true).unwrap();
+    answer("Ask QA before the release.");
+    let task = h
+        .objective(&org.coordinator, "Plan the next release.")
+        .await;
+    h.finished(&task).await;
+    until("the kept lesson", &|| lessons(LessonState::Kept).len() == 2);
+    assert!(lessons(LessonState::Waiting).is_empty());
+
+    // Switched off: no lessons recorded, none in the instructions.
+    let snap = h.workforce.set_learning(false).unwrap();
+    assert!(!snap.enabled && snap.auto_roles == [supervisor.clone()]);
+    answer("Something else.");
+    let task = h.objective(&org.coordinator, "Plan another release.").await;
+    h.finished(&task).await;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(lessons(LessonState::Kept).len(), 2);
+    assert!(learning::instructions(&h.ledger, &supervisor, "Supervisor").is_empty());
+    // Removing a kept lesson.
+    h.workforce.set_learning(true).unwrap();
+    let kept = h.workforce.learning().unwrap().kept;
+    let snap = h.workforce.remove_lesson(&kept[0].id).unwrap();
+    assert_eq!(snap.kept.len(), 1);
+    assert!(h.workforce.set_role_learning("no-such-role", true).is_err());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plan_create_department_role_manager_and_project_coordinator() {
     let h = harness().await;

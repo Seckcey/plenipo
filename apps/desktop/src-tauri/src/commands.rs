@@ -42,9 +42,9 @@ use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
 };
 use plenipo_workforce::{
-    DepartmentInput, DevelopmentInput, HireInput, LeadInput, ObjectiveReport, OrgSnapshot,
-    OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob, RoleUpdate,
-    TitleTheme, WorkView, Workforce, WorkforceError,
+    DepartmentInput, DevelopmentInput, HireInput, LeadInput, LearningSnapshot, ObjectiveReport,
+    OrgSnapshot, OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob,
+    RoleUpdate, TitleTheme, WorkView, Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -575,6 +575,62 @@ pub async fn update_role(
     bounded("the description", &input.description)?;
     validate_job(&input.job)?;
     with_workforce(&workforce, move |w| w.update_role(&role_id, &input)).await
+}
+
+// ---- Learning (ADR-022) ---------------------------------------------------------------------
+
+/// Learning's settings, and the lessons waiting for you and kept.
+#[tauri::command]
+pub async fn get_learning(
+    workforce: State<'_, Workforce>,
+) -> Result<LearningSnapshot, CommandError> {
+    with_workforce(&workforce, |w| w.learning()).await
+}
+
+/// Worker learning on or off (Settings → Switches).
+#[tauri::command]
+pub async fn set_learning(
+    workforce: State<'_, Workforce>,
+    enabled: bool,
+) -> Result<LearningSnapshot, CommandError> {
+    with_workforce(&workforce, move |w| w.set_learning(enabled)).await
+}
+
+/// Whether a role learns on its own (its lessons kept without asking you).
+#[tauri::command]
+pub async fn set_role_learning(
+    workforce: State<'_, Workforce>,
+    role_id: String,
+    auto: bool,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("role", &role_id)?;
+    with_workforce(&workforce, move |w| w.set_role_learning(&role_id, auto)).await
+}
+
+/// Keep a waiting lesson (in your own words, when `text` is given) or discard it.
+#[tauri::command]
+pub async fn decide_lesson(
+    workforce: State<'_, Workforce>,
+    lesson_id: String,
+    keep: bool,
+    text: Option<String>,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("lesson", &lesson_id)?;
+    bounded_optional("the lesson", text.as_deref())?;
+    with_workforce(&workforce, move |w| {
+        w.decide_lesson(&lesson_id, keep, text.as_deref())
+    })
+    .await
+}
+
+/// Remove a kept lesson: the role's later workers no longer get it.
+#[tauri::command]
+pub async fn remove_lesson(
+    workforce: State<'_, Workforce>,
+    lesson_id: String,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("lesson", &lesson_id)?;
+    with_workforce(&workforce, move |w| w.remove_lesson(&lesson_id)).await
 }
 
 /// A role's working instructions: a few short lines in each part (the Workforce checks them

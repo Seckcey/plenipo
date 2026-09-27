@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-decide-lesson"
+description = "Enables the decide_lesson command without any pre-configured scope."
+commands.allow = ["decide_lesson"]
+
+[[permission]]
+identifier = "deny-decide-lesson"
+description = "Denies the decide_lesson command without any pre-configured scope."
+commands.deny = ["decide_lesson"]

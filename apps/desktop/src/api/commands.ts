@@ -54,6 +54,7 @@ import type {
   TitleTheme,
   WebsiteRules,
   Switches,
+  LearningSnapshot,
   WorkView,
 } from "@plenipo/types";
 
@@ -515,6 +516,35 @@ export function allowControl(): Promise<ControlStatus> {
 
 export function setWebsiteRules(rules: WebsiteRules): Promise<PermissionsSnapshot> {
   return call("set_website_rules", { rules });
+}
+
+/** Learning's settings and the lessons waiting and kept (ADR-022). */
+export function getLearning(): Promise<LearningSnapshot> {
+  return call("get_learning");
+}
+
+/** Worker learning on or off. */
+export function setLearning(enabled: boolean): Promise<LearningSnapshot> {
+  return call("set_learning", { enabled });
+}
+
+/** Whether a role learns on its own (its lessons kept without asking). */
+export function setRoleLearning(roleId: string, auto: boolean): Promise<LearningSnapshot> {
+  return call("set_role_learning", { roleId, auto });
+}
+
+/** Keep a waiting lesson (in your own words, when `text` is given) or discard it. */
+export function decideLesson(
+  lessonId: string,
+  keep: boolean,
+  text?: string,
+): Promise<LearningSnapshot> {
+  return call("decide_lesson", { lessonId, keep, text: text ?? null });
+}
+
+/** Remove a kept lesson. */
+export function removeLesson(lessonId: string): Promise<LearningSnapshot> {
+  return call("remove_lesson", { lessonId });
 }
 
 /** The owner's on/off switches (ADR-021). Switching the browser or the screen off also stops

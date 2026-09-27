@@ -237,6 +237,11 @@ pub fn configure<R: Runtime>(
             commands::allow_control,
             commands::set_website_rules,
             commands::set_switches,
+            commands::get_learning,
+            commands::set_learning,
+            commands::set_role_learning,
+            commands::decide_lesson,
+            commands::remove_lesson,
             commands::get_browser_status,
             commands::open_browser,
             commands::get_screenshot,
@@ -2245,6 +2250,62 @@ mod ipc_boundary_tests {
             .roles
             .iter()
             .any(|r| r.name == "X" && r.job.duties == ["a"]));
+    }
+
+    #[test]
+    fn learning_through_ipc() {
+        use plenipo_workforce::LearningSnapshot;
+        let app = app();
+        let main = window(&app, "main");
+        let snap: LearningSnapshot = body(invoke(&main, "get_learning"));
+        assert!(snap.enabled && snap.waiting.is_empty() && snap.kept.is_empty());
+        let snap: LearningSnapshot = body(invoke_json(
+            &main,
+            "set_learning",
+            serde_json::json!({ "enabled": false }),
+        ));
+        assert!(!snap.enabled);
+        for (cmd, args) in [
+            (
+                "set_role_learning",
+                serde_json::json!({ "roleId": "../x", "auto": true }),
+            ),
+            (
+                "decide_lesson",
+                serde_json::json!({ "lessonId": "../x", "keep": true }),
+            ),
+            ("remove_lesson", serde_json::json!({ "lessonId": "x y" })),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err(cmd);
+            assert_eq!(err["kind"], "invalidInput", "{cmd}: {err}");
+        }
+        // A role that does not exist, a lesson that does not exist.
+        assert!(invoke_json(
+            &main,
+            "set_role_learning",
+            serde_json::json!({ "roleId": SESSION, "auto": true }),
+        )
+        .is_err());
+        assert!(invoke_json(
+            &main,
+            "decide_lesson",
+            serde_json::json!({ "lessonId": SESSION, "keep": false }),
+        )
+        .is_err());
+        let other = window(&app, "untrusted");
+        for cmd in [
+            "get_learning",
+            "set_learning",
+            "set_role_learning",
+            "decide_lesson",
+            "remove_lesson",
+        ] {
+            assert!(invoke(&other, cmd).is_err(), "{cmd}");
+            assert!(
+                invoke_from(&main, cmd, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
     }
 
     #[test]

@@ -312,3 +312,26 @@ describe("shownInTrail", () => {
     expect(shownInTrail(event("capability.used", { screenshot: "a1" }))).toBe(true);
   });
 });
+
+describe("describeEvent (learning, ADR-022)", () => {
+  it("says what was learned and what the owner did with it", () => {
+    expect(
+      describeEvent(
+        event("lesson.added", {
+          worker: "Web Assistant",
+          text: "Use the Orders page.",
+          state: "waiting",
+        }),
+      ),
+    ).toBe("Web Assistant learned something (waiting for you): Use the Orders page.");
+    expect(describeEvent(event("lesson.kept", { text: "Use the Orders page." }))).toBe(
+      "You kept a lesson: Use the Orders page.",
+    );
+    expect(describeEvent(event("learning.role_changed", { name: "Scout", auto: true }))).toBe(
+      "Scout now learns on its own",
+    );
+    expect(describeEvent(event("learning.switched", { enabled: false }))).toBe(
+      "You switched worker learning off",
+    );
+  });
+});

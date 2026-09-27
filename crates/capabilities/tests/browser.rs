@@ -438,6 +438,18 @@ impl H {
             .collect()
     }
 
+    /// A role's ID, by name.
+    fn role_of(&self, name: &str) -> String {
+        self.workforce
+            .snapshot()
+            .unwrap()
+            .roles
+            .into_iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+    }
+
     /// How many approvals the task asked for.
     fn approvals_for(&self, id: &str) -> usize {
         self.events(id, "approval.requested").len()
@@ -1530,4 +1542,30 @@ async fn switching_the_browser_off_stops_it() {
             .is_some_and(|r| r.contains("Plenipo's browser is switched off"))),
         "{skipped:?}"
     );
+}
+
+/// A lesson from a task that used websites always waits for the owner, even when the role
+/// learns on its own (ADR-022): a website must not be able to plant one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lessons_from_websites_always_wait_for_the_owner() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let role = h.role_of("Web Assistant");
+    h.workforce.set_role_learning(&role, true).unwrap();
+    let url = h.url("shop", "/");
+    let (task, _) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [tool("browser_open", json!({ "url": url }))],
+                "say": "Done.\n```plenipo-lesson\n- The shop's contact form is under Contact us.\n```" }]),
+        )
+        .await;
+    h.until("the lesson", |h| {
+        !h.workforce.learning().unwrap().waiting.is_empty()
+    })
+    .await;
+    let lesson = &h.workforce.learning().unwrap().waiting[0];
+    assert!(lesson.from_web);
+    assert_eq!(lesson.task_id.as_deref(), Some(task.id.as_str()));
+    assert!(h.workforce.learning().unwrap().kept.is_empty());
 }

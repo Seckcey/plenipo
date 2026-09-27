@@ -1137,3 +1137,74 @@ pub struct OpenRequest {
     pub parent_state: TaskState,
     pub child: Option<Task>,
 }
+
+/// A lesson a worker learned from its work (ADR-022): what would help the next worker in its
+/// role. It waits for the owner unless the role learns on its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Lesson {
+    pub id: String,
+    pub role_id: String,
+    /// The task it came from.
+    pub task_id: Option<String>,
+    pub position_id: Option<String>,
+    /// Who learned it ("Web Assistant").
+    pub worker: String,
+    pub text: String,
+    pub state: LessonState,
+    /// Its task used websites (such lessons always wait for the owner).
+    pub from_web: bool,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number | null")]
+    pub decided_at: Option<u64>,
+    pub decided_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LessonState {
+    /// Waiting for the owner's Keep or Discard.
+    Waiting,
+    /// In the instructions of the role's later workers.
+    Kept,
+    Discarded,
+    /// Kept, then removed by the owner.
+    Removed,
+}
+
+impl LessonState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Waiting => "waiting",
+            Self::Kept => "kept",
+            Self::Discarded => "discarded",
+            Self::Removed => "removed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "waiting" => Some(Self::Waiting),
+            "kept" => Some(Self::Kept),
+            "discarded" => Some(Self::Discarded),
+            "removed" => Some(Self::Removed),
+            _ => None,
+        }
+    }
+}
+
+/// Input for [`crate::Ledger::add_lessons`]: what one task's worker learned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewLessons {
+    pub role_id: String,
+    pub task_id: String,
+    pub position_id: Option<String>,
+    pub worker: String,
+    pub texts: Vec<String>,
+    pub from_web: bool,
+    /// Keep them at once (the role learns on its own); otherwise they wait for the owner.
+    pub keep: bool,
+}
