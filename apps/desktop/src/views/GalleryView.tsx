@@ -3,28 +3,24 @@ import { Gallery, type EntityCardProps, type ThemeName } from "@plenipo/ui";
 
 import { useActivity } from "../ledger/useActivity";
 import { organizationCards } from "../org/cards";
-import type { useOrganization } from "../org/useOrganization";
+import { useOrganization } from "../org/useOrganization";
 
 /**
  * The Gallery (Phase 12A): every building block of the screens, in light and dark. Its first
  * section shows your real departments and projects, with activity from the Ledger.
  */
-export function GalleryView({
-  theme,
-  org,
-}: {
-  theme: ThemeName;
-  org: ReturnType<typeof useOrganization>;
-}) {
+export function GalleryView({ theme }: { theme: ThemeName }) {
+  const org = useOrganization();
   const entries = useMemo(
     () => (org.snapshot ? organizationCards(org.snapshot) : []),
     [org.snapshot],
   );
   const scopes = useMemo(() => entries.map((e) => e.scope), [entries]);
   const activity = useActivity(scopes);
-  const cards = entries.map((e, i): EntityCardProps => {
+  const cards = entries.map((e, i): EntityCardProps & { id: string } => {
     const series = activity.series[i];
     return {
+      id: `${e.scope.kind}:${"id" in e.scope ? e.scope.id : ""}`,
       ...e.card,
       activity:
         activity.status === "loading"

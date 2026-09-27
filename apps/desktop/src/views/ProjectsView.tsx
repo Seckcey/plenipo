@@ -383,6 +383,8 @@ export function ProjectsView({
   const [selected, setSelected] = useState<string | null>(focusId);
   // A project chosen in the top bar opens here (the same arrival pattern as the Organization).
   const [arrived, setArrived] = useState<string | null>(null);
+  // Once the request is handled (cleared), the same place can be asked for again.
+  if (!focusId && arrived !== null) setArrived(null);
   if (focusId && arrived !== focusId) {
     setArrived(focusId);
     setSelected(focusId);

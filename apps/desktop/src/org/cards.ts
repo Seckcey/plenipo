@@ -39,13 +39,19 @@ export function organizationCards(
         card: {
           title: d.name,
           status: head ? POSITION_STATUS[head.status] : "offline",
-          statusLabel: head ? STATUS_LABEL[head.status] : "No Manager yet",
-          subtype: `Department · ${projects} ${projects === 1 ? "project" : "projects"}`,
+          statusLabel: head
+            ? STATUS_LABEL[head.status]
+            : `No ${rankName(titles, "departmentManager")} yet`,
+          subtype: "Department",
           owner: {
             icon: "user",
             label: `${rankName(titles, "departmentManager")} · ${runtimeLabel(org, head)}`,
           },
           resources: [],
+          footerNote:
+            projects === 0
+              ? "No projects yet"
+              : `${projects} ${projects === 1 ? "project" : "projects"}`,
         } satisfies EntityCardProps,
       };
     });
@@ -59,7 +65,9 @@ export function organizationCards(
         card: {
           title: p.name,
           status: supervisor ? POSITION_STATUS[supervisor.status] : "offline",
-          statusLabel: supervisor ? STATUS_LABEL[supervisor.status] : "No Supervisor yet",
+          statusLabel: supervisor
+            ? STATUS_LABEL[supervisor.status]
+            : `No ${rankName(titles, "projectCoordinator")} yet`,
           subtype: `Project${department ? ` · ${department.name}` : ""}`,
           owner: {
             icon: "user",

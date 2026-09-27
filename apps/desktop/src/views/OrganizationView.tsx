@@ -225,6 +225,8 @@ export function OrganizationView({
 
   // Arriving from another view with a position to show.
   const [arrived, setArrived] = useState<string | null>(null);
+  // Once the request is handled (cleared), the same place can be asked for again.
+  if (!focusId && arrived !== null) setArrived(null);
   if (focusId && snapshot && arrived !== focusId) {
     setArrived(focusId);
     if (snapshot.positions.some((p) => p.id === focusId)) {

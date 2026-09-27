@@ -591,13 +591,27 @@ describe("The frame (Phase 12A)", () => {
       "aria-current",
       "true",
     );
-    expect(localStorage.getItem("plenipo.scope")).toBe("project:pr-camp");
+    expect(sessionStorage.getItem("plenipo.scope")).toBe("project:pr-camp");
+    // Picking another project there, then the same one again, opens it again.
+    await user.click(within(list).getByRole("button", { name: /Website Relaunch/ }));
+    await user.selectOptions(picker, "all");
+    await user.selectOptions(picker, "project:pr-camp");
+    await waitFor(() =>
+      expect(within(list).getByRole("button", { name: /Q4 Campaign/ })).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
+    );
     await user.selectOptions(picker, "department:d-eng");
-    expect(
-      within(screen.getByRole("navigation", { name: "Main" })).getByRole("button", {
-        name: "Organization",
-      }),
-    ).toHaveAttribute("aria-current", "page");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("button", { name: "Organization" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Leaving by the strip goes back to the whole organization (nothing filters by it yet).
+    await user.click(within(nav).getByRole("button", { name: "Settings" }));
+    expect(picker).toHaveValue("all");
+    expect(sessionStorage.getItem("plenipo.scope")).toBeNull();
   });
 
   it("opens the Gallery from Diagnostics, with real departments and projects first", async () => {

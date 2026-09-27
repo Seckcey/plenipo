@@ -1,6 +1,6 @@
 /*
  * Page layouts for Plenipo's screens. Every color, size, and timing comes from the design
- * tokens (`@plenipo/ui`, ADR-029): `pnpm lint` refuses raw colors here.
+ * tokens (`@plenipo/ui`, ADR-030): `pnpm lint` refuses raw colors here.
  */
 
 html,
@@ -10,8 +10,15 @@ body,
   margin: 0;
 }
 
+/* The window never scrolls; the page area inside the frame does. */
+html,
+body {
+  overflow: hidden;
+}
+
 /* The frame comes from the design system (AppShell); these are the app's parts inside it. */
 .shell__main {
+  position: relative;
   overflow: auto;
   padding: var(--ui-space-6) var(--ui-space-7);
 }
@@ -38,6 +45,12 @@ body,
   color: var(--ui-text-muted);
   font-size: var(--ui-font-xs);
   font-variant-numeric: tabular-nums;
+}
+
+.diagnostics__gallery {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
 }
 
 .brand-mark__tile {
@@ -75,11 +88,14 @@ body,
   color: var(--ui-text-secondary);
 }
 
+/* The same look as the design system's empty state. */
 .empty {
-  margin-top: 16px;
-  padding: 24px;
-  border: 1px dashed var(--ui-border);
-  border-radius: 12px;
+  margin-top: var(--ui-space-4);
+  padding: var(--ui-space-5) var(--ui-space-6);
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+  color: var(--ui-text-secondary);
 }
 
 .empty h2 {
@@ -104,8 +120,11 @@ body,
   cursor: pointer;
 }
 
+/* Turned off: muted words on a quiet fill, readable in both themes (not faded blue). */
 .button:disabled {
-  opacity: 0.5;
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
   cursor: default;
 }
 
@@ -171,16 +190,26 @@ body,
   width: 100%;
   margin-bottom: 6px;
   padding: 8px 10px;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  background: none;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+  color: var(--ui-text-primary);
   text-align: left;
   cursor: pointer;
 }
 
+.execution:hover {
+  background: var(--ui-surface-raised);
+}
+
 .execution[aria-current="true"] {
   border-color: var(--ui-accent);
-  background: var(--ui-surface);
+  background: var(--ui-accent-soft);
+}
+
+/* The detail column's first line sits level with the list's heading. */
+.split__detail > :first-child {
+  margin-top: 0;
 }
 
 .execution__meta {
@@ -292,9 +321,10 @@ body,
 }
 
 .facts div {
-  padding: 10px 12px;
+  padding: var(--ui-space-4) var(--ui-space-5);
   border: 1px solid var(--ui-border);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
 }
 
 .facts dt {
@@ -545,8 +575,10 @@ body,
   font-size: var(--ui-font-xs);
 }
 
+/* You (the owner) in the accent, not a rank's color. */
 .titles__chain li:first-child {
-  border-color: var(--ui-rank-vp);
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
 }
 
 /* ---- Workers and agent runtimes (Phase 3) ------------------------------------------------ */
@@ -613,22 +645,34 @@ body,
 .models__effort {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  background: var(--ui-bg);
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-md);
+  background-color: var(--ui-surface-sunken);
   color: var(--ui-text-primary);
   font: inherit;
   resize: vertical;
 }
 
+/* One height for text boxes and dropdowns, like the design system's controls. */
+.field input:not([type="checkbox"], [type="radio"]),
 .field select,
 .models__effort {
-  appearance: none;
+  height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Checkboxes and round buttons keep their own size inside a field. */
+.field input[type="checkbox"],
+.field input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.field select,
+.models__effort {
   padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a9ab3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  cursor: pointer;
 }
 
 .advanced summary {
@@ -671,6 +715,11 @@ body,
   color: var(--ui-error-text);
 }
 
+/* The Gallery's sections keep the design system's own spacing. */
+.view--gallery .gallery__section h2 {
+  margin: 0;
+}
+
 .section-header {
   display: flex;
   align-items: baseline;
@@ -681,6 +730,7 @@ body,
 .card--stack {
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-start;
 }
 
 .card__row {
@@ -971,7 +1021,7 @@ body,
   overflow: hidden;
 }
 
-.shell__main--flush > .banner,
+.shell__main--flush > .ui-banners,
 .shell__main--flush > .status {
   margin: 12px 16px 0;
 }
@@ -1085,9 +1135,9 @@ body,
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  background: var(--ui-bg);
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-sunken);
   color: var(--ui-text-secondary);
 }
 
@@ -1823,8 +1873,11 @@ body,
   color: var(--ui-map-link);
 }
 
+/* On: a filled, outlined button (a shape, not only a color). */
 .topology__control[aria-pressed="true"] {
-  color: var(--ui-map-link);
+  background: var(--ui-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+  color: var(--ui-accent);
 }
 
 .topology__control[aria-pressed="false"] {
@@ -2537,6 +2590,13 @@ body,
   margin: 0;
 }
 
+/* The same height as the dropdown beside it. */
+.objective-form__row > .button {
+  height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .objective-form p {
   margin: 0;
 }
@@ -2584,6 +2644,11 @@ body,
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* A badge lines up with the link under it (the base badge rule aligns to the start). */
+.result__task-side > .badge {
+  align-self: auto;
 }
 
 .result code,
@@ -2931,7 +2996,7 @@ body,
 .server-form .choice input[type="radio"],
 .server-form .choice input[type="checkbox"] {
   flex: none;
-  width: auto;
+  width: 14px;
   margin: 4px 0 0;
   padding: 0;
 }

@@ -32,7 +32,7 @@ import { useControl } from "./control/useControl";
 import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
-import { useOrganization } from "./org/useOrganization";
+import { useOrganizationNames } from "./org/useOrganizationNames";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -53,7 +53,8 @@ const VIEW_KEY = "plenipo.view";
 const SELECTED_KEY = "plenipo.selectedExecution";
 const SELECTED_TASK_KEY = "plenipo.selectedTask";
 const SELECTED_SESSION_KEY = "plenipo.selectedSession";
-// Where you are (the top bar's "Showing" picker) is remembered on this computer.
+// Where you are (the top bar's "Showing" picker), for this window's life. Until Phase 12's pages
+// filter by it, it names the place a pick opened, and goes back to everything when you leave.
 const SCOPE_KEY = "plenipo.scope";
 
 /** Notices that mean data may be at risk get alert styling; others are informational. */
@@ -84,19 +85,7 @@ function initialView(): ViewId {
 }
 
 function readScope(): ScopeId {
-  try {
-    return localStorage.getItem(SCOPE_KEY) ?? ALL_SCOPE;
-  } catch {
-    return ALL_SCOPE;
-  }
-}
-
-function writeScope(scope: ScopeId) {
-  try {
-    localStorage.setItem(SCOPE_KEY, scope);
-  } catch {
-    // Storage unavailable: the choice lasts until the window closes.
-  }
+  return readSession(SCOPE_KEY) ?? ALL_SCOPE;
 }
 
 export function App() {
@@ -143,7 +132,7 @@ function Shell({ core }: { core: CoreState }) {
   const [projectFocus, setProjectFocus] = useState<string | null>(null);
   const [scope, setScope] = useState<ScopeId>(readScope);
   const [theme, setTheme] = useTheme();
-  const organization = useOrganization();
+  const organization = useOrganizationNames();
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
@@ -204,10 +193,17 @@ function Shell({ core }: { core: CoreState }) {
   const severe = ledgerNotices.some(isSevere);
   const approvalCount = waiting.length + (learning.snapshot?.waiting.length ?? 0);
 
+  /** Leaving for another section (the strip, the bell): back to the whole organization. */
+  const leave = (next: ViewId) => {
+    setScope(ALL_SCOPE);
+    writeSession(SCOPE_KEY, null);
+    navigate(next);
+  };
+
   /** Choosing where you are opens that part: a department on the map, a project's page. */
   const chooseScope = (next: ScopeId) => {
     setScope(next);
-    writeScope(next);
+    writeSession(SCOPE_KEY, next);
     const [kind, id] = next.split(":");
     const org = organization.snapshot;
     if (kind === "department" && id) {
@@ -226,7 +222,7 @@ function Shell({ core }: { core: CoreState }) {
       rail={
         <Sidebar
           current={view}
-          onNavigate={navigate}
+          onNavigate={leave}
           activeCount={activeCount}
           workingCount={workingCount}
           approvalCount={approvalCount}
@@ -252,7 +248,7 @@ function Shell({ core }: { core: CoreState }) {
               <NotificationBell
                 count={approvalCount}
                 label="waiting for your approval"
-                onOpen={() => navigate("approvals")}
+                onOpen={() => leave("approvals")}
               />
             </>
           }
@@ -360,7 +356,7 @@ function Shell({ core }: { core: CoreState }) {
             onOpenGallery={() => navigate("gallery")}
           />
         )}
-        {view === "gallery" && <GalleryView theme={theme} org={organization} />}
+        {view === "gallery" && <GalleryView theme={theme} />}
       </main>
     </AppShell>
   );
