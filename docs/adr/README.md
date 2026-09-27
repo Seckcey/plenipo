@@ -43,3 +43,5 @@ architecture must be recorded here.
 | [026](ADR-026-ssh-built-in.md)                    | SSH built into Plenipo (russh), not Windows' ssh.exe                    | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                              | Accepted |
 | [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                  | Accepted |
+| [029](ADR-029-design-system.md)                   | One design system for every screen                                      | Accepted |
+| [030](ADR-030-terminal-panel.md)                  | The terminal panel (amends 025)                                         | Proposed |
