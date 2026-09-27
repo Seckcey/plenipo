@@ -132,13 +132,13 @@ Coming with the next release. If you are running Plenipo already,
 
 | Edition  | What you get                                                                                                                             |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
+| **Free** | One department, one project, three workers at a time, and the whole Development department. All five AI tools, and every safety feature. |
 | **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
-> Releases up to v1.3.0 have no limits at all — everything is unlocked while the split is being
+> Releases up to v1.4.0 have no limits at all — everything is unlocked while the split is being
 > built.
 
 ## Quick start
@@ -161,7 +161,19 @@ Prefer not to build it? [Download the latest Windows installer](https://github.c
 
 ## What's new
 
-Plenipo is built phase by phase. Current version: **v1.3.0**.
+Plenipo is built phase by phase. Current version: **v1.4.0**.
+
+<details>
+<summary><strong>v1.4.0 — Kimi joins the AI tools</strong></summary>
+
+Moonshot AI's Kimi Code, on your own Kimi subscription. Kimi's own tools cannot be switched off,
+so every file it reads or writes goes through Plenipo and Guard, inside the project folder; its own
+command line is always refused, and it never runs in its auto or yolo modes.
+[Release notes](docs/releases/v1.4.0.md) ·
+[ADR-022](docs/adr/ADR-022-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
+and writes going through Plenipo)
+
+</details>
 
 <details>
 <summary><strong>v1.3.0 — Plenipo's browser, and the screen, mouse, and keyboard</strong> (Phase 10)</summary>

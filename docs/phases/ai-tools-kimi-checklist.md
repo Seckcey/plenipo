@@ -2,7 +2,7 @@
 
 **Status:** built, tested with the fake Kimi, and checked by the owner on Windows with the real
 CLI on 2026-09-27 (see the [acceptance report](ai-tools-kimi-acceptance-report.md), §6 and §8).
-Ready for review.
+Ready for review; releases as v1.4.0 ([release notes](../releases/v1.4.0.md)).
 
 Adds Kimi Code, Moonshot AI's official coding CLI, as an AI tool under ADR-014 (the rules for
 adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and ADR-022 (Kimi over
