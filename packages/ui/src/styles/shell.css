@@ -94,12 +94,11 @@
   background: var(--ui-accent);
 }
 
+/* Names fit the strip (the end-to-end test checks it); no clipping, so every tool reads them. */
 .ui-rail__label {
   max-width: 100%;
-  overflow: hidden;
   font-size: var(--ui-font-xs);
   line-height: var(--ui-leading-tight);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

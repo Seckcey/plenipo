@@ -415,9 +415,15 @@ describe("Phase 12A: design system (real app)", () => {
     });
     await browser.keys("Tab");
     await browser.execute(() => document.getElementById("e2e-start")?.remove());
-    let f = await focus();
-    assert.equal(f.label, "Organization");
-    assert.ok(f.visible && f.outline, "the strip shows where focus is");
+    // The browser marks keyboard focus as it handles the key; allow it a moment on a busy runner.
+    await waitUntil(
+      async () => {
+        const now = await focus();
+        return now.label === "Organization" && now.visible && now.outline ? now : null;
+      },
+      "keyboard focus with its outline on the strip's first section",
+      3000,
+    );
     await browser.keys("Tab");
     assert.equal((await focus()).label, "Projects");
 
@@ -432,7 +438,7 @@ describe("Phase 12A: design system (real app)", () => {
     const count = await textOf(browser, '[data-gallery-section="g-table"] .ui-facets__count');
     assert.match(count, /^Showing [\d,]+ of 5,000$/);
     assert.notEqual(count, "Showing 5,000 of 5,000");
-    f = await focus();
+    let f = await focus();
     assert.ok(f.outline || f.visible, "the search box shows focus");
     await browser.keys("Tab");
     f = await focus();
@@ -609,5 +615,34 @@ describe("Phase 12A: design system (real app)", () => {
     await openGallery(browser);
     await showSection(browser, "g-live");
     await screenshot(browser, "live-cards");
+  });
+
+  it("shows every page in both themes, with no errors", async () => {
+    const { browser } = app;
+    const pages = [
+      ["Organization", "organization"],
+      ["Projects", "projects"],
+      ["Workers", "workers"],
+      ["Approvals", "approvals"],
+      ["AI tools", "ai-tools"],
+      ["Activity", "activity"],
+      ["Settings", "settings"],
+      ["Diagnostics", "diagnostics"],
+    ];
+    for (const t of ["dark", "light"]) {
+      await setTheme(browser, t);
+      for (const [label, name] of pages) {
+        await nav(browser, label);
+        await waitForText(browser, ".ui-topbar__title", label);
+        await browser.execute(() => document.querySelector("main")?.scrollTo(0, 0));
+        // No page shows an error in either theme.
+        const alert = await browser.execute(
+          () => document.querySelector('[role="alert"]')?.innerText ?? "",
+        );
+        assert.equal(alert, "", `${label} (${t}) shows no error`);
+        await screenshot(browser, `page-${name}-${t}`);
+      }
+    }
+    await setTheme(browser, "dark");
   });
 });
