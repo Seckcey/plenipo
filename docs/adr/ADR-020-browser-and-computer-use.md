@@ -1,6 +1,6 @@
 # ADR-020: Plenipo's browser and computer use, through Guard
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 10
 
