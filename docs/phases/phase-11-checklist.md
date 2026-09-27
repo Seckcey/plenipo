@@ -14,7 +14,7 @@ Servers", "identity" (host key), "pin", "sign in as", "the kinds of commands", "
 **Goal (plan):** "Support Plenipo-managed work on authorized remote hosts such as development
 servers and infrastructure."
 
-## Design decisions (details in ADR-023, servers over SSH through Guard)
+## Design decisions (details in ADR-025, servers over SSH through Guard)
 
 - **The capability:** Connect to servers (`ssh.connect`), with four tools: `ssh_servers`,
   `ssh_run`, `ssh_forward`, and `ssh_disconnect`. A worker names a server by name, never by
@@ -55,7 +55,7 @@ servers and infrastructure."
       commands always ask)
 - [x] The Vault keeps long values in pieces (Windows Credential Manager holds 1,280 characters
       per entry; RSA keys are longer)
-- [x] ADR-023; architecture, README, setup, vocabulary, and versioning updated
+- [x] ADR-025; architecture, README, setup, vocabulary, and versioning updated
 
 ## Host configuration (plan)
 
@@ -102,12 +102,12 @@ All against a synthetic SSH server on `127.0.0.1`, stand-ins for the AI tools, a
 - [x] No network-wide credential discovery, no hopping from server to server, no agent
       forwarding, and no unattended destructive production commands.
 - [x] The sign shows when a worker is connected, with Stop all and (for servers) Disconnect.
-- [x] Risks flagged plainly (ADR-023 "Known limits", and the report §7).
+- [x] Risks flagged plainly (ADR-025 "Known limits", and the report §7).
 
 ## Out of scope (plan)
 
 Network-wide credential discovery, uncontrolled lateral movement, and unattended destructive
-production commands. Also not in this phase (ADR-023 §11):
+production commands. Also not in this phase (ADR-025 §11):
 
 - Windows servers (commands are quoted for Linux and Unix shells);
 - shell lines, such as pipes and `&&`;
@@ -183,7 +183,7 @@ only into Plenipo's Settings.
    - While it runs, press **Disconnect** on the sign. It says "You disconnected Operations
      Engineer from Staging (production). It stopped."
    - On the server, `ps aux | grep sleep` shows no `sleep 120` (servers with OpenSSH older than
-     7.9 may keep it running; see ADR-023).
+     7.9 may keep it running; see ADR-025).
 10. **Stop from the tray.**
     - Give the objective from step 9 again and approve it.
     - Right-click the Plenipo icon in the Windows tray and choose **Stop all browser, desktop, and

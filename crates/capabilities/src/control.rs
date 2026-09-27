@@ -1,6 +1,6 @@
 //! Who is using Plenipo's browser, this computer's mouse and keyboard, or one of the owner's
 //! servers right now, and the owner's controls over them (Phase 10, ADR-020; servers: Phase 11,
-//! ADR-023): **Take over** (the owner takes control and that worker stops; for a server,
+//! ADR-025): **Take over** (the owner takes control and that worker stops; for a server,
 //! **Disconnect**) and the emergency **Stop** (all control halts at once, and stays stopped until
 //! the owner allows it again). The desktop app shows this state on every page, in the
 //! system tray, and — while a worker uses the mouse and keyboard — in a window above all others.

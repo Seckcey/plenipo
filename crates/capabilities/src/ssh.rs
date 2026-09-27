@@ -1,4 +1,4 @@
-//! SSH to the owner's servers (Phase 11, ADR-023): connecting to a server only when its identity
+//! SSH to the owner's servers (Phase 11, ADR-025): connecting to a server only when its identity
 //! (host key) is the one the owner pinned, signing in with a key or password from the Vault or
 //! with the owner's SSH agent, running one command at a time on a channel with its output as it
 //! arrives, stopping it, and forwarding a local port through it.

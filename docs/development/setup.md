@@ -221,7 +221,7 @@ Servers**. Nothing to install: Plenipo has its own SSH client.
   stops every worker's server work until **Allow again**.
 
 Servers must run a POSIX shell (Linux, macOS, BSD). Windows servers are not supported yet
-(ADR-023).
+(ADR-025).
 
 `cargo test --workspace` includes the Phase 11 server tests, against a synthetic SSH server on
 this computer (no internet, nothing run on a real server).

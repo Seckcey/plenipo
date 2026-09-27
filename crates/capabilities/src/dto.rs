@@ -198,7 +198,7 @@ pub struct Screenshot {
     pub data_url: String,
 }
 
-// ---- Servers (Phase 11, ADR-023) ------------------------------------------------------------
+// ---- Servers (Phase 11, ADR-025) ------------------------------------------------------------
 
 /// Which sign-in values Plenipo keeps for a server (never the values).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

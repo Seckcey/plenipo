@@ -1,8 +1,10 @@
-# ADR-023: Servers over SSH, through Guard
+# ADR-025: Servers over SSH, through Guard
 
 - **Status:** Proposed
 - **Date:** 2026-09-27
 - **Phase:** 11
+- **Number:** 025, because 021 (Free and Pro editions) is on `main`, 022 is taken by the Kimi AI
+  tool, and 023 and 024 by the v1.4.0 work (switches in Settings, workers that learn).
 
 ## Context
 

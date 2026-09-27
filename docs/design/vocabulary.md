@@ -114,6 +114,19 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | signing in                                                                 | authentication, login                                          |
 | screenshot (of the page or the screen)                                     | screen capture, vision pipeline                                |
 | terms of use (of a website)                                                | terms of service, ToS                                          |
+| server (in Settings → Servers)                                             | host, remote host, host registry                               |
+| Connect to servers (the permission)                                        | SSH capability, ssh.connect                                    |
+| the server's identity / pin it                                             | host key fingerprint / host key pinning                        |
+| This server's identity changed                                             | host key mismatch, REMOTE HOST IDENTIFICATION HAS CHANGED      |
+| sign in as (a user on the server)                                          | SSH user, login                                                |
+| How Plenipo signs in: a private key / a password / my SSH agent            | credential reference, auth method                              |
+| development / staging / PRODUCTION (what a server is)                      | environment classification                                     |
+| the kinds of commands (Look around, Start, stop, and restart services, …)  | command classes                                                |
+| Run as administrator                                                       | sudo, privilege escalation                                     |
+| When to ask you (every command / anything that changes / only as allowed)  | approval policy                                                |
+| folders (on a server)                                                      | remote working directory policy                                |
+| forwarded port                                                             | SSH local port forward, direct-tcpip tunnel                    |
+| Disconnect (you stop a worker's server work)                               | Take over (for server sessions), terminate session             |
 
 ## Where technical words may stay
 

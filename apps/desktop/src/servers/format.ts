@@ -1,4 +1,4 @@
-// Plain words for servers (Phase 11, ADR-023).
+// Plain words for servers (Phase 11, ADR-025).
 import type { CommandClass, Environment, ServerApproval, SignIn } from "@plenipo/types";
 
 export const ENVIRONMENTS: Environment[] = ["development", "staging", "production"];

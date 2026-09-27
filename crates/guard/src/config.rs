@@ -35,7 +35,7 @@ pub struct GuardConfig {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10, ADR-020).
     pub websites: WebsiteRules,
-    /// The servers workers may use over SSH (Phase 11, ADR-023).
+    /// The servers workers may use over SSH (Phase 11, ADR-025).
     pub servers: Vec<Server>,
 }
 

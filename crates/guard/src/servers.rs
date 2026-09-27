@@ -1,4 +1,4 @@
-//! Servers (Phase 11, ADR-023): the owner's list of servers workers may reach over SSH, what
+//! Servers (Phase 11, ADR-025): the owner's list of servers workers may reach over SSH, what
 //! kind of command each one is, and Guard's part of the decision about a worker using one.
 //!
 //! A server is set up by the owner in Settings → Servers: a friendly name, its address and port,

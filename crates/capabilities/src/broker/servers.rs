@@ -1,4 +1,4 @@
-//! The owner's servers, through the broker (Phase 11, ADR-023). Every call goes the Phase 7 way:
+//! The owner's servers, through the broker (Phase 11, ADR-025). Every call goes the Phase 7 way:
 //! read, checked by Guard (now also against the owner's settings for the server), sent to the
 //! owner for approval when Guard says so, carried out by Plenipo, recorded, and answered with
 //! secrets hidden.
