@@ -72,7 +72,8 @@ Notes:
   **cloud models** (for example `gpt-oss:120b-cloud`), which run on Ollama's servers under your
   ollama.com sign-in, so no graphics card is needed. Ollama must be running (its tray icon);
   Plenipo talks to it only on `127.0.0.1:11434`, never uses an Ollama API key, and ignores
-  `OLLAMA_HOST`. The card shows "Signed in" with your plan (for example "Ollama sign-in (free
+  `OLLAMA_HOST`. On the free plan only some cloud models answer (gpt-oss and Nemotron when
+  checked); models marked "(paid plan)" need a paid Ollama plan. The card shows "Signed in" with your plan (for example "Ollama sign-in (free
   plan)"). Ollama workers are conversation only for now: they answer in text and cannot read
   files or run programs. Plenipo keeps each Ollama conversation in its session folder
   (`.plenipo-ollama-<id>.json`) and sends it with every task. To use another cloud model, name

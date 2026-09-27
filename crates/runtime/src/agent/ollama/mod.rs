@@ -70,16 +70,26 @@ impl RuntimeAdapter for Ollama {
             // The cloud models the owner chose, checked on the owner's PC with `ollama show`
             // (Ollama 0.34.4, 2026-09-27), with the thinking levels each lists. MiniMax M3 lists
             // no levels and Nemotron 3 Ultra only on or off (on by default), so they have no
-            // setting. Other cloud models can be named as `ollama list` shows them.
+            // setting. On the free plan only gpt-oss and Nemotron answered; the others answered
+            // "402 Payment Required", so their names say they need a paid Ollama plan. Other
+            // cloud models can be named as `ollama list` shows them.
             known_models: vec![
                 KnownModel::new(DEFAULT_MODEL, "gpt-oss 120B", GPT_OSS),
-                KnownModel::new("kimi-k3:cloud", "Kimi K3", TO_MAX),
-                KnownModel::new("deepseek-v4-pro:cloud", "DeepSeek V4 Pro", TO_MAX),
-                KnownModel::new("deepseek-v4.1-flash:cloud", "DeepSeek V4.1 Flash", TO_MAX),
-                KnownModel::new("glm-5.3:cloud", "GLM-5.3", TO_MAX),
-                KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash", TO_MAX),
-                KnownModel::new("minimax-m3:cloud", "MiniMax M3", &[]),
                 KnownModel::new("nemotron-3-ultra:cloud", "Nemotron 3 Ultra", &[]),
+                KnownModel::new("kimi-k3:cloud", "Kimi K3 (paid plan)", TO_MAX),
+                KnownModel::new(
+                    "deepseek-v4-pro:cloud",
+                    "DeepSeek V4 Pro (paid plan)",
+                    TO_MAX,
+                ),
+                KnownModel::new(
+                    "deepseek-v4.1-flash:cloud",
+                    "DeepSeek V4.1 Flash (paid plan)",
+                    TO_MAX,
+                ),
+                KnownModel::new("glm-5.3:cloud", "GLM-5.3 (paid plan)", TO_MAX),
+                KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash (paid plan)", TO_MAX),
+                KnownModel::new("minimax-m3:cloud", "MiniMax M3 (paid plan)", &[]),
             ],
         }
     }
@@ -491,6 +501,11 @@ mod tests {
                 TurnOutcome::ProviderUnavailable,
             ),
             ("Ollama answered 404: model not found", TurnOutcome::Failed),
+            (
+                "This model needs a paid Ollama plan (402 payment required). Choose a model \
+                 your plan includes, or change your plan at ollama.com.",
+                TurnOutcome::Failed,
+            ),
         ] {
             let mut p = Ollama.parser(&TurnRequest::default());
             feed(p.as_mut(), &[json!({"type":"error","message":message})]);

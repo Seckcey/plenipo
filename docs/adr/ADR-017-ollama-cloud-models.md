@@ -90,8 +90,10 @@ chat|auth`), supervised like any AI tool's program. That keeps the task's ID, ti
   `ollama show` gives for each (evidence in `models/` of the fixtures): gpt-oss 120B (low,
   medium, high); Kimi K3, DeepSeek V4 Pro, DeepSeek V4.1 Flash, GLM-5.3, and GLM-5.3 Flash (low,
   high, max); MiniMax M3 and Nemotron 3 Ultra (no thinking setting: MiniMax lists no levels,
-  Nemotron only on or off, on by default). Other cloud models can be named for a position as
-  `ollama list` shows them.
+  Nemotron only on or off, on by default). On the free plan only gpt-oss and Nemotron answered;
+  the other six answered `402 Payment Required`, so they are listed as "(paid plan)" and a task on
+  one ends with "This model needs a paid Ollama plan". Plenipo never changes the plan. Other
+  cloud models can be named for a position as `ollama list` shows them.
 
 ## Consequences
 

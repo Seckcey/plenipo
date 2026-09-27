@@ -36,16 +36,19 @@ through the Ollama service on the PC. No local models, no API key. The raw outpu
 Checked with `ollama show` on the owner's PC (2026-09-27; `models/` in the fixtures) and listed
 in the adapter:
 
-| Model                       | Context   | Thinking levels             |
-| --------------------------- | --------- | --------------------------- |
-| `gpt-oss:120b-cloud`        | 131,072   | low, medium (default), high |
-| `kimi-k3:cloud`             | 1,048,576 | low, high, max (default)    |
-| `deepseek-v4-pro:cloud`     | 1,048,576 | low (default), high, max    |
-| `deepseek-v4.1-flash:cloud` | 1,048,576 | low, high (default), max    |
-| `glm-5.3:cloud`             | 1,048,576 | low, high, max (default)    |
-| `glm-5.3-flash:cloud`       | 1,048,576 | low, high, max (default)    |
-| `minimax-m3:cloud`          | 512,000   | none listed                 |
-| `nemotron-3-ultra:cloud`    | 262,144   | on or off only (on)         |
+| Model                       | Context   | Thinking levels             | Free plan                |
+| --------------------------- | --------- | --------------------------- | ------------------------ |
+| `gpt-oss:120b-cloud`        | 131,072   | low, medium (default), high | Answered (low, high, on) |
+| `nemotron-3-ultra:cloud`    | 262,144   | on or off only (on)         | Answered (low, high, on) |
+| `kimi-k3:cloud`             | 1,048,576 | low, high, max (default)    | `402 Payment Required`   |
+| `deepseek-v4-pro:cloud`     | 1,048,576 | low (default), high, max    | `402 Payment Required`   |
+| `deepseek-v4.1-flash:cloud` | 1,048,576 | low, high (default), max    | `402 Payment Required`   |
+| `glm-5.3:cloud`             | 1,048,576 | low, high, max (default)    | `402 Payment Required`   |
+| `glm-5.3-flash:cloud`       | 1,048,576 | low, high, max (default)    | `402 Payment Required`   |
+| `minimax-m3:cloud`          | 512,000   | none listed                 | `402 Payment Required`   |
+
+The six that answered `402` are listed as "(paid plan)"; a task on one ends with "This model
+needs a paid Ollama plan", never a raw error. Plenipo never changes the plan.
 
 ## Built
 
@@ -70,6 +73,4 @@ in the adapter:
 - The owner's check on Windows: the Ollama card shows Ready and "Ollama sign-in (free plan)";
   a task and a follow-up answer; signing out shows "sign-in required".
 - The free plan's usage-limit message (seen in use).
-- A message to each model while signed in (the first run was signed out, so every model
-  answered `401`).
 - Follow-up: Plenipo's tools for Ollama workers through Guard (ADR-017 §4).

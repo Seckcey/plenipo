@@ -308,6 +308,13 @@ fn error_text(status: u16, body: &str) -> String {
         .unwrap_or_else(|| body.chars().take(300).collect());
     match status {
         401 => format!("401 unauthorized: sign in to Ollama (ollama signin). {message}"),
+        // Seen on the owner's free plan for most cloud models (2026-09-27), with no body.
+        402 => format!(
+            "This model needs a paid Ollama plan (402 payment required). Choose a model your \
+             plan includes, or change your plan at ollama.com. {message}"
+        )
+        .trim_end()
+        .to_owned(),
         429 => format!("429 usage limit: {message}"),
         _ => format!("Ollama answered {status}: {message}"),
     }
@@ -719,6 +726,14 @@ mod tests {
                 .starts_with("429 usage limit"),
             "{last}"
         );
+
+        let (port, _rx) = service(402, "", false);
+        let mut out = Vec::new();
+        assert_eq!(run(&args(&chat, port), &mut &b"hi"[..], &mut out), 1);
+        assert!(lines(&out).pop().unwrap()["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("This model needs a paid Ollama plan"));
 
         let (port, _rx) = service(401, r#"{"error":"unauthorized"}"#, false);
         let mut out = Vec::new();
