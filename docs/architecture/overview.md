@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 7) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 8) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -43,6 +43,7 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │  - broker: grants, tool server,      │   │
 │                                            │    approvals, file/program/git work, │   │
 │                                            │    Vault (OS credential store)       │   │
+│                                            │    working copies, GitHub via gh     │   │
 │                                            │    ▲ 127.0.0.1, per-step ticket      │   │
 │                                            └────┼─────────────┬───────────────────┘   │
 └─────────────────────────────────────────────────┼─────────────┼───────────────────────┘
@@ -129,28 +130,28 @@ Current commands:
 Workforce commands (Phase 5). Every change returns the organization as it is afterwards
 (`OrgSnapshot`); the Ledger enforces the structure and a refused change rejects with the reason.
 
-| Command                   | Input                            | Returns              | Purpose                                                                                                 |
-| ------------------------- | -------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
-| `get_organization`        | —                                | `OrgSnapshot`        | Roles, departments, projects, positions with live status and workers, oversight, stats                  |
-| `get_work`                | `positionId?`                    | `WorkView`           | A position's running, waiting, queued, and recent tasks, and its team's unfinished tasks                |
-| `rename_organization`     | `name`                           | `OrgSnapshot`        | The organization's display name                                                                         |
-| `set_organization_titles` | `titles` (`TitleTheme`)          | `OrgSnapshot`        | What the app calls the ranks (display only; ADR-010)                                                    |
-| `create_role`             | `input` (`RoleInput`)            | `OrgSnapshot`        | A custom role (class and staffing)                                                                      |
-| `create_department`       | `input` (`DepartmentInput`)      | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                                     |
-| `update_department`       | `departmentId`, `input`          | `OrgSnapshot`        | Name, description, active                                                                               |
-| `remove_department`       | `departmentId`                   | `OrgSnapshot`        | Delete a department without projects; its head position is archived                                     |
-| `create_project`          | `input` (`ProjectInput`)         | `OrgSnapshot`        | A project in a department with its coordinator; allowed runtimes, recorded path/profile                 |
-| `update_project`          | `projectId`, `input`             | `OrgSnapshot`        | Settings (allowed runtimes are checked against every position under the project)                        |
-| `archive_project`         | `projectId`                      | `OrgSnapshot`        | Archive the project and its whole team (refused while any of it has unfinished work)                    |
-| `hire_position`           | `input` (`HireInput`)            | `OrgSnapshot`        | A new position under a lead (or the owner); a persistent one gets its agent; no `runtimeId`: automatic  |
-| `fill_position`           | `positionId`                     | `OrgSnapshot`        | Hire an agent into a vacant persistent position                                                         |
-| `vacate_position`         | `positionId`                     | `OrgSnapshot`        | Retire a persistent position's agent; the position stays                                                |
-| `update_position`         | `positionId`, `input`            | `OrgSnapshot`        | Title, runtime (`""`: automatic), model (a new runtime or model hires a new agent for a persistent one) |
-| `move_position`           | `positionId`, `reportsTo`        | `OrgSnapshot`        | Change who it reports to (`null`: the owner); a moved coordinator takes its project along               |
-| `archive_position`        | `positionId`                     | `OrgSnapshot`        | Archive (orphan prevention: no reports, not a head or coordinator, no unfinished work)                  |
-| `assign_oversight`        | `overseerId`, `targetId`, `role` | `OrgSnapshot`        | Make an on-demand position a lead's team reviewer, QA evaluator, or security auditor                    |
-| `end_oversight`           | `oversightId`                    | `OrgSnapshot`        | End an oversight assignment                                                                             |
-| `give_objective`          | `positionId`, `objective`        | `AgentSessionDetail` | Give a staffed persistent position's agent an objective; Core chooses its session                       |
+| Command                   | Input                                   | Returns              | Purpose                                                                                                         |
+| ------------------------- | --------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `get_organization`        | —                                       | `OrgSnapshot`        | Roles, departments, projects, positions with live status and workers, oversight, stats                          |
+| `get_work`                | `positionId?`                           | `WorkView`           | A position's running, waiting, queued, and recent tasks, and its team's unfinished tasks                        |
+| `rename_organization`     | `name`                                  | `OrgSnapshot`        | The organization's display name                                                                                 |
+| `set_organization_titles` | `titles` (`TitleTheme`)                 | `OrgSnapshot`        | What the app calls the ranks (display only; ADR-010)                                                            |
+| `create_role`             | `input` (`RoleInput`)                   | `OrgSnapshot`        | A custom role (class and staffing)                                                                              |
+| `create_department`       | `input` (`DepartmentInput`)             | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                                             |
+| `update_department`       | `departmentId`, `input`                 | `OrgSnapshot`        | Name, description, active                                                                                       |
+| `remove_department`       | `departmentId`                          | `OrgSnapshot`        | Delete a department without projects; its head position is archived                                             |
+| `create_project`          | `input` (`ProjectInput`)                | `OrgSnapshot`        | A project in a department with its coordinator; allowed runtimes, recorded path/profile                         |
+| `update_project`          | `projectId`, `input`                    | `OrgSnapshot`        | Settings (allowed runtimes are checked against every position under the project)                                |
+| `archive_project`         | `projectId`                             | `OrgSnapshot`        | Archive the project and its whole team (refused while any of it has unfinished work)                            |
+| `hire_position`           | `input` (`HireInput`)                   | `OrgSnapshot`        | A new position under a lead (or the owner); a persistent one gets its agent; no `runtimeId`: automatic          |
+| `fill_position`           | `positionId`                            | `OrgSnapshot`        | Hire an agent into a vacant persistent position                                                                 |
+| `vacate_position`         | `positionId`                            | `OrgSnapshot`        | Retire a persistent position's agent; the position stays                                                        |
+| `update_position`         | `positionId`, `input`                   | `OrgSnapshot`        | Title, runtime (`""`: automatic), model (a new runtime or model hires a new agent for a persistent one)         |
+| `move_position`           | `positionId`, `reportsTo`               | `OrgSnapshot`        | Change who it reports to (`null`: the owner); a moved coordinator takes its project along                       |
+| `archive_position`        | `positionId`                            | `OrgSnapshot`        | Archive (orphan prevention: no reports, not a head or coordinator, no unfinished work)                          |
+| `assign_oversight`        | `overseerId`, `targetId`, `role`        | `OrgSnapshot`        | Make an on-demand position a lead's team reviewer, QA evaluator, or security auditor                            |
+| `end_oversight`           | `oversightId`                           | `OrgSnapshot`        | End an oversight assignment                                                                                     |
+| `give_objective`          | `positionId`, `objective`, `projectId?` | `AgentSessionDetail` | Give a staffed persistent position's agent an objective (for a project its team runs); Core chooses its session |
 
 Router commands (Phase 6). Every change returns the model settings as they are afterwards
 (`RoutingSnapshot`); a refused change rejects with the reason and changes nothing.
@@ -185,6 +186,16 @@ Guard's input types reject unknown fields, and a refused change rejects with the
 
 A project's permission limit is part of its settings (`create_project` / `update_project`
 `capabilityProfile`), checked against the permission sets.
+
+Development commands (Phase 8). A project's branch setting is part of its settings
+(`ProjectInput.branchPerObjective`).
+
+| Command                | Input                        | Returns           | Purpose                                                                                                        |
+| ---------------------- | ---------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `set_up_development`   | `input` (`DevelopmentInput`) | `OrgSnapshot`     | The Development department and its VP (when missing), then a project with its Supervisor and the standard team |
+| `get_objective_report` | `taskId`                     | `ObjectiveReport` | Plenipo's result for an objective (any of its tasks), built from the Ledger                                    |
+| `get_project_work`     | `projectId`                  | `ProjectWork`     | A project's objectives (newest first, in brief) and working copies                                             |
+| `remove_workspace`     | `workspaceId`                | `ProjectWork`     | Remove a finished objective's working copy; its branch stays                                                   |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -222,7 +233,8 @@ Decision record: [ADR-006](../adr/ADR-006-ledger.md).
 
 - SQLite at `<local app data>/ledger/plenipo.db`: WAL, `synchronous=FULL`, foreign keys.
 - Entities: roles, departments, projects, agent instances, tasks (parent/child), events,
-  executions (runtime/provider/model/session/usage), approvals, artifacts.
+  executions (runtime/provider/model/session/usage), approvals, artifacts, and (schema 6,
+  Phase 8) workspaces: each objective's working copy and branch.
 - Every mutation writes its event in the same transaction; `events` is append-only (triggers)
   and globally ordered. Rejected task transitions are recorded.
 - Task states: `queued → running → blocked | awaitingApproval → running → succeeded | failed |
@@ -298,8 +310,8 @@ Decision record: [ADR-008](../adr/ADR-008-liaison.md).
   children, cancel handoffs whose requester ended (stopping their workers, down the tree),
   dispatch accepted handoffs when a worker slot is free, deliver replies, retire finished
   handoff workers. Every action is guarded by recorded state, so repeating it changes nothing.
-- **Limits.** Depth 3, 3 requests per answer, 5 reply rounds per task, 12 handoffs per
-  workflow. Beyond a limit the request is refused and the worker told to do it itself.
+- **Limits.** Depth 3, 3 requests per answer, 8 reply rounds per task, 16 handoffs per
+  workflow (5 and 12 before Phase 8). Beyond a limit the request is refused and the worker told to do it itself.
 - **Restarts.** Waiting and running turns are recorded as interrupted on the next start; their
   handoffs are answered or cancelled, and nothing is resumed automatically.
 
@@ -345,7 +357,8 @@ Decision records: [ADR-009](../adr/ADR-009-workforce.md) (the engine) and
 - **Policy.** Projects record allowed runtimes (explicit; none allows none), a local folder (the
   workers' workspace from Phase 7), and a permission limit (a Guard permission set). A position's
   runtime is either fixed by the owner or automatic (chosen
-  by the Router, §9). Delegation between persistent positions waits for Phase 8.
+  by the Router, §9). Since Phase 8 a lead's team also includes its staffed full-time direct
+  reports, which take the task in their own conversation (§11).
 - **Organization canvas** (`apps/desktop/src/org`, `components/org`): a topology map in the
   style of a network topology view — owner → organization → teams, left to right, with bus
   connectors, labelled link chips, collapse toggles, live status (a dot plus text), animated
@@ -406,8 +419,9 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   "Approved / Always ask me first / Never run" (command rules), "Secrets" (the Vault). The
   **Approvals** page: "waiting for your approval", "Approve / Deny", "Revoke".
 - **Registry** (`crates/guard/src/registry.rs`): filesystem.read/write, shell.exec,
-  powershell.exec, git.read/write have tools now; github.\*, ssh.connect, browser.\*,
-  computer.\*, mcp.invoke, network.local, and process.manage are registered for later phases.
+  powershell.exec, git.read/write, and (Phase 8) github.read/write have tools now;
+  ssh.connect, browser.\*, computer.\*, mcp.invoke, network.local, and process.manage are
+  registered for later phases.
 - **Configuration** is the Ledger's `guard` setting: permission sets (7 built in), each role's
   set, department limits, command rules, blocked files, the sensitive-action rules, options, and
   secret references. Every change is a `guard.*` or `vault.*` event. Each built-in role template
@@ -442,7 +456,49 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   Plenipo stores only references and injects a value as an environment variable into the
   programs the owner named.
 
-## 11. Launch smoke test
+## 11. Development department (Phase 8)
+
+Decision record: [ADR-016 (the Development department: delegation, working copies, GitHub, and
+the result)](../adr/ADR-016-development-department.md).
+
+- **Words on screen.** The plan's Development Superintendent is the **Development VP**, project
+  coordinators are **Supervisors**, git worktrees are **working copies**, and the final result
+  is the objective's **result**. The **Projects** page is the plan's project dashboard.
+- **Delegation to full-time members** (`crates/workforce/src/directory.rs`,
+  `conversation.rs`). A lead's team includes its staffed full-time direct reports. Liaison's
+  `Directory` hook places a request to one as a new turn in that member's own session
+  (`ChildConversation`); a busy member's turn waits (`SessionBusy`) until it is free. Work only
+  goes down reporting lines, which cannot loop, so members never wait on each other. Stopping a
+  delegated task stops only its turn (`cancel_task`).
+- **Working copies** (`crates/capabilities/src/worktrees.rs`, `broker.rs`). When a worker of an
+  objective first needs a project folder that is committed content of a git repository,
+  the broker makes a `git worktree` on `plenipo/<objective>-<id>` in `<app data>/working-copies`
+  and confines every worker of that objective to it. One writer at a time: a second writer of
+  the same objective gets `<branch>-2`, made from the first. In a working copy the git tools may
+  not switch or create branches, and push only the objective's branch. After each step that used
+  it, its commits and changed files are recorded (`workspace.updated`). Plenipo's own git runs
+  without hooks, prompts, or inherited environment, with a time limit.
+- **GitHub tools** (`crates/capabilities/src/github.rs`, `tools.rs`): pull request list, view,
+  and checks, issue view (github.read), and a draft pull request for the objective's branch
+  (github.write; it pushes first, and always asks the owner). They run GitHub's `gh` on the
+  project's own repository only, with prompts, pager, and color off. `gh` is signed in by the
+  owner, or given a `GH_TOKEN` secret.
+- **Playbook and verdicts** (`crates/workforce/src/prompt.rs`). A lead with full-time reports is
+  told to hand each objective on and report back briefly; a Supervisor with a team gets the
+  development playbook. Reviewers, QA, and security auditors end with a `plenipo-review` block
+  (verdict and findings).
+- **The result** (`crates/workforce/src/outcome.rs`, `ObjectiveReport`): built only from the
+  Ledger — the task tree, workers and models, files, programs and tests, branches, pull
+  requests, verdicts and open findings, approvals, blocked requests, and problems — beside the
+  lead's own answer.
+- **Development template** (`crates/workforce/src/templates.rs`): the department, VP,
+  Supervisor, and team as data over the Phase 5 engine (`set_up_development`).
+- **Projects page** (`apps/desktop/src/views/ProjectsView.tsx`,
+  `components/ObjectiveResult.tsx`): projects, the objective box, objectives, the live result,
+  and working copies. It reloads (debounced) on `task.*`, `liaison.*`, `workspace.*`,
+  `approval.*`, `session.*`, `capability.used`, and `agent.result` events.
+
+## 12. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
 has rendered **and** successfully called Core, and the process exits 0. If that does not
@@ -450,27 +506,27 @@ happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The 
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
 
-## 12. Target component map
+## 13. Target component map
 
 From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent runtime
-adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**, and
-**Vault** exist today.
+adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**,
+**Vault**, and the GitHub integration exist today.
 
-| Component    | Responsibility                                  | Introduced |
-| ------------ | ----------------------------------------------- | ---------- |
-| Desktop      | UI                                              | Phase 0    |
-| Core         | Orchestration and domain logic, shared DTOs     | Phase 0    |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅  | Phase 1, 3 |
-| Ledger       | SQLite system of record ✅                      | Phase 2    |
-| Liaison      | Task/message/event bus ✅                       | Phase 4    |
-| Workforce    | Departments, roles, coordinators, workers ✅    | Phase 5    |
-| Router       | Role → provider/model selection ✅              | Phase 6    |
-| Capabilities | Filesystem ✅, shell ✅, Git ✅, SSH, browser   | Phase 7+   |
-| Guard        | Permissions, approvals, policy enforcement ✅   | Phase 7    |
-| Vault        | Credential references (OS-protected storage) ✅ | Phase 7    |
-| Integrations | Paperclip, GitHub, CrewOS                       | Phase 8+   |
+| Component    | Responsibility                                                   | Introduced |
+| ------------ | ---------------------------------------------------------------- | ---------- |
+| Desktop      | UI                                                               | Phase 0    |
+| Core         | Orchestration and domain logic, shared DTOs                      | Phase 0    |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                   | Phase 1, 3 |
+| Ledger       | SQLite system of record ✅                                       | Phase 2    |
+| Liaison      | Task/message/event bus ✅                                        | Phase 4    |
+| Workforce    | Departments, roles, coordinators, workers ✅                     | Phase 5    |
+| Router       | Role → provider/model selection ✅                               | Phase 6    |
+| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, SSH, browser | Phase 7+   |
+| Guard        | Permissions, approvals, policy enforcement ✅                    | Phase 7    |
+| Vault        | Credential references (OS-protected storage) ✅                  | Phase 7    |
+| Integrations | GitHub ✅, Paperclip, CrewOS                                     | Phase 8+   |
 
-## 13. Invariants every phase must keep
+## 14. Invariants every phase must keep
 
 - **Local-first** ([ADR-002](../adr/ADR-002-local-first-architecture.md)): the desktop app owns
   execution; remote surfaces never become the privileged runtime.

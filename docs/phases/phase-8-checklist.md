@@ -1,6 +1,7 @@
 # Phase 8 — Implementation Checklist
 
-**Status:** in progress on `claude/phase-8`.
+**Status:** complete on `claude/phase-8` — see the [acceptance report](phase-8-acceptance-report.md).
+The owner's Windows check with the real CLIs is below.
 
 Source: `ROLLOUT_PLAN.md`, Phase 8 — Development Department MVP. Phase 7 is accepted and released
 as v0.8.0 ([PR #14](https://github.com/Seckcey/plenipo/pull/14)); the owner asked to begin Phase 8
@@ -71,53 +72,54 @@ there are no GitHub tools, and the result is only the VP's own text.
   approvals still waiting (and those refused), and blocked requests — next to the VP's own
   summary. Live while it runs.
 - **Projects page** (the project dashboard): each project with its Supervisor, folder,
-  repository, current objective, workers now, approvals waiting, recent objectives and their
-  results, and working copies. **Give Development an objective** from there: pick the project,
-  type the objective, and it goes to the Development VP (or straight to the Supervisor).
-- **Development template:** **Set up Development** creates the Development department with its VP,
+  repository, and branch setting; its objectives with their state, tasks still going, approvals
+  waiting, and branch; the selected objective's result, live; and its working copies. **Give an
+  objective** from there: pick the project, type the objective, and it goes to the Development
+  VP (or straight to the Supervisor).
+- **Development template:** **Set up a Development project** creates the Development department with its VP,
   and a project with its Supervisor and the standard team (Senior Developer, Code Reviewer,
   QA Engineer, Documentation Writer), in one change. It is data, not code: the same engine as
   every department.
 
 ## Deliverables (plan)
 
-- [ ] Development Superintendent (the Development VP, a department head that takes objectives and
+- [x] Development Superintendent (the Development VP, a department head that takes objectives and
       hands them to the right Supervisor)
-- [ ] Project coordinators (Supervisors that take delegated objectives in their own conversation)
-- [ ] Developer worker role
-- [ ] Reviewer role (verdict and findings)
-- [ ] QA role (acceptance checks, verdict)
-- [ ] Documentation role
-- [ ] Git integration (a branch and working copy per objective, branch guard, commits recorded)
-- [ ] GitHub integration (pull requests and issues through `gh`)
-- [ ] Task decomposition (the Supervisor's playbook; bounded tasks through Liaison)
-- [ ] Review loop (review → repair → review again, within the limits)
-- [ ] Project dashboard (Projects page)
-- [ ] ADR-016; architecture, README, setup, vocabulary updated
+- [x] Project coordinators (Supervisors that take delegated objectives in their own conversation)
+- [x] Developer worker role
+- [x] Reviewer role (verdict and findings)
+- [x] QA role (acceptance checks, verdict)
+- [x] Documentation role
+- [x] Git integration (a branch and working copy per objective, branch guard, commits recorded)
+- [x] GitHub integration (pull requests and issues through `gh`)
+- [x] Task decomposition (the Supervisor's playbook; bounded tasks through Liaison)
+- [x] Review loop (review → repair → review again, within the limits)
+- [x] Project dashboard (Projects page)
+- [x] ADR-016; architecture, README, setup, vocabulary updated
 
 ## Phase 8 tests (plan: synthetic development scenarios)
 
-- [ ] Documentation-only change
-- [ ] Small bug fix
-- [ ] Feature with implementation + review
-- [ ] Failed tests and repair
-- [ ] Concurrent workers
-- [ ] Reviewer requests changes
-- [ ] Provider failure mid-task
-- [ ] Coordinator restart
+- [x] Documentation-only change
+- [x] Small bug fix
+- [x] Feature with implementation + review
+- [x] Failed tests and repair
+- [x] Concurrent workers
+- [x] Reviewer requests changes
+- [x] Provider failure mid-task
+- [x] Coordinator restart
 
 ## Acceptance criteria (plan)
 
-- [ ] The user can type an objective comparable to "Have Development implement feature X in
+- [x] The user can type an objective comparable to "Have Development implement feature X in
       project Y and get it ready for review", and Plenipo delegates it to the right coordinator
       and mixed-provider workers without the user opening Codex or Claude sessions.
-- [ ] The final result includes: tasks performed; agents/models used; files changed; tests
+- [x] The final result includes: tasks performed; agents/models used; files changed; tests
       executed; commit/branch/PR information where applicable; unresolved findings; approvals
       still required.
 
 ## MVP boundary (plan §4)
 
-- [ ] 1 Launch on Windows · 2 View Development · 3 Select or name a project · 4 Give the VP an
+- [x] 1 Launch on Windows · 2 View Development · 3 Select or name a project · 4 Give the VP an
       outcome · 5 Route it to the project's Supervisor · 6 Workers on Codex and Claude Code ·
       7 Models by role · 8 Only through Liaison · 9 Controlled file, git, and program permissions ·
       10 Implementation, review, and tests · 11 Live status on screen · 12 The whole task tree and
@@ -129,6 +131,40 @@ Fully autonomous production releases, every 8 West project, the sales and market
 (plan). Also: merging branches automatically (the result says what to merge), GitHub reviews and
 merges by workers, and operating-system sandboxing of approved programs.
 
-## Owner check on Windows
+## Owner check on Windows (~30 minutes)
 
-Written with the acceptance report (it needs the finished screens).
+With the **real** Claude Code, Codex, and GitHub CLI, signed in. Use a scratch repository on
+GitHub (for example `<you>/plenipo-scratch`, with a README and one commit), cloned to
+`D:\scratch\plenipo-scratch`. Never use a repository that matters for this check.
+
+1. **Install and sign in to GitHub CLI:** `winget install --id GitHub.cli`, then
+   `gh auth login` (GitHub.com, your account). `gh repo view <you>/plenipo-scratch` should show
+   it.
+2. **Install v1.0.0** and open Plenipo. **AI tools**: Claude Code and Codex both **Ready**.
+3. **Settings → Permissions → Approved**: add your test command if the scratch repository has
+   one (for example `npm test *`); otherwise skip.
+4. **Projects → Set up a Development project**: name `Scratch`, **Repository URL**
+   `https://github.com/<you>/plenipo-scratch`, **Project folder** `D:\scratch\plenipo-scratch`,
+   both AI tools allowed, **Work on a separate branch for each objective** ticked. **Set up**.
+   **Organization** shows Development VP → Scratch Supervisor → Senior Developer, Code Reviewer,
+   QA Engineer, Documentation Writer.
+5. **Projects → Give an objective** (to Development VP): _"Add a CONTRIBUTING.md with three
+   short rules for contributors. Have it reviewed, then get it ready for review: a draft pull
+   request."_ The objective appears (**Working**, then **Waiting on replies** while the team
+   works), and its result fills in as the work goes on.
+   Check **Workers**: the VP and the Supervisor each have their own conversation.
+6. When the banner says **Senior Developer is waiting for your approval** (open a draft pull
+   request), open **Review**, read the card, and **Approve**.
+7. Back on **Projects**, when the result says **Done**, check that it shows: the tasks and who
+   did them, each worker's AI tool and model (the reviewer on a different AI company than the
+   developer, if your model choices say so), `CONTRIBUTING.md` changed and **Committed**, the
+   review, the branch `plenipo/…` **Pushed**, and the pull request link. Open the link: a
+   **draft** pull request from that branch.
+8. In a terminal: `git -C D:\scratch\plenipo-scratch status` — still on your branch, nothing
+   changed; `git -C D:\scratch\plenipo-scratch branch --list "plenipo/*"` — the new branch.
+9. **Projects → Working copies → Remove**: the folder under
+   `%LOCALAPPDATA%\com.eightwest.plenipo\working-copies\` is gone; the branch is still there.
+10. Close the draft pull request on GitHub and delete its branch.
+
+Report anything odd (with a screenshot, and never a token or password) and it goes into a patch
+release.

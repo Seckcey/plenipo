@@ -5,7 +5,19 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
+> **Status:** Phase 8 — the Development department (v1.0.0, the first full release). Tell
+> Development what you want — "implement the login page in Website and get it ready for review" —
+> and it gets done without you opening Claude Code or Codex. **Projects → Set up a Development
+> project** creates the Development department with its VP, the project with its Supervisor, and
+> a team: a developer, a code reviewer, a QA engineer, and a documentation writer, on both AI
+> tools. The VP hands your objective to the project's Supervisor, whose team works on a new
+> branch in its own working copy of your project folder (your own copy is never changed):
+> implement, review, fix, test, and — when you ask — open a draft pull request on GitHub, which
+> waits for your approval. The **result** is Plenipo's own record: every task, who did it on
+> which AI model, the files changed, the tests and whether they passed, the review and its open
+> findings, the branch and pull request, and approvals still needed.
+>
+> Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
 > their project's folder, and only as far as you allow. **Settings → Permissions** gives each
 > role a permission set (read files, change files, run programs, save to git…, each Allowed,
 > Ask me, or Blocked), lets a project or department narrow it, lists the programs workers may
@@ -96,7 +108,8 @@ crates/router/           Plenipo Router: model registry, role model policies, ex
 crates/guard/            Plenipo Guard: permission registry and sets, policy engine, folder
                          confinement, command rules, sensitive actions, secret redaction
 crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
-                         program, and git tools, approvals, Vault (OS credential store)
+                         program, git, and GitHub tools, working copies (a branch per
+                         objective), approvals, Vault (OS credential store)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
