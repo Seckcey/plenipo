@@ -26,7 +26,7 @@ export function affectsApprovals(eventType: string): boolean {
 
 /** A value from Core kept live: reloaded (debounced) after relevant Ledger events; a change
  * applies what its command returns. */
-function useLive<T>(load: () => Promise<T>, relevant: (eventType: string) => boolean) {
+export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string) => boolean) {
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

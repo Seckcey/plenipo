@@ -14,7 +14,7 @@ pub const KEEP_BACKUPS: usize = 10;
 const BACKUP_PREFIX: &str = "plenipo-backup-";
 
 /// Tables included in a JSON export, in dependency order.
-const EXPORT_TABLES: [&str; 15] = [
+const EXPORT_TABLES: [&str; 16] = [
     "schema_migrations",
     "settings",
     "roles",
@@ -30,6 +30,7 @@ const EXPORT_TABLES: [&str; 15] = [
     "approvals",
     "artifacts",
     "liaison_messages",
+    "lessons",
 ];
 
 /// Write a consistent snapshot of `conn` to `dir/<prefix>-<timestamp>.db` and verify it.

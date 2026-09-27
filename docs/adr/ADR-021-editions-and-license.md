@@ -46,9 +46,11 @@ edition, from one public codebase.
      Development department.
    - **Pro:** unlimited departments, projects, and workers, plus the Sales department on HubSpot
      ([ADR-018](ADR-018-sales-on-hubspot-no-paperclip.md)) and the business departments that
-     follow it.
+     follow it, and **workers that learn from their work**
+     ([ADR-024](ADR-024-workers-learn-from-work.md); the owner's decision, 2026-09-27).
 4. **Nothing that keeps a worker in bounds is ever paid.** Permissions, Guard, folder limits,
-   approvals, the Vault, the control center, the Ledger, and the Activity trail are in the Free
+   approvals, the Vault, the control center, the switches in Settings
+   ([ADR-023](ADR-023-settings-switches.md)), the Ledger, and the Activity trail are in the Free
    edition and stay there. So do all four AI tools and the owner's own sign-ins. Selling safety
    would make the Free edition unsafe to run, which would be worse for Plenipo than any revenue it
    raised.

@@ -9,6 +9,8 @@
 **Document purpose:** Execution plan for Claude Code / Opus 5.5 and future implementation agents.
 **Plan changes:** Phase 9 is postponed and Paperclip will not be integrated; a new Sales department will be built in Plenipo later, with HubSpot as its CRM (ADR-018, 2026-09-27). Phase 10 comes next.
 
+**Added after Phase 10 (v1.4.0):** on/off switches in Settings, including letting workers send, buy, or press Sign in without asking on allowed websites and handing CAPTCHAs to the owner (ADR-023, which amends ADR-020); and workers that learn from their work, with the owner keeping or discarding each lesson (ADR-024). Neither changes a phase.
+
 ---
 
 ## 1. Product Definition

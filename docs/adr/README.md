@@ -30,10 +30,12 @@ architecture must be recorded here.
 | [013](ADR-013-guard-capability-broker.md)        | Guard, capability broker, and human approval                          | Accepted |
 | [014](ADR-014-adding-ai-tools.md)                | Adding AI tools ahead of Phase 15                                     | Accepted |
 | [015](ADR-015-acp-ai-tools.md)                   | Running AI tools over ACP                                             | Accepted |
-| [016](ADR-016-development-department.md)         | Development department: delegation, working copies, GitHub, result    | Proposed |
+| [016](ADR-016-development-department.md)         | Development department: delegation, working copies, GitHub, result    | Accepted |
 | [017](ADR-017-ollama-cloud-models.md)            | Ollama cloud models through its service                               | Accepted |
-| [018](ADR-018-sales-on-hubspot-no-paperclip.md)  | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
-| [019](ADR-019-role-working-instructions.md)      | Every role knows its job: working instructions for all roles          | Proposed |
-| [020](ADR-020-browser-and-computer-use.md)       | Plenipo's browser and computer use, through Guard                     | Proposed |
+| [018](ADR-018-sales-on-hubspot-no-paperclip.md)  | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Accepted |
+| [019](ADR-019-role-working-instructions.md)      | Every role knows its job: working instructions for all roles          | Accepted |
+| [020](ADR-020-browser-and-computer-use.md)       | Plenipo's browser and computer use, through Guard (amended by 023)    | Accepted |
 | [021](ADR-021-editions-and-license.md)           | Free and Pro editions under the Elastic License 2.0                   | Accepted |
 | [022](ADR-022-subscription-and-license-check.md) | Subscription pricing and the weekly license check                     | Accepted |
+| [023](ADR-023-settings-switches.md)              | On/off switches in Settings                                           | Accepted |
+| [024](ADR-024-workers-learn-from-work.md)        | Workers learn from their work                                         | Accepted |
