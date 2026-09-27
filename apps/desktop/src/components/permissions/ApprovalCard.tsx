@@ -1,6 +1,7 @@
 import type { ApprovalView } from "@plenipo/types";
 
 import { ago } from "../../org/format";
+import { ScreenshotView } from "../ScreenshotView";
 import { APPROVAL_STATUS_LABEL, timeLeft } from "../../guard/format";
 
 /**
@@ -39,6 +40,18 @@ export function ApprovalCard({
       <pre className="approval__detail" aria-label="Exactly what it will do">
         {a.detail || a.summary}
       </pre>
+      {a.url && (
+        <p className="approval__meta">
+          On the page <span className="path">{a.url}</span>
+        </p>
+      )}
+      {a.screenshot && (
+        <ScreenshotView
+          id={a.screenshot}
+          label={`The page when ${a.worker} asked`}
+          startOpen={a.status === "pending"}
+        />
+      )}
       <p className="approval__why">
         <strong>Why it needs you:</strong> {a.reason}
       </p>

@@ -16,6 +16,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getPermissions: vi.fn(),
     resolveApproval: vi.fn(),
     revokeGrant: vi.fn(),
+    getScreenshot: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({ subscribeLedgerEvents: vi.fn() }));
@@ -67,6 +68,40 @@ describe("Approvals", () => {
       .click(within(card).getByRole("button", { name: "Approve" }));
     expect(api.resolveApproval).toHaveBeenCalledWith("approval-1", true);
     expect(await screen.findByText("Nothing is waiting for your approval.")).toBeInTheDocument();
+  });
+
+  it("shows the web page and its screenshot when a worker asks to send a form", async () => {
+    api.getApprovals.mockResolvedValue(
+      sampleQueue({
+        pending: [
+          approval({
+            worker: "Web Assistant",
+            role: "Web Assistant",
+            capability: "browser.automate",
+            capabilityLabel: "Use websites",
+            summary: 'send the form "Contact us" to shop.test',
+            detail: "POST http://shop.test/send\nname=Test",
+            sensitive: "outbound",
+            url: "http://shop.test/form",
+            screenshot: "artifact-9",
+          }),
+        ],
+      }),
+    );
+    api.getScreenshot.mockResolvedValue({
+      mime: "image/png",
+      dataUrl: "data:image/png;base64,AA==",
+    });
+    render(<ApprovalsView />);
+    const card = await screen.findByRole("article", {
+      name: 'Web Assistant wants to send the form "Contact us" to shop.test',
+    });
+    expect(within(card).getByText("http://shop.test/form")).toBeInTheDocument();
+    const shot = await within(card).findByRole("img", {
+      name: "The page when Web Assistant asked",
+    });
+    expect(shot).toHaveAttribute("src", "data:image/png;base64,AA==");
+    expect(api.getScreenshot).toHaveBeenCalledWith("artifact-9");
   });
 
   it("denies, and shows recent answers", async () => {

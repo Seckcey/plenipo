@@ -252,3 +252,42 @@ describe("describeEvent (Phase 7 permissions)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 10 browser and desktop events)", () => {
+  it("says who used the browser or the mouse and keyboard, and what the owner did", () => {
+    expect(describeEvent(event("browser.started", { browser: "Google Chrome" }))).toBe(
+      "Plenipo's browser started (Google Chrome)",
+    );
+    expect(
+      describeEvent(event("control.started", { kind: "browser", worker: "Web Assistant" })),
+    ).toBe("Web Assistant started using Plenipo's browser");
+    expect(
+      describeEvent(
+        event("control.started", {
+          kind: "desktop",
+          worker: "Operator",
+          reason: "The app has no API",
+        }),
+      ),
+    ).toBe("Operator started using the mouse and keyboard — The app has no API");
+    expect(
+      describeEvent(event("control.taken_over", { kind: "browser", worker: "Web Assistant" })),
+    ).toBe("You took over Plenipo's browser from Web Assistant");
+    expect(
+      describeEvent(event("control.stopped", { sessions: [{ kind: "browser", worker: "W" }] })),
+    ).toBe("You pressed Stop: 1 worker stopped using the browser or the desktop");
+    expect(describeEvent(event("control.stopped", { sessions: [] }))).toBe(
+      "You pressed Stop: browser and desktop control is stopped",
+    );
+    expect(describeEvent(event("control.allowed", {}))).toBe(
+      "You allowed browser and desktop control again",
+    );
+    expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
+    expect(
+      describeEvent(event("org.role_updated", { name: "Scout", formerly: "Researcher 2" })),
+    ).toBe("Role renamed from Researcher 2 to Scout");
+    expect(describeEvent(event("org.role_updated", { name: "Designer", template: true }))).toBe(
+      "Built-in role's instructions updated: Designer",
+    );
+  });
+});

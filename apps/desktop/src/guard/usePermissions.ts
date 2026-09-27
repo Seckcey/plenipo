@@ -13,6 +13,7 @@ export function affectsPermissions(eventType: string): boolean {
     eventType === "capability.used" ||
     eventType === "org.role_created" ||
     eventType === "org.role_renamed" ||
+    eventType === "org.role_updated" ||
     eventType.startsWith("org.department_") ||
     eventType.startsWith("org.project_")
   );

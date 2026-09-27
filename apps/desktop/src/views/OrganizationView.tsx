@@ -23,6 +23,7 @@ import {
   createDepartment,
   createProject,
   createRole,
+  updateRole,
   endOversight,
   fillPosition,
   giveObjective,
@@ -86,6 +87,7 @@ type Dialog =
   | { kind: "newProject"; departmentId: string | null }
   | { kind: "editProject"; id: string }
   | { kind: "role" }
+  | { kind: "editRole"; id: string }
   | { kind: "rename" }
   | {
       kind: "confirm";
@@ -287,6 +289,7 @@ export function OrganizationView({
       newDepartment: (reportsTo) => setDialog({ kind: "newDepartment", reportsTo }),
       newProject: (departmentId) => setDialog({ kind: "newProject", departmentId }),
       newRole: () => setDialog({ kind: "role" }),
+      editRole: (id) => setDialog({ kind: "editRole", id }),
       editDepartment: (id) => setDialog({ kind: "editDepartment", id }),
       editProject: (id) => setDialog({ kind: "editProject", id }),
       rename: () => setDialog({ kind: "rename" }),
@@ -478,6 +481,8 @@ export function OrganizationView({
       : undefined;
   const editingProject =
     dialog?.kind === "editProject" ? snapshot.projects.find((p) => p.id === dialog.id) : undefined;
+  const editingRole =
+    dialog?.kind === "editRole" ? snapshot.roles.find((r) => r.id === dialog.id) : undefined;
 
   return (
     <section className="org" aria-labelledby="org-title">
@@ -713,6 +718,17 @@ export function OrganizationView({
           titles={titles}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createRole(input), `Added the ${input.name} role.`)}
+        />
+      )}
+      {editingRole && (
+        <RoleDialog
+          titles={titles}
+          role={editingRole}
+          onCancel={closeDialog}
+          onSubmit={() => Promise.resolve(null)}
+          onUpdate={(input) =>
+            submit(() => updateRole(editingRole.id, input), `Saved the ${input.name} role.`)
+          }
         />
       )}
       {dialog?.kind === "rename" && (

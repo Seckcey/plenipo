@@ -20,6 +20,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getRouting: vi.fn(),
     renameOrganization: vi.fn(),
     createRole: vi.fn(),
+    updateRole: vi.fn(),
     createDepartment: vi.fn(),
     updateDepartment: vi.fn(),
     removeDepartment: vi.fn(),
@@ -426,6 +427,81 @@ describe("Organization view", () => {
     expect(
       await screen.findByRole("button", { name: "Engineering Manager, Idle" }),
     ).toBeInTheDocument();
+  });
+
+  it("writes what a role does in plain words, and edits a role you created", async () => {
+    const org = sampleOrganization();
+    const dev = org.roles.find((r) => r.id === "r-dev")!;
+    dev.job = {
+      duties: ["Write the code for the task"],
+      returns: ["What changed"],
+      limits: ["Stay in the project folder"],
+      askLead: ["The task is unclear"],
+    };
+    org.roles.push({
+      ...dev,
+      id: "r-scout",
+      name: "Scout",
+      description: "Finds suppliers.",
+      template: false,
+      job: { duties: ["Find three suppliers"], returns: [], limits: [], askLead: [] },
+    });
+    show(org);
+    api.createRole.mockResolvedValue(org);
+    api.updateRole.mockResolvedValue(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "+ Role" }));
+    const dialog = screen.getByRole("dialog", { name: "New role" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Buyer");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /^What this role does/ }),
+      "Compares offers.",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /^Its job/ }),
+      "Compare prices\n- Note each source",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /^What it must not do/ }),
+      "Buy anything",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create role" }));
+    expect(api.createRole).toHaveBeenCalledWith({
+      name: "Buyer",
+      description: "Compares offers.",
+      kind: "worker",
+      staffing: "onDemand",
+      job: {
+        duties: ["Compare prices", "Note each source"],
+        returns: [],
+        limits: ["Buy anything"],
+        askLead: [],
+      },
+    });
+    // A built-in role shows its instructions and cannot be edited.
+    await user.click(screen.getByRole("button", { name: /^Senior Developer, / }));
+    const details = screen.getByRole("complementary", { name: "Details: Senior Developer" });
+    expect(within(details).getByText("What the Senior Developer role does")).toBeInTheDocument();
+    expect(within(details).getByText("Stay in the project folder")).toBeInTheDocument();
+    expect(within(details).queryByRole("button", { name: "Edit role" })).toBeNull();
+    // Your own roles are listed on the organization, and editing keeps rank and staffing.
+    await user.click(screen.getByRole("button", { name: `${org.name}, organization` }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const edit = screen.getByRole("dialog", { name: "Edit role: Scout" });
+    expect(within(edit).queryByRole("combobox", { name: "Rank" })).toBeNull();
+    const returns = within(edit).getByRole("textbox", { name: /^What it hands back/ });
+    await user.type(returns, "A table of suppliers");
+    await user.click(within(edit).getByRole("button", { name: "Save role" }));
+    expect(api.updateRole).toHaveBeenCalledWith("r-scout", {
+      name: "Scout",
+      description: "Finds suppliers.",
+      job: {
+        duties: ["Find three suppliers"],
+        returns: ["A table of suppliers"],
+        limits: [],
+        askLead: [],
+      },
+    });
   });
 
   it("keeps a refused dialog open with the Ledger's reason", async () => {

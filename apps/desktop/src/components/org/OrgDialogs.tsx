@@ -12,6 +12,8 @@ import type {
   ProjectInput,
   RoleInfo,
   RoleInput,
+  RoleJob,
+  RoleUpdate,
   Staffing,
 } from "@plenipo/types";
 
@@ -974,39 +976,103 @@ export function SetUpDevelopmentDialog({
 
 // ---- Roles ----------------------------------------------------------------------------------
 
+const JOB_FIELDS: { key: keyof RoleJob; label: string; hint: string }[] = [
+  {
+    key: "duties",
+    label: "Its job",
+    hint: "What it is responsible for, one item per line.",
+  },
+  {
+    key: "returns",
+    label: "What it hands back",
+    hint: "What its lead gets when it is done, one item per line.",
+  },
+  {
+    key: "limits",
+    label: "What it must not do",
+    hint: "Its limits, one item per line. Its permission set still decides what it can do.",
+  },
+  {
+    key: "askLead",
+    label: "When it asks its lead for help",
+    hint: "One situation per line.",
+  },
+];
+
+const EMPTY_JOB: RoleJob = { duties: [], returns: [], limits: [], askLead: [] };
+
+const jobLines = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-*•]\s*/, "").trim())
+    .filter((l) => l !== "");
+
+/**
+ * A new role, or a change to one you created (built-in roles keep their instructions). Its
+ * working instructions — its job, what it hands back, its limits, and when it asks for help —
+ * go into every one of its workers' instructions, in your words (ADR-019).
+ */
 export function RoleDialog({
   titles: t,
+  role,
   onCancel,
   onSubmit,
+  onUpdate,
 }: {
   titles: TitleSet;
+  /** The role to change; a new role when absent. */
+  role?: RoleInfo;
   onCancel: () => void;
   onSubmit: Submit<RoleInput>;
+  onUpdate?: Submit<RoleUpdate>;
 }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [kind, setKind] = useState<PositionKind>("worker");
-  const [staffing, setStaffing] = useState<Staffing>("onDemand");
+  const [name, setName] = useState(role?.name ?? "");
+  const [description, setDescription] = useState(role?.description ?? "");
+  const [kind, setKind] = useState<PositionKind>(role?.kind ?? "worker");
+  const [staffing, setStaffing] = useState<Staffing>(role?.staffing ?? "onDemand");
+  const [job, setJob] = useState<Record<keyof RoleJob, string>>(() => {
+    const j = role?.job ?? EMPTY_JOB;
+    return {
+      duties: j.duties.join("\n"),
+      returns: j.returns.join("\n"),
+      limits: j.limits.join("\n"),
+      askLead: j.askLead.join("\n"),
+    };
+  });
   const { pending, error, run } = useSubmit();
   const fixed = kind !== "worker";
+  const editing = role !== undefined;
+  const title = editing ? `Edit role: ${role.name}` : "New role";
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    const written: RoleJob = {
+      duties: jobLines(job.duties),
+      returns: jobLines(job.returns),
+      limits: jobLines(job.limits),
+      askLead: jobLines(job.askLead),
+    };
     void run(() =>
-      onSubmit({
-        name: name.trim(),
-        description: description.trim(),
-        kind,
-        staffing: fixed ? "persistent" : staffing,
-      }),
+      editing && onUpdate
+        ? onUpdate({ name: name.trim(), description: description.trim(), job: written })
+        : onSubmit({
+            name: name.trim(),
+            description: description.trim(),
+            kind,
+            staffing: fixed ? "persistent" : staffing,
+            job: written,
+          }),
     );
   };
   return (
-    <Modal title="New role" onClose={onCancel}>
-      <form className="modal__body" aria-label="New role" onSubmit={submit}>
+    <Modal title={title} onClose={onCancel}>
+      <form className="modal__body" aria-label={title} onSubmit={submit}>
         <Field label="Name">
           <input value={name} maxLength={80} required onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="What it does" hint="Becomes part of its workers' instructions.">
+        <Field
+          label="What this role does"
+          hint="A sentence or two in plain words. Becomes part of its workers' instructions."
+        >
           <textarea
             value={description}
             rows={3}
@@ -1014,43 +1080,72 @@ export function RoleDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
         </Field>
-        <Field label="Rank">
-          <select value={kind} onChange={(e) => setKind(e.target.value as PositionKind)}>
-            {RANKS.filter((k): k is PositionKind => k !== "owner").map((k) => (
-              <option key={k} value={k}>
-                {rankName(t, k)}
-              </option>
-            ))}
-          </select>
-        </Field>
         <fieldset className="choices">
-          <legend>Staffing</legend>
-          <label className="choice">
-            <input
-              type="radio"
-              name="staffing"
-              checked={fixed || staffing === "persistent"}
-              onChange={() => setStaffing("persistent")}
-            />
-            <span className="choice__label">{STAFFING_LABEL.persistent}</span>
-            <span className="muted">one agent that keeps its conversation and can lead a team</span>
-          </label>
-          <label className="choice">
-            <input
-              type="radio"
-              name="staffing"
-              disabled={fixed}
-              checked={!fixed && staffing === "onDemand"}
-              onChange={() => setStaffing("onDemand")}
-            />
-            <span className="choice__label">{STAFFING_LABEL.onDemand}</span>
-            <span className="muted">a new worker for each task, gone when it is done</span>
-          </label>
+          <legend>Working instructions (optional)</legend>
+          <p className="muted">
+            Its workers follow these, with the same rules as the built-in roles. Left empty, they
+            work from “What this role does” and their lead&apos;s instructions.
+          </p>
+          {JOB_FIELDS.map((f) => (
+            <Field key={f.key} label={f.label} hint={f.hint}>
+              <textarea
+                value={job[f.key]}
+                rows={3}
+                maxLength={MAX_OBJECTIVE_FIELD}
+                onChange={(e) => setJob((j) => ({ ...j, [f.key]: e.target.value }))}
+              />
+            </Field>
+          ))}
         </fieldset>
+        {editing ? (
+          <p className="muted">
+            {rankName(t, role.kind)} · {STAFFING_LABEL[role.staffing]}. Rank and staffing stay as
+            they are; positions holding this role keep it, and their next workers get the new
+            instructions.
+          </p>
+        ) : (
+          <>
+            <Field label="Rank">
+              <select value={kind} onChange={(e) => setKind(e.target.value as PositionKind)}>
+                {RANKS.filter((k): k is PositionKind => k !== "owner").map((k) => (
+                  <option key={k} value={k}>
+                    {rankName(t, k)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <fieldset className="choices">
+              <legend>Staffing</legend>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="staffing"
+                  checked={fixed || staffing === "persistent"}
+                  onChange={() => setStaffing("persistent")}
+                />
+                <span className="choice__label">{STAFFING_LABEL.persistent}</span>
+                <span className="muted">
+                  one agent that keeps its conversation and can lead a team
+                </span>
+              </label>
+              <label className="choice">
+                <input
+                  type="radio"
+                  name="staffing"
+                  disabled={fixed}
+                  checked={!fixed && staffing === "onDemand"}
+                  onChange={() => setStaffing("onDemand")}
+                />
+                <span className="choice__label">{STAFFING_LABEL.onDemand}</span>
+                <span className="muted">a new worker for each task, gone when it is done</span>
+              </label>
+            </fieldset>
+          </>
+        )}
         <FormError error={error} />
         <Footer
           pending={pending}
-          label="Create role"
+          label={editing ? "Save role" : "Create role"}
           disabled={name.trim() === ""}
           onCancel={onCancel}
         />

@@ -11,11 +11,13 @@ import { AgentsProvider } from "./agents/AgentsProvider";
 import { isRunning } from "./agents/store";
 import { useAgents } from "./agents/useAgents";
 import { BrandMark } from "./components/BrandMark";
+import { ControlBanner } from "./components/ControlBanner";
 import { Sidebar } from "./components/Sidebar";
 import { VIEWS, type ViewId } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
+import { useControl } from "./control/useControl";
 import { useApprovals } from "./guard/usePermissions";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
@@ -120,7 +122,9 @@ function Shell({ core }: { core: CoreState }) {
       .catch(() => undefined);
   }, []);
   const approvals = useApprovals();
+  const control = useControl();
   const waiting = approvals.queue?.pending ?? [];
+  const controlling = (control.status?.sessions ?? []).filter((s) => s.state === "active");
   const activeCount = Object.values(state.executions).filter(isActive).length;
   const workingCount = Object.values(agents.state.sessions).filter(isRunning).length;
   const info = core.status === "ready" ? core.info : null;
@@ -184,6 +188,7 @@ function Shell({ core }: { core: CoreState }) {
           className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
           ref={main}
         >
+          <ControlBanner control={control} />
           {ledgerNotices.length > 0 && !noticesDismissed && (
             <div
               className={`banner${severe ? " banner--severe" : ""}`}
@@ -257,9 +262,21 @@ function Shell({ core }: { core: CoreState }) {
       </div>
 
       <footer className="shell__footer">
-        {activeCount > 0
-          ? `${activeCount} program${activeCount === 1 ? "" : "s"} running`
-          : "Ready · uses your own signed-in AI tools and never asks for passwords"}
+        {controlling.length > 0 ? (
+          <span className="shell__footer-control">
+            {controlling.length === 1
+              ? `${controlling[0]?.worker ?? "A worker"} is using ${
+                  controlling[0]?.kind === "desktop"
+                    ? "your mouse and keyboard"
+                    : "Plenipo's browser"
+                }`
+              : `${controlling.length} workers are using the browser or the desktop`}
+          </span>
+        ) : activeCount > 0 ? (
+          `${activeCount} program${activeCount === 1 ? "" : "s"} running`
+        ) : (
+          "Ready · uses your own signed-in AI tools and never asks for passwords"
+        )}
       </footer>
     </div>
   );

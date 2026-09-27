@@ -11,6 +11,7 @@ export function affectsRouting(eventType: string): boolean {
     eventType.startsWith("router.") ||
     eventType === "org.role_created" ||
     eventType === "org.role_renamed" ||
+    eventType === "org.role_updated" ||
     eventType === "agent.result"
   );
 }
