@@ -40,4 +40,4 @@ architecture must be recorded here.
 | [023](ADR-023-settings-switches.md)               | On/off switches in Settings                                             | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)         | Workers learn from their work                                           | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                              | Accepted |
-| [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                  | Proposed |
+| [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                  | Accepted |

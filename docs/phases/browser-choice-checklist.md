@@ -1,7 +1,8 @@
 # Choosing Plenipo's browser — Checklist
 
-**Status:** built and tested with a real Chromium on Linux; the owner's Windows check is below.
-ADR-028 (choosing Plenipo's browser) is **Proposed** until the owner accepts it.
+**Status:** built and tested with a real Chromium on Linux, and with Google Chrome on the CI
+runner; the owner's Windows check is below. ADR-028 (choosing Plenipo's browser) was
+**accepted** by the owner on 2026-09-27.
 
 While PR 23 (Kimi) waited for its end-to-end tests, the owner asked: "Can we have plenipo use
 chrome instead of edge? Or let users choose a browser in their settings?" They picked **a choice
@@ -64,7 +65,8 @@ browser)**, which amends ADR-020 (Plenipo's browser and computer use).
    any website you signed in to before.
 6. **Activity** shows "Plenipo's browser set to Google Chrome" and "… set to Automatic".
 
-## Still to check
+## Found on the CI runner
 
-- Whether Chrome starts faster than Edge on GitHub's Linux test computers. The 90-second limit
-  makes the tests reliable either way.
+- Chrome starts faster than Edge on GitHub's Linux test computers: the browser test that starts
+  it took 23 seconds with Chrome (PR 32), against 40 to 52 seconds with Edge, which sometimes
+  went past the old 30-second limit.

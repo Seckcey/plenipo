@@ -1,7 +1,6 @@
 # ADR-028: Choosing Plenipo's browser
 
-- **Status:** Proposed (the owner picked this option on 2026-09-27; it becomes Accepted when
-  they accept this record)
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up)
 - **Amends:** ADR-020 (Plenipo's browser and computer use), section 2
@@ -80,8 +79,8 @@ a browser. That is a test computer problem. On Windows, Edge starts in a few sec
   before this record. It now uses `browser-profile-chrome`, so the owner signs in to websites
   once more.
 - The end-to-end browser tests get 90 seconds to start the browser, which removes the failures
-  seen on PR 23. Whether Chrome also starts faster than Edge there is not yet known; the longer
-  limit is what makes the tests reliable.
+  seen on PR 23. Chrome is also faster there: on PR 32's first green run, the browser test that
+  starts it took 23 seconds with Chrome, against 40 to 52 seconds with Edge (or a failure).
 
 ## Alternatives considered
 
