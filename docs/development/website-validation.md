@@ -1,5 +1,67 @@
 # Marketing website acceptance
 
+## Pip branding update — September 27, 2026
+
+The approved Plenipo logo now appears in the header/footer, with Pip in the welcome/download
+areas and the four AI-provider illustrations. Existing sections, Inter page typography,
+product screenshots, controls, pricing, and permission wording are retained. The narrow content
+correction uses the published v1.6.0 installer and adds Kimi/Moonshot while keeping Ollama cloud
+support. Release evidence is linked from [website operations](website.md).
+
+Asset verification:
+
+- All 47 original owner-supplied files match their actual Git archive bytes. Two receipt files
+  retain original CRLF bytes through exact `.gitattributes` entries; no global renormalization.
+- Four new source PNGs preserve image-generation output bytes and have genuine alpha 0–255.
+  All six website Pip exports are 480 × 480 alpha WebP images. The four new provider images
+  total 138,784 bytes. The Moonshot portrait is fitted with padding, preserving its antenna/feet.
+- Actual saved source proof sheets were inspected on white and navy. Approved light/dark
+  horizontal and square logos, P-only favicons, and the website share card were also inspected.
+- The downloadable ZIP opens without errors and matches every original and new asset byte for
+  byte. SHA-256: `570efa09cd907640a18ada2c8b13075b56250ba9ffaa79544012da9519d33f90`.
+  Versioned manifest/ZIP links prevent reuse of their previous one-hour browser cache entries.
+
+Browser flow: load the page, inspect the branding, switch a product view, open/close mobile
+navigation, follow AI tools/download links, and expand the FAQ. Unified computer-use's in-app
+browser supplied the Playwright controls; the separate Browser plugin is not installed.
+
+| Check                 | Result                                                                         |
+| --------------------- | ------------------------------------------------------------------------------ |
+| Page identity/content | Correct title, heading, four labeled providers, no blank screen/error overlay  |
+| Desktop/phone layout  | 1440, 900, 390, and 320 px; no horizontal page overflow                        |
+| Mascots               | Complete artwork, transparent edges, all visible images loaded                 |
+| Controls              | Product tab click/Home key, menu selection/Escape close, FAQ expansion passed  |
+| Console               | No warning/error entries in tested page                                        |
+| HTTP                  | 18 origin paths passed; served asset bytes matched; missing route returned 404 |
+| Installer             | Published v1.6.0 asset resolved to final HTTP 200                              |
+
+Actual saved captures are retained with the task's validation evidence: `preview-desktop.png`,
+`preview-providers-desktop.png`, `preview-mobile-390.png`, and provider views at 390/320 px.
+For durable PR review, exact copies of the inspected [before](../brand/website-evidence/pip-before-desktop.png),
+[after](../brand/website-evidence/pip-after-desktop.png),
+[provider section](../brand/website-evidence/pip-providers-desktop.png), and
+[phone](../brand/website-evidence/pip-mobile.png) captures are included in the repository.
+The approved artwork matches the references; website exports reduce resolution for page weight,
+and decorative provider images use empty alt text because adjacent labels identify each tool.
+Browser scope is Chromium at the tested sizes; this does not claim testing in every browser.
+
+All five repository-required commands passed on the isolated Coastline source copy:
+`pnpm check` (240 UI tests, 175 desktop tests, 2 website tests, plus versions/format/lint/types),
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+`cargo test --workspace --locked` (765 passed, none failed/ignored), and `pnpm bindings`
+(189 export checks; the complete generated-file list and byte hashes stayed unchanged).
+The Rust/application tree matches base `eb49e9f`; the imported branding source was checked at
+`1088f62` with the final manifest/ZIP cache links. Later receipt/evidence-only additions receive
+focused formatting/build verification. Final merge/release identity belongs in the deployment
+receipt.
+
+Checks used a 2 GiB/2 CPU container with one compilation job and serial Rust tests. Debian
+Chromium was installed in that container for the repository's synthetic browser tests. The
+preview used a separate Coastline task directory and a 64 MiB container. No desktop Docker,
+other application data, app source, or GitHub repository settings were changed.
+
+## Original website delivery
+
 Validated on September 27, 2026, against desktop base `a3439987d803f04a2e323c1cceb151bf00e695b4`.
 This change adds the website without modifying desktop source, its manifests, or generated bindings.
 Container checks ran on Coastline in isolated task directories; no desktop Docker was used.

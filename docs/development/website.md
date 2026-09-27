@@ -14,8 +14,10 @@ version, availability, or edition claims.
 
 The Pip branding update aligns the page with the published
 [v1.6.0 Windows release](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0)
-(published September 27, 2026, 10:10:51 UTC). Its tagged Kimi runtime and owner acceptance
-record establish the Kimi/Moonshot entry; Ollama cloud support remains in adjacent text.
+(published September 27, 2026, 10:10:51 UTC). Its tagged
+[Kimi runtime](https://github.com/Seckcey/plenipo/blob/v1.6.0/crates/runtime/src/agent/kimi.rs) and
+[owner acceptance record](https://github.com/Seckcey/plenipo/blob/v1.6.0/docs/phases/ai-tools-kimi-acceptance-report.md)
+establish the Kimi/Moonshot entry; Ollama cloud support remains in adjacent text.
 The development branch's v1.7.0 version is not an installer availability claim. Both download
 buttons, both visible version labels, structured data, and generated release metadata agree on
 v1.6.0. Existing screenshot captions continue to identify earlier app previews.
