@@ -68,6 +68,10 @@
     "allow-remove-secret",
     "allow-get-approvals",
     "allow-resolve-approval",
-    "allow-revoke-grant"
+    "allow-revoke-grant",
+    "allow-set-up-development",
+    "allow-get-objective-report",
+    "allow-get-project-work",
+    "allow-remove-workspace"
   ]
 }

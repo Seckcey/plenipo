@@ -1,7 +1,7 @@
 # Kimi (Moonshot AI) — AI tool checklist
 
 **Status:** step 0 (checking the real CLI) done on `claude/ai-tools-kimi`: Kimi passes through ACP.
-ADR-016 (Kimi over ACP, with its file reads and writes going through Plenipo) accepted by the owner
+ADR-018 (Kimi over ACP, with its file reads and writes going through Plenipo) accepted by the owner
 on 2026-09-26. The adapter waits for the Grok branch, which brings ADR-015 (running AI tools over
 ACP) and the shared ACP driver.
 
@@ -29,7 +29,7 @@ subscription. The raw outputs are in
 
 - **ADR-015 (running AI tools over ACP)**, from the Grok branch: one supervised program per task,
   the prompt as a message on stdin, one shared ACP driver.
-- **ADR-016 (Kimi over ACP, with its file reads and writes going through Plenipo)**, accepted:
+- **ADR-018 (Kimi over ACP, with its file reads and writes going through Plenipo)**, accepted:
   Kimi's built-in tools cannot be switched off, so Plenipo offers file access and answers every
   file request through Guard; Kimi's own shell commands are refused in favor of Plenipo's
   `run_command`; model and thinking level are set with `session/set_config_option`; only the Kimi
@@ -39,7 +39,7 @@ subscription. The raw outputs are in
 
 1. The Grok branch merges (ADR-015 and the shared ACP driver).
 2. Merge `main` into this branch, then build the Kimi adapter on the driver, with the two driver
-   options ADR-016 adds, a Kimi ACP persona in the fake CLI, and tests.
+   options ADR-018 adds, a Kimi ACP persona in the fake CLI, and tests.
 3. The owner's final check with the real Kimi on Windows.
 
 ## Still to check

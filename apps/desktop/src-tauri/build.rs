@@ -66,6 +66,10 @@ const COMMANDS: &[&str] = &[
     "get_approvals",
     "resolve_approval",
     "revoke_grant",
+    "set_up_development",
+    "get_objective_report",
+    "get_project_work",
+    "remove_workspace",
 ];
 
 fn main() {

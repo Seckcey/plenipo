@@ -13,4 +13,9 @@ allowedRuntimes: Array<string>,
  * The permission set that limits what the project's workers may do (Phase 7); `None`: no
  * limit.
  */
-capabilityProfile: string | null, coordinatorPositionId: string | null, active: boolean, createdAt: number, };
+capabilityProfile: string | null, coordinatorPositionId: string | null, active: boolean, 
+/**
+ * Each objective gets its own branch and working copy when the folder is a git repository
+ * (Phase 8).
+ */
+branchPerObjective: boolean, createdAt: number, };

@@ -7,6 +7,13 @@ fn main() {
     if let Some(code) = plenipo_capabilities::relay::maybe_run_from_args(std::env::args()) {
         std::process::exit(code);
     }
+    // Ollama bridge mode (ADR-017): a task or sign-in check for Ollama's cloud models, sent to
+    // the Ollama service on this PC.
+    if let Some(code) =
+        plenipo_runtime::agent::ollama::bridge::maybe_run_from_args(std::env::args())
+    {
+        std::process::exit(code);
+    }
     // Diagnostic child mode: harmless scenarios used by the runtime supervisor. Handled
     // before Tauri initializes so no window, tray, or webview is ever created.
     if let Some(code) = plenipo_runtime::diagnostic::maybe_run_from_args(std::env::args()) {

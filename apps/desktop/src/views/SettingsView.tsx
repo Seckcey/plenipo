@@ -59,7 +59,7 @@ export function SettingsView() {
           a worker on another AI tool for help through Plenipo Liaison — workers never contact each
           other directly. Liaison records a sub-task, passes on only the context the worker chose
           (up to a limit), and brings the reply back to the same piece of work. Limits: 3 levels
-          deep, 3 requests per answer, 5 reply rounds per task, 12 handoffs per piece of work. A
+          deep, 3 requests per answer, 8 reply rounds per task, 16 handoffs per piece of work. A
           worker&apos;s permissions come from your settings for its role and project; a request for
           more permissions is recorded but never grants anything.
         </li>
@@ -72,9 +72,10 @@ export function SettingsView() {
           {state.profiles.map((p) => p.label).join(", ") || "none"}
         </li>
         <li>
-          <strong>Only these:</strong> Plenipo itself (built-in checks), the Claude Code and Codex
-          it finds, and programs a worker runs with your permission (Permissions above). Nothing on
-          screen can supply a command, path, or argument.
+          <strong>Only these:</strong> Plenipo itself (built-in checks and its Ollama connection),
+          the AI tools it finds (Claude Code, Codex, Grok, Ollama), and programs a worker runs with
+          your permission (Permissions above). Nothing on screen can supply a command, path, or
+          argument.
         </li>
         <li>
           <strong>Environment:</strong> programs get the operating system&apos;s basics plus

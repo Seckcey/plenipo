@@ -142,6 +142,7 @@ export const project = (
   capabilityProfile: null,
   coordinatorPositionId: coordinator,
   active: true,
+  branchPerObjective: true,
   createdAt: T0 - 6_900_000,
 });
 

@@ -287,12 +287,25 @@ impl Supervisor {
             }
         };
 
-        if let (Some(bytes), Some(mut stdin)) = (spec.stdin, child.stdin().take()) {
+        let feed = spec.stdin_feed.as_ref().and_then(|f| f.take());
+        if let Some(mut stdin) = child.stdin().take() {
             // A child that exits without reading its input is not an error here; its exit
             // status tells the story.
+            let bytes = spec.stdin.unwrap_or_default();
             tokio::spawn(async move {
-                let _ = stdin.write_all(&bytes).await;
-                let _ = stdin.shutdown().await;
+                let mut open = stdin.write_all(&bytes).await.is_ok();
+                if let Some(mut feed) = feed {
+                    // A task that talks while it runs (ADR-015): stdin stays open until the
+                    // task's last sender is gone.
+                    while let Some(chunk) = feed.recv().await {
+                        open = open
+                            && stdin.write_all(&chunk).await.is_ok()
+                            && stdin.flush().await.is_ok();
+                    }
+                }
+                if open {
+                    let _ = stdin.shutdown().await;
+                }
             });
         }
         let stdout = child.stdout().take();
@@ -461,7 +474,7 @@ fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {
 }
 
 fn build_command(spec: &LaunchSpec, executable: &Path, working_dir: &Path) -> CommandWrap {
-    let stdin = if spec.stdin.is_some() {
+    let stdin = if spec.stdin.is_some() || spec.stdin_feed.is_some() {
         Stdio::piped()
     } else {
         Stdio::null()

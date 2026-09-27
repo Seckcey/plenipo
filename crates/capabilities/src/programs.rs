@@ -195,6 +195,7 @@ pub async fn run(
             working_dir: run.working_dir.to_path_buf(),
             max_runtime: run.timeout,
             stdin: run.stdin,
+            stdin_feed: None,
             max_line_bytes: Some(64 * 1024),
             observer: Some(tx),
             agent: None,
@@ -282,6 +283,17 @@ pub fn git_args(workspace: &Path, op: &[String]) -> Vec<String> {
     ];
     args.extend(op.iter().cloned());
     args
+}
+
+/// Variables GitHub's `gh` gets so it never waits for input or prints colors.
+pub fn gh_env() -> Vec<(String, String)> {
+    vec![
+        ("GH_PROMPT_DISABLED".into(), "1".into()),
+        ("GH_NO_UPDATE_NOTIFIER".into(), "1".into()),
+        ("GH_PAGER".into(), String::new()),
+        ("NO_COLOR".into(), "1".into()),
+        ("CLICOLOR".into(), "0".into()),
+    ]
 }
 
 /// Variables git gets so it never waits for input.

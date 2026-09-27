@@ -1,0 +1,2 @@
+POST /api/me, signed out (PowerShell's message, then the body):
+ERROR: The remote server returned an error: (401) Unauthorized. {"error":"unauthorized","signin_url":"https://ollama.com/connect?name=<device-name>\u0026key=<device-public-key>"}

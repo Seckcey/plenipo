@@ -1,0 +1,35 @@
+Run any command inside a local PTY that forwards its clipboard to yours.
+
+Wraps an arbitrary command (for example `docker exec`, `kubectl exec`, or a
+remote shell) in a local pseudo-terminal, intercepts OSC 52 clipboard escape
+sequences from its output, and writes them to your local system clipboard. This
+makes copy work when the program runs somewhere that cannot reach your
+clipboard (containers, SSH) and your terminal does not handle OSC 52 itself
+(for example Apple Terminal). The wrapped command's terminal is also kept in
+sync with your window size.
+
+Examples:
+  grok wrap docker exec -it my-container bash
+  grok wrap kubectl exec -it my-pod -- bash
+
+See ~/.grok/README.md for more information.
+
+
+Usage: grok wrap [OPTIONS] <CMD>...
+
+Arguments:
+  <CMD>...
+          Command to run, followed by its arguments (e.g. `docker exec -it my-container bash`). On Unix a single quoted string or an aliased command runs via `$SHELL -i -c`
+
+Options:
+      --debug
+          Enable debug logging
+
+      --debug-file <FILE>
+          Write debug logs to FILE
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+      --leader-socket <PATH>
+          Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

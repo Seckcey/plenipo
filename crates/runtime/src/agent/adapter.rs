@@ -83,6 +83,9 @@ pub struct TurnRequest {
     pub billing_confirmed: bool,
     /// Plenipo's tool server for this step (Phase 7), if the worker has permissions.
     pub tools: Option<ToolServer>,
+    /// The conversation's own folder, where the process runs (absolute). AI tools that talk
+    /// over ACP (ADR-015) also name it in their messages.
+    pub working_dir: PathBuf,
 }
 
 /// Why a parser asks Plenipo to stop the process immediately.
@@ -97,6 +100,10 @@ pub struct Stop {
 pub struct Parsed {
     pub events: Vec<AgentEvent>,
     pub stop: Option<Stop>,
+    /// Lines to write to the process's stdin, in order (a task that talks, ADR-015).
+    pub send: Vec<String>,
+    /// The task is over: close the process's stdin so it can exit (ADR-015).
+    pub close_input: bool,
 }
 
 impl Parsed {
@@ -107,7 +114,7 @@ impl Parsed {
     pub fn one(event: AgentEvent) -> Self {
         Self {
             events: vec![event],
-            stop: None,
+            ..Self::default()
         }
     }
 }
@@ -125,6 +132,18 @@ pub struct ProcessEnd {
 
 /// Turns one turn's output stream into normalized events and a result.
 pub trait TurnParser: Send {
+    /// How the task begins. `None` (the default): the prompt is written to stdin, which is
+    /// then closed. `Some(lines)`: an AI tool that talks during the task (ADR-015); these
+    /// lines are written first, stdin stays open for [`Parsed::send`], and the parser keeps
+    /// the prompt to send when the tool is ready for it.
+    fn open(&mut self, _prompt: &str) -> Option<Vec<String>> {
+        None
+    }
+    /// Lines that ask the AI tool to stop the task before Plenipo ends the process (ADR-015
+    /// §7). Empty (the default): the process tree is ended right away.
+    fn cancel(&mut self) -> Vec<String> {
+        Vec::new()
+    }
     /// One stdout line (JSON lines expected).
     fn line(&mut self, text: &str, truncated: bool) -> Parsed;
     /// One stderr line; kept to explain failures, never parsed as events.
@@ -190,6 +209,18 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         false
     }
     fn turn_args(&self, request: &TurnRequest) -> Vec<String>;
+    /// Whether this AI tool runs through Plenipo's bridge ([`crate::agent::Bridge`]) instead of
+    /// its own program: the tool's program is still found and its version read, but the sign-in
+    /// check and every task run the bridge with [`Self::auth_args`] and [`Self::turn_args`]
+    /// (ADR-017, Ollama's cloud models through its service on this PC).
+    fn bridged(&self) -> bool {
+        false
+    }
+    /// Whether the AI tool can use Plenipo's tools (Phase 7). When false, a worker on it is
+    /// conversation only and no permission grant is opened for its steps.
+    fn accepts_tools(&self) -> bool {
+        true
+    }
     /// Variables this turn's process gets in addition (for example tool-call time limits).
     fn turn_env(&self, _request: &TurnRequest) -> Vec<(String, String)> {
         Vec::new()

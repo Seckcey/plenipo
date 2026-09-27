@@ -1,0 +1,52 @@
+Grok 1.0.41 (stable), 2026-09-27, in the build container. Not signed in: XAI_API_KEY was a fake
+key, and GROK_XAI_API_BASE_URL pointed at a local recorder that answered the model list and
+refused every model call, so nothing reached xAI. A small stand-in MCP server offering one tool,
+read_file, took the place of Plenipo's tool server. Every run had GROK_SUBAGENTS=0, GROK_MEMORY=0,
+GROK_WEB_FETCH=0, and GROK_DISABLE_AUTOUPDATER=1. Paths are redacted to /work and /plenipo-relay.
+
+1. With a tool server (Plenipo's profile: tools ["search_tool","use_tool"], disallowedTools
+   Grok's own tools)
+
+   session/new params:
+     {"cwd":"/work","mcpServers":[{"name":"plenipo","command":"/plenipo-relay",
+      "args":["--ticket=x"],"env":[]}],"_meta":{"agentProfile":{...}}}
+
+   Grok started the server during session/new and sent it:
+     initialize {"protocolVersion":"2025-11-25","clientInfo":{"name":"grok-shell-plenipo","version":"1.0.41"}, ...}
+     notifications/initialized
+     tools/list
+
+   Grok's log: shell.turn.tool_prep_done {"tool_count":2}
+   Tools in the model request: search_tool, use_tool
+   Added to the conversation before the prompt:
+     <system-reminder>
+     MCP server connected:
+     - plenipo (1 tool)
+
+     To use MCP tools, you MUST call `search_tool` first to retrieve the tool's input schema
+     before calling `use_tool`. NEVER guess parameter names — always use the exact schema
+     returned by `search_tool`. [...]
+     </system-reminder>
+
+2. With no tool server (Plenipo's profile: tools [], disallowedTools Grok's own tools plus
+   search_tool and use_tool)
+
+   Tools in the model request: none.
+
+3. An empty "tools" list is not a limit by itself. With tools [] and disallowedTools only
+   ["read_file","run_terminal_command"], session/new failed because Grok still had its edit tool:
+
+     {"code":-32603,"message":"Internal error","data":"session initialization failed: tool error:
+      Requirements unsatisfied: [RequirementError { tool: \"GrokBuild:search_replace\", message:
+      \"skip_read_before_edit=false requires a Read tool in the toolset so files can be read
+      before editing\", ... }]"}
+
+   So Plenipo's profile also lists every one of Grok's own tools in disallowedTools.
+
+4. X search. On the owner's machine (signed in, 2026-09-27) a Grok Supervisor with no Plenipo
+   tools answered: "This session only has X post search". It is not in the model request in
+   1 or 2: it is one of xAI's backend tools ("[backend x_search]" in the program), added on
+   xAI's side for signed-in models, which this recorder cannot show. Grok's settings reference
+   (26-config-reference.md) lists the switch: "features.backend_tools | boolean | Enable or
+   disable backend_tools. Default true. Also GROK_BACKEND_SEARCH." Plenipo sets
+   GROK_BACKEND_SEARCH=0.

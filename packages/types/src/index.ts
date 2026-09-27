@@ -141,3 +141,27 @@ export type { ToolsStatus } from "./generated/ToolsStatus";
 export type { UnitLimit } from "./generated/UnitLimit";
 export type { VaultStatus } from "./generated/VaultStatus";
 export type { Verdict } from "./generated/Verdict";
+
+// The Development department: working copies, the result of an objective, projects (Phase 8)
+export type { CommitInfo } from "./generated/CommitInfo";
+export type { DevelopmentInput } from "./generated/DevelopmentInput";
+export type { FileChange } from "./generated/FileChange";
+export type { ObjectiveBrief } from "./generated/ObjectiveBrief";
+export type { ObjectiveReport } from "./generated/ObjectiveReport";
+export type { ProjectWork } from "./generated/ProjectWork";
+export type { ReportApproval } from "./generated/ReportApproval";
+export type { ReportApprovalState } from "./generated/ReportApprovalState";
+export type { ReportBlocked } from "./generated/ReportBlocked";
+export type { ReportBranch } from "./generated/ReportBranch";
+export type { ReportCheck } from "./generated/ReportCheck";
+export type { ReportFile } from "./generated/ReportFile";
+export type { ReportFinding } from "./generated/ReportFinding";
+export type { ReportPullRequest } from "./generated/ReportPullRequest";
+export type { ReportReview } from "./generated/ReportReview";
+export type { ReportTask } from "./generated/ReportTask";
+export type { ReportWorker } from "./generated/ReportWorker";
+export type { ReviewVerdict } from "./generated/ReviewVerdict";
+export type { Severity } from "./generated/Severity";
+export type { Workspace } from "./generated/Workspace";
+export type { WorkspaceFacts } from "./generated/WorkspaceFacts";
+export type { WorkspaceState } from "./generated/WorkspaceState";

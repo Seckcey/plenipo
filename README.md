@@ -5,7 +5,24 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
-> **Status:** Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
+> **AI tools:** Claude Code, Codex, Grok (xAI's Grok Build, run over ACP —
+> [ADR-015](docs/adr/ADR-015-acp-ai-tools.md), running AI tools over ACP), and now Ollama's cloud
+> models ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its
+> service on your PC). Each uses your own sign-in; Plenipo never uses API keys.
+>
+> **Status:** Phase 8 — the Development department (v1.0.0, the first full release). Tell
+> Development what you want — "implement the login page in Website and get it ready for review" —
+> and it gets done without you opening Claude Code or Codex. **Projects → Set up a Development
+> project** creates the Development department with its VP, the project with its Supervisor, and
+> a team: a developer, a code reviewer, a QA engineer, and a documentation writer, on both AI
+> tools. The VP hands your objective to the project's Supervisor, whose team works on a new
+> branch in its own working copy of your project folder (your own copy is never changed):
+> implement, review, fix, test, and — when you ask — open a draft pull request on GitHub, which
+> waits for your approval. The **result** is Plenipo's own record: every task, who did it on
+> which AI model, the files changed, the tests and whether they passed, the review and its open
+> findings, the branch and pull request, and approvals still needed.
+>
+> Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
 > their project's folder, and only as far as you allow. **Settings → Permissions** gives each
 > role a permission set (read files, change files, run programs, save to git…, each Allowed,
 > Ask me, or Blocked), lets a project or department narrow it, lists the programs workers may
@@ -32,8 +49,8 @@ watches over the work, and keeps a complete record of it.
 > appear under it while they work and leave when done, with every step in the durable local
 > Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
 > **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
-> the Mafia. Agents run on your own signed-in Claude Code and Codex (subscription sign-ins only,
-> no API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> the Mafia. Agents run on your own signed-in Claude Code, Codex, Grok, and Ollama (subscription sign-ins
+> only, no pay-per-use API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -58,8 +75,8 @@ pnpm dev          # run the desktop app with hot reload
 ```
 
 No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
-install and sign in to Claude Code and/or Codex — see the
-[setup guide](docs/development/setup.md#3-ai-tools-claude-code-and-codex-phase-3-optional).
+install and sign in to at least one of Claude Code, Codex, Grok, and Ollama — see the
+[setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-and-ollama-optional).
 
 ## Common commands
 
@@ -88,7 +105,8 @@ crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, ev
 crates/liaison/          Plenipo Liaison: handoff protocol, context packets, replies between
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
-                         agent runtime adapters (Claude Code, Codex) and sessions
+                         agent runtime adapters (Claude Code, Codex, Grok over ACP, Ollama) and
+                         sessions
 crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
                          role templates), live snapshot, role routing for Liaison
 crates/router/           Plenipo Router: model registry, role model policies, explained
@@ -96,7 +114,8 @@ crates/router/           Plenipo Router: model registry, role model policies, ex
 crates/guard/            Plenipo Guard: permission registry and sets, policy engine, folder
                          confinement, command rules, sensitive actions, secret redaction
 crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
-                         program, and git tools, approvals, Vault (OS credential store)
+                         program, git, and GitHub tools, working copies (a branch per
+                         objective), approvals, Vault (OS credential store)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview

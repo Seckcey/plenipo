@@ -1225,7 +1225,7 @@ impl Directory for TeamDirectory {
             model: m.model.clone(),
             // A position with a model also sets an effort level (as the Router may).
             effort: m.model.as_ref().map(|_| Effort::High),
-            worker: NewWorker {
+            worker: Some(NewWorker {
                 agent_id: agent_id.clone(),
                 position_id: m.id.clone(),
                 role_id: m.role_id.clone(),
@@ -1234,7 +1234,8 @@ impl Directory for TeamDirectory {
                 model: m.model.clone(),
                 project_id: requester.project_id.clone(),
                 routing: json!({ "reason": "test" }),
-            },
+            }),
+            conversation: None,
             workforce: json!({ "positionId": m.id, "agentId": agent_id }),
             identity: format!("You are working as {} for {}.", m.title, self.lead.title),
             project_id: requester.project_id.clone(),
@@ -1419,10 +1420,14 @@ async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
         .iter()
         .all(|a| a.id != agent_id));
 
-    // The lead continued with the reply in its own session.
-    assert!(h
-        .text(&root)
-        .starts_with("Turn 2: received 1 reply: Claude Code: completed"));
+    // The lead continued with the reply in its own session; a member's reply is named by its
+    // position (Phase 8).
+    assert!(
+        h.text(&root)
+            .starts_with("Turn 2: received 1 reply: Reviewer (Claude Code): completed"),
+        "{}",
+        h.text(&root)
+    );
     let view = h.liaison.task_handoffs(&root).unwrap();
     assert_eq!(view.sent[0].destination_label, "Reviewer (claude-code)");
     // A member session takes objectives only through the organization.

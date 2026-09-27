@@ -1,0 +1,12 @@
+Model
+    parameters          550000000000
+    context length      262144
+    embedding length    4096
+    quantization
+
+  Capabilities
+    completion
+    thinking
+        levels     false, true
+        default    true
+    tools
