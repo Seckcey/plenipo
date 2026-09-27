@@ -25,7 +25,7 @@ records what was changed and how it was checked, in plain words, without the att
       the "owner's own hand" simulation
 - [x] The workspace's minimum Rust is now 1.87 (`std::io::pipe`); the pinned toolchain is 1.98
 
-### A2 · Approved programs run as the owner (GHSA-87xq-h83r-hmpg, ADR-033)
+### A2 · Approved programs run as the owner (GHSA-87xq-h83r-hmpg, ADR-034)
 
 - [x] A tool ticket is honored only from the AI tool's own process or one of its descendants:
       the tool server finds which program holds the connection (Linux `/proc`, Windows TCP table
@@ -52,7 +52,7 @@ records what was changed and how it was checked, in plain words, without the att
 - [x] A call allowed by its title (Kimi) leaves a notice in the task's activity
 - [x] Tests for each case; the fake AI tool names its Plenipo calls as a real one does
 
-### A4 · The network gate covers every way a page sends (GHSA-4f58-pwvq-9vmf, ADR-034)
+### A4 · The network gate covers every way a page sends (GHSA-4f58-pwvq-9vmf, ADR-035)
 
 - [x] Enter in any text box (inside or outside a form) asks the owner
 - [x] Beacons and other non-page sends are intercepted like XHR and fetch (`EventSource` is not:

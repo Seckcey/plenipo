@@ -58,12 +58,12 @@ const PLENIPO: &str = "plenipo";
 /// Longest detail kept in an event or approval card.
 const MAX_DETAIL: usize = 2000;
 /// Programs that run a project's own scripts: Plenipo never gives them stored secrets, since
-/// the scripts would get them too (ADR-033, approved programs run as the owner).
+/// the scripts would get them too (ADR-034, approved programs run as the owner).
 const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "make", "npx"];
 /// What the worker is told when a secret bound to a script runner was withheld.
 const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pnpm, yarn, make, \
                                 or npx, because they run the project's own scripts.)";
-/// The notice where this computer offers no way to tell which program connects (ADR-033).
+/// The notice where this computer offers no way to tell which program connects (ADR-034).
 const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
                                 a worker's tools, so a copied tool ticket cannot be refused.";
 
@@ -350,7 +350,7 @@ struct Refused {
     summary: String,
 }
 
-/// What became of a connection presenting a ticket (ADR-033).
+/// What became of a connection presenting a ticket (ADR-034).
 enum Admission {
     /// From the AI tool's own process tree.
     Admitted,
@@ -368,7 +368,7 @@ struct SecretsGiven {
     /// Names of the secrets given (told to the worker).
     used: Vec<String>,
     /// Names of the secrets the owner bound to this program that Plenipo withheld, because
-    /// the program runs the project's own scripts (ADR-033).
+    /// the program runs the project's own scripts (ADR-034).
     withheld: Vec<String>,
 }
 
@@ -1039,7 +1039,7 @@ impl Broker {
     }
 
     /// Whether a connection from `peer` to the tool server at `local`, presenting `grant_id`'s
-    /// ticket, may be served (ADR-033): it must come from the AI tool Plenipo started for that
+    /// ticket, may be served (ADR-034): it must come from the AI tool Plenipo started for that
     /// grant's step, or from a program that AI tool started. Any other program that read the
     /// ticket is refused, and the refusal is recorded for the owner
     /// (`tool_server.ticket_refused`), as is any connection whose program the lookup fails to
@@ -3084,7 +3084,7 @@ mod tests {
         }
     }
 
-    /// ADR-033: a secret bound to a script runner is withheld, and the worker is told.
+    /// ADR-034: a secret bound to a script runner is withheld, and the worker is told.
     #[test]
     fn stored_secrets_never_go_to_script_runners() {
         let secrets = vec![

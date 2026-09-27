@@ -55,7 +55,7 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager.
 keyring = { version = "3.6", features = ["windows-native"] }
-# Which program holds a loopback connection, and its parents (ADR-033: the tool server binds
+# Which program holds a loopback connection, and its parents (ADR-034: the tool server binds
 # a ticket to the AI tool's process tree).
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -85,7 +85,7 @@ tempfile = "3"
 [lints.rust]
 # The workspace forbids unsafe code. This crate denies it instead, so that exactly one module —
 # the Windows lookup of which program holds a loopback connection, behind the tool server's
-# ticket check (ADR-033) — may allow it for its calls into Windows. Everywhere else in this
+# ticket check (ADR-034) — may allow it for its calls into Windows. Everywhere else in this
 # crate, unsafe code is still a build error.
 unsafe_code = "deny"
 

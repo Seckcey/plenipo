@@ -2,7 +2,7 @@
 //!
 //! The tab keeps what it learns from the browser's events (its address, loads, crashes, the
 //! helper's world), and checks every page request itself (the network gate, ADR-020 section 4,
-//! ADR-034):
+//! ADR-035):
 //! - a page opened in the tab must pass the owner's website lists (blocked websites never
 //!   open; a website on neither list opens only once the owner approved it for this step);
 //! - data a page sends right after a worker's click or key press (a form, a message, a beacon:
@@ -164,7 +164,7 @@ struct State {
     held: Vec<Held>,
     /// The page's live connections (WebSockets) open now, by the browser's request ID. The gate
     /// cannot see what goes through them, so the broker asks before acting on such a page
-    /// (ADR-034).
+    /// (ADR-035).
     sockets: HashSet<String>,
     /// Tries a worker has made at this page's CAPTCHA (ADR-029); cleared when the page no longer
     /// shows one, or shows it passed (ADR-032).
@@ -323,7 +323,7 @@ impl Tab {
     async fn set_up(&self) -> Result<(), String> {
         self.call("Page.enable", json!({})).await?;
         self.call("Runtime.enable", json!({})).await?;
-        // Network events tell the tab when the page opens a live connection (ADR-034).
+        // Network events tell the tab when the page opens a live connection (ADR-035).
         self.call("Network.enable", json!({})).await?;
         self.call(
             "Runtime.addBinding",
@@ -352,7 +352,7 @@ impl Tab {
     /// filter accepts only some of them (checked on Chrome 141: `EventSource` and `WebSocket`
     /// are refused, and `Fetch.enable` fails outright, so the tab does not open). An
     /// `EventSource` only receives (a GET stream), and WebSockets are covered by
-    /// [`Tab::has_websocket`] (ADR-034).
+    /// [`Tab::has_websocket`] (ADR-035).
     async fn watch_requests(&self) -> Result<(), String> {
         let patterns: Vec<Value> = ["Document", "XHR", "Fetch", "Ping", "Other"]
             .iter()
@@ -404,7 +404,7 @@ impl Tab {
 
     /// The page has a live connection (a WebSocket) open now. The network gate cannot see what
     /// the page sends through it, so the broker asks the owner before a click or key press that
-    /// may send (ADR-034).
+    /// may send (ADR-035).
     pub fn has_websocket(&self) -> bool {
         self.state().has_websocket()
     }
@@ -1133,7 +1133,7 @@ enum Answer {
     Stop,
 }
 
-/// The page opened or closed a live connection (a WebSocket, ADR-034).
+/// The page opened or closed a live connection (a WebSocket, ADR-035).
 fn socket_event(shared: &Shared, method: &str, p: &Value) {
     let Some(id) = p["requestId"].as_str() else {
         return;
@@ -1213,7 +1213,7 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
             return None;
         }
         // Sent with no worker action (a form the page submits on its own, a script's POST on a
-        // timer, a beacon): stopped, and the worker is told (ADR-034). See the module notes for
+        // timer, a beacon): stopped, and the worker is told (ADR-035). See the module notes for
         // why it is stopped rather than held.
         let shown = site.map_or_else(|| url.to_owned(), |x| x.shown());
         let note = if kind == "Document" {
@@ -1318,7 +1318,7 @@ mod tests {
         });
         let form = paused("POST", "http://127.0.0.1:8080/send", "Document", "MAIN");
         // No action: a form the page sends by itself is stopped, and so is a script's POST or a
-        // beacon (ADR-034); the worker is told in both cases. Plain reads go ahead.
+        // beacon (ADR-035); the worker is told in both cases. Plain reads go ahead.
         assert!(!go(check_request(&s, &form)));
         assert!(s.state().notes.iter().any(|n| n.contains("by itself")));
         assert!(!go(check_request(

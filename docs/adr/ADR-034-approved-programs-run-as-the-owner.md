@@ -1,4 +1,4 @@
-# ADR-033: Approved programs run as the owner
+# ADR-034: Approved programs run as the owner
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27

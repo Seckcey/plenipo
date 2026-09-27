@@ -1453,7 +1453,7 @@ async fn approvals_left_waiting_expire_when_plenipo_starts_again_and_tickets_are
     assert_eq!(n, 0, "no answer: {}", String::from_utf8_lossy(&answer));
 }
 
-/// ADR-033 (approved programs run as the owner): a grant's ticket is honored only from the AI
+/// ADR-034 (approved programs run as the owner): a grant's ticket is honored only from the AI
 /// tool Plenipo started for that step, or a program that AI tool started. Any other program
 /// that copies the ticket is turned away without a word, and the owner can see it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

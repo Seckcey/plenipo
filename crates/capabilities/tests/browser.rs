@@ -1009,7 +1009,7 @@ async fn plan_approval_gated_submit() {
     assert_eq!(asked.len(), 2);
 }
 
-/// ADR-034: a chat composer (a contenteditable outside any form) sends on Enter, and the page
+/// ADR-035: a chat composer (a contenteditable outside any form) sends on Enter, and the page
 /// sends over a live connection (a WebSocket) the network gate cannot see into. Enter asks the
 /// owner before it is pressed, and nothing reaches the site until they approve; a click on a
 /// harmless-looking button on such a page asks too, naming the live connection.
@@ -1077,7 +1077,7 @@ async fn a_chat_composer_and_a_live_connection_ask_before_sending() {
     assert_eq!(h.approvals_for(&task.id), 2);
 }
 
-/// ADR-034: data a page sends on its own, outside any worker action (a POST its script starts
+/// ADR-035: data a page sends on its own, outside any worker action (a POST its script starts
 /// on a timer, long after the click), is never sent silently: Plenipo stops it, and the worker
 /// is told with its next result.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

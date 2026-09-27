@@ -188,7 +188,7 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
     case "guard.grant_skipped":
       return str(p.reason) ?? `${worker} got no tools`;
     case "tool_server.ticket_refused": {
-      // ADR-033: a program outside the AI tool's own process tree presented the ticket.
+      // ADR-034: a program outside the AI tool's own process tree presented the ticket.
       const program = (v: unknown) => (typeof v === "number" ? String(v) : "unknown");
       return `Blocked: a program outside ${worker}'s AI tool tried to use ${worker}'s tools (program ${program(
         p.connectingPid,

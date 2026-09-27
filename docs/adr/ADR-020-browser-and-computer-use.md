@@ -8,8 +8,8 @@
   Automatic, Edge, or Chrome in Settings, and each browser has its own profile folder (section 2);
   by [ADR-029 (workers try a CAPTCHA three times before handing it to the
   owner)](ADR-029-captcha-attempts.md): a worker's touch of a CAPTCHA is refused only after three
-  counted tries (section 5); and by [ADR-034 (the network gate covers beacons, sends on the
-  page's own, and live connections)](ADR-034-network-gate-covers-sockets.md): Enter in any text
+  counted tries (section 5); and by [ADR-035 (the network gate covers beacons, sends on the
+  page's own, and live connections)](ADR-035-network-gate-covers-sockets.md): Enter in any text
   box asks, data a page sends on its own is stopped, and a page with a live connection asks
   before a click (section 4 and the known limits)
 - **Date:** 2026-09-27
@@ -188,9 +188,9 @@ separate.
   its words look like sending or changing something.
 - **Only requests during a worker's action are held.** Requests a page makes on its own
   between actions (background syncing, a beacon) are stopped, not held, and the worker is told
-  (ADR-034); a page whose own sends are stopped may not work until the worker acts on it.
+  (ADR-035); a page whose own sends are stopped may not work until the worker acts on it.
 - **Live connections are not seen.** What a page sends through a WebSocket cannot be held; on
-  such a page every click, Enter, and Space asks the owner first (ADR-034).
+  such a page every click, Enter, and Space asks the owner first (ADR-035).
 - **Website lists go by name.** An allowed website whose name points at a local address (DNS
   rebinding) is not detected.
 - **Frames inside a page are not checked.** Content an allowed page embeds from another site

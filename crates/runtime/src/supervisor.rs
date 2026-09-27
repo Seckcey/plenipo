@@ -184,7 +184,7 @@ impl Supervisor {
 
     /// The process ID of the AI tool running `task_id` of agent session `session_id` now
     /// (`None`: no such program runs, or its ID is not known yet). The capability broker
-    /// binds a step's tool ticket to this process and its children (ADR-033).
+    /// binds a step's tool ticket to this process and its children (ADR-034).
     pub fn live_agent_pid(&self, session_id: &str, task_id: &str) -> Option<u32> {
         let state = self.inner.lock();
         state

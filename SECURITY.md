@@ -49,7 +49,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Sending, buying, and signing in ask for approval by default. The owner can explicitly enable
   the corresponding **without asking** switches for allowed websites. Other permission and
   Guard checks still apply; these switches are off by default.
-- In Plenipo's browser, the network gate works like this (ADR-034):
+- In Plenipo's browser, the network gate works like this (ADR-035):
   - **Asked before the action:** a click or key press whose control looks like sending, buying,
     or signing in; Enter in any text box (a form field, a chat or comment composer, inside a form
     or not); and any click, Enter, or Space on a page that has a live connection (a WebSocket),
@@ -67,7 +67,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 Programs a worker is allowed to run (the approved list, and anything you approve when asked)
 run with your own account, the same as if you had started them. Plenipo checks which program
 starts, and it gives a worker's tools only to the AI tool's own program and the programs that
-AI tool starts (ADR-033); it does not yet put those programs in a sandbox (a box that limits
+AI tool starts (ADR-034); it does not yet put those programs in a sandbox (a box that limits
 what a program can touch). A project's own build and test scripts run as part of a program
 like `cargo test` or `npm run`, so treat a project's scripts as code you trust, and approve
 script runners only for projects you trust.

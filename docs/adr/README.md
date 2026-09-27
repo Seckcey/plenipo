@@ -47,5 +47,5 @@ architecture must be recorded here.
 | [030](ADR-030-design-system.md)                      | One design system for every screen                                                          | Accepted |
 | [031](ADR-031-terminal-panel.md)                     | The terminal panel (amends 025)                                                             | Accepted |
 | [032](ADR-032-captcha-checkbox-and-verdict.md)       | Workers see the CAPTCHA they try, and hear how each try went (amends 029)                   | Accepted |
-| [033](ADR-033-approved-programs-run-as-the-owner.md) | Approved programs run as the owner: tickets bound to the AI tool, safer defaults            | Accepted |
-| [034](ADR-034-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |
+| [034](ADR-034-approved-programs-run-as-the-owner.md) | Approved programs run as the owner: tickets bound to the AI tool, safer defaults            | Accepted |
+| [035](ADR-035-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |

@@ -1,5 +1,5 @@
 //! Which program holds the far end of a loopback connection, and whose process tree it is in
-//! (ADR-033, approved programs run as the owner). The tool server honors a grant's ticket only
+//! (ADR-034, approved programs run as the owner). The tool server honors a grant's ticket only
 //! from the AI tool Plenipo started for that grant's step, or from a program that AI tool
 //! started; a ticket copied by any other program is refused. Linux reads `/proc`; Windows asks
 //! the TCP table and the process snapshot; elsewhere the lookup is unavailable and the caller

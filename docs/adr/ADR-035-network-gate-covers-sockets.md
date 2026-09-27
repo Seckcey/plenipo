@@ -1,4 +1,4 @@
-# ADR-034: The network gate covers beacons, sends on the page's own, and live connections
+# ADR-035: The network gate covers beacons, sends on the page's own, and live connections
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27

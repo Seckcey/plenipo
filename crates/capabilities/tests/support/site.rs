@@ -320,7 +320,7 @@ fn route(
         ("POST", "/api/messages") => ok("{\"ok\":true}".into()),
         // A chat: its composer is a contenteditable outside any <form>, and Enter (or "Go")
         // sends what it holds over a live connection (a WebSocket) the network gate cannot see
-        // into (ADR-034).
+        // into (ADR-035).
         ("GET", "/chat") => ok(page(
             "Chat",
             "<p id=out>Connecting</p>\
@@ -337,7 +337,7 @@ fn route(
              document.getElementById('go').onclick = send</script>",
         )),
         // A page whose harmless-looking button sends data on its own, 2.5 seconds later: long
-        // after Plenipo stops watching the click (ADR-034).
+        // after Plenipo stops watching the click (ADR-035).
         ("GET", "/late-send") => ok(page(
             "Late send",
             "<p id=out>Ready</p><button type=button id=go>Go</button> \

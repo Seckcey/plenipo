@@ -612,7 +612,7 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
   (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
   never allow).
-- **Network gate** (`tab.rs`, ADR-034). The tab intercepts the page's `Document`, `XHR`,
+- **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
   `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
   `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
   read (GET, HEAD, OPTIONS) is held until the owner approves (`decide_held`); one the page

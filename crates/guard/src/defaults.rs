@@ -230,7 +230,7 @@ fn list(items: &[&str]) -> Vec<String> {
 /// Everyday build, test, and lint commands; programs that delete, download, reach other
 /// computers, run a shell, or change the system. Script runners (`npm run`, `make test`) run
 /// a project's own scripts with the owner's account, so they are not approved for every
-/// project: the owner approves them where the project is trusted (ADR-033).
+/// project: the owner approves them where the project is trusted (ADR-034).
 pub fn default_commands() -> CommandRules {
     CommandRules {
         approved: list(&[
@@ -393,7 +393,7 @@ mod tests {
     }
 
     /// Script runners run a project's own scripts with the owner's account, so they are
-    /// approved per project, never for everyone (ADR-033).
+    /// approved per project, never for everyone (ADR-034).
     #[test]
     fn script_runners_are_not_approved_by_default() {
         let c = default_commands();

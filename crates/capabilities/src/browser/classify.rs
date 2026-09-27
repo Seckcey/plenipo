@@ -5,7 +5,7 @@
 //! over plain requests is caught by the network gate in the tab (data sent right after a
 //! worker's action is held for approval; data sent outside an action is stopped), and a page
 //! with a live connection (a WebSocket, which the gate cannot see into) asks before any click
-//! or Enter (ADR-034, the network gate covers sockets; see `broker/operate.rs`).
+//! or Enter (ADR-035, the network gate covers sockets; see `broker/operate.rs`).
 
 use plenipo_guard::SensitiveKind;
 use serde::Deserialize;
@@ -196,7 +196,7 @@ pub fn click(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
 /// Why submitting the form a control belongs to (pressing Enter in it, or typing with
 /// "submit") is sensitive: always, since it sends what the form holds; the kind says what it
 /// looks like. A text box outside any form (a chat or comment composer) sends what it holds on
-/// Enter too, through the page's own script (ADR-034).
+/// Enter too, through the page's own script (ADR-035).
 pub fn submit(f: &ElementFacts) -> (SensitiveKind, String) {
     let Some(form) = f.form.clone() else {
         return (
@@ -236,7 +236,7 @@ pub fn submit(f: &ElementFacts) -> (SensitiveKind, String) {
 
 /// Why pressing Enter on this control is sensitive, if it is: in any single-line text box (an
 /// input, a contenteditable, a role=textbox), inside a form or not, it sends what the box holds
-/// (ADR-034); in a multi-line box (a textarea) it is a new line; on a button or link it clicks
+/// (ADR-035); in a multi-line box (a textarea) it is a new line; on a button or link it clicks
 /// it.
 pub fn enter(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
     if !f.found {
@@ -405,7 +405,7 @@ mod tests {
             ..field.clone()
         };
         assert_eq!(enter(&search).unwrap().0, SensitiveKind::Outbound);
-        // A text box outside any form (a chat composer) sends on Enter too (ADR-034).
+        // A text box outside any form (a chat composer) sends on Enter too (ADR-035).
         let outside = ElementFacts {
             form: None,
             ..field

@@ -12,7 +12,7 @@
 //!   sends what it holds, in a form or not), from data a page sends right after a worker's
 //!   action (held in the tab until the owner decides; data it sends on its own between actions
 //!   is stopped), and, on a page with a live connection (a WebSocket, which the tab cannot see
-//!   into), from any click, Enter, or Space (asked before the action; ADR-034).
+//!   into), from any click, Enter, or Space (asked before the action; ADR-035).
 //! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
 //!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
 //!   check's checkbox and hears how each try went, ADR-032); the Windows key.
@@ -187,7 +187,7 @@ fn describe(f: &ElementFacts) -> String {
     }
 }
 
-/// Why a click or key press on a page with a live connection is sensitive (ADR-034): the
+/// Why a click or key press on a page with a live connection is sensitive (ADR-035): the
 /// network gate cannot see what the page sends through a WebSocket, so the owner is asked
 /// before the action, whatever the control looks like.
 fn live_connection() -> (SensitiveKind, String) {
@@ -808,7 +808,7 @@ impl Broker {
                     },
                 );
                 // Enter sends from any text box; Space presses a focused button. On a page with
-                // a live connection, either may send something the gate cannot see (ADR-034).
+                // a live connection, either may send something the gate cannot see (ADR-035).
                 let acts = match key.as_str() {
                     "Enter" => true,
                     "Space" => focused.found && !focused.editable,
@@ -1642,7 +1642,7 @@ impl Broker {
                         self.captcha_tries_allowed(),
                     );
                     // What Plenipo stopped since the last result (a send the page tried on its
-                    // own), after the page's own words (ADR-034).
+                    // own), after the page's own words (ADR-035).
                     for note in tab.take_notes() {
                         text.push_str(&note);
                         text.push('\n');

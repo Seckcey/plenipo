@@ -1,6 +1,6 @@
 //! The tool server: listens on the loopback address for relays, admits a connection only with
 //! the ticket of an open grant and only from the process tree of that grant's AI tool
-//! (ADR-033), then speaks MCP (JSON-RPC, one message per line) for it. Every request is
+//! (ADR-034), then speaks MCP (JSON-RPC, one message per line) for it. Every request is
 //! handled on its own task, so a call waiting for the owner's approval never holds up the
 //! others.
 
@@ -86,7 +86,7 @@ async fn connection(broker: Broker, stream: TcpStream, peer: SocketAddr, local: 
     let Some(grant_id) = hello.and_then(|h| broker.grant_for_ticket(&h.ticket)) else {
         return; // Unknown or ended ticket: close without a word.
     };
-    // The ticket is honored only from the AI tool's own process tree (ADR-033): any other
+    // The ticket is honored only from the AI tool's own process tree (ADR-034): any other
     // program that read it is closed the same way, and the refusal is recorded.
     if !broker.admit(&grant_id, peer, local).await {
         return;
