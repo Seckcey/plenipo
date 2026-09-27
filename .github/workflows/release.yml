@@ -96,13 +96,30 @@ jobs:
           done
       - name: Install the signing tool
         run: cargo install artifact-signing-cli --version 0.11.0 --locked
+      # The tool looks for signtool at one fixed Windows SDK version and for the Azure CLI at one
+      # fixed path, and stops if either is not exactly there. Find both on this machine instead.
+      - name: Find signtool and the Azure CLI for the signing tool
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Where-Object { $_.Directory.Parent.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe (Windows SDK) was not found on this runner" }
+          $az = (Get-Command az.cmd -ErrorAction SilentlyContinue).Source
+          if (-not $az) { throw "The Azure CLI (az.cmd) was not found on this runner" }
+          "signtool: $($signtool.FullName)"
+          "Azure CLI: $az"
+          "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+          "AZURE_CLI_PATH=$az" >> $env:GITHUB_ENV
       - name: Build release app and NSIS installer, signed
         env:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
-        run: pnpm --filter @plenipo/desktop tauri build --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+        # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
+        run: pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
       - name: The installer and the app are signed by 8 West Ventures, LLC, with a timestamp
         shell: pwsh
         run: |
