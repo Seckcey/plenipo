@@ -1,0 +1,51 @@
+{
+  "mode": "built-in image_gen",
+  "useCase": "stylized-concept",
+  "transparentBackground": true,
+  "assets": [
+    {
+      "id": "pip-16-anthropic",
+      "name": "Anthropic",
+      "mark": "anthropic-icon.png",
+      "addition": "The held sign is warm ivory with the exact BLACK Anthropic AI monogram from reference 2, large and centered. It is the A plus slanted parallel stroke monogram, not a Claude star. Pip leans slightly to his left, proudly presenting it.",
+      "prompt": "Create one finished transparent-background Plenipo brand illustration of Pip. Input image 1 is the exact character identity reference: preserve this same compact pearl-silver robot, rounded rectangular head, glossy deep navy face with two curved happy cyan eyes and NO mouth, cobalt circular ear discs, curved dark antenna tipped by a blue ball, navy torso with the small Plenipo P, articulated silver limbs with navy joints and cobalt toe caps. Maintain the exact polished 3D material, proportions and friendly personality. Input image 2 is a reference for the company mark Pip will hold. Reproduce the distinctive mark accurately and cleanly; it identifies an AI tool, not a new Plenipo logo. Full body centered, two arms and two legs, antenna and feet entirely visible with 8% clear margin. Gentle three-quarter stance facing the viewer. Pip holds a small elegant round-edged sign at chest/waist height with both hands gripping only its outer edges so the whole company mark stays visible. Sign face parallel to camera, crisp flat mark, generous clear space, no decoration inside the logo. Soft studio lighting with silver edges readable on both white and navy website backgrounds. Genuine alpha transparency outside Pip and the held sign; no floor, backdrop, gradient, checkerboard, cast ground shadow, watermark, captions, or company text. Single character only.\nThe held sign is warm ivory with the exact BLACK Anthropic AI monogram from reference 2, large and centered. It is the A plus slanted parallel stroke monogram, not a Claude star. Pip leans slightly to his left, proudly presenting it.",
+      "references": [
+        "assets/mascots/pip-02-welcome.png",
+        "assets/providers/references/anthropic-icon.png"
+      ]
+    },
+    {
+      "id": "pip-17-openai",
+      "name": "OpenAI",
+      "mark": "openai-icon.png",
+      "addition": "The held sign is matte black with the exact WHITE six-fold interlocking OpenAI Blossom from reference 2, large and centered. Do not use the blue backing from the small favicon reference. Preserve the six smooth interwoven loops and their negative space; do not add letters or extra petals. Pip stands upright with the plaque supported at its lower corners.",
+      "prompt": "Create one finished transparent-background Plenipo brand illustration of Pip. Input image 1 is the exact character identity reference: preserve this same compact pearl-silver robot, rounded rectangular head, glossy deep navy face with two curved happy cyan eyes and NO mouth, cobalt circular ear discs, curved dark antenna tipped by a blue ball, navy torso with the small Plenipo P, articulated silver limbs with navy joints and cobalt toe caps. Maintain the exact polished 3D material, proportions and friendly personality. Input image 2 is a reference for the company mark Pip will hold. Reproduce the distinctive mark accurately and cleanly; it identifies an AI tool, not a new Plenipo logo. Full body centered, two arms and two legs, antenna and feet entirely visible with 8% clear margin. Gentle three-quarter stance facing the viewer. Pip holds a small elegant round-edged sign at chest/waist height with both hands gripping only its outer edges so the whole company mark stays visible. Sign face parallel to camera, crisp flat mark, generous clear space, no decoration inside the logo. Soft studio lighting with silver edges readable on both white and navy website backgrounds. Genuine alpha transparency outside Pip and the held sign; no floor, backdrop, gradient, checkerboard, cast ground shadow, watermark, captions, or company text. Single character only.\nThe held sign is matte black with the exact WHITE six-fold interlocking OpenAI Blossom from reference 2, large and centered. Do not use the blue backing from the small favicon reference. Preserve the six smooth interwoven loops and their negative space; do not add letters or extra petals. Pip stands upright with the plaque supported at its lower corners.",
+      "references": [
+        "assets/mascots/pip-02-welcome.png",
+        "assets/providers/references/openai-icon.png"
+      ]
+    },
+    {
+      "id": "pip-18-xai",
+      "name": "xAI",
+      "mark": "Current SpaceXAI symbol",
+      "addition": "Use the current SpaceXAI symbol shown in image 2, selected explicitly by the user. It is the elegant black stylized X crossed by the long rising curved trajectory shown in the reference. Pip holds an ivory rounded rectangular plaque, wide enough to preserve this exact very wide mark, centered with clear space. Keep the symbol's broad curved sweep and smaller crossing segments faithful, with no wordmark, no classic xAI letters, no Grok mascot and no added lettering.",
+      "prompt": "Create one finished transparent-background Plenipo brand illustration of Pip. Input image 1 is the exact character identity reference: preserve this same compact pearl-silver robot, rounded rectangular head, glossy deep navy face with two curved happy cyan eyes and NO mouth, cobalt circular ear discs, curved dark antenna tipped by a blue ball, navy torso with the small Plenipo P, articulated silver limbs with navy joints and cobalt toe caps. Maintain the exact polished 3D material, proportions and friendly personality. Input image 2 is a reference for the company mark Pip will hold. Reproduce the distinctive mark accurately and cleanly; it identifies an AI tool, not a new Plenipo logo. Full body centered, two arms and two legs, antenna and feet entirely visible with 8% clear margin. Gentle three-quarter stance facing the viewer. Pip holds a small elegant round-edged sign at chest/waist height with both hands gripping only its outer edges so the whole company mark stays visible. Sign face parallel to camera, crisp flat mark, generous clear space, no decoration inside the logo. Soft studio lighting with silver edges readable on both white and navy website backgrounds. Genuine alpha transparency outside Pip and the held sign; no floor, backdrop, gradient, checkerboard, cast ground shadow, watermark, captions, or company text. Single character only.\n\nUse the current SpaceXAI symbol shown in image 2, selected explicitly by the user. It is the elegant black stylized X crossed by the long rising curved trajectory shown in the reference. Pip holds an ivory rounded rectangular plaque, wide enough to preserve this exact very wide mark, centered with clear space. Keep the symbol's broad curved sweep and smaller crossing segments faithful, with no wordmark, no classic xAI letters, no Grok mascot and no added lettering.",
+      "references": [
+        "assets/mascots/pip-02-welcome.png",
+        "assets/providers/references/xai-reference-preview.png"
+      ]
+    },
+    {
+      "id": "pip-19-moonshot",
+      "name": "Moonshot AI",
+      "mark": "moonshot-on-dark-preview.png",
+      "addition": "Use only the WHITE circular striped Moonshot AI sphere symbol at the LEFT of reference 2, not its wordmark. The held sign is deep navy with that exact white striped spherical Moonshot symbol, large and centered. Preserve the diagonal horizontal bands and zigzag negative spaces. Pip bends one elbow a little more than the other, with an engaging slight head tilt.",
+      "prompt": "Create one finished transparent-background Plenipo brand illustration of Pip. Input image 1 is the exact character identity reference: preserve this same compact pearl-silver robot, rounded rectangular head, glossy deep navy face with two curved happy cyan eyes and NO mouth, cobalt circular ear discs, curved dark antenna tipped by a blue ball, navy torso with the small Plenipo P, articulated silver limbs with navy joints and cobalt toe caps. Maintain the exact polished 3D material, proportions and friendly personality. Input image 2 is a reference for the company mark Pip will hold. Reproduce the distinctive mark accurately and cleanly; it identifies an AI tool, not a new Plenipo logo. Full body centered, two arms and two legs, antenna and feet entirely visible with 8% clear margin. Gentle three-quarter stance facing the viewer. Pip holds a small elegant round-edged sign at chest/waist height with both hands gripping only its outer edges so the whole company mark stays visible. Sign face parallel to camera, crisp flat mark, generous clear space, no decoration inside the logo. Soft studio lighting with silver edges readable on both white and navy website backgrounds. Genuine alpha transparency outside Pip and the held sign; no floor, backdrop, gradient, checkerboard, cast ground shadow, watermark, captions, or company text. Single character only.\nUse only the WHITE circular striped Moonshot AI sphere symbol at the LEFT of reference 2, not its wordmark. The held sign is deep navy with that exact white striped spherical Moonshot symbol, large and centered. Preserve the diagonal horizontal bands and zigzag negative spaces. Pip bends one elbow a little more than the other, with an engaging slight head tilt.",
+      "references": [
+        "assets/mascots/pip-02-welcome.png",
+        "assets/providers/references/moonshot-on-dark-preview.png"
+      ]
+    }
+  ]
+}

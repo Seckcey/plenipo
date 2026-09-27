@@ -24,6 +24,10 @@ test("production build includes every local asset and valid internal destination
     for (const file of ["robots.txt", "sitemap.xml", "site.webmanifest", "main.js", "styles.css"]) {
       await access(join(output, file));
     }
+    const manifest = JSON.parse(await readFile(join(output, "site.webmanifest"), "utf8"));
+    for (const icon of manifest.icons) {
+      await access(join(output, icon.src.slice(1)));
+    }
     // A new stylesheet or script gets a new URL; returning visitors cannot keep
     // a previous release's cached controls or layout after the HTML updates.
     for (const file of ["styles.css", "main.js"]) {

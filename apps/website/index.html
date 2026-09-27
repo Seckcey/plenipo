@@ -7,7 +7,7 @@
     <title>Plenipo — Your AI workforce. On your desktop.</title>
     <meta
       name="description"
-      content="Build your AI workforce on Windows with Plenipo. Coordinate Claude Code, Codex, Grok, and Ollama with clear permissions, human approvals, and a local activity record."
+      content="Build your AI workforce on Windows with Plenipo. Coordinate Claude Code, Codex, Grok, Kimi, and Ollama with clear permissions, human approvals, and a local activity record."
     />
     <link rel="canonical" href="https://plenipo.8westit.com/" />
     <meta property="og:type" content="website" />
@@ -18,10 +18,7 @@
       content="Give your team an outcome. Plenipo organizes the work, the AI tools, and the approvals. Free for Windows."
     />
     <meta property="og:url" content="https://plenipo.8westit.com/" />
-    <meta
-      property="og:image"
-      content="https://plenipo.8westit.com/brand/github-social-preview.png"
-    />
+    <meta property="og:image" content="https://plenipo.8westit.com/brand/plenipo-pip-social.png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="Plenipo — local-first AI workforce orchestration" />
@@ -31,15 +28,23 @@
       name="twitter:description"
       content="Your AI tools, organized into a team. Local permissions, human approvals, and a record of every step."
     />
-    <meta
-      name="twitter:image"
-      content="https://plenipo.8westit.com/brand/github-social-preview.png"
-    />
+    <meta name="twitter:image" content="https://plenipo.8westit.com/brand/plenipo-pip-social.png" />
     <meta name="twitter:image:alt" content="Plenipo — local-first AI workforce orchestration" />
-    <link rel="icon" href="/brand/favicon.ico" sizes="any" />
-    <link rel="icon" href="/brand/plenipo-icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/brand/plenipo-icon-180.png" />
-    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="icon" href="/brand/pip-favicon.ico" sizes="any" />
+    <link
+      rel="icon"
+      href="/brand/pip-favicon-on-light.svg"
+      type="image/svg+xml"
+      media="(prefers-color-scheme: light)"
+    />
+    <link
+      rel="icon"
+      href="/brand/pip-favicon-on-dark.svg"
+      type="image/svg+xml"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="apple-touch-icon" href="/brand/pip-icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest?v=pip-19" />
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <script type="module" src="/main.js"></script>
@@ -49,14 +54,14 @@
         "@type": "SoftwareApplication",
         "name": "Plenipo",
         "url": "https://plenipo.8westit.com/",
-        "description": "A local-first Windows desktop app that organizes AI workers, projects, permissions, approvals, and activity across Claude Code, Codex, Grok, and Ollama cloud models.",
+        "description": "A local-first Windows desktop app that organizes AI workers, projects, permissions, approvals, and activity across Claude Code, Codex, Grok, Kimi, and Ollama cloud models.",
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "Windows 11",
-        "softwareVersion": "1.4.0",
+        "softwareVersion": "1.6.0",
         "processorRequirements": "x64",
-        "downloadUrl": "https://github.com/Seckcey/plenipo/releases/download/v1.4.0/Plenipo_1.4.0_x64-setup.exe",
+        "downloadUrl": "https://github.com/Seckcey/plenipo/releases/download/v1.6.0/Plenipo_1.6.0_x64-setup.exe",
         "license": "https://github.com/Seckcey/plenipo/blob/main/LICENSE",
-        "image": "https://plenipo.8westit.com/brand/github-social-preview.png",
+        "image": "https://plenipo.8westit.com/brand/plenipo-pip-social.png",
         "author": { "@type": "Organization", "name": "8 West Ventures, LLC" },
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
       }
@@ -67,7 +72,12 @@
     <header class="site-header">
       <div class="header-inner">
         <a class="brand" href="#" aria-label="Plenipo home">
-          <img src="/brand/plenipo-wordmark-light.svg" width="137" height="38" alt="Plenipo" />
+          <img
+            src="/brand/plenipo-horizontal-on-light.webp"
+            width="600"
+            height="239"
+            alt="Plenipo"
+          />
         </a>
         <button
           class="menu-toggle"
@@ -99,7 +109,17 @@
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy container">
-          <h1 id="hero-title">Your AI workforce.<br />On your desktop.</h1>
+          <div class="hero-heading">
+            <img
+              class="hero-pip"
+              src="/brand/pip/pip-02-welcome.webp"
+              width="480"
+              height="480"
+              alt="Pip, Plenipo’s mascot, waving hello"
+              fetchpriority="high"
+            />
+            <h1 id="hero-title">Your AI workforce.<br />On your desktop.</h1>
+          </div>
           <p class="hero-description">
             Give your team an outcome. Plenipo organizes the work, the AI tools, and the approvals.
           </p>
@@ -107,7 +127,7 @@
             <a
               class="button"
               data-download
-              href="https://github.com/Seckcey/plenipo/releases/download/v1.4.0/Plenipo_1.4.0_x64-setup.exe"
+              href="https://github.com/Seckcey/plenipo/releases/download/v1.6.0/Plenipo_1.6.0_x64-setup.exe"
               >Download for Windows
               <svg viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" /></svg
@@ -322,12 +342,51 @@
         </div>
         <ul class="tool-rail" aria-label="Supported AI tools">
           <li>
+            <img
+              class="provider-pip"
+              src="/brand/pip/pip-16-anthropic.webp"
+              width="480"
+              height="480"
+              alt=""
+              loading="lazy"
+            />
             <span class="tool-name">Claude Code</span><span class="tool-maker">Anthropic</span>
           </li>
-          <li><span class="tool-name">Codex</span><span class="tool-maker">OpenAI</span></li>
-          <li><span class="tool-name">Grok</span><span class="tool-maker">xAI</span></li>
-          <li><span class="tool-name">Ollama</span><span class="tool-maker">Cloud models</span></li>
+          <li>
+            <img
+              class="provider-pip"
+              src="/brand/pip/pip-17-openai.webp"
+              width="480"
+              height="480"
+              alt=""
+              loading="lazy"
+            />
+            <span class="tool-name">Codex</span><span class="tool-maker">OpenAI</span>
+          </li>
+          <li>
+            <img
+              class="provider-pip"
+              src="/brand/pip/pip-18-xai.webp"
+              width="480"
+              height="480"
+              alt=""
+              loading="lazy"
+            />
+            <span class="tool-name">Grok</span><span class="tool-maker">xAI</span>
+          </li>
+          <li>
+            <img
+              class="provider-pip"
+              src="/brand/pip/pip-19-moonshot.webp"
+              width="480"
+              height="480"
+              alt=""
+              loading="lazy"
+            />
+            <span class="tool-name">Kimi</span><span class="tool-maker">Moonshot AI</span>
+          </li>
         </ul>
+        <p class="other-tools">Also works with Ollama cloud models.</p>
         <div class="ai-detail">
           <div class="ai-copy">
             <h3>Local control. <br />Your choice of AI.</h3>
@@ -401,7 +460,7 @@
           </table>
         </div>
         <p class="edition-note">
-          Planned edition limits are not active in <span data-version>v1.4.0</span>. Planned Pro
+          Planned edition limits are not active in <span data-version>v1.6.0</span>. Planned Pro
           pricing is $9/month or $99/year.<br /><a
             href="https://github.com/Seckcey/plenipo/blob/main/docs/editions.md"
             >Read the edition plans <span aria-hidden="true">↗</span></a
@@ -413,9 +472,9 @@
         <div class="download-panel">
           <img
             class="download-icon"
-            src="/brand/plenipo-icon.svg"
-            width="76"
-            height="76"
+            src="/brand/pip/pip-11-launch.webp"
+            width="480"
+            height="480"
             alt=""
             loading="lazy"
           />
@@ -424,7 +483,7 @@
             <a
               class="button"
               data-download
-              href="https://github.com/Seckcey/plenipo/releases/download/v1.4.0/Plenipo_1.4.0_x64-setup.exe"
+              href="https://github.com/Seckcey/plenipo/releases/download/v1.6.0/Plenipo_1.6.0_x64-setup.exe"
               >Download for Windows
               <svg viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" /></svg
@@ -433,7 +492,7 @@
               >View on GitHub <span aria-hidden="true">↗</span></a
             >
           </div>
-          <p class="fine-print">Windows 11 · x64 · <span data-version>v1.4.0</span></p>
+          <p class="fine-print">Windows 11 · x64 · <span data-version>v1.6.0</span></p>
           <a class="release-link" href="https://github.com/Seckcey/plenipo/releases/latest"
             >Release notes and other downloads <span aria-hidden="true">↗</span></a
           >
@@ -494,9 +553,9 @@
       <div class="footer-brand">
         <a class="brand" href="#" aria-label="Plenipo home"
           ><img
-            src="/brand/plenipo-wordmark-light.svg"
-            width="137"
-            height="38"
+            src="/brand/plenipo-horizontal-on-light.webp"
+            width="600"
+            height="239"
             alt="Plenipo"
             loading="lazy"
         /></a>
@@ -513,7 +572,7 @@
           <a href="#download">Download</a
           ><a href="https://github.com/Seckcey/plenipo#readme">Documentation</a
           ><a href="https://github.com/Seckcey/plenipo">GitHub</a
-          ><a href="/plenipo-brand-kit.zip" download>Brand assets</a>
+          ><a href="/plenipo-brand-kit.zip?v=pip-19" download>Brand assets</a>
         </div>
         <div>
           <h2>Company</h2>

@@ -1,0 +1,34 @@
+[
+  {
+    "file": "pip-16-anthropic.png",
+    "width": 1254,
+    "height": 1254,
+    "hasAlpha": true,
+    "alphaRange": [0, 255],
+    "transparentPixels": 1117140
+  },
+  {
+    "file": "pip-17-openai.png",
+    "width": 1254,
+    "height": 1254,
+    "hasAlpha": true,
+    "alphaRange": [0, 255],
+    "transparentPixels": 1113661
+  },
+  {
+    "file": "pip-18-xai.png",
+    "width": 1254,
+    "height": 1254,
+    "hasAlpha": true,
+    "alphaRange": [0, 255],
+    "transparentPixels": 1081915
+  },
+  {
+    "file": "pip-19-moonshot.png",
+    "width": 1218,
+    "height": 1292,
+    "hasAlpha": true,
+    "alphaRange": [0, 255],
+    "transparentPixels": 1080095
+  }
+]

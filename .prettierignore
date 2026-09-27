@@ -8,3 +8,9 @@ packages/types/src/generated/
 ROLLOUT_PLAN.md
 packages/ui/src/generated/
 tests/e2e/snapshots/
+
+# Preserve the original approved asset kit and its recorded hashes.
+assets/source/
+assets/README.md
+assets/manifest.json
+assets/validation.json
