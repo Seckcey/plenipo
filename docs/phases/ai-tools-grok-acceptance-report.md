@@ -136,30 +136,51 @@ prints a key, do not paste it.
 8. Start another Grok task: _"Count slowly from 1 to 300, one number per line."_ Choose
    **Cancel** while it runs. It should read **Cancelled** within about five seconds. Then follow
    up with _"Continue."_ It should answer in the same conversation.
-9. In **Organization**, select the Website Supervisor. In its details panel, under **Project:
-   Website**, choose **Edit project**, tick **Grok** under **Allowed AI tools**, and save (a
-   project made before Grok existed does not allow it yet). Then choose **Edit title, AI tool,
-   or model**, pick **Grok**, and save. The project needs a folder with a README.md in it: in
-   the details panel, **Folder** must not say "None"; if it does, set **Project folder** in
-   **Edit project**. Give it: _"Read README.md and summarize it. Then run `dir` yourself."_ The summary should come from Plenipo's file tool
-   (shown in **Activity**). Grok must not run `dir` with its own tools: either it says it cannot,
-   or **Activity** shows "Grok asked to use … Plenipo refused it". It must not mention X or web
-   search.
+9. **Plenipo's tools in a project.** In **Organization**, select the **Website Supervisor**.
+   In its details panel, under **Project: Website**:
+   - **Allowed AI tools** must include Grok, and **Folder** must not say "None". If either is
+     wrong, choose **Edit project**, tick **Grok** under **Allowed AI tools**, type a folder that
+     has a README.md in it into **Project folder** (for example `D:\projects\website`), and save.
+     A project made before Grok existed does not allow Grok yet.
+   - Choose **Edit title, AI tool, or model**, pick **Grok**, and save.
+   - In **Give an objective**, type _"Read README.md and summarize it. Then run `dir`
+     yourself."_ and choose **Give objective**.
+
+   In **Activity** you should see "Permissions given to Website Supervisor in …" (with **Read
+   files**), then "Website Supervisor: read README.md", and the answer summarizes the README.
+   Grok must not run `dir` with its own tools: it says it cannot, or **Activity** shows "Grok
+   asked to use … Plenipo refused it". It must not mention X or web search. If **Activity** says
+   "… has permissions but got no tools …", copy that line.
+
 10. If any Grok task above did not finish as described, open **AI tools**, find its program
     entry (for example "Grok · task 1"), and copy its output.
-11. Refused sign-ins:
-    - In PowerShell: `$env:XAI_API_KEY = "xai-FAKE-not-a-real-key"`, then start Plenipo from
-      that window. The Grok card should refuse ("signed in with an API key"). Close Plenipo and
-      run `Remove-Item Env:XAI_API_KEY`.
-    - Add these two lines to `%USERPROFILE%\.grok\config.toml`:
-      `[model."grok-4.6"]` and `api_key = "xai-FAKE-not-a-real-key"`. **Re-check** should refuse
-      Grok. Remove the two lines; **Re-check** should say **Ready** again.
-    - Run `grok logout`. **Re-check** should say "Not signed in" with the `grok login` hint. Run
-      `grok login` again.
+11. Refused sign-ins. Close Plenipo first. Work in PowerShell in your Plenipo folder.
+    - **A key in your environment never reaches Grok.** Run
+      `$env:XAI_API_KEY = "xai-FAKE-not-a-real-key"`, then start Plenipo from that window
+      (`.\target\release\plenipo-desktop.exe`). Open **AI tools** and choose **Re-check**: Grok
+      stays **Ready** with "grok.com sign-in", because Plenipo never passes the key on. In
+      **Workers**, give Grok _"Reply with ok."_: it finishes normally. Close Plenipo, then run
+      `Remove-Item Env:XAI_API_KEY`.
+    - **A key in Grok's own settings is refused while signed in** (ADR-015 §6). Run
+      `notepad "$env:USERPROFILE\.grok\config.toml"` (let Notepad create the file if it asks) and
+      add these two lines at the end, then save:
+      `[model."grok-4.6"]` and `api_key = "xai-FAKE-not-a-real-key"`. Run `grok models` and
+      copy its first line. Then run
+      `$env:GROK_DISABLE_API_KEY_AUTH = "1"; grok -p "Reply with ok." -m grok-4.6; Remove-Item Env:GROK_DISABLE_API_KEY_AUTH`
+      and copy everything it prints. It passes if Grok answers "ok" or says it is not signed in;
+      it fails if the error mentions `401`, `Auth: ApiKey`, or "Incorrect API key" (the fake key
+      was sent to xAI). Start Plenipo, open **AI tools**, choose **Re-check**, and copy the Grok
+      card's text ("API key — not allowed" when `grok models` names the key). Close Plenipo,
+      delete the two lines, save, start Plenipo, and **Re-check**: **Ready**.
+    - **Signed out.** Run `grok logout`, then **Re-check**: the Grok card says **Not signed in**
+      with the hint to run `grok login`. Run `grok login`, sign in again, and **Re-check**:
+      **Ready**.
 12. Send back:
     - the line from step 4, and the Grok card's text from step 5;
     - for any task that did not finish as described, its result and the output from step 10;
-    - whether step 9 showed a refusal or Grok saying it could not run the command.
+    - from step 9: what Grok answered, and any **Activity** line about permissions or refusals;
+    - from step 11: the Grok card's text in each case, the first line of `grok models` with the
+      key in `config.toml`, and what the `grok -p` command printed.
 
 ## 7. Not verified here
 
