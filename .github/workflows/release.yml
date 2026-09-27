@@ -96,8 +96,8 @@ jobs:
           done
       - name: Install the signing tool
         run: cargo install artifact-signing-cli --version 0.11.0 --locked
-      # The tool looks for signtool at one fixed Windows SDK version and for the Azure CLI at one
-      # fixed path, and stops if either is not exactly there. Find both on this machine instead.
+      # The tool defaults to signtool at one fixed Windows SDK version and the Azure CLI at one
+      # fixed path, and stops if either is elsewhere. Find both, so a runner update cannot break it.
       - name: Find signtool and the Azure CLI for the signing tool
         shell: pwsh
         run: |
@@ -119,7 +119,20 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
-        run: pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+        run: |
+          # The tool signs in by running az.cmd, and Windows will not pass a line break to a batch
+          # file, so a secret pasted with one fails as "batch file arguments are invalid". Trim the
+          # ends, say which secret needed it (never its value), and refuse one broken in the middle.
+          foreach ($name in 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET') {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            $trimmed = $value.Trim()
+            if ($trimmed -ne $value) {
+              "::warning::Repository secret $name starts or ends with a space or line break; it was trimmed for this run. Save it again without one (docs/development/code-signing.md)."
+              [Environment]::SetEnvironmentVariable($name, $trimmed)
+            }
+            if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
+          }
+          pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
       - name: The installer and the app are signed by 8 West Ventures, LLC, with a timestamp
         shell: pwsh
         run: |
