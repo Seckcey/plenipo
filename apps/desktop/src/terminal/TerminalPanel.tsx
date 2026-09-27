@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { ServersSnapshot, TerminalSettings } from "@plenipo/types";
+import { useEffect, useRef, useState } from "react";
+import type { LedgerEvent, ServersSnapshot, TerminalSettings } from "@plenipo/types";
 import {
   Button,
   CountBadge,
@@ -16,6 +16,7 @@ import {
 } from "@plenipo/ui";
 
 import { getServers, getTerminalSettings } from "../api/commands";
+import { subscribeLedgerEvents } from "../api/events";
 import { OwnerTerminal } from "./OwnerTerminal";
 import { PANEL_MIN, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
@@ -23,6 +24,15 @@ import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
 
 const HERE = "this-pc";
+
+/** Settings changes that change the New terminal list: servers, the switches, the shell. */
+function changesTheList(e: LedgerEvent): boolean {
+  return (
+    e.eventType.startsWith("guard.server_") ||
+    e.eventType === "guard.switches_changed" ||
+    e.eventType === "org.settings_changed"
+  );
+}
 
 function tabLabel(tab: TerminalTab) {
   if (tab.kind === "owner") {
@@ -63,21 +73,56 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const [servers, setServers] = useState<ServersSnapshot | null>(null);
   const [settings, setSettings] = useState<TerminalSettings | null>(null);
   const [focusToken, setFocusToken] = useState(0);
+  // A tab chosen with the mouse puts the keyboard in its terminal; one chosen with the arrow
+  // keys keeps it in the list of tabs.
+  const pointer = useRef(false);
   const side = t.panel.side;
   const open = t.panel.open;
+  /** F6 in a terminal: back to its tab in the list. */
+  const toTabs = () => {
+    if (t.active) document.getElementById(`terminal-tab-${t.active}`)?.focus();
+  };
+  /** Hidden with its button: the keyboard goes back to the Terminal button in the top bar. */
+  const hide = () => {
+    t.hide();
+    document.getElementById(TERMINAL_BUTTON_ID)?.focus();
+  };
 
-  // Fresh servers and shell each time the panel is shown (Settings may have changed them).
+  // Fresh servers and shell each time the panel is shown, and while it is open, whenever
+  // Settings changes them (a server added, Remote computers (SSH) switched on, another shell).
   useEffect(() => {
     if (!open) return;
     let live = true;
-    getServers()
-      .then((s) => live && setServers(s))
-      .catch(() => undefined);
-    getTerminalSettings()
-      .then((s) => live && setSettings(s))
-      .catch(() => undefined);
+    let stop: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      getServers()
+        .then((s) => live && setServers(s))
+        .catch(() => undefined);
+      getTerminalSettings()
+        .then((s) => live && setSettings(s))
+        .catch(() => undefined);
+    };
+    void subscribeLedgerEvents((e) => {
+      if (!live || timer || !changesTheList(e)) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (live) refresh();
+      }, 300);
+    })
+      .then((s) => {
+        if (live) stop = s;
+        else s();
+      })
+      .catch(() => undefined)
+      // Listen first, so a change between the answer and the listening is not missed.
+      .finally(() => {
+        if (live) refresh();
+      });
     return () => {
       live = false;
+      stop?.();
+      if (timer) clearTimeout(timer);
     };
   }, [open]);
 
@@ -131,21 +176,31 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
       <div className="terminal-panel__main">
         <div className="terminal-panel__bar">
           {t.tabs.length > 0 && t.active !== null ? (
-            <Tabs
-              label="Terminals"
-              value={t.active}
-              onChange={(id) => {
-                t.setActive(id);
-                setFocusToken((n) => n + 1);
+            <div
+              className="terminal-panel__tabs"
+              onPointerDown={() => {
+                pointer.current = true;
               }}
-              idPrefix="terminal"
-              tabs={t.tabs.map((tab) => ({
-                value: tab.id,
-                label: tabLabel(tab),
-                onClose: () => t.close(tab.id),
-                closeLabel: closeLabel(tab),
-              }))}
-            />
+              onKeyDown={() => {
+                pointer.current = false;
+              }}
+            >
+              <Tabs
+                label="Terminals"
+                value={t.active}
+                onChange={(id) => {
+                  t.setActive(id);
+                  if (pointer.current) setFocusToken((n) => n + 1);
+                }}
+                idPrefix="terminal"
+                tabs={t.tabs.map((tab) => ({
+                  value: tab.id,
+                  label: tabLabel(tab),
+                  onClose: () => t.close(tab.id),
+                  closeLabel: closeLabel(tab),
+                }))}
+              />
+            </div>
           ) : (
             <span className="terminal-panel__title">Terminal</span>
           )}
@@ -168,7 +223,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
               }
               onClick={() => t.setSide(side === "bottom" ? "right" : "bottom")}
             />
-            <IconButton icon="close" label="Hide the terminal (Ctrl+`)" onClick={t.hide} />
+            <IconButton icon="close" label="Hide the terminal (Ctrl+`)" onClick={hide} />
           </div>
         </div>
         <div className="terminal-panel__body">
@@ -212,6 +267,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                     visible={open}
                     theme={theme}
                     focusToken={focusToken}
+                    onLeave={toTabs}
                   />
                 ) : (
                   <WatchView tab={tab.watch} />
@@ -229,11 +285,14 @@ function shellLabel(settings: TerminalSettings): string | undefined {
   return settings.shells.find((s) => s.shell === settings.shell)?.label;
 }
 
+const TERMINAL_BUTTON_ID = "terminal-button";
+
 /** The Terminal button in the top bar, with the count of new watch tabs. */
 export function TerminalButton() {
   const t = useTerminal();
   return (
     <Button
+      id={TERMINAL_BUTTON_ID}
       size="sm"
       variant="quiet"
       icon="terminal"

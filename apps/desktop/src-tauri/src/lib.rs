@@ -23,6 +23,7 @@ use plenipo_router::Router;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use plenipo_workforce::Workforce;
+use tauri::webview::PageLoadEvent;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
 
 use runtime_host::Persistence;
@@ -107,6 +108,7 @@ pub fn configure<R: Runtime>(
             }
             let ledger = ledger_host::open(app.handle(), options.persistence);
             app.manage(ledger.clone());
+            app.manage(options.persistence);
             let supervisor =
                 runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
             let agents = agent_host::create(
@@ -165,16 +167,29 @@ pub fn configure<R: Runtime>(
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window must not silently kill running work: hide to the tray
-            // instead. With nothing running (or no tray to come back from), close normally.
+            // Closing the window must not silently kill running work (a program, or the
+            // owner's terminal): hide to the tray instead. With nothing running (or no tray to
+            // come back from), close normally.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 let active = app
                     .try_state::<Supervisor>()
                     .map_or(0, |s| s.active_count());
-                if window.label() == "main" && active > 0 && tray::exists(app) {
+                let terminals = app
+                    .try_state::<plenipo_capabilities::Broker>()
+                    .map_or(0, |b| b.open_terminals().len());
+                if window.label() == "main" && active + terminals > 0 && tray::exists(app) {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+            }
+        })
+        .on_page_load(|webview, payload| {
+            // The terminals belong to the page that shows them: when the main window's page
+            // loads again (a reload), the terminals it showed end instead of running unseen.
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Started {
+                if let Some(broker) = webview.try_state::<plenipo_capabilities::Broker>() {
+                    broker.close_all_terminals("the window was reloaded");
                 }
             }
         })
@@ -310,7 +325,8 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 // The owner's terminals end with Plenipo (and their closing is recorded).
                 if let Some(broker) = app.try_state::<plenipo_capabilities::Broker>() {
                     broker.close_all_terminals("Plenipo closed");
-                    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                    // A server terminal waits up to 2 s for the server to answer its close.
+                    let deadline = std::time::Instant::now() + Duration::from_secs(4);
                     while !broker.open_terminals().is_empty()
                         && std::time::Instant::now() < deadline
                     {
@@ -422,6 +438,7 @@ mod ipc_boundary_tests {
         // The mock runtime does not run `setup`; install the ledger and runtime the same way.
         let ledger = ledger_host::open(app.handle(), Persistence::InMemory);
         app.manage(ledger.clone());
+        app.manage(Persistence::InMemory);
         let supervisor =
             runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger.clone());
         let agents = agent_host::create(

@@ -18,6 +18,8 @@ const xterm = vi.hoisted(() => {
     options: Record<string, unknown>;
     disposed: boolean;
     focused: number;
+    /** A key pressed in the terminal: what xterm's custom key handler says (false: not sent). */
+    key: (e: Partial<KeyboardEvent>) => boolean;
   }[] = [];
   return { made };
 });
@@ -27,6 +29,7 @@ vi.mock("@xterm/xterm", () => ({
     rows = 24;
     options: Record<string, unknown>;
     private handlers: ((d: string) => void)[] = [];
+    private keys: (e: KeyboardEvent) => boolean = () => true;
     private record: (typeof xterm.made)[number];
     constructor(options: Record<string, unknown>) {
       this.options = { ...options };
@@ -36,6 +39,8 @@ vi.mock("@xterm/xterm", () => ({
         options: this.options,
         disposed: false,
         focused: 0,
+        key: (e) =>
+          this.keys({ type: "keydown", preventDefault: () => undefined, ...e } as KeyboardEvent),
       };
       xterm.made.push(this.record);
     }
@@ -50,7 +55,9 @@ vi.mock("@xterm/xterm", () => ({
     write(d: string | Uint8Array) {
       this.record.written.push(d);
     }
-    attachCustomKeyEventHandler() {}
+    attachCustomKeyEventHandler(h: (e: KeyboardEvent) => boolean) {
+      this.keys = h;
+    }
     onData(h: (d: string) => void) {
       this.handlers.push(h);
       return { dispose: () => undefined };
@@ -144,9 +151,16 @@ beforeEach(() => {
   cleanup();
   localStorage.clear();
   xterm.made.length = 0;
+  // Everyone listening hears each event (the panel and the watch tabs both listen).
+  const listening = new Set<(e: LedgerEvent) => void>();
+  ledger = (e) => {
+    for (const handler of [...listening]) handler(e);
+  };
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
-    ledger = handler;
-    return Promise.resolve(() => undefined);
+    listening.add(handler);
+    return Promise.resolve(() => {
+      listening.delete(handler);
+    });
   });
   api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [], revision: 1 });
   api.getTaskTimeline.mockResolvedValue({ task: null as never, events: [], children: [] });
@@ -234,6 +248,48 @@ describe("the terminal panel", () => {
     expect(screen.getByText("No terminal open")).toBeInTheDocument();
   });
 
+  it("sends a large paste in order, in pieces, and says when Plenipo refuses typing", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /^Terminal/ }));
+    await user.click(screen.getByRole("button", { name: "Open a terminal on this PC" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "This PC" })).toBeInTheDocument());
+    const term = xterm.made[0]!;
+    const paste = "a".repeat(40_000);
+    act(() => term.type(paste));
+    await waitFor(() => expect(api.writeTerminal).toHaveBeenCalledTimes(3));
+    const sent = api.writeTerminal.mock.calls.map(([, data]) => data);
+    expect(sent.map((d) => d.length)).toEqual([16_000, 16_000, 8_000]);
+    expect(sent.join("")).toBe(paste);
+    // A refusal is shown in the terminal, once, not lost.
+    const why =
+      "Desk Operator is using the screen, mouse, and keyboard, so the terminal takes no typing now. Take over first";
+    api.writeTerminal.mockRejectedValue({ kind: "invalidInput", message: why });
+    act(() => term.type("l"));
+    act(() => term.type("s"));
+    await waitFor(() => expect(api.writeTerminal).toHaveBeenCalledTimes(5));
+    await waitFor(() =>
+      expect(term.written.filter((w) => typeof w === "string" && w.includes(why))).toHaveLength(1),
+    );
+  });
+
+  it("F6 takes the keyboard from the terminal back to its tab; Tab stays the shell's", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /^Terminal/ }));
+    await user.click(screen.getByRole("button", { name: "Open a terminal on this PC" }));
+    const tab = await screen.findByRole("tab", { name: "This PC" });
+    const term = xterm.made[0]!;
+    expect(term.key({ key: "Tab" })).toBe(true);
+    expect(term.key({ key: "F6" })).toBe(false);
+    expect(tab).toHaveFocus();
+    // Ctrl+` is Plenipo's too.
+    expect(term.key({ key: "`", code: "Backquote", ctrlKey: true })).toBe(false);
+    // Hidden with its button, the keyboard goes back to the Terminal button.
+    await user.click(screen.getByRole("button", { name: "Hide the terminal (Ctrl+`)" }));
+    expect(screen.getByRole("button", { name: /^Terminal/ })).toHaveFocus();
+  });
+
   it("says why a terminal could not open, and tries again", async () => {
     const user = userEvent.setup();
     api.openTerminal.mockRejectedValueOnce({
@@ -271,6 +327,21 @@ describe("the terminal panel", () => {
     expect(
       screen.getByRole("menuitem", { name: /New box \(its server ID is not pinned\)/ }),
     ).toBeDisabled();
+  });
+
+  it("updates New terminal while the panel is open, when Settings adds a server or switches SSH on", async () => {
+    const user = userEvent.setup();
+    api.getServers.mockResolvedValue(sampleServers([]));
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /^Terminal/ }));
+    await waitFor(() => expect(api.getServers).toHaveBeenCalledTimes(1));
+    api.getServers.mockResolvedValue(sampleServers());
+    // Something else happens: the list is not read again.
+    act(() => ledger(ledgerEvent("task.created", {})));
+    act(() => ledger(ledgerEvent("guard.server_added", { serverId: "srv-shop" })));
+    await waitFor(() => expect(api.getServers).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "New terminal" }));
+    expect(await screen.findByRole("menuitem", { name: /Shop/ })).toBeEnabled();
   });
 
   it("opens a watch tab by itself when a worker connects: live, read-only, with Stop and Disconnect", async () => {

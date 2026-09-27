@@ -10,6 +10,7 @@ import {
   watchTitle,
   type WatchCommand,
 } from "./watch";
+import { pieces } from "./words";
 
 let seq = 0;
 function ev(eventType: string, payload: Record<string, unknown>, taskId = "task-1"): LedgerEvent {
@@ -194,5 +195,66 @@ describe("watch tabs", () => {
       tabs,
     );
     expect(applyWatchEvent(tabs, ev("ssh.output", { commandId: "nope", lines: ["x"] }))).toBe(tabs);
+  });
+});
+
+describe("a command with more output than Plenipo keeps", () => {
+  it("says so while it runs, and says how many lines were not kept when it ends", () => {
+    let tabs = applyWatchEvents(
+      [],
+      [
+        ev("ssh.connected", {
+          grantId: "g1",
+          worker: "Operations Engineer",
+          serverId: "s1",
+          server: "Shop",
+          environment: "test",
+        }),
+        ev("ssh.command_started", {
+          grantId: "g1",
+          commandId: "c1",
+          serverId: "s1",
+          command: "apt-get upgrade",
+        }),
+        ev("ssh.output", {
+          grantId: "g1",
+          commandId: "c1",
+          stream: "out",
+          lines: Array.from({ length: 2000 }, (_, i) => `line ${i}`),
+        }),
+      ],
+    );
+    expect(watchLines(tabs[0]!).at(-1)?.text).toBe(
+      "… later lines are not shown (Plenipo keeps the first 2000 lines of a command)",
+    );
+    tabs = applyWatchEvents(tabs, [
+      ev("ssh.command_finished", {
+        grantId: "g1",
+        commandId: "c1",
+        ending: "exited",
+        exitCode: 0,
+        seconds: 240,
+        lines: 5000,
+      }),
+    ]);
+    const shown = watchLines(tabs[0]!).map((l) => l.text);
+    expect(shown).toContain(
+      "… 3000 more lines were not kept (Plenipo keeps the first 2000 lines of a command)",
+    );
+    expect(shown.at(-1)).toBe("Finished after 240.0 s");
+  });
+});
+
+describe("pieces (a large paste)", () => {
+  it("cuts text into pieces of at most the given size, in order", () => {
+    expect(pieces("abcdefg", 3)).toEqual(["abc", "def", "g"]);
+    expect(pieces("", 3)).toEqual([]);
+    expect(pieces("abc", 3)).toEqual(["abc"]);
+  });
+
+  it("never splits a character in two", () => {
+    const text = "ab😀cd";
+    expect(pieces(text, 3)).toEqual(["ab", "😀c", "d"]);
+    expect(pieces(text, 3).join("")).toBe(text);
   });
 });

@@ -84,41 +84,51 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
+    // Live events wait until the tabs of workers connected now are rebuilt, then those not
+    // already read go on top: none is lost, and none is shown twice.
+    let waiting: LedgerEvent[] | null = [];
+    const release = (loaded: ReadonlySet<number>) => {
+      const held = waiting ?? [];
+      waiting = null;
+      for (const e of held) if (!loaded.has(e.seq)) onEvent(e);
+    };
     subscribeLedgerEvents((e) => {
-      if (!disposed) onEvent(e);
+      if (disposed) return;
+      if (waiting) waiting.push(e);
+      else onEvent(e);
     })
       .then((s) => {
         if (disposed) s();
         else stop = s;
       })
-      .catch(() => undefined);
-    // Workers connected to a server now (after a restart or a reload): their tabs, from their
-    // tasks' events so far.
-    getControlStatus()
-      .then(async (status) => {
-        const sessions = status.sessions.filter((s) => s.kind === "server");
-        const timelines = await Promise.all(
-          sessions.map((s) => getTaskTimeline(s.taskId).catch(() => null)),
-        );
-        if (disposed) return;
-        const events = timelines.flatMap((t, i) =>
-          t
-            ? t.events.filter(
-                (e) =>
-                  (e.payload as Record<string, unknown> | null)?.grantId === sessions[i]?.grantId ||
-                  e.eventType === "ssh.output",
-              )
-            : [],
-        );
-        const loaded = applyWatchEvents([], events);
-        const merged = [
-          ...loaded.filter((t) => !watchesRef.current.some((w) => w.id === t.id)),
-          ...watchesRef.current,
-        ];
-        watchesRef.current = merged;
-        setWatches(merged);
-      })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      // Listen first, then read what happened so far (after a restart or a reload).
+      .finally(() => {
+        getControlStatus()
+          .then(async (status) => {
+            const sessions = status.sessions.filter((s) => s.kind === "server");
+            const timelines = await Promise.all(
+              sessions.map((s) => getTaskTimeline(s.taskId).catch(() => null)),
+            );
+            if (disposed) return;
+            const events = timelines.flatMap((t, i) =>
+              t
+                ? t.events.filter(
+                    (e) =>
+                      (e.payload as Record<string, unknown> | null)?.grantId ===
+                        sessions[i]?.grantId || e.eventType === "ssh.output",
+                  )
+                : [],
+            );
+            const loaded = applyWatchEvents(watchesRef.current, events);
+            watchesRef.current = loaded;
+            setWatches(loaded);
+            release(new Set(events.map((e) => e.seq)));
+          })
+          .catch(() => {
+            if (!disposed) release(new Set());
+          });
+      });
     return () => {
       disposed = true;
       stop?.();

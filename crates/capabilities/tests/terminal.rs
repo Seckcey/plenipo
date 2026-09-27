@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use plenipo_capabilities::control::ControlKind;
 use plenipo_capabilities::{
     Broker, BrokerConfig, MemorySecretStore, TerminalEvent, TerminalInfo, TerminalPlace,
     TerminalShell,
@@ -428,6 +429,33 @@ async fn stop_all_does_not_close_the_owners_terminals() {
     assert_eq!((why.as_str(), code), ("the shell ended", Some(0)));
     assert!(h.broker.open_terminals().is_empty());
     assert_eq!(h.events("terminal.closed")[0]["why"], "the shell ended");
+}
+
+/// Turning Remote computers (SSH) off closes the owner's server terminals, as it disconnects
+/// every worker (ADR-031: the server terminal works only while the switch is on). The terminal
+/// on this PC stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_remote_computers_off_closes_the_owners_server_terminals() {
+    let h = harness().await;
+    let (on_server, here) = (Shared::default(), Shared::default());
+    h.open(&h.shop(), &on_server).await;
+    shows(&on_server, "deploy@synthetic:~$ ").await;
+    let local = h.open(&TerminalPlace::ThisPc, &here).await;
+    h.guard.set_switches(&Switches::default()).unwrap();
+    h.broker
+        .switch_off_control(ControlKind::Server)
+        .await
+        .unwrap();
+    until("the server terminal to end", || {
+        on_server.lock().unwrap().ended.is_some()
+    })
+    .await;
+    let (why, _) = on_server.lock().unwrap().ended.clone().unwrap();
+    assert_eq!(why, "you switched Remote computers (SSH) off");
+    let open = h.broker.open_terminals();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].id, local.id);
+    h.closed(&local, &here).await;
 }
 
 /// The shell for this PC is chosen in Settings → Terminal, and kept.

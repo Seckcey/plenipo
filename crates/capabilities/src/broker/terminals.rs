@@ -14,7 +14,7 @@
 //!   from every worker's grant and control session.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -22,6 +22,7 @@ use base64::Engine as _;
 use serde_json::json;
 
 use super::{lock, Broker};
+use crate::control::{ControlKind, ControlState};
 use crate::dto::*;
 use crate::error::{BrokerError, Result};
 use crate::ssh::{self, ConnectError, Endpoint};
@@ -53,6 +54,18 @@ struct Open {
 #[derive(Default)]
 pub(super) struct Terminals {
     open: Mutex<HashMap<String, Arc<Open>>>,
+    /// Terminals still opening (a server's can take a while): they count toward the limit.
+    opening: AtomicUsize,
+}
+
+/// A place kept for a terminal while it opens; given back when the opening ends, whichever
+/// way it ends.
+struct Slot<'a>(&'a Terminals);
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        self.0.opening.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 fn place_word(place: &TerminalPlace) -> &'static str {
@@ -125,11 +138,8 @@ impl Broker {
         rows: u16,
         sink: TerminalSink,
     ) -> Result<TerminalInfo> {
-        if lock(&self.terminals().open).len() >= MAX_TERMINALS {
-            return Err(BrokerError::Invalid(format!(
-                "{MAX_TERMINALS} terminals are open already; close one first"
-            )));
-        }
+        self.refuse_while_a_worker_has_the_screen()?;
+        let _slot = self.reserve_terminal()?;
         let size = Size::clamped(cols, rows);
         let id = uuid::Uuid::new_v4().to_string();
         let output: terminal::Output = {
@@ -161,8 +171,9 @@ impl Broker {
         open
     }
 
-    /// What happens when a terminal ends: it is forgotten, its closing is recorded (where, when,
-    /// how long; never what was typed or shown), and the screen is told.
+    /// What happens when a terminal ends: its closing is recorded (where, when, how long; never
+    /// what was typed or shown), it is forgotten, and the screen is told. Recorded first, so
+    /// that when Plenipo quits and waits for its terminals to close, their closing is written.
     fn ended_hook(&self, open: &Arc<Open>, sink: TerminalSink) -> terminal::Ended {
         let this = self.clone();
         let open = Arc::clone(open);
@@ -170,7 +181,6 @@ impl Broker {
             if open.ended.swap(true, Ordering::SeqCst) {
                 return;
             }
-            lock(&this.terminals().open).remove(&open.info.id);
             let seconds = open.started.elapsed().as_secs_f64();
             this.event(
                 None,
@@ -190,6 +200,7 @@ impl Broker {
                     "exitCode": ending.code,
                 }),
             );
+            lock(&this.terminals().open).remove(&open.info.id);
             sink(TerminalEvent::Ended {
                 why: ending.why,
                 code: ending.code,
@@ -358,6 +369,37 @@ impl Broker {
         Ok(info)
     }
 
+    /// Keep a place for one more terminal, counting those open and those still opening.
+    fn reserve_terminal(&self) -> Result<Slot<'_>> {
+        let terminals = self.terminals();
+        let open = lock(&terminals.open);
+        if open.len() + terminals.opening.load(Ordering::SeqCst) >= MAX_TERMINALS {
+            return Err(BrokerError::Invalid(format!(
+                "{MAX_TERMINALS} terminals are open already; close one first"
+            )));
+        }
+        terminals.opening.fetch_add(1, Ordering::SeqCst);
+        Ok(Slot(terminals))
+    }
+
+    /// While a worker uses the screen, mouse, and keyboard, what reaches the terminal could be
+    /// the worker's, so the terminal takes nothing until the owner takes over.
+    fn refuse_while_a_worker_has_the_screen(&self) -> Result<()> {
+        let status = self.inner.control.status();
+        match status
+            .sessions
+            .iter()
+            .find(|s| s.kind == ControlKind::Desktop && s.state == ControlState::Active)
+        {
+            Some(s) => Err(BrokerError::Invalid(format!(
+                "{} is using the screen, mouse, and keyboard, so the terminal takes no typing \
+                 now. Take over first",
+                s.worker
+            ))),
+            None => Ok(()),
+        }
+    }
+
     fn open_terminal_by_id(&self, id: &str) -> Result<Arc<Open>> {
         lock(&self.terminals().open)
             .get(id)
@@ -368,6 +410,7 @@ impl Broker {
     /// The owner's typing, as it comes. Never recorded, never checked (the owner is in charge).
     pub fn write_terminal(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let open = self.open_terminal_by_id(id)?;
+        self.refuse_while_a_worker_has_the_screen()?;
         let shell = lock(&open.shell);
         match shell.as_ref() {
             Some(Shell::Local(s)) => s.write(bytes),
@@ -402,9 +445,23 @@ impl Broker {
         Ok(())
     }
 
-    /// Close every terminal (Plenipo is quitting).
+    /// Close every terminal (Plenipo is quitting, or its window's page loaded again and no
+    /// longer shows them).
     pub fn close_all_terminals(&self, why: &str) {
-        let ids: Vec<String> = lock(&self.terminals().open).keys().cloned().collect();
+        self.close_terminals_where(why, |_| true);
+    }
+
+    /// Close every terminal on a server (Remote computers (SSH) was switched off).
+    pub fn close_server_terminals(&self, why: &str) {
+        self.close_terminals_where(why, |place| matches!(place, TerminalPlace::Server { .. }));
+    }
+
+    fn close_terminals_where(&self, why: &str, which: impl Fn(&TerminalPlace) -> bool) {
+        let ids: Vec<String> = lock(&self.terminals().open)
+            .values()
+            .filter(|o| which(&o.info.place))
+            .map(|o| o.info.id.clone())
+            .collect();
         for id in ids {
             let _ = self.close_terminal(&id, why);
         }

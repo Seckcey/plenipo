@@ -11,6 +11,8 @@ import type { LogLine } from "@plenipo/ui";
 /** Most output lines kept per command, and per tab (the oldest go first). */
 export const MAX_COMMAND_LINES = 2000;
 export const MAX_TAB_LINES = 6000;
+/** Plenipo records the first 2,000 output lines of a command, and counts the rest. */
+export const RECORDED_COMMAND_LINES = 2000;
 
 export interface WatchLine {
   stream: "out" | "err";
@@ -32,6 +34,8 @@ export interface WatchCommand {
   exitCode: number | null;
   why: string | null;
   seconds: number | null;
+  /** How many lines it printed in all (when it finished). */
+  total: number | null;
   at: number;
 }
 
@@ -165,6 +169,7 @@ export function applyWatchEvent(tabs: WatchTab[], e: LedgerEvent): WatchTab[] {
                   exitCode: null,
                   why: null,
                   seconds: null,
+                  total: null,
                   at: e.createdAt,
                 },
               ],
@@ -202,6 +207,7 @@ export function applyWatchEvent(tabs: WatchTab[], e: LedgerEvent): WatchTab[] {
         exitCode: num(p.exitCode),
         why: str(p.why),
         seconds: num(p.seconds),
+        total: num(p.lines),
       }));
     }
     case "ssh.disconnected": {
@@ -317,6 +323,22 @@ export function watchLines(tab: WatchTab): LogLine[] {
         tone: l.stream === "err" ? "error" : "normal",
       }),
     );
+    // Past its first 2,000 lines, a command's output is counted, not kept: say so.
+    const shown = c.dropped + c.lines.length;
+    const notKept = c.total !== null ? Math.max(0, c.total - shown) : 0;
+    if (notKept > 0) {
+      lines.push({
+        id: `${c.commandId}:not-kept`,
+        text: `… ${notKept} more lines were not kept (Plenipo keeps the first ${RECORDED_COMMAND_LINES} lines of a command)`,
+        tone: "muted",
+      });
+    } else if (c.state !== "finished" && shown >= RECORDED_COMMAND_LINES) {
+      lines.push({
+        id: `${c.commandId}:not-kept`,
+        text: `… later lines are not shown (Plenipo keeps the first ${RECORDED_COMMAND_LINES} lines of a command)`,
+        tone: "muted",
+      });
+    }
     if (c.state === "stopping") {
       lines.push({ id: `${c.commandId}:stopping`, text: "Stopping…", tone: "muted" });
     } else if (c.state === "finished") {

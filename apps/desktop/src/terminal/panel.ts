@@ -31,14 +31,17 @@ export function isPanelState(v: unknown): v is PanelState {
     typeof p.size === "number" &&
     Number.isFinite(p.size) &&
     p.size >= PANEL_MIN &&
-    p.size <= 4000
+    p.size <= PANEL_LARGEST
   );
 }
+
+/** The largest size kept (a larger one would not come back after a restart). */
+export const PANEL_LARGEST = 4000;
 
 /** The largest the panel may be in a work area this big (0 until measured: no limit yet). */
 export function panelMax(side: PanelSide, width: number, height: number): number {
   const room = side === "bottom" ? height : width;
-  return room > 0 ? Math.max(PANEL_MIN, room - PAGE_MIN) : 4000;
+  return room > 0 ? Math.min(PANEL_LARGEST, Math.max(PANEL_MIN, room - PAGE_MIN)) : PANEL_LARGEST;
 }
 
 /** One of the owner's terminals, as its tab knows it. */
