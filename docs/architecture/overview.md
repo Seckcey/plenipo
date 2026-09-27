@@ -610,8 +610,9 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 - **Network gate.** While a worker's action runs, the tab intercepts requests (`Fetch`): a
   document or script request that is not a plain read is held until the owner approves, a
   form the page sends by itself is failed, and a page on a blocked website never loads.
-- **Never:** typing into password, one-time-code, or card fields; typing a secret; clicking or
-  typing in a CAPTCHA; the Windows key. Page text reaches the worker marked as the website's.
+- **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
+  CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
+  the website's.
 - **Screenshots** (`screens.rs`): after every significant action and before every approval,
   kept in `<app data>/screenshots/<task>/` as a Ledger `screenshot` artifact with its SHA-256,
   linked from `capability.used` and approvals, given to the worker as an MCP image with a
@@ -653,10 +654,17 @@ and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-
   signing-in check is allowed only for `browser.automate`, on a website on the Allowed list,
   when that sensitive kind's rule is Ask and the role's level is not Ask. Data the page sends
   after the action is released the same way when every website involved is allowed.
-- **CAPTCHAs** (`browser_person_check`, `ControlWork::PersonCheck`): with a CAPTCHA on the page,
-  the worker asks the owner to solve it. The tab goes to mode `handed` (purple sign; the owner's
-  clicks are not a take over), comes to the front, and interception stops until the owner
-  answers (`Tab::take_back`). The worker never clicks, types, or presses keys in one.
+- **CAPTCHAs** (`browser_person_check`, `ControlWork::PersonCheck`; ADR-029, ADR-032): with a
+  CAPTCHA on the page, the page read names the check's maker and lists its widget frame as a
+  control (its checkbox, `page.js` `captchaState`), and a worker may try it up to 3 counted
+  times (`Tab::count_captcha_try`, counted once the click or key press happened). After each try
+  Plenipo watches the check for up to 4 seconds (`Tab::captcha_verdict`) and says whether it
+  passed (the maker's answer field in the page holds a value), opened a puzzle, is gone, or is
+  still there; a passed or gone check starts the count over, and a click on a passed check is
+  refused. The sign is drawn only in the top page, never inside a frame. Then, or at once when
+  the worker prefers, `browser_person_check` asks the owner to solve it: the tab goes to mode
+  `handed` (purple sign; the owner's clicks are not a take over), comes to the front, and
+  interception stops until the owner answers (`Tab::take_back`).
 - **Screenshots off** (`keep()`): steps keep no picture; approval pictures are always kept.
 - **Lessons** (`crates/ledger/src/lessons.rs`, migration 7 `lessons`; `crates/workforce/src/learning.rs`):
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300

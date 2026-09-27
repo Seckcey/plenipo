@@ -18,7 +18,7 @@
   --surface: #f5f6f8;
   --radius: 10px;
   --page-width: 1280px;
-  --header-height: 68px;
+  --header-height: 86px;
   font-family: Inter, "Helvetica Neue", Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -135,8 +135,8 @@ figure {
   flex-shrink: 0;
 }
 .brand img {
-  width: 137px;
-  height: 38px;
+  width: 184px;
+  height: auto;
   object-fit: contain;
   object-position: left;
 }
@@ -255,6 +255,18 @@ h1 {
 }
 .hero-copy {
   text-align: center;
+}
+.hero-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+}
+.hero-pip {
+  width: 164px;
+  height: 164px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 .hero-description {
   color: var(--muted);
@@ -477,18 +489,29 @@ figcaption {
 .tool-rail {
   list-style: none;
   padding: 0 0 43px;
-  margin: 58px 0 48px;
+  margin: 40px 0 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   border-bottom: 1px solid var(--line);
 }
 .tool-rail li {
-  padding-left: 30px;
+  padding-inline: 18px;
+  text-align: center;
   border-left: 1px solid var(--line);
 }
 .tool-rail li:first-child {
-  padding-left: 0;
   border: none;
+}
+.provider-pip {
+  width: 200px;
+  height: auto;
+  margin: 0 auto 20px;
+}
+.other-tools {
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+  margin: 18px 0 44px;
 }
 .tool-name {
   display: block;
@@ -583,9 +606,9 @@ figcaption {
   text-align: center;
 }
 .download-icon {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 22px;
+  width: 160px;
+  height: 160px;
+  margin: 0 auto 24px;
 }
 .download-panel .section-title {
   font-size: clamp(32px, 3.2vw, 44px);
@@ -709,7 +732,7 @@ figcaption {
     gap: 18px;
   }
   .brand img {
-    width: 119px;
+    width: 160px;
   }
   .hero {
     padding-top: 64px;
@@ -752,7 +775,7 @@ figcaption {
 
 @media (max-width: 820px) {
   :root {
-    --header-height: 62px;
+    --header-height: 76px;
   }
   .container,
   .header-inner {
@@ -764,8 +787,8 @@ figcaption {
     gap: 0;
   }
   .brand img {
-    width: 120px;
-    height: 34px;
+    width: 170px;
+    height: auto;
   }
   .main-navigation {
     flex-basis: 100%;
@@ -805,6 +828,14 @@ figcaption {
   }
   .hero {
     padding-top: 59px;
+  }
+  .hero-heading {
+    flex-direction: column;
+    gap: 24px;
+  }
+  .hero-pip {
+    width: 112px;
+    height: 112px;
   }
   h1 {
     font-size: clamp(39px, 7.3vw, 58px);
@@ -871,11 +902,11 @@ figcaption {
     display: block;
   }
   .tool-rail {
-    margin: 37px 0 36px;
+    margin: 32px 0 0;
     padding-bottom: 31px;
   }
   .tool-rail li {
-    padding-left: 18px;
+    padding-inline: 10px;
   }
   .tool-name {
     font-size: 22px;
@@ -1041,7 +1072,10 @@ figcaption {
   }
   .tool-rail li:nth-child(3) {
     border: 0;
-    padding-left: 0;
+  }
+  .provider-pip {
+    width: 150px;
+    margin-bottom: 14px;
   }
   .tool-name {
     font-size: 25px;

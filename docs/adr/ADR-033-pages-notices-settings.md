@@ -83,7 +83,8 @@ own layout stay page-level.
 
 ### 7. The owner's brand
 
-The owner's approved Plenipo + Pip kit is kept byte for byte in `docs/brand/pip-brand-kit`. The
+The owner's approved Plenipo + Pip kit is kept byte for byte in `docs/brand/pip-brand-kit` (the
+same files, identical to the byte, reached `main` in `assets/` through pull request #66). The
 logo (the three-rail P, "lenipo", and Pip on the n) replaces Phase 12A's placeholder mark, and
 the app icon is the P on the kit's navy. Pip appears on Home, beside "nothing here yet", in the
 terminal panel, in Settings → About, and in the Gallery.

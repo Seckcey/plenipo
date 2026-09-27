@@ -3,8 +3,9 @@
 // these functions or the "plenipoControl" binding, which exists only in this world.
 //
 // It reads the page (text and numbered controls), gives the facts Plenipo's sensitive-action
-// check needs about a control, finds CAPTCHAs, draws the on-page sign that a worker is using
-// the browser, and reports the owner's own clicks and key presses (the owner taking control).
+// check needs about a control, finds CAPTCHAs (their widget's checkbox is a control, and the page
+// says whether the check is passed, ADR-032), draws the on-page sign that a worker is using the
+// browser, and reports the owner's own clicks and key presses (the owner taking control).
 (() => {
   if (globalThis.__plenipo) return;
   const refs = new Map(); // "e12" -> element
@@ -14,6 +15,10 @@
   let actingUntil = 0;
   let overlay = null; // { host, root, state }
   let wanted = { state: "off", worker: "" };
+  // The helper runs in every frame of the page. Only the top page draws the sign: it covers the
+  // frames too, and a sign inside a small frame (a CAPTCHA's widget) would cover its controls
+  // (ADR-032).
+  const isTop = window === window.top;
 
   const INTERACTIVE =
     'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], ' +
@@ -23,6 +28,15 @@
   const CAPTCHA_FRAME =
     /recaptcha|hcaptcha|turnstile|challenges\.cloudflare\.com|arkoselabs|funcaptcha|captcha/i;
   const CAPTCHA_BOX = ".g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey], #captcha, .captcha";
+  // Where a check's provider writes its answer into the page once the check is passed (outside
+  // the check's own frame, so Plenipo can read it; ADR-032).
+  const CAPTCHA_ANSWER =
+    'textarea[name="g-recaptcha-response"], textarea[id^="g-recaptcha-response"], ' +
+    'textarea[name="h-captcha-response"], input[name="cf-turnstile-response"], ' +
+    'input[name="fc-token"]';
+  // A check's widget (the row with its checkbox) is about 300 × 78 pixels; a puzzle it opens
+  // is much taller.
+  const CAPTCHA_WIDGET_HEIGHT = 200;
   const SECRET_AUTOCOMPLETE = /password|one-time-code|cc-number|cc-csc|cc-exp/i;
 
   const clean = (s, n) => (s || "").replace(/\s+/g, " ").trim().slice(0, n);
@@ -65,17 +79,74 @@
     }
     return r;
   };
-  const captchaOn = () => {
-    for (const f of document.querySelectorAll("iframe")) {
-      if (CAPTCHA_FRAME.test(f.src || "") || CAPTCHA_FRAME.test(f.title || "")) return true;
-    }
-    if (document.querySelector(CAPTCHA_BOX)) return true;
-    const text = (document.body && document.body.innerText) || "";
-    return /i'?m not a robot|verify (that )?you are (a )?human/i.test(text.slice(0, 20000));
+  // A check's own frame (the widget, or a puzzle it opened).
+  const captchaFrame = (el) =>
+    el.tagName.toLowerCase() === "iframe" &&
+    (CAPTCHA_FRAME.test(el.src || "") || CAPTCHA_FRAME.test(el.title || ""));
+  const captchaFrames = () => Array.from(document.querySelectorAll("iframe")).filter(captchaFrame);
+  // A badge that works by itself (invisible reCAPTCHA, reCAPTCHA v3): nothing to click.
+  const badgeFrame = (f) => /size=invisible/i.test(f.src || "") || !!f.closest(".grecaptcha-badge");
+  // The check's widget: the small frame with its checkbox, which a worker may click.
+  const widgetFrame = (f) =>
+    visible(f) && !badgeFrame(f) && f.getBoundingClientRect().height <= CAPTCHA_WIDGET_HEIGHT;
+  // A puzzle the check opened (pictures to pick): a tall frame, shown only then.
+  const puzzleFrame = (f) => visible(f) && f.getBoundingClientRect().height > CAPTCHA_WIDGET_HEIGHT;
+  const providerOf = (s) =>
+    /recaptcha/i.test(s)
+      ? "reCAPTCHA"
+      : /h-?captcha/i.test(s)
+        ? "hCaptcha"
+        : /turnstile|challenges\.cloudflare\.com/i.test(s)
+          ? "Cloudflare Turnstile"
+          : /arkoselabs|funcaptcha/i.test(s)
+            ? "Arkose"
+            : "CAPTCHA";
+  const frameProvider = (f) => providerOf(`${f.src || ""} ${f.title || ""}`);
+  // What the widget's checkbox says, by its provider.
+  const checkboxName = (f) => {
+    const p = frameProvider(f);
+    const words = {
+      reCAPTCHA: "I'm not a robot",
+      hCaptcha: "I am human",
+      "Cloudflare Turnstile": "Verify you are human",
+    }[p];
+    return `${words || "I am a person"} (${p})`;
   };
-  const inCaptcha = (el) =>
-    !!el.closest(CAPTCHA_BOX) ||
-    (el.tagName.toLowerCase() === "iframe" && CAPTCHA_FRAME.test(el.src || ""));
+  // Where the widget's checkbox is: at the left of a normal widget (reCAPTCHA 304 × 78,
+  // hCaptcha 303 × 78, Cloudflare Turnstile 300 × 65), 28 pixels in and centered; near the top
+  // center of a compact one; else the middle.
+  const checkboxPoint = (r) => {
+    if (r.width >= 200) return [r.left + 28, r.top + r.height / 2];
+    if (r.height > 100) return [r.left + r.width / 2, r.top + 36];
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  };
+  // The check is passed: its provider has written the answer into the page.
+  const captchaSolved = () =>
+    Array.from(document.querySelectorAll(CAPTCHA_ANSWER)).some(
+      (el) => (el.value || "").trim().length > 0,
+    );
+  // The page's check that a person is using the site, in one look: whether one shows, who
+  // makes it, whether it is passed, whether it opened a puzzle, whether it is only a badge that
+  // works by itself, and the reference of its checkbox.
+  const captchaState = () => {
+    const frames = captchaFrames();
+    const widget = frames.find(widgetFrame) || null;
+    const puzzle = frames.some(puzzleFrame);
+    const box = Array.from(document.querySelectorAll(CAPTCHA_BOX)).find(visible) || null;
+    const text = (document.body && document.body.innerText) || "";
+    const words = /i'?m not a robot|verify (that )?you are (a )?human/i.test(text.slice(0, 20000));
+    const present = !!widget || puzzle || !!box || words;
+    const source = widget || frames.find(puzzleFrame) || frames[0] || null;
+    return {
+      present,
+      provider: source ? frameProvider(source) : providerOf((box && box.className) || ""),
+      solved: captchaSolved(),
+      challenge: puzzle,
+      invisible: !present && frames.some(badgeFrame),
+      checkbox: widget ? refFor(widget) : null,
+    };
+  };
+  const inCaptcha = (el) => !!el.closest(CAPTCHA_BOX) || captchaFrame(el);
   const formFacts = (form) => {
     if (!form) return null;
     let action;
@@ -103,16 +174,18 @@
     const submit =
       (tag === "button" && type === "submit" && !!form) ||
       (tag === "input" && (type === "submit" || type === "image"));
+    const captcha = inCaptcha(el);
+    const widget = captcha && captchaFrame(el);
     const r = el.getBoundingClientRect();
-    const x = r.left + r.width / 2;
-    const y = r.top + r.height / 2;
+    // A click goes to a control's middle; in a check's widget, to its checkbox.
+    const [x, y] = widget ? checkboxPoint(r) : [r.left + r.width / 2, r.top + r.height / 2];
     const top = document.elementFromPoint(x, y);
     return {
       found: true,
       tag,
       type,
-      role: el.getAttribute("role") || "",
-      name: nameOf(el),
+      role: widget ? "checkbox" : el.getAttribute("role") || "",
+      name: widget ? checkboxName(el) : nameOf(el),
       href: tag === "a" ? el.href || "" : "",
       submit,
       secret: secretField(el),
@@ -125,7 +198,8 @@
         el.isContentEditable,
       disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
       visible: visible(el),
-      captcha: inCaptcha(el),
+      captcha,
+      solved: captcha && captchaSolved(),
       form: formFacts(form),
       x,
       y,
@@ -137,10 +211,23 @@
     // The page in words: its address, title, visible text, and numbered controls.
     read(maxChars, maxElements) {
       const elements = [];
-      for (const el of document.querySelectorAll(INTERACTIVE)) {
+      for (const el of document.querySelectorAll(`${INTERACTIVE}, iframe`)) {
         if (elements.length >= maxElements) break;
         if (!visible(el) || (overlay && overlay.host.contains(el))) continue;
         const tag = el.tagName.toLowerCase();
+        if (tag === "iframe") {
+          // Of the page's frames, only a check's widget is a control: its checkbox.
+          if (!captchaFrame(el) || !widgetFrame(el)) continue;
+          elements.push({
+            ref: refFor(el),
+            tag,
+            type: "",
+            role: "checkbox",
+            name: checkboxName(el),
+            captcha: true,
+          });
+          continue;
+        }
         const item = {
           ref: refFor(el),
           tag,
@@ -158,15 +245,21 @@
         elements.push(item);
       }
       const text = (document.body && document.body.innerText) || "";
+      const check = captchaState();
       return {
         url: location.href,
         title: document.title,
         text: text.slice(0, maxChars),
         truncated: text.length > maxChars,
         elements,
-        captcha: captchaOn(),
+        captcha: check.present,
+        captchaInfo: check,
         passwordFields: document.querySelectorAll('input[type="password"]').length,
       };
+    },
+    // The page's check that a person is using the site, in one look (ADR-032).
+    captchaState() {
+      return captchaState();
     },
     // Facts about a numbered control, scrolled into view.
     facts(ref) {
@@ -239,6 +332,7 @@
   };
 
   const draw = () => {
+    if (!isTop) return;
     if (!document.documentElement) {
       setTimeout(draw, 50);
       return;

@@ -1,0 +1,18 @@
+{
+  "pip-16-anthropic.png": "060fc19a0e183906467547feaee377000133ad36c1c552aeb65bf1141582528c",
+  "pip-17-openai.png": "e0e198c4c9ace71a42f5763e0bee2d0ff707f168fed972588842d6f8a84415c3",
+  "pip-18-xai.png": "9d1d4b7ae8a54a96f63f32d077751baa3ad9be1aebeb4d0c622cddb7b2370ac7",
+  "pip-19-moonshot.png": "3d3b0d984809d70e5e4315cc3f0b07e66f8993a5d1ebf6d867b7f76f5c2fceec",
+  "pip-provider-preview.png": "f4c342093ed45c6faa06b6a0519259172754db89b5bbff8808ae5730d99456f1",
+  "prompts.json": "e2cf80260b40a9bbbc574a28f9e1ecd09ae07bc3aaee88207822f6d13c191cfe",
+  "README.md": "ad63d11b4d164893746f4b53d4e60ab109947a3a0ec765c9bfb545efcab07906",
+  "references/anthropic-icon.png": "47718065aeeb968b381b070c66c90d9c3ae95b09a0ee24e78b9e12ae5c4f11c7",
+  "references/moonshot-on-dark-preview.png": "5368edcea874e7e981029ea4229720c246007883eabd5355bc7c64aefcbf5f74",
+  "references/moonshot-wordmark.svg": "441f80552221dbb5bac7af7b84265f0fee03655426359cd48d10952c65058c11",
+  "references/openai-icon.png": "8d5575ee667ff715cd3e3074d5296edc68d5aadd89720d203e13131b68b22a04",
+  "references/sources.json": "193fd9629776966680cf803ac09be905e9be43c09bf2faf4098b12d6d2bcea61",
+  "references/xai-reference-preview.png": "f6e289a8a05a3f7bf21390e73a404258427644c670e4f866ec406c3cf2aa5414",
+  "references/xai-symbol.png": "2dc29e967b2c9bf2a3de83b26fa59f6fc46e5396c36f533c47bc283d9ee2b5f4",
+  "references/xai-symbol.svg": "435f412250a243399c6af46c83dbbc720d55e29dc4570fc046d9bec254d998a2",
+  "validation.json": "556e8d14c9ca3a7a04f5eb1a1d98ab5cedf80ef6eb088898d9a97e2f70984908"
+}

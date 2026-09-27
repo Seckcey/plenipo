@@ -27,8 +27,10 @@ pub struct ElementFacts {
     pub editable: bool,
     pub disabled: bool,
     pub visible: bool,
-    /// Part of a CAPTCHA.
+    /// Part of a CAPTCHA (a check's own widget counts, with its checkbox as the click point).
     pub captcha: bool,
+    /// The CAPTCHA it is part of is passed already: the website has its answer (ADR-032).
+    pub solved: bool,
     pub form: Option<FormFacts>,
     /// Its center, in the page's viewport.
     pub x: f64,

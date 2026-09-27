@@ -1,15 +1,34 @@
 # Website brand assets
 
-The website's `public/brand` folder contains the existing Plenipo P mark, light/dark wordmarks,
-light/dark square avatar images, PNG icons from 16 px to 1024 px, an ICO favicon, and the repository's
-social preview in SVG and PNG. `public/plenipo-brand-kit.zip` is the downloadable asset family.
+The approved branding masters are in `assets/`, imported byte for byte from the owner's local
+asset folder. The original 47-file kit contains 15 transparent Pip poses, horizontal and square
+logos for light/dark surfaces, and matching P-only favicons. Its original README and manifests
+describe that earlier asset-only delivery; this page documents the later website integration.
 
-The icon preserves `apps/desktop/src-tauri/icons/source.svg`: a blue `#2E8BFF` P and dot on a
-rounded `#0B1220` square. Avatar and wordmark variants extend that mark without replacing it.
-Wordmark-light uses dark lettering for light surfaces; wordmark-dark uses white lettering.
-Keep the avatar padding, proportions, and clear space; use SVG when possible. The social preview
-is an export of the existing repository artwork, not an assertion that its GitHub setting changed.
-Creating avatar files does not change the owner's personal GitHub avatar.
+The horizontal logo uses the large three-rail blue P as the first letter of Plenipo, Sentient
+Medium outlines for `lenipo`, a matching blue final `o`, and Pip coding on top of the `n`.
+It has no parent-company subtitle. The square variants feature Pip sitting on the P.
+The hybrid SVG masters combine native vector lettering with embedded raster Pip artwork.
+The simpler P-only favicons retain legibility at browser-tab sizes. The desktop app icons are
+unchanged by this website update.
+
+`assets/providers/` extends the kit with four new transparent PNGs: Pip holding Anthropic's
+AI symbol, OpenAI's Blossom, the current SpaceXAI symbol selected by the owner, and Moonshot AI's
+striped sphere. Saved prompts, reference provenance, alpha checks, and a light/dark proof sheet
+live beside the artwork. These identify tools and do not assert an official partnership.
+
+The website uses alpha WebP exports: the approved horizontal logo in the header/footer, Pip
+waving in the hero, the four provider poses in the AI tools section, and Pip with a rocket in
+the download panel. Both light/dark horizontal and square exports are supplied; the white page
+uses the light-surface palette. The favicon follows the browser's light/dark preference.
+`public/plenipo-brand-kit.zip` contains the approved kit plus the four provider illustrations.
+Older files remain available for compatibility but are no longer used by the page.
+
+`apps/website/scripts/export-brand.mjs` converts the approved masters to web-sized assets using
+a caller-supplied Sharp installation. It preserves source files, alpha, and aspect ratios. It
+also makes the intentionally opaque `plenipo-pip-social.png` share card (1280 × 640), and updates
+the web manifest. No image-processing dependency runs on the website. This social card changes
+website sharing metadata only; GitHub repository settings are owned by a separate work item.
 
 The landing page uses a restrained white, black, pale gray, and blue presentation inspired by
 the supplied ui.com reference. It does not ship Ubiquiti trademarks, product images, or source.

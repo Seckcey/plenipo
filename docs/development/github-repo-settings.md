@@ -1,85 +1,66 @@
-# GitHub repository settings
+# GitHub repository presentation
 
-Some of how the repository presents itself cannot live in a file — it is stored in GitHub's own
-settings. This page is the record of what those settings should say, so they can be redone after a
-mistake, checked at a glance, or copied to another repository.
+Intended presentation and maintenance checklist, reviewed September 27, 2026.
+See [the validation receipt](../discovery/validation.md) for actual results.
+A committed README and GitHub settings are separate; editing a file does not update settings.
 
-Everything here is set in the browser, signed in as the repository owner.
+## About
 
-## The About panel
-
-Repository home page → right sidebar → **About** → the gear icon.
-
-**Description** — paste exactly:
+Description:
 
 ```text
-Run your own AI workforce on your PC. Hand it an outcome and a team of AI workers, supervisors, and managers gets it done — with permissions, approvals, and a full record. Uses your Claude Code, Codex, Grok, Kimi, and Ollama sign-ins, not API keys.
+Coordinate Claude Code, Codex, Grok, Kimi, and Ollama in one local-first Windows desktop app. Organize AI workers, route models, set permissions, review approvals, and keep a local activity record.
 ```
 
-**Website** — the 8 West product page for Plenipo once it exists. Until then:
-`https://github.com/Seckcey/plenipo/releases/latest`, so a visitor's first click is a download.
+Homepage: <https://plenipo.8westit.com>.
 
-**Topics** — paste these in one at a time, or paste the whole line and press Enter after each.
-Topics are how GitHub's own search and its topic pages find Plenipo, so this is the single highest
--value field on the page. Twenty is GitHub's maximum:
+Topics (20, GitHub's limit):
 
 ```text
-ai-agents ai-workforce agent-orchestration multi-agent multi-agent-systems autonomous-agents ai-orchestration claude-code codex grok ollama local-first desktop-app tauri tauri-app rust react typescript windows developer-tools
+agent-orchestration ai-agents ai-orchestration ai-workforce autonomous-agents claude-code codex desktop-app developer-tools grok kimi-code local-first multi-agent multi-agent-systems ollama react rust tauri typescript windows
 ```
 
-**Tick boxes** in the same dialog: **Releases** on, **Packages** off, **Deployments** off.
-
-## Features
-
-**Settings → General → Features.**
-
-| Feature     | Set to  | Why                                                                                                                                                                                       |
-| ----------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Issues      | On      | Bug reports. The issue forms in `.github/ISSUE_TEMPLATE/` appear automatically.                                                                                                           |
-| Discussions | **On**  | The issue-form footer and the README both link to it. Questions and ideas belong here, not in issues — and a discussion thread keeps people coming back in a way a closed issue does not. |
-| Wikis       | **Off** | Empty, and the documentation is in `docs/`. An empty wiki tab looks abandoned.                                                                                                            |
-| Projects    | On      | Harmless, and useful once the roadmap moves to a board.                                                                                                                                   |
+Topics describe the actual purpose, tools, and implementation. They help visitors find related
+repositories; they do not guarantee ranking. See [GitHub's topic guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics).
 
 ## Social preview
 
-The image that shows when the repository URL is shared in Slack, Discord, X, LinkedIn, or iMessage.
-Without one, all of those show a grey GitHub placeholder.
+Upload [`docs/discovery/assets/social-preview.png`](../discovery/assets/social-preview.png) at
+**Settings → General → Social preview → Edit → Upload an image**. It is a 1280 × 640 PNG under
+1 MB with a solid background and the approved Pip logo. The native SVG accompanies
+[the asset provenance](../discovery/README.md).
 
-Export the PNG from `docs/brand/social-preview.svg` and upload it — the full steps are in
-[`docs/brand/README.md`](../brand/README.md).
+[GitHub recommends](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview)
+1280 × 640 for best display and requires PNG/JPG/GIF under 1 MB. Check the saved preview after
+upload. External services can cache older cards; a saved GitHub preview does not prove every
+service refreshed. No test post is needed.
 
-## Labels
+## Community entry points
 
-**Issues → Labels → New label.** GitHub surfaces repositories on its own
-"good first issues" pages using these two exact names, so spelling matters:
+Issues and Discussions are enabled; the wiki is disabled. Keep documentation in the repository.
+Do not change feature, account, permission, security, or notification settings as part of a
+presentation refresh. The [security policy](../../SECURITY.md) records the current private-intake gap.
 
-| Label              | Color     | Description                                 |
-| ------------------ | --------- | ------------------------------------------- |
-| `good first issue` | `#2F7BF6` | A small, self-contained first contribution. |
-| `help wanted`      | `#0E8A16` | Wanted, and nobody is on it.                |
+Before marking an issue `good first issue` or `help wanted`, make it genuinely actionable:
+describe the problem, relevant files, expected result, and how to check it. Do not create filler
+issues or imply labels alone produce homepage placement.
 
-They only do anything once open issues carry them. Filing three or four small, genuinely scoped
-issues and labelling them is worth more than any README wording.
+## Visibility plan
 
-## Pin it to your profile
+1. **Keep the first visit useful.** Maintain a real screenshot, an accurate installer link, a
+   short first-run path, and clear current-versus-planned status.
+2. **Publish useful releases.** Attach a tested installer, explain what changed and its limits,
+   and refresh README release/screenshot labels at the same time.
+3. **Make contributing approachable.** Triage actual reports, scope small useful issues, and
+   answer questions. Label only work that is ready for a contributor.
+4. **Demonstrate one real outcome.** A short sanitized recording of an objective, approval, and
+   reviewable result would be a useful next asset. Record the real app; do not fabricate a demo.
+5. **Share where invited.** The owner can pin the repo to a relevant profile and share useful
+   releases with communities that welcome them. This plan does not authorize posting or outreach.
 
-Your profile → **Customize your pins** → tick **plenipo**. Anyone who lands on the 8 West or
-personal profile sees it first.
-
-## Check the result
-
-**Insights → Community Standards.** Every row should be ticked once this branch is merged:
-description, README, code of conduct, contributing, license, security policy, issue templates, pull
-request template.
-
-## Keeping people interested
-
-Settings get people to the page. These keep them:
-
-- **Screenshots.** The biggest single gap right now. See [`docs/images/README.md`](../images/README.md).
-- **Releases with real notes.** Already being done — every release links its notes in `docs/releases/`.
-  Keep attaching the Windows installer so "Download" always works.
-- **Answer every issue and discussion quickly**, even to say "not soon, here's why". A repository
-  that answers looks alive; one that does not looks dead no matter how good the code is.
-- **A short demo recording.** Thirty seconds of the Organization view working an objective, as a GIF
-  in the README, is worth more than any paragraph in it.
+GitHub's home feed is personalized. [Stars](https://docs.github.com/en/get-started/exploring-projects-on-github/saving-repositories-with-stars)
+help people save and discover related projects, and some rankings use popularity. Public
+[dashboard activity](https://docs.github.com/en/account-and-profile/reference/personal-dashboard)
+can include releases and activity from people a user follows. Those mechanisms support a useful
+repository and genuine interest; no repository setting guarantees Home, Explore, or Trending
+placement. Do not buy engagement, solicit artificial stars, or promise placement.

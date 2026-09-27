@@ -1,0 +1,34 @@
+{
+  "retrieved": "2026-09-27",
+  "character": "../../mascots/pip-02-welcome.png",
+  "providers": [
+    {
+      "name": "Anthropic",
+      "usedReference": "anthropic-icon.png",
+      "source": "https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/681d52619fec35886a7f1a70_favicon.png",
+      "page": "https://www.anthropic.com/",
+      "note": "Official site favicon: AI symbol."
+    },
+    {
+      "name": "OpenAI",
+      "usedReference": "openai-icon.png",
+      "source": "https://developers.openai.com/favicon.png",
+      "page": "https://openai.com/brand/",
+      "note": "Official developer-site Blossom favicon; generated plaque uses white on black."
+    },
+    {
+      "name": "xAI",
+      "usedReference": "xai-reference-preview.png",
+      "source": "https://data.x.ai/logos/SpaceXAI_Grok_Assets.zip",
+      "page": "https://x.ai/legal/brand-guidelines",
+      "note": "Current SpaceXAI symbol from the official brand download. Explicitly chosen by Frankie. SVG/PNG preserved; white preview is reference-only."
+    },
+    {
+      "name": "Moonshot AI",
+      "usedReference": "moonshot-on-dark-preview.png",
+      "source": "https://statics.kimi.ai/moonshot-ai/assets/static/moonshot-ai-wordmark.DeMGOuiG.svg",
+      "page": "https://www.moonshot.ai/",
+      "note": "Official wordmark contains the striped sphere. Generated plaque uses only the sphere, not the Kimi K."
+    }
+  ]
+}

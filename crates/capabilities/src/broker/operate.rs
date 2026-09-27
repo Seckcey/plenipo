@@ -11,7 +11,8 @@
 //!   the owner's approval: from the control clicked or the key pressed, and from data a page
 //!   sends right after a worker's action (held in the tab until the owner decides).
 //! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
-//!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029); the Windows key.
+//!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
+//!   check's checkbox and hears how each try went, ADR-032); the Windows key.
 //! - **Computer use is the last resort:** a worker must ask to take control, with its reason,
 //!   and the owner is asked each time. The owner moving the mouse takes control back.
 
@@ -30,7 +31,9 @@ use serde_json::{json, Value};
 
 use super::{cap, lock, Broker, Image, Inner, Prepared, Refused, Work, GUARD};
 use crate::browser::classify::{self, ElementFacts};
-use crate::browser::tab::{Held, Mode, Signal, SitePolicy, Tab, CAPTCHA_TRIES};
+use crate::browser::tab::{
+    Held, Mode, Signal, SitePolicy, Tab, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
+};
 use crate::browser::Start;
 use crate::control::{session_id, ControlKind, ControlState, ControlStatus};
 use crate::desktop::{parse_keys, Button, KeyPart};
@@ -71,6 +74,8 @@ pub(super) enum ControlWork {
     },
     Press {
         key: String,
+        /// The key submits an answer to the page's CAPTCHA: one try (ADR-029).
+        captcha: bool,
     },
     Select {
         reference: String,
@@ -224,6 +229,9 @@ fn control_line(e: &Value) -> String {
     if tag == "a" && !s("href").is_empty() {
         line.push_str(&format!(" → {}", cap(s("href"), 160)));
     }
+    if e["captcha"] == true {
+        line.push_str(" (the CAPTCHA's own checkbox: clicking it is one try)");
+    }
     if e["disabled"] == true {
         line.push_str(" (turned off)");
     }
@@ -240,23 +248,55 @@ fn page_text(page: &Value, controls: bool, captcha_tries: u32, tries_allowed: bo
         "Page: \"{}\"\nAddress: {url}\n",
         page["title"].as_str().unwrap_or_default()
     );
+    let check = &page["captchaInfo"];
+    let provider = check["provider"]
+        .as_str()
+        .filter(|p| !p.is_empty())
+        .unwrap_or("CAPTCHA");
     if page["captcha"] == true {
-        if tries_allowed {
+        if check["solved"] == true {
             out.push_str(&format!(
-                "This page shows a CAPTCHA (a check that a person is using the site). You may try \
-                 to answer it yourself: each answer you submit counts as one try, and Plenipo \
-                 lets you try {CAPTCHA_TRIES} times (you have used {captcha_tries}). When the \
-                 tries are used up, call browser_person_check to hand it to the owner, who \
-                 solves it, then continue; if that is refused, stop here and say in your answer \
-                 that the owner should take over.\n",
+                "This page's CAPTCHA ({provider}, a check that a person is using the site) is \
+                 passed already: the website has its answer. Do not click it; go on with the \
+                 page.\n"
+            ));
+        } else if tries_allowed {
+            out.push_str(&format!(
+                "This page shows a CAPTCHA ({provider}, a check that a person is using the \
+                 site). "
+            ));
+            if check["challenge"] == true {
+                out.push_str(
+                    "It shows a puzzle (pictures to pick) inside its own frame, which Plenipo \
+                     cannot list as controls: take a screenshot to see it, or hand it to the \
+                     owner now with browser_person_check. ",
+                );
+            } else if let Some(r) = check["checkbox"].as_str() {
+                out.push_str(&format!(
+                    "Its checkbox is {r}: click it once, and the result says whether the check \
+                     passed. "
+                ));
+            }
+            out.push_str(&format!(
+                "You may try to answer it yourself: each answer you submit counts as one try, \
+                 and Plenipo lets you try {CAPTCHA_TRIES} times (you have used {captcha_tries}). \
+                 When the tries are used up, call browser_person_check to hand it to the owner, \
+                 who solves it, then continue; if that is refused, stop here and say in your \
+                 answer that the owner should take over.\n",
             ));
         } else {
-            out.push_str(
-                "This page shows a CAPTCHA (a check that a person is using the site). The owner \
-                 has not switched on handing these checks to them, so do not try to answer it: \
-                 stop here, and say in your answer that the owner should take over.\n",
-            );
+            out.push_str(&format!(
+                "This page shows a CAPTCHA ({provider}, a check that a person is using the \
+                 site). The owner has not switched on handing these checks to them, so do not \
+                 try to answer it: stop here, and say in your answer that the owner should take \
+                 over.\n",
+            ));
         }
+    } else if check["invisible"] == true {
+        out.push_str(&format!(
+            "This page has an invisible check that a person is using the site ({provider}). It \
+             runs by itself when you use the page; there is nothing to click.\n"
+        ));
     }
     if page["passwordFields"].as_u64().unwrap_or(0) > 0 {
         out.push_str(
@@ -420,6 +460,19 @@ impl Broker {
             ));
         }
         if facts.captcha {
+            if facts.solved {
+                // Nothing to answer any more: a click there only wastes a try (ADR-032).
+                tab.clear_captcha_attempts();
+                return Err(refuse(
+                    Layer::Target,
+                    format!(
+                        "{reference} is part of a CAPTCHA (a check that a person is using the \
+                         site) that is passed already: the website has its answer, so there is \
+                         nothing to click there. Go on with the page."
+                    ),
+                    summary,
+                ));
+            }
             if !self.captcha_tries_allowed() {
                 return Err(refuse(
                     Layer::Rule,
@@ -546,12 +599,16 @@ impl Broker {
             Action::BrowserPersonCheck => {
                 let s = "hand a person check to the owner".to_owned();
                 let tab = self.open_tab(grant_id, &s)?;
-                let captcha = tab
-                    .read(200, 0)
-                    .await
-                    .map(|page| page["captcha"] == true)
-                    .unwrap_or(false);
-                if !captcha {
+                let page = tab.read(200, 0).await.unwrap_or_default();
+                if page["captcha"] == true && page["captchaInfo"]["solved"] == true {
+                    return Err(refuse(
+                        Layer::Target,
+                        "this page's check that a person is using the site is passed already, \
+                         so there is nothing to hand to the owner: go on with the page.",
+                        s,
+                    ));
+                }
+                if page["captcha"] != true {
                     return Err(refuse(
                         Layer::Target,
                         "this page shows no check that a person is using the site, so there is \
@@ -613,11 +670,6 @@ impl Broker {
                         ),
                         s,
                     ));
-                }
-                if facts.captcha {
-                    // Clicking the CAPTCHA's own control submits an answer: that is one try
-                    // (ADR-029).
-                    tab.note_captcha_attempt();
                 }
                 let what = describe(&facts);
                 let mut p = base(
@@ -694,6 +746,15 @@ impl Broker {
                 let tab = self.open_tab(grant_id, &s)?;
                 let focused = tab.focused().await.unwrap_or_default();
                 if focused.captcha {
+                    if focused.solved {
+                        return Err(refuse(
+                            Layer::Target,
+                            "the keyboard is in a CAPTCHA (a check that a person is using the \
+                             site) that is passed already: there is nothing to answer there. \
+                             Go on with the page.",
+                            s,
+                        ));
+                    }
                     if !self.captcha_tries_allowed() {
                         return Err(refuse(
                             Layer::Rule,
@@ -717,17 +778,18 @@ impl Broker {
                             s,
                         ));
                     }
-                    if matches!(key.as_str(), "Enter" | "Space") {
-                        // Enter or Space on the CAPTCHA submits an answer: that is one try
-                        // (ADR-029). Other keys only move around inside it.
-                        tab.note_captcha_attempt();
-                    }
                 }
+                // Enter or Space on the CAPTCHA submits an answer: that is one try, counted
+                // when it happens (ADR-029). Other keys only move around inside it.
+                let captcha = focused.captcha && matches!(key.as_str(), "Enter" | "Space");
                 let mut p = base(
                     auto,
                     format!("press {key} on {}", host_of(&tab.url())),
                     format!("{key} in {} on {}", describe(&focused), tab.url()),
-                    ControlWork::Press { key: key.clone() },
+                    ControlWork::Press {
+                        key: key.clone(),
+                        captcha,
+                    },
                 );
                 p.inherent_owned = match key.as_str() {
                     "Enter" => classify::enter(&focused),
@@ -1140,6 +1202,52 @@ impl Broker {
             });
         }
         Ok((tab, note))
+    }
+
+    /// A worker's try at the page's CAPTCHA just happened (ADR-029): count it, watch the check
+    /// for its verdict, and put both in words (ADR-032).
+    async fn captcha_tried(&self, tab: &Tab) -> Vec<String> {
+        let used = tab.count_captcha_try();
+        let left = CAPTCHA_TRIES.saturating_sub(used);
+        let next = if left == 0 {
+            "That was your last try: if the check is still there, hand it to the owner with \
+             browser_person_check."
+                .to_owned()
+        } else {
+            format!(
+                "You may try {left} more time{}; after that, hand it to the owner with \
+                 browser_person_check.",
+                if left == 1 { "" } else { "s" }
+            )
+        };
+        let mut lines = vec![format!(
+            "That was try {used} of {CAPTCHA_TRIES} on the CAPTCHA (a check that a person is \
+             using the site)."
+        )];
+        lines.push(match tab.captcha_verdict(CAPTCHA_VERDICT_WAIT).await {
+            Some(s) if s.solved => "The check is passed: the website has its answer, so do not \
+                                    click it again. Go on with the page (send the form, or read \
+                                    it again with browser_read)."
+                .to_owned(),
+            Some(s) if s.challenge => format!(
+                "The check now shows a puzzle (pictures to pick) inside its own frame, which \
+                 Plenipo cannot list as controls. Take a screenshot (browser_screenshot) to see \
+                 it; if you cannot answer it there, hand it to the owner with \
+                 browser_person_check rather than using up your tries. {next}"
+            ),
+            Some(s) if !s.present => {
+                "The check is gone from the page: read the page again with browser_read.".to_owned()
+            }
+            Some(_) => format!(
+                "The check is still there and not passed yet. Read the page again with \
+                 browser_read before another try. {next}"
+            ),
+            None => format!(
+                "The page is changing: read it again with browser_read to see whether the check \
+                 passed. {next}"
+            ),
+        });
+        lines
     }
 
     /// Data a page sent after a worker's action: let it go when the action was approved, ask
@@ -1583,6 +1691,9 @@ impl Broker {
                         let (url, title) = tab.where_now().await;
                         let mut t = vec![format!("Clicked {what}. Now on \"{title}\" ({url}).")];
                         t.extend(held);
+                        if facts.captcha {
+                            t.extend(self.captcha_tried(&tab).await);
+                        }
                         t.extend(tab.take_notes());
                         Ok(t.join("\n"))
                     }
@@ -1614,7 +1725,7 @@ impl Broker {
                 };
                 (r, format!("typed into {what}"), true)
             }
-            ControlWork::Press { key } => {
+            ControlWork::Press { key, captcha } => {
                 let r = match tab.press(&key).await {
                     Ok(settled) => {
                         let held = self
@@ -1623,6 +1734,9 @@ impl Broker {
                         let (url, title) = tab.where_now().await;
                         let mut t = vec![format!("Pressed {key}. Now on \"{title}\" ({url}).")];
                         t.extend(held);
+                        if captcha {
+                            t.extend(self.captcha_tried(&tab).await);
+                        }
                         t.extend(tab.take_notes());
                         Ok(t.join("\n"))
                     }
