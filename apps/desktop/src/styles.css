@@ -2845,3 +2845,186 @@ button {
   margin: 8px 0 2px;
   font-size: 0.85rem;
 }
+
+/* ---- Servers (Phase 11) ---------------------------------------------------------------------- */
+
+/* Development, staging, production: production is always red and in capitals. */
+.env {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.env--development {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.env--staging {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.env--production {
+  border-color: var(--error);
+  background: var(--error);
+  color: #1a0505;
+}
+
+.servers {
+  display: grid;
+  gap: 10px;
+}
+
+.server-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.server--development {
+  border-left-color: var(--ok);
+}
+
+.server--staging {
+  border-left-color: var(--warn);
+}
+
+.server--production {
+  border-color: var(--error);
+  background: rgba(255, 107, 107, 0.06);
+}
+
+.server__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+}
+
+.server__header h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.server__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 14px;
+  margin: 8px 0;
+  font-size: 0.88rem;
+}
+
+.server__facts dt {
+  color: var(--muted);
+}
+
+.server__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.server__test--ok {
+  color: var(--ok);
+}
+
+.server-form {
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  border-left-width: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.server-form--production {
+  border-color: var(--error);
+}
+
+.server-form fieldset {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.server-form fieldset legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.server-form .choice {
+  margin-bottom: 6px;
+  align-items: flex-start;
+}
+
+.server-form .choice--production:has(input:checked) {
+  border-color: var(--error);
+}
+
+.server-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0 12px;
+}
+
+.field--narrow {
+  max-width: 110px;
+}
+
+.identity {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.notice-box--danger {
+  border-left-color: var(--error);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.approval--production {
+  border-width: 2px;
+  border-color: var(--error);
+}
+
+.approval__server {
+  margin: 0 0 8px;
+}
+
+.control__session--production strong {
+  color: var(--error);
+}
+
+.trail__output {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trail__output--err {
+  border-color: var(--warn);
+}

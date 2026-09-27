@@ -1,6 +1,7 @@
 import { useAgents } from "../agents/useAgents";
 import { ModelSettings } from "../components/models/ModelSettings";
 import { PermissionSettings } from "../components/permissions/PermissionSettings";
+import { ServerSettings } from "../components/servers/ServerSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
@@ -11,8 +12,9 @@ export function SettingsView() {
     <section className="view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
       <p className="view__lead">
-        Personalization, the AI models your roles use, and what workers may do on this computer can
-        be changed here. The rest is shown for reference and becomes editable in later phases.
+        Personalization, the AI models your roles use, what workers may do on this computer, and the
+        servers they may reach can be changed here. The rest is shown for reference and becomes
+        editable in later phases.
       </p>
 
       <h2>Personalization</h2>
@@ -23,6 +25,9 @@ export function SettingsView() {
 
       <h2>Permissions</h2>
       <PermissionSettings />
+
+      <h2 id="settings-servers">Servers</h2>
+      <ServerSettings />
 
       <h2>AI tools</h2>
       <ul className="settings">

@@ -13,6 +13,7 @@ import {
   ACTION_LABEL,
   ACTIONS_FOR,
   describeEvent,
+  eventOutput,
   eventScreenshot,
   isRejection,
   shownInTrail,
@@ -31,6 +32,7 @@ function TaskBadge({ task }: { task: Task }) {
 /** `step` numbers a task's own trail (1, 2, 3…); the global ledger sequence is in the tooltip. */
 function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
   const shot = eventScreenshot(event.payload);
+  const output = eventOutput(event);
   return (
     <li
       className={`trail__item${isRejection(event) ? " trail__item--rejected" : ""}`}
@@ -44,6 +46,14 @@ function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
       <span className="trail__text">
         {describeEvent(event)}
         {shot && <ScreenshotView id={shot} label={`Screenshot: ${describeEvent(event)}`} />}
+        {output && output.lines.length > 0 && (
+          <pre
+            className={`trail__output${output.error ? " trail__output--err" : ""}`}
+            aria-label="Output from the server"
+          >
+            {output.lines.join("\n")}
+          </pre>
+        )}
       </span>
       <span className="trail__source" title={event.source}>
         {sourceLabel(event.source, { capitalize: true })}

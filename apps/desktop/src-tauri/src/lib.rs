@@ -239,6 +239,11 @@ pub fn configure<R: Runtime>(
             commands::get_browser_status,
             commands::open_browser,
             commands::get_screenshot,
+            commands::get_servers,
+            commands::save_server,
+            commands::remove_server,
+            commands::check_server_identity,
+            commands::test_server,
         ])
 }
 
@@ -2224,6 +2229,119 @@ mod ipc_boundary_tests {
             .roles
             .iter()
             .any(|r| r.name == "X" && r.job.duties == ["a"]));
+    }
+
+    /// Phase 11: the server list, sign-ins going only one way, identity checks, and tests.
+    #[test]
+    fn servers_are_configuration_only() {
+        let app = app();
+        let main = window(&app, "main");
+        let snap: plenipo_capabilities::ServersSnapshot = body(invoke(&main, "get_servers"));
+        assert!(snap.servers.is_empty());
+        let ops = snap
+            .roles
+            .iter()
+            .find(|r| r.name == "Operations Engineer")
+            .expect("the Operations Engineer role");
+        assert!(ops.can_connect, "it starts with the Servers set");
+        assert_eq!(snap.classes.len(), 6);
+        let server = |host: &str, roles: serde_json::Value| {
+            serde_json::json!({ "input": {
+                "name": "Dev box", "host": host, "port": 22, "user": "deploy",
+                "environment": "development", "signIn": "password",
+                "password": "a-password-value", "roles": roles,
+                "classes": ["look"], "approval": "changes", "folders": ["/srv/app"], "forwards": []
+            } })
+        };
+        let err = invoke_json(
+            &main,
+            "save_server",
+            server("user@host", serde_json::json!([])),
+        )
+        .expect_err("not an address");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("not a server address"),
+            "{err}"
+        );
+        let err = invoke_json(
+            &main,
+            "save_server",
+            server("dev.test", serde_json::json!(["../x"])),
+        )
+        .expect_err("bad role id");
+        assert_eq!(err["kind"], "invalidInput");
+        let snap: plenipo_capabilities::ServersSnapshot = body(invoke_json(
+            &main,
+            "save_server",
+            server("dev.test", serde_json::json!([ops.id])),
+        ));
+        let dev = &snap.servers[0];
+        assert!(dev.stored.password);
+        assert!(dev
+            .problem
+            .as_deref()
+            .unwrap()
+            .contains("not checked and pinned"));
+        // The password went in, and never comes back out.
+        let text = serde_json::to_string(&snap).unwrap();
+        assert!(!text.contains("a-password-value"));
+        // Reading an identity where nothing listens says so plainly.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let err = invoke_json(
+            &main,
+            "check_server_identity",
+            serde_json::json!({ "host": "127.0.0.1", "port": closed }),
+        )
+        .expect_err("nothing listens");
+        assert!(
+            err["message"].as_str().unwrap().contains("could not reach"),
+            "{err}"
+        );
+        let test: plenipo_capabilities::ServerTest = body(invoke_json(
+            &main,
+            "test_server",
+            serde_json::json!({ "serverId": dev.server.id }),
+        ));
+        assert!(
+            !test.ok && test.message.contains("not checked and pinned"),
+            "{test:?}"
+        );
+        // Disconnecting a worker checks the session ID; nobody to disconnect is refused.
+        assert!(invoke_json(
+            &main,
+            "take_over_control",
+            serde_json::json!({ "sessionId": format!("server:{SESSION}") }),
+        )
+        .is_err());
+        let snap: plenipo_capabilities::ServersSnapshot = body(invoke_json(
+            &main,
+            "remove_server",
+            serde_json::json!({ "serverId": dev.server.id }),
+        ));
+        assert!(snap.servers.is_empty());
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in [
+            "get_servers",
+            "save_server",
+            "remove_server",
+            "check_server_identity",
+            "test_server",
+        ] {
+            assert!(invoke(&other, cmd).is_err(), "{cmd}");
+            assert!(invoke(&sign, cmd).is_err(), "the sign must not reach {cmd}");
+            assert!(
+                invoke_from(&main, cmd, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
     }
 
     #[test]

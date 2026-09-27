@@ -431,6 +431,7 @@ describe("AI tools page", () => {
       detail: "http://shop.test/form",
       lastAction: 'clicked "Send message"',
       since: 0,
+      production: false,
     };
     api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
     api.takeOverControl.mockResolvedValue({
@@ -441,7 +442,7 @@ describe("AI tools page", () => {
     api.stopAllControl.mockResolvedValue({ stopped: true, sessions: [], revision: 3 });
     api.allowControl.mockResolvedValue({ stopped: false, sessions: [], revision: 4 });
     render(<App />);
-    const banner = await screen.findByRole("alert", { name: "Browser and desktop control" });
+    const banner = await screen.findByRole("alert", { name: "Browser, desktop, and server work" });
     expect(banner).toHaveTextContent("Web Assistant is using Plenipo's browser");
     expect(banner).toHaveTextContent('http://shop.test/form · clicked "Send message"');
     expect(document.querySelector(".shell__footer")).toHaveTextContent(
@@ -460,19 +461,56 @@ describe("AI tools page", () => {
     act(() => emitControl({ stopped: false, sessions: [session], revision: 1 }));
     expect(banner).not.toHaveTextContent("Web Assistant is using Plenipo's browser");
     await user.click(within(banner).getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByRole("alert", { name: "Browser and desktop control" })).toBeNull();
+    expect(screen.queryByRole("alert", { name: "Browser, desktop, and server work" })).toBeNull();
     // Stop all appears only while a worker is active; stop from a fresh active state.
     api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
     cleanup();
     render(<App />);
-    const again = await screen.findByRole("alert", { name: "Browser and desktop control" });
+    const again = await screen.findByRole("alert", { name: "Browser, desktop, and server work" });
     await user.click(within(again).getByRole("button", { name: "Stop all" }));
     expect(api.stopAllControl).toHaveBeenCalled();
-    await waitFor(() => expect(again).toHaveTextContent("Browser and desktop control is stopped."));
+    await waitFor(() =>
+      expect(again).toHaveTextContent("Browser, desktop, and server work is stopped."),
+    );
     await user.click(within(again).getByRole("button", { name: "Allow again" }));
     expect(api.allowControl).toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.queryByRole("alert", { name: "Browser and desktop control" })).toBeNull(),
+      expect(screen.queryByRole("alert", { name: "Browser, desktop, and server work" })).toBeNull(),
+    );
+  });
+
+  it("shows a worker connected to a production server in red, with Disconnect", async () => {
+    const session = {
+      id: "server:g2",
+      grantId: "g2",
+      taskId: "t2",
+      worker: "Operations Engineer",
+      kind: "server" as const,
+      state: "active" as const,
+      detail: "Shop (production)",
+      lastAction: "Shop: load average: 0.00",
+      since: 0,
+      production: true,
+    };
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
+    api.takeOverControl.mockResolvedValue({
+      stopped: false,
+      sessions: [{ ...session, state: "takenOver" }],
+      revision: 2,
+    });
+    render(<App />);
+    const banner = await screen.findByRole("alert", { name: "Browser, desktop, and server work" });
+    expect(banner).toHaveTextContent("Operations Engineer is connected to Shop (production)");
+    expect(banner).toHaveTextContent("PRODUCTION");
+    expect(banner).toHaveTextContent("Shop: load average: 0.00");
+    expect(within(banner).queryByRole("button", { name: "Take over" })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(within(banner).getByRole("button", { name: "Disconnect" }));
+    expect(api.takeOverControl).toHaveBeenCalledWith("server:g2");
+    await waitFor(() =>
+      expect(banner).toHaveTextContent(
+        "You disconnected Operations Engineer from Shop (production). It stopped.",
+      ),
     );
   });
 });

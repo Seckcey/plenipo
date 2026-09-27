@@ -18,6 +18,7 @@ import { RuntimeProvider } from "./runtime/RuntimeProvider";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
 import { useControl } from "./control/useControl";
+import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
@@ -264,13 +265,9 @@ function Shell({ core }: { core: CoreState }) {
       <footer className="shell__footer">
         {controlling.length > 0 ? (
           <span className="shell__footer-control">
-            {controlling.length === 1
-              ? `${controlling[0]?.worker ?? "A worker"} is using ${
-                  controlling[0]?.kind === "desktop"
-                    ? "your mouse and keyboard"
-                    : "Plenipo's browser"
-                }`
-              : `${controlling.length} workers are using the browser or the desktop`}
+            {controlling.length === 1 && controlling[0]
+              ? sessionWords(controlling[0]).title
+              : `${controlling.length} workers are using the browser, the desktop, or servers`}
           </span>
         ) : activeCount > 0 ? (
           `${activeCount} program${activeCount === 1 ? "" : "s"} running`

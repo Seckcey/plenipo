@@ -15,17 +15,23 @@
 //! value only goes in (to the operating system's protected storage), never back out. Browser and
 //! computer control (Phase 10) is the owner's to stop, take over, and allow again; the UI edits
 //! the website lists, opens Plenipo's browser for the owner, and reads kept screenshots by
-//! their ID only — it can never drive the browser or the mouse and keyboard.
+//! their ID only — it can never drive the browser or the mouse and keyboard. Servers (Phase 11)
+//! are configuration too: the UI edits the server list, sends a key or password once (to the
+//! operating system's protected storage), reads a server's identity to pin it, and tests a
+//! connection; it can never run a command on a server.
 
 use std::sync::Arc;
 
 use plenipo_capabilities::browser::BrowserStatus;
 use plenipo_capabilities::control::ControlStatus;
-use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot};
+use plenipo_capabilities::{
+    ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot, ServerIdentity,
+    ServerTest, ServersSnapshot,
+};
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
     CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
-    SensitiveRule, WebsiteRules,
+    SensitiveRule, ServerInput, WebsiteRules,
 };
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
@@ -1199,22 +1205,23 @@ pub fn get_control_status(broker: State<'_, Broker>) -> Result<ControlStatus, Co
     Ok(broker.control_status())
 }
 
-/// The emergency stop: all browser and desktop control halts at once, and stays stopped until
-/// you allow it again.
+/// The emergency stop: all browser, desktop, and server work halts at once, and stays stopped
+/// until you allow it again.
 #[tauri::command]
 pub async fn stop_all_control(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
     let broker = broker.inner().clone();
     broker.stop_all_control(OWNER).await.map_err(broker_error)
 }
 
-/// Take over a worker's use of the browser or the mouse and keyboard: that worker stops.
+/// Take over a worker's use of the browser or the mouse and keyboard, or disconnect it from its
+/// servers: that worker stops.
 #[tauri::command]
 pub async fn take_over_control(
     broker: State<'_, Broker>,
     session_id: String,
 ) -> Result<ControlStatus, CommandError> {
     let valid = session_id.split_once(':').is_some_and(|(kind, id)| {
-        matches!(kind, "browser" | "desktop") && validate_execution_id(id).is_ok()
+        matches!(kind, "browser" | "desktop" | "server") && validate_execution_id(id).is_ok()
     });
     if !valid {
         return Err(CommandError::invalid_input("invalid control session id"));
@@ -1272,6 +1279,88 @@ pub async fn get_screenshot(
 ) -> Result<Screenshot, CommandError> {
     validate_id("screenshot", &artifact_id)?;
     with_broker(&broker, move |b| b.screenshot_view(&artifact_id)).await
+}
+
+// ---- Servers (Phase 11) ------------------------------------------------------------------------
+
+/// Everything Settings → Servers shows: the servers (never their keys or passwords), the roles
+/// that may be allowed to use them, the kinds of commands, and where sign-ins are kept.
+#[tauri::command]
+pub async fn get_servers(broker: State<'_, Broker>) -> Result<ServersSnapshot, CommandError> {
+    with_broker(&broker, Broker::servers).await
+}
+
+/// Add a server (no `id`) or change one. A key, passphrase, or password is sent once and kept
+/// only in the operating system's protected storage.
+#[tauri::command]
+pub async fn save_server(
+    broker: State<'_, Broker>,
+    input: ServerInput,
+) -> Result<ServersSnapshot, CommandError> {
+    validate_optional_id("server", input.id.as_deref())?;
+    bounded("the name", &input.name)?;
+    bounded("the address", &input.host)?;
+    bounded("the user name", &input.user)?;
+    if input.roles.len() > 100 {
+        return Err(CommandError::invalid_input("too many roles"));
+    }
+    input
+        .roles
+        .iter()
+        .try_for_each(|r| validate_id("role", r))?;
+    validate_rules("folders", &input.folders)?;
+    validate_rules("forwarded ports", &input.forwards)?;
+    if input.classes.len() > 16 {
+        return Err(CommandError::invalid_input("too many kinds of commands"));
+    }
+    if let Some(k) = &input.host_key {
+        bounded("the host key", &k.fingerprint)?;
+        bounded("the host key type", &k.algorithm)?;
+    }
+    for v in [&input.key, &input.passphrase, &input.password] {
+        if v.as_ref().is_some_and(|v| v.len() > MAX_SECRET_BYTES) {
+            return Err(CommandError::invalid_input("the sign-in value is too long"));
+        }
+    }
+    with_broker(&broker, move |b| b.save_server(&input)).await
+}
+
+/// Remove a server: workers connected to it are disconnected, and its sign-in is removed from
+/// the operating system's protected storage.
+#[tauri::command]
+pub async fn remove_server(
+    broker: State<'_, Broker>,
+    server_id: String,
+) -> Result<ServersSnapshot, CommandError> {
+    validate_id("server", &server_id)?;
+    with_broker(&broker, move |b| b.remove_server(&server_id)).await
+}
+
+/// Read a server's identity (its host key), for you to check and pin. Nothing is sent to sign
+/// in.
+#[tauri::command]
+pub async fn check_server_identity(
+    broker: State<'_, Broker>,
+    host: String,
+    port: u16,
+) -> Result<ServerIdentity, CommandError> {
+    bounded("the address", &host)?;
+    let broker = broker.inner().clone();
+    broker
+        .server_identity(&host, port)
+        .await
+        .map_err(broker_error)
+}
+
+/// Test a server's connection: connect with its pinned identity, sign in, and leave.
+#[tauri::command]
+pub async fn test_server(
+    broker: State<'_, Broker>,
+    server_id: String,
+) -> Result<ServerTest, CommandError> {
+    validate_id("server", &server_id)?;
+    let broker = broker.inner().clone();
+    broker.test_server(&server_id).await.map_err(broker_error)
 }
 
 fn app_info_for(version: &str) -> AppInfo {

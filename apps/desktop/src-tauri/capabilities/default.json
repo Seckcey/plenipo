@@ -81,6 +81,11 @@
     "allow-set-website-rules",
     "allow-get-browser-status",
     "allow-open-browser",
-    "allow-get-screenshot"
+    "allow-get-screenshot",
+    "allow-get-servers",
+    "allow-save-server",
+    "allow-remove-server",
+    "allow-check-server-identity",
+    "allow-test-server"
   ]
 }

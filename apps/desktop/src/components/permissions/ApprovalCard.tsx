@@ -2,6 +2,7 @@ import type { ApprovalView } from "@plenipo/types";
 
 import { ago } from "../../org/format";
 import { ScreenshotView } from "../ScreenshotView";
+import { EnvironmentBadge } from "../servers/ServerSettings";
 import { APPROVAL_STATUS_LABEL, timeLeft } from "../../guard/format";
 
 /**
@@ -21,7 +22,19 @@ export function ApprovalCard({
 }) {
   const where = [a.role, a.project ? `${a.project} project` : null].filter(Boolean).join(" · ");
   return (
-    <article className="approval" aria-label={`${a.worker} wants to ${a.summary}`}>
+    <article
+      className={`approval${a.environment === "production" ? " approval--production" : ""}`}
+      aria-label={`${a.worker} wants to ${a.summary}`}
+    >
+      {a.server && a.environment && (
+        <p className="approval__server">
+          <EnvironmentBadge environment={a.environment} /> <strong>{a.server}</strong>
+          {a.address && <span className="path"> {a.address}</span>}
+          {a.environment === "production" && (
+            <span> — a production server: check exactly what will run.</span>
+          )}
+        </p>
+      )}
       <header className="approval__header">
         <h3 className="approval__title">
           {a.worker} wants to {a.summary}

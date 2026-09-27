@@ -1,7 +1,7 @@
 import type { LedgerEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
-import { describeEvent, shownInTrail, sourceLabel } from "./format";
+import { describeEvent, eventOutput, shownInTrail, sourceLabel } from "./format";
 
 const event = (eventType: string, payload: Record<string, unknown>): LedgerEvent => ({
   seq: 1,
@@ -275,12 +275,12 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     ).toBe("You took over Plenipo's browser from Web Assistant");
     expect(
       describeEvent(event("control.stopped", { sessions: [{ kind: "browser", worker: "W" }] })),
-    ).toBe("You pressed Stop: 1 worker stopped using the browser or the desktop");
+    ).toBe("You pressed Stop: 1 worker stopped using the browser, the desktop, or servers");
     expect(describeEvent(event("control.stopped", { sessions: [] }))).toBe(
-      "You pressed Stop: browser and desktop control is stopped",
+      "You pressed Stop: browser, desktop, and server work is stopped",
     );
     expect(describeEvent(event("control.allowed", {}))).toBe(
-      "You allowed browser and desktop control again",
+      "You allowed browser, desktop, and server work again",
     );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
     expect(describeEvent(event("guard.sets_updated", { sets: ["writer"] }))).toBe(
@@ -291,6 +291,82 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     ).toBe("Role renamed from Researcher 2 to Scout");
     expect(describeEvent(event("org.role_updated", { name: "Designer", template: true }))).toBe(
       "Built-in role's instructions updated: Designer",
+    );
+  });
+});
+
+describe("describeEvent (Phase 11 servers)", () => {
+  it("says who connected where, what ran, how it ended, and what the owner did", () => {
+    const ops = { worker: "Operations Engineer", server: "Shop" };
+    expect(
+      describeEvent(
+        event("ssh.connected", {
+          ...ops,
+          environment: "production",
+          address: "shop@203.0.113.10:22",
+        }),
+      ),
+    ).toBe("Operations Engineer connected to Shop (PRODUCTION) as shop@203.0.113.10:22");
+    expect(
+      describeEvent(
+        event("ssh.command_started", {
+          ...ops,
+          environment: "production",
+          command: "systemctl status nginx",
+          cwd: "/var/www/site",
+        }),
+      ),
+    ).toBe(
+      "Operations Engineer ran on Shop (PRODUCTION): systemctl status nginx (in /var/www/site)",
+    );
+    const output = event("ssh.output", { server: "Shop", stream: "out", lines: ["a", "b"] });
+    expect(describeEvent(output)).toBe("Output from Shop (2 lines)");
+    expect(eventOutput(output)).toEqual({ lines: ["a", "b"], error: false });
+    expect(eventOutput(event("ssh.connected", {}))).toBeNull();
+    expect(
+      describeEvent(
+        event("ssh.command_finished", {
+          server: "Shop",
+          ending: "exited",
+          exitCode: 0,
+          seconds: 1.2,
+        }),
+      ),
+    ).toBe("The command on Shop finished after 1.2 s");
+    expect(
+      describeEvent(event("ssh.command_finished", { server: "Shop", ending: "connectionLost" })),
+    ).toBe("The command on Shop lost its connection while it ran (whether it finished is unknown)");
+    expect(
+      describeEvent(
+        event("ssh.command_finished", {
+          server: "Shop",
+          ending: "stopped",
+          why: "you pressed Stop all",
+        }),
+      ),
+    ).toBe("The command on Shop was stopped (you pressed Stop all)");
+    expect(
+      describeEvent(
+        event("ssh.host_key_changed", {
+          server: "Shop",
+          seen: "SHA256:new",
+          expected: "SHA256:old",
+        }),
+      ),
+    ).toBe(
+      "Blocked: Shop's identity changed — it showed SHA256:new, not the SHA256:old. Nothing was sent to sign in.",
+    );
+    expect(describeEvent(event("control.taken_over", { kind: "server", ...ops }))).toBe(
+      "You disconnected Operations Engineer from its servers",
+    );
+    expect(
+      describeEvent(event("guard.server_added", { name: "Shop", environment: "production" })),
+    ).toBe("Server added: Shop (PRODUCTION)");
+    expect(
+      describeEvent(event("vault.server_sign_in_stored", { name: "Shop", stored: ["password"] })),
+    ).toBe("Sign-in stored for Shop: password (the value is never shown)");
+    expect(describeEvent(event("ssh.tested", { server: "Shop", ok: true }))).toBe(
+      "You tested Shop: connected and signed in",
     );
   });
 });
