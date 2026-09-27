@@ -814,6 +814,52 @@ pub struct Artifact {
     pub created_at: u64,
 }
 
+// ---- Phase 12: what the pages show ----------------------------------------------------------
+
+/// A pull request a worker opened (Phase 8), for a project's or a task's page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PullRequestRef {
+    pub url: String,
+    #[ts(type = "number | null")]
+    pub number: Option<u64>,
+    /// The task that opened it.
+    pub task_id: String,
+    pub worker: Option<String>,
+    #[ts(type = "number")]
+    pub created_at: u64,
+}
+
+/// Something kept as evidence (a screenshot), for a project's or a task's page. Plenipo opens
+/// it by its ID; the screen never names a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ArtifactView {
+    pub id: String,
+    pub task_id: Option<String>,
+    /// "screenshot".
+    pub kind: String,
+    /// What it shows, when Plenipo noted it (a page's title or address).
+    pub label: Option<String>,
+    #[ts(type = "number")]
+    pub created_at: u64,
+}
+
+/// A piece of work's pull requests, artifacts, and decisions (newest first): the pages of a
+/// project and of a task.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct WorkRecord {
+    pub pull_requests: Vec<PullRequestRef>,
+    pub artifacts: Vec<ArtifactView>,
+    /// Approvals answered or expired, refusals, handoffs refused, lessons kept or discarded,
+    /// the owner's stops and take-overs, and why each worker got its AI tool.
+    pub decisions: Vec<LedgerEvent>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

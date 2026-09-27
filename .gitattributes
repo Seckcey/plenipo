@@ -6,3 +6,5 @@
 # Original approved asset receipts retain their exact bytes and recorded hashes.
 assets/manifest.json -text
 assets/validation.json -text
+# The owner's approved brand kit, kept byte for byte (its manifest lists checksums).
+docs/brand/pip-brand-kit/** -text -diff

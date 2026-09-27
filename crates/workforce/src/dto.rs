@@ -496,6 +496,38 @@ pub struct ObjectiveBrief {
     pub waiting_approvals: u32,
     /// Its branch, when it has a working copy.
     pub branch: Option<String>,
+    /// The project it touched (Phase 12).
+    pub project_id: Option<String>,
+    /// The first part of the answer of whoever was given it, once there is one (Phase 12).
+    pub answer: Option<String>,
+}
+
+/// Home (Phase 12): objectives still going, those finished in the last week with their
+/// answers, and what is stuck.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HomeView {
+    /// The newest 50, newest first.
+    pub current: Vec<ObjectiveBrief>,
+    /// The last 20 to finish in the last week, the last to finish first.
+    pub finished: Vec<ObjectiveBrief>,
+    /// The newest problem of each piece of work still in trouble (the last week), newest first.
+    pub stuck: Vec<StuckItem>,
+    /// How many objectives are going (all of them, not only those listed).
+    pub going: u32,
+    /// How many objectives finished in the last 24 hours (all of them).
+    pub finished_day: u32,
+}
+
+/// Something stuck (Home): its newest problem, and the task it belongs to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StuckItem {
+    pub event: plenipo_ledger::LedgerEvent,
+    /// Its task, in brief (a server whose ID changed has none).
+    pub task: Option<TaskBrief>,
 }
 
 /// A project's objectives and working copies (Phase 8: the Projects page).

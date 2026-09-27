@@ -34,12 +34,12 @@ architecture must be recorded here.
 | [017](ADR-017-ollama-cloud-models.md)                | Ollama cloud models through its service                                                     | Accepted |
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md)      | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot                       | Accepted |
 | [019](ADR-019-role-working-instructions.md)          | Every role knows its job: working instructions for all roles                                | Accepted |
-| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 034)                | Accepted |
+| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035)                | Accepted |
 | [021](ADR-021-editions-and-license.md)               | Free and Pro editions under the Elastic License 2.0                                         | Accepted |
 | [022](ADR-022-subscription-and-license-check.md)     | Subscription pricing and the weekly license check                                           | Accepted |
 | [023](ADR-023-settings-switches.md)                  | On/off switches in Settings                                                                 | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)            | Workers learn from their work                                                               | Accepted |
-| [025](ADR-025-servers-over-ssh.md)                   | Servers over SSH, through Guard                                                             | Proposed |
+| [025](ADR-025-servers-over-ssh.md)                   | Servers over SSH, through Guard                                                             | Accepted |
 | [026](ADR-026-ssh-built-in.md)                       | SSH built into Plenipo (russh), not Windows' ssh.exe                                        | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md)    | Kimi over ACP: file access through Plenipo                                                  | Accepted |
 | [028](ADR-028-choosing-plenipos-browser.md)          | Choosing Plenipo's browser: Automatic, Edge, or Chrome                                      | Accepted |
@@ -47,5 +47,6 @@ architecture must be recorded here.
 | [030](ADR-030-design-system.md)                      | One design system for every screen                                                          | Accepted |
 | [031](ADR-031-terminal-panel.md)                     | The terminal panel (amends 025)                                                             | Accepted |
 | [032](ADR-032-captcha-checkbox-and-verdict.md)       | Workers see the CAPTCHA they try, and hear how each try went (amends 029)                   | Accepted |
+| [033](ADR-033-pages-notices-settings.md)             | Home, a page for each thing, pop-up notices, and Settings in one place                      | Accepted |
 | [034](ADR-034-approved-programs-run-as-the-owner.md) | Approved programs run as the owner: tickets bound to the AI tool, safer defaults            | Accepted |
 | [035](ADR-035-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |

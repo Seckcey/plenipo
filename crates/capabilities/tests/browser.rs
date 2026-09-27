@@ -17,7 +17,7 @@ use plenipo_capabilities::browser::cdp::Cdp;
 use plenipo_capabilities::browser::find_browser;
 use plenipo_capabilities::control::{session_id, ControlKind, ControlState};
 use plenipo_capabilities::desktop::{Button, Did, KeyPart, SyntheticDesktop};
-use plenipo_capabilities::{ApprovalView, Broker, BrokerConfig, MemorySecretStore};
+use plenipo_capabilities::{ApprovalView, Broker, BrokerConfig, MemorySecretStore, TerminalPlace};
 use plenipo_guard::{Guard, OtherSites, SecretInput, Switches, WebsiteRules};
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -1429,6 +1429,9 @@ async fn computer_use_asks_first_and_never_types_secrets() {
             tool("screen_type", json!({ "text": "Invoice 42", "purpose": "fill in the title" })),
             tool("screen_type", json!({ "text": "correct-horse-battery", "purpose": "fill in a field" })),
             tool("screen_keys", json!({ "keys": "ctrl+s", "purpose": "keep the draft" })),
+            // A new line, or Ctrl+J, is Enter too (in a terminal, it runs a command).
+            tool("screen_type", json!({ "text": "rm -rf /srv/app\n", "purpose": "tidy up" })),
+            tool("screen_keys", json!({ "keys": "ctrl+j", "purpose": "tidy up" })),
             tool("screen_keys", json!({ "keys": "enter", "purpose": "confirm" })),
             tool("screen_release_control", json!({}))
         ] }]),
@@ -1441,18 +1444,39 @@ async fn computer_use_asks_first_and_never_types_secrets() {
         take.detail
     );
     h.broker.resolve_approval(&take.id, true, "owner").unwrap();
-    let enter = h.pending().await;
+    let line = h.pending().await;
     assert!(h.broker.control_status().desktop_active());
     assert!(
-        enter
-            .reason
-            .contains("pressing Enter can send or submit something"),
+        line.reason.contains("a new line presses Enter"),
         "{}",
-        enter.reason
+        line.reason
     );
-    h.broker
-        .resolve_approval(&enter.id, false, "owner")
-        .unwrap();
+    // While the worker has the screen, the owner's terminal takes nothing: what reaches it
+    // could be the worker's typing.
+    let refused = h
+        .broker
+        .open_terminal(&TerminalPlace::ThisPc, 80, 24, Arc::new(|_| {}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains("Desk Operator is using the screen, mouse, and keyboard"),
+        "{refused}"
+    );
+    h.broker.resolve_approval(&line.id, false, "owner").unwrap();
+    for _ in 0..2 {
+        let enter = h.pending().await;
+        assert!(
+            enter
+                .reason
+                .contains("pressing Enter can send or submit something"),
+            "{}",
+            enter.reason
+        );
+        h.broker
+            .resolve_approval(&enter.id, false, "owner")
+            .unwrap();
+    }
     let task = h
         .finished(&h.worker_task(&root, "Desk Operator").await.id)
         .await;
@@ -1489,6 +1513,15 @@ async fn computer_use_asks_first_and_never_types_secrets() {
     assert!(
         !did.contains(&Did::Keys(vec![KeyPart::Enter])),
         "Enter was refused"
+    );
+    assert!(
+        !did.contains(&Did::Keys(vec![KeyPart::Ctrl, KeyPart::Char('j')])),
+        "Ctrl+J was refused"
+    );
+    assert!(
+        !did.iter()
+            .any(|d| matches!(d, Did::Type(t) if t.contains("rm -rf"))),
+        "the new line was refused"
     );
     assert!(!did
         .iter()

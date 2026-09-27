@@ -48,9 +48,11 @@ use crate::worktrees::{self, Git};
 
 mod operate;
 mod servers;
+mod terminals;
 
 use operate::{CallContext, ControlWork, DesktopUse};
 use servers::{Caller, ServerPrep, SshUse, SshWork};
+pub use terminals::{TerminalSink, MAX_TERMINALS, PREFERENCES};
 
 /// Source of Guard's own events.
 const GUARD: &str = "guard";
@@ -91,6 +93,10 @@ pub struct BrokerConfig {
     pub screenshots_dir: PathBuf,
     /// Time limits for SSH connections to the owner's servers (Phase 11).
     pub ssh: crate::ssh::Limits,
+    /// No terminal on this PC while Plenipo runs as administrator on Windows, since its shell
+    /// would too (ADR-031). Always on in Plenipo; tests turn it off to reach the shell on test
+    /// machines that run everything as administrator (GitHub's Windows machines do).
+    pub terminal_refuses_administrator: bool,
 }
 
 impl BrokerConfig {
@@ -107,6 +113,7 @@ impl BrokerConfig {
             command_timeout: Duration::from_secs(10 * 60),
             approval_minute: Duration::from_secs(60),
             ssh: crate::ssh::Limits::default(),
+            terminal_refuses_administrator: true,
         }
     }
 }
@@ -261,6 +268,8 @@ struct Inner {
     control: ControlCenter,
     /// Screenshots kept as evidence.
     evidence: Evidence,
+    /// The owner's terminals (Phase 12, ADR-031), apart from every worker's grant.
+    terminals: terminals::Terminals,
 }
 
 /// Cheap to clone; clones share state.
@@ -465,6 +474,7 @@ impl Broker {
                 desktop: RwLock::new(Arc::new(SystemDesktop)),
                 control: ControlCenter::default(),
                 evidence: Evidence::new(config.screenshots_dir.clone()),
+                terminals: terminals::Terminals::default(),
                 config,
             }),
         };
@@ -1382,7 +1392,9 @@ impl Broker {
                 checks: Vec::new(),
             };
             let summary = tool.name.replace('_', " ");
-            return self.deny(grant_id, &task_id, &worker, tool, &summary, "", &decision);
+            return self.deny(
+                grant_id, &task_id, &worker, tool, &summary, "", &decision, None,
+            );
         }
         let at = Where {
             ws: workspace.as_ref(),
@@ -1418,7 +1430,9 @@ impl Broker {
                     sensitive: None,
                     checks: Vec::new(),
                 };
-                return self.deny(grant_id, &task_id, &worker, tool, &r.summary, "", &decision);
+                return self.deny(
+                    grant_id, &task_id, &worker, tool, &r.summary, "", &decision, None,
+                );
             }
         };
         let current = level_for(&config, &scope, prepared.capability);
@@ -1489,6 +1503,7 @@ impl Broker {
                     &prepared.summary,
                     &detail,
                     &decision,
+                    prepared.server.as_ref().map(|s| s.server.name.as_str()),
                 )
             }
             Verdict::Ask => {
@@ -1656,6 +1671,7 @@ impl Broker {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn deny(
         &self,
         grant_id: &str,
@@ -1665,6 +1681,7 @@ impl Broker {
         summary: &str,
         detail: &str,
         decision: &Decision,
+        server: Option<&str>,
     ) -> CallResult {
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.blocked += 1;
@@ -1684,6 +1701,8 @@ impl Broker {
                 "reason": decision.reason,
                 "layer": decision.layer,
                 "checks": decision.checks,
+                // A server command's server, for the worker's watch tab (Phase 12).
+                "server": server,
             }),
             ..NewEvent::default()
         });
@@ -2121,6 +2140,28 @@ impl Broker {
     }
 
     /// Pending approvals and recent outcomes.
+    /// A task's page (Phase 12): the pull requests, artifacts, and decisions of the task and
+    /// every task under it, and their approvals (waiting ones first, then newest first).
+    pub fn task_record(&self, task_id: &str) -> Result<TaskRecord> {
+        let ledger = self.ledger();
+        let record = ledger.work_record(plenipo_ledger::WorkOf::Task(task_id), 100)?;
+        let waiting: HashSet<String> = self.state().waiters.keys().cloned().collect();
+        let mut approvals: Vec<ApprovalView> = Vec::new();
+        for id in ledger.tree_task_ids(task_id)? {
+            for a in ledger.approvals_for_task(&id)? {
+                let pending = a.state == ApprovalState::Pending;
+                approvals.push(self.approval_view(&a, pending.then_some(&waiting)));
+            }
+        }
+        approvals.sort_by(|a, b| {
+            (b.status == ApprovalStatus::Pending)
+                .cmp(&(a.status == ApprovalStatus::Pending))
+                .then(b.requested_at.cmp(&a.requested_at))
+        });
+        approvals.truncate(100);
+        Ok(TaskRecord { record, approvals })
+    }
+
     pub fn approvals(&self) -> Result<ApprovalQueue> {
         let waiting: HashSet<String> = self.state().waiters.keys().cloned().collect();
         let pending = self

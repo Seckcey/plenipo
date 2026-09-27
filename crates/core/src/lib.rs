@@ -6,7 +6,9 @@
 
 pub mod dto;
 
-pub use dto::{AppInfo, BuildProfile, CommandError, CommandErrorKind, SyntheticTaskAction};
+pub use dto::{
+    AppInfo, BuildProfile, CommandError, CommandErrorKind, LocalPath, SyntheticTaskAction,
+};
 
 /// Human-facing product name.
 pub const PRODUCT_NAME: &str = "Plenipo";

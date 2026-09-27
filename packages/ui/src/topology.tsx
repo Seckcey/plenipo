@@ -21,6 +21,7 @@ export function TopologyMap({
   onSelect,
   state = "ready",
   error,
+  onRetry,
   empty,
 }: {
   label: string;
@@ -30,11 +31,19 @@ export function TopologyMap({
   onSelect?: (id: string) => void;
   state?: "ready" | "loading" | "error";
   error?: ReactNode;
+  /** Try loading again (with the error). */
+  onRetry?: (() => void) | undefined;
   empty?: ReactNode;
 }) {
   if (state === "loading") return <LoadingState label={`Loading ${label.toLowerCase()}`} />;
   if (state === "error")
-    return <ErrorState title={`Couldn't load ${label.toLowerCase()}`} message={error} />;
+    return (
+      <ErrorState
+        title={`Couldn't load ${label.toLowerCase()}`}
+        message={error}
+        onRetry={onRetry}
+      />
+    );
   if (nodes.length === 0) return <>{empty ?? <EmptyState compact title="Nothing to map yet" />}</>;
 
   const { placed, width, height } = layoutMap(nodes, links);

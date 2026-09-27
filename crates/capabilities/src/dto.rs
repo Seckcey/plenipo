@@ -298,3 +298,133 @@ pub struct ServerTest {
     pub ok: bool,
     pub message: String,
 }
+
+// ---- The owner's terminal (Phase 12, ADR-031) --------------------------------------------------
+
+/// Which shell the owner's terminal on this PC starts (Settings → Terminal). Never a path: Plenipo
+/// finds each one itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum TerminalShell {
+    /// Windows PowerShell, part of Windows (the default).
+    #[default]
+    WindowsPowerShell,
+    /// PowerShell 7, when it is installed.
+    PowerShell7,
+    /// Command Prompt.
+    CommandPrompt,
+}
+
+/// A shell the owner can pick, and whether this PC has it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ShellOption {
+    pub shell: TerminalShell,
+    /// "Windows PowerShell".
+    pub label: String,
+    pub installed: bool,
+    /// Where it is, when installed (shown in Diagnostics).
+    #[ts(optional)]
+    pub path: Option<String>,
+}
+
+/// Where a terminal opens: this PC, or one of the owner's servers. Only a place: never a
+/// program, a path, or a command line (anything more is refused).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export)]
+pub enum TerminalPlace {
+    ThisPc,
+    Server { server_id: String },
+}
+
+impl<'de> Deserialize<'de> for TerminalPlace {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Raw {
+            kind: String,
+            server_id: Option<String>,
+        }
+        let raw = Raw::deserialize(d)?;
+        match (raw.kind.as_str(), raw.server_id) {
+            ("thisPc", None) => Ok(Self::ThisPc),
+            ("server", Some(server_id)) => Ok(Self::Server { server_id }),
+            _ => Err(serde::de::Error::custom(
+                "a terminal opens on this PC or on a server",
+            )),
+        }
+    }
+}
+
+/// An open terminal of the owner's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TerminalInfo {
+    pub id: String,
+    /// "This PC" or the server's name.
+    pub title: String,
+    pub place: TerminalPlace,
+    /// The shell on this PC ("Windows PowerShell"), or who Plenipo signed in as on a server
+    /// ("deploy@web01.example.com:22").
+    pub detail: String,
+    /// A server's kind (production servers are marked red).
+    #[ts(optional)]
+    pub environment: Option<plenipo_guard::Environment>,
+    #[ts(type = "number")]
+    pub opened_at: u64,
+}
+
+/// The terminal settings (Settings → Terminal) and the terminals open now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TerminalSettings {
+    /// The shell a new terminal on this PC starts.
+    pub shell: TerminalShell,
+    pub shells: Vec<ShellOption>,
+    /// Off Windows the choice does not apply: the shell used instead ("/bin/bash").
+    #[ts(optional)]
+    pub other_shell: Option<String>,
+    /// The "Remote computers (SSH)" switch: while it is off, no terminal opens on a server.
+    pub servers_switched_on: bool,
+    pub open: Vec<TerminalInfo>,
+}
+
+/// What the owner's terminal sends to the screen, as it happens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export)]
+pub enum TerminalEvent {
+    /// Output: the bytes the shell wrote, base64-encoded.
+    Output { data: String },
+    /// The terminal ended: why, in plain words, and the shell's exit code when it gave one.
+    Ended {
+        why: String,
+        #[ts(optional)]
+        code: Option<i32>,
+    },
+}
+
+// ---- The task page (Phase 12) ------------------------------------------------------------------
+
+/// A task's page: the pull requests, artifacts, and decisions of the task and every task under
+/// it, and their approvals (waiting ones first).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TaskRecord {
+    pub record: plenipo_ledger::WorkRecord,
+    pub approvals: Vec<ApprovalView>,
+}

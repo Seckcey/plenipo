@@ -21,6 +21,13 @@
   color: var(--ui-text-muted);
 }
 
+/* Pip stands beside the words: the words sit level with him. */
+.ui-empty--pip,
+.ui-error--pip {
+  align-items: center;
+  padding-block: var(--ui-space-5);
+}
+
 .ui-empty__title,
 .ui-error__title {
   color: var(--ui-text-primary);

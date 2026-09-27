@@ -58,6 +58,12 @@ pub fn create<R: Runtime>(
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");
+    // The app's own tests reach the shell even on test machines that run everything as
+    // administrator (GitHub's Windows machines do); Plenipo itself always refuses then.
+    #[cfg(test)]
+    {
+        config.terminal_refuses_administrator = false;
+    }
     let broker = Broker::new(guard.clone(), supervisor, store, config);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());

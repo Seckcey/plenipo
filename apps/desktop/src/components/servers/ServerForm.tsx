@@ -10,6 +10,7 @@ import type {
   ServerView,
   SignIn,
 } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { checkServerIdentity, saveServer, toCommandError } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
@@ -262,14 +263,14 @@ export function ServerForm({
           </p>
         )}
         <div className="actions">
-          <button
-            type="button"
-            className="button button--small"
+          <Button
+            variant="primary"
+            size="sm"
             disabled={checking || host.trim() === ""}
             onClick={() => void check()}
           >
             {checking ? "Checking…" : pinned ? "Check it again" : "Check the server ID"}
-          </button>
+          </Button>
         </div>
         <Refusal error={checkError} />
         {seen && (
@@ -292,9 +293,9 @@ export function ServerForm({
                 They are different. Do not pin it: this may not be your server.
               </p>
             ) : (
-              <button
-                type="button"
-                className="button button--small"
+              <Button
+                variant="primary"
+                size="sm"
                 disabled={pinned?.fingerprint === seen.fingerprint}
                 onClick={() =>
                   setPinned({ algorithm: seen.algorithm, fingerprint: seen.fingerprint })
@@ -303,7 +304,7 @@ export function ServerForm({
                 {pinned?.fingerprint === seen.fingerprint
                   ? "Pinned"
                   : "This is my server: pin this ID"}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -396,12 +397,12 @@ export function ServerForm({
       </div>
 
       <div className="actions">
-        <button type="submit" className="button" disabled={pending}>
+        <Button type="submit" variant="primary" disabled={pending}>
           {s ? "Save the server" : "Add the server"}
-        </button>
-        <button type="button" className="button button--quiet" onClick={onDone}>
+        </Button>
+        <Button variant="quiet" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <Refusal error={error} />
     </form>

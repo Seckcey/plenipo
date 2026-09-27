@@ -27,18 +27,166 @@ body {
   margin-bottom: var(--ui-space-6);
 }
 
+/* The page and the terminal panel (Phase 12): the panel at the bottom or on the right. */
+.shell__work {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell__work--bottom {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.shell__work--right {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.terminal-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ui-surface);
+}
+
+.terminal-panel[hidden] {
+  display: none;
+}
+
+.terminal-panel--bottom {
+  flex-direction: column;
+  height: var(--terminal-size);
+}
+
+.terminal-panel--right {
+  flex-direction: row;
+  width: var(--terminal-size);
+}
+
+.terminal-panel__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+  min-height: 32px;
+  padding: 0 var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.terminal-panel__tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-panel__tabs > .ui-tabs {
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 0;
+}
+
+.terminal-panel__title {
+  flex: 1;
+  color: var(--ui-text-secondary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.terminal-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.terminal-panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-panel__tab,
+.terminal-panel__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-panel__empty {
+  justify-content: center;
+  padding: var(--ui-space-5) var(--ui-space-7);
+  overflow: auto;
+}
+
+.terminal-panel__tab[hidden] {
+  display: none;
+}
+
+.terminal-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ui-terminal-bg);
+}
+
+.terminal-view__screen {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The space around the text is on xterm's own element, which its fit add-on takes away when it
+   counts the rows and columns that fit (on the box around it, a row could fall off the edge). */
+.terminal-view__screen .xterm {
+  height: 100%;
+  padding: var(--ui-space-2) var(--ui-space-4);
+}
+
+.terminal-view__screen[hidden] {
+  display: none;
+}
+
+.terminal-watch {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.terminal-watch__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-5);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.terminal-watch__who {
+  font-weight: var(--ui-weight-semibold);
+}
+
+.terminal-watch__note {
+  flex: 1;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.terminal-watch__log {
+  flex: 1;
+}
+
 .shell__footer {
   padding: var(--ui-space-3) var(--ui-space-7);
   border-top: 1px solid var(--ui-border);
   background: var(--ui-surface);
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-xs);
-}
-
-.shell__wordmark {
-  font-weight: var(--ui-weight-semibold);
-  font-size: var(--ui-font-lg);
-  letter-spacing: 0.02em;
 }
 
 .shell__version {
@@ -51,19 +199,6 @@ body {
   display: flex;
   align-items: center;
   gap: var(--ui-space-4);
-}
-
-.brand-mark__tile {
-  fill: var(--ui-brand-mark);
-}
-
-.brand-mark__line {
-  fill: none;
-  stroke: var(--ui-brand-stroke);
-}
-
-.brand-mark__dot {
-  fill: var(--ui-brand-stroke);
 }
 
 .banner__list {
@@ -81,6 +216,12 @@ body {
   margin: var(--ui-space-8) 0 var(--ui-space-4);
   font-size: var(--ui-font-lg);
   font-weight: var(--ui-weight-semibold);
+}
+
+/* A library panel's title keeps the library's look inside an older page. */
+.view .ui-panel__head h2 {
+  margin: 0;
+  font-size: var(--ui-font-md);
 }
 
 .view__lead,
@@ -111,29 +252,6 @@ body {
   color: var(--ui-error-text);
 }
 
-.button {
-  padding: 6px 14px;
-  border: 1px solid var(--ui-accent-fill);
-  border-radius: 6px;
-  background: var(--ui-accent-fill);
-  color: var(--ui-on-accent);
-  cursor: pointer;
-}
-
-/* Turned off: muted words on a quiet fill, readable in both themes (not faded blue). */
-.button:disabled {
-  border-color: var(--ui-border-strong);
-  background: var(--ui-surface-raised);
-  color: var(--ui-text-muted);
-  cursor: default;
-}
-
-.button--danger {
-  border-color: var(--ui-error-text);
-  background: transparent;
-  color: var(--ui-error-text);
-}
-
 .profiles,
 .executions,
 .activity,
@@ -151,19 +269,9 @@ body {
   gap: 10px;
 }
 
-.card {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-  background: var(--ui-surface);
-}
-
-.card__title {
-  font-weight: 600;
+/* Each item is a library panel: the panels in a row share its height. */
+.profiles > li {
+  display: grid;
 }
 
 .card__meta {
@@ -257,35 +365,6 @@ body {
   font-style: italic;
 }
 
-.badge {
-  display: inline-block;
-  align-self: start;
-  height: fit-content;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: var(--ui-font-xs);
-  border: 1px solid var(--ui-border);
-  color: var(--ui-text-secondary);
-  white-space: nowrap;
-}
-
-.badge--running,
-.badge--starting {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.badge--succeeded {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.badge--failed,
-.badge--timedOut {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
 .activity__item,
 .event-log li {
   display: flex;
@@ -342,28 +421,6 @@ body {
   color: var(--ui-ok-text);
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin: 16px 0 0;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.tabs__tab {
-  padding: 6px 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  cursor: pointer;
-  color: var(--ui-text-secondary);
-}
-
-.tabs__tab[aria-selected="true"] {
-  border-bottom-color: var(--ui-accent);
-  color: var(--ui-text-primary);
-  font-weight: 600;
-}
-
 .view h3 {
   margin: 18px 0 8px;
   font-size: var(--ui-font-sm);
@@ -406,11 +463,6 @@ body {
   margin: 12px 0;
 }
 
-.button--small {
-  padding: 4px 10px;
-  font-size: var(--ui-font-sm);
-}
-
 .link {
   padding: 0;
   border: 0;
@@ -450,27 +502,6 @@ body {
   margin: 8px 0 0;
   font-size: var(--ui-font-xs);
   overflow-wrap: anywhere;
-}
-
-.badge--task-running {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.badge--task-succeeded {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.badge--task-failed {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
-.badge--task-blocked,
-.badge--task-awaitingApproval {
-  border-color: var(--ui-warn-text);
-  color: var(--ui-warn-text);
 }
 
 /* ---- Settings: titles --------------------------------------------------------------------- */
@@ -523,7 +554,7 @@ body {
   white-space: nowrap;
 }
 
-.models__actions .button + .button {
+.models__actions .ui-button + .ui-button {
   margin-left: 8px;
 }
 
@@ -690,31 +721,6 @@ body {
   font-size: var(--ui-font-sm);
 }
 
-.pill {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--ui-border);
-  font-size: var(--ui-font-xs);
-  white-space: nowrap;
-  color: var(--ui-text-secondary);
-}
-
-.pill--ok {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.pill--warn {
-  border-color: var(--ui-warn-text);
-  color: var(--ui-warn-text);
-}
-
-.pill--bad {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
 /* The Gallery's sections keep the design system's own spacing. */
 .view--gallery .gallery__section h2 {
   margin: 0;
@@ -735,12 +741,6 @@ body {
 
 .section-header > h2 {
   margin: 0;
-}
-
-.card--stack {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
 }
 
 .card__row {
@@ -765,17 +765,6 @@ body {
 .kv dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.button--quiet {
-  border-color: var(--ui-border);
-  background: transparent;
-  color: var(--ui-text-primary);
-}
-
-.badge--task-cancelled {
-  border-color: var(--ui-border);
-  color: var(--ui-text-secondary);
 }
 
 .turns {
@@ -2097,7 +2086,7 @@ body {
   font-size: var(--ui-font-sm);
 }
 
-.inspector__identity .topo-status {
+.inspector__identity .ui-pill {
   margin-top: 4px;
 }
 
@@ -2194,15 +2183,6 @@ body {
 .inspector__assign,
 .inspector__move {
   margin-top: 10px;
-}
-
-.tabs--small {
-  margin-top: 0;
-}
-
-.tabs--small .tabs__tab {
-  padding: 4px 8px;
-  font-size: var(--ui-font-xs);
 }
 
 .facts--compact {
@@ -2606,10 +2586,8 @@ body {
 }
 
 /* The same height as the dropdown beside it. */
-.objective-form__row > .button {
+.objective-form__row > .ui-button {
   height: var(--ui-control-height);
-  padding-top: 0;
-  padding-bottom: 0;
 }
 
 .objective-form p {
@@ -2661,8 +2639,8 @@ body {
   gap: 4px;
 }
 
-/* A badge lines up with the link under it (the base badge rule aligns to the start). */
-.result__task-side > .badge {
+/* A status pill lines up with the link under it. */
+.result__task-side > .ui-pill {
   align-self: auto;
 }
 
@@ -2737,12 +2715,25 @@ body {
   }
 }
 
-.button--stop {
+/* Stop all: the library's danger button, filled, so it is the easiest thing to hit. */
+.ui-button.stop-all {
+  height: auto;
   padding: 8px 18px;
   border-color: var(--ui-error-text);
   background: var(--ui-error);
   color: var(--ui-on-error);
   font-weight: 600;
+}
+
+.ui-button.stop-all:hover:not(:disabled) {
+  border-color: var(--ui-error-text);
+}
+
+/* While it works (after a click), it looks as it is: not clickable. */
+.ui-button.stop-all:disabled {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
 }
 
 .shell__footer-control {
@@ -3032,49 +3023,10 @@ body {
   padding: 8px 0;
 }
 
-.toggle__switch {
-  position: relative;
+/* The switch lines up with its label's first line. */
+.toggle > .ui-switch {
   flex: none;
-  width: 40px;
-  height: 22px;
   margin-top: 2px;
-  padding: 0;
-  border: 1px solid var(--ui-control-border);
-  border-radius: 999px;
-  background: var(--ui-surface-sunken);
-  cursor: pointer;
-  transition: background var(--ui-motion-base) var(--ui-ease);
-}
-
-.toggle__switch.is-on {
-  border-color: var(--ui-accent-fill);
-  background: var(--ui-accent-fill);
-}
-
-.toggle__switch:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.toggle__switch:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 2px;
-}
-
-.toggle__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--ui-text-secondary);
-  transition: left var(--ui-motion-base) var(--ui-ease);
-}
-
-.toggle__switch.is-on .toggle__knob {
-  left: 20px;
-  background: var(--ui-on-accent);
 }
 
 .toggle__words {
@@ -3108,4 +3060,172 @@ body {
 .role-lessons h4 {
   margin: 12px 0 4px;
   font-size: var(--ui-font-sm);
+}
+
+/* Home and the pages of one department, project, worker, or task (Phase 12). Page layout only:
+   the parts (header, panels, rows, tiles, Pip's greeting) come from the library. */
+.page {
+  display: grid;
+  gap: var(--ui-space-7);
+  max-width: 1480px;
+}
+
+.page > .ui-page-head,
+.page > .ui-hero {
+  margin-bottom: 0;
+}
+
+.page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: var(--ui-space-6);
+  align-items: start;
+}
+
+.page__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--ui-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page__history {
+  display: grid;
+  gap: var(--ui-space-4);
+  justify-items: start;
+}
+
+.page__history > .ui-rows {
+  width: 100%;
+}
+
+.page__note {
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.page__note--error {
+  color: var(--ui-error);
+}
+
+.page__meta {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-sm);
+}
+
+.page__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.page__path {
+  overflow-wrap: anywhere;
+}
+
+.page__strip {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.page__strip-heading {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.page__shots {
+  display: grid;
+  gap: var(--ui-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page__shot-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  margin-bottom: var(--ui-space-2);
+}
+
+.page__result > .result {
+  margin: 0;
+}
+
+/* Settings in one place (Phase 12): the list of sections on the left, one section at a time. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--ui-space-8);
+  align-items: start;
+}
+
+.settings-layout__list {
+  position: sticky;
+  top: 0;
+}
+
+.settings-layout__list .ui-tabs__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.settings-layout__panel {
+  min-width: 0;
+}
+
+.view .settings-layout__title {
+  margin-top: 0;
+}
+
+.settings-section__body {
+  display: grid;
+  gap: var(--ui-space-5);
+}
+
+.settings-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.settings-notices section + section,
+.settings-terminal section + section {
+  margin-top: var(--ui-space-6);
+}
+
+.settings-notices__test {
+  display: grid;
+  gap: var(--ui-space-3);
+  justify-items: start;
+  margin-top: var(--ui-space-7);
+}
+
+.settings-about {
+  display: grid;
+  gap: var(--ui-space-5);
+  max-width: 72ch;
+}
+
+.settings-about__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-8);
+}
+
+/* A narrow window: the sections sit above the section shown. */
+@media (width < 860px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-layout__list {
+    position: static;
+  }
 }

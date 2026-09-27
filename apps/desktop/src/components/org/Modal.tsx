@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Button } from "@plenipo/ui";
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -112,17 +113,16 @@ export function ConfirmDialog({
         </p>
       )}
       <footer className="modal__footer">
-        <button type="button" className="button button--quiet" onClick={onCancel}>
+        <Button variant="quiet" onClick={onCancel}>
           Cancel
-        </button>
-        <button
-          type="button"
-          className={`button${danger ? " button--danger" : ""}`}
+        </Button>
+        <Button
+          variant={danger ? "danger" : "primary"}
           disabled={pending}
           onClick={() => void confirm()}
         >
           {pending ? "Working…" : confirmLabel}
-        </button>
+        </Button>
       </footer>
     </Modal>
   );

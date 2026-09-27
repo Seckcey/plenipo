@@ -56,7 +56,7 @@ fn scan_sql() -> String {
 }
 
 /// The organization's shape, read once per request.
-struct Org {
+pub(crate) struct Org {
     /// Positions reporting to each position (archived ones too, so past work still counts).
     reports: HashMap<String, Vec<String>>,
     /// Positions that head a department.
@@ -66,7 +66,7 @@ struct Org {
 }
 
 impl Org {
-    fn read(c: &Connection) -> Result<Self> {
+    pub(crate) fn read(c: &Connection) -> Result<Self> {
         let mut reports: HashMap<String, Vec<String>> = HashMap::new();
         let mut stmt = c.prepare("SELECT id, reports_to FROM positions")?;
         for row in stmt.query_map([], |r| {
@@ -112,7 +112,7 @@ impl Org {
 }
 
 /// What a scope counts: every event, or the tasks of its team's positions and its projects.
-enum Reach {
+pub(crate) enum Reach {
     All,
     Some {
         positions: HashSet<String>,
@@ -135,7 +135,7 @@ impl Reach {
     }
 }
 
-fn reach(c: &Connection, org: &Org, scope: &ActivityScope) -> Result<Reach> {
+pub(crate) fn reach(c: &Connection, org: &Org, scope: &ActivityScope) -> Result<Reach> {
     let lookup = |sql: &str, id: &str| -> Result<Option<Option<String>>> {
         Ok(c.query_row(sql, [id], |r| r.get::<_, Option<String>>(0))
             .optional()?)
@@ -304,7 +304,7 @@ impl Ledger {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::test_support::*;
     use serde_json::json;
@@ -316,7 +316,7 @@ mod tests {
 
     /// A tiny organization: Development (head D), its project Website (supervisor W, with a
     /// worker S under it), and Research (head R) with nothing under it.
-    fn org(l: &Ledger) {
+    pub(crate) fn org(l: &Ledger) {
         let conn = crate::lock(&l.conn);
         conn.execute_batch(
             "INSERT INTO roles (id, name, role_type, persistent, created_at) VALUES
@@ -339,7 +339,7 @@ mod tests {
         .unwrap();
     }
 
-    fn task_for(l: &Ledger, id: &str, project: Option<&str>, position: Option<&str>) {
+    pub(crate) fn task_for(l: &Ledger, id: &str, project: Option<&str>, position: Option<&str>) {
         let metadata = match position {
             Some(p) => json!({ "workforce": { "positionId": p } }),
             None => json!({}),

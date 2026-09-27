@@ -51,10 +51,17 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-threa
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 ts-rs = "11"
 uuid = { version = "1", features = ["v4"] }
+# The owner's terminal on this PC (Phase 12, ADR-031): ConPTY on Windows, a pseudo terminal
+# elsewhere.
+portable-pty = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager.
 keyring = { version = "3.6", features = ["windows-native"] }
+# The owner's terminal (Phase 12): its shell in a kill-on-close Job Object, and never as
+# administrator. Safe wrappers (the workspace forbids unsafe code).
+is_elevated = "0.1"
+win32job = "2"
 # Which program holds a loopback connection, and its parents (ADR-034: the tool server binds
 # a ticket to the AI tool's process tree).
 windows-sys = { version = "0.61", features = [

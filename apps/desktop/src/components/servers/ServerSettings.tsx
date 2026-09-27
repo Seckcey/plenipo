@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Environment, ServersSnapshot, ServerTest, ServerView } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { removeServer, testServer, toCommandError } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
@@ -8,6 +9,7 @@ import { useNow } from "../../runtime/useNow";
 import { approvalWords, ENVIRONMENT_LABEL, SIGN_IN_PHRASE } from "../../servers/format";
 import { useServers } from "../../servers/useServers";
 import { Refusal } from "../models/shared";
+import { PILL_TONE } from "../tones";
 import { ServerForm } from "./ServerForm";
 
 /** Test, staging, or production — production always in red, in capitals. */
@@ -79,9 +81,9 @@ export function ServerSettings() {
       )}
       <div className="section-header">
         <h3 id="servers-title">Your servers</h3>
-        <button type="button" className="button button--small" onClick={() => setEditing("new")}>
+        <Button variant="primary" size="sm" onClick={() => setEditing("new")}>
           Add a server
-        </button>
+        </Button>
       </div>
       {editing !== null && (
         <ServerForm
@@ -164,7 +166,7 @@ function ServerCard({
         <EnvironmentBadge environment={s.environment} />
         <span className="path">{v.address}</span>
         {v.connected.length > 0 && (
-          <span className="pill pill--warn">Connected: {v.connected.join(", ")}</span>
+          <StatusPill status={PILL_TONE.warn} label={`Connected: ${v.connected.join(", ")}`} />
         )}
       </div>
       {v.identityChanged && (
@@ -211,50 +213,41 @@ function ServerCard({
         </p>
       )}
       <div className="actions">
-        <button
-          type="button"
-          className="button button--small"
+        <Button
+          variant="primary"
+          size="sm"
           disabled={testing || !s.hostKey}
           onClick={() => void runTest()}
         >
           {testing ? "Testing…" : "Test the connection"}
-        </button>
-        <button
-          type="button"
-          className="button button--small button--quiet"
-          aria-label={`Change ${s.name}`}
-          onClick={onEdit}
-        >
+        </Button>
+        <Button variant="quiet" size="sm" aria-label={`Change ${s.name}`} onClick={onEdit}>
           Change
-        </button>
+        </Button>
         {confirmRemove ? (
           <>
             <span className="muted">Remove {s.name} and its stored sign-in?</span>
-            <button
-              type="button"
-              className="button button--small button--danger"
+            <Button
+              variant="danger"
+              size="sm"
               disabled={pending}
               onClick={() => void run(() => removeServer(s.id))}
             >
               Yes, remove it
-            </button>
-            <button
-              type="button"
-              className="button button--small button--quiet"
-              onClick={() => setConfirmRemove(false)}
-            >
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setConfirmRemove(false)}>
               Keep it
-            </button>
+            </Button>
           </>
         ) : (
-          <button
-            type="button"
-            className="button button--small button--danger"
+          <Button
+            variant="danger"
+            size="sm"
             aria-label={`Remove ${s.name}`}
             onClick={() => setConfirmRemove(true)}
           >
             Remove
-          </button>
+          </Button>
         )}
       </div>
       <Refusal error={error} />

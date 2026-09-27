@@ -307,6 +307,68 @@
   font-weight: var(--ui-weight-semibold);
 }
 
+.ui-tabs__tab:hover {
+  color: var(--ui-text-primary);
+}
+
+/* A tab with a close button beside it (the terminal's tabs). */
+.ui-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+}
+
+.ui-tabs__item:has(> [aria-selected="true"]) {
+  border-bottom-color: var(--ui-accent);
+}
+
+.ui-tabs__item > .ui-tabs__tab {
+  border-bottom: 0;
+  padding-right: var(--ui-space-2);
+}
+
+.ui-tabs__close {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--ui-space-3);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+}
+
+.ui-tabs__close:hover {
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-primary);
+}
+
+/* Sections listed down the side (Settings). */
+.ui-tabs--vertical {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ui-space-1);
+  border-bottom: 0;
+}
+
+.ui-tabs--vertical .ui-tabs__tab {
+  justify-content: flex-start;
+  height: var(--ui-row-height);
+  padding: 0 var(--ui-space-5);
+  border-bottom: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--ui-radius-sm) var(--ui-radius-sm) 0;
+  text-align: left;
+}
+
+.ui-tabs--vertical .ui-tabs__tab[aria-selected="true"] {
+  border-left-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
 .ui-popover {
   position: absolute;
   z-index: 20;
@@ -322,4 +384,114 @@
   border-radius: var(--ui-radius-lg);
   background: var(--ui-surface-raised);
   box-shadow: var(--ui-elevation-2);
+}
+
+/* A menu behind a button (the terminal's "New terminal"). */
+.ui-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.ui-menu__list {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  top: calc(100% + var(--ui-space-2));
+  display: grid;
+  min-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--ui-space-2);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-elevation-2);
+}
+
+.ui-menu--end .ui-menu__list {
+  left: auto;
+  right: 0;
+}
+
+.ui-menu--above .ui-menu__list {
+  top: auto;
+  bottom: calc(100% + var(--ui-space-2));
+}
+
+.ui-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+  min-height: var(--ui-row-height);
+  padding: 0 var(--ui-space-4);
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--ui-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-menu__item:hover:not(:disabled),
+.ui-menu__item:focus-visible {
+  background: var(--ui-accent-soft);
+}
+
+.ui-menu__item:disabled {
+  color: var(--ui-text-muted);
+  cursor: default;
+}
+
+.ui-menu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-menu__hint {
+  flex: none;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.ui-menu__empty {
+  padding: var(--ui-space-4);
+  color: var(--ui-text-secondary);
+}
+
+/* The edge of a panel, to drag. */
+.ui-resize {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  background: var(--ui-border);
+  touch-action: none;
+}
+
+.ui-resize--top {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.ui-resize--left {
+  width: 1px;
+  cursor: col-resize;
+}
+
+/* A wider area to grab than the line it shows. */
+.ui-resize::before {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
+
+.ui-resize--left::before {
+  inset: 0 -3px;
+}
+
+.ui-resize:hover,
+.ui-resize:focus-visible {
+  background: var(--ui-accent);
 }

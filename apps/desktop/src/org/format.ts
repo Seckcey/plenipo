@@ -30,7 +30,7 @@ export const WORKER_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
   running: "Working",
   blocked: "Waiting on replies",
-  awaitingApproval: "Awaiting approval",
+  awaitingApproval: "Waiting for you",
   succeeded: "Done",
   failed: "Failed",
   cancelled: "Cancelled",

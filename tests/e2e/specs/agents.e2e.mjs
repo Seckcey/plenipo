@@ -20,6 +20,7 @@ import {
   waitForText,
   waitPidGone,
   waitUntil,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -100,7 +101,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
 
   it("detects every AI tool, its version, and its subscription sign-in", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     await nav(browser, "AI tools");
     const cards = '[aria-label="AI tools"]';
     // Claude Code, Codex, Grok, and Kimi are Ready; Ollama is found too, and Ready only when an
@@ -231,7 +232,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
 
     app = await launch(home, env);
     ({ browser } = app);
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     await openSession(browser, "Think slowly");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "interrupted", "interrupted");
     assert.match(t.text, /Interrupted/);

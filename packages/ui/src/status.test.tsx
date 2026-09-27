@@ -9,6 +9,7 @@ import {
   Sparkline,
   StatusDot,
   StatusPill,
+  Tag,
 } from "./status";
 import { STATUSES } from "./status-types";
 
@@ -38,6 +39,15 @@ describe("status without color", () => {
     );
     const classes = [...container.querySelectorAll(".ui-status")].map((el) => el.className);
     expect(new Set(classes).size).toBe(STATUSES.length);
+  });
+});
+
+describe("Tag", () => {
+  it("is a name with no status mark (a mark always means a state)", () => {
+    const { container } = render(<Tag label="Run programs" />);
+    expect(screen.getByText("Run programs")).toHaveClass("ui-tag");
+    expect(container.querySelector(".ui-status__mark")).toBeNull();
+    expect(container.querySelector("[data-status]")).toBeNull();
   });
 });
 

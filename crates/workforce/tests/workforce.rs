@@ -1139,6 +1139,32 @@ async fn a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on() {
     let agents = h.ledger.position_agents(&o.developer, 10).unwrap();
     assert_eq!(agents[0].lifecycle_state, AgentLifecycle::Failed);
     assert!(s.stats.failed_24h >= 1);
+
+    // Home: the objective is finished, with its answer; the worker's failure is not stuck,
+    // because its objective succeeded anyway.
+    let home = h.workforce.home().unwrap();
+    let done = home
+        .finished
+        .iter()
+        .find(|b| b.root_task_id == root)
+        .expect("the objective is on Home");
+    assert!(done.answer.as_deref().unwrap_or("").starts_with("Turn 2"));
+    assert!(home.current.iter().all(|b| b.root_task_id != root));
+    assert!(home.stuck.is_empty(), "{:#?}", home.stuck);
+
+    // An objective that fails is stuck, named with its task and who has it, until it is
+    // done another way.
+    let failed = h.objective(&o.coordinator, "Ship it [crash]").await;
+    assert_eq!(h.finished(&failed).await.state, TaskState::Failed);
+    let home = h.workforce.home().unwrap();
+    let stuck = &home.stuck[0];
+    assert_eq!(stuck.event.event_type, "task.state_changed");
+    let task = stuck.task.as_ref().expect("its task");
+    assert_eq!(task.id, failed);
+    assert_eq!(task.objective, "Ship it [crash]");
+    assert_eq!(task.position_id.as_deref(), Some(o.coordinator.as_str()));
+    assert!(task.position_title.is_some());
+    assert!(home.finished.iter().any(|b| b.root_task_id == failed));
 }
 
 // ---- Phase 6: model policy and role routing -------------------------------------------------

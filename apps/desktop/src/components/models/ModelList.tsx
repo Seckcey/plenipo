@@ -7,6 +7,7 @@ import type {
   ModelInput,
   RoutingSnapshot,
 } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { removeModel, saveModel } from "../../api/commands";
 import { ago } from "../../org/format";
@@ -38,13 +39,9 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
     <section aria-labelledby="models-title">
       <div className="section-header">
         <h3 id="models-title">Your models</h3>
-        <button
-          type="button"
-          className="button button--small"
-          onClick={() => setDraft({ add: {} })}
-        >
+        <Button variant="primary" size="sm" onClick={() => setDraft({ add: {} })}>
           Add a model
-        </button>
+        </Button>
       </div>
       <p className="muted">
         The models your roles can choose from. Plenipo cannot ask the AI tools what a model can do
@@ -80,24 +77,24 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
               <td>{COST_LABEL[m.cost]}</td>
               <td>{m.effort ? EFFORT_LABEL[m.effort] : "Tool's default"}</td>
               <td className="models__actions">
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   aria-label={`Edit ${m.label}`}
                   onClick={() => setDraft({ model: m })}
                 >
                   Edit
-                </button>
+                </Button>
                 {!m.builtIn && (
-                  <button
-                    type="button"
-                    className="button button--small button--quiet"
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     aria-label={`Remove ${m.label}`}
                     disabled={pending}
                     onClick={() => void run(() => removeModel(m.id))}
                   >
                     Remove
-                  </button>
+                  </Button>
                 )}
               </td>
             </tr>
@@ -114,15 +111,15 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
               <li key={`${s.runtimeId}/${s.name}`}>
                 <strong>{s.name}</strong> on {s.runtimeLabel} — {s.runs} run
                 {s.runs === 1 ? "" : "s"}, last {ago(s.lastUsed)}{" "}
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   onClick={() =>
                     setDraft({ add: { runtimeId: s.runtimeId, name: s.name, label: s.name } })
                   }
                 >
                   Add to your models
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -307,12 +304,12 @@ function ModelDialog({
         </label>
         <Refusal error={error} />
         <footer className="modal__footer">
-          <button type="button" className="button button--quiet" onClick={onCancel}>
+          <Button variant="quiet" onClick={onCancel}>
             Cancel
-          </button>
-          <button type="submit" className="button" disabled={pending || label.trim() === ""}>
+          </Button>
+          <Button type="submit" variant="primary" disabled={pending || label.trim() === ""}>
             {pending ? "Saving…" : existing ? "Save model" : "Add model"}
-          </button>
+          </Button>
         </footer>
       </form>
     </Modal>

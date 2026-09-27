@@ -213,6 +213,37 @@ export async function nav(browser, label) {
   await (await browser.$(`//nav//button[.//span[normalize-space()="${label}"]]`)).click();
 }
 
+/** The app has drawn its frame: the left strip, with Plenipo's logo at its top. */
+export const waitForShell = (browser, timeoutMs) =>
+  waitUntil(
+    () =>
+      browser.execute(
+        () =>
+          document.querySelector(
+            'nav[aria-label="Main"] .ui-rail__brand [aria-label="Plenipo"]',
+          ) !== null,
+      ),
+    "Plenipo's frame",
+    timeoutMs,
+  );
+
+/**
+ * Open a section of Settings (Phase 12: one section at a time, from the list on the left), e.g.
+ * "Servers", "Permissions", "AI models", "Switches", "Personalization".
+ */
+export async function openSettings(browser, section) {
+  await nav(browser, "Settings");
+  const tab = await browser.$(
+    `//div[@role="tablist" and @aria-label="Settings sections"]//button[@role="tab"][normalize-space()="${section}"]`,
+  );
+  await tab.waitForClickable({ timeout: 10_000 });
+  await tab.click();
+  await waitUntil(
+    async () => (await tab.getAttribute("aria-selected")) === "true",
+    `Settings → ${section}`,
+  );
+}
+
 export async function clickButton(browser, label) {
   const button = await browser.$(
     `//button[normalize-space()="${label}" or @aria-label="${label}"]`,
@@ -226,8 +257,26 @@ export async function screenshot(browser, name) {
   const dir = process.env.PLENIPO_E2E_SCREENSHOTS;
   if (!dir) return;
   mkdirSync(dir, { recursive: true });
+  // Pictures (Pip) are loaded and drawn first, so a screenshot never shows an empty space
+  // (the test display draws without a graphics card, and a large picture takes a moment).
+  try {
+    await browser.executeAsync((done) => {
+      Promise.all([...document.images].map((img) => img.decode().catch(() => undefined))).then(() =>
+        requestAnimationFrame(() => requestAnimationFrame(() => done(true))),
+      );
+    });
+  } catch {
+    // A picture that never loads is the page's problem to show, not the screenshot's.
+  }
   await browser.saveScreenshot(join(dir, `${name}.png`));
 }
+
+/** Whether a picture has loaded and has something to show (a broken one has no width). */
+export const pictureShown = (browser, selector) =>
+  browser.execute((s) => {
+    const img = document.querySelector(s);
+    return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+  }, selector);
 
 export const LOG = '[role="log"]';
 export const DETAIL = ".detail__header";

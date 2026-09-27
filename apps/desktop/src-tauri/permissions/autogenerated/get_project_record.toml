@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-project-record"
+description = "Enables the get_project_record command without any pre-configured scope."
+commands.allow = ["get_project_record"]
+
+[[permission]]
+identifier = "deny-get-project-record"
+description = "Denies the get_project_record command without any pre-configured scope."
+commands.deny = ["get_project_record"]

@@ -1,9 +1,11 @@
 import type { PermissionsSnapshot, UnitLimit } from "@plenipo/types";
+import { StatusPill } from "@plenipo/ui";
 
 import { assignPermissions } from "../../api/commands";
 import { usePermissions } from "../../guard/usePermissions";
 import { useRun } from "../../guard/useRun";
 import { Refusal } from "../models/shared";
+import { PILL_TONE } from "../tones";
 import { PermissionSets } from "./PermissionSets";
 import { ApprovalWindow, BlockedFiles, CommandLists, SensitiveActions } from "./RuleLists";
 import { SecretList } from "./SecretList";
@@ -37,9 +39,10 @@ export function PermissionSettings() {
         browser, and (as a last resort) the screen, mouse, and keyboard — and only as far as these
         settings allow. Every use is checked and recorded; changes apply to a worker&apos;s next
         request.{" "}
-        <span className={`pill ${s.tools.running ? "pill--ok" : "pill--bad"}`}>
-          {s.tools.running ? "Tools ready" : "Tools not running"}
-        </span>
+        <StatusPill
+          status={s.tools.running ? PILL_TONE.ok : PILL_TONE.bad}
+          label={s.tools.running ? "Tools ready" : "Tools not running"}
+        />
       </p>
       {s.notices.length > 0 && (
         <ul className="notices">

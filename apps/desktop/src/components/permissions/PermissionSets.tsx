@@ -1,5 +1,6 @@
 import { Fragment, useState, type FormEvent } from "react";
 import type { Capability, Level, PermissionSet, PermissionsSnapshot } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { removePermissionSet, savePermissionSet } from "../../api/commands";
 import { CAPABILITY_LABEL, LEVELS, LEVEL_LABEL, levelOf, setSummary } from "../../guard/format";
@@ -23,14 +24,14 @@ export function PermissionSets({
     <section aria-labelledby="sets-title">
       <div className="section-header">
         <h3 id="sets-title">Permission sets</h3>
-        <button
-          type="button"
-          className="button button--small"
+        <Button
+          variant="primary"
+          size="sm"
           aria-expanded={editing === ""}
           onClick={() => setEditing(editing === "" ? null : "")}
         >
           New permission set
-        </button>
+        </Button>
       </div>
       <p className="muted">
         A permission set says what a worker may do: allowed, ask me each time, or blocked. Give a
@@ -59,25 +60,25 @@ export function PermissionSets({
                 </th>
                 <td>{setSummary(s)}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="button button--small button--quiet"
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     aria-expanded={editing === s.id}
                     aria-label={`Change the ${s.name} set`}
                     onClick={() => setEditing(editing === s.id ? null : s.id)}
                   >
                     {editing === s.id ? "Close" : "Change"}
-                  </button>{" "}
+                  </Button>{" "}
                   {!s.builtIn && (
-                    <button
-                      type="button"
-                      className="button button--small button--danger"
+                    <Button
+                      variant="danger"
+                      size="sm"
                       disabled={pending}
                       aria-label={`Remove the ${s.name} set`}
                       onClick={() => void run(() => removePermissionSet(s.id))}
                     >
                       Remove
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
@@ -188,12 +189,12 @@ function SetEditor({
       </table>
       <Refusal error={error} />
       <div className="actions">
-        <button type="submit" className="button" disabled={pending || name.trim() === ""}>
+        <Button type="submit" variant="primary" disabled={pending || name.trim() === ""}>
           Save permission set
-        </button>
-        <button type="button" className="button button--quiet" onClick={onDone}>
+        </Button>
+        <Button variant="quiet" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

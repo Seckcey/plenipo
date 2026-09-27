@@ -26,6 +26,7 @@ plenipo-workforce = { path = "../../../crates/workforce" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "~2.4"
 
 [target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["signal"] }

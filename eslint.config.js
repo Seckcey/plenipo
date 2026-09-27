@@ -19,6 +19,8 @@ export default tseslint.config(
       "packages/types/src/generated/**",
       // Archived, approved generator is retained byte for byte with its kit manifest.
       "assets/source/build-kit.cjs",
+      // The owner's approved brand kit, kept exactly as delivered.
+      "docs/brand/pip-brand-kit/**",
     ],
   },
   js.configs.recommended,

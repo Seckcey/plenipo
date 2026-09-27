@@ -1,5 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0B1220"/>
-  <path d="M22 48V16h13a10 10 0 0 1 0 20H22" fill="none" stroke="#2E8BFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="44" cy="46" r="4" fill="#2E8BFF"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100">
+  <!-- Plenipo's app icon: the approved three-rail P (docs/brand/pip-brand-kit, favicons, on dark)
+       on the kit's navy. The P's paths and colors are copied from plenipo-favicon-on-dark.svg. -->
+  <rect width="100" height="100" rx="22" fill="#081226"/>
+  <g transform="translate(50 50) scale(0.8) translate(-50 -50)">
+    <g transform="translate(-0.5 -3)">
+      <g fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 15H56A26 26 0 0 1 56 67H43A24 24 0 0 0 19 91" stroke="#5b97ff"/>
+        <path d="M19 30H54A12 12 0 0 1 54 54H42A10 10 0 0 0 32 64V91" stroke="#8cbcff"/>
+        <path d="M19 43H44V91" stroke="#d8e8ff"/>
+      </g>
+    </g>
+  </g>
 </svg>

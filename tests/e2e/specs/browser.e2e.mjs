@@ -23,6 +23,8 @@ import {
   nav,
   screenshot as save,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -234,8 +236,8 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
 
   it("Settings → Permissions → Websites: allow the test site, block localhost", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "Permissions");
     await waitUntil(() => exists(browser, "#websites-title"), "the Websites section");
     await waitForText(browser, ".websites", "Check a website's terms before you allow it.");
     const allowed = await field(

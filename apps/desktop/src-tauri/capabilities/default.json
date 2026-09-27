@@ -16,6 +16,9 @@
     "allow-get-task-timeline",
     "allow-list-recent-events",
     "allow-get-activity",
+    "allow-get-scope-events",
+    "allow-get-task-events",
+    "allow-get-project-record",
     "allow-create-synthetic-task",
     "allow-advance-synthetic-task",
     "allow-run-integrity-check",
@@ -33,6 +36,12 @@
     "allow-get-liaison-overview",
     "allow-get-organization",
     "allow-get-work",
+    "allow-get-home",
+    "allow-get-task-record",
+    "allow-get-notice-settings",
+    "allow-set-notice-settings",
+    "allow-send-test-notice",
+    "allow-get-local-paths",
     "allow-rename-organization",
     "allow-set-organization-titles",
     "allow-create-role",
@@ -94,6 +103,13 @@
     "allow-save-server",
     "allow-remove-server",
     "allow-check-server-identity",
-    "allow-test-server"
+    "allow-test-server",
+    "allow-stop-server-command",
+    "allow-get-terminal-settings",
+    "allow-set-terminal-shell",
+    "allow-open-terminal",
+    "allow-write-terminal",
+    "allow-resize-terminal",
+    "allow-close-terminal"
   ]
 }

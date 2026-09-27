@@ -48,6 +48,7 @@ After the MVP:
 | Kimi joins the AI tools (ADR-027)                                  | `1.5.0` |
 | Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.6.0` |
 | Phase 12A — Visual design system (ADR-030)                         | `1.7.0` |
+| Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)   | `1.8.0` |
 
 ## Releasing
 

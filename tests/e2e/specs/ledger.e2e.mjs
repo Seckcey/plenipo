@@ -18,6 +18,7 @@ import {
   waitForText,
   waitPidGone,
   waitUntil,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -67,7 +68,7 @@ describe("Phase 2 ledger (real app)", () => {
 
   it("records a synthetic task with a complete ordered trail", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     await nav(browser, "Diagnostics");
     await clickButton(browser, "Create synthetic task");
     await waitForText(browser, '[role="status"]', "Created");
@@ -83,9 +84,9 @@ describe("Phase 2 ledger (real app)", () => {
     await waitForText(browser, DETAIL, objective);
     await waitForTrailLength(browser, 3);
     await clickButton(browser, "Await approval");
-    await waitForText(browser, TRAIL, "Running → Awaiting approval");
+    await waitForText(browser, TRAIL, "Running → Waiting for you");
     await clickButton(browser, "Resume");
-    await waitForText(browser, TRAIL, "Awaiting approval → Running");
+    await waitForText(browser, TRAIL, "Waiting for you → Running");
     await waitForTrailLength(browser, 5);
 
     const items = await trailItems(browser);
@@ -148,7 +149,7 @@ describe("Phase 2 ledger (real app)", () => {
 
     app = await launch(home);
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     assert.equal(await (await browser.$(".banner--severe")).isExisting(), false, "no corruption");
     await openActivityTask(browser, objective);
     await waitForText(browser, DETAIL, "Running");

@@ -15,6 +15,12 @@
 //! - anything else: `PROGRAM: command not found`, exit code 127.
 //!
 //! Port forwarding (direct-tcpip) to any destination reaches `forward_to` on 127.0.0.1.
+//!
+//! A terminal and a shell (`pty-req`, `shell`) are refused and counted, since workers must never
+//! ask for them, unless `shell` is set: then the owner's terminal (Phase 12, ADR-031) gets a small
+//! shell with a prompt (`deploy@synthetic:~$ `) that echoes what is typed and knows `echo`,
+//! `whoami`, `hostname`, `pwd`, `size` (the terminal's size), and `exit`. Requests are still
+//! counted either way, and each line typed is recorded, so tests can check what reached it.
 
 #![allow(dead_code)]
 
@@ -60,6 +66,8 @@ pub struct Options {
     pub files: HashMap<String, String>,
     /// Where forwarded connections go (a port on 127.0.0.1).
     pub forward_to: Option<u16>,
+    /// Give a terminal and a shell to whoever asks (the owner's terminal); off: refuse them.
+    pub shell: bool,
 }
 
 impl Default for Options {
@@ -72,6 +80,7 @@ impl Default for Options {
             authorized: Vec::new(),
             files: HashMap::new(),
             forward_to: None,
+            shell: false,
         }
     }
 }
@@ -93,6 +102,10 @@ pub struct Seen {
     pub shell: usize,
     /// Port forwards asked for: `host:port`.
     pub forwards: Vec<String>,
+    /// Terminal sizes asked for (the first request, then each change): `COLSxROWS`.
+    pub sizes: Vec<String>,
+    /// Lines typed into a shell (with `shell` on).
+    pub shell_lines: Vec<String>,
     /// Connections accepted.
     pub connections: usize,
 }
@@ -158,6 +171,8 @@ impl Sshd {
                         user: None,
                         programs: HashMap::new(),
                         kill: Arc::clone(&kill),
+                        terminals: HashMap::new(),
+                        shells: HashMap::new(),
                     };
                     let config = Arc::clone(&config);
                     // The session runs over one end of a pipe; a pump this server owns relays the
@@ -258,6 +273,38 @@ struct Conn {
     /// Running programs: their channel → (name, the signal sent to them).
     programs: HashMap<ChannelId, (String, watch::Sender<Option<Sig>>)>,
     kill: Arc<Mutex<Option<AbortHandle>>>,
+    /// Terminals given (channel → size), and the shells running in them.
+    terminals: HashMap<ChannelId, (u32, u32)>,
+    shells: HashMap<ChannelId, String>,
+}
+
+/// The shell's prompt.
+fn prompt(user: &str) -> String {
+    format!("{user}@synthetic:~$ ")
+}
+
+impl Conn {
+    /// One line typed into the shell: its output, and whether the shell ends.
+    fn shell_line(&self, channel: ChannelId, line: &str) -> (String, bool) {
+        let user = self.user.clone().unwrap_or_default();
+        let mut words = line.split_whitespace();
+        let program = words.next().unwrap_or("");
+        let args: Vec<&str> = words.collect();
+        let out = match program {
+            "" => String::new(),
+            "echo" => format!("{}\r\n", args.join(" ")),
+            "whoami" => format!("{user}\r\n"),
+            "hostname" => "synthetic\r\n".into(),
+            "pwd" => format!("/home/{user}\r\n"),
+            "size" => {
+                let (cols, rows) = self.terminals.get(&channel).copied().unwrap_or((0, 0));
+                format!("{cols}x{rows}\r\n")
+            }
+            "exit" => return ("logout\r\n".into(), true),
+            other => format!("{other}: command not found\r\n"),
+        };
+        (out, false)
+    }
 }
 
 impl Conn {
@@ -393,15 +440,99 @@ impl server::Handler for Conn {
         &mut self,
         channel: ChannelId,
         _term: &str,
-        _col_width: u32,
-        _row_height: u32,
+        col_width: u32,
+        row_height: u32,
         _pix_width: u32,
         _pix_height: u32,
         _modes: &[(russh::Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        self.note(|s| s.pty += 1);
-        session.channel_failure(channel)?;
+        self.note(|s| {
+            s.pty += 1;
+            s.sizes.push(format!("{col_width}x{row_height}"));
+        });
+        if self.options.shell {
+            self.terminals.insert(channel, (col_width, row_height));
+            session.channel_success(channel)?;
+        } else {
+            session.channel_failure(channel)?;
+        }
+        Ok(())
+    }
+
+    async fn window_change_request(
+        &mut self,
+        channel: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.note(|s| s.sizes.push(format!("{col_width}x{row_height}")));
+        if let Some(size) = self.terminals.get_mut(&channel) {
+            *size = (col_width, row_height);
+        }
+        Ok(())
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if !self.shells.contains_key(&channel) {
+            return Ok(());
+        }
+        let user = self.user.clone().unwrap_or_default();
+        for &byte in data {
+            match byte {
+                b'\r' | b'\n' => {
+                    let line = self
+                        .shells
+                        .get_mut(&channel)
+                        .map(std::mem::take)
+                        .unwrap_or_default();
+                    self.note(|s| s.shell_lines.push(line.clone()));
+                    let (out, exit) = self.shell_line(channel, &line);
+                    session.data(channel, format!("\r\n{out}").into_bytes())?;
+                    if exit {
+                        self.shells.remove(&channel);
+                        session.exit_status_request(channel, 0)?;
+                        session.eof(channel)?;
+                        session.close(channel)?;
+                        return Ok(());
+                    }
+                    session.data(channel, prompt(&user).into_bytes())?;
+                }
+                // Backspace (DEL, or ^H): rub out the last character.
+                0x7f | 0x08 => {
+                    let rubbed = self
+                        .shells
+                        .get_mut(&channel)
+                        .and_then(String::pop)
+                        .is_some();
+                    if rubbed {
+                        session.data(channel, b"\x08 \x08".to_vec())?;
+                    }
+                }
+                // Ctrl+C: drop the line.
+                0x03 => {
+                    if let Some(line) = self.shells.get_mut(&channel) {
+                        line.clear();
+                    }
+                    session.data(channel, format!("^C\r\n{}", prompt(&user)).into_bytes())?;
+                }
+                b if b >= 0x20 => {
+                    if let Some(line) = self.shells.get_mut(&channel) {
+                        line.push(char::from(b));
+                    }
+                    session.data(channel, vec![b])?;
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 
@@ -446,7 +577,17 @@ impl server::Handler for Conn {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.note(|s| s.shell += 1);
-        session.channel_failure(channel)?;
+        if self.options.shell && self.terminals.contains_key(&channel) {
+            session.channel_success(channel)?;
+            self.shells.insert(channel, String::new());
+            let user = self.user.clone().unwrap_or_default();
+            session.data(
+                channel,
+                format!("Welcome to the synthetic server.\r\n{}", prompt(&user)).into_bytes(),
+            )?;
+        } else {
+            session.channel_failure(channel)?;
+        }
         Ok(())
     }
 
@@ -470,8 +611,10 @@ impl server::Handler for Conn {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Its program ends with it.
+        // Its program (or shell) ends with it.
         self.programs.remove(&channel);
+        self.shells.remove(&channel);
+        self.terminals.remove(&channel);
         Ok(())
     }
 
