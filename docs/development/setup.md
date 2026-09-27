@@ -10,7 +10,7 @@ Install these once. Versions are minimums.
 | ------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Microsoft C++ Build Tools | VS 2022           | [Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) → select **Desktop development with C++** |
 | WebView2 Runtime          | Evergreen         | Preinstalled on Windows 11. If missing: [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)        |
-| Rust                      | stable (≥ 1.85)   | [rustup-init.exe](https://rustup.rs) — choose the default MSVC toolchain                                            |
+| Rust                      | stable (≥ 1.87)   | [rustup-init.exe](https://rustup.rs) — choose the default MSVC toolchain                                            |
 | Node.js                   | 22 LTS            | [nodejs.org](https://nodejs.org) or `winget install OpenJS.NodeJS.LTS`                                              |
 | pnpm                      | 10 (via Corepack) | `corepack enable` (ships with Node)                                                                                 |
 | Git                       | any recent        | `winget install Git.Git`                                                                                            |
