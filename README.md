@@ -1,93 +1,151 @@
-# Plenipo
+<p align="center">
+  <img src="docs/brand/social-preview.svg" alt="Plenipo — local-first AI workforce. Worker, Supervisor, Manager, VP, President." width="840">
+</p>
 
-Plenipo is a local-first desktop control plane for an AI workforce. You hand an outcome to
-your AI organization — VPs, managers, and supervisors that stay on the job — and Plenipo routes
-the work to supervisors and specialist workers, grants only the permissions each task needs,
-watches over the work, and keeps a complete record of it.
+<p align="center">
+  <strong>Hand it an outcome. Your AI organization gets it done.</strong><br>
+  A Windows desktop app that runs a whole AI workforce on your own PC — on your own Claude Code,
+  Codex, Grok, and Ollama sign-ins. No API keys, no cloud, no per-token bill.
+</p>
 
-> **AI tools:** Claude Code, Codex, Grok (xAI's Grok Build, run over ACP —
-> [ADR-015](docs/adr/ADR-015-acp-ai-tools.md), running AI tools over ACP), and now Ollama's cloud
-> models ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its
-> service on your PC). Each uses your own sign-in; Plenipo never uses API keys.
->
-> **Status:** Phase 11 — Servers (v1.5.0). Workers can now work on your servers over SSH —
-> checking status and logs, restarting services, and deploying — only on the servers you set up
-> in **Settings → Servers**. Each server has a friendly name, its address, how Plenipo signs in
-> (a key or password kept in Windows Credential Manager, or your own SSH agent — workers never
-> see them), its identity, which you check and pin when you add it, whether it is a development,
-> staging, or **production** server (production is red everywhere), which roles may use it, the
-> kinds of commands it allows, and its folders. Plenipo checks each server's identity before it
-> signs in; if it ever changes, the work is blocked and you are told. On production, every
-> command waits for your approval, and deleting, wiping, or shutting down is blocked unless you
-> turn it on. Workers never reach other computers from a server. A sign on every page shows who
-> is connected to which server, with **Disconnect** and **Stop all**, and every command and its
-> output are in the Activity trail. The new **Operations Engineer** role does this work.
->
-> Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
-> on websites that have no official connection — in **Plenipo's own browser**, never yours: it
-> has its own profile, so your sign-ins and saved passwords are never used. **Settings →
-> Permissions → Websites** says which websites workers may open, which never, and whether others
-> ask you first. Submitting a form, buying, signing in, and sending anything always wait for your
-> approval, with a screenshot of the page. Workers never type passwords or secrets, and never get
-> past a CAPTCHA: when a website needs you signed in, you sign in yourself. As a last resort, a
-> worker you allow can see the screen and use the mouse and keyboard, and taking control asks
-> you every time. Whenever a worker uses the browser or the desktop, a sign on every page says so,
-> with **Take over** and **Stop all**; the Windows tray has the same Stop. Every step is in the
-> Activity trail with its screenshot. Every role now also knows its job — what it does, what it
-> hands back, its limits, and when to ask for help — and you can write the same for your own
-> roles. Phase 9 (Sales) is postponed: a new Sales department on HubSpot comes later.
->
-> Phase 8 — the Development department (accepted, v1.0.0, the first full release). Tell
-> Development what you want — "implement the login page in Website and get it ready for review" —
-> and it gets done without you opening Claude Code or Codex. **Projects → Set up a Development
-> project** creates the Development department with its VP, the project with its Supervisor, and
-> a team: a developer, a code reviewer, a QA engineer, and a documentation writer, on both AI
-> tools. The VP hands your objective to the project's Supervisor, whose team works on a new
-> branch in its own working copy of your project folder (your own copy is never changed):
-> implement, review, fix, test, and — when you ask — open a draft pull request on GitHub, which
-> waits for your approval. The **result** is Plenipo's own record: every task, who did it on
-> which AI model, the files changed, the tests and whether they passed, the review and its open
-> findings, the branch and pull request, and approvals still needed.
->
-> Phase 7 — Permissions, Guard, and your approval (accepted, v0.8.0). Workers can now work on your computer — only inside
-> their project's folder, and only as far as you allow. **Settings → Permissions** gives each
-> role a permission set (read files, change files, run programs, save to git…, each Allowed,
-> Ask me, or Blocked), lets a project or department narrow it, lists the programs workers may
-> run without asking and the files they may never open, and keeps secrets in Windows Credential
-> Manager, where workers never see them. Anything outside a worker's permissions is blocked and
-> shown; sensitive actions — deploying, DNS, passwords, payments, publishing, running as
-> administrator — stop for your approval with a card that says exactly what will run. The
-> **Approvals** page lets you approve, deny, or revoke a worker's permissions at once, and
-> everything is recorded in the Ledger.
->
-> Phase 6 — Model policy and role routing (accepted, v0.7.0). **Settings → AI models** says which AI model each role's workers
-> get: list your models (each AI tool's default is built in) and how hard each one thinks (effort), give each role its model choices —
-> first choice, backups, what the model must be able to do, AI companies it never uses, and
-> reviews by a different AI company — and see, for every role, the model its next worker would
-> get and why. New positions follow their role's choices ("Auto" on the map); you can still fix
-> a position to one AI tool. A usage limit never moves work to another AI company unless you
-> allow it, and every worker's reason is kept in the Ledger.
->
-> Phase 5 — Workforce and organization engine (accepted, v0.6.1). The
-> **Organization** view is a live topology map of your AI workforce: create departments and
-> projects (each comes with its manager or supervisor), drag roles from the hire palette onto a
-> lead to build its team, drag positions to change who they report to or to make them a team's
-> reviewer, QA evaluator, or security auditor, and give a supervisor an objective — its workers
-> appear under it while they work and leave when done, with every step in the durable local
-> Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
-> **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
-> the Mafia. Agents run on your own signed-in Claude Code, Codex, Grok, and Ollama (subscription sign-ins
-> only, no pay-per-use API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+<p align="center">
+  <a href="https://github.com/Seckcey/plenipo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Seckcey/plenipo/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Seckcey/plenipo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Seckcey/plenipo?color=2F7BF6&label=release"></a>
+  <a href="LICENSE"><img alt="License: Elastic-2.0" src="https://img.shields.io/badge/license-Elastic--2.0-2F7BF6"></a>
+  <img alt="Windows 11" src="https://img.shields.io/badge/Windows%2011-Tauri%202%20%2B%20Rust-2F7BF6">
+  <a href="https://github.com/Seckcey/plenipo/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Seckcey/plenipo?style=social"></a>
+</p>
 
-## Stack
+<p align="center">
+  <a href="https://github.com/Seckcey/plenipo/releases/latest"><strong>Download for Windows</strong></a>
+  ·
+  <a href="docs/development/setup.md">Build from source</a>
+  ·
+  <a href="docs/editions.md">Free and Pro</a>
+  ·
+  <a href="ROLLOUT_PLAN.md">Roadmap</a>
+</p>
 
-| Layer            | Technology                   |
-| ---------------- | ---------------------------- |
-| Desktop shell    | Tauri 2                      |
-| UI               | React 19 + TypeScript + Vite |
-| Privileged core  | Rust (stable)                |
-| Package managers | pnpm (JS), Cargo (Rust)      |
-| Primary target   | Windows 11 (NSIS installer)  |
+---
+
+## What Plenipo is
+
+Most AI coding tools give you one assistant in one window. You are still the one splitting the work
+up, carrying answers between tools, and remembering where everything stands.
+
+Plenipo gives you an **organization** instead. You say what you want. A VP hands it to a Manager,
+who hands it to a Supervisor, whose team of workers does the job — implement, review, test,
+document — and hands back a result you can read. Everything runs on your own computer, on AI tools
+you already pay for, and every step is written down.
+
+You are the President. You approve what matters and stay out of the rest.
+
+## Where the name comes from
+
+**Plenipo** — _PLEN-ih-poh_ — is short for **plenipotentiary**: a diplomat sent abroad with full
+power to negotiate and sign on behalf of a government, without going home for approval on every
+point.
+
+That is the job Plenipo gives an AI worker. A Supervisor hands it an objective and it acts with real
+authority — it writes files, runs programs, commits to a branch, opens a browser. It does not stop
+to ask about every step, because a worker that asks about everything costs you more attention than
+doing the job yourself.
+
+And like a real plenipotentiary, its authority has edges. It is given a brief — its job, what it
+hands back, its limits, and when to come ask. It works inside its own folder. And the things no
+government ever delegates — money, passwords, publishing, anything that cannot be taken back — come
+back to the President for a signature.
+
+Full power, clearly bounded. That is the whole idea.
+
+## What it does
+
+- **Builds you an org chart that works.** Create departments and projects, drag roles onto a lead to
+  build a team, and give a Supervisor an objective. Its workers show up under it while they work and
+  leave when they are done.
+- **Runs on the AI tools you already have.** Claude Code, Codex, Grok, and Ollama, on your own
+  sign-ins. Plenipo never uses API keys, so there is no per-token bill for any of this.
+- **Picks the right model for each role.** Say which models a role may use, in what order, how hard
+  they should think, and whether reviews must come from a different AI company. Plenipo shows you
+  the model every worker would get, and why.
+- **Keeps workers on a leash.** Each role gets a permission set — read files, change files, run
+  programs, save to git — set to Allowed, Ask me, or Blocked. Workers stay inside their project's
+  folder. Secrets live in the Windows Credential Manager, where workers never see them.
+- **Stops for your approval on anything that matters.** Deploying, DNS, passwords, payments,
+  publishing, running as administrator, submitting a form, buying, signing in, sending anything —
+  each one waits, with a card that says exactly what will run, and a screenshot when it happens in a
+  browser.
+- **Does the work on websites too.** In **Plenipo's own browser**, never yours: its own profile, so
+  your sign-ins and saved passwords are never touched. You choose which sites workers may open.
+  Workers never type passwords and never get past a CAPTCHA — when a site needs you signed in, you
+  sign in yourself.
+- **Works on your servers, carefully.** An Operations Engineer can check a server, read its logs,
+  restart a service, or deploy — only on the servers you add in **Settings → Servers**, and only
+  after you have checked and pinned each server's identity. Keys and passwords stay in the Windows
+  Credential Manager or your SSH agent. On a **production** server every command waits for you,
+  and deleting, wiping, or shutting down is off unless you turn it on.
+- **Writes everything down.** Every task, who did it on which AI model, files changed, tests and
+  whether they passed, the review and its open findings, the branch and pull request, and every
+  approval — in a local record you own.
+- **Gives you the kill switch.** Whenever a worker is using the browser, the desktop, or a server,
+  a sign on the page says so, with **Take over** (or **Disconnect**) and **Stop all**. The Windows
+  tray has the same Stop.
+
+## How it works
+
+```mermaid
+flowchart TD
+    P["President — you<br/>says what the outcome is"] --> VP["VP<br/>runs the organization"]
+    VP --> M["Manager<br/>runs a department"]
+    M --> S["Supervisor<br/>leads a project and its team"]
+    S --> W1["Worker<br/>Developer"]
+    S --> W2["Worker<br/>Code reviewer"]
+    S --> W3["Worker<br/>QA engineer"]
+    S --> W4["Worker<br/>Docs writer"]
+```
+
+1. **You give an objective** to a department or a project — "implement the login page in Website and
+   get it ready for review."
+2. **It gets handed down** the chain of command until it reaches a Supervisor with a team that can
+   do it.
+3. **The team works** on a new branch, in its own copy of your project folder. Your own copy is
+   never touched.
+4. **You get a result**: what was done, by whom, on which model, what passed, what is still open,
+   and anything waiting on your approval.
+
+Ranks are yours to rename — **Settings → Personalization → Titles** swaps them for a U.S. military
+branch, or the Mafia. Only the names change.
+
+## Screenshots
+
+Coming with the next release. If you are running Plenipo already,
+[screenshots are the most useful thing you can contribute](docs/images/README.md).
+
+<!-- Uncomment each block below once the file exists — see docs/images/README.md.
+
+<p align="center"><img src="docs/images/organization.png" alt="The Organization view: a live map of departments, projects, and workers" width="900"></p>
+<p align="center"><em>The Organization view — a live map of your workforce.</em></p>
+
+<p align="center"><img src="docs/images/approval.png" alt="An approval card showing exactly what a worker is about to run" width="900"></p>
+<p align="center"><em>Nothing sensitive happens without this card.</em></p>
+
+<p align="center"><img src="docs/images/permissions.png" alt="Settings → Permissions, showing a role's permission set" width="900"></p>
+<p align="center"><em>Every role gets exactly the permissions it needs.</em></p>
+
+-->
+
+## Free and Pro
+
+| Edition  | What you get                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
+| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
+
+Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
+[`docs/editions.md`](docs/editions.md).
+
+> Releases up to v1.5.0 have no limits at all — everything is unlocked while the split is being
+> built.
 
 ## Quick start
 
@@ -101,9 +159,148 @@ pnpm install
 pnpm dev          # run the desktop app with hot reload
 ```
 
-No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
-install and sign in to at least one of Claude Code, Codex, Grok, and Ollama — see the
+No API keys, provider logins, or `.env` file are needed to build or launch. To run workers, install
+and sign in to at least one of Claude Code, Codex, Grok, and Ollama — see the
 [setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-and-ollama-optional).
+
+Prefer not to build it? [Download the latest Windows installer](https://github.com/Seckcey/plenipo/releases/latest).
+
+## What's new
+
+Plenipo is built phase by phase. Current version: **v1.5.0**.
+
+<details>
+<summary><strong>v1.5.0 — Servers</strong> (Phase 11)</summary>
+
+Workers can now work on your servers over SSH — checking status and logs, restarting services,
+and deploying — only on the servers you add in **Settings → Servers**. Each server has a name, its
+address, how Plenipo signs in (a key or password kept in Windows Credential Manager, or your own
+SSH agent; workers never see them), its identity, which you check and pin when you add it, and
+whether it is a development, staging, or **production** server (production is red everywhere).
+You choose which roles may use it, the kinds of commands it allows, and its folders.
+
+Plenipo checks each server's identity before it signs in; if it ever changes, the work is blocked
+and you are told. On production, every command waits for your approval, and deleting, wiping, or
+shutting down is off unless you turn it on. Workers never reach other computers from a server.
+A sign on every page shows who is connected to which server, with **Disconnect** and **Stop all**,
+and every command and its output are in the Activity trail. The new **Operations Engineer** role
+does this work.
+
+[Release notes](docs/releases/v1.5.0.md) · [ADR-025](docs/adr/ADR-025-servers-over-ssh.md)
+(servers over SSH, through Guard)
+
+</details>
+
+<details>
+<summary><strong>v1.3.0 — Plenipo's browser, and the screen, mouse, and keyboard</strong> (Phase 10)</summary>
+
+Workers can do tasks on websites that have no official connection — in **Plenipo's own browser**,
+never yours: it has its own profile, so your sign-ins and saved passwords are never used.
+**Settings → Permissions → Websites** says which sites workers may open, which never, and whether
+others ask you first. Submitting a form, buying, signing in, and sending anything always wait for
+your approval, with a screenshot of the page. Workers never type passwords or secrets, and never
+get past a CAPTCHA. As a last resort, a worker you allow can see the screen and use the mouse and
+keyboard, and taking control asks you every time. Whenever a worker uses the browser or the
+desktop, a sign on every page says so, with **Take over** and **Stop all**; the Windows tray has
+the same Stop. Every step is in the Activity trail with its screenshot.
+
+Every role now also knows its job — what it does, what it hands back, its limits, and when to ask
+for help — and you can write the same for your own roles.
+
+[Release notes](docs/releases/v1.3.0.md) · [ADR-020](docs/adr/ADR-020-browser-and-computer-use.md)
+(Plenipo's browser and computer use, through Guard) ·
+[ADR-019](docs/adr/ADR-019-role-working-instructions.md) (every role knows its job)
+
+</details>
+
+<details>
+<summary><strong>v1.2.0 — Ollama's cloud models join the AI tools</strong></summary>
+
+Ollama's cloud models, through its service on your PC.
+[Release notes](docs/releases/v1.2.0.md) ·
+[ADR-017](docs/adr/ADR-017-ollama-cloud-models.md) (Ollama's cloud models through its service)
+
+</details>
+
+<details>
+<summary><strong>v1.1.0 — Grok joins the AI tools</strong></summary>
+
+xAI's Grok Build, run over ACP. [Release notes](docs/releases/v1.1.0.md) ·
+[ADR-015](docs/adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP)
+
+</details>
+
+<details>
+<summary><strong>v1.0.0 — The Development department</strong> (Phase 8, the first full release)</summary>
+
+Tell Development what you want — "implement the login page in Website and get it ready for review" —
+and it gets done without you opening Claude Code or Codex. **Projects → Set up a Development
+project** creates the department with its VP, the project with its Supervisor, and a team: a
+developer, a code reviewer, a QA engineer, and a documentation writer, on both AI tools. The team
+works on a new branch in its own working copy of your project folder (your own copy is never
+changed): implement, review, fix, test, and — when you ask — open a draft pull request on GitHub,
+which waits for your approval. The **result** is Plenipo's own record of all of it.
+
+[Release notes](docs/releases/v1.0.0.md) ·
+[ADR-016](docs/adr/ADR-016-development-department.md) (Development department)
+
+</details>
+
+<details>
+<summary><strong>v0.8.0 — Workers can use your computer, with your permission</strong> (Phase 7)</summary>
+
+**Settings → Permissions** gives each role a permission set (read files, change files, run
+programs, save to git…, each Allowed, Ask me, or Blocked), lets a project or department narrow it,
+lists the programs workers may run without asking and the files they may never open, and keeps
+secrets in Windows Credential Manager. Anything outside a worker's permissions is blocked and
+shown; sensitive actions stop for your approval with a card that says exactly what will run. The
+**Approvals** page lets you approve, deny, or revoke at once.
+
+[Release notes](docs/releases/v0.8.0.md) ·
+[ADR-013](docs/adr/ADR-013-guard-capability-broker.md) (Guard, capability broker, and human
+approval)
+
+</details>
+
+<details>
+<summary><strong>v0.7.0 — Model policy and role routing</strong> (Phase 6)</summary>
+
+**Settings → AI models** says which AI model each role's workers get: list your models, set how hard
+each one thinks, and give each role its first choice, backups, required abilities, AI companies it
+never uses, and reviews by a different company. A usage limit never moves work to another AI company
+unless you allow it.
+
+[Release notes](docs/releases/v0.7.0.md) ·
+[ADR-011](docs/adr/ADR-011-model-policy-routing.md) (Router: model registry, role policies, routing)
+
+</details>
+
+<details>
+<summary><strong>v0.6.1 — Workforce and organization engine</strong> (Phase 5)</summary>
+
+The **Organization** view becomes a live map: create departments and projects, drag roles from the
+hire palette onto a lead, drag positions to change who they report to or to make them a team's
+reviewer, QA evaluator, or security auditor, and give a Supervisor an objective.
+
+[Release notes](docs/releases/v0.6.1.md) ·
+[ADR-009](docs/adr/ADR-009-workforce.md) (Workforce organization engine and topology canvas) ·
+[ADR-010](docs/adr/ADR-010-plain-titles.md) (plain words, chain of command, choosable ranks)
+
+</details>
+
+Older releases: [`docs/releases/`](docs/releases/). Phase 9 (Sales) is postponed — a Sales
+department on HubSpot comes later
+([ADR-018](docs/adr/ADR-018-sales-on-hubspot-no-paperclip.md)).
+
+## Stack
+
+| Layer            | Technology                   |
+| ---------------- | ---------------------------- |
+| Desktop shell    | Tauri 2                      |
+| UI               | React 19 + TypeScript + Vite |
+| Privileged core  | Rust (stable)                |
+| Package managers | pnpm (JS), Cargo (Rust)      |
+| Primary target   | Windows 11 (NSIS installer)  |
 
 ## Common commands
 
@@ -151,21 +348,70 @@ packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview
 docs/adr/                Architecture Decision Records
+docs/brand/              Logo, colors, and the social preview artwork
 docs/development/        Setup, configuration, versioning
+docs/images/             Screenshots used in this README
 docs/phases/             Phase checklists and acceptance reports
 scripts/                 Repository tooling
 ```
 
-Further crates from the plan are added when the
-phase that needs them begins — see [ADR-004](docs/adr/ADR-004-repository-layout.md).
+Further crates from the plan are added when the phase that needs them begins — see
+[ADR-004](docs/adr/ADR-004-repository-layout.md).
 
 ## Documentation
 
 - [Architecture overview](docs/architecture/overview.md)
 - [Developer setup (Windows)](docs/development/setup.md)
+- [Adding an AI tool](docs/development/adding-an-ai-tool.md)
 - [Configuration conventions](docs/development/configuration.md)
 - [Versioning](docs/development/versioning.md)
 - [Architecture Decision Records](docs/adr/README.md)
 - [Plain words: the words the app uses](docs/design/vocabulary.md)
+- [Free and Pro](docs/editions.md)
 - [Phase checklists and acceptance reports](docs/phases/)
 - [Rollout plan](ROLLOUT_PLAN.md)
+
+## Roadmap
+
+Plenipo follows [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md), phase by phase, each with a checklist and an
+acceptance report in [`docs/phases/`](docs/phases/). Next up: the Free and Pro split
+([ADR-021](docs/adr/ADR-021-editions-and-license.md)), then the Sales department on HubSpot
+([ADR-018](docs/adr/ADR-018-sales-on-hubspot-no-paperclip.md)).
+
+Have an opinion on what should come next?
+[Open a discussion](https://github.com/Seckcey/plenipo/discussions) — the roadmap is not set in
+stone.
+
+## Contributing
+
+Pull requests are welcome. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers getting set up, the checks a
+change has to pass, and the house rules — chief among them: **every word a person can see uses
+plain, everyday language** ([`docs/design/vocabulary.md`](docs/design/vocabulary.md)).
+
+Good first contributions: screenshots ([here is what is needed](docs/images/README.md)), a bug
+report from your own Windows setup, or a fix for something in the
+[open issues](https://github.com/Seckcey/plenipo/issues).
+
+## Security
+
+Plenipo runs AI workers with real permissions on a real computer, so security reports matter. Never
+open a public issue for one — use [private reporting](https://github.com/Seckcey/plenipo/security).
+The promises Plenipo makes, and what counts as a vulnerability, are in
+[`SECURITY.md`](SECURITY.md).
+
+## License
+
+Plenipo is source-available under the [Elastic License 2.0](LICENSE). You may read, build, run,
+change, and share it. You may not sell it to others as a hosted or managed service, or work around
+its license-key checks. See [`docs/editions.md`](docs/editions.md) for Free and Pro, and
+[ADR-021](docs/adr/ADR-021-editions-and-license.md) for why this license.
+
+© 2026 8 West Ventures, LLC.
+
+---
+
+<p align="center">
+  If the idea of an AI org chart on your own PC is interesting,
+  <a href="https://github.com/Seckcey/plenipo">star the repo</a> — it is the clearest signal of what
+  to build next.
+</p>

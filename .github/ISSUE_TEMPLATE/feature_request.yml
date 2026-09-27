@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest something Plenipo should be able to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plenipo is built phase by phase against
+        [`ROLLOUT_PLAN.md`](https://github.com/Seckcey/plenipo/blob/main/ROLLOUT_PLAN.md). Have a
+        look there first — what you want may already be planned. For an open-ended idea, start a
+        [discussion](https://github.com/Seckcey/plenipo/discussions) instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to get done
+      description: Describe the job, not the solution. What does Plenipo make hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should Plenipo do
+      description: What you would like to see, and where in the app you would expect it.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Plenipo
+      options:
+        - Organization and the workforce
+        - AI tools and models
+        - Permissions, Guard, and approvals
+        - The Development department
+        - Plenipo's browser, screen, mouse, and keyboard
+        - Ledger and the Activity trail
+        - Settings and personalization
+        - Installer, updates, or packaging
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Any workaround you are using now, and why it is not good enough.
