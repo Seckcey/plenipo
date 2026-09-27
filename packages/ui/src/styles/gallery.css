@@ -26,6 +26,7 @@
 
 .gallery__pane {
   min-width: 0;
+  overflow-x: auto;
   padding: var(--ui-space-6);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);

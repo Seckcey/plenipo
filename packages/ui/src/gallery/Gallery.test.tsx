@@ -8,10 +8,10 @@ const now = Date.UTC(2026, 8, 27, 18, 0);
 
 const SECTIONS = [
   "Status",
-  "Entity cards",
+  "Cards",
   "Card grid",
   "Table and filters",
-  "Detail split view",
+  "Detail page",
   "Relationship map",
   "Notices",
   "Controls",
@@ -27,7 +27,12 @@ describe("Gallery", () => {
       <Gallery
         now={now}
         theme="dark"
-        live={{ state: "ready", cards: sampleCards(now).slice(0, 2) }}
+        live={{
+          state: "ready",
+          cards: sampleCards(now)
+            .slice(0, 2)
+            .map((c, i) => ({ ...c, id: `card-${i}` })),
+        }}
       />,
     );
     expect(screen.getByRole("heading", { name: "From your organization" })).toBeInTheDocument();
@@ -35,11 +40,42 @@ describe("Gallery", () => {
     expect(screen.getByRole("table", { name: "Workers" })).toHaveAttribute("aria-rowcount", "5001");
   });
 
+  it("captions every sample in plain words, not code names", () => {
+    const { container } = render(<Gallery now={now} theme="dark" />);
+    const captions = [...container.querySelectorAll("figcaption")].map((c) => c.textContent ?? "");
+    expect(captions.length).toBeGreaterThan(30);
+    for (const caption of captions) expect(caption).not.toMatch(/^[a-z]+(-[a-z]+)+$/);
+  });
+
+  it("shows the loading, error, and empty states of the filters and the detail page", () => {
+    render(<Gallery now={now} theme="dark" />);
+    for (const text of [
+      "Loading filters…",
+      "Couldn't load the filters",
+      "No filters here yet",
+      "Loading Worker details…",
+      "Couldn't load the details",
+      "Nothing picked",
+      "Loading details…",
+      "Nothing to show yet",
+      "Loading the timeline…",
+      "Couldn't load the timeline",
+    ])
+      expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+    const list = screen.getByRole("region", { name: "Worker list" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+  });
+
   it("shows the live section's empty, loading, and error states", () => {
     const { rerender } = render(
       <Gallery now={now} theme="dark" live={{ state: "ready", cards: [] }} />,
     );
     expect(screen.getByText("No departments or projects yet")).toBeInTheDocument();
+    const { container } = render(
+      <Gallery now={now} theme="dark" live={{ state: "loading", cards: [] }} />,
+    );
+    const live = within(container).getByRole("region", { name: "From your organization" });
+    expect(live.querySelectorAll(".ui-card--skeleton")).toHaveLength(2);
     rerender(
       <Gallery now={now} theme="dark" live={{ state: "error", error: "No answer", cards: [] }} />,
     );

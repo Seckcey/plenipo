@@ -1,5 +1,5 @@
 /**
- * Status primitives. Status is always a mark **and** a word, never color alone (ADR-029 §5):
+ * Status primitives. Status is always a mark **and** a word, never color alone (ADR-030 §5):
  * each status also has its own mark shape, so it reads in grayscale too.
  */
 
@@ -75,6 +75,7 @@ export function CountBadge({
   return (
     <span
       className={cx("ui-badge", `ui-badge--${tone}`, className)}
+      role="img"
       aria-label={`${count} ${label}`}
     >
       {count > 999 ? "999+" : count}
@@ -219,7 +220,7 @@ export function ActivityStripPlaceholder({
   return (
     <div className={cx("ui-strip", `ui-strip--${state}`)}>
       <div className="ui-strip__bar" aria-hidden="true" />
-      <div className="ui-strip__message" role={state === "error" ? "alert" : undefined}>
+      <div className="ui-strip__message">
         {message ??
           (state === "loading"
             ? "Loading activity…"

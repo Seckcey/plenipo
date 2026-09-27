@@ -83,7 +83,7 @@ export interface VirtualWindow {
 
 /**
  * Windowing for fixed-height rows: only the rows in view (plus `overscan` on each side) are
- * drawn, so thousands of rows scroll smoothly (ADR-029 §6). `scroller` is the element that
+ * drawn, so thousands of rows scroll smoothly (ADR-030 §6). `scroller` is the element that
  * scrolls; `offset` is how far the first row sits below its top (a sticky header).
  */
 export function useVirtualWindow({
@@ -99,7 +99,12 @@ export function useVirtualWindow({
   overscan?: number;
   offset?: number;
 }): VirtualWindow {
-  const [scrollTop, setScrollTop] = useState(0);
+  // The scroll position belongs to one element: a scroller that is replaced (after loading, or
+  // an error) starts at the top, as the browser draws it.
+  const [scroll, setScroll] = useState<{ el: HTMLElement | null; top: number }>({
+    el: null,
+    top: 0,
+  });
   const size = useElementSize(scroller);
   const frame = useRef<number | null>(null);
 
@@ -114,7 +119,7 @@ export function useVirtualWindow({
           : (fn: FrameRequestCallback) => setTimeout(() => fn(0), 0) as unknown as number;
       frame.current = schedule(() => {
         frame.current = null;
-        setScrollTop(el.scrollTop);
+        setScroll({ el, top: el.scrollTop });
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -128,7 +133,10 @@ export function useVirtualWindow({
   }, [scroller]);
 
   const viewport = size.height > 0 ? size.height : FALLBACK_VIEWPORT;
-  const top = Math.max(0, scrollTop - offset);
+  // A list that got shorter cannot be scrolled past its end (the browser clamps it too).
+  const maxTop = Math.max(0, count * itemHeight - viewport);
+  const scrollTop = scroll.el === scroller ? scroll.top : 0;
+  const top = Math.min(maxTop, Math.max(0, scrollTop - offset));
   const first = Math.floor(top / itemHeight);
   const visible = Math.ceil(viewport / itemHeight) + 1;
   const start = Math.max(0, Math.min(count, first - overscan));

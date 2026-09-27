@@ -39,7 +39,7 @@
 .ui-error {
   border-style: solid;
   border-color: var(--ui-error);
-  background: var(--ui-error-soft);
+  background: linear-gradient(var(--ui-error-soft), var(--ui-error-soft)), var(--ui-surface);
 }
 
 .ui-error__icon {
@@ -64,6 +64,9 @@
 }
 
 .ui-loading {
+  flex: 1 1 160px;
+  width: 100%;
+  min-width: 160px;
   display: grid;
   gap: var(--ui-space-4);
   padding: var(--ui-space-5) 0;

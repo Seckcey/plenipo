@@ -1,6 +1,6 @@
 /**
  * Plenipo's own line icons: simple strokes on a 24-unit grid, drawn in the current text color.
- * No UniFi (or other) artwork (ADR-029 §5).
+ * No UniFi (or other) artwork (ADR-030 §5).
  */
 
 import { ICONS, type IconName, type Shape } from "./icon-data";

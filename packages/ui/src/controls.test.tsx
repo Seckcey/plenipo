@@ -108,6 +108,16 @@ describe("Tabs", () => {
   });
 });
 
+describe("ErrorState", () => {
+  it("is polite by default, and interrupts only when urgent", () => {
+    const { rerender } = render(<ErrorState title="Couldn't load" />);
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't load");
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(<ErrorState title="Couldn't save" urgent />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't save");
+  });
+});
+
 describe("states", () => {
   it("empty, loading, and error say what is happening", async () => {
     const user = userEvent.setup();
@@ -121,7 +131,7 @@ describe("states", () => {
     );
     expect(screen.getAllByRole("status")[0]).toHaveTextContent("No workers yet");
     expect(screen.getByText("Loading workers…")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("No answer");
+    expect(screen.getByText("No answer", { exact: false })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalled();
   });

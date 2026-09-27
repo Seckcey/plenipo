@@ -24,8 +24,13 @@
   border-color: var(--ui-control-border);
 }
 
-.ui-button:disabled {
-  opacity: 0.5;
+/* Turned off: muted words on a quiet fill, readable in both themes (not faded blue). */
+.ui-button:disabled,
+.ui-button--primary:disabled,
+.ui-button--danger:disabled {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
   cursor: default;
 }
 
@@ -173,7 +178,6 @@
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: var(--ui-accent-fill);
 }
 
 .ui-check--disabled {
@@ -191,7 +195,7 @@
   gap: var(--ui-space-3);
   height: var(--ui-control-height);
   padding: 0 var(--ui-space-4);
-  border: 1px solid var(--ui-border-strong);
+  border: 1px solid var(--ui-control-border);
   border-radius: var(--ui-radius-md);
   background: var(--ui-surface-sunken);
   color: var(--ui-text-muted);
@@ -231,8 +235,12 @@
   padding: 0 var(--ui-space-4);
   border: 1px solid var(--ui-control-border);
   border-radius: var(--ui-radius-md);
-  background: var(--ui-surface-sunken);
+  background-color: var(--ui-surface-sunken);
   color: var(--ui-text-primary);
+}
+
+.ui-field select {
+  padding-right: 26px;
 }
 
 .ui-field--bare {

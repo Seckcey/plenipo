@@ -7,6 +7,7 @@ import { useId, useState, type ReactNode } from "react";
 
 import { Checkbox, IconButton, SearchField } from "./controls";
 import { Icon } from "./icons";
+import { EmptyState, ErrorState, LoadingState } from "./states";
 import { cx, formatCount } from "./util";
 
 import {
@@ -32,6 +33,9 @@ function RangeSlider({
   const fmt = facet.format ?? String;
   const span = facet.max - facet.min || 1;
   const [lo, hi] = value;
+  // The two handles share one track. When they meet in the upper half, the lower handle comes
+  // to the front, so it can still be moved down (and the upper one up, in the lower half).
+  const lowOnTop = lo >= facet.min + span / 2;
   return (
     <div className="ui-range">
       <div className="ui-range__head">
@@ -54,6 +58,7 @@ function RangeSlider({
           max={facet.max}
           step={facet.step ?? 1}
           value={lo}
+          style={{ zIndex: lowOnTop ? 2 : 1 }}
           aria-label={`${facet.label}, lowest`}
           aria-valuetext={fmt(lo)}
           onChange={(e) => onChange([Math.min(Number(e.target.value), hi), hi])}
@@ -141,6 +146,9 @@ export function FacetPanel({
   total,
   shown,
   children,
+  loading = false,
+  error,
+  onRetry,
 }: {
   label?: string;
   state: FacetState;
@@ -155,13 +163,18 @@ export function FacetPanel({
   shown?: number;
   /** Extra controls at the top (switches). */
   children?: ReactNode;
+  /** The options (and their counts) are still loading. */
+  loading?: boolean;
+  /** The options could not be loaded: what went wrong. */
+  error?: ReactNode;
+  onRetry?: (() => void) | undefined;
 }) {
   if (collapsed) {
     return (
       <aside className="ui-facets ui-facets--collapsed" aria-label={label}>
         <IconButton
           icon="panelOpen"
-          label={`Show ${label.toLowerCase()}`}
+          label="Show filters"
           onClick={() => onCollapsedChange(false)}
         />
       </aside>
@@ -178,7 +191,7 @@ export function FacetPanel({
         />
         <IconButton
           icon="panelClose"
-          label={`Hide ${label.toLowerCase()}`}
+          label="Hide filters"
           onClick={() => onCollapsedChange(true)}
         />
       </div>
@@ -188,22 +201,34 @@ export function FacetPanel({
         </div>
       )}
       {children}
-      {groups.map((g) => (
-        <Group
-          key={g.id}
-          group={g}
-          selected={state.checks[g.id] ?? []}
-          onChange={(values) => onChange({ ...state, checks: { ...state.checks, [g.id]: values } })}
-        />
-      ))}
-      {ranges.map((r) => (
-        <RangeSlider
-          key={r.id}
-          facet={r}
-          value={state.ranges[r.id] ?? [r.min, r.max]}
-          onChange={(v) => onChange({ ...state, ranges: { ...state.ranges, [r.id]: v } })}
-        />
-      ))}
+      {loading ? (
+        <LoadingState label="Loading filters" lines={5} />
+      ) : error !== undefined ? (
+        <ErrorState compact title="Couldn't load the filters" message={error} onRetry={onRetry} />
+      ) : groups.length === 0 && ranges.length === 0 ? (
+        <EmptyState compact title="No filters here yet" />
+      ) : (
+        <>
+          {groups.map((g) => (
+            <Group
+              key={g.id}
+              group={g}
+              selected={state.checks[g.id] ?? []}
+              onChange={(values) =>
+                onChange({ ...state, checks: { ...state.checks, [g.id]: values } })
+              }
+            />
+          ))}
+          {ranges.map((r) => (
+            <RangeSlider
+              key={r.id}
+              facet={r}
+              value={state.ranges[r.id] ?? [r.min, r.max]}
+              onChange={(v) => onChange({ ...state, ranges: { ...state.ranges, [r.id]: v } })}
+            />
+          ))}
+        </>
+      )}
       <button
         type="button"
         className={cx("ui-link", "ui-facets__clear")}

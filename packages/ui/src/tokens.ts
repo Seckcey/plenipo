@@ -1,5 +1,5 @@
 /**
- * Plenipo's design tokens: the one place colors, sizes, and timings are written (ADR-029).
+ * Plenipo's design tokens: the one place colors, sizes, and timings are written (ADR-030).
  *
  * `tokens.css` (CSS custom properties) and `tokens.json` (for the Rust side and exports) are
  * generated from this file; `pnpm tokens` rewrites them, and a test fails when they are out of
@@ -172,7 +172,7 @@ const light: Palette = {
   "map-node-border": "#cfd6e0",
   "map-node-hover": "#8fb2e8",
   "map-link": "#0a5dd1",
-  "map-link-idle": "#7a9fd8",
+  "map-link-idle": "#4a78c4",
   "map-link-glow": "rgba(10, 93, 209, 0.3)",
   "map-link-flow": "#0a5dd1",
   "map-chip": "#e3edfc",
@@ -297,12 +297,25 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "warn-text", bg: "warn-soft", over: "surface", min: 4.5 },
   { fg: "error-text", bg: "error-soft", over: "surface", min: 4.5 },
   { fg: "pending-text", bg: "pending-soft", over: "surface", min: 4.5 },
+  // Body text on a tinted notice or error panel (laid over the surface).
+  ...(["ok-soft", "warn-soft", "error-soft", "pending-soft"] as const).flatMap((bg) =>
+    (["text-primary", "text-secondary"] as const).map((fg): ContrastPair => ({
+      fg,
+      bg,
+      over: "surface",
+      min: 4.5,
+    })),
+  ),
   { fg: "text-primary", bg: "surface-overlay", over: "map-canvas", min: 4.5 },
   { fg: "text-secondary", bg: "surface-overlay", over: "map-canvas", min: 4.5 },
   { fg: "text-primary", bg: "map-node", min: 4.5 },
   { fg: "text-secondary", bg: "map-node", min: 4.5 },
   { fg: "text-primary", bg: "map-canvas", min: 4.5 },
   { fg: "text-secondary", bg: "map-canvas", min: 4.5 },
+  // Lines that carry meaning (reporting lines, map connectors): 3:1.
+  { fg: "map-link-idle", bg: "map-canvas", min: 3 },
+  { fg: "map-link", bg: "map-canvas", min: 3 },
+  { fg: "control-border", bg: "bg", min: 3 },
 ];
 
 /** The CSS custom property for a token, e.g. `--ui-surface`. */

@@ -8,8 +8,12 @@ import { useRef, type KeyboardEvent, type ReactNode } from "react";
 
 import { formatTime, HOUR_MS } from "./activity";
 import { Icon } from "./icons";
+import { EmptyState, ErrorState, LoadingState, Skeleton } from "./states";
 import { cx } from "./util";
 import type { Status } from "./status";
+
+/** Whether a part has its data: loading, couldn't load, nothing to show, or ready. */
+export type DetailState = "ready" | "loading" | "error" | "empty";
 
 export function DetailSplitView({
   label,
@@ -17,13 +21,53 @@ export function DetailSplitView({
   timeline,
   map,
   table,
+  state = "ready",
+  error,
+  onRetry,
+  empty,
 }: {
   label: string;
   properties: ReactNode;
   timeline?: ReactNode;
   map?: ReactNode;
   table?: ReactNode;
+  state?: DetailState;
+  error?: ReactNode;
+  onRetry?: (() => void) | undefined;
+  /** What to show when nothing is picked (default: "Nothing picked"). */
+  empty?: ReactNode;
 }) {
+  if (state === "loading") {
+    // One "Loading" for screen readers; the other panes are shapes only.
+    return (
+      <section className="ui-split" aria-label={label} aria-busy="true">
+        <div className="ui-split__properties">
+          <LoadingState label={`Loading ${label}`} lines={5} />
+        </div>
+        <div className="ui-split__timeline">
+          <Skeleton height="100%" />
+        </div>
+        <div className="ui-split__map">
+          <Skeleton height={160} />
+        </div>
+      </section>
+    );
+  }
+  if (state === "error" || state === "empty") {
+    return (
+      <section className="ui-split ui-split--message" aria-label={label}>
+        {state === "error" ? (
+          <ErrorState title="Couldn't load the details" message={error} onRetry={onRetry} />
+        ) : (
+          (empty ?? (
+            <EmptyState title="Nothing picked">
+              Pick something from the list to see its details here.
+            </EmptyState>
+          ))
+        )}
+      </section>
+    );
+  }
   return (
     <section className="ui-split" aria-label={label}>
       <div className="ui-split__properties">{properties}</div>
@@ -38,10 +82,43 @@ export function DetailSplitView({
 export function PropertyList({
   title,
   items,
+  state = "ready",
+  error,
+  onRetry,
+  empty = "Nothing to show yet",
 }: {
   title?: ReactNode;
   items: readonly { label: string; value: ReactNode }[];
+  state?: Exclude<DetailState, "empty">;
+  error?: ReactNode;
+  onRetry?: (() => void) | undefined;
+  /** Shown when there are no rows. */
+  empty?: string;
 }) {
+  if (state === "loading") {
+    return (
+      <div className="ui-props">
+        {title && <div className="ui-props__title">{title}</div>}
+        <LoadingState label="Loading details" lines={4} />
+      </div>
+    );
+  }
+  if (state === "error") {
+    return (
+      <div className="ui-props">
+        {title && <div className="ui-props__title">{title}</div>}
+        <ErrorState compact title="Couldn't load the details" message={error} onRetry={onRetry} />
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="ui-props">
+        {title && <div className="ui-props__title">{title}</div>}
+        <EmptyState compact title={empty} />
+      </div>
+    );
+  }
   return (
     <div className="ui-props">
       {title && <div className="ui-props__title">{title}</div>}
@@ -80,6 +157,9 @@ export function TimelineScrubber({
   value,
   onChange,
   label = "Timeline",
+  state = "ready",
+  error,
+  onRetry,
 }: {
   from: number;
   to: number;
@@ -87,6 +167,10 @@ export function TimelineScrubber({
   value: TimelineValue;
   onChange: (next: TimelineValue) => void;
   label?: string;
+  /** "empty" is not needed: with no events the head says so and the track still works. */
+  state?: Exclude<DetailState, "empty">;
+  error?: ReactNode;
+  onRetry?: (() => void) | undefined;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const span = Math.max(1, to - from);
@@ -123,13 +207,35 @@ export function TimelineScrubber({
   const ticks = Array.from({ length: 7 }, (_, i) => to - (span * i) / 6);
   const hours = Math.round(span / HOUR_MS);
   const inRange = events.filter((e) => e.at >= from && e.at <= to);
+  const head = `Last ${hours} ${hours === 1 ? "hour" : "hours"}`;
+
+  if (state === "loading") {
+    return (
+      <div className="ui-timeline">
+        <div className="ui-timeline__head">{head}</div>
+        <LoadingState label="Loading the timeline" lines={6} />
+      </div>
+    );
+  }
+  if (state === "error") {
+    return (
+      <div className="ui-timeline">
+        <div className="ui-timeline__head">{head}</div>
+        <ErrorState compact title="Couldn't load the timeline" message={error} onRetry={onRetry} />
+      </div>
+    );
+  }
 
   return (
     <div className="ui-timeline">
       <div className="ui-timeline__head">
-        Last {hours} {hours === 1 ? "hour" : "hours"}{" "}
+        {head}{" "}
         <span className="ui-num">
-          ({inRange.length} {inRange.length === 1 ? "event" : "events"})
+          (
+          {inRange.length === 0
+            ? "no events yet"
+            : `${inRange.length} ${inRange.length === 1 ? "event" : "events"}`}
+          )
         </span>
       </div>
       <div

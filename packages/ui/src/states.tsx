@@ -31,20 +31,28 @@ export function EmptyState({
   );
 }
 
-/** Something went wrong: what, and a way to try again. */
+/**
+ * Something went wrong: what, and a way to try again. Announced politely; `urgent` interrupts
+ * (only for an error that follows something the person just did).
+ */
 export function ErrorState({
   title = "Something went wrong",
   message,
   onRetry,
   compact = false,
+  urgent = false,
 }: {
   title?: string;
   message?: ReactNode;
   onRetry?: (() => void) | undefined;
   compact?: boolean;
+  urgent?: boolean;
 }) {
   return (
-    <div className={cx("ui-error", compact && "ui-error--compact")} role="alert">
+    <div
+      className={cx("ui-error", compact && "ui-error--compact")}
+      role={urgent ? "alert" : "status"}
+    >
       <Icon name="alert" size={compact ? 16 : 22} className="ui-error__icon" />
       <div>
         <div className="ui-error__title">{title}</div>

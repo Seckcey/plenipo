@@ -38,12 +38,20 @@ export function TopologyMap({
   if (nodes.length === 0) return <>{empty ?? <EmptyState compact title="Nothing to map yet" />}</>;
 
   const { placed, width, height } = layoutMap(nodes, links);
+  // Draw each connection once, and only between two tiles on the map.
+  const drawn = links.filter(
+    (l, i) =>
+      l.from !== l.to &&
+      placed.has(l.from) &&
+      placed.has(l.to) &&
+      links.findIndex((m) => m.from === l.from && m.to === l.to) === i,
+  );
   const byName = new Map(nodes.map((n) => [n.id, n.label]));
   return (
     <div className="ui-map" role="group" aria-label={label}>
       <div className="ui-map__canvas" style={{ width, height }}>
         <svg className="ui-map__links" width={width} height={height} aria-hidden="true">
-          {links.map((l) => {
+          {drawn.map((l) => {
             const a = placed.get(l.from);
             const b = placed.get(l.to);
             if (!a || !b) return null;
@@ -80,7 +88,9 @@ export function TopologyMap({
             >
               <span className="ui-map__tile-name">
                 {node.icon && <Icon name={node.icon} size={14} />}
-                {node.label}
+                <span className="ui-map__tile-label" title={node.label}>
+                  {node.label}
+                </span>
               </span>
               <span className="ui-map__tile-status">
                 <span className="ui-status__mark" aria-hidden="true" />
@@ -92,7 +102,7 @@ export function TopologyMap({
         ))}
       </div>
       <ul className="ui-visually-hidden" aria-label="Connections">
-        {links.map((l) => (
+        {drawn.map((l) => (
           <li key={`${l.from}-${l.to}`}>
             {byName.get(l.from)} to {byName.get(l.to)}
             {l.label ? `: ${l.label}` : ""}

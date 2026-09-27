@@ -8,7 +8,7 @@
   min-width: 0;
   padding: var(--ui-space-4);
   border-right: 1px solid var(--ui-border);
-  overflow: auto;
+  overflow: hidden auto;
 }
 
 .ui-facets--collapsed {
@@ -135,6 +135,19 @@
   -webkit-appearance: none;
 }
 
+/* Which handle has focus: a ring on that handle, not a box around the shared track. */
+.ui-range input[type="range"]:focus-visible {
+  outline: none;
+}
+
+.ui-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--ui-accent);
+}
+
+.ui-range input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--ui-accent);
+}
+
 .ui-range input[type="range"]::-moz-range-thumb {
   width: 12px;
   height: 12px;
@@ -156,4 +169,14 @@
 .ui-range__marks span {
   position: absolute;
   transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+/* The end labels stay inside the track. */
+.ui-range__marks span:first-child {
+  transform: none;
+}
+
+.ui-range__marks span:last-child {
+  transform: translateX(-100%);
 }

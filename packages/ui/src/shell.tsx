@@ -1,5 +1,5 @@
 /**
- * The frame around every page (ADR-029 §4): the left strip of sections (icons with names under
+ * The frame around every page (ADR-030 §4): the left strip of sections (icons with names under
  * them, the owner's choice), the top bar, and the notice area.
  */
 

@@ -2,6 +2,7 @@
 
 .ui-table {
   display: grid;
+  align-content: start;
   gap: var(--ui-space-3);
   min-width: 0;
 }
@@ -102,6 +103,11 @@
   opacity: 0;
 }
 
+/* In a number column the arrow goes before the name, so the name lines up with the numbers. */
+.ui-table__num .ui-table__sort {
+  flex-direction: row-reverse;
+}
+
 .ui-table__sort:hover .ui-table__sort-icon,
 .ui-table__sort--active .ui-table__sort-icon {
   opacity: 1;
@@ -146,9 +152,9 @@
 
 .ui-table__page-size select {
   height: 22px;
-  padding: 0 var(--ui-space-3);
+  padding: 0 24px 0 var(--ui-space-3);
   border: 1px solid var(--ui-control-border);
   border-radius: var(--ui-radius-sm);
-  background: var(--ui-surface-sunken);
+  background-color: var(--ui-surface-sunken);
   color: var(--ui-text-primary);
 }

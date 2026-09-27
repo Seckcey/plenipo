@@ -2,7 +2,7 @@
   "name": "@plenipo/ui",
   "version": "1.7.0",
   "private": true,
-  "description": "Plenipo's design system: tokens, components, and their styles (Phase 12A, ADR-029).",
+  "description": "Plenipo's design system: tokens, components, and their styles (Phase 12A, ADR-030).",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -108,6 +108,8 @@ describe("ThemeToggle", () => {
 describe("TopBar", () => {
   it("has the scope, the title, the bell, and the theme switch", async () => {
     const user = userEvent.setup();
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
     const open = vi.fn();
     const scope = vi.fn();
     render(
@@ -127,7 +129,12 @@ describe("TopBar", () => {
               />
             }
             title="Projects"
-            end={<NotificationBell count={3} label="waiting for your approval" onOpen={open} />}
+            end={
+              <>
+                <Themed />
+                <NotificationBell count={3} label="waiting for your approval" onOpen={open} />
+              </>
+            }
           />
         }
       >
@@ -144,6 +151,10 @@ describe("TopBar", () => {
       screen.getByRole("button", { name: "Notifications: 3 waiting for your approval" }),
     );
     expect(open).toHaveBeenCalled();
+    await user.click(
+      within(screen.getByRole("banner")).getByRole("button", { name: "Switch to the light theme" }),
+    );
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 
   it("says when nothing is waiting", () => {

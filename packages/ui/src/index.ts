@@ -1,4 +1,4 @@
-// @plenipo/ui — Plenipo's design system (Phase 12A, ADR-029). Import the styles once with
+// @plenipo/ui — Plenipo's design system (Phase 12A, ADR-030). Import the styles once with
 // `import "@plenipo/ui/styles.css"`.
 
 export * from "./tokens";

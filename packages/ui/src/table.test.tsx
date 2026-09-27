@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { CellLink, DataTable } from "./table";
 import { sortRows, statusColumn, type Column } from "./table-columns";
@@ -88,6 +88,31 @@ describe("5,000 rows", () => {
     expect(bodyRows().length).toBeLessThan(80);
   });
 
+  it("starts at the top again when the table comes back after an error", async () => {
+    const table = (state: "ready" | "error") => (
+      <DataTable
+        label="Workers"
+        rows={rows}
+        columns={columns}
+        getRowId={(r) => r.id}
+        defaultPageSize="all"
+        state={state}
+      />
+    );
+    const { rerender } = render(table("ready"));
+    const scroller = document.querySelector(".ui-table__scroll") as HTMLElement;
+    await act(async () => {
+      scroller.scrollTop = 30 + 4000 * 28;
+      fireEvent.scroll(scroller);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.getByText("Worker 4000")).toBeInTheDocument();
+    rerender(table("error"));
+    rerender(table("ready"));
+    // The same table, with a new scrolling box at its top: the first rows are drawn in it.
+    expect(screen.getByText("Worker 0000")).toBeInTheDocument();
+  });
+
   it("sorts 5,000 rows in both directions", async () => {
     const user = userEvent.setup();
     render(<Table />);
@@ -128,7 +153,121 @@ describe("selection", () => {
   });
 });
 
+describe("selection with filters", () => {
+  it("keeps rows chosen before a filter, counts them, and Select all leaves them be", async () => {
+    const user = userEvent.setup();
+    function Filtered() {
+      const [selected, setSelected] = useState<Set<string>>(new Set());
+      const [onlyShop, setOnlyShop] = useState(false);
+      const shown = useMemo(
+        () => rows.slice(0, 6).filter((r) => !onlyShop || r.project === "Shop"),
+        [onlyShop],
+      );
+      return (
+        <>
+          <button onClick={() => setOnlyShop(true)}>Only Shop</button>
+          <DataTable
+            label="Workers"
+            rows={shown}
+            columns={columns}
+            getRowId={(r) => r.id}
+            selectable
+            selected={selected}
+            onSelectedChange={setSelected}
+          />
+        </>
+      );
+    }
+    render(<Filtered />);
+    // Row 2 (r1) is a Website row; the filter hides it.
+    await user.click(screen.getByRole("checkbox", { name: "Select row 2" }));
+    await user.click(screen.getByRole("button", { name: "Only Shop" }));
+    expect(screen.getByText("1 selected (1 hidden by filters)")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Select all 2" }));
+    expect(screen.getByText("3 selected (1 hidden by filters)")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Select all 2" }));
+    expect(screen.getByText("1 selected (1 hidden by filters)")).toBeInTheDocument();
+  });
+});
+
+describe("pages and filters", () => {
+  it("goes back to the first page when the rows change", async () => {
+    const user = userEvent.setup();
+    function Paged() {
+      const [few, setFew] = useState(false);
+      const shown = useMemo(() => (few ? rows.slice(0, 300) : rows), [few]);
+      return (
+        <>
+          <button onClick={() => setFew(true)}>Fewer</button>
+          <DataTable
+            label="Workers"
+            rows={shown}
+            columns={columns}
+            getRowId={(r) => r.id}
+            defaultPageSize={100}
+          />
+        </>
+      );
+    }
+    render(<Paged />);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("201–300 of 5,000 records")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Fewer" }));
+    expect(screen.getByText("1–100 of 300 records")).toBeInTheDocument();
+  });
+
+  it("does not jump back when the same rows are rebuilt on every render", async () => {
+    const user = userEvent.setup();
+    function Rebuilt() {
+      const [, setTick] = useState(0);
+      return (
+        <>
+          <button onClick={() => setTick((t) => t + 1)}>Redraw</button>
+          <DataTable
+            label="Workers"
+            rows={rows.slice(0, 300)}
+            columns={columns}
+            getRowId={(r) => r.id}
+            defaultPageSize={100}
+          />
+        </>
+      );
+    }
+    render(<Rebuilt />);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Redraw" }));
+    expect(screen.getByText("101–200 of 300 records")).toBeInTheDocument();
+  });
+});
+
 describe("columns", () => {
+  it("never keeps a column hidden that cannot be hidden, and new columns start as the table says", () => {
+    localStorage.setItem(
+      "test.memory.columns",
+      JSON.stringify({ hidden: ["name", "tool"], seen: ["name", "status", "tool", "project"] }),
+    );
+    const withNew: Column<Row>[] = [
+      ...columns,
+      { id: "extra", header: "Extra", cell: () => "x", hidden: true },
+    ];
+    render(
+      <DataTable
+        label="Workers"
+        rows={rows.slice(0, 3)}
+        columns={withNew}
+        getRowId={(r) => r.id}
+        storageKey="test.memory"
+      />,
+    );
+    // Name can't be hidden, so it shows; AI tool stays hidden as chosen; Tasks (known before
+    // only by its absence from "seen") and Extra (new, hidden by default) follow the table.
+    expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "AI tool" })).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "Tasks" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Extra" })).toBeNull();
+  });
+
   it("hides a column and remembers it", async () => {
     const user = userEvent.setup();
     const { unmount } = render(<Table storageKey="test.table" />);
@@ -168,8 +307,17 @@ describe("keyboard", () => {
       "aria-sort",
       "ascending",
     );
+    // Every sortable header in turn (Project has no sort), then the first row's checkbox.
+    for (const name of ["Status", "AI tool", "Tasks"]) {
+      await user.tab();
+      expect(screen.getByRole("button", { name })).toHaveFocus();
+    }
     await user.tab();
-    expect(screen.getByRole("button", { name: "Status" })).toHaveFocus();
+    const first = screen.getByRole("checkbox", { name: "Select row 1" });
+    expect(first).toHaveFocus();
+    await user.keyboard(" ");
+    expect(first).toBeChecked();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
 });
 
@@ -198,7 +346,7 @@ describe("states", () => {
         onRetry={retry}
       />,
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("No answer");
+    expect(screen.getByText("No answer", { exact: false })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalled();
     rerender(<DataTable label="T" rows={[] as Row[]} columns={columns} getRowId={(r) => r.id} />);

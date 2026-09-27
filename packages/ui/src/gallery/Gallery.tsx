@@ -25,7 +25,7 @@ import {
   TextField,
 } from "../controls";
 import { DetailSplitView, PropertyList, TimelineScrubber, type TimelineValue } from "../detail";
-import { useFacets, type FacetConfig } from "../facet-logic";
+import { EMPTY_FACETS, useFacets, type FacetConfig } from "../facet-logic";
 import { FacetPanel } from "../facets";
 import { ICON_NAMES } from "../icon-data";
 import { Icon } from "../icons";
@@ -68,7 +68,8 @@ import {
 export interface GalleryLive {
   state: "loading" | "error" | "ready";
   error?: string;
-  cards: EntityCardProps[];
+  /** Each card with a unique id (a department and a project can share a name). */
+  cards: (EntityCardProps & { id: string })[];
 }
 
 function Section({
@@ -91,12 +92,15 @@ function Section({
   );
 }
 
+/** One sample. `name` is for the look test (`data-gallery`); `caption` is what people read. */
 function Variant({
   name,
+  caption,
   children,
   wide = false,
 }: {
   name: string;
+  caption: string;
   children: ReactNode;
   wide?: boolean;
 }) {
@@ -105,7 +109,7 @@ function Variant({
       className={wide ? "gallery__variant gallery__variant--wide" : "gallery__variant"}
       data-gallery={name}
     >
-      <figcaption>{name}</figcaption>
+      <figcaption>{caption}</figcaption>
       <div className="gallery__sample">{children}</div>
     </figure>
   );
@@ -182,7 +186,6 @@ const facetConfig: FacetConfig<SampleWorker> = {
       format: (h) => (h === 0 ? "Now" : h < 48 ? `${h} h` : `${Math.round(h / 24)} d`),
       marks: [
         { value: 0, label: "Now" },
-        { value: 168, label: "1W" },
         { value: 720, label: "1M" },
         { value: 2160, label: "3M" },
       ],
@@ -197,7 +200,7 @@ function FilteredTable({ workers, prefix }: { workers: SampleWorker[]; prefix: s
   const [opened, setOpened] = useState<string | null>(null);
   const columns = useMemo(() => workerColumns(setOpened), []);
   return (
-    <div className="gallery__filtered">
+    <div className="gallery__filtered" data-gallery="filtered-table">
       <FacetPanel
         state={facets.state}
         onChange={facets.setState}
@@ -208,6 +211,7 @@ function FilteredTable({ workers, prefix }: { workers: SampleWorker[]; prefix: s
         total={workers.length}
         shown={facets.filtered.length}
         searchPlaceholder="Search workers"
+        label="Filter workers"
       />
       <div className="gallery__filtered-main">
         {opened && (
@@ -256,7 +260,7 @@ function Grid({ workers, now }: { workers: SampleWorker[]; now: number }) {
     [workers, now],
   );
   return (
-    <div className="gallery__filtered">
+    <div className="gallery__filtered" data-gallery="filtered-grid">
       <FacetPanel
         state={facets.state}
         onChange={facets.setState}
@@ -266,6 +270,7 @@ function Grid({ workers, now }: { workers: SampleWorker[]; now: number }) {
         total={workers.length}
         shown={facets.filtered.length}
         searchPlaceholder="Search cards"
+        label="Filter worker cards"
       />
       <div className="gallery__filtered-main">
         <CardGrid
@@ -302,61 +307,63 @@ function SplitSample({ now, prefix }: { now: number; prefix: string }) {
   const rows = useMemo(() => sampleWorkers(12, 3), []);
   const columns = useMemo(() => workerColumns(() => undefined).slice(0, 6), []);
   return (
-    <DetailSplitView
-      label="Website Supervisor"
-      properties={
-        <PropertyList
-          title={<StatusDot status="pending" label="Website Supervisor · Waiting for you" />}
-          items={[
-            { label: "AI tool", value: "Codex" },
-            { label: "Model", value: "Automatic" },
-            { label: "Project", value: "Website" },
-            {
-              label: "Live updates",
-              value: <Switch label="Live updates" checked={live} onChange={setLive} />,
-            },
-            {
-              label: "Show the map",
-              value: <Switch label="Show the map" checked={map} onChange={setMap} />,
-            },
-          ]}
-        />
-      }
-      timeline={
-        <TimelineScrubber
-          from={now - DAY_MS}
-          to={now}
-          events={events}
-          value={value}
-          onChange={setValue}
-          label="Website Supervisor's timeline"
-        />
-      }
-      map={
-        map ? (
-          <TopologyMap
-            label="Delegation tree"
-            nodes={nodes}
-            links={links}
-            selectedId={selected}
-            onSelect={setSelected}
+    <div data-gallery="split">
+      <DetailSplitView
+        label="Website Supervisor"
+        properties={
+          <PropertyList
+            title={<StatusDot status="pending" label="Website Supervisor · Waiting for you" />}
+            items={[
+              { label: "AI tool", value: "Codex" },
+              { label: "Model", value: "Automatic" },
+              { label: "Project", value: "Website" },
+              {
+                label: "Live updates",
+                value: <Switch label="Live updates" checked={live} onChange={setLive} />,
+              },
+              {
+                label: "Show the map",
+                value: <Switch label="Show the map" checked={map} onChange={setMap} />,
+              },
+            ]}
           />
-        ) : (
-          <EmptyState compact title="The map is hidden" />
-        )
-      }
-      table={
-        <DataTable
-          label={`Team at ${value === "live" ? "now" : "the chosen time"}`}
-          rows={rows}
-          columns={columns}
-          getRowId={(w) => w.id}
-          defaultPageSize={25}
-          storageKey={`plenipo.gallery.${prefix}.split`}
-          height={260}
-        />
-      }
-    />
+        }
+        timeline={
+          <TimelineScrubber
+            from={now - DAY_MS}
+            to={now}
+            events={events}
+            value={value}
+            onChange={setValue}
+            label="Website Supervisor's timeline"
+          />
+        }
+        map={
+          map ? (
+            <TopologyMap
+              label="Delegation tree"
+              nodes={nodes}
+              links={links}
+              selectedId={selected}
+              onSelect={setSelected}
+            />
+          ) : (
+            <EmptyState compact title="The map is hidden" />
+          )
+        }
+        table={
+          <DataTable
+            label={`Team at ${value === "live" ? "now" : "the chosen time"}`}
+            rows={rows}
+            columns={columns}
+            getRowId={(w) => w.id}
+            defaultPageSize={25}
+            storageKey={`plenipo.gallery.${prefix}.split`}
+            height={260}
+          />
+        }
+      />
+    </div>
   );
 }
 
@@ -410,8 +417,9 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             </EmptyState>
           ) : (
             <div className="gallery__cards" data-gallery="live-cards">
-              {live.cards.map((c) => (
-                <EntityCard key={c.title} {...c} now={now} />
+              {live.cards.map(({ id, ...card }) => (
+                // Real activity ends at the moment it was read, so "Now" follows the clock.
+                <EntityCard key={id} {...card} />
               ))}
             </div>
           )}
@@ -424,17 +432,17 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
         lead="A mark and a word, never color alone. Each status has its own mark shape."
       >
         <div className="gallery__row">
-          <Variant name="status-dot">
+          <Variant name="status-dot" caption="Status marks">
             {STATUSES.map((s) => (
               <StatusDot key={s} status={s} label={STATUS_WORDS[s]} />
             ))}
           </Variant>
-          <Variant name="status-pill">
+          <Variant name="status-pill" caption="Status labels">
             {STATUSES.map((s) => (
               <StatusPill key={s} status={s} label={STATUS_WORDS[s]} />
             ))}
           </Variant>
-          <Variant name="count-badge">
+          <Variant name="count-badge" caption="Count badges">
             <CountBadge count={3} label="waiting for you" />
             <CountBadge count={12} label="working" tone="ok" />
             <CountBadge count={2} label="blocked" tone="warn" />
@@ -443,22 +451,26 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
           </Variant>
         </div>
         <div className="gallery__row">
-          <Variant name="health-bar">
+          <Variant name="health-bar" caption="Health bars">
             <HealthBar label="Tasks done" value={7} max={10} valueText="7 of 10" />
             <HealthBar label="Usage limit" value={82} max={100} status="warn" />
             <HealthBar label="Checks passing" value={2} max={9} valueText="2 of 9" status="error" />
           </Variant>
-          <Variant name="sparkline">
+          <Variant name="sparkline" caption="Sparklines">
             <Sparkline values={spark} label="Events per 15 minutes" />
             <Sparkline values={spark.slice(40)} label="Events" status="ok" />
             <Sparkline values={[]} label="Events" />
           </Variant>
         </div>
         <div className="gallery__row">
-          <Variant name="activity-strip" wide>
+          <Variant name="activity-strip" caption="24-hour activity" wide>
             <ActivityStrip series={activity} now={now} />
           </Variant>
-          <Variant name="activity-strip-states" wide>
+          <Variant
+            name="activity-strip-states"
+            caption="Activity: loading, couldn't load, nothing yet"
+            wide
+          >
             <ActivityStripPlaceholder state="empty" />
             <ActivityStripPlaceholder state="loading" />
             <ActivityStripPlaceholder state="error" />
@@ -468,7 +480,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
 
       <Section
         id={`${prefix}-cards`}
-        title="Entity cards"
+        title="Cards"
         lead="A department, project, or worker: status, 24-hour activity, who fills it, and its permissions."
       >
         <div className="gallery__cards">
@@ -513,7 +525,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
       >
         <Grid workers={gridWorkers} now={now} />
         <div className="gallery__row">
-          <Variant name="grid-loading" wide>
+          <Variant name="grid-loading" caption="Loading" wide>
             <CardGrid
               label="Loading cards"
               items={[]}
@@ -525,7 +537,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               state="loading"
             />
           </Variant>
-          <Variant name="grid-error" wide>
+          <Variant name="grid-error" caption="Couldn't load" wide>
             <CardGrid
               label="Cards that failed"
               items={[]}
@@ -539,7 +551,24 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               onRetry={() => undefined}
             />
           </Variant>
-          <Variant name="grid-empty" wide>
+          <Variant name="grid-list" caption="As a list" wide>
+            <CardGrid
+              label="Worker list"
+              items={gridWorkers.slice(0, 4)}
+              getKey={(w) => w.id}
+              renderCard={() => null}
+              renderRow={(w) => (
+                <>
+                  <StatusDot status={w.status} label={STATUS_WORDS[w.status]} />
+                  <strong>{w.name}</strong>
+                  <span className="gallery__muted">{w.project}</span>
+                </>
+              )}
+              view="list"
+              onViewChange={() => undefined}
+            />
+          </Variant>
+          <Variant name="grid-empty" caption="No cards yet" wide>
             <CardGrid
               label="No cards"
               items={[]}
@@ -560,7 +589,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
       >
         <FilteredTable workers={workers} prefix={prefix} />
         <div className="gallery__row">
-          <Variant name="table-loading" wide>
+          <Variant name="table-loading" caption="Loading" wide>
             <DataTable
               label="Loading table"
               rows={[]}
@@ -570,7 +599,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               height={160}
             />
           </Variant>
-          <Variant name="table-error" wide>
+          <Variant name="table-error" caption="Couldn't load" wide>
             <DataTable
               label="Table that failed"
               rows={[]}
@@ -581,7 +610,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               onRetry={() => undefined}
             />
           </Variant>
-          <Variant name="table-empty" wide>
+          <Variant name="table-empty" caption="No records yet" wide>
             <DataTable
               label="Empty table"
               rows={[]}
@@ -591,14 +620,127 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             />
           </Variant>
         </div>
+        <div className="gallery__row">
+          <Variant name="facets-loading" caption="Filters: loading">
+            <FacetPanel
+              label="Filters loading"
+              state={EMPTY_FACETS}
+              onChange={() => undefined}
+              groups={[]}
+              collapsed={false}
+              onCollapsedChange={() => undefined}
+              loading
+            />
+          </Variant>
+          <Variant name="facets-error" caption="Filters: couldn't load">
+            <FacetPanel
+              label="Filters that failed"
+              state={EMPTY_FACETS}
+              onChange={() => undefined}
+              groups={[]}
+              collapsed={false}
+              onCollapsedChange={() => undefined}
+              error="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+          <Variant name="facets-empty" caption="Filters: none yet">
+            <FacetPanel
+              label="No filters"
+              state={EMPTY_FACETS}
+              onChange={() => undefined}
+              groups={[]}
+              collapsed={false}
+              onCollapsedChange={() => undefined}
+            />
+          </Variant>
+          <Variant name="facets-collapsed" caption="Filters: hidden">
+            <FacetPanel
+              label="Hidden filters"
+              state={EMPTY_FACETS}
+              onChange={() => undefined}
+              groups={[]}
+              collapsed
+              onCollapsedChange={() => undefined}
+            />
+          </Variant>
+        </div>
       </Section>
 
       <Section
         id={`${prefix}-split`}
-        title="Detail split view"
+        title="Detail page"
         lead="Properties and switches, a timeline you can scrub, the map, and a table below."
       >
         <SplitSample now={now} prefix={prefix} />
+        <div className="gallery__row">
+          <Variant name="split-loading" caption="Loading" wide>
+            <DetailSplitView label="Worker details" properties={null} state="loading" />
+          </Variant>
+          <Variant name="split-error" caption="Couldn't load">
+            <DetailSplitView
+              label="Worker details"
+              properties={null}
+              state="error"
+              error="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+          <Variant name="split-empty" caption="Nothing picked">
+            <DetailSplitView label="Worker details" properties={null} state="empty" />
+          </Variant>
+        </div>
+        <div className="gallery__row">
+          <Variant name="props-loading" caption="Details: loading">
+            <PropertyList title="Website Supervisor" items={[]} state="loading" />
+          </Variant>
+          <Variant name="props-error" caption="Details: couldn't load">
+            <PropertyList
+              title="Website Supervisor"
+              items={[]}
+              state="error"
+              error="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+          <Variant name="props-empty" caption="Details: nothing yet">
+            <PropertyList title="Website Supervisor" items={[]} />
+          </Variant>
+          <Variant name="timeline-loading" caption="Timeline: loading">
+            <TimelineScrubber
+              from={now - DAY_MS}
+              to={now}
+              events={[]}
+              value="live"
+              onChange={() => undefined}
+              label="Timeline loading"
+              state="loading"
+            />
+          </Variant>
+          <Variant name="timeline-error" caption="Timeline: couldn't load">
+            <TimelineScrubber
+              from={now - DAY_MS}
+              to={now}
+              events={[]}
+              value="live"
+              onChange={() => undefined}
+              label="Timeline that failed"
+              state="error"
+              error="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+          <Variant name="timeline-empty" caption="Timeline: no events yet">
+            <TimelineScrubber
+              from={now - DAY_MS}
+              to={now}
+              events={[]}
+              value="live"
+              onChange={() => undefined}
+              label="Empty timeline"
+            />
+          </Variant>
+        </div>
       </Section>
 
       <Section
@@ -606,17 +748,17 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
         title="Relationship map"
         lead="Who handed work to whom: tiles in their status color, labeled lines, a caption under each."
       >
-        <Variant name="map" wide>
+        <Variant name="map" caption="Handoff chain" wide>
           <TopologyMap label="Handoff chain" nodes={nodes} links={links} />
         </Variant>
         <div className="gallery__row">
-          <Variant name="map-empty">
+          <Variant name="map-empty" caption="Nothing to draw">
             <TopologyMap label="Empty map" nodes={[]} links={[]} />
           </Variant>
-          <Variant name="map-loading">
+          <Variant name="map-loading" caption="Loading">
             <TopologyMap label="Map" nodes={[]} links={[]} state="loading" />
           </Variant>
-          <Variant name="map-error">
+          <Variant name="map-error" caption="Couldn't load">
             <TopologyMap
               label="Map"
               nodes={[]}
@@ -633,7 +775,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
         title="Notices"
         lead="Advisories and things you must do, each with its button and Dismiss."
       >
-        <div className="gallery__stack">
+        <div className="gallery__stack" data-gallery="notices">
           <Banner
             tone="info"
             title="A new version of Plenipo is ready"
@@ -678,7 +820,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
 
       <Section id={`${prefix}-controls`} title="Controls">
         <div className="gallery__row">
-          <Variant name="buttons">
+          <Variant name="buttons" caption="Buttons">
             <Button variant="primary">Give objective</Button>
             <Button>Cancel</Button>
             <Button variant="quiet" icon="refresh">
@@ -691,7 +833,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             <Button disabled>Disabled</Button>
             <IconButton icon="more" label="More actions" />
           </Variant>
-          <Variant name="choices">
+          <Variant name="choices" caption="Switches, checkboxes, and choices">
             <Switch label="Remote computers (SSH)" checked={on} onChange={setOn} />
             <Checkbox label="Online" count={7} checked={checked} onChange={setChecked} />
             <Segmented
@@ -704,7 +846,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               ]}
             />
           </Variant>
-          <Variant name="fields">
+          <Variant name="fields" caption="Fields">
             <SearchField value={search} onChange={setSearch} placeholder="Search workers" />
             <TextField
               label="Project name"
@@ -724,7 +866,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             />
           </Variant>
         </div>
-        <Variant name="tabs" wide>
+        <Variant name="tabs" caption="Tabs" wide>
           <Tabs
             label="Sample tabs"
             value={tab}
@@ -740,12 +882,24 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               { value: "three", label: "Shop server" },
             ]}
           />
+          <div
+            role="tabpanel"
+            id={`${prefix}-tabs-panel-${tab}`}
+            aria-labelledby={`${prefix}-tabs-tab-${tab}`}
+            className="gallery__muted"
+          >
+            {tab === "one"
+              ? "Your terminal"
+              : tab === "two"
+                ? "Senior Developer's commands"
+                : "Shop server"}
+          </div>
         </Variant>
       </Section>
 
       <Section id={`${prefix}-states`} title="Empty, loading, and error">
         <div className="gallery__row">
-          <Variant name="empty">
+          <Variant name="empty" caption="Nothing yet">
             <EmptyState
               title="No workers yet"
               action={
@@ -757,10 +911,10 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               Workers appear here when a Supervisor brings them in.
             </EmptyState>
           </Variant>
-          <Variant name="loading">
+          <Variant name="loading" caption="Loading">
             <LoadingState label="Loading workers" />
           </Variant>
-          <Variant name="error">
+          <Variant name="error" caption="Couldn't load">
             <ErrorState
               title="Couldn't load workers"
               message="The Ledger did not answer."
@@ -781,14 +935,14 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
           ))}
         </div>
         <div className="gallery__row">
-          <Variant name="type-scale">
+          <Variant name="type-scale" caption="Text sizes">
             {Object.entries(FONT_SIZE).map(([k, v]) => (
               <div key={k} style={{ fontSize: `var(--ui-font-${k})` }}>
                 {k} · {v}px · <span className="ui-num">1,234.50</span>
               </div>
             ))}
           </Variant>
-          <Variant name="spacing">
+          <Variant name="spacing" caption="Spacing">
             {Object.entries(SPACE).map(([k, v]) => (
               <div key={k} className="gallery__space">
                 <span className="gallery__bar" style={{ width: `var(--ui-space-${k})` }} />
@@ -798,7 +952,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               </div>
             ))}
           </Variant>
-          <Variant name="radius">
+          <Variant name="radius" caption="Corners">
             {Object.entries(RADIUS).map(([k, v]) => (
               <span
                 key={k}
@@ -809,7 +963,7 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               </span>
             ))}
           </Variant>
-          <Variant name="icons">
+          <Variant name="icons" caption="Icons">
             <div className="gallery__icons">
               {ICON_NAMES.map((n) => (
                 <span key={n} title={n}>

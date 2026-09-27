@@ -1,4 +1,4 @@
-/* Base: the page itself, focus, numbers, and helpers. Tokens only (ADR-029). */
+/* Base: the page itself, focus, numbers, and helpers. Tokens only (ADR-030). */
 
 html {
   font-family: var(--ui-font-sans);
@@ -27,6 +27,108 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+}
+
+/* The chevron drawn on every dropdown, in the theme's colors (no image, no raw color). */
+:root,
+[data-theme] {
+  --ui-chevron:
+    linear-gradient(45deg, transparent 50%, var(--ui-text-secondary) 50%),
+    linear-gradient(135deg, var(--ui-text-secondary) 50%, transparent 50%);
+}
+
+/*
+ * Native form controls follow the tokens too, in both themes (older screens use them
+ * directly). :where() keeps these at zero specificity, so any class rule wins.
+ */
+:where(
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+  textarea,
+  select
+) {
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-md);
+  background-color: var(--ui-surface-sunken);
+  color: var(--ui-text-primary);
+}
+
+::placeholder {
+  color: var(--ui-text-muted);
+  opacity: 1;
+}
+
+:where(select:not([multiple])) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image: var(--ui-chevron);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+:where(input[type="checkbox"], input[type="radio"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--ui-control-border);
+  border-radius: 3px;
+  background-color: var(--ui-surface-sunken);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+:where(input[type="radio"]) {
+  border-radius: 50%;
+}
+
+/* The check mark (and the dash when some are chosen). */
+:where(input[type="checkbox"])::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--ui-on-accent);
+  transform: scale(0);
+}
+
+:where(
+  input[type="checkbox"]:checked,
+  input[type="checkbox"]:indeterminate,
+  input[type="radio"]:checked
+) {
+  border-color: var(--ui-accent-fill);
+  background-color: var(--ui-accent-fill);
+}
+
+:where(input[type="checkbox"]:checked)::before {
+  transform: scale(1);
+}
+
+:where(input[type="checkbox"]:indeterminate)::before {
+  height: 2px;
+  clip-path: none;
+  transform: scale(1);
+}
+
+/* A chosen round button: a dot inside a ring (a shape, not only a color). */
+:where(input[type="radio"]:checked) {
+  box-shadow: inset 0 0 0 3px var(--ui-surface-sunken);
+}
+
+:where(input[type="checkbox"], input[type="radio"]):disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 :focus-visible {
@@ -77,6 +179,7 @@ time {
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
 }

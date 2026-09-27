@@ -116,6 +116,6 @@ describe("ActivityStrip", () => {
     );
     expect(screen.getByText("No activity yet")).toBeInTheDocument();
     expect(screen.getByText("Loading activity…")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load activity");
+    expect(screen.getByText("Couldn't load activity", { exact: false })).toBeInTheDocument();
   });
 });

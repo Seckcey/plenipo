@@ -47,12 +47,24 @@ describe("contrast (WCAG AA)", () => {
   }
 
   it("checks every text token against every surface", () => {
-    const texts = CONTRAST_PAIRS.filter((p) => p.min === 4.5 && p.bg === "surface").map(
-      (p) => p.fg,
-    );
-    expect(texts).toEqual(
-      expect.arrayContaining(["text-primary", "text-secondary", "text-muted", "accent"]),
-    );
+    const texts: ColorToken[] = [
+      "text-primary",
+      "text-secondary",
+      "text-muted",
+      "accent",
+      "ok-text",
+      "warn-text",
+      "error-text",
+      "offline-text",
+      "pending-text",
+    ];
+    const surfaces: ColorToken[] = ["bg", "surface", "surface-raised", "surface-sunken"];
+    for (const bg of surfaces)
+      for (const fg of texts)
+        expect(
+          CONTRAST_PAIRS.some((p) => p.fg === fg && p.bg === bg && p.min >= 4.5),
+          `${fg} on ${bg}`,
+        ).toBe(true);
   });
 });
 

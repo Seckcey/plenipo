@@ -4,6 +4,10 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
+import { COLOR_KEYS, TS_NAMED, TS_RAW } from "./scripts/colors.mjs";
+
+const RAW_COLOR = "Raw color: use a design token, e.g. var(--ui-accent) (ADR-030).";
+
 export default tseslint.config(
   {
     ignores: [
@@ -55,20 +59,28 @@ export default tseslint.config(
     },
   },
   {
-    // No raw colors in feature code: every color is a design token (ADR-029 §3). Colors are
+    // No raw colors in feature code: every color is a design token (ADR-030 §3). Colors are
     // written only in packages/ui/src/tokens.ts; scripts/check-colors.mjs checks the CSS.
     files: ["apps/desktop/src/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}"],
     ignores: ["packages/ui/src/tokens.ts", "**/*.test.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
         "error",
+        // Hex colors (also %23… in a data: image) and color functions, in any string.
+        { selector: `Literal[value=${TS_RAW}]`, message: RAW_COLOR },
+        { selector: `TemplateElement[value.raw=${TS_RAW}]`, message: RAW_COLOR },
+        // Named colors, where a color goes: a style property or an SVG color attribute.
         {
-          selector: String.raw`Literal[value=/#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(/]`,
-          message: "Raw color: use a design token, e.g. var(--ui-accent) (ADR-029).",
+          selector: `Property[key.name=${COLOR_KEYS}] > Literal[value=${TS_NAMED}]`,
+          message: RAW_COLOR,
         },
         {
-          selector: String.raw`TemplateElement[value.raw=/#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(/]`,
-          message: "Raw color: use a design token, e.g. var(--ui-accent) (ADR-029).",
+          selector: `Property[key.name=${COLOR_KEYS}] > TemplateLiteral > TemplateElement[value.raw=${TS_NAMED}]`,
+          message: RAW_COLOR,
+        },
+        {
+          selector: `JSXAttribute[name.name=${COLOR_KEYS}] > Literal[value=${TS_NAMED}]`,
+          message: RAW_COLOR,
         },
       ],
     },

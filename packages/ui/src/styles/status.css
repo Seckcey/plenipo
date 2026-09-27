@@ -1,4 +1,4 @@
-/* Status primitives: every status is a mark with its own shape and a word (ADR-029 §5). */
+/* Status primitives: every status is a mark with its own shape and a word (ADR-030 §5). */
 
 .ui-status--ok,
 .ui-pill--ok,
@@ -245,22 +245,25 @@
   background: var(--ui-border);
 }
 
+/* Not color alone: each kind has its own height, which still reads when a segment is 1 px wide.
+   Work fills the lower half, waiting for approval three quarters, and only a problem fills the
+   whole height, so problems stand up above the rest. */
+.ui-strip__seg--low,
+.ui-strip__seg--mid,
+.ui-strip__seg--high {
+  background: linear-gradient(to top, var(--ui-ok) 50%, transparent 50%);
+}
+
 .ui-strip__seg--low {
-  background: var(--ui-ok);
   opacity: 0.45;
 }
 
 .ui-strip__seg--mid {
-  background: var(--ui-ok);
   opacity: 0.72;
 }
 
-.ui-strip__seg--high {
-  background: var(--ui-ok);
-}
-
 .ui-strip__seg--waiting {
-  background: var(--ui-pending);
+  background: linear-gradient(to top, var(--ui-pending) 75%, transparent 75%);
 }
 
 .ui-strip__seg--problem {
@@ -276,12 +279,17 @@
   background: var(--ui-text-primary);
 }
 
+/* Start, middle, and end; the middle label sits under the middle of the strip. */
 .ui-strip__axis {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   color: var(--ui-text-muted);
   font-size: var(--ui-font-xs);
   line-height: var(--ui-leading-tight);
+}
+
+.ui-strip__axis > :last-child {
+  justify-self: end;
 }
 
 .ui-strip__axis-now {

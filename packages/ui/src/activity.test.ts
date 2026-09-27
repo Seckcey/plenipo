@@ -92,8 +92,12 @@ describe("labels", () => {
     expect(describeActivity(series)).toBe("Last 24 hours: 2 events, 1 problem");
   });
 
-  it("averages values down for sparklines", () => {
+  it("averages values down for sparklines, always ending with the newest value", () => {
     expect(averageDown([1, 3, 5, 7], 2)).toEqual([2, 6]);
     expect(averageDown([1, 2], 10)).toEqual([1, 2]);
+    // 96 values into 48/1.1 points: the last point still includes value 95.
+    const values = Array.from({ length: 96 }, (_, i) => (i === 95 ? 1000 : 0));
+    const points = averageDown(values, 96 / 2.2);
+    expect(points[points.length - 1]).toBeGreaterThan(0);
   });
 });

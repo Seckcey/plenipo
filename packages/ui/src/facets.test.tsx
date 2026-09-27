@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 
 import {
   EMPTY_FACETS,
@@ -53,6 +54,13 @@ describe("filterItems", () => {
     ).toEqual(["Senior Developer", "Code Reviewer"]);
   });
 
+  it("does not filter with a slider set back to its full width", () => {
+    const old = { ...items[0], name: "Old", age: 5000 } as Item;
+    expect(
+      filterItems([...items, old], { ...EMPTY_FACETS, ranges: { age: [0, 1000] } }, config),
+    ).toHaveLength(5);
+  });
+
   it("knows when any filter is on", () => {
     expect(facetsActive(EMPTY_FACETS, config.ranges)).toBe(false);
     expect(facetsActive({ ...EMPTY_FACETS, ranges: { age: [0, 1000] } }, config.ranges)).toBe(
@@ -98,6 +106,43 @@ describe("FacetPanel bound to a list", () => {
     expect(screen.getByRole("checkbox", { name: "Grok (1)" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Idle (0)" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Working (1)" })).toBeInTheDocument();
+  });
+
+  it("keeps a ticked option listed when no item has it any more, so it can be unticked", async () => {
+    const user = userEvent.setup();
+    function Shrinking() {
+      const [list, setList] = useState(items);
+      const f = useFacets(list, config);
+      return (
+        <>
+          <button onClick={() => setList(items.filter((i) => i.tool !== "Grok"))}>Drop Grok</button>
+          <FacetPanel
+            state={f.state}
+            onChange={f.setState}
+            groups={f.groups}
+            collapsed={false}
+            onCollapsedChange={() => undefined}
+          />
+        </>
+      );
+    }
+    render(<Shrinking />);
+    await user.click(screen.getByRole("checkbox", { name: "Grok (1)" }));
+    await user.click(screen.getByRole("button", { name: "Drop Grok" }));
+    const grok = screen.getByRole("checkbox", { name: "Grok (0)" });
+    expect(grok).toBeChecked();
+    await user.click(grok);
+    expect(screen.queryByRole("checkbox", { name: /Grok/ })).toBeNull();
+  });
+
+  it("brings the lower handle to the front when both handles are high", () => {
+    render(<Bound />);
+    const low = screen.getByRole("slider", { name: "Last seen, lowest" });
+    const high = screen.getByRole("slider", { name: "Last seen, highest" });
+    expect(low.style.zIndex).toBe("1");
+    fireEvent.change(low, { target: { value: "1000" } });
+    expect(low.style.zIndex).toBe("2");
+    expect(high).toHaveValue("1000");
   });
 
   it("searches, and Clear filters brings everything back", async () => {
@@ -169,5 +214,64 @@ describe("FacetPanel bound to a list", () => {
     await user.click(head);
     expect(head).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("checkbox", { name: /Codex/ })).toBeNull();
+  });
+});
+
+describe("FacetPanel from the keyboard", () => {
+  it("reaches search, a group's checkboxes, and both slider handles with Tab; Space and arrows work", async () => {
+    const user = userEvent.setup();
+    render(<Bound />);
+    const results = screen.getByRole("list", { name: "Results" });
+    await user.tab();
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Hide filters" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Status" })).toHaveFocus();
+    await user.tab();
+    // The group's first option (the options keep the order the items give them).
+    const first = document.activeElement as HTMLInputElement;
+    expect(first).toHaveAttribute("type", "checkbox");
+    await user.keyboard(" ");
+    expect(first).toBeChecked();
+    expect(within(results).getAllByRole("listitem").length).toBeLessThan(4);
+    await user.keyboard(" ");
+    expect(first).not.toBeChecked();
+    expect(within(results).getAllByRole("listitem")).toHaveLength(4);
+    // On through the rest of Status and the AI tool group to the slider's two handles.
+    const low = screen.getByRole("slider", { name: "Last seen, lowest" });
+    for (let i = 0; i < 12 && document.activeElement !== low; i++) await user.tab();
+    expect(low).toHaveFocus();
+    fireEvent.keyDown(low, { key: "ArrowRight" });
+    fireEvent.change(low, { target: { value: "100" } });
+    expect(within(results).getAllByRole("listitem")).toHaveLength(2);
+    await user.tab();
+    expect(screen.getByRole("slider", { name: "Last seen, highest" })).toHaveFocus();
+  });
+});
+
+describe("FacetPanel states", () => {
+  const panel = (props: { loading?: boolean; error?: string; onRetry?: () => void }) => (
+    <FacetPanel
+      state={EMPTY_FACETS}
+      onChange={() => undefined}
+      groups={[]}
+      collapsed={false}
+      onCollapsedChange={() => undefined}
+      {...props}
+    />
+  );
+
+  it("shows loading, couldn't load (with Try again), and no filters", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn();
+    const { rerender } = render(panel({ loading: true }));
+    expect(screen.getByText("Loading filters…")).toBeInTheDocument();
+    rerender(panel({ error: "No answer", onRetry: retry }));
+    expect(screen.getByText("Couldn't load the filters")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalled();
+    rerender(panel({}));
+    expect(screen.getByText("No filters here yet")).toBeInTheDocument();
   });
 });

@@ -29,6 +29,8 @@ export interface EntityCardProps {
   owner?: { icon: IconName; label: string };
   /** Small permission/resource icons along the bottom. */
   resources?: readonly Resource[];
+  /** Said along the bottom when there are no icons (default: "No permissions"). */
+  footerNote?: string;
   /** A small tag on the right of the title (e.g. "PRODUCTION"). */
   tag?: ReactNode;
   /** Makes the title a button that opens the entity. */
@@ -46,6 +48,7 @@ export function EntityCard({
   now,
   owner,
   resources,
+  footerNote = "No permissions",
   tag,
   onOpen,
   selected = false,
@@ -102,7 +105,7 @@ export function EntityCard({
             ))}
           </ul>
         ) : (
-          <span className="ui-card__none">No permissions</span>
+          <span className="ui-card__none">{footerNote}</span>
         )}
       </footer>
     </article>
@@ -130,7 +133,7 @@ const LIST_ROW = 32;
 
 /**
  * Cards in a responsive grid (as many columns as fit), or the same items as a list. Only the
- * rows on screen are drawn (ADR-029 §6), so hundreds of cards stay smooth.
+ * rows on screen are drawn (ADR-030 §6), so hundreds of cards stay smooth.
  */
 export function CardGrid<T>({
   label,

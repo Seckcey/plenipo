@@ -21,7 +21,7 @@ import {
 } from "./tokens";
 
 const HEADER =
-  "Generated from packages/ui/src/tokens.ts by `pnpm tokens`. Do not edit by hand (ADR-029).";
+  "Generated from packages/ui/src/tokens.ts by `pnpm tokens`. Do not edit by hand (ADR-030).";
 
 const px = (n: number) => (n === 0 ? "0" : `${n}px`);
 

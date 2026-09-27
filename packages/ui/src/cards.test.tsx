@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
@@ -50,7 +50,7 @@ describe("EntityCard", () => {
     rerender(<EntityCard title="A" status="offline" statusLabel="Idle" activity="loading" />);
     expect(screen.getByText("Loading activity…")).toBeInTheDocument();
     rerender(<EntityCard title="A" status="offline" statusLabel="Idle" activity="error" />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load activity");
+    expect(screen.getByText("Couldn't load activity", { exact: false })).toBeInTheDocument();
   });
 });
 
@@ -88,6 +88,20 @@ describe("CardGrid", () => {
     expect(screen.getByText("150 items")).toBeInTheDocument();
   });
 
+  it("draws later cards when scrolled, and drops the first ones", async () => {
+    render(<Grid />);
+    const scroller = document.querySelector(".ui-collection__scroll") as HTMLElement;
+    await act(async () => {
+      scroller.scrollTop = 120 * 200;
+      fireEvent.scroll(scroller);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const drawn = screen.getAllByRole("article").map((a) => a.getAttribute("aria-label") ?? "");
+    expect(drawn).not.toContain("Card 0, Working");
+    expect(drawn.some((t) => Number(/Card (\d+)/.exec(t)?.[1]) > 100)).toBe(true);
+    expect(drawn.length).toBeLessThan(40);
+  });
+
   it("switches between cards and a list", async () => {
     const user = userEvent.setup();
     render(<Grid items={many.slice(0, 3)} />);
@@ -116,7 +130,7 @@ describe("CardGrid", () => {
     const { rerender } = render(<Grid state="loading" />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     rerender(<Grid state="error" />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load these");
+    expect(screen.getByText("Couldn't load these", { exact: false })).toBeInTheDocument();
     rerender(<Grid items={[]} />);
     expect(screen.getByText("Nothing here yet")).toBeInTheDocument();
   });

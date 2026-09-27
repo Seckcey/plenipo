@@ -12,6 +12,11 @@
   min-width: 0;
 }
 
+/* Loading failed, or nothing is picked: one message across the whole view. */
+.ui-split--message {
+  display: block;
+}
+
 .ui-split__properties {
   grid-area: props;
   min-width: 0;
@@ -53,17 +58,26 @@
   }
 }
 
+/* One column that never grows past its panel; long words wrap instead of spilling. */
 .ui-props {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ui-space-4);
 }
 
 .ui-props__title {
+  min-width: 0;
+  overflow: hidden;
   font-weight: var(--ui-weight-semibold);
+}
+
+.ui-props__title .ui-status {
+  max-width: 100%;
 }
 
 .ui-props dl {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ui-space-2);
   margin: 0;
 }
@@ -81,12 +95,11 @@
   font-size: var(--ui-font-sm);
 }
 
+/* No clipping here, so a switch's focus outline shows in full. */
 .ui-props dd {
   margin: 0;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   text-align: right;
 }
 
@@ -122,39 +135,48 @@
   box-shadow: inset 0 0 0 1px var(--ui-border);
 }
 
+/* Clear of the thumb, which starts 4px left of the track. */
 .ui-timeline__tick {
   position: absolute;
-  right: calc(100% + var(--ui-space-2));
+  right: calc(100% + var(--ui-space-5));
   transform: translateY(-50%);
   color: var(--ui-text-muted);
   font-size: var(--ui-font-xs);
   white-space: nowrap;
 }
 
+/* Events use the status marks' shapes (not color alone): ok ●, warn ▲, error ◆, offline ○,
+   pending ◐. Centered on the rail. */
 .ui-timeline__event {
   position: absolute;
-  left: 6px;
-  width: 10px;
-  height: 3px;
+  left: calc(11px - var(--ui-dot-size) / 2);
+  width: var(--ui-dot-size);
+  height: var(--ui-dot-size);
   transform: translateY(-50%);
-  border-radius: 1px;
+  border-radius: 50%;
   background: var(--ui-ok);
 }
 
 .ui-timeline__event--warn {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
   background: var(--ui-warn);
 }
 
 .ui-timeline__event--error {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
   background: var(--ui-error);
 }
 
 .ui-timeline__event--pending {
-  background: var(--ui-pending);
+  background: linear-gradient(90deg, var(--ui-pending) 50%, var(--ui-surface) 50%);
+  box-shadow: inset 0 0 0 1.5px var(--ui-pending);
 }
 
 .ui-timeline__event--offline {
-  background: var(--ui-offline);
+  background: var(--ui-surface);
+  box-shadow: inset 0 0 0 1.5px var(--ui-offline);
 }
 
 .ui-timeline__thumb {

@@ -16,9 +16,10 @@
   overflow: visible;
 }
 
+/* The lines are content (who hands work to whom): 3:1 against the page, like a control's edge. */
 .ui-map__link {
   fill: none;
-  stroke: var(--ui-border-strong);
+  stroke: var(--ui-control-border);
   stroke-width: 1.5;
 }
 
@@ -65,6 +66,13 @@
   font-size: var(--ui-font-sm);
   font-weight: var(--ui-weight-semibold);
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A long name ends in "…" (the whole name is its tooltip). */
+.ui-map__tile-label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 

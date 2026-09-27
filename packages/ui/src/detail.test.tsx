@@ -104,13 +104,25 @@ describe("TopologyMap", () => {
     expect(select).toHaveBeenCalledWith("c");
   });
 
+  it("draws a repeated or self connection once, or not at all", () => {
+    render(
+      <TopologyMap
+        label="Chain"
+        nodes={nodes}
+        links={[...links, links[0] as MapLink, { from: "c", to: "c" }, { from: "a", to: "zz" }]}
+      />,
+    );
+    const list = screen.getByRole("list", { name: "Connections" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+  });
+
   it("has empty, loading, and error states", () => {
     const { rerender } = render(<TopologyMap label="Map" nodes={[]} links={[]} />);
     expect(screen.getByText("Nothing to map yet")).toBeInTheDocument();
     rerender(<TopologyMap label="Map" nodes={[]} links={[]} state="loading" />);
     expect(screen.getByText("Loading map…")).toBeInTheDocument();
     rerender(<TopologyMap label="Map" nodes={[]} links={[]} state="error" error="No answer" />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load map");
+    expect(screen.getByText("Couldn't load map", { exact: false })).toBeInTheDocument();
   });
 });
 
@@ -130,5 +142,62 @@ describe("DetailSplitView", () => {
     expect(within(view).getByRole("slider")).toBeInTheDocument();
     expect(within(view).getByRole("group", { name: "Tree" })).toBeInTheDocument();
     expect(within(view).getByRole("table", { name: "Team" })).toBeInTheDocument();
+  });
+});
+
+describe("loading, error, and empty", () => {
+  it("DetailSplitView says it is loading, couldn't load (with Try again), or nothing is picked", async () => {
+    const user = userEvent.setup();
+    const retry = vi.fn();
+    const { rerender } = render(
+      <DetailSplitView label="Worker details" properties={null} state="loading" />,
+    );
+    expect(screen.getByRole("region", { name: "Worker details" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByText("Loading Worker details…")).toBeInTheDocument();
+    rerender(
+      <DetailSplitView
+        label="Worker details"
+        properties={null}
+        state="error"
+        error="No answer"
+        onRetry={retry}
+      />,
+    );
+    expect(screen.getByText("Couldn't load the details")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalled();
+    rerender(<DetailSplitView label="Worker details" properties={null} state="empty" />);
+    expect(screen.getByText("Nothing picked")).toBeInTheDocument();
+  });
+
+  it("PropertyList and TimelineScrubber have their own states", () => {
+    const { rerender } = render(<PropertyList title="Details" items={[]} state="loading" />);
+    expect(screen.getByText("Loading details…")).toBeInTheDocument();
+    rerender(<PropertyList title="Details" items={[]} state="error" error="No answer" />);
+    expect(screen.getByText("Couldn't load the details")).toBeInTheDocument();
+    rerender(<PropertyList title="Details" items={[]} />);
+    expect(screen.getByText("Nothing to show yet")).toBeInTheDocument();
+
+    const timeline = (state?: "loading" | "error") => (
+      <TimelineScrubber
+        from={now - DAY_MS}
+        to={now}
+        events={[]}
+        value="live"
+        onChange={() => undefined}
+        {...(state ? { state } : {})}
+      />
+    );
+    rerender(timeline("loading"));
+    expect(screen.getByText("Loading the timeline…")).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).toBeNull();
+    rerender(timeline("error"));
+    expect(screen.getByText("Couldn't load the timeline")).toBeInTheDocument();
+    rerender(timeline());
+    expect(screen.getByText("(no events yet)")).toBeInTheDocument();
+    expect(screen.getByRole("slider")).toBeInTheDocument();
   });
 });

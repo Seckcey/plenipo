@@ -1,5 +1,5 @@
 /**
- * Activity over time, for strips, sparklines, and timelines (ADR-029 §7).
+ * Activity over time, for strips, sparklines, and timelines (ADR-030 §7).
  *
  * Downsampling: a series always has a fixed number of buckets (96 for 24 hours: 15 minutes
  * each). A longer range only makes each bucket wider; counts are added up, so nothing is
@@ -10,7 +10,7 @@
 export interface ActivityBucket {
   /** Everything recorded in the bucket. */
   events: number;
-  /** Failures, blocks, and refusals. */
+  /** Failures, refusals, and timeouts (a task blocked on handoff replies is not a problem). */
   problems: number;
   /** Requests waiting for approval. */
   waiting: number;
@@ -57,7 +57,10 @@ export function bucketActivity(
   return { from, to, bucketMs, buckets };
 }
 
-/** Merge a series into `count` buckets by adding neighbours (never drops a count). */
+/**
+ * Merge a series into at most `count` buckets by adding equal runs of neighbours (never drops a
+ * count). Each merged bucket is `bucketMs` wide; the last may cover fewer original buckets.
+ */
 export function downsample(series: ActivitySeries, count: number): ActivitySeries {
   const n = Math.max(1, Math.floor(count));
   if (series.buckets.length <= n) return series;
@@ -150,7 +153,9 @@ export function averageDown(values: readonly number[], count: number): number[] 
   const size = values.length / n;
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
-    const part = values.slice(Math.floor(i * size), Math.floor((i + 1) * size));
+    // The last point always ends at the newest value (no rounding can drop it).
+    const end = i === n - 1 ? values.length : Math.floor((i + 1) * size);
+    const part = values.slice(Math.floor(i * size), end);
     out.push(part.reduce((a, b) => a + b, 0) / Math.max(1, part.length));
   }
   return out;

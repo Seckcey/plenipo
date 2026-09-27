@@ -1,10 +1,10 @@
 /**
  * The dense data table (the UniFi device list): sortable columns, a status column, tabular
  * numbers, links to parent entities, row checkboxes, choosing columns, page size, and a
- * count of records. Only the rows on screen are drawn (ADR-029 §6).
+ * count of records. Only the rows on screen are drawn (ADR-030 §6).
  */
 
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button, Checkbox, IconButton } from "./controls";
 import { Icon } from "./icons";
@@ -29,6 +29,17 @@ export function CellLink({ onClick, children }: { onClick: () => void; children:
 
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** The remembered column choice: what is hidden, and which columns existed then. */
+interface ColumnChoice {
+  hidden: string[];
+  seen: string[];
+}
+const isColumnChoice = (v: unknown): v is ColumnChoice =>
+  typeof v === "object" &&
+  v !== null &&
+  isStringArray((v as ColumnChoice).hidden) &&
+  isStringArray((v as ColumnChoice).seen);
 const isPageSize = (v: unknown): v is PageSize =>
   v === "all" || (typeof v === "number" && Number.isInteger(v) && v > 0);
 
@@ -73,22 +84,49 @@ export function DataTable<T>({
   toolbar?: ReactNode;
 }) {
   const [sort, setSort] = useState<SortState | null>(defaultSort);
-  const [hidden, setHidden] = useStoredState<string[]>(
-    storageKey && `${storageKey}.hidden`,
-    columns.filter((c) => c.hidden).map((c) => c.id),
-    isStringArray,
+  const [stored, setStored] = useStoredState<ColumnChoice>(
+    storageKey && `${storageKey}.columns`,
+    { hidden: columns.filter((c) => c.hidden).map((c) => c.id), seen: columns.map((c) => c.id) },
+    isColumnChoice,
   );
+  const canHide = (c: Column<T>, i: number) => c.hideable ?? i > 0;
+  // What is hidden: the remembered choice, never a column that cannot be hidden, and a column
+  // that is new since the choice was made starts as the table says (hidden or shown).
+  const hidden = columns
+    .filter(
+      (c, i) =>
+        canHide(c, i) && (stored.seen.includes(c.id) ? stored.hidden.includes(c.id) : c.hidden),
+    )
+    .map((c) => c.id);
+  const setHidden = (next: string[]) => setStored({ hidden: next, seen: columns.map((c) => c.id) });
   const [pageSize, setPageSize] = useStoredState<PageSize>(
     storageKey && `${storageKey}.pageSize`,
     defaultPageSize,
     isPageSize,
   );
   const [page, setPage] = useState(0);
+  // Different rows (a filter, a search) start again at the first page. Compared by their ids,
+  // so a caller that rebuilds the same rows on every render does not jump back.
+  const rowsKey = rows.map(getRowId).join("\u0000");
+  const [seenRows, setSeenRows] = useState(rowsKey);
+  if (rowsKey !== seenRows) {
+    setSeenRows(rowsKey);
+    setPage(0);
+  }
   const [picking, setPicking] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
   const closePicker = useCallback(() => setPicking(false), []);
   useDismiss(picking, picker, closePicker);
-  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [scroller, setScrollerState] = useState<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const setScroller = useCallback((el: HTMLDivElement | null) => {
+    scrollerRef.current = el;
+    setScrollerState(el);
+  }, []);
+  // A new page, order, or set of rows is shown from its top.
+  useLayoutEffect(() => {
+    if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
+  }, [scroller, rowsKey, page, sort, pageSize]);
 
   const visibleColumns = columns.filter((c) => !hidden.includes(c.id));
   const sorted = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
@@ -110,13 +148,23 @@ export function DataTable<T>({
   const chosen = selected ?? new Set<string>();
   const allIds = rows.map(getRowId);
   const chosenCount = allIds.filter((id) => chosen.has(id)).length;
+  // Rows chosen earlier that a filter now hides stay chosen, and are counted.
+  const hiddenChosen = chosen.size - chosenCount;
   const toggleRow = (id: string, on: boolean) => {
     const next = new Set(chosen);
     if (on) next.add(id);
     else next.delete(id);
     onSelectedChange?.(next);
   };
-  const toggleAll = (on: boolean) => onSelectedChange?.(on ? new Set(allIds) : new Set());
+  /** Select all: the rows shown now; rows hidden by a filter keep their choice. */
+  const toggleAll = (on: boolean) => {
+    const next = new Set(chosen);
+    for (const id of allIds) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    onSelectedChange?.(next);
+  };
 
   const sortBy = (column: Column<T>) => {
     setPage(0);
@@ -135,8 +183,11 @@ export function DataTable<T>({
     <section className="ui-table" aria-label={label}>
       <div className="ui-table__toolbar">
         <div className="ui-table__bulk">
-          {selectable && chosenCount > 0 && (
-            <span className="ui-num">{formatCount(chosenCount)} selected</span>
+          {selectable && chosen.size > 0 && (
+            <span className="ui-num">
+              {formatCount(chosen.size)} selected
+              {hiddenChosen > 0 ? ` (${formatCount(hiddenChosen)} hidden by filters)` : ""}
+            </span>
           )}
           {toolbar}
         </div>
@@ -153,13 +204,12 @@ export function DataTable<T>({
           {picking && (
             <div className="ui-popover" role="group" aria-label="Choose columns">
               {columns.map((c, i) => {
-                const canHide = c.hideable ?? i > 0;
                 return (
                   <Checkbox
                     key={c.id}
                     label={c.header}
                     checked={!hidden.includes(c.id)}
-                    disabled={!canHide}
+                    disabled={!canHide(c, i)}
                     onChange={(show) =>
                       setHidden(show ? hidden.filter((h) => h !== c.id) : [...hidden, c.id])
                     }

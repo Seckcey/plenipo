@@ -78,7 +78,8 @@ export function filterItems<T>(
     }
     for (const r of config.ranges ?? []) {
       const range = state.ranges[r.id];
-      if (!range) continue;
+      // A slider set back to its full width does not filter (items beyond its ends included).
+      if (!range || (range[0] <= r.min && range[1] >= r.max)) continue;
       const v = r.value(item);
       if (v < range[0] || v > range[1]) return false;
     }
@@ -107,6 +108,9 @@ export function useFacets<T>(items: readonly T[], config: FacetConfig<T>) {
           for (const v of asList(g.value(item))) counts.set(v, counts.get(v) ?? 0);
         for (const item of others)
           for (const v of asList(g.value(item))) counts.set(v, (counts.get(v) ?? 0) + 1);
+        // A ticked option stays listed (with 0) even when no item has it now, so it can be
+        // unticked.
+        for (const v of state.checks[g.id] ?? []) if (!counts.has(v)) counts.set(v, 0);
         return {
           id: g.id,
           label: g.label,
