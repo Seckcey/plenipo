@@ -644,11 +644,10 @@ mod tests {
             profile_for(usual, BrowserChoice::Chrome),
             Path::new("/data/browser-profile-chrome")
         );
-        let args = arguments(
-            &BrowserConfig::new(usual.to_path_buf()),
-            &profile_for(usual, BrowserChoice::Chrome),
-        );
-        assert!(args.contains(&"--user-data-dir=/data/browser-profile-chrome".to_owned()));
+        let chrome = profile_for(usual, BrowserChoice::Chrome);
+        let args = arguments(&BrowserConfig::new(usual.to_path_buf()), &chrome);
+        // As the system writes the path (`\` on Windows).
+        assert!(args.contains(&format!("--user-data-dir={}", chrome.display())));
     }
 
     #[test]
