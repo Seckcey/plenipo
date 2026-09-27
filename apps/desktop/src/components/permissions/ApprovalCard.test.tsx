@@ -42,7 +42,7 @@ describe("Approval card for a server (Phase 11)", () => {
     );
   });
 
-  it("shows a development server without the production warning", () => {
+  it("shows a test server without the production warning", () => {
     render(
       <ApprovalCard
         approval={card({ environment: "development", server: "Dev box" })}
@@ -52,7 +52,7 @@ describe("Approval card for a server (Phase 11)", () => {
       />,
     );
     expect(screen.getByRole("article")).not.toHaveClass("approval--production");
-    expect(screen.getByText("Development")).toHaveClass("env--development");
+    expect(screen.getByText("Test")).toHaveClass("env--development");
     expect(screen.queryByText(/check exactly what will run/)).toBeNull();
   });
 });

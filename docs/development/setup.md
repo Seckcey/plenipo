@@ -199,7 +199,7 @@ the **Servers** permission set) run commands on the Linux servers you add in **S
 Servers**. Nothing to install: Plenipo has its own SSH client.
 
 - **Add a server:** its name, address, port, the user to sign in as, and whether it is
-  development, staging, or production. Then **Check the server's identity**, compare the
+  test, staging, or production. Then **Check the server ID**, compare the
   fingerprint with the one your hosting provider shows (or run
   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server), and pin it. Choose the roles
   that may use it, the kinds of commands, and its folders.
@@ -212,9 +212,10 @@ Servers**. Nothing to install: Plenipo has its own SSH client.
 
   Keys and passwords go to **Windows Credential Manager** (long keys in numbered pieces) and are
   never shown again, to you or to a worker. **Never paste them into a chat or an objective.**
+
 - **Sign in as a limited user,** not `root`: looking around can read anything that user can
   read.
-- **Test the connection** checks the identity and the sign-in without running anything.
+- **Test the connection** checks the server ID and the sign-in without running anything.
 - **Production:** every command waits for your approval on a red **PRODUCTION** card.
   Deleting, wiping, or shutting down is off there unless you turn it on (then it still asks).
 - **Stop:** **Disconnect** on the sign stops one worker. **Stop all** (in the app or the tray)
@@ -299,9 +300,9 @@ the Edge or Chrome it finds (set `PLENIPO_BROWSER` to choose, for example a Chro
 Chrome installed). It approves the form it sends, then takes over and stops the next ones.
 The Phase 11 test starts a synthetic SSH server on `127.0.0.1` (`plenipo-test-sshd`, no
 internet) and an `ssh-agent` holding a new key (the OpenSSH client tools must be installed). It
-adds the server in Settings → Servers as production, pins its identity, and approves an
+adds the server in Settings → Servers as production, pins its server ID, and approves an
 Operations Engineer's commands there. Then it disconnects the worker, and restarts the server
-with another identity, which is blocked. (On Linux, the kernel keyring that stands in for
+with another server ID, which is blocked. (On Linux, the kernel keyring that stands in for
 Windows Credential Manager belongs to each thread, which containers do not always give; so this
 test signs in with the agent.)
 

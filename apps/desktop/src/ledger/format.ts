@@ -278,7 +278,7 @@ const ENDING_WORDS: Record<string, string> = {
   unknown: "ended without the server saying how",
 };
 
-/** Phase 11: servers — connections, identities, commands and their output, and settings. */
+/** Phase 11: servers — connections, server IDs, commands and their output, and settings. */
 function describeServerEvent(type: string, p: Record<string, unknown>): string | null {
   const worker = str(p.worker) ?? "A worker";
   const server = str(p.server) ?? str(p.name) ?? "a server";
@@ -291,8 +291,8 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
     case "ssh.connect_failed":
       return `${worker} could not connect to ${server}: ${brief(p.reason, 200)}`;
     case "ssh.host_key_changed":
-      return `Blocked: ${server}'s identity changed — it showed ${str(p.seen) ?? "another host key"}, not the ${
-        str(p.expected) ?? "pinned one"
+      return `Blocked: ${server}'s server ID changed — it showed ${str(p.seen) ?? "another ID"}, not the pinned ${
+        str(p.expected) ?? "one"
       }. Nothing was sent to sign in.`;
     case "ssh.command_started":
       return `${worker} ran on ${server}${production}: ${str(p.command) ?? "a command"}${
@@ -334,7 +334,7 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
     case "ssh.forward_closed":
       return `Port forward to ${str(p.to) ?? "a port"} through ${server} closed`;
     case "ssh.identity_checked":
-      return `You checked the identity of ${str(p.host) ?? "a server"}${
+      return `You checked the server ID of ${str(p.host) ?? "a server"}${
         typeof p.port === "number" ? `:${p.port}` : ""
       }: ${str(p.fingerprint) ?? ""}`;
     case "ssh.tested":
@@ -345,7 +345,7 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
       return `Server added: ${server}${production}`;
     case "guard.server_changed":
       return p.pinned === true
-        ? `Server changed: ${server} — you pinned its identity ${str(p.hostKey) ?? ""}`.trim()
+        ? `Server changed: ${server} — you pinned its server ID ${str(p.hostKey) ?? ""}`.trim()
         : `Server changed: ${server}`;
     case "guard.server_removed":
       return `Server removed: ${server}`;

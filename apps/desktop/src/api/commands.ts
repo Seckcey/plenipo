@@ -554,12 +554,12 @@ export function removeServer(serverId: string): Promise<ServersSnapshot> {
   return call("remove_server", { serverId });
 }
 
-/** Read a server's identity (its host key) for you to check and pin; nothing signs in. */
+/** Read a server's ID (its host key fingerprint) for you to check and pin; nothing signs in. */
 export function checkServerIdentity(host: string, port: number): Promise<ServerIdentity> {
   return call("check_server_identity", { host, port });
 }
 
-/** Connect with the pinned identity, sign in, and leave. */
+/** Connect with the pinned server ID, sign in, and leave. */
 export function testServer(serverId: string): Promise<ServerTest> {
   return call("test_server", { serverId });
 }

@@ -10,7 +10,7 @@ import { useServers } from "../../servers/useServers";
 import { Refusal } from "../models/shared";
 import { ServerForm } from "./ServerForm";
 
-/** Development, staging, or production — production always in red, in capitals. */
+/** Test, staging, or production — production always in red, in capitals. */
 export function EnvironmentBadge({ environment }: { environment: Environment }) {
   return (
     <span className={`env env--${environment}`}>
@@ -24,7 +24,7 @@ export function EnvironmentBadge({ environment }: { environment: Environment }) 
 /**
  * Settings → Servers (Phase 11): the servers workers may reach over SSH. Each has a friendly
  * name, its address, how Plenipo signs in (a key or password kept in the operating system's
- * protected storage, or your SSH agent), its pinned identity, development, staging, or
+ * protected storage, or your SSH agent), its pinned server ID, test, staging, or
  * production, who may use it, what kinds of commands it allows, in which folders, and when you
  * are asked.
  */
@@ -47,7 +47,7 @@ export function ServerSettings() {
       <p className="muted">
         Workers whose role may <em>Connect to servers</em> run commands over SSH only on the servers
         listed here, only if the server lists their role, and only the kinds of commands it allows.
-        Plenipo checks each server&apos;s identity every time it connects. Keys and passwords are
+        Plenipo checks each server&apos;s ID every time it connects. Keys and passwords are
         kept in {s.vault.label}: workers never see them, and neither does anything Plenipo records.
       </p>
       <p className="notice-box" role="note">
@@ -87,7 +87,7 @@ export function ServerSettings() {
       )}
       {s.servers.length === 0 ? (
         <p className="empty">
-          No servers yet. Add one, check its identity, and choose which roles may use it.
+          No servers yet. Add one, check its server ID, and choose which roles may use it.
         </p>
       ) : (
         <ul className="server-list" aria-labelledby="servers-title">
@@ -162,11 +162,11 @@ function ServerCard({
       </div>
       {v.identityChanged && (
         <p className="form-error" role="alert">
-          <strong>This server&apos;s identity changed</strong> {ago(v.identityChanged.at, now)}: it
-          showed the host key <code>{v.identityChanged.fingerprint}</code> (
+          <strong>This server&apos;s ID changed</strong> {ago(v.identityChanged.at, now)}: it
+          showed the server ID <code>{v.identityChanged.fingerprint}</code> (
           {v.identityChanged.algorithm}), not the one you pinned. Plenipo did not sign in, and
           workers are blocked from it. If you know why (for example, the server was reinstalled),
-          check the new identity with your hosting provider and pin it with <em>Change</em>.
+          check the new server ID with your hosting provider and pin it with <em>Change</em>.
           Otherwise, treat it as a possible attack.
         </p>
       )}
@@ -176,7 +176,7 @@ function ServerCard({
         <dd>
           {s.user}, with {SIGN_IN_PHRASE[s.signIn]} ({stored})
         </dd>
-        <dt>Identity</dt>
+        <dt>Server ID</dt>
         <dd>
           {s.hostKey ? (
             <>

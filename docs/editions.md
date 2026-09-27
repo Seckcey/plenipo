@@ -3,7 +3,7 @@
 Plenipo is one app and one public codebase. A license key decides how far it scales and which
 business departments you can create.
 
-> **Status:** this page is the plan, not what ships today. Releases up to v1.3.0 have no license
+> **Status:** this page is the plan, not what ships today. Releases up to v1.5.0 have no license
 > check and no limits — everything is unlocked. The Free and Pro split arrives in a coming release
 > ([ADR-021](adr/ADR-021-editions-and-license.md), Free and Pro editions under the Elastic
 > License).
@@ -22,6 +22,7 @@ business departments you can create.
 | Which AI model each role gets, and how hard it thinks          | Yes            | Yes       |
 | Permissions, Guard, folder limits, and your approval           | Yes            | Yes       |
 | Plenipo's own browser, and the screen, mouse, and keyboard     | Yes            | Yes       |
+| Your servers over SSH, and the Operations Engineer role        | Yes            | Yes       |
 | Ledger, Activity trail, and screenshots of every step          | Yes            | Yes       |
 | Ranks, titles, and the rest of Personalization                 | Yes            | Yes       |
 | Full source code, and the right to change it for your own use  | Yes            | Yes       |

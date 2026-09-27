@@ -354,7 +354,7 @@ describe("describeEvent (Phase 11 servers)", () => {
         }),
       ),
     ).toBe(
-      "Blocked: Shop's identity changed — it showed SHA256:new, not the SHA256:old. Nothing was sent to sign in.",
+      "Blocked: Shop's server ID changed — it showed SHA256:new, not the pinned SHA256:old. Nothing was sent to sign in.",
     );
     expect(describeEvent(event("control.taken_over", { kind: "server", ...ops }))).toBe(
       "You disconnected Operations Engineer from its servers",

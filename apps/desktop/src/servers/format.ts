@@ -4,13 +4,13 @@ import type { CommandClass, Environment, ServerApproval, SignIn } from "@plenipo
 export const ENVIRONMENTS: Environment[] = ["development", "staging", "production"];
 
 export const ENVIRONMENT_LABEL: Record<Environment, string> = {
-  development: "Development",
+  development: "Test",
   staging: "Staging",
   production: "Production",
 };
 
 export const ENVIRONMENT_HINT: Record<Environment, string> = {
-  development: "For building and trying things out. Nothing customers rely on.",
+  development: "For building and trying things out (development). Nothing customers rely on.",
   staging: "A copy of the live system, for checking changes before they go live.",
   production:
     "The live system your customers use. Every command asks you first, and deleting, wiping, or shutting down is blocked unless you turn it on.",

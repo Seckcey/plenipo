@@ -1,11 +1,11 @@
 // Phase 11 end-to-end: servers, in the real app, against fake `claude` and `codex` CLIs
 // (plenipo-fake-agent) that call Plenipo's tools over MCP through the real relay, and a
 // synthetic SSH server on 127.0.0.1 (plenipo-test-sshd; no internet). The owner adds a
-// production server in Settings → Servers — checks and pins its identity, and tests the
+// production server in Settings → Servers — checks and pins its server ID, and tests the
 // connection — then an Operations Engineer runs commands there: each one waits for the owner's
 // approval on a card marked PRODUCTION; the sign on every page shows the worker connected, and
 // Disconnect stops it; the Activity trail keeps the connection, the commands, and their output
-// with a password hidden; and a server that shows another identity is blocked before
+// with a password hidden; and a server that shows another server ID is blocked before
 // Plenipo signs in. Real servers and Windows are checked by the owner (Phase 11 checklist).
 
 import assert from "node:assert/strict";
@@ -48,7 +48,7 @@ const KEY = join(home, "id_e2e");
 execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "plenipo-e2e", "-f", KEY]);
 const agent = spawn("ssh-agent", ["-D", "-a", AGENT_SOCK], { stdio: "ignore" });
 
-/** Start the synthetic server; resolves with its port and identity once it listens. */
+/** Start the synthetic server; resolves with its port and server ID once it listens. */
 function startSshd(seed, port = 0) {
   const child = spawn(
     SSHD,
@@ -196,7 +196,7 @@ async function answer(browser, summary, approve, check) {
   await waitUntil(async () => !(await exists(browser, card)), "the card to be answered", 30_000);
 }
 
-describe("Phase 11 servers: settings, production approvals, the sign, and identity (real app, fake CLIs)", () => {
+describe("Phase 11 servers: settings, production approvals, the sign, and server IDs (real app, fake CLIs)", () => {
   let app;
 
   before(async () => {
@@ -220,7 +220,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     agent.kill();
   });
 
-  it("Settings → Servers: add a production server, check and pin its identity, and test it", async () => {
+  it("Settings → Servers: add a production server, check and pin its server ID, and test it", async () => {
     const { browser } = app;
     await waitForText(browser, ".shell__wordmark", "Plenipo");
     await nav(browser, "Settings");
@@ -240,10 +240,10 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
       await browser.$(`//form[@aria-label="${form}"]//select[@aria-label="How Plenipo signs in"]`)
     ).selectByAttribute("value", "agent");
     await waitForText(browser, `form[aria-label="${form}"]`, "never forwarded to the server");
-    await clickButton(browser, "Check the server's identity");
-    const identity = '[aria-label="The server\'s identity"]';
+    await clickButton(browser, "Check the server ID");
+    const identity = '[aria-label="The server ID"]';
     await waitForText(browser, identity, sshd.fingerprint, 30_000);
-    await clickButton(browser, "This is my server: pin this identity");
+    await clickButton(browser, "This is my server: pin this ID");
     await (
       await browser.$(
         `//form[@aria-label="${form}"]//label[.//span[contains(normalize-space(), "Operations Engineer")]]//input`,
@@ -352,7 +352,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await screenshot(browser, "server-trail");
   });
 
-  it("a server showing another identity is blocked before Plenipo signs in, and Settings says so", async () => {
+  it("a server showing another server ID is blocked before Plenipo signs in, and Settings says so", async () => {
     const { browser } = app;
     const port = sshd.port;
     sshd.child.kill();
@@ -362,7 +362,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await delegate(browser, "Check the shop server again", [onShop("uptime")]);
     await nav(browser, "Settings");
     await waitUntil(() => exists(browser, SHOP_CARD), "the Shop server");
-    await waitForText(browser, SHOP_CARD, "This server's identity changed", 60_000);
+    await waitForText(browser, SHOP_CARD, "This server's ID changed", 60_000);
     await waitForText(browser, SHOP_CARD, sshd.fingerprint);
     await waitForText(browser, SHOP_CARD, "Plenipo did not sign in");
     await browser.execute(() =>
@@ -370,7 +370,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
         .querySelector('li[aria-label="Shop, production server"]')
         ?.scrollIntoView({ block: "start" }),
     );
-    await screenshot(browser, "server-identity-changed");
+    await screenshot(browser, "server-id-changed");
     // No approval was even asked: the command was blocked first.
     assert.ok(!(await exists(browser, ".banner--approval")));
     await nav(browser, "Activity");
@@ -383,7 +383,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await waitForText(
       browser,
       '[aria-label="Activity trail"]',
-      "Blocked: Shop's identity changed",
+      "Blocked: Shop's server ID changed",
       30_000,
     );
   });

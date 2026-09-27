@@ -299,7 +299,7 @@ pub fn evaluate(
     // Layer 4: the target. A server (Phase 11): who may use it, its pinned identity, its kinds
     // of commands, folders, and blocked files; production servers ask for every command.
     let mut server_asks = None;
-    let mut server_sensitive = None;
+    let mut server_sensitive = Vec::new();
     if let Some(check) = &request.server {
         match servers::check(&config.blocked_files, check) {
             ServerVerdict::Deny { layer, reason } => {
@@ -401,9 +401,15 @@ pub fn evaluate(
         }
     }
     // Layer 5: the action's risk.
+    // On a server, the kind the owner blocked wins; otherwise the most specific one.
+    let server_found = server_sensitive
+        .iter()
+        .copied()
+        .find(|(kind, _)| config.sensitive_rule(*kind) == SensitiveRule::Block)
+        .or_else(|| server_sensitive.first().copied());
     let found = request
         .inherent
-        .or(server_sensitive)
+        .or(server_found)
         .or_else(|| {
             request
                 .command
@@ -912,6 +918,31 @@ mod tests {
             (d.verdict, d.sensitive),
             (Verdict::Deny, Some(SensitiveKind::Privilege))
         );
+        // A change on a production server is also "deploying or changing live systems": it asks
+        // with that kind, and the owner's "Blocked" for it blocks every change on production
+        // servers, even one that is also another kind. Looking around still only asks.
+        let d = run(&c, &s, "systemctl restart nginx");
+        assert_eq!(
+            (d.verdict, d.layer, d.sensitive),
+            (Verdict::Ask, Layer::Risk, Some(SensitiveKind::Production))
+        );
+        assert!(d.reason.contains("it changes a production server"), "{}", d.reason);
+        let mut c3 = c2.clone();
+        c3.set_sensitive(SensitiveKind::Privilege, SensitiveRule::Ask);
+        c3.set_sensitive(SensitiveKind::Production, SensitiveRule::Block);
+        let d = run(&c3, &s, "systemctl restart nginx");
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Deny, Some(SensitiveKind::Production))
+        );
+        let d = eval(&c3, &s, &r);
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Deny, Some(SensitiveKind::Production)),
+            "sudo on production: the blocked kind wins over running as administrator"
+        );
+        let d = run(&c3, &s, "uptime");
+        assert_eq!((d.verdict, d.sensitive), (Verdict::Ask, None));
     }
 
     #[test]

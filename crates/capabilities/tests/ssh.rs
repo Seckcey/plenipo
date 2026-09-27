@@ -643,7 +643,7 @@ async fn plan_connect_to_a_synthetic_ssh_target() {
         )
         .await;
     let listed = result(&text, "ssh_servers", 0);
-    assert!(listed.contains("Dev box — DEVELOPMENT server"), "{listed}");
+    assert!(listed.contains("Dev box — TEST server"), "{listed}");
     assert!(listed.contains("Shop — PRODUCTION server"), "{listed}");
     let ran = result(&text, "ssh_run", 0);
     assert!(!ran.contains("failed"), "{ran}");
@@ -710,7 +710,7 @@ async fn plan_valid_host_key() {
     );
     let test = h.broker.test_server(&h.server_id("Dev box")).await.unwrap();
     assert!(test.ok, "{}", test.message);
-    assert!(test.message.contains("identity is the one you pinned"));
+    assert!(test.message.contains("server ID is the one you pinned"));
     let test = h.broker.test_server(&h.server_id("Shop")).await.unwrap();
     assert!(test.ok, "{}", test.message);
     let (task, text) = h
@@ -761,7 +761,7 @@ async fn plan_changed_host_key() {
         .await;
     let ran = result(&text, "ssh_run", 0);
     assert!(ran.contains("failed"), "{ran}");
-    assert!(ran.contains("Dev box's identity changed"), "{ran}");
+    assert!(ran.contains("Dev box's server ID changed"), "{ran}");
     assert!(ran.contains("did not sign in and sent nothing"), "{ran}");
     let changed = h.events(&task.id, "ssh.host_key_changed");
     assert_eq!(changed.len(), 1);
@@ -785,11 +785,11 @@ async fn plan_changed_host_key() {
         dev.identity_changed.as_ref().unwrap().fingerprint,
         h.dev.fingerprint
     );
-    assert!(dev.problem.as_ref().unwrap().contains("different identity"));
+    assert!(dev.problem.as_ref().unwrap().contains("different server ID"));
     let test = h.broker.test_server(&dev.server.id).await.unwrap();
     assert!(!test.ok);
     assert!(
-        test.message.contains("identity changed"),
+        test.message.contains("server ID changed"),
         "{}",
         test.message
     );
@@ -812,7 +812,7 @@ async fn plan_changed_host_key() {
         )
         .await;
     assert!(
-        result(&text, "ssh_run", 0).contains("Shop's identity changed"),
+        result(&text, "ssh_run", 0).contains("Shop's server ID changed"),
         "{text}"
     );
     assert!(
@@ -1079,7 +1079,7 @@ async fn plan_output_streaming() {
         .find(|s| s.kind == ControlKind::Server)
         .expect("the sign shows the connection");
     assert_eq!(session.state, ControlState::Active);
-    assert_eq!(session.detail.as_deref(), Some("Dev box (development)"));
+    assert_eq!(session.detail.as_deref(), Some("Dev box (test)"));
     assert!(!session.production);
     h.until("a line on the sign", |h| {
         h.broker.control_status().sessions.iter().any(|s| {

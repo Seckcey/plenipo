@@ -27,7 +27,7 @@ import { Refusal } from "../models/shared";
 /**
  * Add or change a server. Keys and passwords typed here go once to the operating system's
  * protected storage and are never shown again; leaving them empty keeps what is stored. The
- * server's identity is read from the server and pinned only after you confirm it.
+ * server ID (its host key fingerprint) is read from the server and pinned only after you confirm it.
  */
 export function ServerForm({
   snapshot,
@@ -251,9 +251,9 @@ export function ServerForm({
       </fieldset>
 
       <fieldset className="field">
-        <legend>Its identity</legend>
+        <legend>Its server ID</legend>
         <p className="muted">
-          Plenipo checks this every time it connects, before it signs in. If it ever changes,
+          Its fingerprint, which Plenipo checks every time it connects, before it signs in. If it ever changes,
           workers are blocked from the server until you check and pin it again.
         </p>
         {pinned && (
@@ -268,14 +268,14 @@ export function ServerForm({
             disabled={checking || host.trim() === ""}
             onClick={() => void check()}
           >
-            {checking ? "Checking…" : pinned ? "Check it again" : "Check the server's identity"}
+            {checking ? "Checking…" : pinned ? "Check it again" : "Check the server ID"}
           </button>
         </div>
         <Refusal error={checkError} />
         {seen && (
-          <div className="identity" aria-label="The server's identity">
+          <div className="identity" aria-label="The server ID">
             <p>
-              {seen.host}:{seen.port} shows the host key <code>{seen.fingerprint}</code> (
+              {seen.host}:{seen.port} shows the server ID <code>{seen.fingerprint}</code> (
               {seen.algorithm}).
             </p>
             <p className="muted">
@@ -302,7 +302,7 @@ export function ServerForm({
               >
                 {pinned?.fingerprint === seen.fingerprint
                   ? "Pinned"
-                  : "This is my server: pin this identity"}
+                  : "This is my server: pin this ID"}
               </button>
             )}
           </div>

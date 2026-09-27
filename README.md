@@ -81,7 +81,7 @@ Full power, clearly bounded. That is the whole idea.
   sign in yourself.
 - **Works on your servers, carefully.** An Operations Engineer can check a server, read its logs,
   restart a service, or deploy — only on the servers you add in **Settings → Servers**, and only
-  after you have checked and pinned each server's identity. Keys and passwords stay in the Windows
+  after you have checked and pinned each server's ID. Keys and passwords stay in the Windows
   Credential Manager or your SSH agent. On a **production** server every command waits for you,
   and deleting, wiping, or shutting down is off unless you turn it on.
 - **Writes everything down.** Every task, who did it on which AI model, files changed, tests and
@@ -175,19 +175,20 @@ Plenipo is built phase by phase. Current version: **v1.5.0**.
 Workers can now work on your servers over SSH — checking status and logs, restarting services,
 and deploying — only on the servers you add in **Settings → Servers**. Each server has a name, its
 address, how Plenipo signs in (a key or password kept in Windows Credential Manager, or your own
-SSH agent; workers never see them), its identity, which you check and pin when you add it, and
-whether it is a development, staging, or **production** server (production is red everywhere).
+SSH agent; workers never see them), its server ID, which you check and pin when you add it, and
+whether it is a test, staging, or **production** server (production is red everywhere).
 You choose which roles may use it, the kinds of commands it allows, and its folders.
 
-Plenipo checks each server's identity before it signs in; if it ever changes, the work is blocked
-and you are told. On production, every command waits for your approval, and deleting, wiping, or
+Plenipo checks each server's ID before it signs in; if it ever changes, the work is blocked and
+you are told. On production, every command waits for your approval, and deleting, wiping, or
 shutting down is off unless you turn it on. Workers never reach other computers from a server.
 A sign on every page shows who is connected to which server, with **Disconnect** and **Stop all**,
 and every command and its output are in the Activity trail. The new **Operations Engineer** role
 does this work.
 
 [Release notes](docs/releases/v1.5.0.md) · [ADR-025](docs/adr/ADR-025-servers-over-ssh.md)
-(servers over SSH, through Guard)
+(servers over SSH, through Guard) · [ADR-026](docs/adr/ADR-026-ssh-built-in.md) (SSH built into
+Plenipo, not Windows' ssh.exe)
 
 </details>
 

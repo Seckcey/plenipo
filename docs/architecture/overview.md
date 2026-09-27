@@ -47,7 +47,7 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │  - Plenipo's browser (DevTools, own  │   │
 │                                            │    profile), screen, mouse, keyboard │   │
 │                                            │  - SSH to the owner's servers        │   │
-│                                            │    (russh, pinned identities)        │   │
+│                                            │    (russh, pinned server IDs)        │   │
 │   ▲ events: plenipo://control              │  - control center: sign, Stop, Take  │   │
 │                                            │    over                              │   │
 │                                            │    ▲ 127.0.0.1, per-step ticket      │   │
@@ -210,26 +210,26 @@ Development commands (Phase 8). A project's branch setting is part of its settin
 
 Browser and computer commands (Phase 10). The website lists are part of Guard's settings.
 
-| Command              | Input                    | Returns               | Purpose                                                                                               |
-| -------------------- | ------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `get_control_status` | —                        | `ControlStatus`       | Who uses Plenipo's browser or the mouse and keyboard now, and whether control is stopped              |
-| `stop_all_control`   | —                        | `ControlStatus`       | The emergency Stop: every session halts, those workers' permissions end, no new control until allowed |
+| Command              | Input                    | Returns               | Purpose                                                                                                   |
+| -------------------- | ------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `get_control_status` | —                        | `ControlStatus`       | Who uses Plenipo's browser or the mouse and keyboard now, and whether control is stopped                  |
+| `stop_all_control`   | —                        | `ControlStatus`       | The emergency Stop: every session halts, those workers' permissions end, no new control until allowed     |
 | `take_over_control`  | `sessionId`              | `ControlStatus`       | The owner takes one session (`browser:<grant>`, `desktop:<grant>`, or `server:<grant>`): its worker stops |
-| `allow_control`      | —                        | `ControlStatus`       | Allow control again after a Stop                                                                      |
-| `set_website_rules`  | `rules` (`WebsiteRules`) | `PermissionsSnapshot` | Allowed and blocked websites, and what other websites do (ask or blocked)                             |
-| `get_browser_status` | —                        | `BrowserStatus`       | Which browser Plenipo uses, its profile folder, whether it is open                                    |
-| `open_browser`       | `url?`                   | `BrowserStatus`       | Open Plenipo's browser for the owner (to sign in to a website workers will use)                       |
-| `get_screenshot`     | `artifactId`             | `Screenshot`          | A kept screenshot as a `data:` URL (only files in Plenipo's screenshot folder recorded in the Ledger) |
+| `allow_control`      | —                        | `ControlStatus`       | Allow control again after a Stop                                                                          |
+| `set_website_rules`  | `rules` (`WebsiteRules`) | `PermissionsSnapshot` | Allowed and blocked websites, and what other websites do (ask or blocked)                                 |
+| `get_browser_status` | —                        | `BrowserStatus`       | Which browser Plenipo uses, its profile folder, whether it is open                                        |
+| `open_browser`       | `url?`                   | `BrowserStatus`       | Open Plenipo's browser for the owner (to sign in to a website workers will use)                           |
+| `get_screenshot`     | `artifactId`             | `Screenshot`          | A kept screenshot as a `data:` URL (only files in Plenipo's screenshot folder recorded in the Ledger)     |
 
 Server commands (Phase 11). Servers are part of Guard's settings; their sign-ins are in the Vault.
 
-| Command                 | Input                    | Returns           | Purpose                                                                                           |
-| ----------------------- | ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------- |
-| `get_servers`           | —                        | `ServersSnapshot` | Settings → Servers: each server, whether its sign-in is stored, identity changes, who may connect |
-| `save_server`           | `input` (`ServerInput`)  | `ServersSnapshot` | Add or change a server; a key, passphrase, or password goes straight to the Vault                 |
-| `remove_server`         | `id`                     | `ServersSnapshot` | Remove a server and its stored sign-in                                                            |
-| `check_server_identity` | `host`, `port`           | `ServerIdentity`  | Read a server's identity (host key fingerprint) for the owner to compare and pin                  |
-| `test_server`           | `id`                     | `ServerTest`      | Check the pinned identity and sign in, running nothing                                            |
+| Command                 | Input                   | Returns           | Purpose                                                                                           |
+| ----------------------- | ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
+| `get_servers`           | —                       | `ServersSnapshot` | Settings → Servers: each server, whether its sign-in is stored, identity changes, who may connect |
+| `save_server`           | `input` (`ServerInput`) | `ServersSnapshot` | Add or change a server; a key, passphrase, or password goes straight to the Vault                 |
+| `remove_server`         | `id`                    | `ServersSnapshot` | Remove a server and its stored sign-in                                                            |
+| `check_server_identity` | `host`, `port`          | `ServerIdentity`  | Read a server's ID (host key fingerprint) for the owner to compare and pin                        |
+| `test_server`           | `id`                    | `ServerTest`      | Check the pinned server ID and sign in, running nothing                                           |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -598,15 +598,16 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 
 ## 13. Servers over SSH (Phase 11)
 
-Decision record: [ADR-025 (servers over SSH, through Guard)](../adr/ADR-025-servers-over-ssh.md).
+Decision records: [ADR-025 (servers over SSH, through Guard)](../adr/ADR-025-servers-over-ssh.md)
+and [ADR-026 (SSH built into Plenipo, not Windows' ssh.exe)](../adr/ADR-026-ssh-built-in.md).
 
 - **Words on screen.** "Connect to servers" (`ssh.connect`), **Settings → Servers** (the plan's
-  host registry), "identity" and "pin" (host key fingerprint and pinning), "sign in as", "the
-  kinds of commands" (command classes), development / staging / **PRODUCTION**, and
+  host registry), "server ID" and "pin" (host key fingerprint and pinning), "sign in as", "the
+  kinds of commands" (command classes), Test / Staging / **PRODUCTION**, and
   "Disconnect".
 - **Servers** (`crates/guard/src/servers.rs`, in Guard's settings, no migration): name, address,
   port, user, environment, how Plenipo signs in (a key or password in the Vault, or the SSH
-  agent), the pinned identity, the roles that may connect, the kinds of commands, folders, when
+  agent), the pinned server ID, the roles that may connect, the kinds of commands, folders, when
   to ask, and forwarded ports. Production always asks for every command and starts without
   "Delete, wipe, or shut down".
 - **Kinds of commands.** A command is a program and its arguments, never a shell line.
@@ -614,15 +615,17 @@ Decision record: [ADR-025 (servers over SSH, through Guard)](../adr/ADR-025-serv
   restart services; Install, deploy, and change files; Delete, wipe, or shut down; Run as
   administrator; or Other. The never list (reaching other computers, scanning, cracking) and
   blocked files apply first. Guard's engine gets a `ServerCheck` in the request: role, pinned
-  identity, never list, blocked files, folders, kinds, then when to ask.
+  server ID, never list, blocked files, folders, kinds, then when to ask. Any change on a production
+  server is also the `Production` sensitive kind ("Deploying or changing live systems"); when a
+  command is two kinds, the stricter of the owner's rules wins.
 - **SSH** (`crates/capabilities/src/ssh.rs`, russh with ring). The server's key is compared with
   the pinned fingerprint before signing in; a change ends the connection and nothing is sent. No
-  agent forwarding, no shell, no remote forwarding. A command runs as `cd '<folder>' && exec
-  '<program>' '<arg>'…`, each word quoted; Stop sends TERM, then KILL, then closes the channel.
-  Keepalives notice a lost connection. Direct forwarding opens a local port on `127.0.0.1` for
-  the grant only.
+  agent forwarding, no shell, no remote forwarding. A command runs as
+  `cd '<folder>' && exec '<program>' '<arg>'…`, with each word quoted. Stop sends TERM, then
+  KILL, then closes the channel. Keepalives notice a lost connection. Direct forwarding opens a
+  local port on `127.0.0.1` for the grant only.
 - **Tools** (`broker/servers.rs`): `ssh_servers`, `ssh_run`, `ssh_forward`, `ssh_disconnect`.
-  One connection per server per grant, closed when the step ends. The identity is checked before
+  One connection per server per grant, closed when the step ends. The server ID is checked before
   an approval card is shown. Output reaches the Activity trail every quarter second (lines of at
   most 4,000 characters) with secrets hidden, and the worker gets it marked as the server's
   words, never instructions.
@@ -651,19 +654,19 @@ From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent 
 adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**,
 **Vault**, the GitHub integration, Plenipo's browser and computer use, and SSH exist today.
 
-| Component    | Responsibility                                                                       | Introduced |
-| ------------ | ------------------------------------------------------------------------------------ | ---------- |
-| Desktop      | UI                                                                                   | Phase 0    |
-| Core         | Orchestration and domain logic, shared DTOs                                          | Phase 0    |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                       | Phase 1, 3 |
-| Ledger       | SQLite system of record ✅                                                           | Phase 2    |
-| Liaison      | Task/message/event bus ✅                                                            | Phase 4    |
-| Workforce    | Departments, roles, coordinators, workers ✅                                         | Phase 5    |
-| Router       | Role → provider/model selection ✅                                                   | Phase 6    |
+| Component    | Responsibility                                                                          | Introduced |
+| ------------ | --------------------------------------------------------------------------------------- | ---------- |
+| Desktop      | UI                                                                                      | Phase 0    |
+| Core         | Orchestration and domain logic, shared DTOs                                             | Phase 0    |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                          | Phase 1, 3 |
+| Ledger       | SQLite system of record ✅                                                              | Phase 2    |
+| Liaison      | Task/message/event bus ✅                                                               | Phase 4    |
+| Workforce    | Departments, roles, coordinators, workers ✅                                            | Phase 5    |
+| Router       | Role → provider/model selection ✅                                                      | Phase 6    |
 | Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+   |
-| Guard        | Permissions, approvals, policy enforcement ✅                                        | Phase 7    |
-| Vault        | Credential references (OS-protected storage) ✅                                      | Phase 7    |
-| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                               | Phase 8+   |
+| Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7    |
+| Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7    |
+| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+   |
 
 ## 16. Invariants every phase must keep
 

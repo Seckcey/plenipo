@@ -56,7 +56,7 @@ this phase.
 - **The Servers permission set** (`servers`, new, built in) allows Connect to servers.
 - **The Operations Engineer role** (new, built in, on call) starts with the Servers set. Its
   working instructions (ADR-019) say to look before changing, never to connect from a server to
-  another computer, never to look for secrets, and to stop and ask when an identity changed or a
+  another computer, never to look for secrets, and to stop and ask when a server ID changed or a
   command is blocked.
 - No other built-in role gets the permission.
 - A worker names a server by its friendly name. It can never give an address.
@@ -67,13 +67,14 @@ Each server is a record in Guard's settings (the Ledger's `guard` setting, no ne
 migration):
 
 - **Name, address, port, and "sign in as"** (the user name).
-- **Environment:** development, staging, or production. On screen, production is red and in
-  capitals everywhere: the server's card, the approval card, the sign, the footer, the tray,
-  and the Activity trail. Staging is amber and development green.
+- **Environment:** development, staging, or production (on screen: **Test**, **Staging**, and
+  **PRODUCTION**, the owner's words). On screen, production is red and in capitals everywhere:
+  the server's card, the approval card, the sign, the footer, the tray, and the Activity trail.
+  Staging is amber and Test green.
 - **How Plenipo signs in** (the credential reference): a private key (with its passphrase, if
   any), a password, or the owner's SSH agent. The record says which; the values are only in the
   Vault (§4).
-- **The pinned identity** (host key type and SHA-256 fingerprint, with when it was pinned).
+- **The pinned server ID** (host key type and SHA-256 fingerprint, with when it was pinned).
 - **Who may use it:** role IDs. None means no worker may.
 - **The kinds of commands it allows** (the plan's command classes, §5), and **the folders**
   commands run in and may change (the remote working-directory policy, §6).
@@ -81,26 +82,28 @@ migration):
   allowed. Production is always "every command", whatever is chosen.
 - **Ports that may be forwarded** (`host:port`). None means forwarding is off.
 
-Every change is a `guard.server_added`, `guard.server_changed` (with the old and new identity
+Every change is a `guard.server_added`, `guard.server_changed` (with the old and new server ID
 when it was pinned again), or `guard.server_removed` event. None of them holds a secret.
 
-### 3. Identity (host key) pinning
+### 3. Server ID (host key) pinning
 
-- **Setting up:** **Check the server's identity** connects and reads the host key, without
+On screen, a server's host key fingerprint is its **server ID** (the owner's word).
+
+- **Setting up:** **Check the server ID** connects and reads the host key, without
   signing in (`ssh.identity_checked`). The owner compares the fingerprint with the one their
   hosting provider shows, or with `ssh-keygen -lf` on the server. They may type the one they
-  expect: a different one is refused. Only then does **This is my server: pin this identity**
-  pin it. A server without a pinned identity cannot be used.
+  expect: a different one is refused. Only then does **This is my server: pin this ID** pin
+  it. A server without a pinned server ID cannot be used.
 - **Every connection** compares the server's host key with the pinned one during the SSH
   handshake, before signing in. If they differ, Plenipo leaves at once, having sent nothing
   about the key or password.
   - The worker is told plainly and told not to retry.
   - `ssh.host_key_changed` records the expected and the seen fingerprints.
-  - Settings shows **This server's identity changed** on the server's card.
-  - Workers stay blocked until the owner checks and pins the new identity.
+  - Settings shows **This server's ID changed** on the server's card.
+  - Workers stay blocked until the owner checks and pins the new server ID.
 - **Before asking the owner:** when a command needs approval, Plenipo connects first, so the owner
-  is never asked about a command on a server whose identity changed.
-- **Test the connection** (Settings) connects with the pinned identity, signs in, and leaves
+  is never asked about a command on a server whose server ID changed.
+- **Test the connection** (Settings) connects with the pinned server ID, signs in, and leaves
   (`ssh.tested`).
 
 ### 4. Sign-ins stay in the Vault
@@ -170,11 +173,14 @@ when it was pinned again), or `guard.server_removed` event. None of them holds a
 Guard's usual layers apply first:
 
 1. the role's permission set, and the project and department limits;
-2. the server: its roles, its pinned identity, its kinds of commands, its folders, and blocked
+2. the server: its roles, its pinned server ID, its kinds of commands, its folders, and blocked
    files;
 3. the owner's sensitive-action rules, as in Phase 7. `sudo` counts as running as administrator,
-   `DROP TABLE` as wiping database data, and so on. "Blocked" in those rules blocks on servers
-   too.
+   `DROP TABLE` as wiping database data, and so on. **Any change on a production server** (every
+   kind but looking around) is also "Deploying or changing live systems", the existing
+   `Production` kind. "Blocked" in those rules blocks on servers too: blocking "Deploying or
+   changing live systems" blocks every change on production servers. When a command is two
+   kinds, the stricter rule wins.
 
 Then:
 
@@ -183,7 +189,7 @@ Then:
   it on, each such command still asks. On every server, these commands always ask (never
   unattended).
 - **Running as administrator always asks.**
-- On development and staging, the server's "when to ask" setting applies.
+- On test (development) and staging servers, the server's "when to ask" setting applies.
 - **The approval card** shows the server's name, its environment (a red **PRODUCTION**), its
   address, the folder, the exact command, and its kind.
 
@@ -200,7 +206,7 @@ Then:
 
 Every connection, command, output, and approval is in the Activity trail:
 
-- `ssh.connected` (the identity it showed, and how Plenipo signed in), `ssh.connect_failed`,
+- `ssh.connected` (the server ID it showed, and how Plenipo signed in), `ssh.connect_failed`,
   `ssh.host_key_changed`, and `ssh.disconnected` (and why);
 - `ssh.command_started` (the server, its environment, the command, the folder, and its kinds);
 - `ssh.output`: **output as it arrives**, in batches a few times a second. Lines are hidden for
@@ -243,6 +249,13 @@ the server's information, never as instructions.
   over, so the worker stops and disconnects. The owner continues in their own SSH program.
 - **No terminal for the owner** inside Plenipo, and no file copy tools (SFTP) in this phase.
 
+### 12. Free and Pro
+
+Working on servers is in the **Free** edition, like Plenipo's browser and the screen, mouse, and
+keyboard. This is the owner's decision (2026-09-27), recorded in `docs/editions.md` under ADR-021
+(Free and Pro editions). A ready-made Operations department, when one comes, would be a business
+department, and so Pro. No license check is built here.
+
 ## Consequences
 
 - An Operations Engineer can check status and logs, restart services, and deploy on servers the
@@ -263,7 +276,7 @@ the server's information, never as instructions.
   with only the access the work needs.
 - **Output is hidden only for known secrets:** the Vault's values and recognizable formats (keys,
   tokens, `PASSWORD=` settings). An unusual secret printed by a server cannot be recognized.
-- **The first identity is the owner's to check.** Pinning trusts what the owner confirms when
+- **The first server ID is the owner's to check.** Pinning trusts what the owner confirms when
   setting up (as SSH does the first time). Check the fingerprint with the hosting provider.
 - **A server's own access is its own.** `git pull` on a server uses the server's deploy key to
   reach GitHub. That is the server's access, not Plenipo's, and it is allowed as a change.
@@ -273,17 +286,11 @@ the server's information, never as instructions.
 
 ## Alternatives considered
 
-- **Windows' own `ssh.exe`.** Rejected: host key checks would depend on `known_hosts` files, the
-  key would have to be a file on disk, agent forwarding would depend on the owner's SSH
-  settings, and stopping a command and reading its output live are unreliable.
-- **libssh2 or OpenSSH libraries.** Rejected: C libraries with their own Windows build, for
-  nothing a Rust SSH library cannot do.
-- **The `aws-lc-rs` cryptography in the Rust SSH library.** Rejected in favor of `ring`, which
-  builds with the Windows toolchain alone (no CMake or NASM). The only cipher lost is
-  ChaCha20-Poly1305; AES-GCM and AES-CTR remain, which every OpenSSH server offers.
+- **Windows' own `ssh.exe`, libssh2, and other SSH libraries.** Which SSH program Plenipo uses
+  is its own decision: [ADR-026 (SSH built into Plenipo, not Windows' ssh.exe)](ADR-026-ssh-built-in.md).
 - **Shell lines with a blocklist.** Rejected: a shell line can hide any command behind quoting,
   variables, or `$(…)`. A program and its arguments can be checked word by word.
-- **Trust on first use without the owner.** Rejected: the owner pins the identity knowingly, once,
+- **Trust on first use without the owner.** Rejected: the owner pins the server ID knowingly, once,
   and every change after that blocks.
 - **Asking the owner only for changes on production.** Rejected: the owner's rule is that every
   production command waits for approval.

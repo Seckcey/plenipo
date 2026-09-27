@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("Settings → Servers", () => {
-  it("marks a production server plainly, with its identity, roles, and rules", async () => {
+  it("marks a production server plainly, with its server ID, roles, and rules", async () => {
     const dev = sampleServer({
       id: "srv-dev",
       name: "Dev box",
@@ -53,13 +53,13 @@ describe("Settings → Servers", () => {
     expect(shop).toHaveTextContent("Before every command (production)");
     expect(shop).toHaveTextContent("stored in Windows Credential Manager");
     expect(shop).toHaveTextContent("Port forwarding" + "Off");
-    const devCard = screen.getByRole("listitem", { name: "Dev box, development server" });
+    const devCard = screen.getByRole("listitem", { name: "Dev box, test server" });
     expect(devCard).toHaveClass("server--development");
-    expect(within(devCard).getByText("Development")).toHaveClass("env--development");
+    expect(within(devCard).getByText("Test")).toHaveClass("env--development");
     expect(devCard).toHaveTextContent("Before anything that is not looking around");
   });
 
-  it("says plainly when a server's identity changed", async () => {
+  it("says plainly when a server's ID changed", async () => {
     api.getServers.mockResolvedValue(
       sampleServers([
         {
@@ -69,18 +69,18 @@ describe("Settings → Servers", () => {
             fingerprint: "SHA256:NEWNEWNEW",
             at: Date.now(),
           },
-          problem: "It showed a different identity.",
+          problem: "It showed a different server ID.",
         },
       ]),
     );
     render(<ServerSettings />);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("This server's identity changed");
+    expect(alert).toHaveTextContent("This server's ID changed");
     expect(alert).toHaveTextContent("SHA256:NEWNEWNEW");
     expect(alert).toHaveTextContent("Plenipo did not sign in");
   });
 
-  it("adds a server: checks and pins its identity, and sends the key once", async () => {
+  it("adds a server: checks and pins its server ID, and sends the key once", async () => {
     api.getServers.mockResolvedValue(sampleServers([]));
     api.checkServerIdentity.mockResolvedValue({
       host: "dev.example.com",
@@ -99,18 +99,18 @@ describe("Settings → Servers", () => {
       within(form).getByLabelText(/^Private key/),
       "-----BEGIN OPENSSH PRIVATE KEY-----",
     );
-    await user.click(within(form).getByRole("button", { name: "Check the server's identity" }));
+    await user.click(within(form).getByRole("button", { name: "Check the server ID" }));
     expect(api.checkServerIdentity).toHaveBeenCalledWith("dev.example.com", 22);
-    const identity = await within(form).findByLabelText("The server's identity");
+    const identity = await within(form).findByLabelText("The server ID");
     expect(identity).toHaveTextContent("SHA256:DEVDEVDEV");
     // A fingerprint that does not match is never offered for pinning.
     const expected = within(identity).getByLabelText(/The fingerprint you expect/);
     await user.type(expected, "SHA256:OTHER");
     expect(within(identity).getByRole("alert")).toHaveTextContent("They are different");
-    expect(within(identity).queryByRole("button", { name: /pin this identity/ })).toBeNull();
+    expect(within(identity).queryByRole("button", { name: /pin this ID/ })).toBeNull();
     await user.clear(expected);
     await user.click(
-      within(identity).getByRole("button", { name: "This is my server: pin this identity" }),
+      within(identity).getByRole("button", { name: "This is my server: pin this ID" }),
     );
     await user.click(within(form).getByRole("checkbox", { name: /Operations Engineer/ }));
     await user.click(within(form).getByRole("button", { name: "Add the server" }));

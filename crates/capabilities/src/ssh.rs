@@ -100,7 +100,7 @@ impl std::fmt::Display for ConnectError {
             | Self::Protocol(why) => f.write_str(why),
             Self::Changed { expected, seen } => write!(
                 f,
-                "its identity changed: it now shows the host key {} ({}), not the {expected} \
+                "its server ID changed: it now shows {} ({}), not the {expected} \
                  pinned when it was set up",
                 seen.fingerprint, seen.algorithm
             ),

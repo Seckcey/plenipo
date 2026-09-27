@@ -415,7 +415,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "ssh_servers",
         capability: Capability::SshConnect,
         risk: Risk::Read,
-        description: "List the servers you may use over SSH: each one's name, whether it is a development, staging, or production server, the folders commands run in, the kinds of commands it allows, and when the owner is asked.",
+        description: "List the servers you may use over SSH: each one's name, whether it is a test, staging, or production server, the folders commands run in, the kinds of commands it allows, and when the owner is asked.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {

@@ -4,7 +4,7 @@
 //! A server is set up by the owner in Settings → Servers: a friendly name, its address and port,
 //! who Plenipo signs in as and how (a key or password kept in the operating system's protected
 //! storage, or the owner's SSH agent), the identity (host key) pinned when it was set up, whether
-//! it is a development, staging, or production server, which roles may use it, which kinds of
+//! it is a test (development), staging, or production server, which roles may use it, which kinds of
 //! commands it allows, which folders commands may run and change things in, which ports may be
 //! forwarded (none to start with), and when the owner is asked. Nothing here connects anywhere:
 //! the capability broker does, after asking Guard.
@@ -46,7 +46,7 @@ impl Environment {
     /// "production".
     pub fn word(self) -> &'static str {
         match self {
-            Self::Development => "development",
+            Self::Development => "test",
             Self::Staging => "staging",
             Self::Production => "production",
         }
@@ -1657,10 +1657,11 @@ pub enum ServerVerdict {
     /// Never, and why (a clause after "Blocked: ").
     Deny { layer: Layer, reason: String },
     /// Allowed as far as the server goes. `ask`: it still waits for the owner, and why;
-    /// `sensitive`: a sensitive kind of action the command is.
+    /// `sensitive`: the sensitive kinds of action the command is, most specific first (Guard
+    /// applies the strictest of the owner's rules for them).
     Go {
         ask: Option<String>,
-        sensitive: Option<(SensitiveKind, &'static str)>,
+        sensitive: Vec<(SensitiveKind, &'static str)>,
     },
 }
 
@@ -1687,7 +1688,7 @@ pub fn check(blocked_files: &[String], c: &ServerCheck<'_>) -> ServerVerdict {
         return deny(
             Layer::Target,
             format!(
-                "{name}'s identity (host key) has not been checked and pinned yet, in Settings → \
+                "{name}'s server ID (host key fingerprint) has not been checked and pinned yet, in Settings → \
                  Servers"
             ),
         );
@@ -1695,7 +1696,7 @@ pub fn check(blocked_files: &[String], c: &ServerCheck<'_>) -> ServerVerdict {
     match c.what {
         ServerUse::Connect => ServerVerdict::Go {
             ask: None,
-            sensitive: None,
+            sensitive: Vec::new(),
         },
         ServerUse::Forward { to } => {
             if s.forwards.iter().any(|f| f == to) {
@@ -1703,7 +1704,7 @@ pub fn check(blocked_files: &[String], c: &ServerCheck<'_>) -> ServerVerdict {
                     ask: Some(format!(
                         "forwarding a port through {name} always waits for your approval"
                     )),
-                    sensitive: None,
+                    sensitive: Vec::new(),
                 }
             } else {
                 deny(
@@ -1769,16 +1770,28 @@ fn run(blocked_files: &[String], s: &Server, k: &Classified, cwd: Option<&str>) 
         }
     }
     // Running as administrator is the sensitive kind of a `sudo` command (so the owner's rule
-    // for it applies on servers too); otherwise what the command itself does.
-    let sensitive = if k.is(CommandClass::Admin) {
-        Some((
+    // for it applies on servers too); otherwise what the command itself does. Any change to a
+    // production server is also "deploying or changing live systems", so the owner's rule for
+    // that applies too (Blocked there blocks every change on production servers).
+    let mut sensitive: Vec<(SensitiveKind, &'static str)> = Vec::new();
+    if k.is(CommandClass::Admin) {
+        sensitive.push((
             SensitiveKind::Privilege,
             "it runs a program as administrator",
-        ))
-    } else {
-        sensitive::command(&k.inner, std::path::Path::new("/"))
-            .filter(|(kind, _)| *kind != SensitiveKind::OutsideWorkspace)
-    };
+        ));
+    } else if let Some(found) = sensitive::command(&k.inner, std::path::Path::new("/"))
+        .filter(|(kind, _)| *kind != SensitiveKind::OutsideWorkspace)
+    {
+        sensitive.push(found);
+    }
+    if s.environment == Environment::Production
+        && !k.looks_only()
+        && !sensitive
+            .iter()
+            .any(|(kind, _)| *kind == SensitiveKind::Production)
+    {
+        sensitive.push((SensitiveKind::Production, "it changes a production server"));
+    }
     let ask = if s.environment == Environment::Production {
         Some(format!(
             "{name} is a production server: every command there waits for your approval"
@@ -2054,7 +2067,10 @@ mod tests {
         match run_check(&admin, "sudo systemctl restart nginx", None) {
             ServerVerdict::Go { ask, sensitive } => {
                 assert!(ask.unwrap().contains("administrator"));
-                assert_eq!(sensitive.map(|s| s.0), Some(SensitiveKind::Privilege));
+                assert_eq!(
+                    sensitive.iter().map(|s| s.0).collect::<Vec<_>>(),
+                    [SensitiveKind::Privilege]
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -2069,6 +2085,18 @@ mod tests {
             .unwrap()
             .contains("production server: every command"));
         assert!(denied(&run_check(&s, "reboot", None)).contains("production server"));
+        // Changes are also "deploying or changing live systems"; looking around is not.
+        let kinds = |v: ServerVerdict| match v {
+            ServerVerdict::Go { sensitive, .. } => {
+                sensitive.into_iter().map(|s| s.0).collect::<Vec<_>>()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(kinds(run_check(&s, "uptime", None)), []);
+        assert_eq!(
+            kinds(run_check(&s, "systemctl restart nginx", None)),
+            [SensitiveKind::Production]
+        );
         s.classes.push(Destroy);
         assert!(asks(&run_check(&s, "reboot", None))
             .unwrap()
