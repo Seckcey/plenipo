@@ -11,6 +11,7 @@ use crate::defaults;
 use crate::dto::*;
 use crate::error::{GuardError, Result};
 use crate::paths::valid_pattern;
+use crate::websites::{self, WebsiteRules};
 
 pub const MAX_SETS: usize = 64;
 pub const MAX_RULES: usize = 300;
@@ -31,6 +32,8 @@ pub struct GuardConfig {
     pub options: GuardOptions,
     /// References to secrets in the operating system's protected storage (never values).
     pub secrets: Vec<SecretInfo>,
+    /// Which websites workers may open in Plenipo's browser (Phase 10, ADR-020).
+    pub websites: WebsiteRules,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -115,6 +118,7 @@ impl GuardConfig {
             sets: defaults::builtin_sets(),
             commands: defaults::default_commands(),
             blocked_files: defaults::default_blocked_files(),
+            websites: defaults::default_websites(),
             ..Self::default()
         }
     }
@@ -348,6 +352,11 @@ impl GuardConfig {
         Ok(())
     }
 
+    pub fn set_websites(&mut self, rules: &WebsiteRules) -> Result<()> {
+        self.websites = websites::clean(rules).map_err(invalid)?;
+        Ok(())
+    }
+
     pub fn set_sensitive(&mut self, kind: SensitiveKind, rule: SensitiveRule) {
         match rule {
             SensitiveRule::Ask => self.sensitive.remove(&kind),
@@ -473,7 +482,16 @@ mod tests {
             .unwrap()
             .levels
             .insert(Capability::ShellExec, Level::Allowed);
-        assert_eq!(c.upgrade_builtins(), ["read-only", "developer", "tester"]);
+        assert_eq!(
+            c.upgrade_builtins(),
+            ["writer", "researcher", "read-only", "developer", "tester"]
+        );
+        let writer = c.set("writer").unwrap();
+        assert_eq!(
+            writer.levels.get(&Capability::GitWrite),
+            Some(&Level::Allowed),
+            "the Writer set commits (ADR-019)"
+        );
         let developer = c.set("developer").unwrap();
         assert_eq!(
             developer.levels.get(&Capability::GithubWrite),

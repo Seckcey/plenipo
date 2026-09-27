@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-website-rules"
+description = "Enables the set_website_rules command without any pre-configured scope."
+commands.allow = ["set_website_rules"]
+
+[[permission]]
+identifier = "deny-set-website-rules"
+description = "Denies the set_website_rules command without any pre-configured scope."
+commands.deny = ["set_website_rules"]

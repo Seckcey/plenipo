@@ -7,6 +7,7 @@ import { Refusal } from "../models/shared";
 import { PermissionSets } from "./PermissionSets";
 import { ApprovalWindow, BlockedFiles, CommandLists, SensitiveActions } from "./RuleLists";
 import { SecretList } from "./SecretList";
+import { Websites } from "./Websites";
 
 type Apply = (s: PermissionsSnapshot) => void;
 
@@ -32,7 +33,8 @@ export function PermissionSettings() {
     <div className="permissions">
       <p className="muted">
         Workers of your organization use your computer only through Plenipo&apos;s own tools —
-        files, programs, and git inside their project&apos;s folder — and only as far as these
+        files, programs, and git inside their project&apos;s folder, websites in Plenipo&apos;s own
+        browser, and (as a last resort) the screen, mouse, and keyboard — and only as far as these
         settings allow. Every use is checked and recorded; changes apply to a worker&apos;s next
         request.{" "}
         <span className={`pill ${s.tools.running ? "pill--ok" : "pill--bad"}`}>
@@ -50,6 +52,7 @@ export function PermissionSettings() {
       <PermissionSets snapshot={s} onApply={permissions.apply} />
       <CommandLists snapshot={s} onApply={permissions.apply} />
       <BlockedFiles snapshot={s} onApply={permissions.apply} />
+      <Websites snapshot={s} onApply={permissions.apply} />
       <SensitiveActions snapshot={s} onApply={permissions.apply} />
       <ApprovalWindow snapshot={s} onApply={permissions.apply} />
       <SecretList snapshot={s} onApply={permissions.apply} />

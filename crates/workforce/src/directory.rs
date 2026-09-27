@@ -9,7 +9,7 @@ use plenipo_ledger::{ChildConversation, Ledger, NewWorker, Position, Project, Ta
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::protocol::PROTOCOL;
 use plenipo_liaison::{Directory, MemberConversation, Placement, Team};
-use plenipo_router::{Planner, RouteDecision, RouteRequest, Router};
+use plenipo_router::{ModelFeature, Planner, RouteDecision, RouteRequest, Router};
 use plenipo_runtime::agent::SessionStart;
 use serde_json::{json, Value};
 
@@ -88,6 +88,17 @@ pub(crate) fn decide(
             reviewed,
         }),
     }
+}
+
+/// Whether the model with this ID in the owner's list is marked as able to see images (`None`:
+/// the model is not in the list, such as a fixed position's unlisted model).
+fn sees_images(planner: &Planner, model_id: &str) -> Option<bool> {
+    planner
+        .config
+        .models
+        .iter()
+        .find(|m| !model_id.is_empty() && m.id == model_id)
+        .map(|m| m.features.contains(&ModelFeature::Vision))
 }
 
 /// The team member `name` refers to: by title, or by role name when that is unambiguous.
@@ -186,7 +197,10 @@ impl Directory for WorkforceDirectory {
         let identity = if view.persistent(me) {
             member_identity(&view, &name, me, destinations.iter().any(|d| d.ready))
         } else {
-            worker_identity(&view, &name, me, None)
+            let model = workforce["routing"]["choice"]["modelId"]
+                .as_str()
+                .unwrap_or_default();
+            worker_identity(&view, &name, me, None, sees_images(&planner, model))
         };
         Some(Team {
             identity,
@@ -275,6 +289,7 @@ impl Directory for WorkforceDirectory {
                 &org_name(&self.ledger),
                 target,
                 member.oversight.map(|o| (lead, o.kind)),
+                sees_images(&planner, &choice.model_id),
             ),
             project_id,
         })

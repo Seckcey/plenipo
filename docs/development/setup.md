@@ -163,7 +163,35 @@ Notes:
   test command to **Approved** (for example `npm test *` or `cargo test *`) so QA can run it
   without asking.
 
-## 4. Build a release and installer
+## 4. Plenipo's browser, and the screen, mouse, and keyboard (Phase 10, optional)
+
+Workers that you allow to visit or use websites work in **Plenipo's browser**: the Microsoft
+Edge that comes with Windows 11, or Google Chrome if you prefer it. Nothing to install.
+
+- **Which browser:** Plenipo takes Edge, then Chrome. To use another Chromium-based browser, set
+  the full path in `PLENIPO_BROWSER` before starting Plenipo. **Settings → Permissions →
+  Websites** shows which one it found.
+- **Its own profile:** `%LOCALAPPDATA%\com.eightwest.plenipo\browser-profile`. Your own browser
+  profile, sign-ins, and saved passwords are never used. Delete that folder to sign Plenipo's
+  browser out of everything.
+- **Signing in to a website workers will use:** **Settings → Permissions → Websites → Open
+  Plenipo's browser** (with the website's address), sign in yourself, then close the tab.
+  Workers never sign in or type passwords.
+- **Screenshots** are kept in `%LOCALAPPDATA%\com.eightwest.plenipo\screenshots`. They can show
+  whatever was on the page or screen; delete a task's folder when you no longer need it.
+- **The mouse and keyboard:** no built-in role gets them. Give the **Screen, mouse, and keyboard**
+  permission set to a role of your own only when no API, program, or website will do; taking control asks
+  you every time. Windows' own administrator prompts (UAC) cannot be clicked by any program,
+  which is as it should be.
+- **Stop:** **Stop all** on the sign in the app, **Stop all browser and desktop control** in the
+  tray menu, or **Stop** on the small window shown while a worker has the mouse and keyboard.
+
+`cargo test --workspace` includes the Phase 10 browser tests, which start Edge or Chrome
+without a window against a small test website on this computer (no internet). Set
+`PLENIPO_TEST_BROWSER` to the browser's full path to pick one; without a browser they are
+skipped locally and fail in CI.
+
+## 5. Build a release and installer
 
 ```powershell
 pnpm build
@@ -177,7 +205,7 @@ Outputs:
 
 The installer is not code-signed yet (planned for Phase 13), so Windows SmartScreen may warn.
 
-## 5. Verify everything locally (same as CI)
+## 6. Verify everything locally (same as CI)
 
 ```powershell
 pnpm check
@@ -194,7 +222,7 @@ $p = Start-Process target\release\plenipo-desktop.exe -PassThru; $null = $p.Hand
 Remove-Item Env:PLENIPO_SMOKE_TEST
 ```
 
-## 6. End-to-end tests
+## 7. End-to-end tests
 
 `pnpm e2e` drives the real release build through WebDriver. It runs in CI on Linux; locally:
 
@@ -229,8 +257,12 @@ says, the tools it calls, its handoffs, and its review verdict). `installFakeToo
 two stand-in programs on `PATH` (`plenipo-fake-agent --helpers`): `gh`, which records pull
 requests in a file next to it, and `verify FILE WORD`, a test that passes when the file
 contains the word.
+The Phase 10 test starts a small test website on `127.0.0.1` (no internet), allows it in
+Settings → Permissions → Websites, and gives a Web Assistant browser tool calls; the app uses
+the Edge or Chrome it finds (set `PLENIPO_BROWSER` to choose, for example a Chromium without
+Chrome installed). It approves the form it sends, then takes over and stops the next ones.
 
-## 7. Linux (development / CI only)
+## 8. Linux (development / CI only)
 
 ```bash
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \

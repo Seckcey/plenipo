@@ -30,6 +30,7 @@ export const role = (
   glyph,
   purpose: [],
   defaultCapabilities: [],
+  job: { duties: [], returns: [], limits: [], askLead: [] },
 });
 
 export const ROLES: RoleInfo[] = [

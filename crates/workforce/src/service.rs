@@ -73,6 +73,47 @@ pub struct Workforce {
     inner: Arc<Inner>,
 }
 
+/// Most lines in each part of a role's working instructions, and the longest line.
+pub const MAX_JOB_LINES: usize = 12;
+pub const MAX_JOB_LINE_CHARS: usize = 300;
+
+/// A role's working instructions as the owner wrote them (ADR-019): one item per line, list
+/// markers ("- ", "* ", "• ") and blank lines removed.
+pub fn clean_job(job: &RoleJob) -> Result<RoleJob> {
+    let clean = |what: &str, items: &[String]| -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        for line in items.iter().flat_map(|i| i.lines()) {
+            let line = line
+                .trim()
+                .trim_start_matches(['-', '*', '•'])
+                .trim()
+                .to_owned();
+            if line.is_empty() {
+                continue;
+            }
+            if line.chars().count() > MAX_JOB_LINE_CHARS || line.chars().any(char::is_control) {
+                return Err(invalid(format!(
+                    "each line of {what} must be one line of at most {MAX_JOB_LINE_CHARS} \
+                     characters"
+                )));
+            }
+            out.push(line);
+        }
+        if out.len() > MAX_JOB_LINES {
+            return Err(invalid(format!(
+                "{what} can have at most {MAX_JOB_LINES} lines"
+            )));
+        }
+        Ok(out)
+    };
+    Ok(RoleJob {
+        duties: clean("what the role does", &job.duties)?,
+        returns: clean("what it hands back", &job.returns)?,
+        limits: clean("what it must not do", &job.limits)?,
+        ask_lead: clean("when it asks its lead for help", &job.ask_lead)?,
+    })
+}
+
 impl Workforce {
     /// Create the service: seed missing role templates (and their starting model policies)
     /// and install the organization's directory in Liaison, so members address their teams by
@@ -339,14 +380,55 @@ impl Workforce {
         } else {
             vec![description.trim_end_matches('.')]
         };
+        let job = clean_job(&input.job.clone().unwrap_or_default())?;
         self.ledger().create_role(
             &name,
             description,
             role_type,
             persistent,
-            &json!({ "glyph": default_glyph(role_type), "purpose": purpose }),
+            &json!({ "glyph": default_glyph(role_type), "purpose": purpose, "job": job }),
             OWNER,
         )?;
+        self.snapshot()
+    }
+
+    /// Change a role the owner created: its name, description, and working instructions
+    /// (ADR-019). Built-in roles keep theirs.
+    pub fn update_role(&self, role_id: &str, input: &RoleUpdate) -> Result<OrgSnapshot> {
+        let name = plenipo_ledger::workforce::clean_line("the role name", &input.name, 80)?;
+        let description = input.description.trim();
+        if description.chars().count() > 2000 {
+            return Err(invalid("the description must be at most 2000 characters"));
+        }
+        let roles = self.ledger().list_roles()?;
+        let role = roles
+            .iter()
+            .find(|r| r.id == role_id)
+            .ok_or_else(|| invalid("that role no longer exists"))?;
+        if role.metadata["template"] == true {
+            return Err(invalid(
+                "built-in roles keep their instructions; create a role of your own to write \
+                 different ones",
+            ));
+        }
+        if roles
+            .iter()
+            .any(|r| r.id != role_id && r.name.eq_ignore_ascii_case(&name))
+        {
+            return Err(invalid(format!("a role named \"{name}\" already exists")));
+        }
+        let mut metadata = role.metadata.clone();
+        if !metadata.is_object() {
+            metadata = json!({});
+        }
+        metadata["purpose"] = if description.is_empty() {
+            json!([])
+        } else {
+            json!([description.trim_end_matches('.')])
+        };
+        metadata["job"] = json!(clean_job(&input.job)?);
+        self.ledger()
+            .update_role(role_id, &name, description, &metadata, OWNER)?;
         self.snapshot()
     }
 

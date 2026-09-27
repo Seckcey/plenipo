@@ -70,6 +70,15 @@ const COMMANDS: &[&str] = &[
     "get_objective_report",
     "get_project_work",
     "remove_workspace",
+    "update_role",
+    "get_control_status",
+    "stop_all_control",
+    "take_over_control",
+    "allow_control",
+    "set_website_rules",
+    "get_browser_status",
+    "open_browser",
+    "get_screenshot",
 ];
 
 fn main() {

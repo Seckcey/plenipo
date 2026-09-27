@@ -99,6 +99,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (router !== null) return router;
   const guard = describeGuardEvent(e.eventType, p);
   if (guard !== null) return guard;
+  const control = describeControlEvent(e.eventType, p);
+  if (control !== null) return control;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -184,6 +186,8 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "Plenipo Guard's starting permission settings were stored";
     case "guard.sets_added":
       return "Built-in permission sets were added back";
+    case "guard.sets_updated":
+      return "Built-in permission sets you had not changed were brought up to date";
     case "guard.roles_seeded":
       return "Built-in roles got their starting permission sets";
     case "guard.set_added":
@@ -210,12 +214,53 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "A sensitive-action setting changed";
     case "guard.options_changed":
       return "Approval wait changed";
+    case "guard.websites_changed":
+      return "Website lists changed";
+    case "guard.websites_added":
+      return "Plenipo's starting website lists were stored";
     case "vault.secret_added":
       return `Secret stored: ${str(p.name) ?? ""}`;
     case "vault.secret_changed":
       return `Secret changed: ${str(p.name) ?? ""}`;
     case "vault.secret_removed":
       return `Secret removed: ${str(p.name) ?? ""}`;
+  }
+  return null;
+}
+
+const CONTROL_WHAT: Record<string, string> = {
+  browser: "Plenipo's browser",
+  desktop: "the mouse and keyboard",
+};
+
+/** Phase 10: Plenipo's browser, the mouse and keyboard, and the owner's Stop and Take over. */
+function describeControlEvent(type: string, p: Record<string, unknown>): string | null {
+  const worker = str(p.worker) ?? "A worker";
+  const what = CONTROL_WHAT[str(p.kind) ?? ""] ?? "the browser or the desktop";
+  const why = str(p.why) ? ` (${brief(p.why, 200)})` : "";
+  switch (type) {
+    case "browser.started":
+      return `Plenipo's browser ${p.restarted === true ? "restarted" : "started"}${
+        str(p.browser) ? ` (${str(p.browser)})` : ""
+      }`;
+    case "browser.tab_lost":
+      return `${worker}'s browser tab closed${why}`;
+    case "browser.opened_by_owner":
+      return `You opened Plenipo's browser${str(p.url) ? ` at ${str(p.url)}` : ""}`;
+    case "control.started":
+      return `${worker} started using ${what}${str(p.reason) ? ` — ${brief(p.reason, 200)}` : ""}`;
+    case "control.ended":
+      return `${worker} stopped using ${what}${why}`;
+    case "control.taken_over":
+      return `You took over ${what} from ${worker}${why}`;
+    case "control.stopped": {
+      const n = count(p.sessions);
+      return n === 0
+        ? "You pressed Stop: browser and desktop control is stopped"
+        : `You pressed Stop: ${n} worker${n === 1 ? "" : "s"} stopped using the browser or the desktop`;
+    }
+    case "control.allowed":
+      return "You allowed browser and desktop control again";
   }
   return null;
 }
@@ -270,6 +315,14 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
       return `Project moved to another department: ${name}`;
     case "org.role_created":
       return `Role added: ${name}`;
+    case "org.role_renamed":
+      return `Built-in role renamed to ${name}`;
+    case "org.role_updated":
+      if (p.template === true) return `Built-in role's instructions updated: ${name}`;
+      if (str(p.formerly) && str(p.formerly) !== name) {
+        return `Role renamed from ${str(p.formerly)} to ${name}`;
+      }
+      return name ? `Role changed: ${name}` : "A role's model choices or permissions changed";
     case "org.settings_changed":
       return "Organization settings changed";
   }
@@ -399,4 +452,28 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** The screenshot an Activity event carries, if any (capability use and approvals). */
+export function eventScreenshot(payload: unknown): string | null {
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  if (typeof p.screenshot === "string") return p.screenshot;
+  const r = p.request;
+  if (typeof r === "object" && r !== null) {
+    const s = (r as Record<string, unknown>).screenshot;
+    if (typeof s === "string") return s;
+  }
+  return null;
+}
+
+/**
+ * Events the trail leaves out: a kept screenshot's own record, since the picture shows with the
+ * action or approval it belongs to (the Ledger keeps both).
+ */
+export function shownInTrail(e: LedgerEvent): boolean {
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  return !(e.eventType === "artifact.recorded" && p.type === "screenshot");
 }

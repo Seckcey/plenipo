@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { LedgerEvent, Task, TaskTimeline, TaskTree } from "@plenipo/types";
 
 import { HANDOFF_OUTCOME_LABEL } from "../agents/format";
+import { ScreenshotView } from "../components/ScreenshotView";
 import {
   advanceSyntheticTask,
   getTaskTimeline,
@@ -12,7 +13,9 @@ import {
   ACTION_LABEL,
   ACTIONS_FOR,
   describeEvent,
+  eventScreenshot,
   isRejection,
+  shownInTrail,
   sourceLabel,
   TASK_STATE_LABEL,
 } from "../ledger/format";
@@ -27,6 +30,7 @@ function TaskBadge({ task }: { task: Task }) {
 
 /** `step` numbers a task's own trail (1, 2, 3…); the global ledger sequence is in the tooltip. */
 function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
+  const shot = eventScreenshot(event.payload);
   return (
     <li
       className={`trail__item${isRejection(event) ? " trail__item--rejected" : ""}`}
@@ -37,7 +41,10 @@ function EventRow({ event, step }: { event: LedgerEvent; step?: number }) {
         {step !== undefined ? `${step}.` : `#${event.seq}`}
       </span>
       <time>{formatTime(event.createdAt)}</time>
-      <span className="trail__text">{describeEvent(event)}</span>
+      <span className="trail__text">
+        {describeEvent(event)}
+        {shot && <ScreenshotView id={shot} label={`Screenshot: ${describeEvent(event)}`} />}
+      </span>
       <span className="trail__source" title={event.source}>
         {sourceLabel(event.source, { capitalize: true })}
       </span>
@@ -191,7 +198,7 @@ export function ActivityView({
           <p className="muted">No events recorded yet.</p>
         ) : (
           <ol className="trail" aria-label="All events">
-            {feed.events.map((e) => (
+            {feed.events.filter(shownInTrail).map((e) => (
               <EventRow key={e.seq} event={e} />
             ))}
           </ol>
@@ -300,7 +307,7 @@ export function ActivityView({
 
                 <h3>Activity trail</h3>
                 <ol className="trail" aria-label="Activity trail">
-                  {current.events.map((e, i) => (
+                  {current.events.filter(shownInTrail).map((e, i) => (
                     <EventRow key={e.seq} event={e} step={i + 1} />
                   ))}
                 </ol>

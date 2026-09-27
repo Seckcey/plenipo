@@ -75,6 +75,12 @@ pub struct ApprovalView {
     /// The note recorded with the outcome.
     #[ts(optional)]
     pub note: Option<String>,
+    /// The web page it concerns (Phase 10).
+    #[ts(optional)]
+    pub url: Option<String>,
+    /// A screenshot of the page as it was when it asked (an artifact ID; `get_screenshot`).
+    #[ts(optional)]
+    pub screenshot: Option<String>,
 }
 
 /// Pending approvals (oldest first) and recent outcomes (newest first).
@@ -174,4 +180,13 @@ pub struct PermissionsSnapshot {
     /// Recently blocked requests, newest first.
     pub blocked: Vec<BlockedView>,
     pub notices: Vec<String>,
+}
+
+/// A kept screenshot, ready to show (Phase 10): its type and a `data:` URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Screenshot {
+    pub mime: String,
+    pub data_url: String,
 }

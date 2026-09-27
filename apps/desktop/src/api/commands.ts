@@ -11,6 +11,8 @@ import type {
   AgentSessionDetail,
   AppInfo,
   BackupInfo,
+  BrowserStatus,
+  ControlStatus,
   CommandError,
   CommandRules,
   GuardOptions,
@@ -36,9 +38,11 @@ import type {
   ProjectWork,
   RoleInput,
   RolePolicy,
+  RoleUpdate,
   RoutingOptions,
   RoutingSnapshot,
   RuntimeOverview,
+  Screenshot,
   SecretInput,
   SensitiveKind,
   SensitiveRule,
@@ -48,6 +52,7 @@ import type {
   TaskTimeline,
   TaskTree,
   TitleTheme,
+  WebsiteRules,
   WorkView,
 } from "@plenipo/types";
 
@@ -266,6 +271,11 @@ export function createRole(input: RoleInput): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("create_role", { input });
 }
 
+/** Change a role you created: its name, description, and what it does (ADR-019). */
+export function updateRole(roleId: string, input: RoleUpdate): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("update_role", { roleId, input });
+}
+
 /** Create a department with its head position. */
 export function createDepartment(input: DepartmentInput): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("create_department", { input });
@@ -478,4 +488,44 @@ export function resolveApproval(approvalId: string, approve: boolean): Promise<A
 /** End a worker's permissions now. */
 export function revokeGrant(grantId: string): Promise<PermissionsSnapshot> {
   return call("revoke_grant", { grantId });
+}
+
+// ---- Browser and computer control (Phase 10) --------------------------------------------------
+
+/** Who uses Plenipo's browser or the mouse and keyboard now, and whether control is stopped. */
+export function getControlStatus(): Promise<ControlStatus> {
+  return call("get_control_status");
+}
+
+/** The emergency stop: all browser and desktop control halts, until you allow it again. */
+export function stopAllControl(): Promise<ControlStatus> {
+  return call("stop_all_control");
+}
+
+/** Take over a worker's use of the browser or the mouse and keyboard; that worker stops. */
+export function takeOverControl(sessionId: string): Promise<ControlStatus> {
+  return call("take_over_control", { sessionId });
+}
+
+/** Let workers use the browser and the desktop again after a stop. */
+export function allowControl(): Promise<ControlStatus> {
+  return call("allow_control");
+}
+
+export function setWebsiteRules(rules: WebsiteRules): Promise<PermissionsSnapshot> {
+  return call("set_website_rules", { rules });
+}
+
+export function getBrowserStatus(): Promise<BrowserStatus> {
+  return call("get_browser_status");
+}
+
+/** Open Plenipo's browser for you (to sign in to a website yourself). */
+export function openBrowser(url?: string): Promise<BrowserStatus> {
+  return call("open_browser", { url: url?.trim() ? url.trim() : null });
+}
+
+/** A kept screenshot, by its ID. */
+export function getScreenshot(artifactId: string): Promise<Screenshot> {
+  return call("get_screenshot", { artifactId });
 }

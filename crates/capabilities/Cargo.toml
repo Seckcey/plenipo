@@ -22,20 +22,30 @@ path = "tests/support/relay.rs"
 test = false
 
 [dependencies]
+base64 = "0.22"
 dunce = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Mouse and keyboard for computer use (Phase 10): SendInput on Windows, XTest on Linux.
+enigo = { version = "0.6", default-features = false }
 plenipo-guard = { path = "../guard" }
 plenipo-ledger = { path = "../ledger" }
 plenipo-runtime = { path = "../runtime" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+png = "0.18"
+sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+# The DevTools protocol of Plenipo's browser (Phase 10), over a loopback WebSocket; no TLS.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 ts-rs = "11"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows Credential Manager.
 keyring = { version = "3.6", features = ["windows-native"] }
+# Screen capture for computer use (Phase 10).
+xcap = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", features = ["apple-native"] }
@@ -43,6 +53,9 @@ keyring = { version = "3.6", features = ["apple-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 # The kernel keyring (no desktop secret service needed).
 keyring = { version = "3.6", features = ["linux-native"] }
+# XTest input and screen capture over X11 (development and CI; Windows is the target).
+enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
+x11rb = "0.13"
 
 [dev-dependencies]
 plenipo-liaison = { path = "../liaison" }

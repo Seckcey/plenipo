@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ExecutionRecord, RuntimeEvent, RuntimeOverview } from "@plenipo/types";
+import type { ControlStatus, ExecutionRecord, RuntimeEvent, RuntimeOverview } from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -37,15 +37,24 @@ vi.mock("./api/commands", async (importOriginal) => {
     getApprovals: vi.fn(),
     getPermissions: vi.fn(),
     resolveApproval: vi.fn(),
+    getControlStatus: vi.fn(),
+    stopAllControl: vi.fn(),
+    takeOverControl: vi.fn(),
+    allowControl: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
   subscribeRuntimeEvents: vi.fn(),
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeControl: vi.fn((handler: (s: ControlStatus) => void) => {
+    emitControl = handler;
+    return Promise.resolve(() => undefined);
+  }),
 }));
 
 const api = vi.mocked(commands);
+let emitControl: (s: ControlStatus) => void = () => undefined;
 const subscribe = vi.mocked(events.subscribeRuntimeEvents);
 let emit: (event: RuntimeEvent) => void = () => undefined;
 
@@ -125,6 +134,7 @@ beforeEach(() => {
   api.getOrganization.mockResolvedValue(emptyOrganization());
   api.getApprovals.mockResolvedValue({ pending: [], recent: [] });
   api.getPermissions.mockResolvedValue(samplePermissions());
+  api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [], revision: 0 });
   api.getLiaisonOverview.mockResolvedValue({
     protocol: "plenipo-liaison/1",
     contextFormat: "plenipo-context/1",
@@ -408,5 +418,61 @@ describe("AI tools page", () => {
     expect(api.resolveApproval).toHaveBeenCalledWith("approval-1", true);
     // The answer updates the sidebar count at once.
     await waitFor(() => expect(within(nav).queryByLabelText("1 waiting for you")).toBeNull());
+  });
+
+  it("shows who controls the browser on every page, with Take over and Stop all", async () => {
+    const session = {
+      id: "browser:g1",
+      grantId: "g1",
+      taskId: "t1",
+      worker: "Web Assistant",
+      kind: "browser" as const,
+      state: "active" as const,
+      detail: "http://shop.test/form",
+      lastAction: 'clicked "Send message"',
+      since: 0,
+    };
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
+    api.takeOverControl.mockResolvedValue({
+      stopped: false,
+      sessions: [{ ...session, state: "takenOver" }],
+      revision: 2,
+    });
+    api.stopAllControl.mockResolvedValue({ stopped: true, sessions: [], revision: 3 });
+    api.allowControl.mockResolvedValue({ stopped: false, sessions: [], revision: 4 });
+    render(<App />);
+    const banner = await screen.findByRole("alert", { name: "Browser and desktop control" });
+    expect(banner).toHaveTextContent("Web Assistant is using Plenipo's browser");
+    expect(banner).toHaveTextContent('http://shop.test/form · clicked "Send message"');
+    expect(document.querySelector(".shell__footer")).toHaveTextContent(
+      "Web Assistant is using Plenipo's browser",
+    );
+    const user = userEvent.setup();
+    await user.click(within(banner).getByRole("button", { name: "Take over" }));
+    expect(api.takeOverControl).toHaveBeenCalledWith("browser:g1");
+    await waitFor(() =>
+      expect(banner).toHaveTextContent("You have control of the browser. Web Assistant stopped."),
+    );
+    // It stays until dismissed, even after the worker's step ends.
+    act(() => emitControl({ stopped: false, sessions: [], revision: 5 }));
+    expect(banner).toHaveTextContent("You have control of the browser.");
+    // An older update arriving late changes nothing.
+    act(() => emitControl({ stopped: false, sessions: [session], revision: 1 }));
+    expect(banner).not.toHaveTextContent("Web Assistant is using Plenipo's browser");
+    await user.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert", { name: "Browser and desktop control" })).toBeNull();
+    // Stop all appears only while a worker is active; stop from a fresh active state.
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
+    cleanup();
+    render(<App />);
+    const again = await screen.findByRole("alert", { name: "Browser and desktop control" });
+    await user.click(within(again).getByRole("button", { name: "Stop all" }));
+    expect(api.stopAllControl).toHaveBeenCalled();
+    await waitFor(() => expect(again).toHaveTextContent("Browser and desktop control is stopped."));
+    await user.click(within(again).getByRole("button", { name: "Allow again" }));
+    expect(api.allowControl).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole("alert", { name: "Browser and desktop control" })).toBeNull(),
+    );
   });
 });

@@ -13,22 +13,25 @@ architecture must be recorded here.
 
 ## Index
 
-| ADR                                          | Title                                                              | Status   |
-| -------------------------------------------- | ------------------------------------------------------------------ | -------- |
-| [001](ADR-001-desktop-stack.md)              | Tauri 2 + React/TypeScript + Rust desktop stack                    | Accepted |
-| [002](ADR-002-local-first-architecture.md)   | Local-first architecture                                           | Accepted |
-| [003](ADR-003-provider-independent-roles.md) | Provider-independent roles                                         | Accepted |
-| [004](ADR-004-repository-layout.md)          | Minimal monorepo layout, grow crates per phase                     | Accepted |
-| [005](ADR-005-runtime-supervisor.md)         | Runtime supervisor boundary                                        | Accepted |
-| [006](ADR-006-ledger.md)                     | Plenipo Ledger (SQLite system of record)                           | Accepted |
-| [007](ADR-007-runtime-adapters.md)           | Provider runtime adapters (Codex, Claude Code)                     | Accepted |
-| [008](ADR-008-liaison.md)                    | Liaison message bus and cross-provider handoffs                    | Accepted |
-| [009](ADR-009-workforce.md)                  | Workforce organization engine and topology canvas                  | Accepted |
-| [010](ADR-010-plain-titles.md)               | Plain words, chain of command, choosable ranks                     | Accepted |
-| [011](ADR-011-model-policy-routing.md)       | Router: model registry, role policies, routing                     | Accepted |
-| [012](ADR-012-brief-agent-messages.md)       | Brief messages between agents                                      | Accepted |
-| [013](ADR-013-guard-capability-broker.md)    | Guard, capability broker, and human approval                       | Accepted |
-| [014](ADR-014-adding-ai-tools.md)            | Adding AI tools ahead of Phase 15                                  | Accepted |
-| [015](ADR-015-acp-ai-tools.md)               | Running AI tools over ACP                                          | Accepted |
-| [016](ADR-016-development-department.md)     | Development department: delegation, working copies, GitHub, result | Proposed |
-| [017](ADR-017-ollama-cloud-models.md)        | Ollama cloud models through its service                            | Accepted |
+| ADR                                             | Title                                                                 | Status   |
+| ----------------------------------------------- | --------------------------------------------------------------------- | -------- |
+| [001](ADR-001-desktop-stack.md)                 | Tauri 2 + React/TypeScript + Rust desktop stack                       | Accepted |
+| [002](ADR-002-local-first-architecture.md)      | Local-first architecture                                              | Accepted |
+| [003](ADR-003-provider-independent-roles.md)    | Provider-independent roles                                            | Accepted |
+| [004](ADR-004-repository-layout.md)             | Minimal monorepo layout, grow crates per phase                        | Accepted |
+| [005](ADR-005-runtime-supervisor.md)            | Runtime supervisor boundary                                           | Accepted |
+| [006](ADR-006-ledger.md)                        | Plenipo Ledger (SQLite system of record)                              | Accepted |
+| [007](ADR-007-runtime-adapters.md)              | Provider runtime adapters (Codex, Claude Code)                        | Accepted |
+| [008](ADR-008-liaison.md)                       | Liaison message bus and cross-provider handoffs                       | Accepted |
+| [009](ADR-009-workforce.md)                     | Workforce organization engine and topology canvas                     | Accepted |
+| [010](ADR-010-plain-titles.md)                  | Plain words, chain of command, choosable ranks                        | Accepted |
+| [011](ADR-011-model-policy-routing.md)          | Router: model registry, role policies, routing                        | Accepted |
+| [012](ADR-012-brief-agent-messages.md)          | Brief messages between agents                                         | Accepted |
+| [013](ADR-013-guard-capability-broker.md)       | Guard, capability broker, and human approval                          | Accepted |
+| [014](ADR-014-adding-ai-tools.md)               | Adding AI tools ahead of Phase 15                                     | Accepted |
+| [015](ADR-015-acp-ai-tools.md)                  | Running AI tools over ACP                                             | Accepted |
+| [016](ADR-016-development-department.md)        | Development department: delegation, working copies, GitHub, result    | Proposed |
+| [017](ADR-017-ollama-cloud-models.md)           | Ollama cloud models through its service                               | Accepted |
+| [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
+| [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Proposed |
+| [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard                     | Proposed |

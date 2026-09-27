@@ -2,6 +2,7 @@
 //! `ping`, `tools/list`, and `tools/call`. Notifications are accepted and ignored. Messages come
 //! from an AI model's tool and are untrusted: anything unexpected gets a JSON-RPC error.
 
+use base64::Engine as _;
 use serde_json::{json, Value};
 
 use crate::broker::Broker;
@@ -58,13 +59,17 @@ pub async fn handle(broker: &Broker, grant_id: &str, message: Value) -> Option<V
             };
             let args = params.get("arguments").cloned().unwrap_or(Value::Null);
             let out = broker.call(grant_id, name, args).await;
-            result(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": out.text }],
-                    "isError": out.is_error,
-                }),
-            )
+            let mut content = vec![json!({ "type": "text", "text": out.text })];
+            // Screenshots go to the AI tool as images (Phase 10); a model that cannot see them
+            // has the text.
+            for image in &out.images {
+                content.push(json!({
+                    "type": "image",
+                    "data": base64::engine::general_purpose::STANDARD.encode(&image.data),
+                    "mimeType": image.mime,
+                }));
+            }
+            result(id, json!({ "content": content, "isError": out.is_error }))
         }
         _ => error(id, -32601, "Method not found"),
     })
