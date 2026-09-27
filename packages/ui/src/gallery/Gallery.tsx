@@ -6,6 +6,8 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 
+import { PlenipoLogo, PlenipoMark, Pip } from "../brand";
+import { PIP_POSES } from "../brand-data";
 import {
   CardGrid,
   EntityCard,
@@ -25,6 +27,9 @@ import {
   TextField,
 } from "../controls";
 import { DetailSplitView, PropertyList, TimelineScrubber, type TimelineValue } from "../detail";
+import { LogView } from "../log";
+import { MenuButton, ResizeHandle } from "../menu";
+import { TERMINAL_FONT } from "../terminal-theme";
 import { EMPTY_FACETS, useFacets, type FacetConfig } from "../facet-logic";
 import { FacetPanel } from "../facets";
 import { ICON_NAMES } from "../icon-data";
@@ -367,6 +372,26 @@ function SplitSample({ now, prefix }: { now: number; prefix: string }) {
   );
 }
 
+/** What the terminal looks like: its text and the 16 colors, from the tokens (as CSS). */
+function TerminalSample() {
+  const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"] as const;
+  return (
+    <pre className="gallery__terminal" style={{ fontFamily: TERMINAL_FONT.family }}>
+      <span>deploy@shop:~$ systemctl status nginx{"\n"}</span>
+      {["", "bright-"].map((bright) => (
+        <span key={bright}>
+          {names.map((n) => (
+            <span key={n} style={{ color: colorVar(`terminal-${bright}${n}` as ColorToken) }}>
+              {`${bright}${n} `}
+            </span>
+          ))}
+          {"\n"}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
 function Swatch({ token }: { token: ColorToken }) {
   return (
     <div className="gallery__swatch" data-gallery={`color-${token}`}>
@@ -386,6 +411,10 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
   const [text, setText] = useState("Website");
   const [choice, setChoice] = useState<"a" | "b">("a");
   const [tab, setTab] = useState<"one" | "two" | "three">("one");
+  const [terminals, setTerminals] = useState(["pc", "shop", "watch"]);
+  const [terminal, setTerminal] = useState("shop");
+  const [section, setSection] = useState<"tools" | "servers" | "about">("servers");
+  const [panelSize, setPanelSize] = useState(160);
   const [view, setView] = useState<CollectionView>("cards");
   const [dismissed, setDismissed] = useState(false);
   const cards = useMemo(() => sampleCards(now), [now]);
@@ -895,6 +924,135 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
                 : "Shop server"}
           </div>
         </Variant>
+        <div className="gallery__row">
+          <Variant name="tabs-closable" caption="Tabs you can close (the terminal)">
+            <Tabs
+              label="Terminals"
+              value={terminal}
+              onChange={setTerminal}
+              tabs={terminals.map((t) => ({
+                value: t,
+                label:
+                  t === "pc" ? (
+                    "This PC"
+                  ) : t === "shop" ? (
+                    <>
+                      <StatusDot status="error" label="Production" />
+                      Shop
+                    </>
+                  ) : (
+                    "Operations Engineer · Dev box"
+                  ),
+                onClose: () => setTerminals((all) => all.filter((x) => x !== t)),
+                closeLabel: `Close ${t}`,
+              }))}
+            />
+          </Variant>
+          <Variant name="tabs-vertical" caption="Sections down the side (Settings)">
+            <Tabs
+              label="Sample sections"
+              orientation="vertical"
+              value={section}
+              onChange={setSection}
+              tabs={[
+                { value: "tools", label: "AI tools" },
+                { value: "servers", label: "Servers" },
+                { value: "about", label: "About Plenipo" },
+              ]}
+            />
+          </Variant>
+        </div>
+        <div className="gallery__row">
+          <Variant name="menu" caption="A menu behind a button">
+            <MenuButton
+              label="New terminal"
+              icon="plus"
+              onSelect={() => undefined}
+              items={[{ id: "pc", label: "This PC", icon: "terminal" }]}
+            />
+          </Variant>
+          <Variant name="menu-open" caption="The menu, open">
+            <div className="gallery__menu-room">
+              <MenuButton
+                label="New terminal"
+                icon="plus"
+                defaultOpen
+                onSelect={() => undefined}
+                items={[
+                  { id: "pc", label: "This PC", icon: "terminal" },
+                  { id: "shop", label: "Shop", icon: "server", hint: "PRODUCTION" },
+                  {
+                    id: "old",
+                    label: "Old box (its ID is not pinned)",
+                    icon: "server",
+                    disabled: true,
+                  },
+                ]}
+              />
+            </div>
+          </Variant>
+          <Variant name="menu-empty" caption="The menu, with nothing in it">
+            <div className="gallery__menu-room">
+              <MenuButton
+                label="Servers"
+                defaultOpen
+                onSelect={() => undefined}
+                items={[]}
+                empty="No servers yet: add one in Settings → Servers"
+              />
+            </div>
+          </Variant>
+          <Variant name="resize" caption="An edge to drag (or move with the arrow keys)">
+            <div className="gallery__resize">
+              <div className="gallery__muted">The page</div>
+              <ResizeHandle
+                label="Resize the sample panel"
+                value={panelSize}
+                min={80}
+                max={240}
+                edge="top"
+                onChange={setPanelSize}
+              />
+              <div className="gallery__muted">A panel, {panelSize} px tall</div>
+            </div>
+          </Variant>
+        </div>
+      </Section>
+
+      <Section
+        id={`${prefix}-terminal`}
+        title="The terminal"
+        lead="The colors programs print in the terminal, on its background, in this theme."
+      >
+        <Variant name="terminal-colors" caption="Terminal colors" wide>
+          <TerminalSample />
+        </Variant>
+        <div className="gallery__row">
+          <Variant name="log" caption="A worker's commands, read-only (a watch tab)">
+            <LogView
+              label="Operations Engineer on Shop"
+              className="gallery__log"
+              lines={[
+                { text: "$ systemctl status nginx", tone: "command" },
+                { text: "● nginx.service - nginx" },
+                { text: "   Active: active (running)" },
+                { text: "Finished after 0.4 s", tone: "ok" },
+                { text: "$ systemctl restart nginx", tone: "command" },
+                { text: "Job for nginx.service failed.", tone: "error" },
+                { text: "Refused: run rm -rf /srv on Shop — never run", tone: "warn" },
+                { text: "Disconnected: you disconnected the worker", tone: "muted" },
+              ]}
+            />
+          </Variant>
+          <Variant name="log-empty" caption="A watch tab before the first command">
+            <LogView
+              label="Operations Engineer on Shop"
+              className="gallery__log"
+              lines={[]}
+              empty="Connected. Commands appear here as the worker runs them."
+            />
+          </Variant>
+        </div>
       </Section>
 
       <Section id={`${prefix}-states`} title="Empty, loading, and error">
@@ -918,6 +1076,56 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             <ErrorState
               title="Couldn't load workers"
               message="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+        </div>
+      </Section>
+
+      <Section
+        id={`${prefix}-brand`}
+        title="Plenipo and Pip"
+        lead="The owner's approved brand kit: the P, the logo, and Pip, Plenipo's robot, in all 15 poses."
+      >
+        <div className="gallery__row">
+          <Variant name="brand-mark" caption="The P (the left strip)">
+            <div className="gallery__brand-row">
+              <PlenipoMark size={16} />
+              <PlenipoMark size={28} />
+              <PlenipoMark size={48} label="Plenipo" />
+            </div>
+          </Variant>
+          <Variant name="brand-logo" caption="The logo, with Pip on the n">
+            <PlenipoLogo height={56} />
+          </Variant>
+          <Variant name="brand-square" caption="The square logo">
+            <PlenipoLogo variant="square" height={120} />
+          </Variant>
+        </div>
+        <Variant name="pip-poses" caption="Pip's poses, and where each is used" wide>
+          <div className="gallery__pips">
+            {PIP_POSES.map((p) => (
+              <figure key={p.pose} className="gallery__pip">
+                <Pip pose={p.pose} size="sm" />
+                <figcaption>
+                  <strong>{p.doing}</strong>
+                  <span className="gallery__muted">{p.use}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </Variant>
+        <div className="gallery__row">
+          <Variant name="empty-pip" caption="Nothing yet, with Pip">
+            <EmptyState pip="recharging" title="All quiet">
+              Nothing is waiting for you.
+            </EmptyState>
+          </Variant>
+          <Variant name="error-pip" caption="Couldn't load, with Pip">
+            <ErrorState
+              pip="support"
+              title="Couldn't load the terminal"
+              message="The AI tool did not answer."
               onRetry={() => undefined}
             />
           </Variant>

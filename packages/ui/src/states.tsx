@@ -2,26 +2,41 @@
 
 import type { ReactNode } from "react";
 
+import type { PipPose } from "./brand-data";
+import { Pip } from "./brand";
 import { Icon, type IconName } from "./icons";
 import { cx } from "./util";
 
-/** Nothing to show yet, and what to do about it. */
+/**
+ * Nothing to show yet, and what to do about it. With `pip`, Pip stands beside the words in
+ * that pose (not in the compact size: small panels keep the icon).
+ */
 export function EmptyState({
   title,
   children,
   action,
   icon = "info",
   compact = false,
+  pip,
 }: {
   title: string;
   children?: ReactNode;
   action?: ReactNode;
   icon?: IconName;
   compact?: boolean;
+  pip?: PipPose | undefined;
 }) {
+  const withPip = pip !== undefined && !compact;
   return (
-    <div className={cx("ui-empty", compact && "ui-empty--compact")} role="status">
-      <Icon name={icon} size={compact ? 16 : 22} className="ui-empty__icon" />
+    <div
+      className={cx("ui-empty", compact && "ui-empty--compact", withPip && "ui-empty--pip")}
+      role="status"
+    >
+      {withPip ? (
+        <Pip pose={pip} size="md" />
+      ) : (
+        <Icon name={icon} size={compact ? 16 : 22} className="ui-empty__icon" />
+      )}
       <div>
         <div className="ui-empty__title">{title}</div>
         {children && <div className="ui-empty__body">{children}</div>}
@@ -41,19 +56,27 @@ export function ErrorState({
   onRetry,
   compact = false,
   urgent = false,
+  pip,
 }: {
   title?: string;
   message?: ReactNode;
   onRetry?: (() => void) | undefined;
   compact?: boolean;
   urgent?: boolean;
+  /** Pip beside the words (e.g. "support"); not in the compact size. */
+  pip?: PipPose | undefined;
 }) {
+  const withPip = pip !== undefined && !compact;
   return (
     <div
-      className={cx("ui-error", compact && "ui-error--compact")}
+      className={cx("ui-error", compact && "ui-error--compact", withPip && "ui-error--pip")}
       role={urgent ? "alert" : "status"}
     >
-      <Icon name="alert" size={compact ? 16 : 22} className="ui-error__icon" />
+      {withPip ? (
+        <Pip pose={pip} size="md" />
+      ) : (
+        <Icon name="alert" size={compact ? 16 : 22} className="ui-error__icon" />
+      )}
       <div>
         <div className="ui-error__title">{title}</div>
         {message && <div className="ui-error__body">{message}</div>}

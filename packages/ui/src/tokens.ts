@@ -66,8 +66,30 @@ export const COLOR_ROLES = {
   "role-review": "Oversight: review",
   "role-qa": "Oversight: QA",
   "role-security": "Oversight: security",
-  "brand-mark": "Plenipo's mark: its tile",
-  "brand-stroke": "Plenipo's mark: its lines",
+  "brand-ink": "Plenipo's logo: the name's letters (docs/brand/pip-brand-kit)",
+  "brand-primary": "Plenipo's logo: the P's outer rail and the last o",
+  "brand-middle": "Plenipo's logo: the P's middle rail",
+  "brand-inner": "Plenipo's logo: the P's inner rail",
+  "terminal-bg": "The terminal's background (Phase 12)",
+  "terminal-fg": "The terminal's text",
+  "terminal-cursor": "The terminal's cursor",
+  "terminal-selection": "Text chosen in the terminal",
+  "terminal-black": "The terminal's black (a color programs ask for)",
+  "terminal-red": "The terminal's red (a color programs ask for)",
+  "terminal-green": "The terminal's green (a color programs ask for)",
+  "terminal-yellow": "The terminal's yellow (a color programs ask for)",
+  "terminal-blue": "The terminal's blue (a color programs ask for)",
+  "terminal-magenta": "The terminal's magenta (a color programs ask for)",
+  "terminal-cyan": "The terminal's cyan (a color programs ask for)",
+  "terminal-white": "The terminal's white (a color programs ask for)",
+  "terminal-bright-black": "The terminal's bright black (a color programs ask for)",
+  "terminal-bright-red": "The terminal's bright red (a color programs ask for)",
+  "terminal-bright-green": "The terminal's bright green (a color programs ask for)",
+  "terminal-bright-yellow": "The terminal's bright yellow (a color programs ask for)",
+  "terminal-bright-blue": "The terminal's bright blue (a color programs ask for)",
+  "terminal-bright-magenta": "The terminal's bright magenta (a color programs ask for)",
+  "terminal-bright-cyan": "The terminal's bright cyan (a color programs ask for)",
+  "terminal-bright-white": "The terminal's bright white (a color programs ask for)",
 } as const;
 
 export type ColorToken = keyof typeof COLOR_ROLES;
@@ -126,8 +148,32 @@ const dark: Palette = {
   "role-review": "#a78bfa",
   "role-qa": "#f5b83d",
   "role-security": "#ff7a93",
-  "brand-mark": "#0b1220",
-  "brand-stroke": "#2e8bff",
+  // The owner's approved brand kit (docs/brand/pip-brand-kit), "on dark" colors.
+  "brand-ink": "#f3f7ff",
+  "brand-primary": "#5b97ff",
+  "brand-middle": "#8cbcff",
+  "brand-inner": "#d8e8ff",
+  // The terminal (Phase 12): readable colors for what programs print, on its background.
+  "terminal-bg": "#080a0d",
+  "terminal-fg": "#d6dde6",
+  "terminal-cursor": "#4c95ff",
+  "terminal-selection": "rgba(76, 149, 255, 0.35)",
+  "terminal-black": "#7d8590",
+  "terminal-red": "#ff7b72",
+  "terminal-green": "#3fb950",
+  "terminal-yellow": "#d29922",
+  "terminal-blue": "#58a6ff",
+  "terminal-magenta": "#bc8cff",
+  "terminal-cyan": "#39c5cf",
+  "terminal-white": "#b1bac4",
+  "terminal-bright-black": "#9198a1",
+  "terminal-bright-red": "#ffa198",
+  "terminal-bright-green": "#56d364",
+  "terminal-bright-yellow": "#e3b341",
+  "terminal-bright-blue": "#79c0ff",
+  "terminal-bright-magenta": "#d2a8ff",
+  "terminal-bright-cyan": "#56d4dd",
+  "terminal-bright-white": "#f0f6fc",
 };
 
 const light: Palette = {
@@ -182,8 +228,32 @@ const light: Palette = {
   "role-review": "#6a3ccc",
   "role-qa": "#8a5c00",
   "role-security": "#b8264c",
-  "brand-mark": "#0b1220",
-  "brand-stroke": "#2e8bff",
+  // The owner's approved brand kit (docs/brand/pip-brand-kit), "on light" colors.
+  "brand-ink": "#0b1833",
+  "brand-primary": "#2463eb",
+  "brand-middle": "#5898f3",
+  "brand-inner": "#123c88",
+  // The terminal (Phase 12): on white, the white colors are grays, so they stay readable.
+  "terminal-bg": "#ffffff",
+  "terminal-fg": "#1f2328",
+  "terminal-cursor": "#0a5dd1",
+  "terminal-selection": "rgba(10, 93, 209, 0.2)",
+  "terminal-black": "#24292f",
+  "terminal-red": "#cf222e",
+  "terminal-green": "#116329",
+  "terminal-yellow": "#7d4e00",
+  "terminal-blue": "#0969da",
+  "terminal-magenta": "#8250df",
+  "terminal-cyan": "#1b7c83",
+  "terminal-white": "#6e7781",
+  "terminal-bright-black": "#57606a",
+  "terminal-bright-red": "#a40e26",
+  "terminal-bright-green": "#1a7f37",
+  "terminal-bright-yellow": "#633c01",
+  "terminal-bright-blue": "#0550ae",
+  "terminal-bright-magenta": "#6639ba",
+  "terminal-bright-cyan": "#1b6d74",
+  "terminal-bright-white": "#57606a",
 };
 
 /** Every color token, per theme. */
@@ -238,6 +308,10 @@ export const SIZE = {
   "dot-size": 8,
   "strip-height": 8,
   "icon-size": 18,
+  // Pip, Plenipo's robot: beside an empty page, on Home, and in About.
+  "pip-sm": 72,
+  "pip-md": 112,
+  "pip-lg": 168,
 } as const;
 
 /** Elevation: shadow geometry; the color comes from the theme's `shadow` token. */
@@ -284,6 +358,26 @@ const marks: ColorToken[] = ["ok", "warn", "error", "offline", "pending", "accen
 
 const panels: ColorToken[] = ["surface", "surface-raised"];
 
+/** The 16 colors programs ask a terminal for, in their usual order (ANSI 0–15). */
+export const TERMINAL_COLORS: readonly ColorToken[] = [
+  "terminal-black",
+  "terminal-red",
+  "terminal-green",
+  "terminal-yellow",
+  "terminal-blue",
+  "terminal-magenta",
+  "terminal-cyan",
+  "terminal-white",
+  "terminal-bright-black",
+  "terminal-bright-red",
+  "terminal-bright-green",
+  "terminal-bright-yellow",
+  "terminal-bright-blue",
+  "terminal-bright-magenta",
+  "terminal-bright-cyan",
+  "terminal-bright-white",
+];
+
 export const CONTRAST_PAIRS: ContrastPair[] = [
   ...surfaces.flatMap((bg) => texts.map((fg): ContrastPair => ({ fg, bg, min: 4.5 }))),
   ...panels.flatMap((bg) => marks.map((fg): ContrastPair => ({ fg, bg, min: 3 }))),
@@ -316,6 +410,16 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "map-link-idle", bg: "map-canvas", min: 3 },
   { fg: "map-link", bg: "map-canvas", min: 3 },
   { fg: "control-border", bg: "bg", min: 3 },
+  // The terminal: its text and every color programs print, on its background; the cursor.
+  { fg: "terminal-fg", bg: "terminal-bg", min: 4.5 },
+  ...TERMINAL_COLORS.map((fg): ContrastPair => ({ fg, bg: "terminal-bg", min: 4.5 })),
+  { fg: "terminal-cursor", bg: "terminal-bg", min: 3 },
+  { fg: "terminal-fg", bg: "terminal-selection", over: "terminal-bg", min: 4.5 },
+  // Plenipo's logo: the name's letters are text; the P and the last o are large marks.
+  ...(["bg", "surface"] as const).flatMap((bg): ContrastPair[] => [
+    { fg: "brand-ink", bg, min: 4.5 },
+    { fg: "brand-primary", bg, min: 3 },
+  ]),
 ];
 
 /** The CSS custom property for a token, e.g. `--ui-surface`. */
