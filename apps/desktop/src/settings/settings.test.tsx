@@ -7,6 +7,7 @@ import * as commands from "../api/commands";
 import { AgentsProvider } from "../agents/AgentsProvider";
 import { RuntimeProvider } from "../runtime/RuntimeProvider";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { a11yProblems } from "../test/a11y";
 import { samplePermissions } from "../test/permissionFixtures";
 import { sampleServers } from "../test/serverFixtures";
 import { SettingsView } from "../views/SettingsView";
@@ -202,5 +203,32 @@ describe("Settings in one place", () => {
     show("organization");
     expect(await screen.findByText("No departments yet")).toBeInTheDocument();
     expect(screen.getByText("No projects yet")).toBeInTheDocument();
+  });
+});
+
+describe("Settings: accessibility smoke", () => {
+  it("names every control in every section, with one main heading and no skipped level", async () => {
+    api.getServers.mockResolvedValue(sampleServers());
+    api.getLedgerStatus.mockResolvedValue({
+      path: "/data/ledger/plenipo.db",
+      schemaVersion: 8,
+      sizeBytes: 4096,
+      taskCount: 3,
+      eventCount: 40,
+      executionCount: 0,
+      notices: [],
+      lastIntegrityCheck: null,
+      lastBackup: null,
+      persistent: true,
+    });
+    const { container } = show();
+    const user = userEvent.setup();
+    for (const tab of screen.getAllByRole("tab")) {
+      await user.click(tab);
+      await waitFor(() => expect(tab).toHaveAttribute("aria-selected", "true"));
+      // Let the section load before checking it.
+      await waitFor(() => expect(container.querySelector('[role="status"][aria-busy]')).toBeNull());
+      expect(a11yProblems(container), tab.textContent ?? "").toEqual([]);
+    }
   });
 });

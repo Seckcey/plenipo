@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button, EmptyState, Panel } from "@plenipo/ui";
 
 import { toCommandError } from "../api/commands";
 import { AgentRuntimeCards } from "../components/AgentRuntimeCards";
@@ -65,27 +66,34 @@ export function RuntimesView({
       <h2>Approved programs</h2>
       <ul className="profiles">
         {state.profiles.map((profile) => (
-          <li key={profile.id} className="card">
-            <div>
-              <div className="card__title">{profile.label}</div>
-              <div className="card__meta">{profile.description}</div>
-              <div className="card__meta">Time limit: {profile.maxRuntimeSecs}s</div>
-            </div>
-            <button
-              type="button"
-              className="button"
-              disabled={pending !== null}
-              aria-label={`Start ${profile.label}`}
-              onClick={() =>
-                void run(`start:${profile.id}`, async () => onSelect(await start(profile.id)))
+          <li key={profile.id}>
+            <Panel
+              id={`program-${profile.id}`}
+              title={profile.label}
+              actions={
+                <Button
+                  variant="primary"
+                  disabled={pending !== null}
+                  aria-label={`Start ${profile.label}`}
+                  onClick={() =>
+                    void run(`start:${profile.id}`, async () => onSelect(await start(profile.id)))
+                  }
+                >
+                  Start
+                </Button>
               }
             >
-              Start
-            </button>
+              <div>
+                <div className="card__meta">{profile.description}</div>
+                <div className="card__meta">Time limit: {profile.maxRuntimeSecs}s</div>
+              </div>
+            </Panel>
           </li>
         ))}
         {state.status === "ready" && state.profiles.length === 0 && (
-          <li className="card card--empty">No approved programs are available.</li>
+          <li>
+            <EmptyState compact title="No approved programs are available." />
+          </li>
         )}
       </ul>
 
@@ -135,14 +143,13 @@ export function RuntimesView({
                   {selected.detail && <div className="card__meta">{selected.detail}</div>}
                 </div>
                 {isActive(selected) && (
-                  <button
-                    type="button"
-                    className="button button--danger"
+                  <Button
+                    variant="danger"
                     disabled={pending !== null}
                     onClick={() => void run(`cancel:${selected.id}`, () => cancel(selected.id))}
                   >
                     {pending === `cancel:${selected.id}` ? "Cancelling…" : "Cancel"}
-                  </button>
+                  </Button>
                 )}
               </div>
               <OutputPanel record={selected} output={state.outputs[selected.id]} />

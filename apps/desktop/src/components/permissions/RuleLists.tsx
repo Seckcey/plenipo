@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { CommandRules, PermissionsSnapshot, SensitiveRule } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import {
   setBlockedFiles,
@@ -64,9 +65,9 @@ export function CommandLists({
           <textarea rows={8} value={blocked} onChange={(e) => setBlocked(e.target.value)} />
         </label>
         <div className="actions">
-          <button type="submit" className="button" disabled={pending}>
+          <Button type="submit" variant="primary" disabled={pending}>
             Save command lists
-          </button>
+          </Button>
         </div>
         <Refusal error={error} />
       </form>
@@ -104,9 +105,9 @@ export function BlockedFiles({
           <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} />
         </label>
         <div className="actions">
-          <button type="submit" className="button" disabled={pending}>
+          <Button type="submit" variant="primary" disabled={pending}>
             Save blocked files
-          </button>
+          </Button>
         </div>
         <Refusal error={error} />
       </form>
@@ -200,9 +201,9 @@ export function ApprovalWindow({
             onChange={(e) => setMinutes(e.target.value)}
           />
         </label>
-        <button type="submit" className="button button--small" disabled={pending}>
+        <Button type="submit" variant="primary" size="sm" disabled={pending}>
           Save
-        </button>
+        </Button>
       </form>
       <Refusal error={error} />
     </section>

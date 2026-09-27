@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { OrgSnapshot, PositionStatus } from "@plenipo/types";
+import { StatusPill, Tabs } from "@plenipo/ui";
 
+import { POSITION_STATUS } from "../../org/cards";
 import { STAFFING_LABEL, STATUS_LABEL, positionToolLabel, runtimeLabel } from "../../org/format";
 import { positionMap } from "../../org/rules";
 import { positionSearchText } from "../../org/search";
 import { rankName, titlesOf } from "../../org/titles";
-import { StatusPill } from "./OrgNode";
 
 type Tab = "positions" | "departments" | "projects";
 
@@ -47,26 +48,16 @@ export function Directory({
 
   return (
     <section className="directory" aria-label="Organization directory" data-canvas-scroll>
-      <div className="tabs" role="tablist" aria-label="Directory">
-        {(
-          [
-            ["positions", `Positions (${snapshot.stats.positions})`],
-            ["departments", `Departments (${snapshot.departments.length})`],
-            ["projects", `Projects (${snapshot.projects.length})`],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            className="tabs__tab"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs<Tab>
+        label="Directory"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "positions", label: `Positions (${snapshot.stats.positions})` },
+          { value: "departments", label: `Departments (${snapshot.departments.length})` },
+          { value: "projects", label: `Projects (${snapshot.projects.length})` },
+        ]}
+      />
 
       {tab === "positions" && (
         <>
@@ -135,7 +126,10 @@ export function Directory({
                       </span>
                     </th>
                     <td>
-                      <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
+                      <StatusPill
+                        status={POSITION_STATUS[p.status]}
+                        label={STATUS_LABEL[p.status]}
+                      />
                     </td>
                     <td>{title(p.reportsTo)}</td>
                     <td>

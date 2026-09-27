@@ -7,6 +7,7 @@ import type {
   RolePolicyView,
   RoutingSnapshot,
 } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { setRolePolicy } from "../../api/commands";
 import {
@@ -21,6 +22,7 @@ import {
   modelLabel,
 } from "../../routing/format";
 import { useChange, type Apply } from "../../routing/useChange";
+import { PILL_TONE } from "../tones";
 import { Refusal } from "./shared";
 
 /**
@@ -60,20 +62,20 @@ export function RoleChoices({ snapshot, onApply }: { snapshot: RoutingSnapshot; 
                   {r.next.choice ? (
                     choiceLabel(r.next.choice)
                   ) : (
-                    <span className="pill pill--warn">None right now</span>
+                    <StatusPill status={PILL_TONE.warn} label="None right now" />
                   )}
                 </td>
                 <td className="models__why">{r.next.reason}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="button button--small button--quiet"
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     aria-expanded={editing === r.roleId}
                     aria-label={`Change ${r.roleName}'s model choices`}
                     onClick={() => setEditing(editing === r.roleId ? null : r.roleId)}
                   >
                     {editing === r.roleId ? "Close" : "Change"}
-                  </button>
+                  </Button>
                 </td>
               </tr>
               {editing === r.roleId && (
@@ -180,32 +182,32 @@ function PolicyEditor({
                     setEfforts(next);
                   }}
                 />
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   aria-label={`Move ${label(id)} up`}
                   disabled={i === 0}
                   onClick={() => move(i, -1)}
                 >
                   ↑
-                </button>
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                </Button>
+                <Button
+                  variant="quiet"
+                  size="sm"
                   aria-label={`Move ${label(id)} down`}
                   disabled={i === models.length - 1}
                   onClick={() => move(i, 1)}
                 >
                   ↓
-                </button>
-                <button
-                  type="button"
-                  className="button button--small button--quiet"
+                </Button>
+                <Button
+                  variant="quiet"
+                  size="sm"
                   aria-label={`Take ${label(id)} off the list`}
                   onClick={() => setModels(models.filter((x) => x !== id))}
                 >
                   Remove
-                </button>
+                </Button>
               </li>
             ))}
           </ol>
@@ -298,12 +300,12 @@ function PolicyEditor({
       </fieldset>
       <Refusal error={error} />
       <div className="actions">
-        <button type="submit" className="button button--small" disabled={pending}>
+        <Button type="submit" variant="primary" size="sm" disabled={pending}>
           {pending ? "Saving…" : "Save model choices"}
-        </button>
-        <button type="button" className="button button--small button--quiet" onClick={onDone}>
+        </Button>
+        <Button variant="quiet" size="sm" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

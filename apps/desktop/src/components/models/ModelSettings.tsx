@@ -1,8 +1,10 @@
 import type { LimitBehavior, RoutingSnapshot } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { clearUsageLimit, setRoutingOptions } from "../../api/commands";
 import { LIMIT_LABEL, until } from "../../routing/format";
 import { useRouting } from "../../routing/useRouting";
+import { PILL_TONE } from "../tones";
 import { ModelList } from "./ModelList";
 import { RoleChoices } from "./RoleChoices";
 import { useChange, type Apply } from "../../routing/useChange";
@@ -62,9 +64,10 @@ function ToolList({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply: A
               <th scope="row">{t.label}</th>
               <td>{t.companyLabel}</td>
               <td>
-                <span className={`pill ${t.available ? "pill--ok" : "pill--warn"}`}>
-                  {t.available ? "Yes" : "Not now"}
-                </span>{" "}
+                <StatusPill
+                  status={t.available ? PILL_TONE.ok : PILL_TONE.warn}
+                  label={t.available ? "Yes" : "Not now"}
+                />{" "}
                 <span className="table__sub">{t.status}</span>
               </td>
               <td>
@@ -72,14 +75,14 @@ function ToolList({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply: A
                   <>
                     Reached {t.usageLimit.resetsAt ? "— resets" : "— tried again"}{" "}
                     {until(t.usageLimit.until)}{" "}
-                    <button
-                      type="button"
-                      className="button button--small button--quiet"
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       disabled={pending}
                       onClick={() => void run(() => clearUsageLimit(t.runtimeId))}
                     >
                       Try again now
-                    </button>
+                    </Button>
                   </>
                 ) : (
                   "—"

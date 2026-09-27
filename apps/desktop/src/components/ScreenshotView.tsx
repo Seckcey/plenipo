@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "@plenipo/ui";
 
 import { getScreenshot, toCommandError } from "../api/commands";
 
@@ -36,13 +37,9 @@ export function ScreenshotView({
   }, [id, open, url]);
   if (!open) {
     return (
-      <button
-        type="button"
-        className="button button--small button--quiet shot__show"
-        onClick={() => setOpen(true)}
-      >
+      <Button variant="quiet" size="sm" className="shot__show" onClick={() => setOpen(true)}>
         Show screenshot
-      </button>
+      </Button>
     );
   }
   if (error) return <span className="form-error">Screenshot not available: {error}</span>;

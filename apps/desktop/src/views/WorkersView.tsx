@@ -6,6 +6,7 @@ import type {
   AgentTurn,
   TurnStep,
 } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { toCommandError } from "../api/commands";
 import {
@@ -26,6 +27,7 @@ import {
 } from "../agents/store";
 import { useAgents } from "../agents/useAgents";
 import { ModelPicker } from "../components/models/ModelPicker";
+import { PILL_TONE, TASK_TONE } from "../components/tones";
 import type { Go } from "../components/views";
 import { useRoutingOnce } from "../routing/useRouting";
 import { openHandoffs, useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
@@ -39,10 +41,10 @@ function runtimeLabel(runtimes: AgentRuntimeInfo[], id: string): string {
 }
 
 function SessionBadge({ session }: { session: AgentSession }) {
-  if (isRunning(session)) return <span className="badge badge--task-running">Running</span>;
-  if (isWaiting(session)) return <span className="badge badge--task-blocked">Waiting</span>;
-  if (session.state === "closed") return <span className="badge">Closed</span>;
-  return <span className="badge badge--task-succeeded">Open</span>;
+  if (isRunning(session)) return <StatusPill status={TASK_TONE.running} label="Running" />;
+  if (isWaiting(session)) return <StatusPill status={TASK_TONE.blocked} label="Waiting" />;
+  if (session.state === "closed") return <StatusPill status={PILL_TONE.muted} label="Closed" />;
+  return <StatusPill status={TASK_TONE.succeeded} label="Open" />;
 }
 
 /** Selection helpers shared by the turn cards. */
@@ -190,7 +192,7 @@ export function WorkersView({
                   }}
                 />
                 <span className="choice__label">{r.label}</span>
-                <span className={`pill pill--${status.tone}`}>{status.text}</span>
+                <StatusPill status={PILL_TONE[status.tone]} label={status.text} />
               </label>
             );
           })}
@@ -251,13 +253,13 @@ export function WorkersView({
           </p>
         )}
         <div className="actions">
-          <button
+          <Button
             type="submit"
-            className="button"
+            variant="primary"
             disabled={pending !== null || !chosen?.ready || objective.trim() === ""}
           >
             {pending === "start" ? "Starting…" : "Start task"}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -324,24 +326,23 @@ export function WorkersView({
                 </div>
                 <div className="actions">
                   {(running || waiting) && (
-                    <button
-                      type="button"
-                      className="button button--danger"
+                    <Button
+                      variant="danger"
                       disabled={pending !== null}
                       onClick={() => void run("cancel", () => cancel(session.id))}
                     >
                       {pending === "cancel" ? "Cancelling…" : "Cancel task"}
-                    </button>
+                    </Button>
                   )}
                   {!running && !waiting && session.state === "open" && (
-                    <button
-                      type="button"
-                      className="button button--small button--quiet"
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       disabled={pending !== null}
                       onClick={() => void run("close", () => close(session.id))}
                     >
                       Close conversation
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -392,13 +393,13 @@ export function WorkersView({
                       onChange={(e) => setFollowUp(e.target.value)}
                     />
                   </label>
-                  <button
+                  <Button
                     type="submit"
-                    className="button"
+                    variant="primary"
                     disabled={pending !== null || running || waiting || followUp.trim() === ""}
                   >
                     {pending === "resume" ? "Sending…" : "Send"}
-                  </button>
+                  </Button>
                 </form>
               ) : (
                 <p className="muted">This conversation is closed.</p>
@@ -446,7 +447,7 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
     const parent = info.parentSessionId;
     return (
       <div className="card__meta">
-        <span className="pill">Handoff worker</span> Started by Plenipo Liaison
+        <StatusPill status={PILL_TONE.muted} label="Handoff worker" /> Started by Plenipo Liaison
         {info.depth !== null && <> · depth {info.depth}</>}
         {parent && nav.canOpen(parent) && (
           <>
@@ -464,8 +465,8 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
   if (info.origin === "member") {
     return (
       <div className="card__meta">
-        <span className="pill pill--ok">Organization member</span> Hands work to its team through
-        Liaison
+        <StatusPill status={PILL_TONE.ok} label="Organization member" /> Hands work to its team
+        through Liaison
         {openPosition}
       </div>
     );
@@ -473,7 +474,8 @@ function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation 
   if (info.enabled) {
     return (
       <div className="card__meta">
-        <span className="pill pill--ok">Handoffs allowed</span> Each objective starts a new workflow
+        <StatusPill status={PILL_TONE.ok} label="Handoffs allowed" /> Each objective starts a new
+        workflow
       </div>
     );
   }
@@ -573,14 +575,15 @@ function TurnCard({
         <span className="turn__number">Task {turn.number}</span>
         <span className="turn__objective">{turn.objective}</span>
         {turn.running ? (
-          <span className="badge badge--task-running">Working…</span>
+          <StatusPill status={TASK_TONE.running} label="Working…" />
         ) : turn.waiting ? (
-          <span className="badge badge--task-blocked">Waiting for replies</span>
+          <StatusPill status={TASK_TONE.blocked} label="Waiting for replies" />
         ) : (
           result && (
-            <span className={`badge badge--task-${outcomeTone(result.outcome)}`}>
-              {OUTCOME_LABEL[result.outcome]}
-            </span>
+            <StatusPill
+              status={TASK_TONE[outcomeTone(result.outcome)]}
+              label={OUTCOME_LABEL[result.outcome]}
+            />
           )
         )}
       </div>

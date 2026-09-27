@@ -236,29 +236,6 @@ body {
   color: var(--ui-error-text);
 }
 
-.button {
-  padding: 6px 14px;
-  border: 1px solid var(--ui-accent-fill);
-  border-radius: 6px;
-  background: var(--ui-accent-fill);
-  color: var(--ui-on-accent);
-  cursor: pointer;
-}
-
-/* Turned off: muted words on a quiet fill, readable in both themes (not faded blue). */
-.button:disabled {
-  border-color: var(--ui-border-strong);
-  background: var(--ui-surface-raised);
-  color: var(--ui-text-muted);
-  cursor: default;
-}
-
-.button--danger {
-  border-color: var(--ui-error-text);
-  background: transparent;
-  color: var(--ui-error-text);
-}
-
 .profiles,
 .executions,
 .activity,
@@ -276,19 +253,9 @@ body {
   gap: 10px;
 }
 
-.card {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-  background: var(--ui-surface);
-}
-
-.card__title {
-  font-weight: 600;
+/* Each item is a library panel: the panels in a row share its height. */
+.profiles > li {
+  display: grid;
 }
 
 .card__meta {
@@ -382,35 +349,6 @@ body {
   font-style: italic;
 }
 
-.badge {
-  display: inline-block;
-  align-self: start;
-  height: fit-content;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: var(--ui-font-xs);
-  border: 1px solid var(--ui-border);
-  color: var(--ui-text-secondary);
-  white-space: nowrap;
-}
-
-.badge--running,
-.badge--starting {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.badge--succeeded {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.badge--failed,
-.badge--timedOut {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
 .activity__item,
 .event-log li {
   display: flex;
@@ -467,28 +405,6 @@ body {
   color: var(--ui-ok-text);
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin: 16px 0 0;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.tabs__tab {
-  padding: 6px 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  cursor: pointer;
-  color: var(--ui-text-secondary);
-}
-
-.tabs__tab[aria-selected="true"] {
-  border-bottom-color: var(--ui-accent);
-  color: var(--ui-text-primary);
-  font-weight: 600;
-}
-
 .view h3 {
   margin: 18px 0 8px;
   font-size: var(--ui-font-sm);
@@ -531,11 +447,6 @@ body {
   margin: 12px 0;
 }
 
-.button--small {
-  padding: 4px 10px;
-  font-size: var(--ui-font-sm);
-}
-
 .link {
   padding: 0;
   border: 0;
@@ -575,27 +486,6 @@ body {
   margin: 8px 0 0;
   font-size: var(--ui-font-xs);
   overflow-wrap: anywhere;
-}
-
-.badge--task-running {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.badge--task-succeeded {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.badge--task-failed {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
-.badge--task-blocked,
-.badge--task-awaitingApproval {
-  border-color: var(--ui-warn-text);
-  color: var(--ui-warn-text);
 }
 
 /* ---- Settings: titles --------------------------------------------------------------------- */
@@ -648,7 +538,7 @@ body {
   white-space: nowrap;
 }
 
-.models__actions .button + .button {
+.models__actions .ui-button + .ui-button {
   margin-left: 8px;
 }
 
@@ -815,31 +705,6 @@ body {
   font-size: var(--ui-font-sm);
 }
 
-.pill {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--ui-border);
-  font-size: var(--ui-font-xs);
-  white-space: nowrap;
-  color: var(--ui-text-secondary);
-}
-
-.pill--ok {
-  border-color: var(--ui-ok-text);
-  color: var(--ui-ok-text);
-}
-
-.pill--warn {
-  border-color: var(--ui-warn-text);
-  color: var(--ui-warn-text);
-}
-
-.pill--bad {
-  border-color: var(--ui-error-text);
-  color: var(--ui-error-text);
-}
-
 /* The Gallery's sections keep the design system's own spacing. */
 .view--gallery .gallery__section h2 {
   margin: 0;
@@ -860,12 +725,6 @@ body {
 
 .section-header > h2 {
   margin: 0;
-}
-
-.card--stack {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
 }
 
 .card__row {
@@ -890,17 +749,6 @@ body {
 .kv dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.button--quiet {
-  border-color: var(--ui-border);
-  background: transparent;
-  color: var(--ui-text-primary);
-}
-
-.badge--task-cancelled {
-  border-color: var(--ui-border);
-  color: var(--ui-text-secondary);
 }
 
 .turns {
@@ -2222,7 +2070,7 @@ body {
   font-size: var(--ui-font-sm);
 }
 
-.inspector__identity .topo-status {
+.inspector__identity .ui-pill {
   margin-top: 4px;
 }
 
@@ -2319,15 +2167,6 @@ body {
 .inspector__assign,
 .inspector__move {
   margin-top: 10px;
-}
-
-.tabs--small {
-  margin-top: 0;
-}
-
-.tabs--small .tabs__tab {
-  padding: 4px 8px;
-  font-size: var(--ui-font-xs);
 }
 
 .facts--compact {
@@ -2731,10 +2570,8 @@ body {
 }
 
 /* The same height as the dropdown beside it. */
-.objective-form__row > .button {
+.objective-form__row > .ui-button {
   height: var(--ui-control-height);
-  padding-top: 0;
-  padding-bottom: 0;
 }
 
 .objective-form p {
@@ -2786,8 +2623,8 @@ body {
   gap: 4px;
 }
 
-/* A badge lines up with the link under it (the base badge rule aligns to the start). */
-.result__task-side > .badge {
+/* A status pill lines up with the link under it. */
+.result__task-side > .ui-pill {
   align-self: auto;
 }
 
@@ -2860,14 +2697,6 @@ body {
   .control__dot {
     animation: none;
   }
-}
-
-.button--stop {
-  padding: 8px 18px;
-  border-color: var(--ui-error-text);
-  background: var(--ui-error);
-  color: var(--ui-on-error);
-  font-weight: 600;
 }
 
 /* Stop all: the library's danger button, filled, so it is the easiest thing to hit. */
@@ -3171,49 +3000,10 @@ body {
   padding: 8px 0;
 }
 
-.toggle__switch {
-  position: relative;
+/* The switch lines up with its label's first line. */
+.toggle > .ui-switch {
   flex: none;
-  width: 40px;
-  height: 22px;
   margin-top: 2px;
-  padding: 0;
-  border: 1px solid var(--ui-control-border);
-  border-radius: 999px;
-  background: var(--ui-surface-sunken);
-  cursor: pointer;
-  transition: background var(--ui-motion-base) var(--ui-ease);
-}
-
-.toggle__switch.is-on {
-  border-color: var(--ui-accent-fill);
-  background: var(--ui-accent-fill);
-}
-
-.toggle__switch:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.toggle__switch:focus-visible {
-  outline: 2px solid var(--ui-accent);
-  outline-offset: 2px;
-}
-
-.toggle__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--ui-text-secondary);
-  transition: left var(--ui-motion-base) var(--ui-ease);
-}
-
-.toggle__switch.is-on .toggle__knob {
-  left: 20px;
-  background: var(--ui-on-accent);
 }
 
 .toggle__words {

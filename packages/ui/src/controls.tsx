@@ -311,7 +311,10 @@ export function Tabs<T extends string>({
   value: T;
   tabs: readonly TabItem<T>[];
   onChange: (next: T) => void;
-  /** Tab `i` gets id `${idPrefix}-tab-${value}` and controls `${idPrefix}-panel-${value}`. */
+  /**
+   * Tab `i` gets id `${idPrefix}-tab-${value}`; the selected tab controls
+   * `${idPrefix}-panel-${value}` (the panel on screen, which a page may render alone).
+   */
   idPrefix?: string | undefined;
   /** Vertical: a list of sections (arrow keys up and down). */
   orientation?: "horizontal" | "vertical";
@@ -368,7 +371,7 @@ export function Tabs<T extends string>({
             type="button"
             role="tab"
             id={idPrefix ? `${idPrefix}-tab-${t.value}` : undefined}
-            aria-controls={idPrefix ? `${idPrefix}-panel-${t.value}` : undefined}
+            aria-controls={idPrefix && selected ? `${idPrefix}-panel-${t.value}` : undefined}
             aria-selected={selected}
             aria-keyshortcuts={t.onClose ? "Delete" : undefined}
             tabIndex={selected ? 0 : -1}

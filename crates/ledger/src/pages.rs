@@ -705,4 +705,115 @@ mod tests {
         let from_leaf = l.work_record(WorkOf::Task(&tagged.id), 50).unwrap();
         assert!(from_leaf.pull_requests.is_empty());
     }
+
+    /// The plan's "large task history" test: a long history still opens a page at a time,
+    /// quickly, for a task tree and for a department, among many other events.
+    #[test]
+    fn a_large_history_opens_a_page_at_a_time_quickly() {
+        use crate::activity::tests::{org, task_for};
+        use std::time::{Duration, Instant};
+        let l = ledger();
+        org(&l);
+        task_for(&l, "big", Some("web"), Some("W"));
+        {
+            let conn = crate::lock(&l.conn);
+            let tx = conn.unchecked_transaction().unwrap();
+            let mut child = tx
+                .prepare(
+                    "INSERT INTO tasks (id, parent_task_id, requested_by, project_id, objective,
+                                        state, metadata, created_at, updated_at)
+                     VALUES (?1, ?2, 'owner', ?3, 'test', 'running', ?4, 0, 0)",
+                )
+                .unwrap();
+            let mut add = tx
+                .prepare(
+                    "INSERT INTO events (id, task_id, source, event_type, payload, created_at)
+                     VALUES (?1, ?2, 'test', 'agent.message', '{}', ?3)",
+                )
+                .unwrap();
+            // The objective and 20 tasks under it: 3,000 events.
+            for k in 0..20 {
+                child
+                    .execute(params![
+                        format!("big-{k}"),
+                        "big",
+                        "web",
+                        json!({ "workforce": { "positionId": "S" } }).to_string()
+                    ])
+                    .unwrap();
+            }
+            let mut at: i64 = 0;
+            for i in 0..3_000 {
+                at += 1;
+                let task = if i % 3 == 0 {
+                    "big".to_owned()
+                } else {
+                    format!("big-{}", i % 20)
+                };
+                add.execute(params![uuid::Uuid::new_v4().to_string(), task, at])
+                    .unwrap();
+            }
+            // 30,000 events of Research's 200 tasks, most of them newer.
+            for t in 0..200 {
+                child
+                    .execute(params![
+                        format!("res-{t}"),
+                        Option::<String>::None,
+                        Option::<String>::None,
+                        json!({ "workforce": { "positionId": "R" } }).to_string()
+                    ])
+                    .unwrap();
+                for _ in 0..150 {
+                    at += 1;
+                    add.execute(params![
+                        uuid::Uuid::new_v4().to_string(),
+                        format!("res-{t}"),
+                        at
+                    ])
+                    .unwrap();
+                }
+            }
+            drop(child);
+            drop(add);
+            tx.commit().unwrap();
+        }
+        let timed = |what: &str, f: &mut dyn FnMut() -> usize| {
+            let started = Instant::now();
+            let n = f();
+            let took = started.elapsed();
+            assert!(
+                took < Duration::from_millis(1_500),
+                "{what} took {took:?} for {n} events"
+            );
+            n
+        };
+        // The objective's page: its newest 50, then page by page to the oldest.
+        let first = l.tree_events("big", None, 50).unwrap();
+        assert_eq!(first.len(), 50);
+        let mut before = first.last().map(|e| e.seq);
+        let mut seen = first.len();
+        timed("the whole task tree, a page at a time", &mut || {
+            while let Some(b) = before {
+                let page = l.tree_events("big", Some(b), MAX_PAGE_EVENTS).unwrap();
+                seen += page.len();
+                before = page.last().map(|e| e.seq);
+            }
+            seen
+        });
+        assert_eq!(seen, 3_000, "every event, each once");
+        // The department's newest page, found among 30,000 newer events of another department.
+        let dev = timed("the department's first page", &mut || {
+            l.scope_events(&ActivityScope::Department("dev".into()), None, 50)
+                .unwrap()
+                .len()
+        });
+        assert_eq!(dev, 50);
+        let res = timed("the other department's first page", &mut || {
+            l.scope_events(&ActivityScope::Department("res".into()), None, 50)
+                .unwrap()
+                .len()
+        });
+        assert_eq!(res, 50);
+        timed("what is stuck", &mut || l.problems(0, 30).unwrap().len());
+    }
 }

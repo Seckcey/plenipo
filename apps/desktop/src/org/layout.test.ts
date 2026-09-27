@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { emptyOrganization, largeOrganization, sampleOrganization } from "../test/orgFixtures";
 import {
   BUS_OFFSET,
   COLUMN_GAP,
@@ -17,6 +17,19 @@ import {
 const center = (n: LayoutNode | undefined) => (n ? n.y + n.h / 2 : NaN);
 
 describe("organization layout", () => {
+  it("lays out a large organization quickly, with every position on the map", () => {
+    const org = largeOrganization();
+    expect(org.positions.length).toBeGreaterThan(1_100);
+    const started = performance.now();
+    const layout = layoutOrganization(org);
+    const took = performance.now() - started;
+    expect(took).toBeLessThan(1_500);
+    for (const p of org.positions) expect(layout.byId.has(p.id)).toBe(true);
+    // Nothing overlaps: each node has its own place.
+    const places = new Set(layout.nodes.map((n) => `${n.x},${n.y}`));
+    expect(places.size).toBe(layout.nodes.length);
+  });
+
   it("starts with the owner and the organization, like the uplink and the gateway", () => {
     const layout = layoutOrganization(emptyOrganization());
     expect(layout.nodes.map((n) => n.id)).toEqual([OWNER_ID, ORG_ID]);

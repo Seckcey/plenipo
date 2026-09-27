@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LedgerStatus } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import {
   createLedgerBackup,
@@ -102,9 +103,9 @@ export function LedgerPanel({ onTaskCreated }: { onTaskCreated: (taskId: string)
       )}
 
       <div className="actions">
-        <button
-          type="button"
-          className="button button--small"
+        <Button
+          variant="primary"
+          size="sm"
           disabled={busy}
           onClick={() =>
             void run(async () => {
@@ -116,10 +117,10 @@ export function LedgerPanel({ onTaskCreated }: { onTaskCreated: (taskId: string)
           }
         >
           Run integrity check
-        </button>
-        <button
-          type="button"
-          className="button button--small"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           disabled={busy || !status?.persistent}
           onClick={() =>
             void run(async () => {
@@ -129,18 +130,18 @@ export function LedgerPanel({ onTaskCreated }: { onTaskCreated: (taskId: string)
           }
         >
           Create backup
-        </button>
-        <button
-          type="button"
-          className="button button--small"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           disabled={busy || !status?.persistent}
           onClick={() => void run(async () => `Exported to ${(await exportLedger()).path}`)}
         >
           Export JSON
-        </button>
-        <button
-          type="button"
-          className="button button--small"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           disabled={busy}
           onClick={() =>
             void run(async () => {
@@ -151,7 +152,7 @@ export function LedgerPanel({ onTaskCreated }: { onTaskCreated: (taskId: string)
           }
         >
           Create synthetic task
-        </button>
+        </Button>
       </div>
       {message && (
         <p

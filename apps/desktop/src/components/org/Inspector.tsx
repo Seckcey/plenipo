@@ -12,14 +12,16 @@ import type {
   RoleJob,
 } from "@plenipo/types";
 
-import { Button } from "@plenipo/ui";
+import { Button, StatusPill, Tabs } from "@plenipo/ui";
 
 import { getWork, toCommandError } from "../../api/commands";
 import { TASK_STATE_LABEL } from "../../ledger/format";
 import { choiceLabel } from "../../routing/format";
 import { useRoutingOnce } from "../../routing/useRouting";
 import { ModelPicker } from "../models/ModelPicker";
+import { PILL_TONE, TASK_TONE } from "../tones";
 import type { Go } from "../views";
+import { POSITION_STATUS } from "../../org/cards";
 import {
   OVERSIGHT_LABEL,
   OVERSIGHT_NOUN,
@@ -44,7 +46,6 @@ import { rankName, roleLabel, titlesOf, withArticle } from "../../org/titles";
 import { RoleLessons } from "../../learning/Lessons";
 import { useLearning } from "../../learning/useLearning";
 import { Glyph } from "./Glyph";
-import { StatusPill } from "./OrgNode";
 
 const MAX_OBJECTIVE = 20_000;
 const OWNER_VALUE = "__owner__";
@@ -191,13 +192,9 @@ function RoleJobSection({ role, onEdit }: { role: RoleInfo; onEdit: (id: string)
       )}
       {!role.template && (
         <div className="actions">
-          <button
-            type="button"
-            className="button button--small button--quiet"
-            onClick={() => onEdit(role.id)}
-          >
+          <Button variant="quiet" size="sm" onClick={() => onEdit(role.id)}>
             Edit role
-          </button>
+          </Button>
         </div>
       )}
       <RoleLessons learning={learning} roleId={role.id} roleName={role.name} />
@@ -266,23 +263,19 @@ function OwnerPanel({
                 <button type="button" className="link" onClick={() => onSelect(p.id)}>
                   {p.title}
                 </button>{" "}
-                <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
+                <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
               </li>
             ))}
           </ul>
         )}
       </Section>
       <div className="actions">
-        <button type="button" className="button button--small" onClick={() => actions.hire(null)}>
+        <Button variant="primary" size="sm" onClick={() => actions.hire(null)}>
           Hire {withArticle(rankName(t, "superintendent"))}
-        </button>
-        <button
-          type="button"
-          className="button button--small button--quiet"
-          onClick={() => actions.newDepartment(null)}
-        >
+        </Button>
+        <Button variant="quiet" size="sm" onClick={() => actions.newDepartment(null)}>
           New department
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -299,20 +292,12 @@ function OrganizationPanel({
   return (
     <>
       <div className="actions">
-        <button
-          type="button"
-          className="button button--small button--quiet"
-          onClick={actions.rename}
-        >
+        <Button variant="quiet" size="sm" onClick={actions.rename}>
           Rename
-        </button>
-        <button
-          type="button"
-          className="button button--small button--quiet"
-          onClick={actions.newRole}
-        >
+        </Button>
+        <Button variant="quiet" size="sm" onClick={actions.newRole}>
           New role
-        </button>
+        </Button>
       </div>
       <dl className="facts facts--compact">
         <Fact label="Departments" value={s.departments} />
@@ -348,9 +333,10 @@ function OrganizationPanel({
           {snapshot.runtimes.map((r) => (
             <li key={r.id}>
               {r.label}{" "}
-              <span className={`pill ${r.ready ? "pill--ok" : "pill--warn"}`}>
-                {r.ready ? "Ready" : "Not ready"}
-              </span>
+              <StatusPill
+                status={r.ready ? PILL_TONE.ok : PILL_TONE.warn}
+                label={r.ready ? "Ready" : "Not ready"}
+              />
             </li>
           ))}
         </ul>
@@ -410,7 +396,7 @@ function PositionPanel({
           <div>
             {role ? roleLabel(t, role) : p.roleName} · {STAFFING_LABEL[p.staffing]}
           </div>
-          <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
+          <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
         </div>
       </div>
@@ -460,7 +446,7 @@ function PositionPanel({
         <dd>
           {p.runtimeId ? runtimeLabel(snapshot, p.runtimeId) : "None available now"}{" "}
           {p.runtimeId && !runtimeReady(snapshot, p.runtimeId) && (
-            <span className="pill pill--warn">Not ready</span>
+            <StatusPill status={PILL_TONE.warn} label="Not ready" />
           )}
         </dd>
         <dt>Model</dt>
@@ -534,7 +520,10 @@ function PositionPanel({
                   >
                     {w.objective || "(no objective)"}
                   </button>
-                  <StatusPill status={workerStatus(w.state)} label={WORKER_STATE_LABEL[w.state]} />
+                  <StatusPill
+                    status={POSITION_STATUS[workerStatus(w.state)]}
+                    label={WORKER_STATE_LABEL[w.state]}
+                  />
                 </li>
               ))}
             </ul>
@@ -566,23 +555,15 @@ function PositionPanel({
                 Open the department's page
               </Button>
             )}
-            <button
-              type="button"
-              className="button button--small button--quiet"
-              onClick={() => actions.editDepartment(department.id)}
-            >
+            <Button variant="quiet" size="sm" onClick={() => actions.editDepartment(department.id)}>
               Edit department
-            </button>
-            <button
-              type="button"
-              className="button button--small button--quiet"
-              onClick={() => actions.newProject(department.id)}
-            >
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => actions.newProject(department.id)}>
               New project
-            </button>
-            <button
-              type="button"
-              className="button button--small button--danger"
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() =>
                 actions.confirm({
                   title: `Remove ${department.name}?`,
@@ -598,7 +579,7 @@ function PositionPanel({
               }
             >
               Remove department
-            </button>
+            </Button>
           </div>
         </Section>
       )}
@@ -654,16 +635,12 @@ function PositionPanel({
                   Open the project's page
                 </Button>
               )}
-              <button
-                type="button"
-                className="button button--small button--quiet"
-                onClick={() => actions.editProject(project.id)}
-              >
+              <Button variant="quiet" size="sm" onClick={() => actions.editProject(project.id)}>
                 Edit project
-              </button>
-              <button
-                type="button"
-                className="button button--small button--danger"
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
                 onClick={() =>
                   actions.confirm({
                     title: `Archive ${project.name}?`,
@@ -680,7 +657,7 @@ function PositionPanel({
                 }
               >
                 Archive project
-              </button>
+              </Button>
             </div>
           )}
         </Section>
@@ -752,13 +729,9 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
         </p>
       )}
       <Refusal error={error} />
-      <button
-        type="submit"
-        className="button"
-        disabled={pending || busy || objective.trim() === ""}
-      >
+      <Button type="submit" variant="primary" disabled={pending || busy || objective.trim() === ""}>
         {pending ? "Sending…" : "Give objective"}
-      </button>
+      </Button>
       <p className="muted inspector__note">
         {p.agent.sessionId ? "Continues its conversation." : "Starts its first conversation."}
       </p>
@@ -806,14 +779,9 @@ function OversightPanel({
                 {title(o.targetId)}
               </button>
               &apos;s team{" "}
-              <button
-                type="button"
-                className="button button--small button--quiet"
-                disabled={pending}
-                onClick={() => end(o.id)}
-              >
+              <Button variant="quiet" size="sm" disabled={pending} onClick={() => end(o.id)}>
                 End
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -826,14 +794,9 @@ function OversightPanel({
                 {title(o.overseerId)}
               </button>{" "}
               is this team&apos;s {OVERSIGHT_NOUN[o.role]}{" "}
-              <button
-                type="button"
-                className="button button--small button--quiet"
-                disabled={pending}
-                onClick={() => end(o.id)}
-              >
+              <Button variant="quiet" size="sm" disabled={pending} onClick={() => end(o.id)}>
                 End
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -872,9 +835,9 @@ function OversightPanel({
               ))}
             </select>
           </label>
-          <button type="submit" className="button button--small" disabled={pending || !chosen}>
+          <Button type="submit" variant="primary" size="sm" disabled={pending || !chosen}>
             Assign
-          </button>
+          </Button>
         </form>
       )}
       <Refusal error={error} />
@@ -923,24 +886,24 @@ function ManagePanel({
     <Section title="Manage">
       <div className="actions">
         {leads && (
-          <button type="button" className="button button--small" onClick={() => actions.hire(p.id)}>
+          <Button variant="primary" size="sm" onClick={() => actions.hire(p.id)}>
             Hire into team
-          </button>
+          </Button>
         )}
         {leads && p.agent === null && (
-          <button
-            type="button"
-            className="button button--small"
+          <Button
+            variant="primary"
+            size="sm"
             disabled={pending}
             onClick={() => void go(() => actions.api.fill(p.id))}
           >
             Hire an agent
-          </button>
+          </Button>
         )}
         {leads && p.agent !== null && (
-          <button
-            type="button"
-            className="button button--small button--quiet"
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() =>
               actions.confirm({
                 title: `Let ${p.title}'s agent go?`,
@@ -956,12 +919,12 @@ function ManagePanel({
             }
           >
             Let agent go
-          </button>
+          </Button>
         )}
         {!p.headsDepartmentId && !p.coordinatesProjectId && (
-          <button
-            type="button"
-            className="button button--small button--danger"
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() =>
               actions.confirm({
                 title: `Archive ${p.title}?`,
@@ -977,7 +940,7 @@ function ManagePanel({
             }
           >
             Archive
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1013,9 +976,9 @@ function ManagePanel({
             )}
           </select>
         </label>
-        <button type="submit" className="button button--small" disabled={pending || moveTo === ""}>
+        <Button type="submit" variant="primary" size="sm" disabled={pending || moveTo === ""}>
           Move
-        </button>
+        </Button>
       </form>
 
       <details className="advanced">
@@ -1062,9 +1025,9 @@ function ManagePanel({
               retires and its conversation ends.
             </p>
           )}
-          <button type="submit" className="button button--small" disabled={pending}>
+          <Button type="submit" variant="primary" size="sm" disabled={pending}>
             Save changes
-          </button>
+          </Button>
         </form>
       </details>
       <Refusal error={error} />
@@ -1119,21 +1082,15 @@ function WorkPanel({
   const list: TaskBrief[] = current ? current[tab] : [];
   return (
     <Section title="Work">
-      <div className="tabs tabs--small" role="tablist" aria-label="Work">
-        {WORK_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            className="tabs__tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-            {current && current[t.id].length > 0 ? ` (${current[t.id].length})` : ""}
-          </button>
-        ))}
-      </div>
+      <Tabs<WorkTab>
+        label="Work"
+        value={tab}
+        onChange={setTab}
+        tabs={WORK_TABS.map((t) => {
+          const count = current ? current[t.id].length : 0;
+          return { value: t.id, label: count > 0 ? `${t.label} (${count})` : t.label };
+        })}
+      />
       <div role="tabpanel" aria-label={`${tab} work`}>
         {error ? (
           <p className="form-error">{error}</p>
@@ -1169,7 +1126,7 @@ function TaskRow({
       <button type="button" className="link" onClick={() => onOpen(task.id)}>
         {task.objective || "(no objective)"}
       </button>
-      <span className={`badge badge--task-${task.state}`}>{TASK_STATE_LABEL[task.state]}</span>
+      <StatusPill status={TASK_TONE[task.state]} label={TASK_STATE_LABEL[task.state]} />
       <span className="muted inspector__task-meta">
         {showOwner && task.positionTitle ? `${task.positionTitle} · ` : ""}
         {ago(task.completedAt ?? task.startedAt ?? task.createdAt)}
@@ -1245,7 +1202,10 @@ function WorkerPanel({
   return (
     <>
       <p className="inspector__objective-text">{worker.objective || "(no objective)"}</p>
-      <StatusPill status={workerStatus(worker.state)} label={WORKER_STATE_LABEL[worker.state]} />
+      <StatusPill
+        status={POSITION_STATUS[workerStatus(worker.state)]}
+        label={WORKER_STATE_LABEL[worker.state]}
+      />
       <dl className="kv">
         <dt>Position</dt>
         <dd>
@@ -1278,21 +1238,17 @@ function WorkerPanel({
         Ledger.
       </p>
       <div className="actions">
-        <button
-          type="button"
-          className="button button--small button--quiet"
-          onClick={() => actions.openTask(worker.taskId)}
-        >
+        <Button variant="quiet" size="sm" onClick={() => actions.openTask(worker.taskId)}>
           Open task
-        </button>
+        </Button>
         {worker.sessionId && (
-          <button
-            type="button"
-            className="button button--small button--quiet"
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() => actions.openSession(worker.sessionId ?? "")}
           >
             Open conversation
-          </button>
+          </Button>
         )}
       </div>
     </>

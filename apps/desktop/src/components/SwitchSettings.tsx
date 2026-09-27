@@ -1,16 +1,20 @@
 import type { ReactNode } from "react";
 import type { PermissionsSnapshot, Switches } from "@plenipo/types";
+import { Switch } from "@plenipo/ui";
 
 import { setSwitches } from "../api/commands";
 import { usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
 
-/** One on/off switch: a button with the switch role, its name, and what "off" or "on" means. */
+/**
+ * One on/off switch: the library's switch (a button with the switch role and its name), with
+ * its name, "On" or "Off", and what "off" or "on" means beside it.
+ */
 export function Toggle({
   label,
   hint,
   checked,
-  disabled,
+  disabled = false,
   onChange,
 }: {
   label: string;
@@ -21,17 +25,13 @@ export function Toggle({
 }) {
   return (
     <div className="toggle">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        className={`toggle__switch${checked ? " is-on" : ""}`}
+      <Switch
+        label={label}
+        checked={checked}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-      >
-        <span className="toggle__knob" aria-hidden="true" />
-      </button>
+        showState={false}
+        onChange={onChange}
+      />
       <div className="toggle__words">
         <span className="toggle__label">
           {label} <span className="toggle__state">{checked ? "On" : "Off"}</span>

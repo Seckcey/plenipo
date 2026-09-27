@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { LearningSnapshot, Lesson } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { decideLesson, removeLesson, setLearning, setRoleLearning } from "../api/commands";
 import { Toggle } from "../components/SwitchSettings";
+import { PILL_TONE } from "../components/tones";
 import { useRun } from "../guard/useRun";
 import type { Learning } from "./useLearning";
 
@@ -44,11 +46,8 @@ function LessonCard({
       <header className="approval__header">
         <h3 className="approval__title">{lesson.worker} learned something</h3>
         {lesson.fromWeb && (
-          <span
-            className="pill pill--warn"
-            title="Its task used websites, your screen, or a server"
-          >
-            From a task that used websites or servers
+          <span title="Its task used websites, your screen, or a server">
+            <StatusPill status={PILL_TONE.warn} label="From a task that used websites or servers" />
           </span>
         )}
       </header>
@@ -64,22 +63,16 @@ function LessonCard({
         <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
       <div className="actions">
-        <button
-          type="button"
-          className="button"
+        <Button
+          variant="primary"
           disabled={pending || text.trim() === ""}
           onClick={() => onAnswer(true, text)}
         >
           Keep
-        </button>
-        <button
-          type="button"
-          className="button button--quiet"
-          disabled={pending}
-          onClick={() => onAnswer(false, text)}
-        >
+        </Button>
+        <Button variant="quiet" disabled={pending} onClick={() => onAnswer(false, text)}>
           Discard
-        </button>
+        </Button>
       </div>
     </article>
   );

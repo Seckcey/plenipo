@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import type { useApprovals } from "../guard/usePermissions";
 import type { Learning } from "../learning/useLearning";
-import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { emptyOrganization, largeOrganization, sampleOrganization } from "../test/orgFixtures";
 import {
   NOW,
   event,
@@ -16,6 +16,7 @@ import {
   sampleTree,
   sampleWorkView,
 } from "../test/pageFixtures";
+import { a11yProblems } from "../test/a11y";
 import { approval, samplePermissions } from "../test/permissionFixtures";
 import { sampleReport, sampleWork } from "../test/projectFixtures";
 import { DepartmentPage } from "./DepartmentPage";
@@ -206,6 +207,22 @@ describe("Home", () => {
     expect(await screen.findByText("Couldn't load What's stuck")).toBeInTheDocument();
     await userEvent.setup().click(screen.getAllByRole("button", { name: "Try again" })[0]!);
     expect(await screen.findByRole("list", { name: "What's stuck" })).toBeInTheDocument();
+  });
+
+  it("stays usable with a large organization: a card per department, everyone working listed", async () => {
+    api.getOrganization.mockResolvedValue(largeOrganization());
+    api.getHome.mockResolvedValue({ current: [], finished: [], stuck: [] });
+    const started = performance.now();
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const departments = await screen.findByRole("list", { name: "Departments" });
+    await waitFor(() => expect(within(departments).getAllByRole("article")).toHaveLength(20));
+    expect(
+      within(screen.getByRole("list", { name: "Who's working" })).getAllByRole("listitem"),
+    ).toHaveLength(100);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    // One activity query for all the departments' strips.
+    expect(api.getActivity).toHaveBeenCalledTimes(1);
+    expect(api.getActivity.mock.calls[0]![0]).toHaveLength(20);
   });
 
   it("picks Pip's pose and the line from what matters most", () => {
@@ -433,5 +450,43 @@ describe("A task's page", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Relaunch the website" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("accessibility smoke", () => {
+  it("names every control, has one main heading, and skips no heading level, on every page", async () => {
+    const pages = [
+      {
+        name: "Home",
+        page: <HomePage go={go} approvals={approvals()} learning={learning([lesson])} />,
+        ready: "What's stuck",
+      },
+      {
+        name: "Department",
+        page: <DepartmentPage id="d-eng" go={go} onBack={vi.fn()} />,
+        ready: "Queue",
+      },
+      {
+        name: "Project",
+        page: <ProjectPage id="pr-web" go={go} onBack={vi.fn()} />,
+        ready: "Objectives",
+      },
+      {
+        name: "Worker",
+        page: <WorkerPage id="p-web" go={go} onBack={vi.fn()} onOpenSession={vi.fn()} />,
+        ready: "Working on",
+      },
+      {
+        name: "Task",
+        page: <TaskPage id="task-obj-1" go={go} onBack={vi.fn()} onOpenSession={vi.fn()} />,
+        ready: "Decisions",
+      },
+    ];
+    for (const { name, page, ready } of pages) {
+      const { container, unmount } = render(page);
+      await screen.findByRole("list", { name: ready });
+      expect(a11yProblems(container), name).toEqual([]);
+      unmount();
+    }
   });
 });

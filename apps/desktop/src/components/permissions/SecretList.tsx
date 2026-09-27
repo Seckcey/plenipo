@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import type { PermissionsSnapshot, SecretInfo } from "@plenipo/types";
+import { Button, StatusPill } from "@plenipo/ui";
 
 import { removeSecret, saveSecret } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { Refusal } from "../models/shared";
+import { PILL_TONE } from "../tones";
 
 type Apply = (s: PermissionsSnapshot) => void;
 
@@ -26,14 +28,14 @@ export function SecretList({
     <section aria-labelledby="secrets-title">
       <div className="section-header">
         <h3 id="secrets-title">Secrets</h3>
-        <button
-          type="button"
-          className="button button--small"
+        <Button
+          variant="primary"
+          size="sm"
           disabled={!vault.available}
           onClick={() => setEditing("new")}
         >
           Add a secret
-        </button>
+        </Button>
       </div>
       <p className="muted">
         Kept in {vault.label}. Plenipo stores only each secret&apos;s name and which programs get it
@@ -78,29 +80,29 @@ export function SecretList({
                 </td>
                 <td>
                   {vault.stored.includes(s.id) ? (
-                    <span className="pill pill--ok">Yes</span>
+                    <StatusPill status={PILL_TONE.ok} label="Yes" />
                   ) : (
-                    <span className="pill pill--warn">Missing</span>
+                    <StatusPill status={PILL_TONE.warn} label="Missing" />
                   )}
                 </td>
                 <td>
-                  <button
-                    type="button"
-                    className="button button--small button--quiet"
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     aria-label={`Change ${s.name}`}
                     onClick={() => setEditing(s)}
                   >
                     Change
-                  </button>{" "}
-                  <button
-                    type="button"
-                    className="button button--small button--danger"
+                  </Button>{" "}
+                  <Button
+                    variant="danger"
+                    size="sm"
                     aria-label={`Remove ${s.name}`}
                     disabled={pending}
                     onClick={() => void run(() => removeSecret(s.id))}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -175,12 +177,12 @@ function SecretForm({
       </label>
       <Refusal error={error} />
       <div className="actions">
-        <button type="submit" className="button" disabled={pending || name.trim() === ""}>
+        <Button type="submit" variant="primary" disabled={pending || name.trim() === ""}>
           {secret ? "Save secret" : "Store secret"}
-        </button>
-        <button type="button" className="button button--quiet" onClick={onDone}>
+        </Button>
+        <Button variant="quiet" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

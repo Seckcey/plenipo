@@ -1,4 +1,5 @@
 import type { HandoffView } from "@plenipo/types";
+import { StatusPill } from "@plenipo/ui";
 
 import {
   HANDOFF_OUTCOME_LABEL,
@@ -6,6 +7,7 @@ import {
   handoffOutcomeTone,
   handoffStateTone,
 } from "../agents/format";
+import { TASK_TONE } from "./tones";
 
 function contextText(view: HandoffView): string {
   return view.context.length > 0
@@ -41,9 +43,10 @@ export function HandoffCard({
       <div className="handoff__header">
         <span className="handoff__to">→ {view.destinationLabel}</span>
         <span className="handoff__objective">{view.objective}</span>
-        <span className={`badge badge--task-${handoffStateTone(view.state)}`}>
-          {HANDOFF_STATE_LABEL[view.state]}
-        </span>
+        <StatusPill
+          status={TASK_TONE[handoffStateTone(view.state)]}
+          label={HANDOFF_STATE_LABEL[view.state]}
+        />
       </div>
       {view.rejection && <p className="handoff__refusal">Refused: {view.rejection}</p>}
       <div className="card__meta">
@@ -55,9 +58,10 @@ export function HandoffCard({
         <details className="handoff__reply">
           <summary>
             Reply:{" "}
-            <span className={`badge badge--task-${handoffOutcomeTone(reply.outcome)}`}>
-              {HANDOFF_OUTCOME_LABEL[reply.outcome]}
-            </span>
+            <StatusPill
+              status={TASK_TONE[handoffOutcomeTone(reply.outcome)]}
+              label={HANDOFF_OUTCOME_LABEL[reply.outcome]}
+            />
             {reply.state === "pending" && " · not delivered yet"}
             {reply.state === "discarded" && " · not delivered (the requester stopped waiting)"}
           </summary>
