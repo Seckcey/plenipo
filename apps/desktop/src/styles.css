@@ -2870,6 +2870,20 @@ body {
   font-weight: 600;
 }
 
+/* Stop all: the library's danger button, filled, so it is the easiest thing to hit. */
+.ui-button.stop-all {
+  height: auto;
+  padding: 8px 18px;
+  border-color: var(--ui-error-text);
+  background: var(--ui-error);
+  color: var(--ui-on-error);
+  font-weight: 600;
+}
+
+.ui-button.stop-all:hover:not(:disabled) {
+  border-color: var(--ui-error-text);
+}
+
 .shell__footer-control {
   color: var(--ui-error-text);
   font-weight: 600;
@@ -3328,4 +3342,77 @@ body {
 
 .page__result > .result {
   margin: 0;
+}
+
+/* Settings in one place (Phase 12): the list of sections on the left, one section at a time. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--ui-space-8);
+  align-items: start;
+}
+
+.settings-layout__list {
+  position: sticky;
+  top: 0;
+}
+
+.settings-layout__list .ui-tabs__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.settings-layout__panel {
+  min-width: 0;
+}
+
+.view .settings-layout__title {
+  margin-top: 0;
+}
+
+.settings-section__body {
+  display: grid;
+  gap: var(--ui-space-5);
+}
+
+.settings-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.settings-notices section + section,
+.settings-terminal section + section {
+  margin-top: var(--ui-space-6);
+}
+
+.settings-notices__test {
+  display: grid;
+  gap: var(--ui-space-3);
+  justify-items: start;
+  margin-top: var(--ui-space-7);
+}
+
+.settings-about {
+  display: grid;
+  gap: var(--ui-space-5);
+  max-width: 72ch;
+}
+
+.settings-about__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-8);
+}
+
+/* A narrow window: the sections sit above the section shown. */
+@media (width < 860px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-layout__list {
+    position: static;
+  }
 }

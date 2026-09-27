@@ -34,14 +34,14 @@ use plenipo_capabilities::{
     ServerTest, ServersSnapshot, TaskRecord, TerminalEvent, TerminalInfo, TerminalPlace,
     TerminalSettings, TerminalShell,
 };
-use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
+use plenipo_core::{AppInfo, CommandError, LocalPath, SyntheticTaskAction};
 use plenipo_guard::{
     BrowserChoice, CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput,
     SensitiveKind, SensitiveRule, ServerInput, Switches, WebsiteRules,
 };
 use plenipo_ledger::{
     ActivityScope, ActivitySeries, BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError,
-    LedgerEvent, LedgerStatus, NewTask, Task, TaskState, TaskTimeline, WorkRecord,
+    LedgerEvent, LedgerStatus, NewTask, NoticeSettings, Task, TaskState, TaskTimeline, WorkRecord,
 };
 use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
 use plenipo_router::{
@@ -629,6 +629,98 @@ pub async fn get_task_record(
 ) -> Result<TaskRecord, CommandError> {
     validate_id("task", &task_id)?;
     with_broker(&broker, move |b| b.task_record(&task_id)).await
+}
+
+// ---- Settings → Local paths (Phase 12) --------------------------------------------------
+
+/// Where Plenipo keeps its files on this computer: shown to you, never opened or changed from
+/// the screen.
+#[tauri::command]
+pub async fn get_local_paths<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<Vec<LocalPath>, CommandError> {
+    use tauri::Manager as _;
+    let kept = ledger.path().is_some();
+    let data = app.path().app_local_data_dir().ok().filter(|_| kept);
+    let shown = |p: &std::path::Path| p.display().to_string();
+    let temporary = "A temporary place (nothing is kept this session)".to_owned();
+    let mut paths = vec![
+        LocalPath {
+            label: "Plenipo's own files".into(),
+            path: data.as_deref().map_or_else(|| temporary.clone(), shown),
+            kept,
+        },
+        LocalPath {
+            label: "Everything that happened (the Ledger)".into(),
+            path: ledger.path().map_or_else(|| temporary.clone(), shown),
+            kept,
+        },
+        LocalPath {
+            label: "Backups and exports of the Ledger".into(),
+            path: ledger
+                .backups_dir()
+                .as_deref()
+                .map_or_else(|| temporary.clone(), shown),
+            kept,
+        },
+    ];
+    if let Some(data) = data {
+        for (label, folder) in [
+            (
+                "Working copies of your projects",
+                data.join("working-copies"),
+            ),
+            ("Screenshots workers kept", data.join("screenshots")),
+            (
+                "Plenipo's browser (its own profile)",
+                data.join("browser-profile"),
+            ),
+            (
+                "Workers' scratch folders",
+                data.join("runtime").join("agent-workspaces"),
+            ),
+        ] {
+            paths.push(LocalPath {
+                label: label.into(),
+                path: shown(&folder),
+                kept: true,
+            });
+        }
+    }
+    Ok(paths)
+}
+
+// ---- Notices (Phase 12) ------------------------------------------------------------------
+
+/// Settings → Notifications: which pop-up notices you get, and when.
+#[tauri::command]
+pub async fn get_notice_settings(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<NoticeSettings, CommandError> {
+    with_ledger(&ledger, Ledger::notice_settings).await
+}
+
+/// Keep your choices for pop-up notices.
+#[tauri::command]
+pub async fn set_notice_settings(
+    ledger: State<'_, Arc<Ledger>>,
+    settings: NoticeSettings,
+) -> Result<NoticeSettings, CommandError> {
+    with_ledger(&ledger, move |l| l.set_notice_settings(&settings, OWNER)).await
+}
+
+/// Show a notice now, to check that the system shows Plenipo's notices. Its words are
+/// Plenipo's own; nothing from the page goes into it.
+#[tauri::command]
+pub async fn send_test_notice(
+    notices: State<'_, Arc<crate::notices::Notices>>,
+) -> Result<(), CommandError> {
+    let notices = Arc::clone(&notices);
+    tauri::async_runtime::spawn_blocking(move || notices.show_now(crate::notices::test_notice()))
+        .await
+        .map_err(|e| CommandError::internal(format!("the notice could not be sent: {e}")))?
+        .map_err(|e| CommandError::internal(format!("The system did not show the notice: {e}")))
 }
 
 #[tauri::command]

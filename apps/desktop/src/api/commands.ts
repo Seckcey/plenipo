@@ -64,6 +64,8 @@ import type {
   LearningSnapshot,
   WorkView,
   HomeView,
+  LocalPath,
+  NoticeSettings,
   TaskRecord,
   WorkRecord,
   TerminalEvent,
@@ -713,4 +715,26 @@ export function getProjectRecord(projectId: string): Promise<WorkRecord> {
 /** A task's pull requests, artifacts, decisions, and approvals (with the tasks under it). */
 export function getTaskRecord(taskId: string): Promise<TaskRecord> {
   return call<TaskRecord>("get_task_record", { taskId });
+}
+
+// ---- Notices (Phase 12) ----------------------------------------------------------------------
+
+/** Settings → Notifications: which pop-up notices you get, and when. */
+export function getNoticeSettings(): Promise<NoticeSettings> {
+  return call<NoticeSettings>("get_notice_settings");
+}
+
+/** Keep your choices for pop-up notices. */
+export function setNoticeSettings(settings: NoticeSettings): Promise<NoticeSettings> {
+  return call<NoticeSettings>("set_notice_settings", { settings });
+}
+
+/** Show a notice now, to check that the computer shows Plenipo's notices. */
+export function sendTestNotice(): Promise<void> {
+  return call<void>("send_test_notice");
+}
+
+/** Settings → Local paths: where Plenipo keeps its files on this computer (read only). */
+export function getLocalPaths(): Promise<LocalPath[]> {
+  return call<LocalPath[]>("get_local_paths");
 }

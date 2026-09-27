@@ -436,7 +436,7 @@ function Shell({ core }: { core: CoreState }) {
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />
           )}
-          {view === "settings" && <SettingsView />}
+          {view === "settings" && <SettingsView go={go} info={info} section={place.id} />}
           {view === "diagnostics" && (
             <DiagnosticsView
               info={info}

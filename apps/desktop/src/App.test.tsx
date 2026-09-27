@@ -257,6 +257,7 @@ describe("App shell", () => {
     render(<App />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Personalization" }));
     const pick = await screen.findByRole("combobox", { name: "Titles" });
     await waitFor(() => expect(pick).toBeEnabled());
     const chain = screen.getByRole("list", { name: "Chain of command" });

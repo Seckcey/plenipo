@@ -1,112 +1,123 @@
-import { useAgents } from "../agents/useAgents";
+import { useRef, useState } from "react";
+import type { AppInfo } from "@plenipo/types";
+import { Icon, Tabs, useStoredState } from "@plenipo/ui";
+
 import { ModelSettings } from "../components/models/ModelSettings";
 import { PermissionSettings } from "../components/permissions/PermissionSettings";
 import { ServerSettings } from "../components/servers/ServerSettings";
 import { SwitchSettings } from "../components/SwitchSettings";
+import { TitlesSetting } from "../components/TitlesSetting";
+import type { Go } from "../components/views";
 import { LearningSwitch } from "../learning/Lessons";
 import { useLearning } from "../learning/useLearning";
-import { TitlesSetting } from "../components/TitlesSetting";
-import { useRuntime } from "../runtime/useRuntime";
+import {
+  AboutPlenipo,
+  AiToolsSettings,
+  DiagnosticsSummary,
+  LocalPathsSettings,
+  OrganizationSettings,
+} from "../settings/InfoSettings";
+import { NotificationSettings } from "../settings/NotificationSettings";
+import {
+  SETTINGS_SECTIONS,
+  SETTINGS_SECTION_KEY,
+  isSettingsSection,
+  type SettingsSection,
+} from "../settings/sections";
+import { TerminalSettings } from "../settings/TerminalSettings";
 
-export function SettingsView() {
-  const { state } = useRuntime();
-  const agents = useAgents();
+/**
+ * Settings in one place (Phase 12): a list of sections on the left, one section at a time, and
+ * the last one comes back. Another page can open a section (Home: "Fix it in Settings →
+ * Servers"). Settings → Servers is the same as before, in its own section.
+ */
+export function SettingsView({
+  go,
+  info,
+  section: asked = null,
+}: {
+  go: Go;
+  info: AppInfo | null;
+  /** A section another page asked for. */
+  section?: string | null;
+}) {
   const learning = useLearning();
+  const [stored, setStored] = useStoredState<SettingsSection>(
+    SETTINGS_SECTION_KEY,
+    "aiTools",
+    isSettingsSection,
+  );
+  // A section asked for opens once; after that the owner moves freely.
+  const [arrived, setArrived] = useState<string | null>(null);
+  let current = stored;
+  if (asked && asked !== arrived && isSettingsSection(asked)) {
+    setArrived(asked);
+    setStored(asked);
+    current = asked;
+  }
+  const meta = SETTINGS_SECTIONS.find((s) => s.id === current) ?? SETTINGS_SECTIONS[0]!;
+  const panel = useRef<HTMLDivElement>(null);
+  /** Another section opens at its top (the page scrolls as one). */
+  const choose = (next: SettingsSection) => {
+    setStored(next);
+    panel.current?.closest("main")?.scrollTo?.({ top: 0 });
+  };
+
   return (
-    <section className="view" aria-labelledby="settings-title">
+    <section className="view settings-view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
-      <p className="view__lead">
-        Personalization, the AI models your roles use, what workers may do on this computer, and the
-        servers they may reach can be changed here. The rest is shown for reference and becomes
-        editable in later phases.
-      </p>
-
-      <h2>Personalization</h2>
-      <TitlesSetting />
-
-      <h2>Switches</h2>
-      <SwitchSettings learning={<LearningSwitch learning={learning} />} />
-
-      <h2>AI models</h2>
-      <ModelSettings />
-
-      <h2>Permissions</h2>
-      <PermissionSettings />
-
-      <h2 id="settings-servers">Servers</h2>
-      <ServerSettings />
-
-      <h2>AI tools</h2>
-      <ul className="settings">
-        <li>
-          <strong>AI tools:</strong>{" "}
-          {agents.state.runtimes.map((r) => r.label).join(", ") || "none found yet"}. Plenipo uses
-          each tool&apos;s own sign-in on this computer and never asks for passwords.
-        </li>
-        <li>
-          <strong>Billing:</strong> subscription sign-ins only. A tool signed in with an API key or
-          through a third-party cloud is refused, and Plenipo never falls back to pay-per-use API
-          billing. Reaching a usage limit never moves work to another AI company.
-        </li>
-        <li>
-          <strong>Permissions:</strong> workers never get their AI tool&apos;s own tools or your
-          add-ons (MCP servers); Codex&apos;s own commands stay read-only, without internet access.
-          Workers of your organization with permissions (above) get Plenipo&apos;s own tools
-          instead, confined to their project&apos;s folder and checked by Plenipo Guard. Tasks you
-          start yourself in Workers get no tools.
-        </li>
-        <li>
-          <strong>Your keys and secrets:</strong> API keys and other secrets on this computer are
-          never passed to a worker. Only proxy settings and the tools&apos; own settings folders
-          are. Secrets you store under Permissions go only to the programs you name, and are hidden
-          wherever they would appear.
-        </li>
-        <li>
-          <strong>Model:</strong> organization workers get the model their role&apos;s choices pick
-          (above), unless you fixed an AI tool on the position. Tasks you start yourself in Workers
-          use the AI tool&apos;s default unless you name a model.
-        </li>
-        <li>
-          <strong>Handoffs:</strong> off unless you allow them for a new task. A worker may then ask
-          a worker on another AI tool for help through Plenipo Liaison — workers never contact each
-          other directly. Liaison records a sub-task, passes on only the context the worker chose
-          (up to a limit), and brings the reply back to the same piece of work. Limits: 3 levels
-          deep, 3 requests per answer, 8 reply rounds per task, 16 handoffs per piece of work. A
-          worker&apos;s permissions come from your settings for its role and project; a request for
-          more permissions is recorded but never grants anything.
-        </li>
-      </ul>
-
-      <h2>Programs Plenipo runs</h2>
-      <ul className="settings">
-        <li>
-          <strong>Approved programs:</strong>{" "}
-          {state.profiles.map((p) => p.label).join(", ") || "none"}
-        </li>
-        <li>
-          <strong>Only these:</strong> Plenipo itself (built-in checks and its Ollama connection),
-          the AI tools it finds (Claude Code, Codex, Grok, Kimi, Ollama), and programs a worker runs
-          with your permission (Permissions above). Nothing on screen can supply a command, path, or
-          argument.
-        </li>
-        <li>
-          <strong>Environment:</strong> programs get the operating system&apos;s basics plus
-          settings Plenipo sets on purpose. Your credentials are never passed on.
-        </li>
-        <li>
-          <strong>Kept apart:</strong> each run is its own group of processes; cancelling or
-          quitting stops the whole group.
-        </li>
-      </ul>
-
-      <h2>Window behavior</h2>
-      <ul className="settings">
-        <li>
-          Closing the window while programs are running keeps them running; use the tray icon to
-          reopen Plenipo or stop them.
-        </li>
-        <li>Quitting from the tray stops everything that is running and records how it ended.</li>
-      </ul>
+      <div className="settings-layout">
+        <Tabs<SettingsSection>
+          label="Settings sections"
+          orientation="vertical"
+          idPrefix="settings"
+          className="settings-layout__list"
+          value={current}
+          onChange={choose}
+          tabs={SETTINGS_SECTIONS.map((s) => ({
+            value: s.id,
+            label: (
+              <>
+                <Icon name={s.icon} size={16} />
+                <span>{s.label}</span>
+              </>
+            ),
+          }))}
+        />
+        <div
+          ref={panel}
+          className="settings-layout__panel"
+          role="tabpanel"
+          id={`settings-panel-${current}`}
+          aria-labelledby={`settings-tab-${current}`}
+        >
+          <h2 id={`settings-${current}`} className="settings-layout__title">
+            {meta.label}
+          </h2>
+          <p className="view__lead">{meta.lead}</p>
+          {current === "aiTools" && <AiToolsSettings go={go} />}
+          {current === "aiModels" && <ModelSettings />}
+          {current === "permissions" && <PermissionSettings />}
+          {current === "organization" && <OrganizationSettings go={go} />}
+          {current === "servers" && <ServerSettings />}
+          {current === "switches" && (
+            <SwitchSettings learning={<LearningSwitch learning={learning} />} />
+          )}
+          {current === "notifications" && <NotificationSettings />}
+          {current === "terminal" && <TerminalSettings />}
+          {current === "personalization" && (
+            <>
+              <TitlesSetting />
+              <p className="muted">
+                Light or dark: use the button at the top right. Plenipo remembers your choice.
+              </p>
+            </>
+          )}
+          {current === "localPaths" && <LocalPathsSettings />}
+          {current === "diagnostics" && <DiagnosticsSummary go={go} info={info} />}
+          {current === "about" && <AboutPlenipo info={info} />}
+        </div>
+      </div>
     </section>
   );
 }

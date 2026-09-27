@@ -9,11 +9,13 @@ pub mod commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
+pub mod notices;
 pub mod runtime_host;
 pub mod smoke;
 pub mod tray;
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -29,11 +31,14 @@ use smoke::{SmokeMode, SmokeTest};
 /// How long quitting waits for owned processes to be terminated and recorded.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
-/// Environment-dependent pieces, so tests can run without a tray or on-disk state.
+/// Environment-dependent pieces, so tests can run without a tray, on-disk state, or the
+/// system's notices.
 #[derive(Debug, Clone, Copy)]
 pub struct ShellOptions {
     pub tray: bool,
     pub persistence: Persistence,
+    /// Where pop-up notices go (the system's, or kept for tests).
+    pub notices: notices::Output,
 }
 
 impl Default for ShellOptions {
@@ -41,6 +46,7 @@ impl Default for ShellOptions {
         Self {
             tray: true,
             persistence: Persistence::AppData,
+            notices: notices::Output::System,
         }
     }
 }
@@ -89,6 +95,9 @@ pub fn configure<R: Runtime>(
     options: ShellOptions,
 ) -> Builder<R> {
     builder
+        // The notification plugin shows Plenipo's notices. Its own commands are granted to no
+        // window (capabilities/default.json), so only Plenipo decides what a notice says.
+        .plugin(tauri_plugin_notification::init())
         .manage(smoke)
         .manage(ShutdownState::default())
         .setup(move |app| {
@@ -124,6 +133,14 @@ pub fn configure<R: Runtime>(
                 &agents,
             );
             guard_host::start(&broker);
+            // Pop-up notices (Phase 12): what needs the owner, from each committed event.
+            app.manage(Arc::new(notices::start(
+                app.handle(),
+                ledger.clone(),
+                Some(agents.clone()),
+                options.notices,
+                notices::GATHER,
+            )));
             // Workforce (Phase 5): the organization, and Liaison's directory for its members,
             // whose workers the Router places.
             let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
@@ -195,6 +212,10 @@ pub fn configure<R: Runtime>(
             commands::get_work,
             commands::get_home,
             commands::get_task_record,
+            commands::get_notice_settings,
+            commands::set_notice_settings,
+            commands::send_test_notice,
+            commands::get_local_paths,
             commands::rename_organization,
             commands::set_organization_titles,
             commands::create_role,
@@ -393,6 +414,7 @@ mod ipc_boundary_tests {
             ShellOptions {
                 tray: false,
                 persistence: Persistence::InMemory,
+                notices: notices::Output::Kept,
             },
         )
         .build(tauri::generate_context!())
@@ -418,6 +440,13 @@ mod ipc_boundary_tests {
             supervisor.clone(),
             &agents,
         );
+        app.manage(Arc::new(notices::start(
+            app.handle(),
+            ledger.clone(),
+            Some(agents.clone()),
+            notices::Output::Kept,
+            Duration::from_millis(100),
+        )));
         let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
         guard.seed_template_roles().unwrap();
         app.manage(guard);
@@ -2683,6 +2712,68 @@ mod ipc_boundary_tests {
             err["message"].as_str().unwrap().contains("not running"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn notices_and_local_paths_are_the_main_windows_alone() {
+        use plenipo_ledger::NoticeSettings;
+        let app = app();
+        let main = window(&app, "main");
+        let settings: NoticeSettings = body(invoke(&main, "get_notice_settings"));
+        assert_eq!(settings, NoticeSettings::default());
+        let quiet = serde_json::json!({ "settings": {
+            "approvals": true, "checks": true, "problems": true, "finished": false,
+            "lessons": false, "onlyWhenAway": false,
+        } });
+        let kept: NoticeSettings = body(invoke_json(&main, "set_notice_settings", quiet.clone()));
+        assert!(!kept.finished && !kept.lessons && !kept.only_when_away);
+        // Anything else in the choices is refused.
+        let extra = serde_json::json!({ "settings": { "approvals": "yes" } });
+        assert!(invoke_json(&main, "set_notice_settings", extra).is_err());
+        // Where Plenipo keeps its files: shown, never chosen from the screen.
+        let paths: Vec<plenipo_core::LocalPath> = body(invoke(&main, "get_local_paths"));
+        assert_eq!(paths.len(), 3, "a temporary Ledger has only its own three");
+        assert!(paths.iter().all(|p| !p.kept));
+        // The test notice says Plenipo's own words; nothing from the page goes into it.
+        assert!(invoke(&main, "send_test_notice").is_ok());
+        let shown = app.state::<Arc<notices::Notices>>().kept();
+        assert_eq!(shown, vec![notices::test_notice()]);
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            ("get_notice_settings", serde_json::json!({})),
+            ("set_notice_settings", quiet.clone()),
+            ("send_test_notice", serde_json::json!({})),
+            ("get_local_paths", serde_json::json!({})),
+            (
+                "plugin:notification|notify",
+                serde_json::json!({ "options": { "title": "x" } }),
+            ),
+            (
+                "plugin:notification|is_permission_granted",
+                serde_json::json!({}),
+            ),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd} from a web page"
+            );
+        }
+        // The page cannot send a notice of its own either: the plugin is there, but its
+        // commands are granted to no window.
+        let err = invoke_json(
+            &main,
+            "plugin:notification|notify",
+            serde_json::json!({ "options": { "title": "x" } }),
+        )
+        .expect_err("not granted");
+        assert!(err.to_string().contains("not allowed"), "{err}");
+        assert_eq!(app.state::<Arc<notices::Notices>>().kept().len(), 1);
     }
 
     #[test]
