@@ -152,7 +152,8 @@ Strips and timelines come from the Ledger (the Phase 2 event model):
 
 1. Build it in `packages/ui/src` with tokens only, and a `ui-` class prefix.
 2. Give it empty, loading, and error states.
-3. Add it to the Gallery (`src/gallery/Gallery.tsx`) with a `Variant`, in every state.
+3. Add it to the Gallery (`src/gallery/Gallery.tsx`) with a `Variant` in every state: a `name` for
+   the look test and a plain-words `caption` for people.
 4. Test it: behaviour, keyboard, and status words.
 5. Run `PLENIPO_E2E_UPDATE_SNAPSHOTS=1 pnpm e2e`, look at the Gallery in both themes, and check in
    the new look snapshot.
