@@ -1042,8 +1042,9 @@ impl Broker {
     /// ticket, may be served (ADR-033): it must come from the AI tool Plenipo started for that
     /// grant's step, or from a program that AI tool started. Any other program that read the
     /// ticket is refused, and the refusal is recorded for the owner
-    /// (`tool_server.ticket_refused`). Where this computer offers no way to tell (macOS), the
-    /// connection is served and that is recorded too (`tool_server.ticket_unchecked`).
+    /// (`tool_server.ticket_refused`), as is any connection whose program the lookup fails to
+    /// find. Only where this computer offers no way to tell at all (macOS) is the connection
+    /// served, and that is recorded too (`tool_server.ticket_unchecked`).
     pub(crate) async fn admit(&self, grant_id: &str, peer: SocketAddr, local: SocketAddr) -> bool {
         let Some((task_id, session_id, worker)) = self
             .state()

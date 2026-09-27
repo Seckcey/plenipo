@@ -3,7 +3,8 @@
 //! from the AI tool Plenipo started for that grant's step, or from a program that AI tool
 //! started; a ticket copied by any other program is refused. Linux reads `/proc`; Windows asks
 //! the TCP table and the process snapshot; elsewhere the lookup is unavailable and the caller
-//! says so.
+//! says so. A lookup that exists but fails names no holder, so the caller refuses: only an
+//! operating system with no lookup at all is ever reported as unavailable.
 
 use std::net::SocketAddr;
 
@@ -16,10 +17,14 @@ pub enum Holders {
     /// The process IDs of every program holding the connection's far end (one, unless the
     /// socket was handed on to another program).
     Pids(Vec<u32>),
-    /// No program on this computer was found holding it (it ended, or it belongs to another
-    /// user).
+    /// No program on this computer was found holding it: it ended, it belongs to another
+    /// user, or the lookup itself failed (the connection table could not be read). The caller
+    /// refuses the connection.
     Unknown,
-    /// This operating system offers no way to look it up.
+    /// This operating system offers no way to look it up at all (macOS today). Only the module
+    /// for such systems returns this; a lookup that exists and fails is `Unknown`, so on Linux
+    /// and Windows nothing ever builds this answer (hence the allowance below).
+    #[cfg_attr(any(target_os = "linux", windows), allow(dead_code))]
     Unavailable,
 }
 
@@ -60,17 +65,23 @@ mod os {
     use super::Holders;
 
     pub fn holders_of(peer: SocketAddr, local: SocketAddr) -> Holders {
-        let tables: Vec<String> = ["/proc/net/tcp", "/proc/net/tcp6"]
+        holders_in(Path::new("/proc"), peer, local)
+    }
+
+    /// `holders_of`, reading the `proc` file system mounted at `proc_dir`.
+    pub(super) fn holders_in(proc_dir: &Path, peer: SocketAddr, local: SocketAddr) -> Holders {
+        let tables: Vec<String> = ["net/tcp", "net/tcp6"]
             .iter()
-            .filter_map(|f| std::fs::read_to_string(f).ok())
+            .filter_map(|f| std::fs::read_to_string(proc_dir.join(f)).ok())
             .collect();
+        // No table to read is a failed lookup, not a missing one: refuse, never let through.
         if tables.is_empty() {
-            return Holders::Unavailable;
+            return Holders::Unknown;
         }
         let Some(inode) = tables.iter().find_map(|t| socket_inode(t, peer, local)) else {
             return Holders::Unknown;
         };
-        let pids = pids_holding(Path::new("/proc"), inode);
+        let pids = pids_holding(proc_dir, inode);
         if pids.is_empty() {
             Holders::Unknown
         } else {
@@ -184,9 +195,18 @@ mod os {
 
     use super::Holders;
 
+    /// Room added beyond the size the table asked for, so that connections opened between the
+    /// size query and the copy still fit.
+    const SLACK: u32 = 64 * 1024;
+    /// How many times the copy is tried when the table outgrew the buffer meanwhile.
+    const ATTEMPTS: usize = 16;
+
     pub fn holders_of(peer: SocketAddr, local: SocketAddr) -> Holders {
+        // A table that cannot be read is a failed lookup, not a missing one: refuse, never let
+        // through. A program running as the owner can keep the table changing, so the copy
+        // below leaves room and tries again rather than giving up early.
         let Some(rows) = tcp_rows() else {
-            return Holders::Unavailable;
+            return Holders::Unknown;
         };
         // Addresses and ports come in network byte order; the port sits in the low 16 bits.
         let ip = |addr: u32| IpAddr::V4(Ipv4Addr::from(addr.to_ne_bytes()));
@@ -221,15 +241,18 @@ mod os {
         if first != ERROR_INSUFFICIENT_BUFFER && first != NO_ERROR {
             return None;
         }
-        // Connections come and go between the two calls: try again when the table grew.
-        for _ in 0..4 {
-            let mut buffer = vec![0u32; (size as usize).div_ceil(4).max(1)];
-            // SAFETY: the buffer holds `size` bytes (aligned for the table's 32-bit fields),
-            // and `size` says how many the call may write.
+        // Connections come and go between the two calls: leave room, and try again with the
+        // size the call asked for when the table still grew past it.
+        for _ in 0..ATTEMPTS {
+            let mut want = size.saturating_add(SLACK);
+            let mut buffer = vec![0u32; (want as usize).div_ceil(4).max(1)];
+            // SAFETY: the buffer holds `want` bytes (aligned for the table's 32-bit fields),
+            // and `want` says how many the call may write; the call raises it to the size
+            // needed when the buffer is too small, and writes nothing then.
             let result = unsafe {
                 GetExtendedTcpTable(
                     buffer.as_mut_ptr().cast(),
-                    &mut size,
+                    &mut want,
                     0,
                     family,
                     TCP_TABLE_OWNER_PID_ALL,
@@ -237,6 +260,7 @@ mod os {
                 )
             };
             if result == ERROR_INSUFFICIENT_BUFFER {
+                size = want;
                 continue;
             }
             if result != NO_ERROR {
@@ -382,5 +406,32 @@ mod tests {
         let parent = parent_of(me).expect("this process has a parent");
         assert!(descends_from(me, parent, parent_of));
         assert!(!descends_from(parent, me, parent_of));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_failed_linux_lookup_names_no_holder_and_is_never_unavailable() {
+        use std::net::{Ipv4Addr, SocketAddr};
+        use std::path::Path;
+
+        let peer = SocketAddr::from((Ipv4Addr::LOCALHOST, 0x1F90));
+        let local = SocketAddr::from((Ipv4Addr::LOCALHOST, 0x0016));
+        let proc_dir = tempfile::tempdir().unwrap();
+        // No connection table can be read: a failed lookup, so the caller refuses; only an
+        // operating system with no lookup at all is "unavailable".
+        assert_eq!(
+            os::holders_in(proc_dir.path(), peer, local),
+            Holders::Unknown
+        );
+        // The table names the socket, but no program's open files can be searched.
+        let table = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+                     \x20  0: 0100007F:1F90 0100007F:0016 01 00000000:00000000 00:00000000 00000000  1000        0 22222 1 0000000000000000 20 4 30 10 -1\n";
+        std::fs::create_dir_all(proc_dir.path().join("net")).unwrap();
+        std::fs::write(proc_dir.path().join("net/tcp"), table).unwrap();
+        assert_eq!(
+            os::holders_in(proc_dir.path(), peer, local),
+            Holders::Unknown
+        );
+        assert!(os::pids_holding(Path::new("/nonexistent/proc"), 22222).is_empty());
     }
 }

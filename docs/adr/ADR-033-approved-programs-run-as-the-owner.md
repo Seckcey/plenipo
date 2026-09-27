@@ -38,9 +38,12 @@ A review found what such a program could do while a worker's step runs:
    AI tool started (following parent process IDs). The relay always is, since the AI tool
    starts it. Any other program is closed without a word, like a bad ticket, and the owner
    sees `Blocked: a program outside …'s AI tool tried to use …'s tools` in the Activity trail
-   (`tool_server.ticket_refused`, with both program IDs; never the ticket). Where the
-   operating system offers no way to tell (macOS), the connection is served, and both a notice
-   and a trail event say the check was not possible (`tool_server.ticket_unchecked`).
+   (`tool_server.ticket_refused`, with both program IDs; never the ticket). When the lookup
+   itself fails on Windows or Linux (the connection table cannot be read, or no program is
+   found holding the connection), the connection is refused the same way: a failed check never
+   lets a program through. Only where the operating system offers no way to tell at all
+   (macOS) is the connection served, and both a notice and a trail event say the check was not
+   possible (`tool_server.ticket_unchecked`).
 2. **Script runners are not approved for every project.** The default approved list no longer
    has `npm run *`, `pnpm run *`, `yarn run *`, `make test *`, or `make build *`. `cargo test *`,
    `cargo build *`, `python -m pytest *`, and `./gradlew test *` stay, since a developer cannot
