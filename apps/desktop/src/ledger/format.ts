@@ -248,6 +248,15 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return `You revoked ${worker}'s permissions`;
     case "guard.grant_skipped":
       return str(p.reason) ?? `${worker} got no tools`;
+    case "tool_server.ticket_refused": {
+      // ADR-034: a program outside the AI tool's own process tree presented the ticket.
+      const program = (v: unknown) => (typeof v === "number" ? String(v) : "unknown");
+      return `Blocked: a program outside ${worker}'s AI tool tried to use ${worker}'s tools (program ${program(
+        p.connectingPid,
+      )}; the AI tool is program ${program(p.expectedRootPid)})`;
+    }
+    case "tool_server.ticket_unchecked":
+      return `Plenipo could not check which program connected to ${worker}'s tools on this computer, so it let it through`;
     case "guard.denied":
       return `Blocked: ${worker} tried to ${str(p.summary) ?? "do something"} — ${brief(p.reason, 240)}`;
     case "capability.used":

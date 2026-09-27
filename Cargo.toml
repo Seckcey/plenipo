@@ -17,7 +17,7 @@ version = "1.9.0"
 edition = "2021"
 license = "Elastic-2.0"
 repository = "https://github.com/Seckcey/plenipo"
-rust-version = "1.85"
+rust-version = "1.87"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

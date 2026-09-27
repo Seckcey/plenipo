@@ -316,8 +316,10 @@ and writes going through Plenipo).
   shared driver `agent/acp.rs`: `initialize`, `session/new` or `session/resume`, then the prompt,
   all on stdin. The parser's `open()` gives the first lines; the supervisor keeps stdin open
   (`StdinFeed`) for the lines each `Parsed` sends, and closes it when the task is over. The
-  driver answers the tool's permission requests (Plenipo's tool server yes, anything else no)
-  and never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
+  driver answers the tool's permission requests (Plenipo's tool server yes, anything else no; a
+  call counts as Plenipo's only by the tool name the AI tool itself sets, `mcp__plenipo__…`,
+  never by what the model wrote as the call's input, and each approval covers one action) and
+  never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
   seconds before the process tree is ended.
 - **File access through Plenipo (ADR-027).** Kimi (`kimi acp`) uses the same driver, with the
   options its own unswitchable tools need. `initialize` offers file reads and writes, so Kimi
@@ -596,9 +598,13 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   the owner chooses in Settings (ADR-028: Automatic, Edge, or Chrome, kept in Guard's settings;
   `PLENIPO_BROWSER` wins), started as a supervised program with its own profile in
   `<app data>/browser-profile` (Edge's) or `browser-profile-chrome` (Chrome's), with no password
-  saving, sync, or extensions, and a random DevTools port on `127.0.0.1`. A new choice is used
-  from the browser's next start. `cdp.rs` speaks the Chrome DevTools Protocol over a WebSocket (flattened
-  sessions); `tab.rs` gives each grant its own tab, with page helpers (`page.js`) in an isolated
+  saving, sync, or extensions. Plenipo controls it over two private pipes the browser inherits
+  (`--remote-debugging-pipe`: descriptors 3 and 4, handed over by the supervisor's
+  `LaunchSpec::extra_pipes`), never a DevTools network port, so no other program on the computer
+  can connect to it. A new choice is used from the browser's next start. `cdp.rs` speaks the
+  Chrome DevTools Protocol over that pipe (NUL-ended JSON texts, flattened sessions; a loopback
+  WebSocket only in the tests, which stand in for the owner's hand); `tab.rs` gives each grant
+  its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
   (sending, buying, signing in).
 - **Tools** (`tools.rs`, `broker/operate.rs`): `browser_open/read/screenshot/scroll/back`
@@ -608,9 +614,17 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
   (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
   never allow).
-- **Network gate.** While a worker's action runs, the tab intercepts requests (`Fetch`): a
-  document or script request that is not a plain read is held until the owner approves, a
-  form the page sends by itself is failed, and a page on a blocked website never loads.
+- **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
+  `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
+  `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
+  read (GET, HEAD, OPTIONS) is held until the owner approves (`decide_held`); one the page
+  sends on its own, outside an action (a form it submits by itself, a script's POST on a timer,
+  a beacon), is failed and the worker is told with its next result (a note, also after
+  `browser_read`); a page on a blocked website never loads. WebSocket frames cannot be seen:
+  the tab notes a live connection (`Network.webSocketCreated`, forgotten on the next page), and
+  `prepare_control` asks the owner before a click, Enter, or Space on such a page. `classify.rs`
+  asks before Enter in any text box (a form field, a contenteditable, a `role=textbox`), in a
+  form or not; Enter in a textarea is a new line.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
   CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
   the website's.

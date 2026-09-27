@@ -8,6 +8,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::diagnostic::{self, Scenario};
 use crate::dto::LaunchProfileInfo;
+use crate::pipes::ExtraPipes;
 use crate::policy::{validate_env_name, ExecutablePolicy};
 
 pub const MAX_RUNTIME_LIMIT: Duration = Duration::from_secs(24 * 60 * 60);
@@ -55,6 +56,10 @@ pub struct LaunchSpec {
     /// child's pipes (which would trip the drain timeout and lose the final lines).
     pub observer: Option<tokio::sync::mpsc::UnboundedSender<crate::dto::OutputLine>>,
     pub agent: Option<Box<crate::dto::AgentAttribution>>,
+    /// Two more pipes the program inherits as its descriptors 3 (it reads) and 4 (it writes):
+    /// Plenipo's browser talks the DevTools protocol over them, on no network port. `None` for
+    /// every other program. Not together with `stdin` or `stdin_feed`.
+    pub extra_pipes: Option<ExtraPipes>,
 }
 
 /// What a running task writes to its child's stdin after the launch (ADR-015). Cloning a
@@ -90,6 +95,7 @@ impl LaunchProfile {
             max_line_bytes: None,
             observer: None,
             agent: None,
+            extra_pipes: None,
         }
     }
 

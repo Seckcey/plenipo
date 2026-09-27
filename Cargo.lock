@@ -4167,6 +4167,7 @@ dependencies = [
  "ts-rs",
  "uuid",
  "win32job",
+ "windows-sys 0.61.2",
  "x11rb",
  "xcap",
 ]
@@ -4272,6 +4273,7 @@ name = "plenipo-runtime"
 version = "1.9.0"
 dependencies = [
  "dunce",
+ "libc",
  "process-wrap",
  "serde",
  "serde_json",

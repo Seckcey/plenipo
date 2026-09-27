@@ -26,16 +26,35 @@ process-wrap = { version = "10", features = ["tokio1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 ts-rs = "11"
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(unix)'.dependencies]
+# One system call (`dup2`) in the hook that hands Plenipo's browser its two extra pipes.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+# Process creation flags; and, for a program that gets extra pipes (Plenipo's browser), the
+# direct process start with its job object and inheritable handles.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
 
-[lints]
-workspace = true
+[lints.rust]
+# The workspace forbids unsafe code. This crate denies it instead, so that exactly one module —
+# `pipes`, which hands a program the two extra pipes Plenipo's browser is controlled over (a
+# descriptor move before the program runs on Unix; a direct process start on Windows) — may
+# allow it for its calls into the system. Everywhere else in this crate, unsafe code is still a
+# build error.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

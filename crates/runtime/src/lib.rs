@@ -15,6 +15,7 @@ pub mod diagnostic;
 pub mod dto;
 pub mod error;
 mod output;
+pub mod pipes;
 pub mod policy;
 pub mod profile;
 pub mod store;
@@ -26,6 +27,7 @@ pub use dto::{
     TokenUsage,
 };
 pub use error::RuntimeError;
+pub use pipes::{ExtraPipes, PipeEnds};
 pub use policy::{ExecutablePolicy, PolicyError};
 pub use profile::{LaunchProfile, LaunchSpec, ProfileRegistry, StdinFeed};
 pub use store::{ExecutionStore, MetadataStore};

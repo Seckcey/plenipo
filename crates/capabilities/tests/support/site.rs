@@ -1,17 +1,20 @@
 //! A synthetic website for the Phase 10 browser tests: a tiny web server on 127.0.0.1 that the
 //! test browser reaches under made-up names (`--host-resolver-rules` maps `*.test` to it), so
-//! no test ever touches the internet. It records every form and message it receives, so tests
-//! can check that nothing was sent without the owner's approval.
+//! no test ever touches the internet. It records every form and message it receives (over HTTP
+//! and over a WebSocket, at `/ws`), so tests can check that nothing was sent without the owner's
+//! approval.
 
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures_util::StreamExt as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::Message;
 
-/// What the site received: method, path, and body.
+/// What the site received: method, path, and body (`WS` for a text frame over a WebSocket).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Received {
     pub method: String,
@@ -74,7 +77,8 @@ impl Site {
         format!("http://{host}.test:{}{path}", self.port)
     }
 
-    /// Forms and messages received so far (POST and other sending requests).
+    /// Forms and messages received so far (POST and other sending requests, and WebSocket
+    /// frames).
     pub fn sent(&self) -> Vec<Received> {
         self.received
             .lock()
@@ -91,6 +95,9 @@ async fn serve(
     port: u16,
     log: Arc<Mutex<Vec<Received>>>,
 ) -> std::io::Result<()> {
+    if let Some(path) = websocket_upgrade(&stream).await? {
+        return serve_socket(stream, path, log).await;
+    }
     let mut data = Vec::new();
     let mut buf = [0u8; 8192];
     let (head, body_start) = loop {
@@ -143,6 +150,56 @@ async fn serve(
     response.push_str(&html);
     stream.write_all(response.as_bytes()).await?;
     stream.shutdown().await
+}
+
+/// The request is a WebSocket handshake: its path. Peeks, so the stream still holds the whole
+/// request for the handshake itself.
+async fn websocket_upgrade(stream: &TcpStream) -> std::io::Result<Option<String>> {
+    let mut buf = [0u8; 8192];
+    for _ in 0..500 {
+        let n = stream.peek(&mut buf).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        let head = String::from_utf8_lossy(&buf[..n]);
+        if head.contains("\r\n\r\n") || n == buf.len() {
+            let upgrade = head.lines().any(|l| {
+                let l = l.to_ascii_lowercase();
+                l.starts_with("upgrade:") && l.contains("websocket")
+            });
+            let path = head
+                .lines()
+                .next()
+                .and_then(|l| l.split_whitespace().nth(1))
+                .unwrap_or("/")
+                .to_owned();
+            return Ok(upgrade.then_some(path));
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Ok(None)
+}
+
+/// A live connection: complete the handshake, then record every text frame the page sends,
+/// until the page closes it.
+async fn serve_socket(
+    stream: TcpStream,
+    path: String,
+    log: Arc<Mutex<Vec<Received>>>,
+) -> std::io::Result<()> {
+    let mut socket = tokio_tungstenite::accept_async(stream)
+        .await
+        .map_err(std::io::Error::other)?;
+    while let Some(Ok(message)) = socket.next().await {
+        if let Message::Text(text) = message {
+            log.lock().unwrap().push(Received {
+                method: "WS".into(),
+                path: path.clone(),
+                body: text.as_str().to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn route(
@@ -261,6 +318,36 @@ fn route(
              document.getElementById('out').textContent = 'Sent: ' + r.status)</script>",
         )),
         ("POST", "/api/messages") => ok("{\"ok\":true}".into()),
+        // A chat: its composer is a contenteditable outside any <form>, and Enter (or "Go")
+        // sends what it holds over a live connection (a WebSocket) the network gate cannot see
+        // into (ADR-035).
+        ("GET", "/chat") => ok(page(
+            "Chat",
+            "<p id=out>Connecting</p>\
+             <div id=composer contenteditable=true role=textbox aria-label=\"Message\" \
+             style=\"border:1px solid #888;min-height:24px;width:320px;padding:4px\"></div>\
+             <button type=button id=go>Go</button>\
+             <script>const ws = new WebSocket('ws://' + location.host + '/ws'); \
+             ws.onopen = () => document.getElementById('out').textContent = 'Connected'; \
+             const send = () => { const c = document.getElementById('composer'); \
+             ws.send(c.textContent); c.textContent = ''; \
+             document.getElementById('out').textContent = 'Sent'; }; \
+             document.getElementById('composer').addEventListener('keydown', e => { \
+             if (e.key === 'Enter') { e.preventDefault(); send(); } }); \
+             document.getElementById('go').onclick = send</script>",
+        )),
+        // A page whose harmless-looking button sends data on its own, 2.5 seconds later: long
+        // after Plenipo stops watching the click (ADR-035).
+        ("GET", "/late-send") => ok(page(
+            "Late send",
+            "<p id=out>Ready</p><button type=button id=go>Go</button> \
+             <button type=button id=buy>Buy now</button>\
+             <script>document.getElementById('go').onclick = () => { \
+             document.getElementById('out').textContent = 'Saving soon'; \
+             setTimeout(() => fetch('/api/messages', {method: 'POST', body: 'late'}).then(r => \
+             document.getElementById('out').textContent = 'Sent: ' + r.status, () => \
+             document.getElementById('out').textContent = 'Stopped'), 2500) }</script>",
+        )),
         ("GET", "/to-blocked") => (
             "302 Found",
             Some(format!("http://blocked.test:{port}/")),
