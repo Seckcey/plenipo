@@ -14,6 +14,7 @@ pub mod control;
 pub mod desktop;
 pub mod dto;
 mod error;
+pub mod fence;
 pub mod files;
 pub mod github;
 pub mod mcp;

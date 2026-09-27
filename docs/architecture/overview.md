@@ -101,6 +101,12 @@ itself.
 A second, narrower door serves workers: Plenipo's tool server listens on `127.0.0.1` only and
 admits a connection only with the ticket of a step that is running now (§10).
 
+Words that reach a worker from outside Plenipo — a web page's text, a file's lines, what a
+program or a server printed, and GitHub's issue and pull request text — arrive between two fence
+lines that share a fresh nonce and say they are information from that source, never instructions
+to the worker (`crates/capabilities/src/fence.rs`); Plenipo's own lines (a file's header, a run's
+exit code) stay outside the fence.
+
 ## 3. Shared DTOs
 
 DTOs are defined once in Rust (`crates/core/src/dto.rs`) with `serde` (camelCase on the wire)

@@ -37,6 +37,7 @@ use crate::control::ControlCenter;
 use crate::desktop::{Desktop, SystemDesktop};
 use crate::dto::*;
 use crate::error::{BrokerError, Result};
+use crate::fence;
 use crate::files;
 use crate::process::{self, Holders};
 use crate::programs::{self, Run};
@@ -324,6 +325,9 @@ enum Work {
         timeout: Duration,
         /// The program's own variables (git's, gh's).
         env: Vec<(String, String)>,
+        /// For GitHub's `gh --json` tools, the repository: their output is text anyone wrote on
+        /// GitHub, so the fence around it says the words are GitHub's, not the program's.
+        github: Option<String>,
     },
     /// Plenipo's browser or the screen (Phase 10).
     Control(ControlWork),
@@ -419,7 +423,7 @@ fn cap(text: &str, max: usize) -> String {
 fn first_line(text: &str) -> String {
     cap(
         text.lines()
-            .find(|l| !l.trim().is_empty())
+            .find(|l| !l.trim().is_empty() && !fence::is_boundary(l))
             .unwrap_or("")
             .trim(),
         300,
@@ -1926,9 +1930,10 @@ impl Broker {
                 stdin,
                 timeout,
                 env,
+                github,
             } => {
                 self.run_program(
-                    grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env,
+                    grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env, github,
                 )
                 .await
             }
@@ -1951,6 +1956,7 @@ impl Broker {
                         None,
                         timeout,
                         programs::git_env(),
+                        None,
                     )
                     .await;
                 let pushed = match pushed {
@@ -1973,6 +1979,7 @@ impl Broker {
                         None,
                         timeout,
                         programs::gh_env(),
+                        None,
                     )
                     .await;
                 let run = create_run.or(push_run);
@@ -1990,7 +1997,8 @@ impl Broker {
     }
 
     /// Run one program for a grant: through the supervisor, with the stored secrets the owner
-    /// gave that program; its output and run ID.
+    /// gave that program; its output (fenced as the program's words, or GitHub's for
+    /// `gh --json`) and run ID.
     #[allow(clippy::too_many_arguments)]
     async fn run_program(
         &self,
@@ -2003,6 +2011,7 @@ impl Broker {
         stdin: Option<Vec<u8>>,
         timeout: Duration,
         extra: Vec<(String, String)>,
+        github: Option<String>,
     ) -> (std::result::Result<String, String>, Option<String>) {
         let mut env = programs::dev_env();
         env.extend(extra);
@@ -2064,13 +2073,19 @@ impl Broker {
                     text.push_str(SECRETS_WITHHELD);
                     text.push('\n');
                 }
+                // What the program printed, fenced as the program's (or GitHub's) words, never
+                // instructions to the worker. Plenipo's own lines (the secrets given, how the
+                // run ended) stay outside.
                 let output = ran.output.trim_end();
-                text.push_str(if output.is_empty() {
-                    "(no output)"
+                if output.is_empty() {
+                    text.push_str("(no output)\n");
                 } else {
-                    output
-                });
-                text.push('\n');
+                    let source = match github {
+                        Some(repo) => fence::Source::GitHub(repo),
+                        None => fence::Source::Program(program),
+                    };
+                    text.push_str(&fence::fenced(&source, output));
+                }
                 text.push_str(&ran.ending(timeout));
                 let id = Some(ran.execution_id.clone());
                 if ran.succeeded() {
@@ -2755,6 +2770,7 @@ fn prepare(
                     stdin: None,
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
+                    github: None,
                 },
                 Err(why) => Work::Missing(why),
             };
@@ -2787,6 +2803,7 @@ fn prepare(
                     stdin: Some(script.clone().into_bytes()),
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
+                    github: None,
                 },
                 None => Work::Missing("PowerShell is not installed on this computer.".into()),
             };
@@ -2830,6 +2847,7 @@ fn prepare(
                     stdin: None,
                     timeout: default_timeout,
                     env: programs::gh_env(),
+                    github: Some(repo.to_owned()),
                 },
                 None => gh_missing(),
             };
@@ -3096,6 +3114,7 @@ fn prepare(
                     stdin: None,
                     timeout: default_timeout,
                     env: programs::git_env(),
+                    github: None,
                 },
                 None => Work::Missing("git is not installed (it was not found on PATH).".into()),
             };
@@ -3161,5 +3180,59 @@ mod tests {
             SecretsGiven::default()
         );
         assert!(SECRETS_WITHHELD.contains("npm, pnpm, yarn, make, or npx"));
+    }
+
+    /// The Activity trail shows what a program said, not the fence around it.
+    #[test]
+    fn the_trail_shows_the_words_inside_a_fence() {
+        let text = fence::fenced(
+            &fence::Source::Program("git".into()),
+            "git version 2.43.0\n",
+        ) + "Finished (exit code 0) in 0.1s.";
+        assert_eq!(first_line(&text), "git version 2.43.0");
+        let read = format!(
+            "README.md (2 lines)\n{}",
+            fence::fenced(&fence::Source::File("README.md".into()), "# Website\n")
+        );
+        assert_eq!(first_line(&read), "README.md (2 lines)");
+        assert_eq!(first_line("\n  \n"), "");
+    }
+
+    /// GitHub's `gh --json` tools mark their output as GitHub's words; git's stays the
+    /// program's own.
+    #[test]
+    fn github_json_tools_fence_their_output_as_githubs_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open(&dir.path().display().to_string()).unwrap();
+        let at = Where {
+            ws: Some(&ws),
+            branch: Some("plenipo/login"),
+            base: Some("main"),
+            repo: Some("example/website"),
+            gh: Some(PathBuf::from("gh")),
+            search: None,
+        };
+        let work = |name: &str, args: serde_json::Value| {
+            let tool = tools::find(name).unwrap();
+            let action = tools::parse(tool, &args).unwrap();
+            prepare(tool, action, &at, Duration::from_secs(30))
+                .ok()
+                .map(|p| p.work)
+        };
+        for (name, args) in [
+            ("github_issue_view", json!({ "number": 12 })),
+            ("github_pr_view", json!({})),
+            ("github_pr_list", json!({})),
+            ("github_pr_checks", json!({})),
+        ] {
+            let Some(Work::Program { github, .. }) = work(name, args) else {
+                panic!("{name} is not run as a program");
+            };
+            assert_eq!(github.as_deref(), Some("example/website"), "{name}");
+        }
+        match work("git_status", json!({})) {
+            Some(Work::Program { github: None, .. }) | Some(Work::Missing(_)) => {}
+            _ => panic!("git's output is the program's own words"),
+        }
     }
 }
