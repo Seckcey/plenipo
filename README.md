@@ -130,10 +130,10 @@ Coming with the next release. If you are running Plenipo already,
 
 ## Free and Pro
 
-| Edition  | Price                                             | What you get                                                                                                                             |
-| -------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Free** | Free, no card, no account                         | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
-| **Pro**  | **$4.99/month**, or **$53.88/year** ($4.49/month) | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
+| Edition  | Price                                                 | What you get                                                                                                                             |
+| -------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Free** | Free, no card, no account                             | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
+| **Pro**  | **$9.99/month**, or **$107.99/year** (about $9/month) | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
