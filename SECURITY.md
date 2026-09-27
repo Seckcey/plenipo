@@ -62,6 +62,10 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     action running (a form it submits by itself, a script's POST on a timer, a beacon).
   - **Not seen:** what goes through a live connection (WebSocket frames) or a plain page load
     (a link that changes something with a GET); those are covered only by the asks above.
+  - **Kept in one tab:** a page never gets a second tab (ADR-036). A new tab it opens (a link
+    to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
+    a worker's action, the worker's own tab goes to that address instead, checked like any page.
+    The worker is told either way.
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 

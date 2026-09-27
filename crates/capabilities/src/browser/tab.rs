@@ -20,7 +20,12 @@
 //!   the owner before a click, Enter, or Space on such a page ([`Tab::has_websocket`]);
 //! - a file a page tries to save (a download) is refused by the browser itself, for every tab,
 //!   from its start (ADR-037, [`super::Browser`]); the browser's event names only the frame that
-//!   started it, so the tab keeps the frames of its page, and [`Tabs`] finds the tab to tell.
+//!   started it, so the tab keeps the frames of its page, and [`Tabs`] finds the tab to tell;
+//! - a page never gets a second tab (ADR-036). The browser attaches to every new tab paused,
+//!   before any of it runs ([`super::Browser`] asks for that), and [`Tabs`] closes one that a
+//!   worker's page opened (a link with `target="_blank"`, `window.open`, a form aimed at a new
+//!   window). When the worker's action opened it and its address passes the website check, the
+//!   worker's own tab goes there instead; either way the worker is told with its next result.
 //!
 //! When the owner takes control or stops it, the tab stops checking (the owner browses freely)
 //! and its sign says so.
@@ -45,6 +50,16 @@ pub const PAGE_JS: &str = include_str!("page.js");
 /// The isolated world's name (the binding exists only there).
 const WORLD: &str = "plenipo";
 const BINDING: &str = "plenipoControl";
+/// How long a tab waits for the address of a new tab its page asked for (`Page.windowOpen`, on
+/// the tab's own session) once the browser attached to that tab (ADR-036): the two arrive a
+/// moment apart, on different channels.
+const OPENING_WAIT: Duration = Duration::from_millis(500);
+/// How long an ask for a new tab that never became one is remembered.
+const OPENING_KEPT: Duration = Duration::from_secs(5);
+/// A new tab the page's script can reach is closed once it has made no request for this long
+/// after it was let run (ADR-036, [`close_new_tab`]), and at the latest after `NEW_TAB_LONGEST`.
+const NEW_TAB_QUIET: Duration = Duration::from_millis(150);
+const NEW_TAB_LONGEST: Duration = Duration::from_secs(2);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -179,6 +194,9 @@ struct State {
     pointer: Option<(f64, f64)>,
     /// What the worker should hear with its next result (a page Plenipo stopped, …).
     notes: Vec<String>,
+    /// New tabs the page asked the browser for (`Page.windowOpen`), oldest first, until the
+    /// browser attaches to each (ADR-036): the paused new tab has no address of its own yet.
+    opening: Vec<Opening>,
     policy: SitePolicy,
     mode: Mode,
     worker: String,
@@ -202,7 +220,19 @@ impl State {
     }
 }
 
+/// A new tab the page asked for, which the browser has not attached to yet (ADR-036).
+#[derive(Debug, Clone)]
+struct Opening {
+    url: String,
+    at: Instant,
+}
+
 struct Shared {
+    /// The tab's target and session in the browser, so a new tab its page opens is traced back
+    /// to it, and its own page can be sent where that tab was going (ADR-036).
+    target: String,
+    session: String,
+    limits: TabLimits,
     state: Mutex<State>,
     changed: Notify,
 }
@@ -216,6 +246,36 @@ impl Shared {
         let mut s = self.state();
         if !s.notes.contains(&note) {
             s.notes.push(note);
+        }
+    }
+
+    /// The page asked the browser for a new tab (`Page.windowOpen`): keep its address for when
+    /// the browser attaches to that tab (ADR-036).
+    fn opening(&self, url: &str) {
+        self.state().opening.push(Opening {
+            url: url.to_owned(),
+            at: Instant::now(),
+        });
+    }
+
+    /// The address of the oldest new tab the page asked for and the browser has not attached to
+    /// yet, waiting up to `wait` for the ask to arrive. Asks that never became a tab (the
+    /// browser's own pop-up rules stopped one, say) are forgotten after a while.
+    async fn take_opening(&self, wait: Duration) -> Option<String> {
+        let deadline = Instant::now() + wait;
+        loop {
+            let notified = self.changed.notified();
+            {
+                let mut s = self.state();
+                s.opening.retain(|o| o.at.elapsed() < OPENING_KEPT);
+                if !s.opening.is_empty() {
+                    return Some(s.opening.remove(0).url);
+                }
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            let _ = tokio::time::timeout_at(deadline, notified).await;
         }
     }
 }
@@ -283,6 +343,9 @@ impl Tab {
             .to_owned();
         let events = cdp.listen(&session);
         let shared = Arc::new(Shared {
+            target: target_id.clone(),
+            session: session.clone(),
+            limits,
             state: Mutex::new(State {
                 policy,
                 worker: worker.to_owned(),
@@ -1043,6 +1106,55 @@ impl Tabs {
         tab.note(download_note(filename));
         true
     }
+
+    /// The worker's tab whose target is `target`, if any.
+    fn find(&self, target: &str) -> Option<Arc<Shared>> {
+        lock(&self.tabs)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find(|t| t.target == target)
+    }
+
+    /// The browser attached to a new target, paused before any of it runs
+    /// (`Target.attachedToTarget`, ADR-036). A new tab a worker's page opened never runs as a
+    /// tab: it is closed, the worker is told, and when the worker's action opened it and its
+    /// address passes the website check, the worker's own tab goes there instead. Everything
+    /// else is let run: Plenipo's own new tabs (no opener), tabs of the owner's own, and new
+    /// tabs of a tab the owner has (taken over, stopped, or handed a CAPTCHA).
+    pub async fn target_attached(&self, cdp: &Cdp, params: &Value) {
+        let info = &params["targetInfo"];
+        let session = params["sessionId"].as_str().unwrap_or_default();
+        let target = info["targetId"].as_str().unwrap_or_default();
+        let opener = info["openerId"].as_str().filter(|o| !o.is_empty());
+        let tab = match (info["type"].as_str(), opener) {
+            (Some("page"), Some(opener)) => self.find(opener),
+            _ => None,
+        };
+        let Some(tab) = tab.filter(|t| t.state().mode == Mode::Worker) else {
+            release(cdp, session).await;
+            return;
+        };
+        // The paused new tab has no address of its own yet; the page's session told it a moment
+        // earlier (`Page.windowOpen`).
+        let url = tab.take_opening(OPENING_WAIT).await;
+        match new_tab_decision(&tab, url.as_deref()) {
+            NewTab::Run => release(cdp, session).await,
+            NewTab::Close => close_new_tab(cdp, target, session, reaches_opener(info)).await,
+            NewTab::OpenHere(url) => {
+                close_new_tab(cdp, target, session, reaches_opener(info)).await;
+                // The same way a page the worker opens goes: through the tab's network gate,
+                // and watched by the action that is running.
+                let _ = cdp
+                    .call(
+                        Some(&tab.session),
+                        "Page.navigate",
+                        json!({ "url": url }),
+                        tab.limits.navigation,
+                    )
+                    .await;
+            }
+        }
+    }
 }
 
 /// What the worker hears when its page tried to save a file (ADR-037).
@@ -1110,6 +1222,9 @@ async fn event_loop(
                 socket_event(&shared, &e.method, p);
             }
             "Page.frameAttached" | "Page.frameDetached" => frame_event(&shared, &e.method, p),
+            // The page asked for a new tab; the browser's own event (with the paused tab) follows
+            // on another channel, and `Tabs::target_attached` asks for this address (ADR-036).
+            "Page.windowOpen" => shared.opening(p["url"].as_str().unwrap_or_default()),
             "Page.navigatedWithinDocument" => {
                 let mut s = shared.state();
                 if p["frameId"].as_str() == Some(s.main_frame.as_str()) {
@@ -1251,28 +1366,7 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
             }
             return Some(Answer::Go);
         };
-        let shown = site.shown();
-        let refused = match websites::check(&s.policy.rules, site) {
-            SiteVerdict::Blocked(rule) => Some(format!(
-                "Plenipo stopped {shown} from opening: it is on the owner's blocked websites list \
-                 (\"{rule}\")."
-            )),
-            SiteVerdict::Local => Some(format!(
-                "Plenipo stopped {shown} from opening: it is an address on this computer or the \
-                 local network, which opens only when the owner's allowed websites list names it."
-            )),
-            SiteVerdict::Other if main => Some(format!(
-                "Plenipo stopped {shown} from opening: it is not on the owner's allowed websites \
-                 list, and other websites are blocked."
-            )),
-            SiteVerdict::Ask if main && !s.policy.approved.contains(&shown) => Some(format!(
-                "The page tried to open {shown}, which is not on the owner's allowed websites \
-                 list, so Plenipo stopped it. To go there, open it with browser_open (the owner \
-                 is asked)."
-            )),
-            _ => None,
-        };
-        if let Some(note) = refused {
+        if let Some(note) = site_refused(&s.policy, site, main) {
             drop(s);
             shared.note(note);
             return Some(Answer::Stop);
@@ -1313,12 +1407,175 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
     Some(Answer::Go)
 }
 
+/// Plenipo's website check of a page about to open in the tab (`main`: as the tab's own page;
+/// else in a frame inside it, where only blocked and local websites are refused): the note for
+/// the worker when it may not open. The same check for a page the tab loads (the network gate)
+/// and for a new tab the page opens (ADR-036).
+fn site_refused(policy: &SitePolicy, site: &Site, main: bool) -> Option<String> {
+    let shown = site.shown();
+    match websites::check(&policy.rules, site) {
+        SiteVerdict::Blocked(rule) => Some(format!(
+            "Plenipo stopped {shown} from opening: it is on the owner's blocked websites list \
+             (\"{rule}\")."
+        )),
+        SiteVerdict::Local => Some(format!(
+            "Plenipo stopped {shown} from opening: it is an address on this computer or the local \
+             network, which opens only when the owner's allowed websites list names it."
+        )),
+        SiteVerdict::Other if main => Some(format!(
+            "Plenipo stopped {shown} from opening: it is not on the owner's allowed websites \
+             list, and other websites are blocked."
+        )),
+        SiteVerdict::Ask if main && !policy.approved.contains(&shown) => Some(format!(
+            "The page tried to open {shown}, which is not on the owner's allowed websites list, \
+             so Plenipo stopped it. To go there, open it with browser_open (the owner is asked)."
+        )),
+        _ => None,
+    }
+}
+
+/// What Plenipo does with a new tab a worker's page opened (ADR-036).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NewTab {
+    /// The owner has the tab: the new tab runs.
+    Run,
+    /// Close it; the worker is told.
+    Close,
+    /// Close it, and open this address in the worker's own tab: the worker's action opened it,
+    /// and the address passes the tab's website check.
+    OpenHere(String),
+}
+
+/// Decide about a new tab a worker's page opened, whose address is `url` when known, and note
+/// what the worker should hear with its next result (ADR-036).
+fn new_tab_decision(shared: &Shared, url: Option<&str>) -> NewTab {
+    let s = shared.state();
+    if s.mode != Mode::Worker {
+        return NewTab::Run;
+    }
+    if !s.acting {
+        drop(s);
+        shared.note("The page tried to open a new tab on its own; Plenipo closed it.".into());
+        return NewTab::Close;
+    }
+    // A website address: not about:blank, not a script or data address, not unknown.
+    let website = url
+        .and_then(|u| Site::parse(u).ok().map(|site| (u, site)))
+        .filter(|(_, site)| site.scheme != "about");
+    let Some((url, site)) = website else {
+        drop(s);
+        shared.note("The link opened a new tab; Plenipo closed it.".into());
+        return NewTab::Close;
+    };
+    let refused = site_refused(&s.policy, &site, true);
+    drop(s);
+    match refused {
+        Some(refusal) => {
+            shared.note(format!("The link opened a new tab. {refusal}"));
+            NewTab::Close
+        }
+        None => {
+            shared.note("The link opened a new tab; Plenipo opened it here instead.".into());
+            NewTab::OpenHere(url.to_owned())
+        }
+    }
+}
+
+/// The new tab's page can reach the page that opened it (`window.open` keeps a handle; a link
+/// or a form does not). Taken as so when the browser does not say.
+fn reaches_opener(info: &Value) -> bool {
+    info["canAccessOpener"].as_bool().unwrap_or(true)
+}
+
+/// Let a target the browser attached to paused run: Plenipo's own new tab, or one the owner has.
+async fn release(cdp: &Cdp, session: &str) {
+    if !session.is_empty() {
+        let _ = cdp
+            .call(
+                Some(session),
+                "Runtime.runIfWaitingForDebugger",
+                json!({}),
+                Duration::from_secs(10),
+            )
+            .await;
+    }
+}
+
+/// Close a new tab a worker's page opened, before it loads anything (ADR-036). One the page
+/// cannot reach (a link, a form) is closed while still paused. One the page's script can reach
+/// (`window.open`) is different: the browser holds that script until the new tab runs or is
+/// closed, and closing it while paused leaves the page unable to take clicks. So the new tab is
+/// first told to hold every request, then let run, and closed once it has been quiet for a
+/// moment, with each request it tried refused meanwhile (a request still held when a tab closes
+/// would be let go; checked on Chromium 141).
+async fn close_new_tab(cdp: &Cdp, target: &str, session: &str, reaches_opener: bool) {
+    let t = Duration::from_secs(10);
+    if reaches_opener && !session.is_empty() {
+        let mut events = cdp.listen(session);
+        let armed = cdp
+            .call(
+                Some(session),
+                "Fetch.enable",
+                json!({ "patterns": [{ "urlPattern": "*", "requestStage": "Request" }] }),
+                t,
+            )
+            .await
+            .is_ok();
+        if armed {
+            let _ = cdp
+                .call(
+                    Some(session),
+                    "Runtime.runIfWaitingForDebugger",
+                    json!({}),
+                    Duration::from_secs(2),
+                )
+                .await;
+            let longest = Instant::now() + NEW_TAB_LONGEST;
+            loop {
+                tokio::select! {
+                    event = events.recv() => match event {
+                        Some(e) if e.method == "Fetch.requestPaused" => {
+                            let _ = cdp
+                                .call(
+                                    Some(session),
+                                    "Fetch.failRequest",
+                                    json!({ "requestId": e.params["requestId"],
+                                            "errorReason": "BlockedByClient" }),
+                                    t,
+                                )
+                                .await;
+                        }
+                        Some(_) => {}
+                        None => break,
+                    },
+                    () = tokio::time::sleep(NEW_TAB_QUIET) => break,
+                }
+                if Instant::now() >= longest {
+                    break;
+                }
+            }
+        }
+        cdp.forget(session);
+    }
+    let _ = cdp
+        .call(None, "Target.closeTarget", json!({ "targetId": target }), t)
+        .await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn shared(rules: WebsiteRules) -> Shared {
+        shared_for("TAB", rules)
+    }
+
+    /// A tab whose browser target is `target`.
+    fn shared_for(target: &str, rules: WebsiteRules) -> Shared {
         Shared {
+            target: target.into(),
+            session: format!("S-{target}"),
+            limits: TabLimits::default(),
             state: Mutex::new(State {
                 main_frame: "MAIN".into(),
                 frames: ["MAIN".to_owned()].into(),
@@ -1330,6 +1587,146 @@ mod tests {
             }),
             changed: Notify::new(),
         }
+    }
+
+    fn notes(s: &Shared) -> Vec<String> {
+        std::mem::take(&mut s.state().notes)
+    }
+
+    /// ADR-036: a new tab a worker's page opened never runs as one. During the worker's action
+    /// it is closed and the worker's own tab goes to its address when the website check allows
+    /// it (with the gate's own words when not); on its own it is just closed. The worker hears
+    /// why either way, and a tab the owner has is left alone.
+    #[test]
+    fn a_new_tab_a_page_opens_is_closed_and_the_worker_told() {
+        let s = shared(WebsiteRules {
+            allowed: vec!["shop.test".into()],
+            blocked: vec!["blocked.test".into()],
+            ..WebsiteRules::default()
+        });
+        // No action running: closed, whatever the address.
+        assert_eq!(
+            new_tab_decision(&s, Some("http://shop.test/second")),
+            NewTab::Close
+        );
+        assert_eq!(
+            notes(&s),
+            ["The page tried to open a new tab on its own; Plenipo closed it."]
+        );
+        // During an action: the worker's tab goes there when the address passes the lists.
+        s.state().acting = true;
+        assert_eq!(
+            new_tab_decision(&s, Some("http://shop.test/second")),
+            NewTab::OpenHere("http://shop.test/second".into())
+        );
+        assert_eq!(
+            notes(&s),
+            ["The link opened a new tab; Plenipo opened it here instead."]
+        );
+        // A blocked website never loads, and the worker hears the gate's words.
+        assert_eq!(
+            new_tab_decision(&s, Some("https://blocked.test/x")),
+            NewTab::Close
+        );
+        let blocked = notes(&s);
+        assert_eq!(blocked.len(), 1, "{blocked:?}");
+        assert!(
+            blocked[0].starts_with(
+                "The link opened a new tab. Plenipo stopped blocked.test from opening: it is on \
+                 the owner's blocked websites list (\"blocked.test\")."
+            ),
+            "{blocked:?}"
+        );
+        // A website on neither list: stopped, and pointed at browser_open (the owner is asked
+        // there); approved for this step, it goes ahead.
+        assert_eq!(
+            new_tab_decision(&s, Some("https://other.test/")),
+            NewTab::Close
+        );
+        assert!(notes(&s)[0].contains("browser_open"));
+        s.state().policy.approved.insert("other.test".into());
+        assert_eq!(
+            new_tab_decision(&s, Some("https://other.test/")),
+            NewTab::OpenHere("https://other.test/".into())
+        );
+        notes(&s);
+        // No address, an empty tab, or a script address: closed (said once).
+        for odd in [
+            None,
+            Some("about:blank"),
+            Some("javascript:void 0"),
+            Some(""),
+        ] {
+            assert_eq!(new_tab_decision(&s, odd), NewTab::Close, "{odd:?}");
+        }
+        assert_eq!(notes(&s), ["The link opened a new tab; Plenipo closed it."]);
+        // The owner has the tab: the new tab runs, and nobody is told.
+        for mode in [Mode::Owner, Mode::Stopped, Mode::Handed] {
+            s.state().mode = mode;
+            assert_eq!(
+                new_tab_decision(&s, Some("http://shop.test/")),
+                NewTab::Run,
+                "{mode:?}"
+            );
+        }
+        assert!(s.state().notes.is_empty());
+        // The browser says whether the page can reach the new tab; taken as so when it does not.
+        assert!(!reaches_opener(&json!({ "canAccessOpener": false })));
+        assert!(reaches_opener(&json!({ "canAccessOpener": true })));
+        assert!(reaches_opener(&json!({})));
+    }
+
+    /// ADR-036: the address of a new tab comes from the page's own ask (`Page.windowOpen`), kept
+    /// until the browser attaches to the tab, oldest first; an ask that never became a tab is
+    /// forgotten after a while.
+    #[tokio::test]
+    async fn the_address_of_a_new_tab_comes_from_the_pages_ask() {
+        let s = Arc::new(shared(WebsiteRules::default()));
+        assert_eq!(s.take_opening(Duration::from_millis(20)).await, None);
+        s.opening("http://shop.test/a");
+        s.opening("http://shop.test/b");
+        assert_eq!(
+            s.take_opening(Duration::ZERO).await.as_deref(),
+            Some("http://shop.test/a")
+        );
+        assert_eq!(
+            s.take_opening(Duration::ZERO).await.as_deref(),
+            Some("http://shop.test/b")
+        );
+        // An ask that arrives while waiting is taken.
+        let waiter = {
+            let s = Arc::clone(&s);
+            tokio::spawn(async move { s.take_opening(Duration::from_secs(5)).await })
+        };
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        s.opening("http://shop.test/c");
+        s.changed.notify_waiters();
+        assert_eq!(waiter.await.unwrap().as_deref(), Some("http://shop.test/c"));
+        if let Some(at) = Instant::now().checked_sub(OPENING_KEPT + Duration::from_secs(1)) {
+            s.state().opening.push(Opening {
+                url: "http://shop.test/old".into(),
+                at,
+            });
+            assert_eq!(s.take_opening(Duration::ZERO).await, None, "stale asks go");
+        }
+    }
+
+    /// ADR-036: a new tab is traced to the worker's tab that opened it by the browser's target
+    /// ID; a tab no worker has (the owner's), or one that is gone, is nobody's.
+    #[test]
+    fn a_new_tab_is_traced_to_the_tab_that_opened_it() {
+        let tabs = Tabs::default();
+        let a = Arc::new(shared_for("A", WebsiteRules::default()));
+        let b = Arc::new(shared_for("B", WebsiteRules::default()));
+        tabs.add(&a);
+        tabs.add(&b);
+        assert!(tabs
+            .find("B")
+            .is_some_and(|t| t.target == "B" && t.session == "S-B"));
+        assert!(tabs.find("A").is_some_and(|t| t.target == "A"));
+        assert!(tabs.find("OWNER").is_none());
+        drop(b);
+        assert!(tabs.find("B").is_none());
     }
 
     fn paused(method: &str, url: &str, kind: &str, frame: &str) -> Value {

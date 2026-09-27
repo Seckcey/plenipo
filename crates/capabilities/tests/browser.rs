@@ -1211,6 +1211,219 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// ADR-036: a page never gets a second tab. A link that opens one (`target="_blank"`), and a
+/// button whose script opens one (`window.open`), open in the worker's own tab instead: the new
+/// tab is closed before it loads (the website sees each visit once, from the worker's tab), the
+/// worker is told, and the browser has one page for the grant while the worker waits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_a_page_opens_becomes_the_workers_own_tab() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let url = h.url("shop", "/new-tab");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e3" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_read", json!({}))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    // Twice, the worker is on the second page and waits for the owner ("Buy now" asks), so the
+    // browser can be looked at: one page for the grant, the second page, in the worker's tab.
+    for _ in 0..2 {
+        let buy = h.pending().await;
+        assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+        let pages: Vec<String> = h
+            .pages()
+            .await
+            .into_iter()
+            .filter(|u| u.contains("shop.test"))
+            .collect();
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        assert!(pages[0].ends_with("/second"), "{pages:?}");
+        h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    }
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 4, "{text}");
+    assert!(
+        clicks[0].contains("Clicked the link \"Open the second page in a new tab\"")
+            && clicks[0].contains("Now on \"Second page\""),
+        "{text}"
+    );
+    assert!(
+        clicks[2].contains("Clicked the button \"Open the second page in a new window\"")
+            && clicks[2].contains("Now on \"Second page\""),
+        "{text}"
+    );
+    assert_eq!(
+        text.matches("The link opened a new tab; Plenipo opened it here instead.")
+            .count(),
+        2,
+        "{text}"
+    );
+    // The website saw the second page opened twice, both times from the worker's tab: a new tab
+    // that loaded would have shown as a third visit.
+    let seconds = h
+        .site
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "GET" && r.path == "/second")
+        .count();
+    assert_eq!(seconds, 2, "{:?}", h.site.requests());
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert_eq!(
+        h.approvals_for(&task.id),
+        2,
+        "only \"Buy now\" asked, twice"
+    );
+}
+
+/// ADR-036: a new tab a page opens on its own, outside any worker action (its script's
+/// `window.open` on a timer, long after the click that started it), never loads: it is closed,
+/// the website is not asked for it, the worker is told with its next result, and the worker's
+/// tab stays on its page and keeps taking clicks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_a_page_opens_on_its_own_is_closed_and_the_worker_told() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let timer = h.url("shop", "/popup-timer");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": timer })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e3" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // "Go" goes ahead. "Buy now" waits for the owner; meanwhile the page's timer opens its new
+    // tab, with no worker action running.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "the new tab never loaded: {:?}",
+        h.site.requests()
+    );
+    let pages: Vec<String> = h
+        .pages()
+        .await
+        .into_iter()
+        .filter(|u| u.contains("shop.test"))
+        .collect();
+    assert_eq!(
+        pages,
+        [timer.as_str()],
+        "the worker's tab, where it was, and no other"
+    );
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let reads: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_read"))
+        .collect();
+    assert_eq!(reads.len(), 2, "{text}");
+    assert!(reads[0].contains("Page: \"Timer\""), "{text}");
+    assert!(
+        text.contains("The page tried to open a new tab on its own; Plenipo closed it."),
+        "{text}"
+    );
+    assert!(!text.contains("opened it here instead"), "{text}");
+    // The page's script went on after its new tab was closed, and the tab still takes clicks.
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 3, "{text}");
+    assert!(clicks[2].contains("Clicked the button \"Again\""), "{text}");
+    assert!(text.contains("Clicked again"), "{text}");
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "{:?}",
+        h.site.requests()
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+}
+
+/// ADR-036: a link that opens a blocked website in a new tab goes nowhere. The new tab is
+/// closed before it loads, the worker's tab stays where it was, and the worker hears that the
+/// website is blocked, in the network gate's own words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_to_a_blocked_website_never_loads() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let url = h.url("shop", "/new-tab");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_click", json!({ "ref": "e4" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // While the worker waits for the owner ("Buy now" asks): its tab, where it was, and no other.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    let pages: Vec<String> = h
+        .pages()
+        .await
+        .into_iter()
+        .filter(|u| u.contains("shop.test"))
+        .collect();
+    assert_eq!(pages, [url.as_str()], "{pages:?}");
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let clicked = line(&text, "browser_click");
+    assert!(
+        clicked.contains("Clicked the link \"Open a blocked website in a new tab\"")
+            && clicked.contains("Now on \"New tab links\""),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "The link opened a new tab. Plenipo stopped blocked.test:{} from opening: it is on \
+             the owner's blocked websites list (\"blocked.test\").",
+            h.site.port
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("opened it here instead"), "{text}");
+    assert!(
+        line(&text, "browser_read").contains("Page: \"New tab links\""),
+        "{text}"
+    );
+    // The blocked website was never asked for the page.
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "{:?}",
+        h.site.requests()
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+}
+
 /// Plan: global stop. The owner's Stop halts all control at once: the worker waiting to send
 /// is refused, its permissions end, the page says "Stopped", nothing is sent, and no worker
 /// may use the browser or the screen until the owner allows it again.

@@ -629,6 +629,15 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   `prepare_control` asks the owner before a click, Enter, or Space on such a page. `classify.rs`
   asks before Enter in any text box (a form field, a contenteditable, a `role=textbox`), in a
   form or not; Enter in a textarea is a new line.
+- **New tabs** (`mod.rs`, `tab.rs`, ADR-036). A page never gets a second tab. At start,
+  `launch_once` tells the browser to attach to every new page paused (`Target.setAutoAttach` with
+  `waitForDebuggerOnStart`, on the browser session, where new windows arrive); a browser that
+  refuses is not used. `Tabs::target_attached` lets Plenipo's own tabs (no `openerId`) and those
+  of a tab the owner has run, and closes one a worker's page opened before it loads: one the
+  page's script can reach (`canAccessOpener`) is first set to refuse every request, let run, and
+  closed once quiet, because the browser holds the opener's script until then. The address comes
+  from the tab's own `Page.windowOpen`; during a worker's action the worker's tab navigates there
+  after the gate's website check (`site_refused`), and the worker is told with its next result.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
   CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
   the website's.

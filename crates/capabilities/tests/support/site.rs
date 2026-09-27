@@ -88,6 +88,11 @@ impl Site {
             .cloned()
             .collect()
     }
+
+    /// Everything received so far, page reads included.
+    pub fn requests(&self) -> Vec<Received> {
+        self.received.lock().unwrap().clone()
+    }
 }
 
 async fn serve(
@@ -375,6 +380,40 @@ fn route(
         )),
         ("GET", "/report.txt") => ok("The quarterly report.\n".into()),
         ("GET", "/notes.txt") => ok("Notes for the worker.\n".into()),
+        // Ways a page opens a new tab (ADR-036): a link to a page of this website, a link to a
+        // blocked website, and a button whose script opens one (`window.open`, which keeps a
+        // handle on the new window, unlike a link); "Buy now" asks the owner, so a test can look
+        // at the browser while the worker waits.
+        ("GET", "/new-tab") => ok(page(
+            "New tab links",
+            &format!(
+                "<p>Open the second page.</p><ul>\
+                 <li><a href=\"/second\" target=\"_blank\">Open the second page in a new tab</a></li>\
+                 <li><a href=\"http://blocked.test:{port}/second\" target=\"_blank\">Open a blocked \
+                 website in a new tab</a></li></ul>\
+                 <button type=button id=win onclick=\"window.open('/second')\">Open the second \
+                 page in a new window</button> <button type=button id=buy>Buy now</button>"
+            ),
+        )),
+        ("GET", "/second") => ok(page(
+            "Second page",
+            "<p>You made it to the second page.</p><button type=button id=buy>Buy now</button>",
+        )),
+        // A page whose harmless-looking button opens a new tab by itself 2.5 seconds later: long
+        // after Plenipo stops watching the click, while the click still counts for the browser's
+        // own pop-up rules (ADR-036). "Again" only changes the page's words.
+        ("GET", "/popup-timer") => ok(page(
+            "Timer",
+            "<p id=out>Ready</p><button type=button id=go>Go</button> \
+             <button type=button id=buy>Buy now</button> \
+             <button type=button id=again>Again</button>\
+             <script>document.getElementById('go').onclick = () => { \
+             document.getElementById('out').textContent = 'Opening soon'; \
+             setTimeout(() => { window.open('/second'); \
+             document.getElementById('out').textContent = 'Opened' }, 2500) }; \
+             document.getElementById('again').onclick = () => \
+             document.getElementById('out').textContent = 'Clicked again'</script>",
+        )),
         _ => (
             "404 Not Found",
             None,

@@ -11,7 +11,10 @@
   counted tries (section 5); by [ADR-035 (the network gate covers beacons, sends on the
   page's own, and live connections)](ADR-035-network-gate-covers-sockets.md): Enter in any text
   box asks, data a page sends on its own is stopped, and a page with a live connection asks
-  before a click (section 4 and the known limits); and by
+  before a click (section 4 and the known limits); by
+  [ADR-036 (new tabs open in the worker's own tab)](ADR-036-new-tabs-open-in-the-workers-tab.md):
+  a page never gets a second tab; one it opens is closed before it loads, the worker's own tab
+  goes there when the worker's action opened it, and the worker is told (sections 2 and 4); and by
   [ADR-037 (Plenipo's browser does not save files)](ADR-037-browser-never-saves-files.md): every
   download is refused from the browser's start, and the worker is told (section 2 and the known
   limits)
@@ -102,6 +105,9 @@ per-step grants, an MCP tool server reached through Plenipo's relay, approvals, 
 - **What the page sends** is held too. While a worker's action runs, any request that is not a
   plain page read (a form post, or a script's POST, PUT, or DELETE) is held until the owner
   answers. A form the page sends by itself, with no worker action, is stopped.
+- **A page never gets a second tab** (ADR-036). A new tab it opens is closed before it loads;
+  when the worker's action opened it and the website check allows the address, the worker's own
+  tab goes there instead, checked like any page. The worker is told either way.
 - These sensitive kinds can be set to **Ask** or **Blocked**, never allowed without asking.
 - The approval card shows exactly what will happen, the page's address, and a **screenshot of
   the page** as it is when the worker asks.

@@ -11,6 +11,9 @@
 //! - The profile never saves passwords or card details.
 //! - It never saves files (ADR-037): every download is refused before a tab exists, and the
 //!   worker whose page tried it is told with its next result.
+//! - A page never gets a second tab (ADR-036): the browser attaches to every new tab paused,
+//!   before any of it runs, and a tab a worker's page opened is closed, its address opened in
+//!   the worker's own tab when the worker's action opened it; the worker is told.
 //! - If it crashes or is closed, the next browser tool call starts it again.
 //! - The owner chooses which browser (ADR-028): Automatic (Edge, then Chrome), Edge, or Chrome.
 //!   Each keeps its own profile folder; a new choice is used from the browser's next start.
@@ -598,13 +601,50 @@ impl Browser {
                 "{name} could not be set to never save files ({e}), so Plenipo did not use it"
             )));
         }
-        // Of the browser's own events, only a download it refused matters: the tab whose page
-        // tried it notes it for its worker. The rest are dropped.
+        // A page never gets a second tab (ADR-036): the browser is told to attach to every new
+        // tab paused, before any of it runs, so one a page opens can be closed and the worker
+        // told (`Tabs::target_attached`). Told to the browser itself, which is where new windows
+        // arrive (a tab's own session only hears of its frames and workers). Plenipo's own new
+        // tabs arrive the same way and are let run. A browser that cannot be told so is not used.
+        if let Err(e) = cdp
+            .call(
+                None,
+                "Target.setAutoAttach",
+                json!({
+                    "autoAttach": true,
+                    "waitForDebuggerOnStart": true,
+                    "flatten": true,
+                    "filter": [{ "type": "page" }],
+                }),
+                config.launch_timeout,
+            )
+            .await
+        {
+            let _ = sup.cancel(&record.id).await;
+            return Err(LaunchError::Failed(format!(
+                "{name} could not be set to keep pages from opening new tabs ({e}), so Plenipo \
+                 did not use it"
+            )));
+        }
+        // Of the browser's own events, two matter: a download it refused, which the tab whose
+        // page tried it notes for its worker; and a new tab it attached to, paused, which the
+        // tabs decide about (on its own, so a slow one holds up no other event). The rest are
+        // dropped.
         let tabs = self.inner.tabs.clone();
+        let events_cdp = cdp.clone();
         tokio::spawn(async move {
             while let Some(event) = browser_events.recv().await {
-                if event.method == "Browser.downloadWillBegin" {
-                    tabs.download_refused(&event.params);
+                match event.method.as_str() {
+                    "Browser.downloadWillBegin" => {
+                        tabs.download_refused(&event.params);
+                    }
+                    "Target.attachedToTarget" => {
+                        let (tabs, cdp) = (tabs.clone(), events_cdp.clone());
+                        tokio::spawn(async move {
+                            tabs.target_attached(&cdp, &event.params).await;
+                        });
+                    }
+                    _ => {}
                 }
             }
         });
@@ -927,9 +967,10 @@ mod tests {
             .expect("the connection ends with the browser");
     }
 
-    /// ADR-037: the browser is told never to save files as the very first thing after it shows
-    /// it is up, before any tab exists, with the setting that refuses every download and reports
-    /// each one refused.
+    /// ADR-037 and ADR-036: the browser is told never to save files as the very first thing
+    /// after it shows it is up, before any tab exists, with the setting that refuses every
+    /// download and reports each one refused; and then to attach to every new tab paused, before
+    /// any of it runs, so a tab a page opens can be closed.
     #[cfg(unix)]
     #[tokio::test]
     async fn the_browser_is_told_never_to_save_files_before_any_tab_opens() {
@@ -941,7 +982,11 @@ mod tests {
         let methods: Vec<&str> = sent.iter().filter_map(|c| c["method"].as_str()).collect();
         assert_eq!(
             methods,
-            ["Browser.getVersion", "Browser.setDownloadBehavior"],
+            [
+                "Browser.getVersion",
+                "Browser.setDownloadBehavior",
+                "Target.setAutoAttach"
+            ],
             "{sent:?}"
         );
         assert_eq!(sent[1]["params"]["behavior"], "deny", "{sent:?}");
@@ -954,6 +999,19 @@ mod tests {
             sent[1].get("sessionId").is_none(),
             "told to the browser itself, for every tab: {sent:?}"
         );
+        // New tabs arrive paused, on the browser's own session (where new windows come), flat.
+        assert_eq!(sent[2]["params"]["autoAttach"], true, "{sent:?}");
+        assert_eq!(
+            sent[2]["params"]["waitForDebuggerOnStart"], true,
+            "{sent:?}"
+        );
+        assert_eq!(sent[2]["params"]["flatten"], true, "{sent:?}");
+        assert_eq!(
+            sent[2]["params"]["filter"],
+            json!([{ "type": "page" }]),
+            "{sent:?}"
+        );
+        assert!(sent[2].get("sessionId").is_none(), "{sent:?}");
         let run = browser.execution_id().await.expect("its run");
         supervisor.cancel(&run).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), cdp.closed())
@@ -972,6 +1030,34 @@ mod tests {
         let error = browser.connection().await.err().expect("it is not used");
         assert!(
             error.contains("could not be set to never save files"),
+            "{error}"
+        );
+        assert!(error.contains("not supported"), "{error}");
+        assert!(error.ends_with("so Plenipo did not use it"), "{error}");
+        assert_eq!(starts(&dir), 1);
+        assert!(
+            supervisor
+                .overview()
+                .executions
+                .iter()
+                .all(|e| e.state.is_terminal()),
+            "the browser is stopped"
+        );
+        assert!(browser.execution_id().await.is_none());
+        assert_eq!(browser.status().await.problem, Some(error));
+    }
+
+    /// ADR-036: a browser that will not hand over new tabs paused is not used either, and the
+    /// owner is told in plain words.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_browser_that_lets_pages_open_new_tabs_is_not_used() {
+        // It refuses Plenipo's third command, the one about new tabs.
+        let (dir, browser, supervisor) =
+            fake_browser("answer_commands 3\nexec sleep 60", Duration::from_secs(5));
+        let error = browser.connection().await.err().expect("it is not used");
+        assert!(
+            error.contains("could not be set to keep pages from opening new tabs"),
             "{error}"
         );
         assert!(error.contains("not supported"), "{error}");
