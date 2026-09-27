@@ -1,0 +1,8 @@
+$ ollama signout
+You have signed out of ollama.com
+
+$ ollama signin          (while signed out)
+You need to be signed in to Ollama to run Cloud models.
+
+If your browser did not open, navigate to:
+    https://ollama.com/connect?name=<device-name>&key=<device-public-key>
