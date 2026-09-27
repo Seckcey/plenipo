@@ -15,6 +15,7 @@ import {
   describeEvent,
   eventScreenshot,
   isRejection,
+  shownInTrail,
   sourceLabel,
   TASK_STATE_LABEL,
 } from "../ledger/format";
@@ -197,7 +198,7 @@ export function ActivityView({
           <p className="muted">No events recorded yet.</p>
         ) : (
           <ol className="trail" aria-label="All events">
-            {feed.events.map((e) => (
+            {feed.events.filter(shownInTrail).map((e) => (
               <EventRow key={e.seq} event={e} />
             ))}
           </ol>
@@ -306,7 +307,7 @@ export function ActivityView({
 
                 <h3>Activity trail</h3>
                 <ol className="trail" aria-label="Activity trail">
-                  {current.events.map((e, i) => (
+                  {current.events.filter(shownInTrail).map((e, i) => (
                     <EventRow key={e.seq} event={e} step={i + 1} />
                   ))}
                 </ol>

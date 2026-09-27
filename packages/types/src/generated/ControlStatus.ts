@@ -9,4 +9,9 @@ export type ControlStatus = {
  * The owner pressed Stop: no worker may use the browser or the desktop until the owner
  * allows it again.
  */
-stopped: boolean, sessions: Array<ControlSession>, };
+stopped: boolean, sessions: Array<ControlSession>, 
+/**
+ * Counts every change, so a screen shows the newest status even when two updates arrive
+ * out of order.
+ */
+revision: number, };

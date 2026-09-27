@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ExecutionRecord, RuntimeEvent, RuntimeOverview } from "@plenipo/types";
+import type { ControlStatus, ExecutionRecord, RuntimeEvent, RuntimeOverview } from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -47,10 +47,14 @@ vi.mock("./api/events", () => ({
   subscribeRuntimeEvents: vi.fn(),
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
-  subscribeControl: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeControl: vi.fn((handler: (s: ControlStatus) => void) => {
+    emitControl = handler;
+    return Promise.resolve(() => undefined);
+  }),
 }));
 
 const api = vi.mocked(commands);
+let emitControl: (s: ControlStatus) => void = () => undefined;
 const subscribe = vi.mocked(events.subscribeRuntimeEvents);
 let emit: (event: RuntimeEvent) => void = () => undefined;
 
@@ -130,7 +134,7 @@ beforeEach(() => {
   api.getOrganization.mockResolvedValue(emptyOrganization());
   api.getApprovals.mockResolvedValue({ pending: [], recent: [] });
   api.getPermissions.mockResolvedValue(samplePermissions());
-  api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [] });
+  api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [], revision: 0 });
   api.getLiaisonOverview.mockResolvedValue({
     protocol: "plenipo-liaison/1",
     contextFormat: "plenipo-context/1",
@@ -428,13 +432,14 @@ describe("AI tools page", () => {
       lastAction: 'clicked "Send message"',
       since: 0,
     };
-    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session] });
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
     api.takeOverControl.mockResolvedValue({
       stopped: false,
       sessions: [{ ...session, state: "takenOver" }],
+      revision: 2,
     });
-    api.stopAllControl.mockResolvedValue({ stopped: true, sessions: [] });
-    api.allowControl.mockResolvedValue({ stopped: false, sessions: [] });
+    api.stopAllControl.mockResolvedValue({ stopped: true, sessions: [], revision: 3 });
+    api.allowControl.mockResolvedValue({ stopped: false, sessions: [], revision: 4 });
     render(<App />);
     const banner = await screen.findByRole("alert", { name: "Browser and desktop control" });
     expect(banner).toHaveTextContent("Web Assistant is using Plenipo's browser");
@@ -448,8 +453,16 @@ describe("AI tools page", () => {
     await waitFor(() =>
       expect(banner).toHaveTextContent("You have control of the browser. Web Assistant stopped."),
     );
+    // It stays until dismissed, even after the worker's step ends.
+    act(() => emitControl({ stopped: false, sessions: [], revision: 5 }));
+    expect(banner).toHaveTextContent("You have control of the browser.");
+    // An older update arriving late changes nothing.
+    act(() => emitControl({ stopped: false, sessions: [session], revision: 1 }));
+    expect(banner).not.toHaveTextContent("Web Assistant is using Plenipo's browser");
+    await user.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert", { name: "Browser and desktop control" })).toBeNull();
     // Stop all appears only while a worker is active; stop from a fresh active state.
-    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session] });
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [session], revision: 1 });
     cleanup();
     render(<App />);
     const again = await screen.findByRole("alert", { name: "Browser and desktop control" });

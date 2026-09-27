@@ -65,6 +65,10 @@ pub struct ControlStatus {
     /// allows it again.
     pub stopped: bool,
     pub sessions: Vec<ControlSession>,
+    /// Counts every change, so a screen shows the newest status even when two updates arrive
+    /// out of order.
+    #[ts(type = "number")]
+    pub revision: u64,
 }
 
 impl ControlStatus {
@@ -90,6 +94,7 @@ pub type ControlListener = Arc<dyn Fn(&ControlStatus) + Send + Sync>;
 struct Inner {
     stopped: bool,
     sessions: BTreeMap<String, ControlSession>,
+    revision: u64,
 }
 
 /// The state of control, shared by the broker and the app. Cheap to clone.
@@ -116,15 +121,12 @@ impl ControlCenter {
         self.changed();
     }
 
+    /// Tell the listener. The status is read and told under the listener's lock, so the listener
+    /// hears changes in the order they happened (a Stop is never followed by an older status).
     fn changed(&self) {
-        let status = self.status();
-        let listener = self
-            .listener
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        if let Some(l) = listener {
-            l(&status);
+        let listener = self.listener.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(l) = listener.as_ref() {
+            l(&self.status());
         }
     }
 
@@ -133,6 +135,7 @@ impl ControlCenter {
         ControlStatus {
             stopped: i.stopped,
             sessions: i.sessions.values().cloned().collect(),
+            revision: i.revision,
         }
     }
 
@@ -165,7 +168,11 @@ impl ControlCenter {
             last_action: None,
             since: plenipo_ledger::now_ms(),
         };
-        self.inner().sessions.insert(id, session.clone());
+        {
+            let mut i = self.inner();
+            i.sessions.insert(id, session.clone());
+            i.revision += 1;
+        }
         self.changed();
         session
     }
@@ -183,6 +190,7 @@ impl ControlCenter {
             if last_action.is_some() {
                 s.last_action = last_action;
             }
+            i.revision += 1;
         }
         self.changed();
     }
@@ -196,7 +204,9 @@ impl ControlCenter {
                 return None;
             }
             s.state = ControlState::TakenOver;
-            s.clone()
+            let taken = s.clone();
+            i.revision += 1;
+            taken
         };
         self.changed();
         Some(taken)
@@ -211,7 +221,9 @@ impl ControlCenter {
                 return None;
             }
             s.state = ControlState::Stopped;
-            s.clone()
+            let stopped = s.clone();
+            i.revision += 1;
+            stopped
         };
         self.changed();
         Some(stopped)
@@ -223,6 +235,7 @@ impl ControlCenter {
         let stopped: Vec<ControlSession> = {
             let mut i = self.inner();
             i.stopped = true;
+            i.revision += 1;
             i.sessions
                 .values_mut()
                 .filter(|s| s.state == ControlState::Active)
@@ -238,13 +251,24 @@ impl ControlCenter {
 
     /// The owner allows control again after a stop.
     pub fn allow(&self) {
-        self.inner().stopped = false;
+        {
+            let mut i = self.inner();
+            i.stopped = false;
+            i.revision += 1;
+        }
         self.changed();
     }
 
     /// A session ends with its worker's step.
     pub fn end(&self, id: &str) -> Option<ControlSession> {
-        let ended = self.inner().sessions.remove(id);
+        let ended = {
+            let mut i = self.inner();
+            let ended = i.sessions.remove(id);
+            if ended.is_some() {
+                i.revision += 1;
+            }
+            ended
+        };
         if ended.is_some() {
             self.changed();
         }
@@ -296,5 +320,40 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.first(), Some(&(false, 0, false)));
         assert_eq!(seen.last(), Some(&(false, 1, false)));
+    }
+
+    /// Changes from many threads reach the listener in the order they happened: no status it
+    /// hears is older than the one before (two changes may both report the newest), and the last
+    /// one is the current state.
+    #[test]
+    fn the_listener_hears_changes_in_order() {
+        let c = ControlCenter::default();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&heard);
+        c.set_listener(Arc::new(move |s: &ControlStatus| {
+            log.lock().unwrap().push(s.revision);
+        }));
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let c = c.clone();
+                std::thread::spawn(move || {
+                    let s = c.begin(ControlKind::Browser, &format!("g{n}"), "t", "W", None);
+                    for k in 0..50 {
+                        c.note(&s.id, None, Some(format!("step {k}")));
+                    }
+                    if n == 3 {
+                        c.stop_all();
+                    }
+                    c.end(&s.id);
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let heard = heard.lock().unwrap();
+        assert!(heard.windows(2).all(|w| w[0] <= w[1]), "never an older status");
+        assert_eq!(*heard.last().unwrap(), c.status().revision);
+        assert!(c.status().stopped && c.status().sessions.is_empty());
     }
 }

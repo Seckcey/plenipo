@@ -63,13 +63,18 @@ pub fn create<R: Runtime>(
     agents.set_filter(broker.text_filter());
     // Who uses the browser or the mouse and keyboard: every window, the tray, and the sign
     // above all windows while a worker uses the mouse and keyboard (Phase 10).
+    // The tray and the sign are updated off this thread, always to the newest status, so a
+    // slower update never puts back an older one (the listener hears changes in order).
     let handle = app.clone();
+    let latest = Arc::new(std::sync::Mutex::new(ControlStatus::default()));
     broker.set_control_listener(Arc::new(move |status: &ControlStatus| {
         if let Err(e) = handle.emit(CONTROL_EVENT, status) {
             eprintln!("[plenipo] failed to emit control event: {e}");
         }
-        let (app, status) = (handle.clone(), status.clone());
+        *latest.lock().unwrap_or_else(|p| p.into_inner()) = status.clone();
+        let (app, latest) = (handle.clone(), Arc::clone(&latest));
         tauri::async_runtime::spawn(async move {
+            let status = latest.lock().unwrap_or_else(|p| p.into_inner()).clone();
             crate::tray::show_control(&app, &status);
             crate::indicator::update(&app, &status);
         });

@@ -46,6 +46,15 @@ export function ControlBanner({ control }: { control: Control }) {
                   Take over
                 </button>
               )}
+              {s.state === "takenOver" && (
+                <button
+                  type="button"
+                  className="button button--small button--quiet"
+                  onClick={() => control.dismiss(s.id)}
+                >
+                  Dismiss
+                </button>
+              )}
             </div>
           );
         })}

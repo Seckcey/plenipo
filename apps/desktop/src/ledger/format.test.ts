@@ -1,7 +1,7 @@
 import type { LedgerEvent } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
-import { describeEvent, sourceLabel } from "./format";
+import { describeEvent, shownInTrail, sourceLabel } from "./format";
 
 const event = (eventType: string, payload: Record<string, unknown>): LedgerEvent => ({
   seq: 1,
@@ -289,5 +289,15 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("org.role_updated", { name: "Designer", template: true }))).toBe(
       "Built-in role's instructions updated: Designer",
     );
+  });
+});
+
+describe("shownInTrail", () => {
+  it("leaves out a screenshot's own record, shown with its action instead", () => {
+    expect(shownInTrail(event("artifact.recorded", { type: "screenshot", path: "/x.jpg" }))).toBe(
+      false,
+    );
+    expect(shownInTrail(event("artifact.recorded", { type: "report", path: "/r.md" }))).toBe(true);
+    expect(shownInTrail(event("capability.used", { screenshot: "a1" }))).toBe(true);
   });
 });

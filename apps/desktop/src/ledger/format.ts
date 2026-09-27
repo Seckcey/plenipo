@@ -461,3 +461,12 @@ export function eventScreenshot(payload: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * Events the trail leaves out: a kept screenshot's own record, since the picture shows with the
+ * action or approval it belongs to (the Ledger keeps both).
+ */
+export function shownInTrail(e: LedgerEvent): boolean {
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  return !(e.eventType === "artifact.recorded" && p.type === "screenshot");
+}
