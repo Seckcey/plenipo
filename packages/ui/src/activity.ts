@@ -116,16 +116,25 @@ const timeFormat = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "
 /** "3:15 PM" in this computer's time zone. */
 export const formatTime = (ms: number) => timeFormat.format(new Date(ms));
 
-/** Time axis under a strip: start, middle, and "Now" when the series ends at the present. */
+const dayFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+
+/**
+ * Time axis under a strip: start, middle, and "Now" when the series ends at the present. Times
+ * of day for a day or less; dates ("Sep 20") for longer strips.
+ */
 export function axisLabels(
   series: Pick<ActivitySeries, "from" | "to">,
   now: number = Date.now(),
 ): [string, string, string] {
   const endsNow = Math.abs(now - series.to) <= Math.max(60_000, (series.to - series.from) / 96);
+  const label =
+    series.to - series.from >= 2 * DAY_MS
+      ? (ms: number) => dayFormat.format(new Date(ms))
+      : formatTime;
   return [
-    formatTime(series.from),
-    formatTime(series.from + (series.to - series.from) / 2),
-    endsNow ? "Now" : formatTime(series.to),
+    label(series.from),
+    label(series.from + (series.to - series.from) / 2),
+    endsNow ? "Now" : label(series.to),
   ];
 }
 

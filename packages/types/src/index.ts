@@ -216,3 +216,11 @@ export type { TerminalInfo } from "./generated/TerminalInfo";
 export type { TerminalPlace } from "./generated/TerminalPlace";
 export type { TerminalSettings } from "./generated/TerminalSettings";
 export type { TerminalShell } from "./generated/TerminalShell";
+
+// The pages (Phase 12)
+export type { ArtifactView } from "./generated/ArtifactView";
+export type { HomeView } from "./generated/HomeView";
+export type { StuckItem } from "./generated/StuckItem";
+export type { PullRequestRef } from "./generated/PullRequestRef";
+export type { TaskRecord } from "./generated/TaskRecord";
+export type { WorkRecord } from "./generated/WorkRecord";

@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { LedgerEvent, TerminalEvent, TerminalSettings } from "@plenipo/types";
+import type { LedgerEvent, ServerView, TerminalEvent, TerminalSettings } from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
@@ -117,6 +117,13 @@ function ledgerEvent(eventType: string, payload: Record<string, unknown>): Ledge
   };
 }
 
+/** A server whose ID was never checked and pinned. */
+function unpinned(view: ServerView): ServerView {
+  const server = { ...view.server };
+  delete server.hostKey;
+  return { ...view, server };
+}
+
 function Harness() {
   return (
     <TerminalProvider>
@@ -145,7 +152,7 @@ beforeEach(() => {
   api.getTaskTimeline.mockResolvedValue({ task: null as never, events: [], children: [] });
   api.getServers.mockResolvedValue(sampleServers());
   api.getTerminalSettings.mockResolvedValue(settings);
-  api.openTerminal.mockImplementation((place, cols, rows, onEvent) => {
+  api.openTerminal.mockImplementation((place, _cols, _rows, onEvent) => {
     shell = onEvent;
     return Promise.resolve({
       id: "0f8fad5b-d9cb-469f-a165-70867728950e",
@@ -251,7 +258,7 @@ describe("the terminal panel", () => {
     api.getServers.mockResolvedValue({
       ...sampleServers([
         sampleServer(),
-        sampleServer({ id: "srv-new", name: "New box", hostKey: undefined }),
+        unpinned(sampleServer({ id: "srv-new", name: "New box" })),
       ]),
     });
     render(<Harness />);

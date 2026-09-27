@@ -63,6 +63,9 @@ import type {
   Switches,
   LearningSnapshot,
   WorkView,
+  HomeView,
+  TaskRecord,
+  WorkRecord,
   TerminalEvent,
   TerminalInfo,
   TerminalPlace,
@@ -676,4 +679,38 @@ export function resizeTerminal(terminalId: string, cols: number, rows: number): 
 /** Close a terminal: its shell, and the programs it started, end. */
 export function closeTerminal(terminalId: string): Promise<void> {
   return call<void>("close_terminal", { terminalId });
+}
+
+// ---- The pages (Phase 12) --------------------------------------------------------------------------
+
+/** Home: objectives still going, those finished in the last week with their answers, and what is stuck. */
+export function getHome(): Promise<HomeView> {
+  return call<HomeView>("get_home");
+}
+
+/**
+ * A department's, project's, or position's history (or everything): newest first, before event
+ * `before` for the next page.
+ */
+export function getScopeEvents(
+  scope: ActivityScope,
+  limit = 50,
+  before?: number,
+): Promise<LedgerEvent[]> {
+  return call<LedgerEvent[]>("get_scope_events", { scope, limit, before: before ?? null });
+}
+
+/** A task's events with those of every task under it, newest first. */
+export function getTaskEvents(taskId: string, limit = 50, before?: number): Promise<LedgerEvent[]> {
+  return call<LedgerEvent[]>("get_task_events", { taskId, limit, before: before ?? null });
+}
+
+/** A project's pull requests, artifacts, and recent decisions. */
+export function getProjectRecord(projectId: string): Promise<WorkRecord> {
+  return call<WorkRecord>("get_project_record", { projectId });
+}
+
+/** A task's pull requests, artifacts, decisions, and approvals (with the tasks under it). */
+export function getTaskRecord(taskId: string): Promise<TaskRecord> {
+  return call<TaskRecord>("get_task_record", { taskId });
 }

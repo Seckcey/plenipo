@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import type { LedgerEvent, Task, TaskTimeline, TaskTree } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { HANDOFF_OUTCOME_LABEL } from "../agents/format";
 import { ScreenshotView } from "../components/ScreenshotView";
+import type { Go } from "../components/views";
 import {
   advanceSyntheticTask,
   getTaskTimeline,
@@ -115,9 +117,12 @@ function DelegationTree({
 export function ActivityView({
   selectedTaskId,
   onSelectTask,
+  onOpenPage,
 }: {
   selectedTaskId: string | null;
   onSelectTask: (id: string | null) => void;
+  /** Opens a task's page (Phase 12). */
+  onOpenPage?: Go | undefined;
 }) {
   const feed = useLedgerFeed();
   const [tab, setTab] = useState<Tab>("tasks");
@@ -268,6 +273,16 @@ export function ActivityView({
                       </button>
                     )}
                   </div>
+                  {onOpenPage && (
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      icon="chevronRight"
+                      onClick={() => onOpenPage({ view: "task", id: task.id })}
+                    >
+                      Open the task's page
+                    </Button>
+                  )}
                 </div>
 
                 {synthetic && ACTIONS_FOR[task.state].length > 0 && (

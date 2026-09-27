@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-task-record"
+description = "Enables the get_task_record command without any pre-configured scope."
+commands.allow = ["get_task_record"]
+
+[[permission]]
+identifier = "deny-get-task-record"
+description = "Denies the get_task_record command without any pre-configured scope."
+commands.deny = ["get_task_record"]

@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import type { AppInfo } from "@plenipo/types";
+import type { AppInfo, OrgSnapshot } from "@plenipo/types";
 import {
   AppShell,
   Banner,
@@ -15,6 +15,7 @@ import {
   NotificationBell,
   ThemeToggle,
   TopBar,
+  useStoredState,
   useTheme,
 } from "@plenipo/ui";
 
@@ -31,7 +32,15 @@ import { ControlBanner } from "./components/ControlBanner";
 import { ALL_SCOPE, type ScopeId } from "./components/scope";
 import { ScopePicker } from "./components/ScopePicker";
 import { Sidebar } from "./components/Sidebar";
-import { ALL_VIEWS, VIEW_TITLES, type ViewId } from "./components/views";
+import {
+  ALL_VIEWS,
+  SECTION_OF,
+  VIEW_TITLES,
+  isPageKind,
+  type Go,
+  type Place,
+  type ViewId,
+} from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
@@ -39,7 +48,13 @@ import { useControl } from "./control/useControl";
 import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
+import { rankName, titlesOf } from "./org/titles";
 import { useOrganizationNames } from "./org/useOrganizationNames";
+import { DepartmentPage } from "./pages/DepartmentPage";
+import { HomePage } from "./pages/HomePage";
+import { ProjectPage } from "./pages/ProjectPage";
+import { TaskPage } from "./pages/TaskPage";
+import { WorkerPage } from "./pages/WorkerPage";
 import { TerminalButton, TerminalPanel } from "./terminal/TerminalPanel";
 import { TerminalProvider } from "./terminal/TerminalProvider";
 import { useTerminal } from "./terminal/useTerminal";
@@ -58,14 +73,46 @@ type CoreState =
   | { status: "ready"; info: AppInfo }
   | { status: "error"; error: PlenipoCommandError };
 
-// UI position survives a webview reload (the backend owns everything else).
-const VIEW_KEY = "plenipo.view";
+// Where you are (the page, and the department, project, worker, or task it is about) comes back
+// after a restart (Phase 12). Selections inside a section survive a webview reload.
+const PLACE_KEY = "plenipo.place";
 const SELECTED_KEY = "plenipo.selectedExecution";
 const SELECTED_TASK_KEY = "plenipo.selectedTask";
 const SELECTED_SESSION_KEY = "plenipo.selectedSession";
-// Where you are (the top bar's "Showing" picker), for this window's life. Until Phase 12's pages
-// filter by it, it names the place a pick opened, and goes back to everything when you leave.
-const SCOPE_KEY = "plenipo.scope";
+const HOME: Place = { view: "home", id: null };
+/** How many pages Back remembers. */
+const MAX_TRAIL = 50;
+
+function isPlace(v: unknown): v is Place {
+  if (typeof v !== "object" || v === null) return false;
+  const { view, id } = v as Record<string, unknown>;
+  if (!ALL_VIEWS.some((x) => x === view)) return false;
+  if (isPageKind(view as ViewId)) return typeof id === "string" && id.length > 0;
+  return id === null || typeof id === "string";
+}
+
+const samePlace = (a: Place, b: Place) => a.view === b.view && a.id === b.id;
+
+/** The top bar's words for a page: "Department · Operations", "Manager · Development Manager". */
+function placeTitle(place: Place, org: OrgSnapshot | null): string {
+  if (!isPageKind(place.view) || !place.id || !org) return VIEW_TITLES[place.view];
+  switch (place.view) {
+    case "department": {
+      const d = org.departments.find((x) => x.id === place.id);
+      return d ? `Department · ${d.name}` : "Department";
+    }
+    case "project": {
+      const p = org.projects.find((x) => x.id === place.id);
+      return p ? `Project · ${p.name}` : "Project";
+    }
+    case "worker": {
+      const p = org.positions.find((x) => x.id === place.id);
+      return p ? `${rankName(titlesOf(org), p.kind)} · ${p.title}` : "Worker";
+    }
+    default:
+      return VIEW_TITLES[place.view];
+  }
+}
 
 /** Notices that mean data may be at risk get alert styling; others are informational. */
 function isSevere(notice: string): boolean {
@@ -87,15 +134,6 @@ function writeSession(key: string, value: string | null) {
   } catch {
     // Storage unavailable: navigation simply isn't restored after a reload.
   }
-}
-
-function initialView(): ViewId {
-  const saved = readSession(VIEW_KEY);
-  return ALL_VIEWS.find((v) => v === saved) ?? "organization";
-}
-
-function readScope(): ScopeId {
-  return readSession(SCOPE_KEY) ?? ALL_SCOPE;
 }
 
 export function App() {
@@ -132,7 +170,10 @@ export function App() {
 function Shell({ core }: { core: CoreState }) {
   const { state } = useRuntime();
   const agents = useAgents();
-  const [view, setView] = useState<ViewId>(initialView);
+  const [place, setPlace] = useStoredState<Place>(PLACE_KEY, HOME, isPlace);
+  /** The pages before this one, for Back (this window only). */
+  const [trail, setTrail] = useState<Place[]>([]);
+  const view = place.view;
   const [selectedSession, setSelectedSession] = useState<string | null>(() =>
     readSession(SELECTED_SESSION_KEY),
   );
@@ -142,7 +183,6 @@ function Shell({ core }: { core: CoreState }) {
   );
   const [orgFocus, setOrgFocus] = useState<string | null>(null);
   const [projectFocus, setProjectFocus] = useState<string | null>(null);
-  const [scope, setScope] = useState<ScopeId>(readScope);
   const [theme, setTheme] = useTheme();
   const organization = useOrganizationNames();
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
@@ -150,10 +190,10 @@ function Shell({ core }: { core: CoreState }) {
   const main = useRef<HTMLElement>(null);
   const { measure: measureWork, panel: terminalPanel, size: terminalSize } = useTerminal();
 
-  // Every view shares one scroll area: open each view at its top, not where the last one was.
+  // Every view shares one scroll area: open each page at its top, not where the last one was.
   useLayoutEffect(() => {
     if (main.current) main.current.scrollTop = 0;
-  }, [view]);
+  }, [view, place.id]);
 
   useEffect(() => {
     getLedgerStatus()
@@ -169,9 +209,30 @@ function Shell({ core }: { core: CoreState }) {
   const workingCount = Object.values(agents.state.sessions).filter(isRunning).length;
   const info = core.status === "ready" ? core.info : null;
 
-  const navigate = (next: ViewId) => {
-    setView(next);
-    writeSession(VIEW_KEY, next);
+  /**
+   * Go somewhere: a section, or the page of one department, project, worker, or task. For a
+   * section, `id` is what to show inside it (a position on the map, a project, a task in the
+   * trail, a conversation, a Settings section). Back returns to the page before.
+   */
+  const go: Go = (next) => {
+    if (next.id !== null) {
+      if (next.view === "organization") setOrgFocus(next.id);
+      else if (next.view === "projects") setProjectFocus(next.id);
+      else if (next.view === "activity") selectTask(next.id);
+      else if (next.view === "workers") selectSession(next.id);
+    }
+    const target: Place =
+      isPageKind(next.view) || next.view === "settings" ? next : { view: next.view, id: null };
+    if (samePlace(target, place)) return;
+    setTrail((t) => [...t, place].slice(-MAX_TRAIL));
+    setPlace(target);
+  };
+  const navigate = (next: ViewId) => go({ view: next, id: null });
+  /** Back to the page before, or (after a restart) to the section the page belongs to. */
+  const back = () => {
+    const previous = trail[trail.length - 1];
+    setTrail((t) => t.slice(0, -1));
+    setPlace(previous ?? (isPageKind(view) ? { view: SECTION_OF[view], id: null } : HOME));
   };
   const select = (id: string | null) => {
     setSelected(id);
@@ -189,52 +250,37 @@ function Shell({ core }: { core: CoreState }) {
     select(id);
     navigate("runtimes");
   };
-  const openSession = (id: string) => {
-    selectSession(id);
-    navigate("workers");
-  };
-  const openTask = (id: string) => {
-    selectTask(id);
-    navigate("activity");
-  };
-  const openPosition = (id: string) => {
-    setOrgFocus(id);
-    navigate("organization");
-  };
+  const openSession = (id: string) => go({ view: "workers", id });
+  const openTask = (id: string) => go({ view: "activity", id });
+  const openPosition = (id: string) => go({ view: "organization", id });
   const clearOrgFocus = useCallback(() => setOrgFocus(null), []);
   const clearProjectFocus = useCallback(() => setProjectFocus(null), []);
   const severe = ledgerNotices.some(isSevere);
   const approvalCount = waiting.length + (learning.snapshot?.waiting.length ?? 0);
 
-  /** Leaving for another section (the strip, the bell): back to the whole organization. */
+  /** Leaving for another section (the strip, the bell) starts a new trail. */
   const leave = (next: ViewId) => {
-    setScope(ALL_SCOPE);
-    writeSession(SCOPE_KEY, null);
-    navigate(next);
+    setTrail([]);
+    setPlace({ view: next, id: null });
   };
 
-  /** Choosing where you are opens that part: a department on the map, a project's page. */
+  /** Where you are, for the "Showing" picker: a department's or a project's page, or all. */
+  const scope: ScopeId =
+    view === "department" || view === "project" ? `${view}:${place.id ?? ""}` : ALL_SCOPE;
+  /** Choosing where you are opens that part's page; everything opens Home. */
   const chooseScope = (next: ScopeId) => {
-    setScope(next);
-    writeSession(SCOPE_KEY, next);
     const [kind, id] = next.split(":");
-    const org = organization.snapshot;
-    if (kind === "department" && id) {
-      const head = org?.departments.find((d) => d.id === id)?.headPositionId;
-      if (head) openPosition(head);
-      else navigate("organization");
-    } else if (kind === "project" && id) {
-      setProjectFocus(id);
-      navigate("projects");
-    }
+    if ((kind === "department" || kind === "project") && id) go({ view: kind, id });
+    else go(HOME);
   };
+  const pageBack = trail.length > 0 || isPageKind(view) ? back : undefined;
 
   return (
     <AppShell
       className="shell"
       rail={
         <Sidebar
-          current={view}
+          current={isPageKind(view) ? SECTION_OF[view] : view}
           onNavigate={leave}
           activeCount={activeCount}
           workingCount={workingCount}
@@ -244,7 +290,7 @@ function Shell({ core }: { core: CoreState }) {
       topBar={
         <TopBar
           start={<ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />}
-          title={VIEW_TITLES[view]}
+          title={placeTitle(place, organization.snapshot)}
           end={
             <>
               {info && (
@@ -330,10 +376,36 @@ function Shell({ core }: { core: CoreState }) {
               Plenipo Core is unavailable: {core.error.message}
             </p>
           )}
+          {view === "home" && <HomePage go={go} approvals={approvals} learning={learning} />}
+          {view === "department" && place.id && (
+            <DepartmentPage key={place.id} id={place.id} go={go} onBack={pageBack} />
+          )}
+          {view === "project" && place.id && (
+            <ProjectPage key={place.id} id={place.id} go={go} onBack={pageBack} />
+          )}
+          {view === "worker" && place.id && (
+            <WorkerPage
+              key={place.id}
+              id={place.id}
+              go={go}
+              onBack={pageBack}
+              onOpenSession={openSession}
+            />
+          )}
+          {view === "task" && place.id && (
+            <TaskPage
+              key={place.id}
+              id={place.id}
+              go={go}
+              onBack={pageBack}
+              onOpenSession={openSession}
+            />
+          )}
           {view === "organization" && (
             <OrganizationView
               onOpenSession={openSession}
               onOpenTask={openTask}
+              onOpenPage={go}
               focusId={orgFocus}
               onFocusHandled={clearOrgFocus}
             />
@@ -342,6 +414,7 @@ function Shell({ core }: { core: CoreState }) {
             <ProjectsView
               onOpenTask={openTask}
               onOpenApprovals={() => navigate("approvals")}
+              onOpenPage={go}
               focusId={projectFocus}
               onFocusHandled={clearProjectFocus}
             />
@@ -353,6 +426,7 @@ function Shell({ core }: { core: CoreState }) {
               onShowExecution={showExecution}
               onOpenRuntimes={() => navigate("runtimes")}
               onOpenPosition={openPosition}
+              onOpenPage={go}
             />
           )}
           {view === "approvals" && (
@@ -360,7 +434,7 @@ function Shell({ core }: { core: CoreState }) {
           )}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
           {view === "activity" && (
-            <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
+            <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />
           )}
           {view === "settings" && <SettingsView />}
           {view === "diagnostics" && (

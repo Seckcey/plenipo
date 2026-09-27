@@ -416,3 +416,15 @@ pub enum TerminalEvent {
         code: Option<i32>,
     },
 }
+
+// ---- The task page (Phase 12) ------------------------------------------------------------------
+
+/// A task's page: the pull requests, artifacts, and decisions of the task and every task under
+/// it, and their approvals (waiting ones first).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TaskRecord {
+    pub record: plenipo_ledger::WorkRecord,
+    pub approvals: Vec<ApprovalView>,
+}

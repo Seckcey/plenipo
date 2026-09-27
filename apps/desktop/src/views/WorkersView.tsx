@@ -26,6 +26,7 @@ import {
 } from "../agents/store";
 import { useAgents } from "../agents/useAgents";
 import { ModelPicker } from "../components/models/ModelPicker";
+import type { Go } from "../components/views";
 import { useRoutingOnce } from "../routing/useRouting";
 import { openHandoffs, useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
 import { HandoffCard, ReceivedHandoff } from "../components/Handoffs";
@@ -51,6 +52,7 @@ interface Navigation {
   onOpenSession: (sessionId: string) => void;
   onShowExecution: (executionId: string) => void;
   onOpenPosition?: ((positionId: string) => void) | undefined;
+  onOpenPage?: Go | undefined;
 }
 
 export function WorkersView({
@@ -59,6 +61,7 @@ export function WorkersView({
   onShowExecution,
   onOpenRuntimes,
   onOpenPosition,
+  onOpenPage,
 }: {
   selectedSessionId: string | null;
   onSelectSession: (id: string | null) => void;
@@ -66,6 +69,8 @@ export function WorkersView({
   onOpenRuntimes: () => void;
   /** Show an organization position (for sessions that work for one). */
   onOpenPosition?: (positionId: string) => void;
+  /** Opens a worker's page (Phase 12). */
+  onOpenPage?: Go | undefined;
 }) {
   const { state, start, resume, cancel, close, loadSession, refresh } = useAgents();
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
@@ -136,6 +141,7 @@ export function WorkersView({
     onOpenSession: onSelectSession,
     onShowExecution,
     onOpenPosition,
+    onOpenPage,
   };
 
   return (
@@ -410,13 +416,30 @@ export function WorkersView({
 /** Where a session stands with Liaison, for its header. */
 function LiaisonLine({ info, nav }: { info: LiaisonSessionInfo; nav: Navigation }) {
   const position = info.positionId;
-  const openPosition = position && nav.onOpenPosition && (
+  const openPosition = position && (nav.onOpenPosition || nav.onOpenPage) && (
     <>
-      {" "}
-      ·{" "}
-      <button type="button" className="link" onClick={() => nav.onOpenPosition?.(position)}>
-        Open in Organization
-      </button>
+      {nav.onOpenPosition && (
+        <>
+          {" "}
+          ·{" "}
+          <button type="button" className="link" onClick={() => nav.onOpenPosition?.(position)}>
+            Open in Organization
+          </button>
+        </>
+      )}
+      {nav.onOpenPage && (
+        <>
+          {" "}
+          ·{" "}
+          <button
+            type="button"
+            className="link"
+            onClick={() => nav.onOpenPage?.({ view: "worker", id: position })}
+          >
+            Open the worker's page
+          </button>
+        </>
+      )}
     </>
   );
   if (info.origin === "handoff") {

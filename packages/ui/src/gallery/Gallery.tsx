@@ -28,6 +28,7 @@ import {
 } from "../controls";
 import { DetailSplitView, PropertyList, TimelineScrubber, type TimelineValue } from "../detail";
 import { LogView } from "../log";
+import { Hero, PageHeader, Panel, RowList, StatGrid } from "../page";
 import { MenuButton, ResizeHandle } from "../menu";
 import { TERMINAL_FONT } from "../terminal-theme";
 import { EMPTY_FACETS, useFacets, type FacetConfig } from "../facet-logic";
@@ -1017,6 +1018,91 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
             </div>
           </Variant>
         </div>
+      </Section>
+
+      <Section
+        id={`${prefix}-pages`}
+        title="Pages"
+        lead="What every page is made of: its heading, panels, short lists to open, and number tiles."
+      >
+        <Variant name="hero" caption="Pip's greeting (Home)" wide>
+          <Hero pip="welcome" title="Good morning" id={`${prefix}-hero`}>
+            3 workers are working. 1 request is waiting for you.
+          </Hero>
+        </Variant>
+        <Variant name="page-head" caption="A page's heading, opened from another page" wide>
+          <PageHeader
+            kicker="Department"
+            title="Operations"
+            status={<StatusDot status="ok" label="Working" />}
+            lead="Keeps the servers and the shop running."
+            onBack={() => undefined}
+            actions={<Button size="sm">Give an objective</Button>}
+          />
+        </Variant>
+        <div className="gallery__row">
+          <Variant name="panel-rows" caption="A panel with rows to open">
+            <Panel
+              title="Waiting for you"
+              count={2}
+              countLabel="waiting"
+              id={`${prefix}-panel-rows`}
+            >
+              <RowList
+                label="Waiting for you"
+                items={[
+                  {
+                    id: "a",
+                    title: "Operations Engineer wants to restart nginx on Shop",
+                    tag: <StatusPill status="error" label="PRODUCTION" />,
+                    detail: "Servers · 2 minutes ago",
+                    status: { status: "pending", label: "Waiting" },
+                    onOpen: () => undefined,
+                  },
+                  {
+                    id: "b",
+                    title: "Senior Developer learned something",
+                    detail: "A lesson to keep or discard",
+                    status: { status: "pending", label: "Waiting" },
+                    onOpen: () => undefined,
+                  },
+                ]}
+              />
+            </Panel>
+          </Variant>
+          <Variant name="rows-empty" caption="Rows: none yet">
+            <Panel title="What's stuck" id={`${prefix}-panel-empty`}>
+              <RowList
+                label="What's stuck"
+                items={[]}
+                empty={<EmptyState pip="celebrating" title="Nothing is stuck" />}
+              />
+            </Panel>
+          </Variant>
+          <Variant name="rows-loading" caption="Rows: loading">
+            <RowList label="objectives" items={[]} state="loading" />
+          </Variant>
+          <Variant name="rows-error" caption="Rows: couldn't load">
+            <RowList
+              label="objectives"
+              items={[]}
+              state="error"
+              error="The Ledger did not answer."
+              onRetry={() => undefined}
+            />
+          </Variant>
+        </div>
+        <Variant name="stats" caption="Number tiles" wide>
+          <StatGrid
+            label="Today"
+            stats={[
+              { label: "Working", value: 3, status: "ok" },
+              { label: "Waiting for you", value: 1, status: "pending", onOpen: () => undefined },
+              { label: "Stuck", value: 0, hint: "Nothing needs you" },
+              { label: "Finished today", value: 12, status: "ok" },
+            ]}
+          />
+        </Variant>
       </Section>
 
       <Section

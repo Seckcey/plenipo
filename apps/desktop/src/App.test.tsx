@@ -44,6 +44,14 @@ vi.mock("./api/commands", async (importOriginal) => {
     allowControl: vi.fn(),
     getActivity: vi.fn(),
     getProjectWork: vi.fn(),
+    getHome: vi.fn(),
+    getScopeEvents: vi.fn(),
+    getTaskEvents: vi.fn(),
+    getProjectRecord: vi.fn(),
+    getTaskRecord: vi.fn(),
+    getTaskTree: vi.fn(),
+    getObjectiveReport: vi.fn(),
+    getLearning: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -135,6 +143,11 @@ beforeEach(() => {
     ),
   );
   api.getProjectWork.mockResolvedValue(sampleWork());
+  api.getHome.mockResolvedValue({ current: [], finished: [], stuck: [] });
+  api.getScopeEvents.mockResolvedValue([]);
+  api.getTaskEvents.mockResolvedValue([]);
+  api.getProjectRecord.mockResolvedValue({ pullRequests: [], artifacts: [], decisions: [] });
+  api.getLearning.mockResolvedValue({ enabled: true, autoRoles: [], waiting: [], kept: [] });
   api.getAppInfo.mockResolvedValue({
     name: "Plenipo",
     version: "0.1.0",
@@ -257,6 +270,9 @@ describe("App shell", () => {
 
   it("does not hard-code departments: the organization comes from Core", async () => {
     render(<App />);
+    // Home, the first page, invites the owner to set the company up.
+    expect(await screen.findByText(/ready for its first department/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Organization" }));
     expect(await screen.findByText("Build your organization")).toBeInTheDocument();
     expect(api.getOrganization).toHaveBeenCalled();
     const map = screen.getByRole("region", { name: "Organization topology" });
@@ -288,7 +304,8 @@ describe("Ledger notices", () => {
       ledgerStatus(["Imported 3 execution(s) from the previous history file into the ledger."]),
     );
     render(<App />);
-    expect(await screen.findByRole("status")).toHaveTextContent("Imported 3 execution(s)");
+    const notice = await screen.findByText(/Imported 3 execution\(s\)/);
+    expect(notice.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -423,7 +440,11 @@ describe("AI tools page", () => {
     api.resolveApproval.mockResolvedValue({ pending: [], recent: [] });
     render(<App />);
     const banner = await screen.findByText("Backend Developer is waiting for your approval");
-    expect(screen.getByText("git push origin")).toBeInTheDocument();
+    const notice = banner.closest(".banner--approval") as HTMLElement;
+    expect(within(notice).getByText("git push origin")).toBeInTheDocument();
+    // Home lists it under Waiting for you, too.
+    const home = await screen.findByRole("list", { name: "Waiting for you" });
+    expect(within(home).getByText("git push origin")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByLabelText("1 waiting for you")).toHaveTextContent("1");
     const user = userEvent.setup();
@@ -551,9 +572,12 @@ describe("The frame (Phase 12A)", () => {
   it("names each section under its icon, and marks the current one", async () => {
     render(<App />);
     const nav = screen.getByRole("navigation", { name: "Main" });
+    const home = within(nav).getByRole("button", { name: "Home" });
+    expect(home).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getAllByRole("button")[0]).toBe(home);
+    expect(within(home).getByText("Home")).toBeVisible();
     const org = within(nav).getByRole("button", { name: "Organization" });
-    expect(org).toHaveAttribute("aria-current", "page");
-    expect(within(org).getByText("Organization")).toBeVisible();
+    expect(org).not.toHaveAttribute("aria-current");
     expect(org).toHaveAttribute("title", expect.stringContaining("departments"));
     await userEvent.setup().click(within(nav).getByRole("button", { name: "Settings" }));
     expect(within(nav).getByRole("button", { name: "Settings" })).toHaveAttribute(
@@ -576,7 +600,7 @@ describe("The frame (Phase 12A)", () => {
     expect(document.querySelector(".ui-topbar__title")).toHaveTextContent("Approvals");
   });
 
-  it("opens a project or a department from the Showing picker", async () => {
+  it("opens a project's or a department's page from the Showing picker", async () => {
     api.getOrganization.mockResolvedValue(sampleOrganization());
     render(<App />);
     const user = userEvent.setup();
@@ -586,32 +610,72 @@ describe("The frame (Phase 12A)", () => {
     );
     expect(within(picker).getByRole("group", { name: "Departments" })).toBeInTheDocument();
     await user.selectOptions(picker, "project:pr-camp");
-    const list = await screen.findByRole("list", { name: "Projects" });
-    expect(within(list).getByRole("button", { name: /Q4 Campaign/ })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
-    expect(sessionStorage.getItem("plenipo.scope")).toBe("project:pr-camp");
-    // Picking another project there, then the same one again, opens it again.
-    await user.click(within(list).getByRole("button", { name: /Website Relaunch/ }));
-    await user.selectOptions(picker, "all");
-    await user.selectOptions(picker, "project:pr-camp");
-    await waitFor(() =>
-      expect(within(list).getByRole("button", { name: /Q4 Campaign/ })).toHaveAttribute(
-        "aria-current",
-        "true",
-      ),
-    );
-    await user.selectOptions(picker, "department:d-eng");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Q4 Campaign" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".ui-topbar__title")).toHaveTextContent("Project · Q4 Campaign");
     const nav = screen.getByRole("navigation", { name: "Main" });
+    // The page belongs to the Projects section, which the strip marks.
+    expect(within(nav).getByRole("button", { name: "Projects" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(picker).toHaveValue("project:pr-camp");
+    await user.selectOptions(picker, "department:d-eng");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Engineering" }),
+    ).toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Organization" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    // Leaving by the strip goes back to the whole organization (nothing filters by it yet).
+    // Back returns to the project's page; everything opens Home.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Q4 Campaign" }),
+    ).toBeInTheDocument();
+    await user.selectOptions(picker, "all");
+    expect(
+      await screen.findByRole("region", { name: /Good (morning|afternoon|evening)|Working late/ }),
+    ).toBeInTheDocument();
+    // Leaving by the strip shows everything again.
+    await user.selectOptions(picker, "project:pr-camp");
     await user.click(within(nav).getByRole("button", { name: "Settings" }));
     expect(picker).toHaveValue("all");
-    expect(sessionStorage.getItem("plenipo.scope")).toBeNull();
+  });
+
+  it("comes back to the same page after a restart, and Back then goes to its section", async () => {
+    api.getOrganization.mockResolvedValue(sampleOrganization());
+    const first = render(<App />);
+    const user = userEvent.setup();
+    const picker = await screen.findByRole("combobox", { name: "Showing" });
+    await waitFor(() =>
+      expect(within(picker).getByRole("option", { name: "Engineering" })).toBeInTheDocument(),
+    );
+    await user.selectOptions(picker, "department:d-eng");
+    await screen.findByRole("heading", { level: 1, name: "Engineering" });
+    expect(JSON.parse(localStorage.getItem("plenipo.place") ?? "null")).toEqual({
+      view: "department",
+      id: "d-eng",
+    });
+    first.unmount();
+    cleanup();
+
+    render(<App />);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Engineering" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(
+      await screen.findByRole("region", { name: "Organization topology" }),
+    ).toBeInTheDocument();
+    // Something unreadable in storage opens Home.
+    cleanup();
+    localStorage.setItem("plenipo.place", JSON.stringify({ view: "task", id: "" }));
+    render(<App />);
+    expect(
+      await screen.findByRole("region", { name: /Good (morning|afternoon|evening)|Working late/ }),
+    ).toBeInTheDocument();
   });
 
   it("opens the Gallery from Diagnostics, with real departments and projects first", async () => {

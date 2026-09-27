@@ -12,11 +12,14 @@ import type {
   RoleJob,
 } from "@plenipo/types";
 
+import { Button } from "@plenipo/ui";
+
 import { getWork, toCommandError } from "../../api/commands";
 import { TASK_STATE_LABEL } from "../../ledger/format";
 import { choiceLabel } from "../../routing/format";
 import { useRoutingOnce } from "../../routing/useRouting";
 import { ModelPicker } from "../models/ModelPicker";
+import type { Go } from "../views";
 import {
   OVERSIGHT_LABEL,
   OVERSIGHT_NOUN,
@@ -67,6 +70,8 @@ export interface InspectorActions {
   }) => void;
   openSession: (sessionId: string) => void;
   openTask: (taskId: string) => void;
+  /** Opens the page of a position, department, or project (Phase 12). */
+  openPage?: Go | undefined;
   api: {
     fill: (id: string) => Promise<OrgSnapshot>;
     vacate: (id: string) => Promise<OrgSnapshot>;
@@ -409,6 +414,18 @@ function PositionPanel({
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
         </div>
       </div>
+      {actions.openPage && (
+        <div className="actions">
+          <Button
+            size="sm"
+            variant="quiet"
+            icon="chevronRight"
+            onClick={() => actions.openPage?.({ view: "worker", id: p.id })}
+          >
+            Open its page
+          </Button>
+        </div>
+      )}
 
       {!p.active ? (
         <p className="muted">
@@ -539,6 +556,16 @@ function PositionPanel({
             {department.active ? "" : " · inactive"}
           </p>
           <div className="actions">
+            {actions.openPage && (
+              <Button
+                size="sm"
+                variant="quiet"
+                icon="chevronRight"
+                onClick={() => actions.openPage?.({ view: "department", id: department.id })}
+              >
+                Open the department's page
+              </Button>
+            )}
             <button
               type="button"
               className="button button--small button--quiet"
@@ -603,8 +630,30 @@ function PositionPanel({
             <dt>Permission limit</dt>
             <dd>{project.capabilityProfile ?? "No limit"}</dd>
           </dl>
+          {actions.openPage && !project.active && (
+            <div className="actions">
+              <Button
+                size="sm"
+                variant="quiet"
+                icon="chevronRight"
+                onClick={() => actions.openPage?.({ view: "project", id: project.id })}
+              >
+                Open the project's page
+              </Button>
+            </div>
+          )}
           {project.active && (
             <div className="actions">
+              {actions.openPage && (
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  icon="chevronRight"
+                  onClick={() => actions.openPage?.({ view: "project", id: project.id })}
+                >
+                  Open the project's page
+                </Button>
+              )}
               <button
                 type="button"
                 className="button button--small button--quiet"

@@ -43,6 +43,7 @@ import { Glyph } from "../components/org/Glyph";
 import { HirePalette } from "../components/org/HirePalette";
 import { Inspector, type InspectorActions } from "../components/org/Inspector";
 import { ConfirmDialog, Modal } from "../components/org/Modal";
+import type { Go } from "../components/views";
 import {
   EditDepartmentDialog,
   EditProjectDialog,
@@ -156,11 +157,14 @@ function readCollapsed(): Set<string> {
 export function OrganizationView({
   onOpenSession,
   onOpenTask,
+  onOpenPage,
   focusId = null,
   onFocusHandled,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** Opens the page of a position, department, or project (Phase 12). */
+  onOpenPage?: Go | undefined;
   /** A position to show on arrival (from another view). */
   focusId?: string | null;
   onFocusHandled?: () => void;
@@ -298,6 +302,7 @@ export function OrganizationView({
       confirm: (request) => setDialog({ kind: "confirm", ...request }),
       openSession: onOpenSession,
       openTask: onOpenTask,
+      openPage: onOpenPage,
       api: {
         fill: fillPosition,
         vacate: vacatePosition,
@@ -310,7 +315,7 @@ export function OrganizationView({
         archiveProject,
       },
     }),
-    [run, reload, onOpenSession, onOpenTask],
+    [run, reload, onOpenSession, onOpenTask, onOpenPage],
   );
 
   // ---- Drag and drop -------------------------------------------------------------------------

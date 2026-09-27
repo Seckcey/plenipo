@@ -173,6 +173,9 @@ pub fn configure<R: Runtime>(
             commands::get_task_timeline,
             commands::list_recent_events,
             commands::get_activity,
+            commands::get_scope_events,
+            commands::get_task_events,
+            commands::get_project_record,
             commands::create_synthetic_task,
             commands::advance_synthetic_task,
             commands::run_integrity_check,
@@ -190,6 +193,8 @@ pub fn configure<R: Runtime>(
             commands::get_liaison_overview,
             commands::get_organization,
             commands::get_work,
+            commands::get_home,
+            commands::get_task_record,
             commands::rename_organization,
             commands::set_organization_titles,
             commands::create_role,
@@ -2504,6 +2509,81 @@ mod ipc_boundary_tests {
             assert!(invoke(&other, cmd).is_err(), "{cmd}");
             assert!(
                 invoke_from(&main, cmd, "https://example.com").is_err(),
+                "{cmd}"
+            );
+        }
+    }
+
+    /// The pages (Phase 12): Home, and the history and records of a department, project,
+    /// position, or task. The main window only; bad scopes and IDs are refused.
+    #[test]
+    fn the_pages_read_through_ipc_for_the_main_window_only() {
+        use plenipo_capabilities::TaskRecord;
+        use plenipo_ledger::{LedgerEvent, WorkRecord};
+        use plenipo_workforce::HomeView;
+        let app = app();
+        let main = window(&app, "main");
+        let home: HomeView = body(invoke(&main, "get_home"));
+        assert!(home.current.is_empty() && home.finished.is_empty() && home.stuck.is_empty());
+        let all = serde_json::json!({ "scope": { "kind": "all" }, "limit": 20 });
+        let events: Vec<LedgerEvent> = body(invoke_json(&main, "get_scope_events", all.clone()));
+        assert!(events.len() <= 20);
+        let err = invoke_json(
+            &main,
+            "get_scope_events",
+            serde_json::json!({ "scope": { "kind": "department", "id": "" }, "limit": 5 }),
+        )
+        .expect_err("an empty ID");
+        assert_eq!(err["kind"], "invalidInput");
+        // A department that does not exist is plainly refused.
+        assert!(invoke_json(
+            &main,
+            "get_scope_events",
+            serde_json::json!({ "scope": { "kind": "department", "id": SESSION }, "limit": 5 }),
+        )
+        .is_err());
+        let task = serde_json::json!({ "taskId": SESSION, "limit": 10 });
+        let tree: Vec<LedgerEvent> = body(invoke_json(&main, "get_task_events", task.clone()));
+        assert!(tree.is_empty());
+        let project = serde_json::json!({ "projectId": SESSION });
+        let record: WorkRecord = body(invoke_json(&main, "get_project_record", project.clone()));
+        assert!(record.pull_requests.is_empty());
+        let task_record: TaskRecord = body(invoke_json(
+            &main,
+            "get_task_record",
+            serde_json::json!({ "taskId": SESSION }),
+        ));
+        assert!(task_record.approvals.is_empty());
+        for bad in ["../x", "not an id"] {
+            assert!(invoke_json(
+                &main,
+                "get_task_record",
+                serde_json::json!({ "taskId": bad })
+            )
+            .is_err());
+            assert!(invoke_json(
+                &main,
+                "get_project_record",
+                serde_json::json!({ "projectId": bad })
+            )
+            .is_err());
+        }
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            ("get_home", serde_json::json!({})),
+            ("get_scope_events", all),
+            ("get_task_events", task),
+            ("get_project_record", project),
+            ("get_task_record", serde_json::json!({ "taskId": SESSION })),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
                 "{cmd}"
             );
         }

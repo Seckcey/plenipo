@@ -1998,6 +1998,28 @@ impl Broker {
     }
 
     /// Pending approvals and recent outcomes.
+    /// A task's page (Phase 12): the pull requests, artifacts, and decisions of the task and
+    /// every task under it, and their approvals (waiting ones first, then newest first).
+    pub fn task_record(&self, task_id: &str) -> Result<TaskRecord> {
+        let ledger = self.ledger();
+        let record = ledger.work_record(plenipo_ledger::WorkOf::Task(task_id), 100)?;
+        let waiting: HashSet<String> = self.state().waiters.keys().cloned().collect();
+        let mut approvals: Vec<ApprovalView> = Vec::new();
+        for id in ledger.tree_task_ids(task_id)? {
+            for a in ledger.approvals_for_task(&id)? {
+                let pending = a.state == ApprovalState::Pending;
+                approvals.push(self.approval_view(&a, pending.then_some(&waiting)));
+            }
+        }
+        approvals.sort_by(|a, b| {
+            (b.status == ApprovalStatus::Pending)
+                .cmp(&(a.status == ApprovalStatus::Pending))
+                .then(b.requested_at.cmp(&a.requested_at))
+        });
+        approvals.truncate(100);
+        Ok(TaskRecord { record, approvals })
+    }
+
     pub fn approvals(&self) -> Result<ApprovalQueue> {
         let waiting: HashSet<String> = self.state().waiters.keys().cloned().collect();
         let pending = self

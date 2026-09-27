@@ -16,4 +16,12 @@ tasks: number, active: number, failed: number, waitingApprovals: number,
 /**
  * Its branch, when it has a working copy.
  */
-branch: string | null, };
+branch: string | null, 
+/**
+ * The project it touched (Phase 12).
+ */
+projectId: string | null, 
+/**
+ * The first part of the answer of whoever was given it, once there is one (Phase 12).
+ */
+answer: string | null, };

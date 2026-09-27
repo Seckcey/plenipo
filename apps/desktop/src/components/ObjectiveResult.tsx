@@ -82,10 +82,13 @@ export function ObjectiveResult({
   report,
   onOpenTask,
   onOpenApprovals,
+  openLabel = "Open in Activity",
 }: {
   report: ObjectiveReport;
   onOpenTask?: (taskId: string) => void;
   onOpenApprovals?: () => void;
+  /** The words of the link that opens the objective's own task; `null` leaves it out (its page). */
+  openLabel?: string | null;
 }) {
   const tests = report.checks.filter((c) => c.test);
   const passed = tests.filter((c) => c.ok).length;
@@ -109,9 +112,9 @@ export function ObjectiveResult({
           <span className={`badge badge--task-${report.state}`}>
             {WORKER_STATE_LABEL[report.state]}
           </span>
-          {onOpenTask && (
+          {onOpenTask && openLabel && (
             <button type="button" className="link" onClick={() => onOpenTask(report.rootTaskId)}>
-              Open in Activity
+              {openLabel}
             </button>
           )}
         </div>

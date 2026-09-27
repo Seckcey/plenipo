@@ -14,6 +14,7 @@ export * from "./states";
 export * from "./controls";
 export * from "./menu";
 export * from "./log";
+export * from "./page";
 export { terminalTheme, TERMINAL_FONT, type TerminalTheme } from "./terminal-theme";
 export * from "./cards";
 export * from "./table";

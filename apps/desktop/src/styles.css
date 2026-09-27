@@ -3234,3 +3234,98 @@ body {
   margin: 12px 0 4px;
   font-size: var(--ui-font-sm);
 }
+
+/* Home and the pages of one department, project, worker, or task (Phase 12). Page layout only:
+   the parts (header, panels, rows, tiles, Pip's greeting) come from the library. */
+.page {
+  display: grid;
+  gap: var(--ui-space-7);
+  max-width: 1480px;
+}
+
+.page > .ui-page-head,
+.page > .ui-hero {
+  margin-bottom: 0;
+}
+
+.page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: var(--ui-space-6);
+  align-items: start;
+}
+
+.page__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--ui-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page__history {
+  display: grid;
+  gap: var(--ui-space-4);
+  justify-items: start;
+}
+
+.page__history > .ui-rows {
+  width: 100%;
+}
+
+.page__note {
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.page__note--error {
+  color: var(--ui-error);
+}
+
+.page__meta {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-sm);
+}
+
+.page__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.page__path {
+  overflow-wrap: anywhere;
+}
+
+.page__strip {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.page__strip-heading {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.page__shots {
+  display: grid;
+  gap: var(--ui-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page__shot-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  margin-bottom: var(--ui-space-2);
+}
+
+.page__result > .result {
+  margin: 0;
+}

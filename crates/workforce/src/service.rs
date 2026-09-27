@@ -332,50 +332,59 @@ impl Workforce {
             .into_iter()
             .map(|a| a.task_id)
             .collect();
-        let mut objectives = Vec::new();
-        for root in l.project_objectives(project_id, 20)? {
-            let tree = l.descendant_tasks(&root.id)?;
-            let all: Vec<&Task> = std::iter::once(&root)
-                .chain(tree.iter().map(|(t, _)| t))
-                .collect();
-            let count = |f: &dyn Fn(&Task) -> bool| {
-                u32::try_from(all.iter().filter(|t| f(t)).count()).unwrap_or(u32::MAX)
-            };
-            let branch = match root.metadata["liaison"]["correlationId"].as_str() {
-                Some(c) => l
-                    .workflow_workspaces(c)?
-                    .into_iter()
-                    .find(|w| w.project_id == project_id && w.parent_id.is_none())
-                    .map(|w| w.branch),
-                None => None,
-            };
-            objectives.push(ObjectiveBrief {
-                objective: root
-                    .objective
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_owned(),
-                position_title: root.metadata["workforce"]["positionId"]
-                    .as_str()
-                    .and_then(|p| view.position(p))
-                    .map(|p| p.title.clone()),
-                state: root.state,
-                created_at: root.created_at,
-                completed_at: root.completed_at,
-                tasks: count(&|_| true),
-                active: count(&|t| !t.state.is_terminal() && t.state != TaskState::Queued),
-                failed: count(&|t| t.state == TaskState::Failed),
-                waiting_approvals: count(&|t| pending.contains(&t.id)),
-                branch,
-                root_task_id: root.id,
-            });
-        }
+        let objectives = l
+            .project_objectives(project_id, 20)?
+            .into_iter()
+            .map(|root| brief(l, &view, &pending, root, Some(project_id)))
+            .collect::<Result<Vec<_>>>()?;
         Ok(ProjectWork {
             project_id: project_id.to_owned(),
             objectives,
             working_copies: l.project_workspaces(project_id, 20)?,
+        })
+    }
+
+    /// Home (Phase 12): the objectives still going, those finished in the last week with their
+    /// answers, and what is stuck (the last week).
+    pub fn home(&self) -> Result<HomeView> {
+        const WEEK_MS: u64 = 7 * 24 * 3_600_000;
+        let l = self.ledger();
+        let records = l.org_records()?;
+        let view = OrgView::new(&records);
+        let pending: Vec<String> = l
+            .pending_approvals()?
+            .into_iter()
+            .map(|a| a.task_id)
+            .collect();
+        let since = plenipo_ledger::now_ms().saturating_sub(WEEK_MS);
+        let mut current = Vec::new();
+        let mut finished = Vec::new();
+        for root in l.org_objectives(400)? {
+            if !root.state.is_terminal() {
+                if current.len() < 50 {
+                    current.push(brief(l, &view, &pending, root, None)?);
+                }
+            } else if root.completed_at.unwrap_or(root.updated_at) >= since && finished.len() < 20 {
+                finished.push(brief(l, &view, &pending, root, None)?);
+            }
+        }
+        let titles: HashMap<&str, &str> = records
+            .positions
+            .iter()
+            .map(|p| (p.id.as_str(), p.title.as_str()))
+            .collect();
+        let mut stuck = Vec::new();
+        for event in l.problems(since, 30)? {
+            let task = match event.task_id.as_deref() {
+                Some(id) => l.task(id)?.map(|t| snapshot::brief(&t, &titles)),
+                None => None,
+            };
+            stuck.push(StuckItem { event, task });
+        }
+        Ok(HomeView {
+            current,
+            finished,
+            stuck,
         })
     }
 
@@ -893,4 +902,75 @@ impl Workforce {
         }
         Ok((plan, note))
     }
+}
+
+/// Longest answer an objective's summary keeps (characters).
+const BRIEF_ANSWER_CHARS: usize = 600;
+
+/// An objective in a line: who has it, its state, how its tasks are going, its branch, its
+/// project, and the start of its answer.
+fn brief(
+    l: &plenipo_ledger::Ledger,
+    view: &OrgView<'_>,
+    pending: &[String],
+    root: Task,
+    project_id: Option<&str>,
+) -> Result<ObjectiveBrief> {
+    let tree = l.descendant_tasks(&root.id)?;
+    let all: Vec<&Task> = std::iter::once(&root)
+        .chain(tree.iter().map(|(t, _)| t))
+        .collect();
+    let count = |f: &dyn Fn(&Task) -> bool| {
+        u32::try_from(all.iter().filter(|t| f(t)).count()).unwrap_or(u32::MAX)
+    };
+    let project_id = project_id
+        .map(str::to_owned)
+        .or_else(|| all.iter().find_map(|t| t.project_id.clone()));
+    let branch = match (
+        root.metadata["liaison"]["correlationId"].as_str(),
+        &project_id,
+    ) {
+        (Some(c), Some(p)) => l
+            .workflow_workspaces(c)?
+            .into_iter()
+            .find(|w| &w.project_id == p && w.parent_id.is_none())
+            .map(|w| w.branch),
+        _ => None,
+    };
+    let answer = l
+        .last_task_event(&root.id, "agent.result")?
+        .and_then(|e| e.payload["text"].as_str().map(str::trim).map(str::to_owned))
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            if t.chars().count() > BRIEF_ANSWER_CHARS {
+                let cut: String = t.chars().take(BRIEF_ANSWER_CHARS).collect();
+                format!("{cut}…")
+            } else {
+                t
+            }
+        });
+    Ok(ObjectiveBrief {
+        objective: root
+            .objective
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_owned(),
+        position_title: root.metadata["workforce"]["positionId"]
+            .as_str()
+            .and_then(|p| view.position(p))
+            .map(|p| p.title.clone()),
+        state: root.state,
+        created_at: root.created_at,
+        completed_at: root.completed_at,
+        tasks: count(&|_| true),
+        active: count(&|t| !t.state.is_terminal() && t.state != TaskState::Queued),
+        failed: count(&|t| t.state == TaskState::Failed),
+        waiting_approvals: count(&|t| pending.contains(&t.id)),
+        branch,
+        project_id,
+        answer,
+        root_task_id: root.id,
+    })
 }

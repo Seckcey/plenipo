@@ -31,8 +31,8 @@ use plenipo_capabilities::browser::BrowserStatus;
 use plenipo_capabilities::control::{ControlKind, ControlStatus};
 use plenipo_capabilities::{
     ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot, ServerIdentity,
-    ServerTest, ServersSnapshot, TerminalEvent, TerminalInfo, TerminalPlace, TerminalSettings,
-    TerminalShell,
+    ServerTest, ServersSnapshot, TaskRecord, TerminalEvent, TerminalInfo, TerminalPlace,
+    TerminalSettings, TerminalShell,
 };
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
@@ -41,7 +41,7 @@ use plenipo_guard::{
 };
 use plenipo_ledger::{
     ActivityScope, ActivitySeries, BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError,
-    LedgerEvent, LedgerStatus, NewTask, Task, TaskState, TaskTimeline,
+    LedgerEvent, LedgerStatus, NewTask, Task, TaskState, TaskTimeline, WorkRecord,
 };
 use plenipo_liaison::{Liaison, LiaisonError, LiaisonOverview, TaskHandoffs, TaskTree};
 use plenipo_router::{
@@ -54,9 +54,9 @@ use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
 };
 use plenipo_workforce::{
-    DepartmentInput, DevelopmentInput, HireInput, LeadInput, LearningSnapshot, ObjectiveReport,
-    OrgSnapshot, OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob,
-    RoleUpdate, TitleTheme, WorkView, Workforce, WorkforceError,
+    DepartmentInput, DevelopmentInput, HireInput, HomeView, LeadInput, LearningSnapshot,
+    ObjectiveReport, OrgSnapshot, OversightRole, PositionPatchInput, ProjectInput, ProjectWork,
+    RoleInput, RoleJob, RoleUpdate, TitleTheme, WorkView, Workforce, WorkforceError,
 };
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
@@ -187,6 +187,60 @@ pub async fn list_recent_events(
     with_ledger(&ledger, |l| l.recent_events(200)).await
 }
 
+fn validate_scope(scope: &ActivityScope) -> Result<(), CommandError> {
+    match scope {
+        ActivityScope::All => Ok(()),
+        ActivityScope::Department(id)
+        | ActivityScope::Project(id)
+        | ActivityScope::Position(id) => {
+            if id.is_empty() || id.len() > 64 {
+                Err(CommandError::invalid_input("invalid activity scope"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A department's, project's, or position's history (Phase 12: their pages): the events of
+/// its team's tasks and its projects' tasks, newest first, before event `before`.
+#[tauri::command]
+pub async fn get_scope_events(
+    ledger: State<'_, Arc<Ledger>>,
+    scope: ActivityScope,
+    before: Option<u64>,
+    limit: u32,
+) -> Result<Vec<LedgerEvent>, CommandError> {
+    validate_scope(&scope)?;
+    with_ledger(&ledger, move |l| l.scope_events(&scope, before, limit)).await
+}
+
+/// A task's events with those of every task under it (Phase 12: the task page), newest first,
+/// before event `before`.
+#[tauri::command]
+pub async fn get_task_events(
+    ledger: State<'_, Arc<Ledger>>,
+    task_id: String,
+    before: Option<u64>,
+    limit: u32,
+) -> Result<Vec<LedgerEvent>, CommandError> {
+    validate_id("task", &task_id)?;
+    with_ledger(&ledger, move |l| l.tree_events(&task_id, before, limit)).await
+}
+
+/// A project's page (Phase 12): its pull requests, artifacts, and recent decisions.
+#[tauri::command]
+pub async fn get_project_record(
+    ledger: State<'_, Arc<Ledger>>,
+    project_id: String,
+) -> Result<WorkRecord, CommandError> {
+    validate_id("project", &project_id)?;
+    with_ledger(&ledger, move |l| {
+        l.work_record(plenipo_ledger::WorkOf::Project(&project_id), 100)
+    })
+    .await
+}
+
 /// Activity for each scope, counted into `buckets` time buckets over `[from, to)` (Phase 12A:
 /// the activity strips). The Ledger checks the range, the bucket count, and each scope.
 #[tauri::command]
@@ -197,14 +251,7 @@ pub async fn get_activity(
     to: u64,
     buckets: u32,
 ) -> Result<Vec<ActivitySeries>, CommandError> {
-    if scopes.iter().any(|s| match s {
-        ActivityScope::All => false,
-        ActivityScope::Department(id)
-        | ActivityScope::Project(id)
-        | ActivityScope::Position(id) => id.is_empty() || id.len() > 64,
-    }) {
-        return Err(CommandError::invalid_input("invalid activity scope"));
-    }
+    scopes.iter().try_for_each(validate_scope)?;
     with_ledger(&ledger, move |l| l.activity(&scopes, from, to, buckets)).await
 }
 
@@ -564,6 +611,24 @@ pub async fn get_work(
 ) -> Result<WorkView, CommandError> {
     validate_optional_id("position", position_id.as_deref())?;
     with_workforce(&workforce, move |w| w.work(position_id.as_deref())).await
+}
+
+/// Home (Phase 12): objectives still going, those finished in the last week with their
+/// answers, and what is stuck.
+#[tauri::command]
+pub async fn get_home(workforce: State<'_, Workforce>) -> Result<HomeView, CommandError> {
+    with_workforce(&workforce, Workforce::home).await
+}
+
+/// A task's page (Phase 12): the pull requests, artifacts, decisions, and approvals of the
+/// task and every task under it.
+#[tauri::command]
+pub async fn get_task_record(
+    broker: State<'_, Broker>,
+    task_id: String,
+) -> Result<TaskRecord, CommandError> {
+    validate_id("task", &task_id)?;
+    with_broker(&broker, move |b| b.task_record(&task_id)).await
 }
 
 #[tauri::command]
