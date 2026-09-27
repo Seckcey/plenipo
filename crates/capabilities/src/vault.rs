@@ -100,6 +100,14 @@ pub struct MemorySecretStore {
 }
 
 impl MemorySecretStore {
+    /// A store that, like Windows Credential Manager, refuses values longer than `chars`.
+    pub fn with_limit(chars: usize) -> Self {
+        Self {
+            limit: Some(chars),
+            ..Self::default()
+        }
+    }
+
     fn map(
         &self,
     ) -> std::result::Result<std::sync::MutexGuard<'_, HashMap<String, String>>, String> {

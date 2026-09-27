@@ -21,6 +21,13 @@ name = "plenipo-tool-relay"
 path = "tests/support/relay.rs"
 test = false
 
+[[bin]]
+# Test helper: a synthetic SSH server on 127.0.0.1 for the Phase 11 end-to-end test (the Rust
+# tests run the same server in-process). Never shipped.
+name = "plenipo-test-sshd"
+path = "tests/support/sshd_main.rs"
+test = false
+
 [dependencies]
 base64 = "0.22"
 dunce = "1"

@@ -1081,7 +1081,15 @@ impl Broker {
         worker: String,
         why: String,
     ) {
-        use_.stop.send_replace(Some(why.clone()));
+        // The first reason stands (Stop all also revokes the worker's permissions).
+        use_.stop.send_if_modified(|v| {
+            if v.is_none() {
+                *v = Some(why.clone());
+                true
+            } else {
+                false
+            }
+        });
         let forwards = std::mem::take(&mut *lock(&use_.forwards));
         for (server, to, f) in forwards {
             f.close();
