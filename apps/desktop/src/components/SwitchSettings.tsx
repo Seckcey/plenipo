@@ -122,7 +122,7 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
         <h3 id="switches-other">Checks and screenshots</h3>
         <Toggle
           label="Hand me checks that a person is using a website"
-          hint="CAPTCHAs. On: the worker stops, shows you the page, and waits while you solve it, then carries on. Off: the worker stops and tells you. Workers never try to solve these checks."
+          hint="CAPTCHAs. On: the worker tries the check up to 3 times; if it is still there, it shows you the page and waits while you solve it, then carries on. Off: the worker stops and tells you without trying."
           checked={s.captchaToOwner}
           disabled={pending}
           onChange={flip("captchaToOwner")}
@@ -136,9 +136,9 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
         />
       </section>
       <p className="muted switches__always">
-        Always on, with no switch: workers never type passwords or secrets and never try to get past
-        a CAPTCHA; the sign shows whenever a worker uses the browser, your mouse, or a server; and
-        Stop halts it at once.
+        Always on, with no switch: workers never type passwords or secrets and never try a CAPTCHA
+        more than 3 times; the sign shows whenever a worker uses the browser, your mouse, or a
+        server; and Stop halts it at once.
       </p>
       {error && (
         <p className="form-error" role="alert">

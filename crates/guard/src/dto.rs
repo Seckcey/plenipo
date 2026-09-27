@@ -194,7 +194,8 @@ impl Default for GuardOptions {
 
 /// The owner's on/off switches (ADR-023): whole features, and what workers may do on the
 /// websites the owner allowed without asking first. The safety rules that keep the owner in
-/// charge (no passwords, secrets, or CAPTCHA attempts; the sign; Stop) have no switch.
+/// charge (no passwords or secrets, at most 3 tries at a CAPTCHA; the sign; Stop) have no
+/// switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
@@ -211,8 +212,9 @@ pub struct Switches {
     /// On websites on the allowed list, sign in without asking (workers still never type a
     /// password).
     pub sign_in_without_asking: bool,
-    /// When a website checks for a person (a CAPTCHA), the worker hands it to the owner to
-    /// solve and waits. Off: the worker stops there. Workers never try to solve one.
+    /// When a website checks for a person (a CAPTCHA), the worker tries it at most 3 times, then
+    /// hands it to the owner to solve and waits. Off: the worker stops there without trying
+    /// (ADR-029).
     pub captcha_to_owner: bool,
     /// Keep a screenshot of every significant step in the Activity trail. Off: only approval
     /// cards keep a picture of the page.

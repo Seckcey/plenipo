@@ -792,7 +792,8 @@ async fn plan_screenshot_capture() {
 
 /// Plan: form interaction in a synthetic test environment. A Web Assistant fills in a contact
 /// form and sends it: typing goes ahead, sending waits for the owner, and the site receives
-/// the form only after approval. Password fields and CAPTCHAs are never touched.
+/// the form only after approval. Password fields are never touched; a CAPTCHA gets its counted
+/// tries (ADR-029).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plan_form_interaction() {
     let browser = need_browser!();
@@ -848,7 +849,7 @@ async fn plan_form_interaction() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].path, "/send");
     assert!(sent[0].body.contains("name=Ada+Lovelace"), "{sent:?}");
-    // The password field and the CAPTCHA were refused.
+    // The password field was refused; the CAPTCHA click went ahead as try 1 of 3 (ADR-029).
     let refusals: Vec<&str> = text.lines().filter(|l| l.contains(" failed: ")).collect();
     assert!(
         refusals
@@ -857,12 +858,16 @@ async fn plan_form_interaction() {
                 && l.contains("password, one-time code, or card field")),
         "{text}"
     );
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 2, "{clicks:?}");
     assert!(
-        refusals
-            .iter()
-            .any(|l| l.starts_with("Tool browser_click failed") && l.contains("CAPTCHA")),
-        "{text}"
+        clicks[1].contains("Clicked") && !clicks[1].contains("failed"),
+        "{clicks:?}"
     );
+    assert!(text.contains("try 1 of 3"), "{text}");
     // Every significant action is in the trail, with a screenshot.
     let used = h.events(&task.id, "capability.used");
     let tools: Vec<&str> = used.iter().map(|u| u["tool"].as_str().unwrap()).collect();
@@ -875,11 +880,12 @@ async fn plan_form_interaction() {
             "browser_type",
             "browser_click",
             "browser_open",
-            "browser_open"
+            "browser_open",
+            "browser_click"
         ]
     );
     assert!(used.iter().all(|u| u["screenshot"].is_string()), "{used:?}");
-    assert_eq!(h.events(&task.id, "guard.denied").len(), 2);
+    assert_eq!(h.events(&task.id, "guard.denied").len(), 1);
 }
 
 /// Plan: approval-gated submit. Buying waits for the owner and, when refused, nothing reaches
@@ -1427,9 +1433,9 @@ async fn switches_send_without_asking_and_screenshots_off() {
     assert_eq!(h.approvals_for(&task.id), 1, "only the order asked");
 }
 
-/// A check that a person is using the site (a CAPTCHA) goes to the owner: the worker never
-/// touches it, waits while the owner solves it in Plenipo's browser, and continues when the
-/// owner approves. With the switch off, the worker is told to stop.
+/// A check that a person is using the site (a CAPTCHA) goes to the owner: the worker has tried
+/// it its counted times (ADR-029), waits while the owner solves it in Plenipo's browser, and
+/// continues when the owner approves. With the switch off, the worker is told to stop.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_person_check_is_handed_to_the_owner() {
     let browser = need_browser!();
@@ -1453,7 +1459,8 @@ async fn a_person_check_is_handed_to_the_owner() {
         a.summary
     );
     assert!(
-        a.reason.contains("never answers these checks"),
+        a.reason
+            .contains("tried the check 1 time and could not get past it"),
         "{}",
         a.reason
     );
@@ -1472,9 +1479,10 @@ async fn a_person_check_is_handed_to_the_owner() {
     let task = h.finished(&task.id).await;
     let text = h.text(&task.id);
     assert!(
-        line(&text, "browser_click").contains("call browser_person_check"),
-        "the worker never clicks the check: {text}"
+        line(&text, "browser_click").contains("Clicked"),
+        "the worker's try at the check went ahead: {text}"
     );
+    assert!(text.contains("try 1 of 3"), "{text}");
     assert!(
         line(&text, "browser_person_check").contains("The owner solved the check"),
         "{text}"
@@ -1503,6 +1511,112 @@ async fn a_person_check_is_handed_to_the_owner() {
         line(&text, "browser_person_check").contains("has not switched on handing these checks"),
         "{text}"
     );
+}
+
+/// A CAPTCHA is tried three counted times before it goes to the owner (ADR-029): only a
+/// submitted answer counts as a try (clicking its control, or Enter or Space in it), while
+/// typing and moving around inside it are free. The try after the limit is refused and pointed
+/// at the hand-off, and browser_person_check then brings the owner in. With the hand-off switch
+/// off, no try happens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_captcha_is_tried_three_times_before_handoff() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let captcha = h.url("shop", "/captcha");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": captcha })),
+            tool("browser_type", json!({ "ref": "e2", "text": "a person" })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_type", json!({ "ref": "e2", "text": "really" })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_person_check", json!({})),
+            tool("browser_read", json!({}))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    let a = h.pending().await;
+    assert!(
+        a.summary
+            .contains("hand you a check that a person is using shop.test"),
+        "{}",
+        a.summary
+    );
+    assert!(
+        a.reason
+            .contains("tried the check 3 times and could not get past it"),
+        "{}",
+        a.reason
+    );
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    // The page said the worker may try, and the three submitted answers were counted out loud,
+    // in order. Typing inside the check was free: it produced no try of its own.
+    assert!(
+        text.contains("each answer you submit counts as one try"),
+        "{text}"
+    );
+    let tries: Vec<usize> = [1, 2, 3]
+        .iter()
+        .map(|n| {
+            text.find(format!("try {n} of 3").as_str())
+                .unwrap_or_else(|| panic!("no try {n} in:\n{text}"))
+        })
+        .collect();
+    assert!(tries[0] < tries[1] && tries[1] < tries[2], "{tries:?}");
+    assert_eq!(text.matches(" of 3").count(), 3, "{text}");
+    let types: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_type"))
+        .collect();
+    assert_eq!(types.len(), 2, "{types:?}");
+    assert!(types.iter().all(|t| !t.contains("of 3")), "{types:?}");
+    // The fourth try was refused and pointed at the hand-off.
+    let refused: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click failed"))
+        .collect();
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(refused[0].contains("tried it 3 times"), "{refused:?}");
+    assert!(refused[0].contains("browser_person_check"), "{refused:?}");
+    assert!(
+        line(&text, "browser_person_check").contains("The owner solved the check"),
+        "{text}"
+    );
+    assert!(!line(&text, "browser_read").contains("failed"), "{text}");
+    // After the hand-off the count started over.
+    let solved = text.find("The owner solved the check").unwrap();
+    let used = text.rfind("you have used 0").unwrap();
+    assert!(solved < used, "tries start over after the hand-off: {text}");
+    h.finished(&root).await;
+
+    // Switched off: the very first touch of the check is refused, and no try is counted.
+    h.guard
+        .set_switches(&Switches {
+            desktop: true,
+            captcha_to_owner: false,
+            ..Switches::default()
+        })
+        .unwrap();
+    let (_, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": captcha })),
+                tool("browser_click", json!({ "ref": "e1" }))
+            ], "say": "Done." }]),
+        )
+        .await;
+    assert!(
+        line(&text, "browser_click").contains("has not switched on handing these checks"),
+        "{text}"
+    );
+    assert!(!text.contains("try 1 of 3"), "{text}");
 }
 
 /// Switching Plenipo's browser off (ADR-023) stops the worker using it at once; the next

@@ -9,6 +9,8 @@
 - **Extended by:** [ADR-025 (servers over SSH, through Guard)](ADR-025-servers-over-ssh.md): a
   **Remote computers (SSH)** switch, off to start, that works like the screen, mouse, and
   keyboard switch
+- **Amended by:** [ADR-029 (workers try a CAPTCHA three times before handing it to the
+  owner)](ADR-029-captcha-attempts.md): sections 4 and 5, and the rejected alternative below
 
 ## Context
 
@@ -120,10 +122,12 @@ Enter while holding them, always ask.
 
 ## Alternatives considered
 
-- **Let workers attempt CAPTCHAs (up to three tries).** Rejected: it is bypassing a website's
-  security. It breaks sites' terms, risks the owner's accounts being banned, can break
+- **Let workers attempt CAPTCHAs (up to three tries).** Rejected at the time: it is bypassing a
+  website's security. It breaks sites' terms, risks the owner's accounts being banned, can break
   computer-misuse laws, and breaks the owner's own rule. Solving services are rejected for the
-  same reasons.
+  same reasons. **Amended by
+  [ADR-029](ADR-029-captcha-attempts.md): the owner now accepts these risks for their own
+  accounts; workers get three counted tries before the hand-off.**
 - **"Without asking" on any website that is not blocked.** Rejected: unknown websites are the
   likeliest to trick a worker. Only the Allowed list, which the owner curates, qualifies.
 - **A switch for the sign, Take over, or Stop.** Rejected: they are how the owner sees and stops

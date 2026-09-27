@@ -307,7 +307,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "browser_person_check",
         capability: Capability::BrowserNavigate,
         risk: Risk::Web,
-        description: "Hand a check that a person is using the site (a CAPTCHA) to the owner: Plenipo shows them the page, they solve it themselves, and you continue when they say it is done. Never try to answer such a check yourself. Works only when the owner allows it; otherwise stop and say that the owner should take over.",
+        description: "Hand a check that a person is using the site (a CAPTCHA) to the owner: Plenipo shows them the page, they solve it themselves, and you continue when they say it is done. You may try such a check yourself first: each answer you submit counts as one try, and Plenipo stops you after 3. Works only when the owner allows it; otherwise stop and say that the owner should take over.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {

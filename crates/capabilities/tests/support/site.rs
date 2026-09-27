@@ -196,7 +196,8 @@ fn route(
         ("GET", "/captcha") => ok(page(
             "Check",
             "<p>Please confirm you are a person.</p><div class=\"g-recaptcha\" \
-             data-sitekey=\"test\"><button type=button>I'm not a robot</button></div>",
+             data-sitekey=\"test\"><button type=button>I'm not a robot</button>\
+             <input name=answer></div>",
         )),
         ("GET", "/auto") => ok(page(
             "Auto",
