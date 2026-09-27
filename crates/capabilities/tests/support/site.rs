@@ -152,6 +152,8 @@ fn route(
     port: u16,
 ) -> (&'static str, Option<String>, String) {
     let ok = |html: String| ("200 OK", None, html);
+    // The framed check's variant that opens a puzzle instead of passing.
+    let puzzle = path.contains("puzzle");
     match (method, path.split('?').next().unwrap_or("/")) {
         ("GET", "/") => ok(page(
             "Synthetic Shop",
@@ -198,6 +200,53 @@ fn route(
             "<p>Please confirm you are a person.</p><div class=\"g-recaptcha\" \
              data-sitekey=\"test\"><button type=button>I'm not a robot</button>\
              <input name=answer></div>",
+        )),
+        // A check like a real one (ADR-032): its checkbox is inside its own frame, and passing
+        // it writes the answer into the page, where Plenipo reads it. With `?puzzle`, the
+        // check opens a puzzle frame instead.
+        ("GET", "/captcha-frame") => ok(page(
+            "Framed check",
+            &format!(
+                "<p>Please confirm you are a person.</p>\
+                 <div class=\"g-recaptcha\" data-sitekey=\"test\">\
+                 <iframe src=\"/recaptcha/anchor{}\" title=\"reCAPTCHA\" width=304 height=78 \
+                 style=\"border:0\"></iframe>\
+                 <textarea name=\"g-recaptcha-response\" style=\"display:none\"></textarea></div>\
+                 <div id=puzzle style=\"visibility:hidden;position:absolute;top:160px;left:40px\">\
+                 <iframe src=\"/recaptcha/bframe\" title=\"recaptcha challenge expires in two \
+                 minutes\" width=400 height=580 style=\"border:0\"></iframe></div>\
+                 <form method=post action=\"/send\"><input type=hidden name=name value=checked>\
+                 <button type=submit>Send</button></form>\
+                 <script>addEventListener('message', e => {{ \
+                 if (e.data === 'plenipo-test:passed') \
+                 document.querySelector('[name=g-recaptcha-response]').value = 'token-' + Date.now(); \
+                 if (e.data === 'plenipo-test:puzzle') \
+                 document.getElementById('puzzle').style.visibility = 'visible'; }})</script>",
+                if puzzle { "?puzzle" } else { "" }
+            ),
+        )),
+        // The check's widget, laid out like reCAPTCHA's: a 28-pixel checkbox at the left of a
+        // 304 × 78 row, then the words. Only the checkbox itself answers.
+        ("GET", "/recaptcha/anchor") => ok(format!(
+            "<!doctype html><html><head><meta charset=utf-8><style>body{{margin:0;font:14px \
+             system-ui}}.rc{{display:flex;align-items:center;height:78px;width:304px;\
+             box-sizing:border-box;border:2px solid #d3d3d3;background:#f9f9f9}}\
+             #box{{width:28px;height:28px;margin:0 12px;border:2px solid #c1c1c1;\
+             border-radius:2px;background:#fff;box-sizing:border-box}}#box.on{{border-color:\
+             #1a73e8}}</style></head><body><div class=rc><div id=box role=checkbox \
+             aria-checked=false></div><span>I'm not a robot</span></div>\
+             <script>document.getElementById('box').onclick = () => {{ \
+             document.getElementById('box').className = 'on'; \
+             parent.postMessage({}, '*') }}</script></body></html>",
+            if puzzle {
+                "'plenipo-test:puzzle'"
+            } else {
+                "'plenipo-test:passed'"
+            }
+        )),
+        ("GET", "/recaptcha/bframe") => ok(page(
+            "Puzzle",
+            "<p>Select all images with a bus.</p>",
         )),
         ("GET", "/auto") => ok(page(
             "Auto",
