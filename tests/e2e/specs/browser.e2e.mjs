@@ -289,9 +289,11 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
       ...contact("Ada Lovelace"),
       tool("browser_open", { url: url("localhost", "/") }),
     ]);
-    // While the worker waits, the sign on every page says who is using the browser.
+    // While the worker waits, the sign on every page says who is using the browser. This is the
+    // suite's first browser start, which can be slow on a cold machine: Plenipo gives a start 30
+    // seconds and, if it is not ready, a second start of 30 more (browser/mod.rs, `launch`).
     await explainOnFailure(browser, "Contact the shop", () =>
-      waitForText(browser, ".banner--approval", "is waiting for your approval", 60_000),
+      waitForText(browser, ".banner--approval", "is waiting for your approval", 90_000),
     );
     await waitForText(browser, CONTROL, "Web Assistant is using Plenipo's browser");
     await waitForText(browser, ".shell__footer", "Web Assistant is using Plenipo's browser");

@@ -209,6 +209,26 @@ struct Running {
     execution_id: String,
 }
 
+/// Why one start gave no browser to connect to.
+enum LaunchError {
+    /// It started but did not get ready in time, and has been stopped. Worth one more start.
+    NotReady(String),
+    /// Anything else: not found, could not start, closed at once, could not connect.
+    Failed(String),
+}
+
+impl From<String> for LaunchError {
+    fn from(e: String) -> Self {
+        Self::Failed(e)
+    }
+}
+
+impl From<&str> for LaunchError {
+    fn from(e: &str) -> Self {
+        Self::Failed(e.to_owned())
+    }
+}
+
 /// How the browser was when a tool call needed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
@@ -312,7 +332,24 @@ impl Browser {
         }
     }
 
+    /// Start the browser. A first start can be slow — a cold disk, a busy computer, a new
+    /// profile — so a browser that does not get ready in time is stopped and started once more,
+    /// and the second start finds all of that warm. Anything else that goes wrong is not tried
+    /// again: a second start would fail the same way.
     async fn launch(&self) -> Result<Running, String> {
+        let first = match self.launch_once().await {
+            Ok(running) => return Ok(running),
+            Err(LaunchError::Failed(e)) => return Err(e),
+            Err(LaunchError::NotReady(e)) => e,
+        };
+        match self.launch_once().await {
+            Ok(running) => Ok(running),
+            Err(LaunchError::NotReady(_)) => Err(format!("{first}, and again on a second try")),
+            Err(LaunchError::Failed(e)) => Err(e),
+        }
+    }
+
+    async fn launch_once(&self) -> Result<Running, LaunchError> {
         let config = &self.inner.config;
         let (executable, name) = self.find().ok_or(
             "no Microsoft Edge or Google Chrome was found on this computer, so Plenipo's browser \
@@ -363,17 +400,17 @@ impl Browser {
                 .find(|e| e.id == record.id)
                 .is_none_or(|e| e.state.is_terminal());
             if ended {
-                return Err(format!(
+                return Err(LaunchError::Failed(format!(
                     "{name} closed right after it started (is Plenipo's browser already open \
                      from an earlier start? Close it and try again)"
-                ));
+                )));
             }
             if tokio::time::Instant::now() >= deadline {
                 let _ = sup.cancel(&record.id).await;
-                return Err(format!(
+                return Err(LaunchError::NotReady(format!(
                     "{name} did not get ready within {} seconds",
                     config.launch_timeout.as_secs()
-                ));
+                )));
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         };
@@ -381,7 +418,7 @@ impl Browser {
             Ok(c) => c,
             Err(e) => {
                 let _ = sup.cancel(&record.id).await;
-                return Err(e);
+                return Err(LaunchError::Failed(e));
             }
         };
         // The browser's own events are not needed; drain them.
@@ -495,5 +532,114 @@ mod tests {
         assert_eq!(v["profile"]["name"], "x", "other settings stay");
         assert_eq!(v["autofill"]["credit_card_enabled"], false);
         assert!(!dir.path().join("DevToolsActivePort").exists());
+    }
+
+    #[cfg(unix)]
+    struct Silent;
+
+    #[cfg(unix)]
+    impl plenipo_runtime::EventSink for Silent {
+        fn emit(&self, _: plenipo_runtime::RuntimeEvent) {}
+    }
+
+    /// A stand-in for Edge: a shell script that notes each start in the `starts` file, then runs
+    /// `then` with `$STARTS` and `$PROFILE` (the browser's profile folder) set.
+    #[cfg(unix)]
+    fn fake_browser(
+        then: &str,
+        launch_timeout: Duration,
+    ) -> (tempfile::TempDir, Browser, Supervisor) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("profile");
+        let script = dir.path().join("fake-browser");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nSTARTS='{}'\nPROFILE='{}'\necho start >> \"$STARTS\"\n{then}\n",
+                dir.path().join("starts").display(),
+                profile.display(),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let supervisor = Supervisor::new(
+            plenipo_runtime::SupervisorConfig {
+                kill_grace: Duration::from_millis(500),
+                drain_timeout: Duration::from_millis(200),
+                ..Default::default()
+            },
+            plenipo_runtime::ExecutablePolicy::default(),
+            plenipo_runtime::ProfileRegistry::default(),
+            std::sync::Arc::new(plenipo_runtime::MetadataStore::in_memory()),
+            std::sync::Arc::new(Silent),
+            vec![],
+        );
+        let config = BrowserConfig {
+            executable: Some(script),
+            launch_timeout,
+            ..BrowserConfig::new(profile)
+        };
+        (dir, Browser::new(config, supervisor.clone()), supervisor)
+    }
+
+    #[cfg(unix)]
+    fn starts(dir: &tempfile::TempDir) -> usize {
+        std::fs::read_to_string(dir.path().join("starts")).map_or(0, |s| s.lines().count())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_browser_slow_to_start_is_stopped_and_started_once_more() {
+        // It never gets ready: no DevTools address, ever.
+        let (dir, browser, supervisor) = fake_browser("exec sleep 60", Duration::from_secs(1));
+        let error = browser
+            .connection()
+            .await
+            .err()
+            .expect("it never gets ready");
+        assert!(
+            error.ends_with("did not get ready within 1 seconds, and again on a second try"),
+            "{error}"
+        );
+        assert_eq!(starts(&dir), 2, "started once more, and only once");
+        assert!(
+            supervisor
+                .overview()
+                .executions
+                .iter()
+                .all(|e| e.state.is_terminal()),
+            "neither start is left running"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_second_start_is_connected_to_once_it_gets_ready() {
+        // Slow the first time. The second time it gets ready the way a real browser does, but
+        // at an address where nothing answers: connecting is what fails, which shows the second
+        // start was waited for and used.
+        let (dir, browser, _supervisor) = fake_browser(
+            "if [ -e \"$STARTS.once\" ]; then\n  \
+             printf '1\\n/devtools/browser/x\\n' > \"$PROFILE/DevToolsActivePort\"\n\
+             else touch \"$STARTS.once\"; fi\nexec sleep 60",
+            Duration::from_secs(1),
+        );
+        let error = browser.connection().await.err().expect("nothing answers");
+        assert!(
+            error.starts_with("could not connect to Plenipo's browser"),
+            "{error}"
+        );
+        assert_eq!(starts(&dir), 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_browser_that_closes_at_once_is_not_started_again() {
+        // Not slowness: a second start would close the same way.
+        let (dir, browser, _supervisor) = fake_browser("exit 0", Duration::from_secs(10));
+        let error = browser.connection().await.err().expect("it closes");
+        assert!(error.contains("closed right after it started"), "{error}");
+        assert_eq!(starts(&dir), 1);
     }
 }
