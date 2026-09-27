@@ -344,8 +344,8 @@ Further crates from the plan are added when the phase that needs them begins —
 ## Roadmap
 
 Plenipo follows [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md), phase by phase, each with a checklist and an
-acceptance report in [`docs/phases/`](docs/phases/). Next up: the Free and Pro split
-([ADR-021](docs/adr/ADR-021-editions-and-license.md)), then the Sales department on HubSpot
+acceptance report in [`docs/phases/`](docs/phases/). Next up: **Phase 11A**, the Free and Pro
+split and the license key ([ADR-021](docs/adr/ADR-021-editions-and-license.md)), then the Sales department on HubSpot
 ([ADR-018](docs/adr/ADR-018-sales-on-hubspot-no-paperclip.md)).
 
 Have an opinion on what should come next?

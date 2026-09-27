@@ -35,4 +35,4 @@ architecture must be recorded here.
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
 | [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Proposed |
 | [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard                     | Proposed |
-| [021](ADR-021-editions-and-license.md)          | Free and Pro editions under the Elastic License 2.0                   | Proposed |
+| [021](ADR-021-editions-and-license.md)          | Free and Pro editions under the Elastic License 2.0                   | Accepted |

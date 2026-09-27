@@ -1084,6 +1084,84 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 ---
 
+# Phase 11A — Free and Pro Editions and the License Key
+
+## Goal
+
+Make the Free and Pro split real. A license key, verified on the owner's own PC with no network call, unlocks Pro. Free limits are enforced in one place, are impossible to hit silently, and never cost the owner work they have already done. Accepted in ADR-021 (Free and Pro editions under the Elastic License 2.0); the edition table is `docs/editions.md`.
+
+## Deliverables
+
+- `crates/licensing/`: edition model, key verification, entitlement snapshot
+- signed license key format (edition, holder, key id, issue date, update window)
+- local verification against a public key embedded in the app
+- license storage in the Vault (Windows Credential Manager)
+- **Settings -> License** screen: enter a key, see the edition and who it is for, remove the key
+- single enforcement point: `Entitlements::check(limit)` -> Allowed, or Blocked with a plain-words reason
+- Free limits enforced in Workforce: 1 department, 1 project, 3 workers on the job at once
+- business departments (Sales on HubSpot and those after it) gated to Pro at the setup flow
+- plain-words limit message naming what Pro adds, on every blocked path
+- Ledger events for every license action, with the key itself redacted
+- lapse behavior that never deletes, hides, or breaks existing departments, projects, or history
+- `docs/editions.md` status note updated from "the plan" to what ships
+
+## Technical Implementation
+
+Key format: a short signed token carrying edition, holder, key id, issue date, and update window. Ed25519. The public key is compiled into the app; the signing key belongs to 8 West, stays offline, and is never in the repository.
+
+Verification is local and offline — no activation server, no account, no telemetry, no usage reporting, consistent with ADR-002 (local-first architecture). A machine with no network verifies exactly the same as one with it.
+
+New crate rather than a module in Core, per ADR-004 (grow crates per phase). Workforce, and each business department's setup flow, ask `licensing` for entitlements; nothing else decides for itself whether an owner is Pro.
+
+One enforcement point, not many. Every limit resolves through `Entitlements::check(limit)`, which returns either Allowed or Blocked carrying the plain-words reason and what Pro adds. A blocked action never fails silently and never shows a raw error.
+
+Free limits count live positions, not history. Three workers on the job means three at once; a project that has finished a hundred tasks is still within Free.
+
+**Update window, not expiry.** The key's date bounds which versions it unlocks, not how long Plenipo runs. A lapsed key keeps Pro on every version released inside its window — the owner keeps what they paid for. This is the recommended default and needs the owner's pricing decision before implementation.
+
+**Lapse is never destructive.** If a Pro owner drops to Free holding three departments, nothing is deleted, hidden, or stopped. Existing work stays visible, readable, and runnable to completion. Only *creating* something new past a Free limit is blocked. Destroying an owner's work over billing would be worse for Plenipo than any revenue it protected.
+
+No hardware binding, no machine fingerprinting, no anti-tamper beyond the signature check. The Elastic License 2.0 makes working around the check a breach of licence; the code marks the boundary, the licence enforces it. Obfuscation would cost real support pain for no real protection on a source-available desktop app.
+
+Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them.
+
+## Tests
+
+- valid key accepted; tampered payload rejected; wrong signing key rejected; malformed key rejected
+- key for a version outside the update window: Pro on versions inside it, Free on those outside
+- Free: second department blocked, second project blocked, fourth simultaneous worker blocked
+- Free: the whole Development flow completes on 1 department, 1 project, 3 workers
+- Pro: departments, projects, and workers all unlimited
+- business department setup blocked on Free, allowed on Pro
+- key entered -> Pro applies without restarting the app; key removed -> Free, with nothing deleted
+- lapse with three departments: everything still listed, readable, and runnable; only new creation blocked
+- every blocked path returns the plain-words message, snapshot tested against the vocabulary
+- verification performs no outbound request, asserted with the network unavailable
+- Ledger records entered, accepted, rejected, and removed, with the key redacted
+- permissions, approvals, and Guard behave identically on Free and Pro
+
+## Acceptance Criteria
+
+An owner with no key runs a full Development objective end to end on one department, one project, and three workers. Attempting a second project shows a plain message naming what Pro adds, and nothing fails silently. Entering a valid key unlocks Pro immediately with no restart and no network. Removing the key returns to Free with no data lost and nothing hidden. Every license action is in the Ledger with the key redacted.
+
+## Dependencies
+
+Phase 5 (workforce engine, for where limits are counted), Phase 7 (Guard and the Vault, for where the key is stored). Accepted in ADR-021. The Settings -> License screen lands here and is restyled with the rest of Settings in Phase 12A.
+
+Phase 11A runs before Phase 11 and before the postponed Phase 9: the Sales department is a Pro department, so the gate exists before the department it gates.
+
+## Out of Scope
+
+- online activation, accounts, sign-in, telemetry, or usage reporting of any kind
+- hardware binding or machine fingerprinting
+- payment processing, checkout, and key delivery — a business system outside the app
+- obfuscation or anti-tamper beyond signature verification
+- gating any safety, permission, approval, or record feature behind Pro
+- gating any AI tool behind Pro; all four stay in Free
+- the commercial licence agreement and end-user agreement text, which need an attorney
+
+---
+
 # Phase 11 — SSH, Remote Infrastructure, and Operations Capabilities
 
 ## Goal

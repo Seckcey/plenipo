@@ -1,6 +1,6 @@
 # ADR-021: Free and Pro editions under the Elastic License 2.0
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-27
 - **Phase:** 10 (recorded after the browser work, alongside opening the repository up)
 
@@ -72,9 +72,10 @@ edition, from one public codebase.
 - **A commercial license and an end-user agreement are still needed** before Plenipo can be sold.
   The Elastic License 2.0 covers the source; it is not a sales contract. Both should be reviewed
   by an attorney, along with the contribution terms in `CONTRIBUTING.md`.
-- **The editions become a Phase deliverable.** The key, the Settings screen, the limits, and what
-  happens when a Free owner reaches one (a clear, plain-words message, never a silent failure) need
-  a phase of their own in `ROLLOUT_PLAN.md`.
+- **The editions are Phase 11A** in `ROLLOUT_PLAN.md` (Free and Pro editions and the license key),
+  which runs before Phase 11 and before the postponed Sales department, since Sales is a Pro
+  department. It covers the key, the Settings screen, the limits, and what a Free owner sees when
+  they reach one: a clear, plain-words message, never a silent failure.
 
 ## Alternatives considered
 

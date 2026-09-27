@@ -6,7 +6,7 @@ business departments you can create.
 > **Status:** this page is the plan, not what ships today. Releases up to v1.3.0 have no license
 > check and no limits — everything is unlocked. The Free and Pro split arrives in a coming release
 > ([ADR-021](adr/ADR-021-editions-and-license.md), Free and Pro editions under the Elastic
-> License).
+> License), built as [Phase 11A](../ROLLOUT_PLAN.md) in the rollout plan.
 
 ## What you get
 
