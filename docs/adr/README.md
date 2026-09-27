@@ -50,3 +50,4 @@ architecture must be recorded here.
 | [033](ADR-033-pages-notices-settings.md)             | Home, a page for each thing, pop-up notices, and Settings in one place                      | Accepted |
 | [034](ADR-034-approved-programs-run-as-the-owner.md) | Approved programs run as the owner: tickets bound to the AI tool, safer defaults            | Accepted |
 | [035](ADR-035-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |
+| [036](ADR-036-every-ai-model.md)                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes         | Accepted |
