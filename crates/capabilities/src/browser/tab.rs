@@ -113,6 +113,9 @@ pub struct SitePolicy {
     pub approved: HashSet<String>,
 }
 
+/// How many times a worker may try a CAPTCHA before Plenipo hands it to the owner (ADR-029).
+pub const CAPTCHA_TRIES: u32 = 3;
+
 #[derive(Default)]
 struct State {
     main_frame: String,
@@ -126,6 +129,9 @@ struct State {
     gone: bool,
     acting: bool,
     held: Vec<Held>,
+    /// Tries a worker has made at this page's CAPTCHA (ADR-029); cleared when the page no longer
+    /// shows one.
+    captcha_attempts: u32,
     /// What the worker should hear with its next result (a page Plenipo stopped, …).
     notes: Vec<String>,
     policy: SitePolicy,
@@ -354,6 +360,32 @@ impl Tab {
         std::mem::take(&mut self.state().notes)
     }
 
+    /// How many tries a worker has made at this page's CAPTCHA (ADR-029).
+    pub fn captcha_attempts(&self) -> u32 {
+        self.state().captcha_attempts
+    }
+
+    /// Count one try at the page's CAPTCHA, and say in the worker's next result which try it was
+    /// (ADR-029).
+    pub fn note_captcha_attempt(&self) -> u32 {
+        let used = {
+            let mut s = self.state();
+            s.captcha_attempts += 1;
+            s.captcha_attempts
+        };
+        self.shared.note(format!(
+            "That was try {used} of {CAPTCHA_TRIES} on the CAPTCHA (a check that a person is \
+             using the site): you may keep trying until {CAPTCHA_TRIES}; after that, hand it to \
+             the owner with browser_person_check."
+        ));
+        used
+    }
+
+    /// The CAPTCHA is gone (answered, or the page moved on): tries start over (ADR-029).
+    pub fn clear_captcha_attempts(&self) {
+        self.state().captcha_attempts = 0;
+    }
+
     // ---- The helper's world ----------------------------------------------------------------
 
     async fn world(&self) -> Result<i64, String> {
@@ -511,8 +543,13 @@ impl Tab {
     /// The page in words: address, title, text, numbered controls, CAPTCHA.
     pub async fn read(&self, max_chars: usize, max_controls: usize) -> Result<Value, String> {
         let _busy = self.busy.lock().await;
-        self.helper(&format!("__plenipo.read({max_chars}, {max_controls})"))
-            .await
+        let page = self
+            .helper(&format!("__plenipo.read({max_chars}, {max_controls})"))
+            .await?;
+        if page["captcha"] != true {
+            self.clear_captcha_attempts();
+        }
+        Ok(page)
     }
 
     /// What is at a numbered control now (scrolled into view).

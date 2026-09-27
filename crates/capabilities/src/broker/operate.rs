@@ -10,8 +10,8 @@
 //! - **Sensitive actions.** Submitting a form, buying, signing in, and sending always wait for
 //!   the owner's approval: from the control clicked or the key pressed, and from data a page
 //!   sends right after a worker's action (held in the tab until the owner decides).
-//! - **Never:** typing into password, one-time-code, or card fields; typing a secret; clicking
-//!   a CAPTCHA; the Windows key.
+//! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
+//!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029); the Windows key.
 //! - **Computer use is the last resort:** a worker must ask to take control, with its reason,
 //!   and the owner is asked each time. The owner moving the mouse takes control back.
 
@@ -30,7 +30,7 @@ use serde_json::{json, Value};
 
 use super::{cap, lock, Broker, Image, Inner, Prepared, Refused, Work, GUARD};
 use crate::browser::classify::{self, ElementFacts};
-use crate::browser::tab::{Held, Mode, Signal, SitePolicy, Tab};
+use crate::browser::tab::{Held, Mode, Signal, SitePolicy, Tab, CAPTCHA_TRIES};
 use crate::browser::Start;
 use crate::control::{session_id, ControlKind, ControlState, ControlStatus};
 use crate::desktop::{parse_keys, Button, KeyPart};
@@ -232,7 +232,7 @@ fn control_line(e: &Value) -> String {
 
 /// The page as a worker reads it: its address and title, warnings, the text (marked as the
 /// website's, not instructions), and its controls.
-fn page_text(page: &Value, controls: bool) -> String {
+fn page_text(page: &Value, controls: bool, captcha_tries: u32, tries_allowed: bool) -> String {
     let url = page["url"].as_str().unwrap_or_default();
     let host = host_of(url);
     let nonce = &uuid::Uuid::new_v4().simple().to_string()[..8];
@@ -241,12 +241,22 @@ fn page_text(page: &Value, controls: bool) -> String {
         page["title"].as_str().unwrap_or_default()
     );
     if page["captcha"] == true {
-        out.push_str(
-            "This page shows a CAPTCHA (a check that a person is using the site). Never try to \
-             answer it: call browser_person_check to hand it to the owner, who solves it, then \
-             continue; if that is refused, stop here and say in your answer that the owner \
-             should take over.\n",
-        );
+        if tries_allowed {
+            out.push_str(&format!(
+                "This page shows a CAPTCHA (a check that a person is using the site). You may try \
+                 to answer it yourself: each answer you submit counts as one try, and Plenipo \
+                 lets you try {CAPTCHA_TRIES} times (you have used {captcha_tries}). When the \
+                 tries are used up, call browser_person_check to hand it to the owner, who \
+                 solves it, then continue; if that is refused, stop here and say in your answer \
+                 that the owner should take over.\n",
+            ));
+        } else {
+            out.push_str(
+                "This page shows a CAPTCHA (a check that a person is using the site). The owner \
+                 has not switched on handing these checks to them, so do not try to answer it: \
+                 stop here, and say in your answer that the owner should take over.\n",
+            );
+        }
     }
     if page["passwordFields"].as_u64().unwrap_or(0) > 0 {
         out.push_str(
@@ -375,6 +385,16 @@ impl Broker {
         Ok(tab)
     }
 
+    /// A worker may try a CAPTCHA a few times only when the owner takes these checks over
+    /// afterwards (the hand-off switch, ADR-023/ADR-029); with the switch off, a CAPTCHA stops
+    /// the worker at once, as before.
+    fn captcha_tries_allowed(&self) -> bool {
+        self.inner
+            .guard
+            .config()
+            .is_ok_and(|c| c.switches.captcha_to_owner)
+    }
+
     /// Facts about a control, refusing what no worker may use.
     async fn control_facts(
         &self,
@@ -400,15 +420,31 @@ impl Broker {
             ));
         }
         if facts.captcha {
-            return Err(refuse(
-                Layer::Rule,
-                format!(
-                    "{reference} is part of a CAPTCHA (a check that a person is using the site). \
-                     Plenipo never answers these checks for a worker: call browser_person_check to \
-                     hand it to the owner, or stop and say that the owner should take over."
-                ),
-                summary,
-            ));
+            if !self.captcha_tries_allowed() {
+                return Err(refuse(
+                    Layer::Rule,
+                    format!(
+                        "{reference} is part of a CAPTCHA (a check that a person is using the \
+                         site), and the owner has not switched on handing these checks to them. \
+                         Do not try to answer it: stop here, and say in your answer that the \
+                         owner should take over."
+                    ),
+                    summary,
+                ));
+            }
+            let tries = tab.captcha_attempts();
+            if tries >= CAPTCHA_TRIES {
+                return Err(refuse(
+                    Layer::Rule,
+                    format!(
+                        "{reference} is part of a CAPTCHA (a check that a person is using the \
+                         site), and you have tried it {tries} times: that is the limit. Stop \
+                         trying: call browser_person_check to hand it to the owner, or stop and \
+                         say that the owner should take over."
+                    ),
+                    summary,
+                ));
+            }
         }
         Ok(facts)
     }
@@ -578,6 +614,11 @@ impl Broker {
                         s,
                     ));
                 }
+                if facts.captcha {
+                    // Clicking the CAPTCHA's own control submits an answer: that is one try
+                    // (ADR-029).
+                    tab.note_captcha_attempt();
+                }
                 let what = describe(&facts);
                 let mut p = base(
                     auto,
@@ -653,13 +694,34 @@ impl Broker {
                 let tab = self.open_tab(grant_id, &s)?;
                 let focused = tab.focused().await.unwrap_or_default();
                 if focused.captcha {
-                    return Err(refuse(
-                        Layer::Rule,
-                        "the keyboard is in a CAPTCHA. Plenipo never answers these checks for a \
-                         worker: call browser_person_check to hand it to the owner, or stop and \
-                         say that the owner should take over.",
-                        s,
-                    ));
+                    if !self.captcha_tries_allowed() {
+                        return Err(refuse(
+                            Layer::Rule,
+                            "the keyboard is in a CAPTCHA (a check that a person is using the \
+                             site), and the owner has not switched on handing these checks to \
+                             them. Do not try to answer it: stop here, and say in your answer \
+                             that the owner should take over.",
+                            s,
+                        ));
+                    }
+                    let tries = tab.captcha_attempts();
+                    if tries >= CAPTCHA_TRIES {
+                        return Err(refuse(
+                            Layer::Rule,
+                            format!(
+                                "the keyboard is in a CAPTCHA (a check that a person is using the \
+                                 site), and you have tried it {tries} times: that is the limit. \
+                                 Stop trying: call browser_person_check to hand it to the owner, \
+                                 or stop and say that the owner should take over."
+                            ),
+                            s,
+                        ));
+                    }
+                    if matches!(key.as_str(), "Enter" | "Space") {
+                        // Enter or Space on the CAPTCHA submits an answer: that is one try
+                        // (ADR-029). Other keys only move around inside it.
+                        tab.note_captcha_attempt();
+                    }
                 }
                 let mut p = base(
                     auto,
@@ -1073,8 +1135,8 @@ impl Broker {
     /// the owner otherwise. What to tell the worker.
     /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023): the page
     /// comes to the front with a sign asking the owner to solve it, and the worker waits for the
-    /// owner's answer. The worker never touches the check; the owner's own clicks there do not
-    /// count as taking over.
+    /// owner's answer. The worker has already tried the check its few allowed times (ADR-029);
+    /// the owner's own clicks there do not count as taking over.
     async fn person_check(&self, ctx: &CallContext<'_>) -> ControlDone {
         let Some(tab) = self.grant_tab(ctx.grant_id) else {
             return ControlDone {
@@ -1082,6 +1144,8 @@ impl Broker {
                 ..ControlDone::default()
             };
         };
+        let tried = tab.captcha_attempts();
+        let times = if tried == 1 { "time" } else { "times" };
         tab.release_to(Mode::Handed).await;
         let url = tab.url();
         let host = host_of(&url);
@@ -1096,7 +1160,12 @@ impl Broker {
             summary: format!("hand you a check that a person is using {host} (a CAPTCHA)"),
             detail: format!(
                 "Plenipo's browser shows the page in front of other windows: {url}\nSolve the \
-                 check yourself, then press Approve. The worker never answers it."
+                 check yourself, then press Approve. {}",
+                if tried > 0 {
+                    format!("The worker tried it {tried} {times} and could not get past it.")
+                } else {
+                    "The worker did not try it.".to_owned()
+                }
             ),
             files: Vec::new(),
             writes_git_dir: false,
@@ -1115,9 +1184,14 @@ impl Broker {
         let decision = Decision {
             verdict: Verdict::Ask,
             reason: format!(
-                "{host} asks whether a person is using it. Plenipo never answers these checks for \
-                 a worker: solve it yourself in Plenipo's browser (it is in front now), then \
-                 press Approve and {} continues; Deny stops it.",
+                "{host} asks whether a person is using it. {}: solve it yourself in Plenipo's \
+                 browser (it is in front now), then press Approve and {} continues; Deny stops \
+                 it.",
+                if tried > 0 {
+                    format!("The worker tried the check {tried} {times} and could not get past it")
+                } else {
+                    "The worker did not try the check".to_owned()
+                },
                 ctx.worker
             ),
             layer: Layer::Rule,
@@ -1148,8 +1222,10 @@ impl Broker {
             )
             .await;
         let solved = matches!(answer, Ok((_, ApprovalState::Approved)));
-        // Back to the worker, unless the owner took over or stopped it meanwhile.
+        // Back to the worker, unless the owner took over or stopped it meanwhile. The owner was
+        // just in the loop: the worker's tries start over (ADR-029).
         tab.take_back().await;
+        tab.clear_captcha_attempts();
         let result = if solved && tab.mode() == Mode::Worker {
             Ok(format!(
                 "The owner solved the check on {host}. Read the page again with browser_read and \
@@ -1378,7 +1454,12 @@ impl Broker {
                 lines.extend(tab.take_notes());
                 match tab.read(2000, 40).await {
                     Ok(page) => {
-                        lines.push(page_text(&page, true));
+                        lines.push(page_text(
+                            &page,
+                            true,
+                            tab.captcha_attempts(),
+                            self.captcha_tries_allowed(),
+                        ));
                         if o.timed_out {
                             Err(lines.join("\n"))
                         } else {
@@ -1419,9 +1500,14 @@ impl Broker {
         let mut images = Vec::new();
         let (result, last, keep): (std::result::Result<String, String>, String, bool) = match work {
             ControlWork::Read { max_chars } => (
-                tab.read(max_chars, MAX_CONTROLS)
-                    .await
-                    .map(|p| page_text(&p, true)),
+                tab.read(max_chars, MAX_CONTROLS).await.map(|p| {
+                    page_text(
+                        &p,
+                        true,
+                        tab.captcha_attempts(),
+                        self.captcha_tries_allowed(),
+                    )
+                }),
                 format!("read {}", host_of(&tab.url())),
                 false,
             ),
@@ -1431,7 +1517,14 @@ impl Broker {
                     let words = tab
                         .read(600, 0)
                         .await
-                        .map(|p| page_text(&p, false))
+                        .map(|p| {
+                            page_text(
+                                &p,
+                                false,
+                                tab.captcha_attempts(),
+                                self.captcha_tries_allowed(),
+                            )
+                        })
                         .unwrap_or_default();
                     images.push(Image {
                         mime: screens::mime_of(&bytes).into(),

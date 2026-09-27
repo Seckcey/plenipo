@@ -3,7 +3,8 @@
 /**
  * The owner's on/off switches (ADR-023): whole features, and what workers may do on the
  * websites the owner allowed without asking first. The safety rules that keep the owner in
- * charge (no passwords, secrets, or CAPTCHA attempts; the sign; Stop) have no switch.
+ * charge (no passwords or secrets, at most 3 tries at a CAPTCHA; the sign; Stop) have no
+ * switch.
  */
 export type Switches = { 
 /**
@@ -29,8 +30,9 @@ buyWithoutAsking: boolean,
  */
 signInWithoutAsking: boolean, 
 /**
- * When a website checks for a person (a CAPTCHA), the worker hands it to the owner to
- * solve and waits. Off: the worker stops there. Workers never try to solve one.
+ * When a website checks for a person (a CAPTCHA), the worker tries it at most 3 times, then
+ * hands it to the owner to solve and waits. Off: the worker stops there without trying
+ * (ADR-029).
  */
 captchaToOwner: boolean, 
 /**

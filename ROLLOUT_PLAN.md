@@ -1079,7 +1079,8 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 ## Out of Scope
 
-- bypassing CAPTCHAs or provider security controls
+- bypassing CAPTCHAs or provider security controls (amended by ADR-029: a worker tries a CAPTCHA
+  up to 3 times, counted, then the owner takes it)
 - hidden browser control
 - unrestricted credential harvesting
 - arbitrary remote surveillance

@@ -356,16 +356,14 @@ mod agent {
         {
             match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
                 Ok(agent) => return try_keys(handle, user, agent).await,
-                Err(_) => {
-                    match AgentClient::connect_pageant().await {
-                        Ok(agent) => return try_keys(handle, user, agent).await,
-                        Err(_) => return Err(ConnectError::Credential(
-                            "no SSH agent is running on this computer (neither Windows' OpenSSH \
+                Err(_) => match AgentClient::connect_pageant().await {
+                    Ok(agent) => return try_keys(handle, user, agent).await,
+                    Err(_) => Err(ConnectError::Credential(
+                        "no SSH agent is running on this computer (neither Windows' OpenSSH \
                              Authentication Agent service nor Pageant)"
-                                .into(),
-                        )),
-                    }
-                }
+                            .into(),
+                    )),
+                },
             }
         }
         #[cfg(unix)]
