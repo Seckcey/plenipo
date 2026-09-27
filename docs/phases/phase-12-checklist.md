@@ -1,6 +1,7 @@
 # Phase 12 — Implementation Checklist
 
-**Status:** in progress (2026-09-27). Built on v1.7.0 (Phase 12A, the design system).
+**Status:** delivered in v1.8.0 (2026-09-27). Built on v1.7.0 (Phase 12A, the design system).
+Acceptance report: [`phase-12-acceptance-report.md`](phase-12-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 12 — Product UX, Notifications, Settings, and Operator
 Experience, and [ADR-031 (the terminal panel)](../adr/ADR-031-terminal-panel.md).
@@ -82,6 +83,13 @@ free ADR is **ADR-033**.
   from the Ledger feed (`ssh.connected`, `ssh.command_started`, `ssh.output`,
   `ssh.command_finished`, `ssh.disconnected`, and refused `ssh_run` calls). **Ctrl+`** and the
   **Terminal** button in the top bar show and hide it.
+- **Added after the code review (2026-09-27):** the terminals end with the page that shows them
+  (a reload of the main window closes them), and terminals on servers close when Remote
+  computers (SSH) is switched off; closing the window while a terminal is open hides Plenipo to
+  the tray, as running work does; while a worker controls the screen, mouse, and keyboard, the
+  terminal takes no typing until the owner takes over (and a new line or Ctrl+J typed by a
+  worker asks the owner, as Enter does); F6 takes the keyboard from the terminal back to its
+  tabs; Settings → Terminal has a switch for screen reader support.
 - **Test server:** `plenipo-test-sshd --shell on` gives the owner's terminal a small shell (a
   prompt, echo, `echo`, `whoami`, `hostname`, `pwd`, `size`, `exit`); without it, a terminal and
   a shell are refused and counted, as before, so the worker checks stay true.
@@ -91,7 +99,7 @@ free ADR is **ADR-033**.
 - **Home** is the first section on the left strip and the page Plenipo opens on. Pip greets the
   owner (by the time of day on this computer) and says in a line how things are. Then: **Waiting for you**
   (approvals and lessons, with Review), **What's stuck** (failed objectives, refused actions,
-  handoffs with nobody to take them, positions that cannot work), **Departments** (a card each:
+  handoffs that could not start or be delivered, positions that cannot work), **Departments** (a card each:
   health, its Manager, projects, workers, the 24-hour strip), **Current objectives**, **Who's
   working**, and **Just finished**.
 - **Department, Project, Worker, and Task pages** open from Home, the Organization map, the
@@ -146,133 +154,137 @@ free ADR is **ADR-033**.
 
 ### Home / Company
 
-- [ ] department health
-- [ ] current objectives
-- [ ] agents working
-- [ ] blocked tasks
-- [ ] approvals waiting
-- [ ] recent completions
+- [x] department health
+- [x] current objectives
+- [x] agents working
+- [x] blocked tasks
+- [x] approvals waiting
+- [x] recent completions
 
 ### Department View
 
-- [ ] manager
-- [ ] projects
-- [ ] current workers
-- [ ] queue
-- [ ] performance/activity history
+- [x] manager
+- [x] projects
+- [x] current workers
+- [x] queue
+- [x] performance/activity history
 
 ### Project View
 
-- [ ] coordinator
-- [ ] repository/workspace
-- [ ] task tree
-- [ ] running workers
-- [ ] branches/PRs
-- [ ] artifacts
-- [ ] recent decisions
+- [x] coordinator
+- [x] repository/workspace
+- [x] task tree
+- [x] running workers
+- [x] branches/PRs
+- [x] artifacts
+- [x] recent decisions
 
 ### Agent View
 
-- [ ] role
-- [ ] selected provider/model
-- [ ] current task
-- [ ] capabilities granted
-- [ ] runtime/session
-- [ ] event history
+- [x] role
+- [x] selected provider/model
+- [x] current task
+- [x] capabilities granted
+- [x] runtime/session
+- [x] event history
 
 ### Task View
 
-- [ ] objective
-- [ ] acceptance criteria
-- [ ] delegation tree
-- [ ] activity stream
-- [ ] artifacts
-- [ ] approvals
-- [ ] final result
+- [x] objective
+- [x] acceptance criteria
+- [x] delegation tree
+- [x] activity stream
+- [x] artifacts
+- [x] approvals
+- [x] final result
 
 ### Terminal panel (ADR-031)
 
-- [ ] A panel at the bottom by default; the owner can move it to the right side
-- [ ] Opens and closes from a **Terminal** button in the top bar and with **Ctrl+`**
-- [ ] Drag its edge to resize; remembers whether it was open, its size, and its side, and comes
+- [x] A panel at the bottom by default; the owner can move it to the right side
+- [x] Opens and closes from a **Terminal** button in the top bar and with **Ctrl+`**
+- [x] Drag its edge to resize; remembers whether it was open, its size, and its side, and comes
       back the same after a restart
-- [ ] Several tabs at once, each with a close button, built from the Phase 12A library
-- [ ] Production servers are red in their tabs (a red mark and the word PRODUCTION)
-- [ ] **This PC:** Windows PowerShell in the owner's home folder, as the owner's own Windows
+- [x] Several tabs at once, each with a close button, built from the Phase 12A library
+- [x] Production servers are red in their tabs (a red mark and the word PRODUCTION)
+- [x] **This PC:** Windows PowerShell in the owner's home folder, as the owner's own Windows
       user, never as administrator; Settings can pick PowerShell 7 or Command Prompt when
       installed; ConPTY through `portable-pty`; `@xterm/xterm` on screen, colors from the tokens
-- [ ] **A server:** the servers from Settings → Servers; the pinned server ID is checked first,
+      _(built and tested on Linux and in Windows CI; PowerShell itself is the owner's check on
+      Windows)_
+- [x] **A server:** the servers from Settings → Servers; the pinned server ID is checked first,
       and a changed ID is refused before signing in or sending anything ("This server's ID
       changed"); the stored sign-in comes from the Vault, is never shown or sent to the screen,
       and is dropped after use; `pty-req` and `shell` for the owner only (never for workers);
       no agent forwarding, X11, or environment variables for anyone; built-in SSH (ADR-026)
-- [ ] The server terminal works only while **Settings → Switches → Remote computers (SSH)** is
+- [x] The server terminal works only while **Settings → Switches → Remote computers (SSH)** is
       on; the terminal on this PC does not depend on it
-- [ ] Guard does not check what the owner types; no approval cards for it
-- [ ] The Ledger records `terminal.opened` and `terminal.closed` (where, when, how long), shown
+- [x] Guard does not check what the owner types; no approval cards for it
+- [x] The Ledger records `terminal.opened` and `terminal.closed` (where, when, how long), shown
       in the Activity trail as "You opened a terminal on Shop"; what the owner types and sees is
       never recorded
-- [ ] **Watch tabs:** one opens by itself when a worker connects to a server, named for the
+- [x] **Watch tabs:** one opens by itself when a worker connects to a server, named for the
       worker and the server ("Operations Engineer · Shop"); it stays open and readable after the
       worker disconnects, until the owner closes it
-- [ ] A watch tab shows each command Guard let through and its output as it arrives (from
+- [x] A watch tab shows each command Guard let through and its output as it arrives (from
       `ssh.command_started`, `ssh.output`, `ssh.command_finished`), with secrets hidden;
       refused commands show as refused
-- [ ] **Stop** (TERM, then KILL) and **Disconnect** in the watch tab, both recorded as today
-- [ ] A watch tab is read-only: there is no place to type
-- [ ] The terminal's commands (open, type, resize, close) exist only in the owner's main
+- [x] **Stop** (TERM, then KILL) and **Disconnect** in the watch tab, both recorded as today
+- [x] A watch tab is read-only: there is no place to type
+- [x] The terminal's commands (open, type, resize, close) exist only in the owner's main
       window: they are not tools, no AI tool is offered them, the tool relay refuses unknown
       tool names, and the sign window and web pages cannot call them
-- [ ] **Stop all** still stops every worker and does not close the owner's terminals
-- [ ] New libraries: `portable-pty` (Rust, MIT), `@xterm/xterm` and its fit add-on (MIT)
+- [x] **Stop all** still stops every worker and does not close the owner's terminals
+- [x] New libraries: `portable-pty` (Rust, MIT), `@xterm/xterm` and its fit add-on (MIT)
 
 ### Settings
 
-- [ ] providers
-- [ ] authentication state
-- [ ] role/model policies
-- [ ] fallback order
-- [ ] capability profiles
-- [ ] projects
-- [ ] departments
-- [ ] approval rules
-- [ ] local paths
-- [ ] notification preferences
-- [ ] diagnostics
-- [ ] Settings → Servers keeps working as before
+- [x] providers
+- [x] authentication state
+- [x] role/model policies
+- [x] fallback order
+- [x] capability profiles
+- [x] projects
+- [x] departments
+- [x] approval rules
+- [x] local paths
+- [x] notification preferences
+- [x] diagnostics
+- [x] Settings → Servers keeps working as before
 
 ### Notifications (the approved plan)
 
-- [ ] Windows pop-up notices when something needs the owner
-- [ ] A place in Settings to choose which notices the owner gets
+- [x] Windows pop-up notices when something needs the owner _(decided and tested in Rust; a
+      real notice needs the installed app, so it is the owner's check on Windows: Settings →
+      Notifications → Send a test notice)_
+- [x] A place in Settings to choose which notices the owner gets
 
 ### Existing screens
 
-- [ ] Each older page is rebuilt from the library (ADR-030 §8); what each page does stays the
+- [x] Each older page is rebuilt from the library (ADR-030 §8); what each page does stays the
       same
 
 ## Tests (plan)
 
-- [ ] keyboard navigation
-- [ ] state restoration
-- [ ] large task history
-- [ ] large org tree
-- [ ] disconnected providers
-- [ ] empty states
-- [ ] error states
-- [ ] accessibility smoke tests
-- [ ] terminal panel: open, hide, resize, and restore after a restart
-- [ ] the owner's terminal on this PC and on a synthetic SSH server, with a changed server ID
+- [x] keyboard navigation
+- [x] state restoration
+- [x] large task history
+- [x] large org tree
+- [x] disconnected providers
+- [x] empty states
+- [x] error states
+- [x] accessibility smoke tests
+- [x] terminal panel: open, hide, resize, and restore after a restart
+- [x] the owner's terminal on this PC and on a synthetic SSH server, with a changed server ID
       refused
-- [ ] a worker's watch tab shows its commands and output live, and Stop and Disconnect there
+- [x] a worker's watch tab shows its commands and output live, and Stop and Disconnect there
       end its work
-- [ ] a worker cannot send keystrokes to the owner's terminal
+- [x] a worker cannot send keystrokes to the owner's terminal
 
 ## Acceptance criteria (plan)
 
-- [ ] The normal user experience does not require reading terminal output, editing JSON, or
+- [x] The normal user experience does not require reading terminal output, editing JSON, or
       memorizing session IDs.
-- [ ] Raw diagnostics remain available for troubleshooting.
+- [x] Raw diagnostics remain available for troubleshooting.
 
 ## Out of scope (plan)
 
@@ -292,9 +304,9 @@ free ADR is **ADR-033**.
 
 ## Done when
 
-- [ ] Every box above is ticked, or has a note saying why not
-- [ ] Acceptance report in `docs/phases/phase-12-acceptance-report.md`, with screenshots in
+- [x] Every box above is ticked, or has a note saying why not
+- [x] Acceptance report in `docs/phases/phase-12-acceptance-report.md`, with screenshots in
       `docs/phases/evidence/phase-12/`
-- [ ] Release notes in `docs/releases/v1.8.0.md`; version 1.8.0 everywhere
+- [x] Release notes in `docs/releases/v1.8.0.md`; version 1.8.0 everywhere
       (`scripts/check-versions.mjs`)
-- [ ] `ROLLOUT_PLAN.md` Phase 12 status line
+- [x] `ROLLOUT_PLAN.md` Phase 12 status line

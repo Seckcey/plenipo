@@ -150,7 +150,7 @@ Coming with the next release. If you are running Plenipo already,
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
-> Releases up to v1.7.0 have no limits at all — everything is unlocked while the split is being
+> Releases up to v1.8.0 have no limits at all — everything is unlocked while the split is being
 > built. When it ships, a Pro copy will check its subscription with 8 West about once a week,
 > sending only a license key id and a version number. A Free copy never checks in at all, and your
 > work never leaves your PC either way —

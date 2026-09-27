@@ -33,7 +33,9 @@ what they are, so they can be accepted or changed in one place.
   back to the same page after a restart. Back remembers this window's trail only; after a
   restart, Back goes to the page's section.
 - The top bar's **Showing** picker (ADR-030, the design system) now opens the department's or the
-  project's page; "everything" opens Home. Phase 12A left it naming "the place a pick opened".
+  project's page; on one of those pages, choosing "everything" opens Home. Elsewhere it shows
+  "everything", because every other page shows all of the company. Phase 12A left it naming
+  "the place a pick opened".
 
 ### 2. The plan's "Agent View" is the page of a position
 
@@ -85,6 +87,22 @@ The owner's approved Plenipo + Pip kit is kept byte for byte in `docs/brand/pip-
 logo (the three-rail P, "lenipo", and Pip on the n) replaces Phase 12A's placeholder mark, and
 the app icon is the P on the kit's navy. Pip appears on Home, beside "nothing here yet", in the
 terminal panel, in Settings → About, and in the Gallery.
+
+### 8. The terminal, in a few places ADR-031 leaves open
+
+ADR-031 (the terminal panel) is accepted; these follow from it and were settled while building:
+
+- **A terminal belongs to the page that shows it.** When the main window's page loads again (a
+  reload), the terminals it showed are closed, instead of running unseen.
+- **Remote computers (SSH) off closes the owner's server terminals**, as it disconnects every
+  worker (ADR-031 says the server terminal works only while the switch is on).
+- **Closing the window while a terminal is open hides Plenipo to the tray**, as it does while
+  work runs; quitting closes the terminals and records it.
+- **While a worker controls the screen, mouse, and keyboard, the terminal takes no typing**
+  (what reaches it could be the worker's) until the owner takes over; a new line or Ctrl+J typed
+  by a worker asks the owner, as Enter does.
+- **F6 takes the keyboard from the terminal back to its tabs** (Tab belongs to the shell), and
+  Settings → Terminal has a switch for screen reader support.
 
 ## Consequences
 
