@@ -33,8 +33,8 @@ library. No new one-off styling." (ADR-030, one design system for every screen.)
 - Carried over from Phase 12A: the older pages take every color from the tokens but keep some of
   their own layout rules (their buttons, badges, and cards in `apps/desktop/src/styles.css`)
   until this phase rebuilds each page from the library (ADR-030 §8).
-- Still open, not part of this phase: ADR-025 (servers over SSH, through Guard) is proposed, and
-  the owner's Phase 11 check on Windows with a real server is still to do.
+- Not part of this phase: ADR-025 (servers over SSH, through Guard) is accepted (by the owner,
+  2026-09-27); the owner's Phase 11 check on Windows with a real server is still to do.
 
 ## Design (2026-09-27)
 

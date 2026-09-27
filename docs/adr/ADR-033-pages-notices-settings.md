@@ -1,6 +1,6 @@
 # ADR-033: Home, a page for each thing, pop-up notices, and Settings in one place
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 12
 - **Number:** ADR-032 is taken by pull request #36, so this is ADR-033.
