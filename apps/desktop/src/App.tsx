@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppInfo } from "@plenipo/types";
+import {
+  AppShell,
+  Banner,
+  BannerSlot,
+  Button,
+  NotificationBell,
+  ThemeToggle,
+  TopBar,
+  useTheme,
+} from "@plenipo/ui";
 
 import {
   frontendReady,
@@ -10,10 +20,11 @@ import {
 import { AgentsProvider } from "./agents/AgentsProvider";
 import { isRunning } from "./agents/store";
 import { useAgents } from "./agents/useAgents";
-import { BrandMark } from "./components/BrandMark";
 import { ControlBanner } from "./components/ControlBanner";
+import { ALL_SCOPE, type ScopeId } from "./components/scope";
+import { ScopePicker } from "./components/ScopePicker";
 import { Sidebar } from "./components/Sidebar";
-import { VIEWS, type ViewId } from "./components/views";
+import { ALL_VIEWS, VIEW_TITLES, type ViewId } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
@@ -21,9 +32,11 @@ import { useControl } from "./control/useControl";
 import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
+import { useOrganization } from "./org/useOrganization";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
+import { GalleryView } from "./views/GalleryView";
 import { OrganizationView } from "./views/OrganizationView";
 import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
@@ -40,6 +53,8 @@ const VIEW_KEY = "plenipo.view";
 const SELECTED_KEY = "plenipo.selectedExecution";
 const SELECTED_TASK_KEY = "plenipo.selectedTask";
 const SELECTED_SESSION_KEY = "plenipo.selectedSession";
+// Where you are (the top bar's "Showing" picker) is remembered on this computer.
+const SCOPE_KEY = "plenipo.scope";
 
 /** Notices that mean data may be at risk get alert styling; others are informational. */
 function isSevere(notice: string): boolean {
@@ -65,7 +80,23 @@ function writeSession(key: string, value: string | null) {
 
 function initialView(): ViewId {
   const saved = readSession(VIEW_KEY);
-  return VIEWS.find((v) => v.id === saved)?.id ?? "organization";
+  return ALL_VIEWS.find((v) => v === saved) ?? "organization";
+}
+
+function readScope(): ScopeId {
+  try {
+    return localStorage.getItem(SCOPE_KEY) ?? ALL_SCOPE;
+  } catch {
+    return ALL_SCOPE;
+  }
+}
+
+function writeScope(scope: ScopeId) {
+  try {
+    localStorage.setItem(SCOPE_KEY, scope);
+  } catch {
+    // Storage unavailable: the choice lasts until the window closes.
+  }
 }
 
 export function App() {
@@ -109,6 +140,10 @@ function Shell({ core }: { core: CoreState }) {
     readSession(SELECTED_TASK_KEY),
   );
   const [orgFocus, setOrgFocus] = useState<string | null>(null);
+  const [projectFocus, setProjectFocus] = useState<string | null>(null);
+  const [scope, setScope] = useState<ScopeId>(readScope);
+  const [theme, setTheme] = useTheme();
+  const organization = useOrganization();
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
@@ -165,120 +200,168 @@ function Shell({ core }: { core: CoreState }) {
     navigate("organization");
   };
   const clearOrgFocus = useCallback(() => setOrgFocus(null), []);
+  const clearProjectFocus = useCallback(() => setProjectFocus(null), []);
   const severe = ledgerNotices.some(isSevere);
+  const approvalCount = waiting.length + (learning.snapshot?.waiting.length ?? 0);
+
+  /** Choosing where you are opens that part: a department on the map, a project's page. */
+  const chooseScope = (next: ScopeId) => {
+    setScope(next);
+    writeScope(next);
+    const [kind, id] = next.split(":");
+    const org = organization.snapshot;
+    if (kind === "department" && id) {
+      const head = org?.departments.find((d) => d.id === id)?.headPositionId;
+      if (head) openPosition(head);
+      else navigate("organization");
+    } else if (kind === "project" && id) {
+      setProjectFocus(id);
+      navigate("projects");
+    }
+  };
 
   return (
-    <div className="shell">
-      <header className="shell__header">
-        <BrandMark />
-        <span className="shell__wordmark">Plenipo</span>
-        {info && (
-          <span className="shell__version" aria-label="Application version">
-            v{info.version}
-          </span>
-        )}
-      </header>
-
-      <div className="shell__body">
+    <AppShell
+      className="shell"
+      rail={
         <Sidebar
           current={view}
           onNavigate={navigate}
           activeCount={activeCount}
           workingCount={workingCount}
-          approvalCount={waiting.length + (learning.snapshot?.waiting.length ?? 0)}
+          approvalCount={approvalCount}
         />
-        <main
-          className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
-          ref={main}
-        >
+      }
+      topBar={
+        <TopBar
+          start={
+            <>
+              <span className="shell__wordmark">Plenipo</span>
+              <ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />
+            </>
+          }
+          title={VIEW_TITLES[view]}
+          end={
+            <>
+              {info && (
+                <span className="shell__version" aria-label="Application version">
+                  v{info.version}
+                </span>
+              )}
+              <ThemeToggle theme={theme} onChange={setTheme} />
+              <NotificationBell
+                count={approvalCount}
+                label="waiting for your approval"
+                onOpen={() => navigate("approvals")}
+              />
+            </>
+          }
+        />
+      }
+      footer={
+        <footer className="shell__footer">
+          {controlling.length > 0 ? (
+            <span className="shell__footer-control">
+              {controlling.length === 1 && controlling[0]
+                ? sessionWords(controlling[0]).title
+                : `${controlling.length} workers are using the browser, the desktop, or servers`}
+            </span>
+          ) : activeCount > 0 ? (
+            `${activeCount} program${activeCount === 1 ? "" : "s"} running`
+          ) : (
+            "Ready · uses your own signed-in AI tools and never asks for passwords"
+          )}
+        </footer>
+      }
+    >
+      <main
+        className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
+        ref={main}
+      >
+        <BannerSlot>
           <ControlBanner control={control} />
           {ledgerNotices.length > 0 && !noticesDismissed && (
-            <div
-              className={`banner${severe ? " banner--severe" : ""}`}
+            <Banner
+              tone={severe ? "error" : "info"}
               role={severe ? "alert" : "status"}
+              className={severe ? "banner--severe" : "banner--notice"}
+              title={`Ledger notice${ledgerNotices.length > 1 ? "s" : ""}`}
+              onDismiss={() => setNoticesDismissed(true)}
             >
-              <div>
-                <strong>Ledger notice{ledgerNotices.length > 1 ? "s" : ""}</strong>
-                <ul>
-                  {ledgerNotices.map((n) => (
-                    <li key={n}>{n}</li>
-                  ))}
-                </ul>
-              </div>
-              <button type="button" className="link" onClick={() => setNoticesDismissed(true)}>
-                Dismiss
-              </button>
-            </div>
+              <ul className="banner__list">
+                {ledgerNotices.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </Banner>
           )}
           {waiting.length > 0 && view !== "approvals" && (
-            <div className="banner banner--approval" role="status">
-              <div>
-                <strong>
-                  {waiting.length === 1
-                    ? `${waiting[0]?.worker ?? "A worker"} is waiting for your approval`
-                    : `${waiting.length} requests are waiting for your approval`}
-                </strong>
-                {waiting.length === 1 && <div className="muted">{waiting[0]?.summary}</div>}
-              </div>
-              <button
-                type="button"
-                className="button button--small"
-                onClick={() => navigate("approvals")}
-              >
-                Review
-              </button>
-            </div>
+            <Banner
+              tone="pending"
+              role="status"
+              className="banner--approval"
+              title={
+                waiting.length === 1
+                  ? `${waiting[0]?.worker ?? "A worker"} is waiting for your approval`
+                  : `${waiting.length} requests are waiting for your approval`
+              }
+              action={
+                <Button size="sm" variant="primary" onClick={() => navigate("approvals")}>
+                  Review
+                </Button>
+              }
+            >
+              {waiting.length === 1 && <div className="muted">{waiting[0]?.summary}</div>}
+            </Banner>
           )}
-          {core.status === "error" && (
-            <p className="status status--error" role="alert">
-              Plenipo Core is unavailable: {core.error.message}
-            </p>
-          )}
-          {view === "organization" && (
-            <OrganizationView
-              onOpenSession={openSession}
-              onOpenTask={openTask}
-              focusId={orgFocus}
-              onFocusHandled={clearOrgFocus}
-            />
-          )}
-          {view === "projects" && (
-            <ProjectsView onOpenTask={openTask} onOpenApprovals={() => navigate("approvals")} />
-          )}
-          {view === "workers" && (
-            <WorkersView
-              selectedSessionId={selectedSession}
-              onSelectSession={selectSession}
-              onShowExecution={showExecution}
-              onOpenRuntimes={() => navigate("runtimes")}
-              onOpenPosition={openPosition}
-            />
-          )}
-          {view === "approvals" && (
-            <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
-          )}
-          {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
-          {view === "activity" && (
-            <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
-          )}
-          {view === "settings" && <SettingsView />}
-          {view === "diagnostics" && <DiagnosticsView info={info} onTaskCreated={selectTask} />}
-        </main>
-      </div>
-
-      <footer className="shell__footer">
-        {controlling.length > 0 ? (
-          <span className="shell__footer-control">
-            {controlling.length === 1 && controlling[0]
-              ? sessionWords(controlling[0]).title
-              : `${controlling.length} workers are using the browser, the desktop, or servers`}
-          </span>
-        ) : activeCount > 0 ? (
-          `${activeCount} program${activeCount === 1 ? "" : "s"} running`
-        ) : (
-          "Ready · uses your own signed-in AI tools and never asks for passwords"
+        </BannerSlot>
+        {core.status === "error" && (
+          <p className="status status--error" role="alert">
+            Plenipo Core is unavailable: {core.error.message}
+          </p>
         )}
-      </footer>
-    </div>
+        {view === "organization" && (
+          <OrganizationView
+            onOpenSession={openSession}
+            onOpenTask={openTask}
+            focusId={orgFocus}
+            onFocusHandled={clearOrgFocus}
+          />
+        )}
+        {view === "projects" && (
+          <ProjectsView
+            onOpenTask={openTask}
+            onOpenApprovals={() => navigate("approvals")}
+            focusId={projectFocus}
+            onFocusHandled={clearProjectFocus}
+          />
+        )}
+        {view === "workers" && (
+          <WorkersView
+            selectedSessionId={selectedSession}
+            onSelectSession={selectSession}
+            onShowExecution={showExecution}
+            onOpenRuntimes={() => navigate("runtimes")}
+            onOpenPosition={openPosition}
+          />
+        )}
+        {view === "approvals" && (
+          <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
+        )}
+        {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
+        {view === "activity" && (
+          <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />
+        )}
+        {view === "settings" && <SettingsView />}
+        {view === "diagnostics" && (
+          <DiagnosticsView
+            info={info}
+            onTaskCreated={selectTask}
+            onOpenGallery={() => navigate("gallery")}
+          />
+        )}
+        {view === "gallery" && <GalleryView theme={theme} org={organization} />}
+      </main>
+    </AppShell>
   );
 }

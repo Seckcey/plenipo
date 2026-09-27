@@ -4,6 +4,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ActivityScope,
+  ActivitySeries,
   ApprovalQueue,
   AgentOverview,
   AgentRuntimeInfo,
@@ -149,6 +151,19 @@ export function getTaskTimeline(taskId: string): Promise<TaskTimeline> {
 /** Most recent ledger events, newest first. */
 export function listRecentEvents(): Promise<LedgerEvent[]> {
   return call<LedgerEvent[]>("list_recent_events");
+}
+
+/**
+ * Activity for each scope, counted into `buckets` time buckets over [from, to) (Phase 12A:
+ * the activity strips; 96 buckets over 24 hours is 15 minutes each).
+ */
+export function getActivity(
+  scopes: ActivityScope[],
+  from: number,
+  to: number,
+  buckets = 96,
+): Promise<ActivitySeries[]> {
+  return call<ActivitySeries[]>("get_activity", { scopes, from, to, buckets });
 }
 
 /** Diagnostics: create a synthetic task. */
