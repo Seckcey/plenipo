@@ -165,7 +165,9 @@
   cursor: default;
 }
 
+/* Positioned, so its hidden label stays with it (never at the far end of the page). */
 .ui-check {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--ui-space-3);

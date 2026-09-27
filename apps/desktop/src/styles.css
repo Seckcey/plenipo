@@ -657,7 +657,7 @@ body {
 .field input:not([type="checkbox"], [type="radio"]),
 .field select,
 .models__effort {
-  height: 28px;
+  height: var(--ui-control-height);
   padding-top: 0;
   padding-bottom: 0;
 }
@@ -725,6 +725,16 @@ body {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* A heading in a header row keeps a plain heading's spacing: the row takes the margins (so they
+   collapse with the neighbours' as a heading's do), and the heading itself has none. */
+.section-header:has(> h2) {
+  margin: var(--ui-space-8) 0 var(--ui-space-4);
+}
+
+.section-header > h2 {
+  margin: 0;
 }
 
 .card--stack {
@@ -2106,6 +2116,11 @@ body {
   margin-top: 16px;
 }
 
+.inspector__section > p {
+  margin: 0 0 var(--ui-space-3);
+  font-size: var(--ui-font-sm);
+}
+
 .inspector__section h3 {
   margin: 0 0 6px;
   color: var(--ui-text-secondary);
@@ -2592,7 +2607,7 @@ body {
 
 /* The same height as the dropdown beside it. */
 .objective-form__row > .button {
-  height: 28px;
+  height: var(--ui-control-height);
   padding-top: 0;
   padding-bottom: 0;
 }
