@@ -17,26 +17,24 @@ through the Ollama service on the PC. No local models, no API key. The raw outpu
 | One task, no questions | `ollama run <model>` reads the prompt from stdin and exits by itself. The service's `POST /api/chat` takes the prompt in the request body.                                                                                               | 1        | Pass                         |
 | Output                 | The CLI prints plain text with terminal control codes. `POST /api/chat` streams one JSON object per line: thinking, answer, then `done` with `done_reason` and token counts.                                                             | 2        | Pass (service)               |
 | Resume                 | Ollama keeps no conversations. `POST /api/chat` answered from the earlier messages Plenipo sent, so Plenipo keeps the history itself.                                                                                                    | 5        | Pass (Plenipo keeps history) |
-| Sign-in status         | `ollama signin` / `signout`; no status command. To check: the service's account endpoint.                                                                                                                                                | 3, 4     | To do                        |
-| Errors                 | The free plan's usage-limit text and the signed-out text: to find (docs, or seen in use).                                                                                                                                                | 2        | To do                        |
+| Sign-in status         | `POST /api/me` names the account and plan (`"plan":"free"`); signed out it answers `401` with a sign-in link, and a cloud request answers `401`.                                                                                         | 3, 4     | Pass                         |
+| Errors                 | Signed out: `401` (`{"error":"unauthorized","signin_url":…}` from `/api/me`). The free plan's usage-limit message: recorded the first time it is seen.                                                                                   | 2        | Partial                      |
 | Models and effort      | `gpt-oss:120b-cloud`: 117B, 131,072-token context, capabilities completion, tools, thinking; thinking levels low, medium (default), high. Other cloud models: to list.                                                                   | —        | Partial                      |
 | Least privilege        | A model alone reads no files and runs nothing; it can only answer. Offered a `read_file` tool, it returned a `tool_calls` request (`{"path":"notes.txt"}`) and ran nothing itself, so Plenipo would decide every tool use through Guard. | —        | Pass                         |
 | Credentials in the env | No `OLLAMA_*` variables set; no `OLLAMA_API_KEY`. The service listens on `127.0.0.1:11434` only. The sign-in key lives in `%USERPROFILE%\.ollama` (never read by Plenipo).                                                               | 3        | Pass                         |
 
 ## Decisions this needs
 
-A decision record, **ADR-017 (running Ollama's cloud models through its service on this PC)**,
-because Ollama differs from the other AI tools in three ways:
+- **ADR-017 (running Ollama's cloud models through the Ollama service on this PC)**, Proposed:
+  Plenipo sends each task to the service on `127.0.0.1`, checks the sign-in with `/api/me`, runs
+  only cloud models, keeps the conversation history itself, and starts Ollama workers with no
+  tools (Plenipo's tools through Guard come as a follow-up).
 
-- Plenipo sends each task to the Ollama service on `127.0.0.1` instead of starting a program per
-  task (ADR-007, how Plenipo runs Claude Code and Codex; ADR-005, the runtime supervisor).
-- Plenipo keeps the conversation history and sends it with each task.
-- Ollama workers start as conversation only: no files or programs until Plenipo offers its tools
-  through Ollama's tool calls, each checked by Guard (ADR-013).
+## Owner's model choices
+
+`gpt-oss:120b-cloud` (checked), deepseek-v4.1-flash, glm-5.3, glm-5.3-flash, minimax-m3,
+deepseek-v4-pro, nemotron-3-ultra (exact names checked when the adapter is built).
 
 ## Still to check
 
-- The account endpoint for the sign-in check (the first try had a mistake in the command), and
-  the service's answer to a cloud request while signed out.
-- The free plan's usage-limit and signed-out texts; the list of cloud models.
-  EOF
+- The free plan's usage-limit message (seen in use).

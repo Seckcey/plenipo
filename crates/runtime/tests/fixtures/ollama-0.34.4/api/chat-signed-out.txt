@@ -1,0 +1,2 @@
+POST /api/chat, cloud model, signed out (PowerShell's message):
+ERROR: The remote server returned an error: (401) Unauthorized.
