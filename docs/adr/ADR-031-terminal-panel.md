@@ -1,6 +1,6 @@
 # ADR-031: The terminal panel
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 12
 - **Number:** first written as ADR-030; renumbered when ADR-029 (workers try a CAPTCHA three
