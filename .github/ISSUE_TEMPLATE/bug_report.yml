@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in Plenipo does not work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please reproduce it on the latest release first — older versions are
+        not supported. If this is a security problem, close this and use the
+        [Security tab](https://github.com/Seckcey/plenipo/security) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What went wrong, and what you expected instead.
+      placeholder: I gave a Supervisor an objective and …
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plenipo version
+      description: Settings → About, or the release you installed.
+      placeholder: v1.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running it
+      options:
+        - Windows installer from a release
+        - Built from source (pnpm dev)
+        - Built from source (pnpm build)
+    validations:
+      required: true
+  - type: dropdown
+    id: ai-tool
+    attributes:
+      label: Which AI tool were the workers on
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - Grok
+        - Ollama
+        - Not applicable
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: trail
+    attributes:
+      label: Activity trail or logs
+      description: >
+        Paste the relevant part of the Activity trail or the console output. Remove anything
+        private first — file paths, folder names, and page contents can carry your own data.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I am on the latest release, or the latest `main`.
+          required: true
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I removed anything private from what I pasted above.
+          required: true

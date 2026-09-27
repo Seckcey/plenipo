@@ -15,7 +15,7 @@ members = [
 [workspace.package]
 version = "1.3.0"
 edition = "2021"
-license = "UNLICENSED"
+license = "Elastic-2.0"
 repository = "https://github.com/Seckcey/plenipo"
 rust-version = "1.85"
 

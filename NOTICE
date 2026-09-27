@@ -1,0 +1,20 @@
+Plenipo
+Copyright (c) 2026 8 West Ventures, LLC
+
+This software is licensed under the Elastic License 2.0. The full terms are in the
+LICENSE file in this repository, and at https://www.elastic.co/licensing/elastic-license.
+
+In short, and without changing anything the LICENSE says: you may read, build, run,
+change, and share Plenipo. You may not sell Plenipo as a hosted or managed service,
+remove or work around its license-key checks, or remove this notice.
+
+Plenipo comes in a Free edition and a paid Pro edition. What is in each, and how to buy
+a Pro license, is in docs/editions.md.
+
+"Plenipo", "8 West Ventures", and the Plenipo logo are trademarks of 8 West Ventures,
+LLC. The Elastic License 2.0 grants no trademark rights.
+
+Plenipo runs work on AI tools you install and sign in to yourself — Claude Code, Codex,
+Grok, and Ollama. Those products are licensed by their own vendors under their own terms,
+and are not covered by this license. Third-party Rust and npm dependencies keep their own
+licenses; see Cargo.toml, Cargo.lock, and the pnpm lockfile.
