@@ -79,8 +79,8 @@ Full power, clearly bounded. That is the whole idea.
 - **Does the work on websites too.** In **Plenipo's own browser**, never yours: Microsoft Edge or
   Google Chrome, your pick, with its own profile, so your sign-ins and saved passwords are never
   touched. You choose which sites workers may open.
-  Workers never type passwords and never try a CAPTCHA: they hand it to you to solve, and when a site
-  needs you signed in, you sign in yourself.
+  Workers never type passwords. A CAPTCHA (a check that a person is using the site) a worker tries
+  at most 3 times, then hands to you to solve; when a site needs you signed in, you sign in yourself.
 - **Gets better at your work.** Workers write down short lessons from what they did. You keep the
   good ones (or let a role learn on its own), and that role's later workers follow them.
 - **Works on your servers, carefully.** An Operations Engineer can check a server, read its logs,
