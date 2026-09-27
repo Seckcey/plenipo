@@ -670,7 +670,7 @@ mod tests {
         l.transition_task(&older.id, TaskState::Failed, "w", None)
             .unwrap();
         let ids = |tasks: Vec<Task>| tasks.into_iter().map(|t| t.id).collect::<Vec<_>>();
-        assert_eq!(ids(l.open_objectives(50).unwrap()), [going.id.clone()]);
+        assert_eq!(ids(l.open_objectives(50).unwrap()), [going.id]);
         assert_eq!(
             ids(l.finished_objectives(0, 20).unwrap()),
             [older.id.clone(), newer.id.clone()]
