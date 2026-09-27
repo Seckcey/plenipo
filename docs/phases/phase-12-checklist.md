@@ -64,7 +64,9 @@ free ADR is **ADR-033**.
   Stop all never reaches them); `ssh.rs` gains `Connection::open_shell` (`pty-req` then `shell`,
   for the owner only). On Windows each shell lives in its own kill-on-close Job Object
   (`win32job`), and no terminal opens while Plenipo runs as administrator (`is_elevated`); both
-  are safe wrappers, because the workspace forbids unsafe code. Off Windows (development, CI,
+  are safe wrappers, because the workspace forbids unsafe code. GitHub's Windows machines run
+  everything as administrator, so the tests turn that refusal off there to reach PowerShell,
+  and `a_terminal_on_this_pc_never_runs_as_administrator` checks the refusal itself. Off Windows (development, CI,
   and the end-to-end tests) the shell is `$SHELL`, else `/bin/sh`.
 - **Commands (main window only):** `get_terminal_settings`, `set_terminal_shell`,
   `open_terminal` (output streams back on a Tauri `ipc::Channel`, base64), `write_terminal`,
@@ -84,12 +86,14 @@ free ADR is **ADR-033**.
   `ssh.command_finished`, `ssh.disconnected`, and refused `ssh_run` calls). **Ctrl+`** and the
   **Terminal** button in the top bar show and hide it.
 - **Added after the code review (2026-09-27):** the terminals end with the page that shows them
-  (a reload of the main window closes them), and terminals on servers close when Remote
-  computers (SSH) is switched off; closing the window while a terminal is open hides Plenipo to
-  the tray, as running work does; while a worker controls the screen, mouse, and keyboard, the
-  terminal takes no typing until the owner takes over (and a new line or Ctrl+J typed by a
-  worker asks the owner, as Enter does); F6 takes the keyboard from the terminal back to its
-  tabs; Settings → Terminal has a switch for screen reader support.
+  (a reload of the main window closes them, and one still connecting closes as it opens), and
+  terminals on servers close when Remote computers (SSH) is switched off; closing the window
+  while a terminal is open hides Plenipo to the tray, as running work does; while a worker
+  controls the screen, mouse, and keyboard, the terminal takes no typing until the owner takes
+  over (and a new line or Ctrl+J typed by a worker asks the owner, as Enter does); F6 takes the
+  keyboard from the terminal back to its tabs, the arrow keys move along the tabs without
+  taking the keyboard into a terminal, and closing the last tab keeps the keyboard in the
+  panel; Settings → Terminal has a switch for screen reader support.
 - **Test server:** `plenipo-test-sshd --shell on` gives the owner's terminal a small shell (a
   prompt, echo, `echo`, `whoami`, `hostname`, `pwd`, `size`, `exit`); without it, a terminal and
   a shell are refused and counted, as before, so the worker checks stay true.

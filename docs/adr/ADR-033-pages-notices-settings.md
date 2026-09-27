@@ -94,7 +94,8 @@ terminal panel, in Settings → About, and in the Gallery.
 ADR-031 (the terminal panel) is accepted; these follow from it and were settled while building:
 
 - **A terminal belongs to the page that shows it.** When the main window's page loads again (a
-  reload), the terminals it showed are closed, instead of running unseen.
+  reload), the terminals it showed are closed, instead of running unseen; one still connecting
+  then closes as soon as it opens.
 - **Remote computers (SSH) off closes the owner's server terminals**, as it disconnects every
   worker (ADR-031 says the server terminal works only while the switch is on).
 - **Closing the window while a terminal is open hides Plenipo to the tray**, as it does while
