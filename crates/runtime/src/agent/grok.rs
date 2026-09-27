@@ -175,6 +175,8 @@ impl RuntimeAdapter for Grok {
             ("GROK_SUBAGENTS", "0"),
             ("GROK_MEMORY", "0"),
             ("GROK_WEB_FETCH", "0"),
+            // xAI's own web and X search run on xAI's side, out of the agent profile's reach.
+            ("GROK_BACKEND_SEARCH", "0"),
             ("GROK_CLAUDE_SKILLS_ENABLED", "0"),
             ("GROK_CLAUDE_HOOKS_ENABLED", "0"),
             ("GROK_CLAUDE_MCPS_ENABLED", "0"),
@@ -216,7 +218,9 @@ impl RuntimeAdapter for Grok {
     }
 }
 
-/// The agent profile for a Plenipo task: none of Grok's own tools (ADR-015 §5).
+/// The agent profile for a Plenipo task: none of Grok's own tools (ADR-015 §5). An empty
+/// `tools` list is no limit to Grok, so each of its own tools is also named in
+/// `disallowedTools` (see `evidence/ai-tools-grok/acp-tools.txt`).
 fn profile(tool_server: bool) -> Value {
     let allowed: &[&str] = if tool_server { TOOL_SERVER_TOOLS } else { &[] };
     let removed: Vec<&str> = OWN_TOOLS
@@ -474,6 +478,7 @@ mod tests {
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
         assert_eq!(get("GROK_DISABLE_API_KEY_AUTH"), Some("1"));
         assert_eq!(get("GROK_DISABLE_AUTOUPDATER"), Some("1"));
+        assert_eq!(get("GROK_BACKEND_SEARCH"), Some("0"));
         assert_eq!(get("GROK_CLAUDE_SKILLS_ENABLED"), Some("0"));
         assert_eq!(get("GROK_CURSOR_MCPS_ENABLED"), Some("0"));
         let passed = Grok.passthrough_env();

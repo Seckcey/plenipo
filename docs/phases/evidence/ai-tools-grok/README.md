@@ -37,6 +37,7 @@ Every task below ran in an empty folder with standard input closed or piped, and
 | `turn-per-model-key-refused.stderr.txt`         | the same with `GROK_DISABLE_API_KEY_AUTH=1`: refused before anything is sent                                                              | 1    |
 | `acp-signed-out.client.jsonl`                   | what was sent to `grok agent stdio`: `initialize`, then `session/new` (never `authenticate`)                                              | —    |
 | `acp-signed-out.agent.jsonl`                    | what `grok agent stdio` answered                                                                                                          | 0    |
+| `acp-tools.txt`                                 | `grok agent stdio` with a fake key and a local stand-in for xAI: the tools a task gets, with and without Plenipo's tool server            | —    |
 
 ## What these show
 
@@ -72,3 +73,8 @@ Every task below ran in an empty folder with standard input closed or piped, and
   is read the same way as `XAI_API_KEY`. With `GROK_DISABLE_API_KEY_AUTH=1`, a per-model key is
   refused too (compare the two `turn-per-model-key*` files), and `grok models` names it on its
   first line ("Model 'grok-4.6' is using its own API key.").
+- **Tools in a task** (`acp-tools.txt`): Grok starts the tool server given in `session/new` and
+  offers the model only `search_tool` and `use_tool` for it; with no tool server, no tools at
+  all. An empty `tools` list in the agent profile is not a limit by itself, so the profile also
+  names each of Grok's own tools. xAI's backend web and X search are added on xAI's side and are
+  turned off with `GROK_BACKEND_SEARCH=0` (`features.backend_tools`).

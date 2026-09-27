@@ -545,6 +545,8 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
             // API-key sign-in refused by Grok itself; Plenipo never asked it to sign in.
             assert!(env.iter().any(|n| n == "GROK_DISABLE_API_KEY_AUTH"));
             assert!(env.iter().any(|n| n == "GROK_DISABLE_AUTOUPDATER"));
+            // No web or X search on xAI's side.
+            assert!(env.iter().any(|n| n == "GROK_BACKEND_SEARCH"));
             assert!(!h.state().join("authenticate-called").exists());
             assert_eq!(args.last().map(String::as_str), Some("stdio"));
             assert!(args.contains(&"--no-leader".to_owned()), "{args:?}");

@@ -31,9 +31,10 @@ over ACP). Evidence from the real CLI: [`evidence/ai-tools-grok/`](evidence/ai-t
       `initialize`), exit codes documented (0, 1, 130, 143). **Owner check:** resume signed in.
 - [x] Least privilege: flags that stop writes and network — no flag in ACP mode; instead an agent
       profile with none of Grok's own tools (`_meta.agentProfile`), `GROK_SUBAGENTS=0`,
-      `GROK_MEMORY=0`, `GROK_WEB_FETCH=0`, the Claude Code and Cursor switches (checked with
-      `grok inspect --json` and a task's tool list), and Plenipo refusing every tool request but
-      its own tool server's. Grok's kernel sandbox is Linux and macOS only. **Owner check:** Grok
+      `GROK_MEMORY=0`, `GROK_WEB_FETCH=0`, `GROK_BACKEND_SEARCH=0` (xAI's web and X search, found
+      by the owner's step 9), the Claude Code and Cursor switches (checked with
+      `grok inspect --json` and a task's tool list, `evidence/ai-tools-grok/acp-tools.txt`), and
+      Plenipo refusing every tool request but its own tool server's. Grok's kernel sandbox is Linux and macOS only. **Owner check:** Grok
       does not use its own tools.
 - [x] CLI version checked: 1.0.41 (stable), stdin checks repeated on 1.0.42 (alpha).
 
@@ -45,7 +46,8 @@ over ACP). Evidence from the real CLI: [`evidence/ai-tools-grok/`](evidence/ai-t
 - [x] Sign-in check: `grok models`, first line; subscription, API key, signed out, unrecognized;
       no account names kept (method: "grok.com sign-in")
 - [x] Environment: `GROK_HOME` and `NETWORK_ENV` passed; `GROK_DISABLE_API_KEY_AUTH=1` and the
-      least-privilege switches set; no API-key or billing variables
+      least-privilege switches set, including `GROK_BACKEND_SEARCH=0`; no API-key or billing
+      variables
 - [x] Turn arguments: `agent --no-leader [-m MODEL] [--reasoning-effort LEVEL] stdio`; the
       conversation ID travels in ACP messages
 - [x] Parser: the shared ACP driver (`acp.rs`) — every message type seen; unknown messages

@@ -49,9 +49,9 @@ environment (ADR-007), and the ones Plenipo sets itself:
 Grok (ADR-015, running AI tools over ACP) gets `GROK_DISABLE_API_KEY_AUTH=1` (Grok itself refuses
 API keys, including a key set on a model in its own settings), `GROK_DISABLE_AUTOUPDATER=1`, and
 switches that keep it to the least it can do until Guard grants permissions: `GROK_SUBAGENTS=0`,
-`GROK_MEMORY=0`, `GROK_WEB_FETCH=0`, and `GROK_CLAUDE_*_ENABLED=0` / `GROK_CURSOR_*_ENABLED=0`
-for skills, hooks, tool servers, agents, and rules (so it does not load your Claude Code or Cursor
-settings).
+`GROK_MEMORY=0`, `GROK_WEB_FETCH=0`, `GROK_BACKEND_SEARCH=0` (xAI's own web and X search, which
+run on xAI's side), and `GROK_CLAUDE_*_ENABLED=0` / `GROK_CURSOR_*_ENABLED=0` for skills, hooks,
+tool servers, agents, and rules (so it does not load your Claude Code or Cursor settings).
 
 API keys and cloud-provider switches (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `OPENAI_API_KEY`, `CODEX_API_KEY`,

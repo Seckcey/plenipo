@@ -59,8 +59,12 @@ checks now include Grok).
     set on a model in `config.toml` (tested with fake keys, signed out);
   - `XAI_API_KEY`, `GROK_CODE_XAI_API_KEY`, `GROK_DEPLOYMENT_KEY`, and Grok's auth-provider,
     OIDC, and endpoint variables are never passed.
-- **Least privilege:** an agent profile with none of Grok's own tools, sent with the session;
-  `GROK_SUBAGENTS=0`, `GROK_MEMORY=0`, `GROK_WEB_FETCH=0`; the Claude Code and Cursor switches
+- **Least privilege:** an agent profile with none of Grok's own tools, sent with the session
+  (checked with a fake key and a local stand-in for xAI: the model is offered no tools, or only
+  `search_tool` and `use_tool` for Plenipo's tool server; see
+  [`acp-tools.txt`](evidence/ai-tools-grok/acp-tools.txt));
+  `GROK_SUBAGENTS=0`, `GROK_MEMORY=0`, `GROK_WEB_FETCH=0`, and `GROK_BACKEND_SEARCH=0` (xAI's
+  own web and X search, which run on xAI's side); the Claude Code and Cursor switches
   off (checked: a task then loads none of the owner's skills). A worker with permissions gets
   Plenipo's tool server in `session/new`; Grok reaches it through its `use_tool`, asks first,
   and Plenipo allows only that server (Guard decides inside each call).
@@ -135,10 +139,12 @@ prints a key, do not paste it.
 9. In **Organization**, select the Website Supervisor. In its details panel, under **Project:
    Website**, choose **Edit project**, tick **Grok** under **Allowed AI tools**, and save (a
    project made before Grok existed does not allow it yet). Then choose **Edit title, AI tool,
-   or model**, pick **Grok**, and save. The project needs a folder. Give it: _"Read README.md and
-   summarize it. Then run `dir` yourself."_ The summary should come from Plenipo's file tool
+   or model**, pick **Grok**, and save. The project needs a folder with a README.md in it: in
+   the details panel, **Folder** must not say "None"; if it does, set **Project folder** in
+   **Edit project**. Give it: _"Read README.md and summarize it. Then run `dir` yourself."_ The summary should come from Plenipo's file tool
    (shown in **Activity**). Grok must not run `dir` with its own tools: either it says it cannot,
-   or **Activity** shows "Grok asked to use … Plenipo refused it".
+   or **Activity** shows "Grok asked to use … Plenipo refused it". It must not mention X or web
+   search.
 10. If any Grok task above did not finish as described, open **AI tools**, find its program
     entry (for example "Grok · task 1"), and copy its output.
 11. Refused sign-ins:
@@ -161,7 +167,9 @@ Everything below needs a signed-in Grok, which was never used here:
 
 - a real task over ACP: whether the conversation opens without ACP's sign-in message, the text,
   tool calls, and usage fields a signed-in Grok sends, and its usage-limit wording;
-- that the agent profile removes Grok's own tools and that Grok asks before using a tool server;
+- that Grok asks before using a tool server, and that `GROK_BACKEND_SEARCH=0` removes xAI's
+  web and X search for a signed-in model (the agent profile removing Grok's own tools was
+  checked here with a fake key: [`acp-tools.txt`](evidence/ai-tools-grok/acp-tools.txt));
 - that `GROK_DISABLE_API_KEY_AUTH=1` blocks a key set on a model while signed in (ADR-015 §6;
   shown signed out).
 
@@ -182,3 +190,17 @@ the persona, with the recorded output added to the evidence.
   Medium, and Low; `grok-4.5` takes High, Medium, and Low. Plenipo's menu now lists all four;
   a test checks the adapter against this file. The setup guide now says to keep Grok up to
   date.
+- **Steps 5–9 (2026-09-27):** steps 5–8 worked as described: the Grok card read Ready with
+  the grok.com sign-in, and a task, its follow-up (resume), and cancel then continue all ran. Step 9 first
+  stopped because the Website project, made before Grok existed, did not allow Grok (the step
+  now says to tick it). Then the Supervisor's task finished, but Grok could not read README.md
+  and said: "This session only has X post search". Two things follow:
+  - **X search came through.** It is one of xAI's backend tools, added on xAI's side, so the
+    agent profile does not reach it. Plenipo now sets `GROK_BACKEND_SEARCH=0`, Grok's documented
+    switch for them. To be checked in the re-run of step 9.
+  - **Plenipo's file tool did not reach the task.** Checked here, Grok starts a tool server
+    given in `session/new` and offers it to the model
+    ([`acp-tools.txt`](evidence/ai-tools-grok/acp-tools.txt)), so the likely cause is that the
+    Supervisor got no tool server at all, which happens when the project has no folder (Claude
+    Code would have had no way to read the file either). To be checked in the re-run: the
+    project's **Folder**, and any "has permissions but got no tools" line in **Activity**.
