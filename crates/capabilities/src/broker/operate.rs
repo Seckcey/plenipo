@@ -8,8 +8,11 @@
 //!   owner sees everywhere ([`crate::control`]). The owner can take one over (that worker stops)
 //!   or stop them all at once; a stop holds until the owner allows control again.
 //! - **Sensitive actions.** Submitting a form, buying, signing in, and sending always wait for
-//!   the owner's approval: from the control clicked or the key pressed, and from data a page
-//!   sends right after a worker's action (held in the tab until the owner decides).
+//!   the owner's approval: from the control clicked or the key pressed (Enter in any text box
+//!   sends what it holds, in a form or not), from data a page sends right after a worker's
+//!   action (held in the tab until the owner decides; data it sends on its own between actions
+//!   is stopped), and, on a page with a live connection (a WebSocket, which the tab cannot see
+//!   into), from any click, Enter, or Space (asked before the action; ADR-034).
 //! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
 //!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
 //!   check's checkbox and hears how each try went, ADR-032); the Windows key.
@@ -182,6 +185,16 @@ fn describe(f: &ElementFacts) -> String {
     } else {
         format!("the {kind} \"{}\"", cap(&f.name, 80))
     }
+}
+
+/// Why a click or key press on a page with a live connection is sensitive (ADR-034): the
+/// network gate cannot see what the page sends through a WebSocket, so the owner is asked
+/// before the action, whatever the control looks like.
+fn live_connection() -> (SensitiveKind, String) {
+    (
+        SensitiveKind::Outbound,
+        "this page has a live connection (a WebSocket) that sends as you type or click".into(),
+    )
 }
 
 /// A web address's website, as the lists name it.
@@ -682,6 +695,9 @@ impl Broker {
                     },
                 );
                 p.inherent_owned = classify::click(&facts);
+                if p.inherent_owned.is_none() && tab.has_websocket() {
+                    p.inherent_owned = Some(live_connection());
+                }
                 p.site = Self::tab_site(&tab);
                 p
             }
@@ -791,11 +807,21 @@ impl Broker {
                         captcha,
                     },
                 );
+                // Enter sends from any text box; Space presses a focused button. On a page with
+                // a live connection, either may send something the gate cannot see (ADR-034).
+                let acts = match key.as_str() {
+                    "Enter" => true,
+                    "Space" => focused.found && !focused.editable,
+                    _ => false,
+                };
                 p.inherent_owned = match key.as_str() {
                     "Enter" => classify::enter(&focused),
-                    "Space" if focused.found && !focused.editable => classify::click(&focused),
+                    "Space" if acts => classify::click(&focused),
                     _ => None,
                 };
+                if acts && p.inherent_owned.is_none() && tab.has_websocket() {
+                    p.inherent_owned = Some(live_connection());
+                }
                 p.site = Self::tab_site(&tab);
                 p
             }
@@ -1609,12 +1635,19 @@ impl Broker {
         let (result, last, keep): (std::result::Result<String, String>, String, bool) = match work {
             ControlWork::Read { max_chars } => (
                 tab.read(max_chars, MAX_CONTROLS).await.map(|p| {
-                    page_text(
+                    let mut text = page_text(
                         &p,
                         true,
                         tab.captcha_attempts(),
                         self.captcha_tries_allowed(),
-                    )
+                    );
+                    // What Plenipo stopped since the last result (a send the page tried on its
+                    // own), after the page's own words (ADR-034).
+                    for note in tab.take_notes() {
+                        text.push_str(&note);
+                        text.push('\n');
+                    }
+                    text
                 }),
                 format!("read {}", host_of(&tab.url())),
                 false,

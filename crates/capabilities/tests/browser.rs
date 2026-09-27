@@ -958,6 +958,115 @@ async fn plan_approval_gated_submit() {
     assert_eq!(asked.len(), 2);
 }
 
+/// ADR-034: a chat composer (a contenteditable outside any form) sends on Enter, and the page
+/// sends over a live connection (a WebSocket) the network gate cannot see into. Enter asks the
+/// owner before it is pressed, and nothing reaches the site until they approve; a click on a
+/// harmless-looking button on such a page asks too, naming the live connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_composer_and_a_live_connection_ask_before_sending() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let chat = h.url("shop", "/chat");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": chat })),
+            tool("browser_type", json!({ "ref": "e1", "text": "hello there" })),
+            tool("browser_press", json!({ "key": "Enter" })),
+            tool("browser_click", json!({ "ref": "e2" }))
+        ], "say": "Sent." }]),
+    );
+    let root = h.objective().await;
+    // Enter in the composer (no <form> anywhere) asks: it sends what the box holds.
+    let enter = h.pending().await;
+    assert_eq!(enter.capability_label, "Use websites");
+    assert_eq!(
+        enter.sensitive_label.as_deref(),
+        Some("Sending or publishing outside this computer")
+    );
+    assert!(enter.summary.contains("press Enter"), "{}", enter.summary);
+    assert!(enter.reason.contains("text box"), "{}", enter.reason);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing reaches the site before approval: {:?}",
+        h.site.sent()
+    );
+    h.broker.resolve_approval(&enter.id, true, "owner").unwrap();
+    // Approved, the message goes over the page's live connection.
+    h.until("the message over the socket", |h| !h.site.sent().is_empty())
+        .await;
+    // "Go" looks harmless, but the page has a live connection the gate cannot see into: ask.
+    let click = h.pending().await;
+    assert_ne!(click.id, enter.id);
+    assert!(click.summary.contains("\"Go\""), "{}", click.summary);
+    assert!(click.reason.contains("live connection"), "{}", click.reason);
+    assert_eq!(
+        click.sensitive_label.as_deref(),
+        Some("Sending or publishing outside this computer")
+    );
+    h.broker
+        .resolve_approval(&click.id, false, "owner")
+        .unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        line(&text, "browser_press").contains("Pressed Enter"),
+        "{text}"
+    );
+    assert!(
+        line(&text, "browser_click").contains("failed: Not done"),
+        "{text}"
+    );
+    let sent = h.site.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].method, "WS");
+    assert_eq!(sent[0].path, "/ws");
+    assert_eq!(sent[0].body, "hello there");
+    assert_eq!(h.approvals_for(&task.id), 2);
+}
+
+/// ADR-034: data a page sends on its own, outside any worker action (a POST its script starts
+/// on a timer, long after the click), is never sent silently: Plenipo stops it, and the worker
+/// is told with its next result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn data_a_page_sends_on_its_own_is_stopped_and_the_worker_is_told() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let late = h.url("shop", "/late-send");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": late })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // "Go" goes ahead (nothing is sent while Plenipo watches the click). "Buy now" waits for the
+    // owner; meanwhile the page's timer fires its POST, with no worker action running.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(
+        h.site.sent().is_empty(),
+        "the late POST never reached the site: {:?}",
+        h.site.sent()
+    );
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert!(
+        text.contains("tried to send data to shop.test") && text.contains("on its own"),
+        "{text}"
+    );
+    assert!(text.contains("Plenipo stopped it"), "{text}");
+    assert_eq!(h.approvals_for(&task.id), 1, "only \"Buy now\" asked");
+}
+
 /// Plan: global stop. The owner's Stop halts all control at once: the worker waiting to send
 /// is refused, its permissions end, the page says "Stopped", nothing is sent, and no worker
 /// may use the browser or the screen until the owner allows it again.

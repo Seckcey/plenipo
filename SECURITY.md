@@ -47,6 +47,18 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Sending, buying, and signing in ask for approval by default. The owner can explicitly enable
   the corresponding **without asking** switches for allowed websites. Other permission and
   Guard checks still apply; these switches are off by default.
+- In Plenipo's browser, the network gate works like this (ADR-034):
+  - **Asked before the action:** a click or key press whose control looks like sending, buying,
+    or signing in; Enter in any text box (a form field, a chat or comment composer, inside a form
+    or not); and any click, Enter, or Space on a page that has a live connection (a WebSocket),
+    because Plenipo cannot see what goes through one.
+  - **Held for approval:** data the page sends right after a worker's click or key press — any
+    page, form, script, or beacon request (`Document`, `XHR`, `Fetch`, `Ping`, `Other`) that is
+    not a plain read (GET, HEAD, OPTIONS) — until the owner approves or refuses.
+  - **Stopped, and the worker told:** data the page tries to send on its own, with no worker
+    action running (a form it submits by itself, a script's POST on a timer, a beacon).
+  - **Not seen:** what goes through a live connection (WebSocket frames) or a plain page load
+    (a link that changes something with a GET); those are covered only by the asks above.
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 

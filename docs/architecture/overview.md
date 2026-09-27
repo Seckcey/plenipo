@@ -608,9 +608,17 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
   (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
   never allow).
-- **Network gate.** While a worker's action runs, the tab intercepts requests (`Fetch`): a
-  document or script request that is not a plain read is held until the owner approves, a
-  form the page sends by itself is failed, and a page on a blocked website never loads.
+- **Network gate** (`tab.rs`, ADR-034). The tab intercepts the page's `Document`, `XHR`,
+  `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
+  `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
+  read (GET, HEAD, OPTIONS) is held until the owner approves (`decide_held`); one the page
+  sends on its own, outside an action (a form it submits by itself, a script's POST on a timer,
+  a beacon), is failed and the worker is told with its next result (a note, also after
+  `browser_read`); a page on a blocked website never loads. WebSocket frames cannot be seen:
+  the tab notes a live connection (`Network.webSocketCreated`, forgotten on the next page), and
+  `prepare_control` asks the owner before a click, Enter, or Space on such a page. `classify.rs`
+  asks before Enter in any text box (a form field, a contenteditable, a `role=textbox`), in a
+  form or not; Enter in a textarea is a new line.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
   CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
   the website's.
