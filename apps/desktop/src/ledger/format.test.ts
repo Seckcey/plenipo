@@ -288,6 +288,12 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("guard.switches_changed", {}))).toBe(
       "Switches changed (Settings → Switches)",
     );
+    expect(describeEvent(event("guard.browser_chosen", { browserChoice: "chrome" }))).toBe(
+      "Plenipo's browser set to Google Chrome",
+    );
+    expect(describeEvent(event("guard.browser_chosen", { browserChoice: "automatic" }))).toBe(
+      "Plenipo's browser set to Automatic (Microsoft Edge, or Google Chrome without it)",
+    );
     expect(
       describeEvent(
         event("control.switched_off", { kind: "browser", sessions: [{ worker: "W" }] }),

@@ -983,12 +983,9 @@ impl Broker {
                 }
             }
         }
-        let rules = self
-            .inner
-            .guard
-            .config()
-            .map_err(|e| e.to_string())?
-            .websites;
+        let config = self.inner.guard.config().map_err(|e| e.to_string())?;
+        self.inner.browser.set_choice(config.browser_choice);
+        let rules = config.websites;
         let approved: HashSet<String> = self
             .state()
             .grants
@@ -2048,7 +2045,15 @@ impl Broker {
 
     /// Plenipo's browser as Settings shows it.
     pub async fn browser_status(&self) -> crate::browser::BrowserStatus {
+        self.sync_browser_choice();
         self.inner.browser.status().await
+    }
+
+    /// Keep Plenipo's browser on the owner's choice in Guard's settings (ADR-028).
+    fn sync_browser_choice(&self) {
+        if let Ok(config) = self.inner.guard.config() {
+            self.inner.browser.set_choice(config.browser_choice);
+        }
     }
 
     /// Open Plenipo's browser for the owner (to sign in to a website before workers use it).
@@ -2060,6 +2065,7 @@ impl Broker {
             }
             None => "about:blank".into(),
         };
+        self.sync_browser_choice();
         self.inner
             .browser
             .open_for_owner(&url)

@@ -17,14 +17,16 @@
 
 All Plenipo-owned variables use the `PLENIPO_` prefix.
 
-| Variable                     | Default | Purpose                                                                                             |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| `PLENIPO_SMOKE_TEST`         | unset   | `1`/`true`: launch smoke-test mode (CI).                                                            |
-| `PLENIPO_SMOKE_TIMEOUT_SECS` | `60`    | Smoke watchdog timeout, 1–600 seconds.                                                              |
-| `RUST_LOG`                   | —       | Reserved for Rust log filtering once structured logging lands.                                      |
-| `TAURI_WEBVIEW_AUTOMATION`   | unset   | **Tests only.** `true` lets WebDriver attach (set by the e2e harness). Never set it for normal use. |
-| `PLENIPO_E2E_SCREENSHOTS`    | unset   | E2E harness: directory for screenshots.                                                             |
-| `PLENIPO_FAKE_AGENT`         | unset   | **Tests only.** E2E harness: path to `plenipo-fake-agent` (default `target/release/…`).             |
+| Variable                        | Default | Purpose                                                                                             |
+| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `PLENIPO_SMOKE_TEST`            | unset   | `1`/`true`: launch smoke-test mode (CI).                                                            |
+| `PLENIPO_SMOKE_TIMEOUT_SECS`    | `60`    | Smoke watchdog timeout, 1–600 seconds.                                                              |
+| `RUST_LOG`                      | —       | Reserved for Rust log filtering once structured logging lands.                                      |
+| `TAURI_WEBVIEW_AUTOMATION`      | unset   | **Tests only.** `true` lets WebDriver attach (set by the e2e harness). Never set it for normal use. |
+| `PLENIPO_E2E_SCREENSHOTS`       | unset   | E2E harness: directory for screenshots.                                                             |
+| `PLENIPO_FAKE_AGENT`            | unset   | **Tests only.** E2E harness: path to `plenipo-fake-agent` (default `target/release/…`).             |
+| `PLENIPO_BROWSER`               | unset   | Full path of the browser to use as Plenipo's browser; wins over the Browser menu in Settings.       |
+| `PLENIPO_BROWSER_START_SECONDS` | `30`    | **Test computers only.** Seconds Plenipo's browser may take to start, 5–300 (CI uses 90, ADR-028).  |
 
 Frontend build-time variables must use the `VITE_` prefix (only those and `TAURI_ENV_*` are
 exposed to the UI bundle). Never put a secret in a `VITE_` variable — it is compiled into the

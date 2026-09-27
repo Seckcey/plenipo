@@ -11,6 +11,7 @@ import type {
   AgentSessionDetail,
   AppInfo,
   BackupInfo,
+  BrowserChoice,
   BrowserStatus,
   ControlStatus,
   CommandError,
@@ -560,6 +561,12 @@ export function setSwitches(switches: Switches): Promise<PermissionsSnapshot> {
 
 export function getBrowserStatus(): Promise<BrowserStatus> {
   return call("get_browser_status");
+}
+
+/** Which browser is Plenipo's browser (ADR-028). An open one stays open; the choice is used from
+ * its next start. */
+export function setBrowserChoice(choice: BrowserChoice): Promise<BrowserStatus> {
+  return call("set_browser_choice", { choice });
 }
 
 /** Open Plenipo's browser for you (to sign in to a website yourself). */

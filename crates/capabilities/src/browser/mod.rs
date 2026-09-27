@@ -9,6 +9,8 @@
 //!   step gets its own tab ([`tab`]).
 //! - The profile never saves passwords or card details.
 //! - If it crashes or is closed, the next browser tool call starts it again.
+//! - The owner chooses which browser (ADR-028): Automatic (Edge, then Chrome), Edge, or Chrome.
+//!   Each keeps its own profile folder; a new choice is used from the browser's next start.
 
 pub mod cdp;
 pub mod classify;
@@ -17,6 +19,7 @@ pub mod tab;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use plenipo_guard::BrowserChoice;
 use plenipo_runtime::{LaunchSpec, Supervisor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,9 +40,10 @@ const BROWSER_ENV: &[&str] = &[
 
 #[derive(Debug, Clone)]
 pub struct BrowserConfig {
-    /// The browser to use (`PLENIPO_BROWSER`, or tests); otherwise Edge or Chrome is found.
+    /// The browser to use (`PLENIPO_BROWSER`, or tests); otherwise the owner's choice is found.
     pub executable: Option<PathBuf>,
-    /// Plenipo's own profile folder.
+    /// Plenipo's own profile folder (Microsoft Edge's, and a browser named by `executable`);
+    /// Google Chrome's is next to it, with `-chrome` after its name.
     pub profile_dir: PathBuf,
     /// Tests only: no window. The app always shows the browser.
     pub headless: bool,
@@ -58,10 +62,24 @@ impl BrowserConfig {
             profile_dir,
             headless: false,
             extra_args: Vec::new(),
-            launch_timeout: Duration::from_secs(30),
+            launch_timeout: start_timeout(
+                std::env::var("PLENIPO_BROWSER_START_SECONDS")
+                    .ok()
+                    .as_deref(),
+            ),
             limits: TabLimits::default(),
         }
     }
+}
+
+/// How long the browser may take to start: 30 seconds, or `PLENIPO_BROWSER_START_SECONDS`
+/// (5 to 300) on a slow computer, such as a test runner.
+fn start_timeout(setting: Option<&str>) -> Duration {
+    let seconds = setting
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|s| (5..=300).contains(s))
+        .unwrap_or(30);
+    Duration::from_secs(seconds)
 }
 
 /// Plenipo's browser as Settings shows it.
@@ -69,7 +87,8 @@ impl BrowserConfig {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct BrowserStatus {
-    /// The browser Plenipo uses ("Microsoft Edge"), when one is installed.
+    /// The browser Plenipo uses ("Microsoft Edge"), when one is installed: the open one, or
+    /// the one it will start.
     #[ts(optional)]
     pub name: Option<String>,
     #[ts(optional)]
@@ -79,6 +98,26 @@ pub struct BrowserStatus {
     pub profile: String,
     #[ts(optional)]
     pub problem: Option<String>,
+    /// The owner's choice in Settings (ADR-028).
+    pub choice: BrowserChoice,
+    /// Microsoft Edge and Google Chrome, and whether each is on this computer.
+    pub options: Vec<BrowserOption>,
+    /// `PLENIPO_BROWSER` names the browser, so the owner's choice does not apply.
+    pub fixed: bool,
+    /// The browser Plenipo starts next time, when the one open now is another.
+    #[ts(optional)]
+    pub next: Option<String>,
+}
+
+/// A browser the owner can choose (ADR-028).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BrowserOption {
+    pub choice: BrowserChoice,
+    /// "Microsoft Edge", "Google Chrome", or "Chromium" (Chrome's open-source build, on Linux).
+    pub name: String,
+    pub installed: bool,
 }
 
 /// A browser's plain name from its program's name.
@@ -98,43 +137,103 @@ fn name_of(path: &Path) -> String {
     }
 }
 
-/// Edge or Chrome on this computer: the configured one, then the usual places.
-pub fn find_browser(configured: Option<&Path>) -> Option<(PathBuf, String)> {
-    if let Some(p) = configured {
-        return p.is_file().then(|| (p.to_path_buf(), name_of(p)));
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
+/// Edge and Chrome on this computer, Edge first: each program found, and which choice it is.
+fn installed() -> Vec<(BrowserChoice, PathBuf)> {
+    let mut candidates: Vec<(BrowserChoice, PathBuf)> = Vec::new();
     if cfg!(windows) {
-        for var in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
-            if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
-                candidates.push(base.join("Microsoft/Edge/Application/msedge.exe"));
-                candidates.push(base.join("Google/Chrome/Application/chrome.exe"));
-            }
+        let bases: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
+            .into_iter()
+            .filter_map(|var| std::env::var_os(var).map(PathBuf::from))
+            .collect();
+        for (choice, program) in [
+            (BrowserChoice::Edge, "Microsoft/Edge/Application/msedge.exe"),
+            (
+                BrowserChoice::Chrome,
+                "Google/Chrome/Application/chrome.exe",
+            ),
+        ] {
+            candidates.extend(bases.iter().map(|base| (choice, base.join(program))));
         }
     } else {
-        for name in [
-            "microsoft-edge",
-            "microsoft-edge-stable",
-            "google-chrome",
-            "google-chrome-stable",
-            "chromium",
-            "chromium-browser",
+        for (choice, name) in [
+            (BrowserChoice::Edge, "microsoft-edge"),
+            (BrowserChoice::Edge, "microsoft-edge-stable"),
+            (BrowserChoice::Chrome, "google-chrome"),
+            (BrowserChoice::Chrome, "google-chrome-stable"),
+            (BrowserChoice::Chrome, "chromium"),
+            (BrowserChoice::Chrome, "chromium-browser"),
         ] {
             if let Some(p) = crate::programs::find_on_path(name) {
-                candidates.push(p);
+                candidates.push((choice, p));
             }
         }
-        candidates.push(PathBuf::from(
-            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        candidates.push((
+            BrowserChoice::Edge,
+            PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
         ));
-        candidates.push(PathBuf::from(
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        candidates.push((
+            BrowserChoice::Chrome,
+            PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         ));
     }
-    candidates.into_iter().find(|p| p.is_file()).map(|p| {
-        let name = name_of(&p);
-        (p, name)
-    })
+    candidates.retain(|(_, p)| p.is_file());
+    candidates
+}
+
+/// Edge or Chrome on this computer: the configured one, then the usual places, Edge first.
+pub fn find_browser(configured: Option<&Path>) -> Option<(PathBuf, String)> {
+    find_chosen(configured, BrowserChoice::Automatic).map(|(p, name, _)| (p, name))
+}
+
+/// The browser for the owner's choice (a configured one wins), its name, and which it is
+/// (`Automatic` for a configured browser, which keeps the usual profile folder).
+fn find_chosen(
+    configured: Option<&Path>,
+    choice: BrowserChoice,
+) -> Option<(PathBuf, String, BrowserChoice)> {
+    if let Some(p) = configured {
+        return p
+            .is_file()
+            .then(|| (p.to_path_buf(), name_of(p), BrowserChoice::Automatic));
+    }
+    installed()
+        .into_iter()
+        .find(|(kind, _)| choice == BrowserChoice::Automatic || *kind == choice)
+        .map(|(kind, p)| {
+            let name = name_of(&p);
+            (p, name, kind)
+        })
+}
+
+/// A browser's own profile folder: Chrome's is next to Plenipo's usual one (Edge's), because
+/// two browsers must never share one profile.
+fn profile_for(usual: &Path, kind: BrowserChoice) -> PathBuf {
+    match kind {
+        BrowserChoice::Chrome => {
+            let mut name = usual.file_name().unwrap_or_default().to_os_string();
+            name.push("-chrome");
+            usual.with_file_name(name)
+        }
+        BrowserChoice::Automatic | BrowserChoice::Edge => usual.to_path_buf(),
+    }
+}
+
+/// What Settings says when the chosen browser is not on this computer.
+fn not_found(choice: BrowserChoice) -> &'static str {
+    match choice {
+        BrowserChoice::Automatic => {
+            "No Microsoft Edge or Google Chrome was found on this computer, so workers cannot use \
+             websites. Windows 11 includes Edge; if it was removed, install Edge or Chrome."
+        }
+        BrowserChoice::Edge => {
+            "Microsoft Edge was not found on this computer, so workers cannot use websites. \
+             Choose Automatic or Google Chrome, or install Edge."
+        }
+        BrowserChoice::Chrome => {
+            "Google Chrome was not found on this computer, so workers cannot use websites. \
+             Choose Automatic or Microsoft Edge, or install Chrome."
+        }
+    }
 }
 
 /// Make the profile Plenipo's own: it never offers to save passwords or card details.
@@ -174,10 +273,10 @@ fn root_on_linux() -> bool {
         })
 }
 
-/// The command-line options Plenipo starts the browser with.
-fn arguments(config: &BrowserConfig) -> Vec<String> {
+/// The command-line options Plenipo starts the browser with, on its own `profile` folder.
+fn arguments(config: &BrowserConfig, profile: &Path) -> Vec<String> {
     let mut args: Vec<String> = [
-        format!("--user-data-dir={}", config.profile_dir.display()),
+        format!("--user-data-dir={}", profile.display()),
         "--remote-debugging-port=0".into(),
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
@@ -207,6 +306,10 @@ fn arguments(config: &BrowserConfig) -> Vec<String> {
 struct Running {
     cdp: Cdp,
     execution_id: String,
+    /// Which browser it is, from which program, on which profile folder.
+    name: String,
+    path: PathBuf,
+    profile: PathBuf,
 }
 
 /// How the browser was when a tool call needed it.
@@ -231,6 +334,8 @@ struct Inner {
     supervisor: Supervisor,
     running: AsyncMutex<Option<Running>>,
     problem: std::sync::Mutex<Option<String>>,
+    /// The owner's choice (ADR-028), kept in step with Guard's settings by the broker.
+    choice: std::sync::Mutex<BrowserChoice>,
 }
 
 impl Browser {
@@ -241,6 +346,7 @@ impl Browser {
                 supervisor,
                 running: AsyncMutex::new(None),
                 problem: std::sync::Mutex::new(None),
+                choice: std::sync::Mutex::new(BrowserChoice::Automatic),
             }),
         }
     }
@@ -249,38 +355,85 @@ impl Browser {
         &self.inner.config
     }
 
+    /// The owner's choice (ADR-028). A browser that is open stays open; the choice is used
+    /// from its next start.
+    pub fn set_choice(&self, choice: BrowserChoice) {
+        *self.inner.choice.lock().unwrap_or_else(|p| p.into_inner()) = choice;
+    }
+
+    pub fn choice(&self) -> BrowserChoice {
+        *self.inner.choice.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// The browser Plenipo starts next: its program and name.
     pub fn find(&self) -> Option<(PathBuf, String)> {
-        find_browser(self.inner.config.executable.as_deref())
+        self.find_chosen().map(|(p, name, _)| (p, name))
+    }
+
+    fn find_chosen(&self) -> Option<(PathBuf, String, BrowserChoice)> {
+        find_chosen(self.inner.config.executable.as_deref(), self.choice())
     }
 
     /// What Settings shows.
     pub async fn status(&self) -> BrowserStatus {
-        let found = self.find();
-        let running = self
+        let choice = self.choice();
+        let fixed = self.inner.config.executable.is_some();
+        let next = self.find_chosen();
+        let open = self
             .inner
             .running
             .lock()
             .await
             .as_ref()
-            .is_some_and(|r| !r.cdp.is_closed());
+            .filter(|r| !r.cdp.is_closed())
+            .map(|r| (r.name.clone(), r.path.clone(), r.profile.clone()));
+        let found = installed();
+        let options = [BrowserChoice::Edge, BrowserChoice::Chrome]
+            .into_iter()
+            .map(|c| {
+                let program = found.iter().find(|(kind, _)| *kind == c);
+                BrowserOption {
+                    choice: c,
+                    name: match (c, program) {
+                        (_, Some((_, p))) => name_of(p),
+                        (BrowserChoice::Edge, None) => "Microsoft Edge".into(),
+                        (_, None) => "Google Chrome".into(),
+                    },
+                    installed: program.is_some(),
+                }
+            })
+            .collect();
+        let usual = &self.inner.config.profile_dir;
+        let upcoming = next
+            .as_ref()
+            .map(|(p, name, kind)| (name.clone(), p.clone(), profile_for(usual, *kind)));
+        let shown = open.clone().or_else(|| upcoming.clone());
         BrowserStatus {
-            name: found.as_ref().map(|(_, n)| n.clone()),
-            path: found.as_ref().map(|(p, _)| p.display().to_string()),
-            running,
-            profile: self.inner.config.profile_dir.display().to_string(),
-            problem: if found.is_none() {
-                Some(
-                    "No Microsoft Edge or Google Chrome was found on this computer, so workers \
-                     cannot use websites. Windows 11 includes Edge; if it was removed, install \
-                     Edge or Chrome."
-                        .into(),
-                )
+            name: shown.as_ref().map(|(n, _, _)| n.clone()),
+            path: shown.as_ref().map(|(_, p, _)| p.display().to_string()),
+            running: open.is_some(),
+            profile: shown
+                .as_ref()
+                .map_or_else(|| usual.clone(), |(_, _, profile)| profile.clone())
+                .display()
+                .to_string(),
+            problem: if next.is_none() {
+                Some(not_found(choice).into())
             } else {
                 self.inner
                     .problem
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .clone()
+            },
+            choice,
+            options,
+            fixed,
+            next: match (&open, &upcoming) {
+                (Some((_, open_path, _)), Some((name, path, _))) if open_path != path => {
+                    Some(name.clone())
+                }
+                _ => None,
             },
         }
     }
@@ -314,16 +467,16 @@ impl Browser {
 
     async fn launch(&self) -> Result<Running, String> {
         let config = &self.inner.config;
-        let (executable, name) = self.find().ok_or(
-            "no Microsoft Edge or Google Chrome was found on this computer, so Plenipo's browser \
-             cannot start",
-        )?;
-        prepare_profile(&config.profile_dir)
+        let (path, name, kind) = self
+            .find_chosen()
+            .ok_or_else(|| not_found(self.choice()).to_owned())?;
+        let profile = profile_for(&config.profile_dir, kind);
+        prepare_profile(&profile)
             .map_err(|e| format!("could not prepare the browser's profile: {e}"))?;
         let sup = &self.inner.supervisor;
         let executable = sup
-            .allow_executable(&executable)
-            .map_err(|e| format!("{} cannot be started: {e}", executable.display()))?;
+            .allow_executable(&path)
+            .map_err(|e| format!("{} cannot be started: {e}", path.display()))?;
         let env: Vec<(String, String)> = BROWSER_ENV
             .iter()
             .filter_map(|k| std::env::var(k).ok().map(|v| ((*k).to_owned(), v)))
@@ -333,9 +486,9 @@ impl Browser {
                 profile_id: "capability.browser".into(),
                 label: format!("Plenipo's browser ({name})"),
                 executable,
-                args: arguments(config),
+                args: arguments(config, &profile),
                 env,
-                working_dir: config.profile_dir.clone(),
+                working_dir: profile.clone(),
                 max_runtime: plenipo_runtime::profile::MAX_RUNTIME_LIMIT,
                 stdin: None,
                 stdin_feed: None,
@@ -346,7 +499,7 @@ impl Browser {
             .await
             .map_err(|e| format!("{name} could not be started: {e}"))?;
         let deadline = tokio::time::Instant::now() + config.launch_timeout;
-        let port_file = config.profile_dir.join("DevToolsActivePort");
+        let port_file = profile.join("DevToolsActivePort");
         let address = loop {
             if let Ok(text) = std::fs::read_to_string(&port_file) {
                 let mut lines = text.lines();
@@ -389,6 +542,9 @@ impl Browser {
         Ok(Running {
             cdp,
             execution_id: record.id,
+            name,
+            path,
+            profile,
         })
     }
 
@@ -467,14 +623,60 @@ mod tests {
             headless: true,
             ..BrowserConfig::new(dir.path().to_path_buf())
         };
-        let args = arguments(&config);
+        let args = arguments(&config, dir.path());
         assert!(args.iter().any(|a| a.starts_with("--user-data-dir=")));
         assert!(args.contains(&"--remote-debugging-port=0".to_owned()));
         assert!(args.contains(&"--enable-automation".to_owned()));
         assert!(args.contains(&"--headless=new".to_owned()));
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
-        assert!(!arguments(&BrowserConfig::new(dir.path().to_path_buf()))
-            .contains(&"--headless=new".to_owned()));
+        assert!(
+            !arguments(&BrowserConfig::new(dir.path().to_path_buf()), dir.path())
+                .contains(&"--headless=new".to_owned())
+        );
+    }
+
+    #[test]
+    fn each_browser_has_its_own_profile() {
+        let usual = Path::new("/data/browser-profile");
+        assert_eq!(profile_for(usual, BrowserChoice::Edge), usual);
+        assert_eq!(profile_for(usual, BrowserChoice::Automatic), usual);
+        assert_eq!(
+            profile_for(usual, BrowserChoice::Chrome),
+            Path::new("/data/browser-profile-chrome")
+        );
+        let chrome = profile_for(usual, BrowserChoice::Chrome);
+        let args = arguments(&BrowserConfig::new(usual.to_path_buf()), &chrome);
+        // As the system writes the path (`\` on Windows).
+        assert!(args.contains(&format!("--user-data-dir={}", chrome.display())));
+    }
+
+    #[test]
+    fn a_configured_browser_wins_over_the_choice() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("my-browser");
+        std::fs::write(&program, "").unwrap();
+        for choice in [BrowserChoice::Edge, BrowserChoice::Chrome] {
+            let (path, name, kind) = find_chosen(Some(&program), choice).unwrap();
+            assert_eq!((path, name.as_str()), (program.clone(), "my-browser"));
+            assert_eq!(kind, BrowserChoice::Automatic, "the usual profile folder");
+        }
+        assert!(find_chosen(Some(&dir.path().join("missing")), BrowserChoice::Chrome).is_none());
+    }
+
+    #[test]
+    fn the_start_time_can_grow_on_slow_computers() {
+        assert_eq!(start_timeout(None), Duration::from_secs(30));
+        assert_eq!(start_timeout(Some(" 90 ")), Duration::from_secs(90));
+        for odd in ["0", "4", "301", "ninety", ""] {
+            assert_eq!(start_timeout(Some(odd)), Duration::from_secs(30), "{odd}");
+        }
+    }
+
+    #[test]
+    fn missing_browsers_are_named_in_plain_words() {
+        assert!(not_found(BrowserChoice::Edge).starts_with("Microsoft Edge was not found"));
+        assert!(not_found(BrowserChoice::Chrome).contains("Choose Automatic or Microsoft Edge"));
+        assert!(not_found(BrowserChoice::Automatic).contains("Windows 11 includes Edge"));
     }
 
     #[test]

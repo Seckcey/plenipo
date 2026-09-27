@@ -243,6 +243,7 @@ pub fn configure<R: Runtime>(
             commands::decide_lesson,
             commands::remove_lesson,
             commands::get_browser_status,
+            commands::set_browser_choice,
             commands::open_browser,
             commands::get_screenshot,
             commands::get_servers,
@@ -2218,6 +2219,21 @@ mod ipc_boundary_tests {
         let browser: plenipo_capabilities::browser::BrowserStatus =
             body(invoke(&main, "get_browser_status"));
         assert!(!browser.running);
+        assert_eq!(browser.choice, plenipo_guard::BrowserChoice::Automatic);
+        // Which browser (ADR-028): Edge or Chrome, and nothing else.
+        let browser: plenipo_capabilities::browser::BrowserStatus = body(invoke_json(
+            &main,
+            "set_browser_choice",
+            serde_json::json!({ "choice": "chrome" }),
+        ));
+        assert_eq!(browser.choice, plenipo_guard::BrowserChoice::Chrome);
+        let err = invoke_json(
+            &main,
+            "set_browser_choice",
+            serde_json::json!({ "choice": "/usr/bin/firefox" }),
+        )
+        .expect_err("no such browser");
+        assert!(err.to_string().contains("unknown variant"), "{err}");
         // Built-in roles keep their instructions; custom ones can be edited.
         let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
         let built_in = org.roles.iter().find(|r| r.template).unwrap();
@@ -2452,6 +2468,7 @@ mod ipc_boundary_tests {
             "set_website_rules",
             "set_switches",
             "get_browser_status",
+            "set_browser_choice",
             "open_browser",
             "get_screenshot",
             "update_role",

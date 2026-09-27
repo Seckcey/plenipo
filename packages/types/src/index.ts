@@ -171,6 +171,8 @@ export type { RoleJob } from "./generated/RoleJob";
 export type { RoleUpdate } from "./generated/RoleUpdate";
 
 // Browser automation and computer use (Phase 10)
+export type { BrowserChoice } from "./generated/BrowserChoice";
+export type { BrowserOption } from "./generated/BrowserOption";
 export type { BrowserStatus } from "./generated/BrowserStatus";
 export type { ControlKind } from "./generated/ControlKind";
 export type { ControlSession } from "./generated/ControlSession";

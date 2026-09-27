@@ -334,6 +334,18 @@ impl Guard {
         Ok(())
     }
 
+    /// Which browser is Plenipo's browser (ADR-028). It is used from the browser's next start.
+    pub fn set_browser_choice(&self, choice: BrowserChoice) -> Result<()> {
+        self.update("guard.browser_chosen", OWNER, |c| {
+            if c.browser_choice == choice {
+                return Ok(None);
+            }
+            c.set_browser_choice(choice);
+            Ok(Some((json!({ "browserChoice": choice }), ())))
+        })?;
+        Ok(())
+    }
+
     pub fn set_sensitive(&self, kind: SensitiveKind, rule: SensitiveRule) -> Result<()> {
         self.update("guard.sensitive_changed", OWNER, |c| {
             c.set_sensitive(kind, rule);
@@ -723,6 +735,29 @@ mod tests {
         let before = l.recent_events(200).unwrap().len();
         let _again = Guard::new(l.clone());
         assert_eq!(l.recent_events(200).unwrap().len(), before, "only once");
+    }
+
+    #[test]
+    fn the_browser_choice_is_kept_and_recorded_once() {
+        let l = ledger();
+        let g = Guard::new(l.clone());
+        // Settings stored before ADR-028 have no choice: Automatic, as before.
+        assert_eq!(g.config().unwrap().browser_choice, BrowserChoice::Automatic);
+        let chosen = |l: &Ledger| {
+            l.recent_events(100)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.event_type == "guard.browser_chosen")
+                .count()
+        };
+        g.set_browser_choice(BrowserChoice::Chrome).unwrap();
+        assert_eq!(g.config().unwrap().browser_choice, BrowserChoice::Chrome);
+        assert_eq!(chosen(&l), 1);
+        // The same choice again changes nothing and records nothing.
+        g.set_browser_choice(BrowserChoice::Chrome).unwrap();
+        assert_eq!(chosen(&l), 1);
+        let stored = l.setting(SETTING).unwrap().unwrap();
+        assert_eq!(stored["browserChoice"], "chrome");
     }
 
     #[test]

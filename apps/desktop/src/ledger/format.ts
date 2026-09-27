@@ -43,6 +43,13 @@ export const ACTIONS_FOR: Record<TaskState, SyntheticTaskAction[]> = {
 
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 
+/** The owner's browser choices (ADR-028), in plain words. */
+const BROWSER_CHOICES: Record<string, string> = {
+  automatic: "Automatic (Microsoft Edge, or Google Chrome without it)",
+  edge: "Microsoft Edge",
+  chrome: "Google Chrome",
+};
+
 function stateLabel(v: unknown): string {
   const s = str(v);
   return s && s in TASK_STATE_LABEL ? TASK_STATE_LABEL[s as TaskState] : (s ?? "?");
@@ -222,6 +229,8 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "Website lists changed";
     case "guard.switches_changed":
       return "Switches changed (Settings → Switches)";
+    case "guard.browser_chosen":
+      return `Plenipo's browser set to ${BROWSER_CHOICES[str(p.browserChoice) ?? ""] ?? "another browser"}`;
     case "guard.websites_added":
       return "Plenipo's starting website lists were stored";
     case "vault.secret_added":

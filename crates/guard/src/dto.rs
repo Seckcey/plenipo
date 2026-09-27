@@ -249,6 +249,21 @@ impl Switches {
     }
 }
 
+/// Which browser is Plenipo's browser (ADR-028). The owner chooses it in Settings → Permissions
+/// → Websites; each browser keeps its own profile folder, so its sign-ins stay its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum BrowserChoice {
+    /// Microsoft Edge, or Google Chrome when Edge is not installed (as before ADR-028).
+    #[default]
+    Automatic,
+    /// Microsoft Edge only.
+    Edge,
+    /// Google Chrome only (or Chromium, where Chrome itself is not made).
+    Chrome,
+}
+
 /// A secret kept in the operating system's protected storage. Only this reference is stored
 /// by Plenipo; the value never is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

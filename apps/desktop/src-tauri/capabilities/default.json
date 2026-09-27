@@ -86,6 +86,7 @@
     "allow-decide-lesson",
     "allow-remove-lesson",
     "allow-get-browser-status",
+    "allow-set-browser-choice",
     "allow-open-browser",
     "allow-get-screenshot",
     "allow-get-servers",

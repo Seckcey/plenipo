@@ -585,10 +585,12 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   websites" (`browser.automate`), "See the screen" (`computer.observe`), "Use the mouse and
   keyboard" (`computer.control`), "Take over", "Stop all", "Allow again", and **Settings →
   Permissions → Websites** (the plan's domain policy).
-- **Plenipo's browser** (`crates/capabilities/src/browser/`). The installed Edge or Chrome
-  (`PLENIPO_BROWSER` to choose), started as a supervised program with its own profile in
-  `<app data>/browser-profile` (no password saving, sync, or extensions) and a random DevTools
-  port on `127.0.0.1`. `cdp.rs` speaks the Chrome DevTools Protocol over a WebSocket (flattened
+- **Plenipo's browser** (`crates/capabilities/src/browser/`). The installed Edge or Chrome, as
+  the owner chooses in Settings (ADR-028: Automatic, Edge, or Chrome, kept in Guard's settings;
+  `PLENIPO_BROWSER` wins), started as a supervised program with its own profile in
+  `<app data>/browser-profile` (Edge's) or `browser-profile-chrome` (Chrome's), with no password
+  saving, sync, or extensions, and a random DevTools port on `127.0.0.1`. A new choice is used
+  from the browser's next start. `cdp.rs` speaks the Chrome DevTools Protocol over a WebSocket (flattened
   sessions); `tab.rs` gives each grant its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
   (sending, buying, signing in).
@@ -622,7 +624,7 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   colored frame and label inside the page (in a closed shadow root) with **Take over**.
 - **Events:** `browser.started`, `browser.tab_lost`, `browser.opened_by_owner`,
   `control.started`, `control.taken_over`, `control.stopped`, `control.allowed`,
-  `control.ended`, `guard.websites_changed`.
+  `control.ended`, `guard.websites_changed`, `guard.browser_chosen`.
 - **Role instructions** (`crates/workforce/src/templates.rs`, `prompt.rs`): each role's job,
   returns, limits, and when to ask its lead, plus what its permissions allow and do not; custom
   roles take the same in the owner's words (`update_role`).
