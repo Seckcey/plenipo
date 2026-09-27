@@ -1,0 +1,18 @@
+Thinking...
+The user asks: "Reply with exactly: hello from ollama cloud". So respond wi[2D[K
+with exactly that string, no extra punctuation or whitespace. Must be exact[5D[K
+exactly "hello from ollama cloud". Ensure no extra spaces before/after.
+...done thinking.
+
+hello from ollama cloud
+
+ollama : [?2026h[?25l[1GΓáÖ [K[?25h[?2026l[?2026h[?25l[1GΓá╣ [K[?25h[?2026l[?2026h[?25l
+[1G[K[?25h[?2026l[?25l[2K[1G[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h
+[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25
+l[?25h[?25l[?25h[?25l[?25h[?25l[?25h
+At line:1 char:49
++ ... th exactly: hello from ollama cloud" | ollama run $model *>&1 | Out-F ...
++                                            ~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([?2026h[?25l...25h[?25l[?25h:String) [], RemoteExc 
+   eption
+    + FullyQualifiedErrorId : NativeCommandError

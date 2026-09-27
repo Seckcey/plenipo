@@ -1,0 +1,4 @@
+
+
+Source      : C:\Users\<user>\AppData\Local\Programs\Ollama\ollama.exe
+CommandType : Application
