@@ -62,8 +62,10 @@ After the MVP:
    - **Tag push:** tag the merge commit `vX.Y.Z` and push the tag.
 
 `.github/workflows/release.yml` runs on Windows: it checks that the version matches and that
-release notes exist, builds the NSIS installer, and publishes a GitHub release with the installer
-attached. `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
+release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
+([code signing](code-signing.md)), checks the signature, and publishes a GitHub release with the
+installer attached. `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
+**Run workflow** with **Dry run** ticked builds and signs from any branch and publishes nothing.
 
 ## Commit messages
 

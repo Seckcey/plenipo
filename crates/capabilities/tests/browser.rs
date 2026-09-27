@@ -371,11 +371,14 @@ impl H {
         self.ledger.task(id).unwrap().unwrap()
     }
 
+    /// Waits until task `id` has ended and no session still holds it. The Ledger records the
+    /// end a moment before the session lets go, so giving the next objective on the Ledger alone
+    /// can meet "a turn is already running" (seen on Windows CI).
     async fn finished(&self, id: &str) -> Task {
         let deadline = Instant::now() + WAIT;
         loop {
             let task = self.task(id);
-            if task.state.is_terminal() {
+            if task.state.is_terminal() && !self.held(id).await {
                 return task;
             }
             assert!(
@@ -384,6 +387,13 @@ impl H {
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+    }
+
+    /// A session is still running or waiting on task `id`.
+    async fn held(&self, id: &str) -> bool {
+        self.rt.overview().await.unwrap().sessions.iter().any(|s| {
+            s.active_task_id.as_deref() == Some(id) || s.waiting_task_id.as_deref() == Some(id)
+        })
     }
 
     /// The task `title` worked on in the objective `root` (waits for it).
