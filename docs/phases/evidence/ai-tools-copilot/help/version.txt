@@ -1,0 +1,21 @@
+Usage: copilot version
+
+Display version information and check for updates.
+
+Shows the currently installed version and performs a network request to check
+whether a newer release is available on your configured update channel.
+
+If a newer version is found, displays a download link. Use `copilot update` to
+download it.
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  # Show current version
+  $ copilot version
+
+Learn More:
+  Use `copilot <command> --help` for more information about a command.
+  Read the documentation at https://docs.github.com/copilot/how-tos/copilot-cli

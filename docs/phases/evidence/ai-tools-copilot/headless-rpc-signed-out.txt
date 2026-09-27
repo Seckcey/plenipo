@@ -1,0 +1,10 @@
+>> {"jsonrpc":"2.0","id":1,"method":"connect","params":{}}
+<< {"jsonrpc":"2.0","id":1,"result":{"ok":true,"protocolVersion":3,"version":"1.0.88","taskKinds":["agent","shell"]}}
+>> {"jsonrpc":"2.0","id":2,"method":"status.get","params":{}}
+<< {"jsonrpc":"2.0","id":2,"result":{"version":"1.0.88","protocolVersion":3}}
+>> {"jsonrpc":"2.0","id":3,"method":"auth.getStatus","params":{}}
+<< {"jsonrpc":"2.0","id":3,"result":{"isAuthenticated":false,"statusMessage":"Not authenticated"}}
+>> {"jsonrpc":"2.0","id":4,"method":"account.getQuota","params":{}}
+<< {"jsonrpc":"2.0","id":4,"error":{"code":-32603,"message":"Request account.getQuota failed with message: Not authenticated. Please authenticate first."}}
+>> {"jsonrpc":"2.0","id":5,"method":"models.list","params":{}}
+<< {"jsonrpc":"2.0","id":5,"error":{"code":-32603,"message":"Request models.list failed with message: Not authenticated. Please authenticate first."}}
