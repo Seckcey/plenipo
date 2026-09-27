@@ -9,8 +9,9 @@ use rusqlite::{params, Connection, OptionalExtension as _};
 use serde_json::{json, Value};
 
 use crate::dto::{
-    CancelOutcome, HandoffDecision, LedgerEvent, LiaisonMessage, MessageKind, MessageState,
-    NewEvent, NewHandoffRequest, NewReply, OpenRequest, ReplyOutcome, Suspended, Task, TaskState,
+    CancelOutcome, ChildConversation, HandoffDecision, LedgerEvent, LiaisonMessage, MessageKind,
+    MessageState, NewEvent, NewHandoffRequest, NewReply, OpenRequest, ReplyOutcome, Suspended,
+    Task, TaskState,
 };
 use crate::error::{LedgerError, Result};
 use crate::rows::{self, json as parse_json, parse_enum, u64_of, TASK_COLUMNS};
@@ -465,12 +466,14 @@ impl Ledger {
         result
     }
 
-    /// A worker session starts the child task of an accepted request: the request becomes
-    /// `dispatched` and the child `running`, with `liaison.dispatched` on the child.
+    /// A worker session starts the child task of an accepted request as its turn `turn`: the
+    /// request becomes `dispatched` and the child `running`, with `liaison.dispatched` on the
+    /// child.
     pub fn begin_handoff_turn(
         &self,
         child_task_id: &str,
         session_id: &str,
+        turn: u32,
         actor: &str,
     ) -> Result<Task> {
         let result = self.write(|tx, out| {
@@ -479,6 +482,13 @@ impl Ledger {
                 return Err(LedgerError::InvalidInput(format!(
                     "task {child_task_id} is not assigned to session {session_id}"
                 )));
+            }
+            // A member's conversation takes delegated tasks among its other turns (ADR-016).
+            if child.metadata.get("turn").and_then(Value::as_u64) != Some(u64::from(turn)) {
+                tx.execute(
+                    "UPDATE tasks SET metadata = json_set(metadata, '$.turn', ?2) WHERE id = ?1",
+                    params![child_task_id, turn],
+                )?;
             }
             let request = request_for_child(tx, child_task_id)?.ok_or_else(|| {
                 LedgerError::NotFound(format!("handoff request for task {child_task_id}"))
@@ -519,6 +529,79 @@ impl Ledger {
         });
         self.record_rejection(child_task_id, actor, Some("handoff dispatched"), &result);
         result
+    }
+
+    /// Point the child of an accepted request, still queued, at the conversation that will run
+    /// it: a member of the organization keeps one conversation, which may have started (or
+    /// ended) since the request was accepted (ADR-016). Records
+    /// `liaison.conversation_assigned` on the child; assigning the conversation it already has
+    /// changes nothing.
+    pub fn assign_child_conversation(
+        &self,
+        child_task_id: &str,
+        conversation: &ChildConversation,
+        actor: &str,
+    ) -> Result<Task> {
+        self.write(|tx, out| {
+            let child = tasks::require(tx, child_task_id)?;
+            let same = child.metadata["sessionId"].as_str() == Some(&conversation.session_id)
+                && child.metadata["runtimeId"].as_str() == Some(&conversation.runtime_id);
+            if same {
+                return Ok(child);
+            }
+            let request = request_for_child(tx, child_task_id)?.ok_or_else(|| {
+                LedgerError::NotFound(format!("handoff request for task {child_task_id}"))
+            })?;
+            if request.state != MessageState::Accepted || child.state != TaskState::Queued {
+                return Err(LedgerError::InvalidInput(format!(
+                    "task {child_task_id} has already started or ended"
+                )));
+            }
+            let mut metadata = child.metadata.clone();
+            metadata["sessionId"] = json!(conversation.session_id);
+            metadata["runtimeId"] = json!(conversation.runtime_id);
+            match &conversation.model {
+                Some(m) => metadata["model"] = json!(m),
+                None => {
+                    if let Some(o) = metadata.as_object_mut() {
+                        o.remove("model");
+                    }
+                }
+            }
+            match &conversation.effort {
+                Some(e) => metadata["effort"] = json!(e),
+                None => {
+                    if let Some(o) = metadata.as_object_mut() {
+                        o.remove("effort");
+                    }
+                }
+            }
+            tx.execute(
+                "UPDATE tasks SET metadata = ?2, assigned_to = ?3, updated_at = ?4 WHERE id = ?1",
+                params![
+                    child_task_id,
+                    rows::metadata_text(&metadata)?,
+                    conversation.runtime_id,
+                    crate::now_ms() as i64
+                ],
+            )?;
+            out.push(events::insert(
+                tx,
+                event(
+                    child_task_id,
+                    actor,
+                    "liaison.conversation_assigned",
+                    json!({
+                        "messageId": request.id,
+                        "correlationId": request.correlation_id,
+                        "sessionId": conversation.session_id,
+                        "runtimeId": conversation.runtime_id,
+                        "previousSessionId": child.metadata["sessionId"],
+                    }),
+                ),
+            )?);
+            tasks::require(tx, child_task_id)
+        })
     }
 
     /// The child of an accepted request could not be started: the child fails with `reason`
@@ -1141,17 +1224,17 @@ mod tests {
         let child = s.children[0].clone();
         // Only the assigned session may start it.
         assert!(l
-            .begin_handoff_turn(&child.id, "s-other", "agent:claude-code")
+            .begin_handoff_turn(&child.id, "s-other", 1, "agent:claude-code")
             .is_err());
         let started = l
-            .begin_handoff_turn(&child.id, "s-m-1", "agent:claude-code")
+            .begin_handoff_turn(&child.id, "s-m-1", 1, "agent:claude-code")
             .unwrap();
         assert_eq!(started.state, TaskState::Running);
         let request = l.liaison_message("m-1").unwrap().unwrap();
         assert_eq!(request.state, MessageState::Dispatched);
         // Not twice.
         assert!(l
-            .begin_handoff_turn(&child.id, "s-m-1", "agent:claude-code")
+            .begin_handoff_turn(&child.id, "s-m-1", 1, "agent:claude-code")
             .is_err());
 
         // Nothing to deliver while the request is open, and no reply before the child ends.
@@ -1231,7 +1314,7 @@ mod tests {
             )
             .unwrap();
         let child = &s.children[0];
-        l.begin_handoff_turn(&child.id, "s-m-1", "agent:claude-code")
+        l.begin_handoff_turn(&child.id, "s-m-1", 1, "agent:claude-code")
             .unwrap();
         l.transition_task(&child.id, TaskState::Failed, "agent:claude-code", None)
             .unwrap();
@@ -1286,7 +1369,7 @@ mod tests {
             )
             .unwrap();
         let (queued, started) = (&s.children[0], &s.children[1]);
-        l.begin_handoff_turn(&started.id, "s-m-2", "agent:claude-code")
+        l.begin_handoff_turn(&started.id, "s-m-2", 1, "agent:claude-code")
             .unwrap();
         l.transition_task(&parent.id, TaskState::Cancelled, "owner", None)
             .unwrap();

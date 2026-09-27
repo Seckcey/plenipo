@@ -21,6 +21,7 @@ import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
 import { OrganizationView } from "./views/OrganizationView";
+import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkersView } from "./views/WorkersView";
@@ -232,6 +233,9 @@ function Shell({ core }: { core: CoreState }) {
               focusId={orgFocus}
               onFocusHandled={clearOrgFocus}
             />
+          )}
+          {view === "projects" && (
+            <ProjectsView onOpenTask={openTask} onOpenApprovals={() => navigate("approvals")} />
           )}
           {view === "workers" && (
             <WorkersView

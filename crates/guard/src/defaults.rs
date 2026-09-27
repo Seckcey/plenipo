@@ -24,6 +24,87 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
         set(
             "read-only",
             "Read only",
+            "Reads files and git history in the project folder, and the project on GitHub. \
+             Changes nothing.",
+            &[
+                (FilesystemRead, Allowed),
+                (GitRead, Allowed),
+                (GithubRead, Allowed),
+            ],
+        ),
+        set(
+            "developer",
+            "Developer",
+            "Reads and changes files, runs approved development commands, commits, and reads \
+             GitHub. Other programs, PowerShell scripts, pushing, and opening pull requests ask \
+             you first.",
+            &[
+                (FilesystemRead, Allowed),
+                (FilesystemWrite, Allowed),
+                (ShellExec, Allowed),
+                (PowershellExec, Ask),
+                (GitRead, Allowed),
+                (GitWrite, Allowed),
+                (GithubRead, Allowed),
+                (GithubWrite, Allowed),
+            ],
+        ),
+        set(
+            "reviewer",
+            "Reviewer",
+            "Reads files, git history, and GitHub. Running a program asks you first.",
+            &[
+                (FilesystemRead, Allowed),
+                (GitRead, Allowed),
+                (ShellExec, Ask),
+                (GithubRead, Allowed),
+            ],
+        ),
+        set(
+            "tester",
+            "Tester",
+            "Reads files, git history, and GitHub checks, and runs approved test commands.",
+            &[
+                (FilesystemRead, Allowed),
+                (GitRead, Allowed),
+                (ShellExec, Allowed),
+                (GithubRead, Allowed),
+            ],
+        ),
+        set(
+            "writer",
+            "Writer",
+            "Reads and changes files and reads git history. Runs nothing.",
+            &[
+                (FilesystemRead, Allowed),
+                (FilesystemWrite, Allowed),
+                (GitRead, Allowed),
+            ],
+        ),
+        set(
+            "researcher",
+            "Researcher",
+            "Visits websites (arrives in Phase 10). No access to project files.",
+            &[(BrowserNavigate, Allowed)],
+        ),
+        set(
+            "no-access",
+            "No access",
+            "Conversation only: no files, programs, or git.",
+            &[],
+        ),
+    ]
+}
+
+/// Built-in sets as an earlier version of Plenipo made them (before GitHub tools, Phase 8):
+/// a set the owner never changed is brought up to date; a changed one is left alone.
+pub fn earlier_sets() -> Vec<PermissionSet> {
+    use Capability::*;
+    use Level::*;
+    vec![
+        set(
+            "read-only",
+            "Read only",
             "Reads files and git history in the project folder. Changes nothing.",
             &[(FilesystemRead, Allowed), (GitRead, Allowed)],
         ),
@@ -60,28 +141,6 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
                 (GitRead, Allowed),
                 (ShellExec, Allowed),
             ],
-        ),
-        set(
-            "writer",
-            "Writer",
-            "Reads and changes files and reads git history. Runs nothing.",
-            &[
-                (FilesystemRead, Allowed),
-                (FilesystemWrite, Allowed),
-                (GitRead, Allowed),
-            ],
-        ),
-        set(
-            "researcher",
-            "Researcher",
-            "Visits websites (arrives in Phase 10). No access to project files.",
-            &[(BrowserNavigate, Allowed)],
-        ),
-        set(
-            "no-access",
-            "No access",
-            "Conversation only: no files, programs, or git.",
-            &[],
         ),
     ]
 }

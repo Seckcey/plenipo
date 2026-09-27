@@ -112,17 +112,18 @@ const REGISTRY: [Info; 16] = [
         capability: Capability::GithubRead,
         id: "github.read",
         label: "Read GitHub",
-        description: "Read issues, pull requests, and checks on GitHub.",
-        tools: false,
-        arrives: Some("Phase 8"),
+        description: "Read the project's issues, pull requests, and checks on GitHub.",
+        tools: true,
+        arrives: None,
     },
     Info {
         capability: Capability::GithubWrite,
         id: "github.write",
         label: "Change GitHub",
-        description: "Open pull requests and comment on GitHub.",
-        tools: false,
-        arrives: Some("Phase 8"),
+        description: "Open draft pull requests for an objective's branch on the project's \
+                      GitHub repository. Always asks you first.",
+        tools: true,
+        arrives: None,
     },
     Info {
         capability: Capability::SshConnect,
@@ -245,6 +246,8 @@ impl Capability {
                 | Self::PowershellExec
                 | Self::GitRead
                 | Self::GitWrite
+                | Self::GithubRead
+                | Self::GithubWrite
         )
     }
 }

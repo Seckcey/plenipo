@@ -15,7 +15,8 @@ use crate::Ledger;
 const SESSION_COLUMNS: &str = "s.id, s.runtime, s.provider, s.provider_session_id, \
     s.provider_session_confirmed, s.model, s.title, s.working_dir, s.state, s.metadata, \
     s.created_at, s.updated_at, s.closed_at, \
-    (SELECT COUNT(*) FROM tasks t WHERE json_extract(t.metadata, '$.sessionId') = +s.id), \
+    (SELECT COUNT(*) FROM tasks t WHERE json_extract(t.metadata, '$.sessionId') = +s.id \
+        AND t.started_at IS NOT NULL), \
     s.effort";
 
 /// Expression matching the `tasks_by_session` index.
@@ -406,10 +407,15 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(ids, [a.id.clone(), b.id.clone()]);
-        assert_eq!(l.runtime_session("s-1").unwrap().unwrap().turn_count, 2);
-
+        // A turn counts once it starts: a task queued for the session (a task handed to a
+        // member that is busy, Phase 8) is not one of its turns yet.
+        let count = || l.runtime_session("s-1").unwrap().unwrap().turn_count;
+        assert_eq!(count(), 0);
         l.transition_task(&a.id, TaskState::Running, "w", None)
             .unwrap();
+        l.transition_task(&b.id, TaskState::Running, "w", None)
+            .unwrap();
+        assert_eq!(count(), 2);
         l.transition_task(&a.id, TaskState::Succeeded, "w", None)
             .unwrap();
         let unfinished: Vec<_> = l

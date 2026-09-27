@@ -24,27 +24,33 @@ pub fn create<R: Runtime>(
     agents: &AgentRuntime,
 ) -> (Guard, Broker) {
     let guard = Guard::new(ledger);
-    let (store, tickets): (Arc<dyn SecretStore>, _) = match persistence {
-        Persistence::AppData => (
-            Arc::new(OsSecretStore::new(app.config().identifier.clone())),
-            app.path()
+    let (store, tickets, copies): (Arc<dyn SecretStore>, _, _) = match persistence {
+        Persistence::AppData => {
+            let data = app
+                .path()
                 .app_local_data_dir()
-                .map(|d| d.join("runtime").join("tool-tickets"))
-                .unwrap_or_else(|_| std::env::temp_dir().join("plenipo-tool-tickets")),
-        ),
-        Persistence::InMemory => (
-            Arc::new(MemorySecretStore::default()),
-            std::env::temp_dir().join(format!("plenipo-tool-tickets-{}", std::process::id())),
-        ),
+                .unwrap_or_else(|_| std::env::temp_dir().join("plenipo"));
+            (
+                Arc::new(OsSecretStore::new(app.config().identifier.clone())),
+                data.join("runtime").join("tool-tickets"),
+                // Each objective's branch and working copy (Phase 8, ADR-016).
+                data.join("working-copies"),
+            )
+        }
+        Persistence::InMemory => {
+            let temp = std::env::temp_dir().join(format!("plenipo-{}", std::process::id()));
+            (
+                Arc::new(MemorySecretStore::default()),
+                temp.join("tool-tickets"),
+                temp.join("working-copies"),
+            )
+        }
     };
     // The AI tools start Plenipo itself as the relay (`--plenipo-tools=<ticket>`).
     let relay = std::env::current_exe().unwrap_or_default();
-    let broker = Broker::new(
-        guard.clone(),
-        supervisor,
-        store,
-        BrokerConfig::new(relay, tickets),
-    );
+    let mut config = BrokerConfig::new(relay, tickets);
+    config.workspaces_dir = copies;
+    let broker = Broker::new(guard.clone(), supervisor, store, config);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());
     (guard, broker)

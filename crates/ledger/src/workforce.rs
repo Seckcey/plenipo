@@ -258,6 +258,7 @@ fn clean_settings(s: &ProjectSettings) -> Result<ProjectSettings> {
             .filter(|p| !p.is_empty())
             .map(clean_profile)
             .transpose()?,
+        branch_per_objective: s.branch_per_objective,
     })
 }
 
@@ -1476,8 +1477,9 @@ impl Ledger {
             let id = uuid::Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO projects (id, name, local_path, repository_url, department_id,
-                     created_at, description, allowed_runtimes, capability_profile, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active')",
+                     created_at, description, allowed_runtimes, capability_profile, status,
+                     branch_per_objective)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', ?10)",
                 params![
                     id,
                     settings.name,
@@ -1487,7 +1489,8 @@ impl Ledger {
                     now(),
                     settings.description,
                     serde_json::to_string(&settings.allowed_runtimes)?,
-                    settings.capability_profile
+                    settings.capability_profile,
+                    settings.branch_per_objective.unwrap_or(true)
                 ],
             )
             .map_err(|e| {
@@ -1557,7 +1560,8 @@ impl Ledger {
             }
             tx.execute(
                 "UPDATE projects SET name = ?2, description = ?3, repository_url = ?4,
-                     local_path = ?5, allowed_runtimes = ?6, capability_profile = ?7
+                     local_path = ?5, allowed_runtimes = ?6, capability_profile = ?7,
+                     branch_per_objective = COALESCE(?8, branch_per_objective)
                  WHERE id = ?1",
                 params![
                     id,
@@ -1566,7 +1570,8 @@ impl Ledger {
                     settings.repository_url,
                     settings.local_path,
                     serde_json::to_string(&settings.allowed_runtimes)?,
-                    settings.capability_profile
+                    settings.capability_profile,
+                    settings.branch_per_objective
                 ],
             )
             .map_err(|e| {
@@ -1585,6 +1590,7 @@ impl Ledger {
                     "name": settings.name,
                     "allowedRuntimes": settings.allowed_runtimes,
                     "capabilityProfile": settings.capability_profile,
+                    "branchPerObjective": settings.branch_per_objective,
                 }),
             )?;
             Ok(tx.query_row(
@@ -2294,6 +2300,7 @@ mod tests {
             local_path: Some("D:\\projects\\cloudline".into()),
             allowed_runtimes: runtimes.iter().map(|r| (*r).to_owned()).collect(),
             capability_profile: Some("development".into()),
+            branch_per_objective: None,
         }
     }
 

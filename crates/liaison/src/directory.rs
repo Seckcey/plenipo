@@ -6,11 +6,21 @@
 //! its requests are placed on those members instead of on raw runtimes. Sessions outside the
 //! organization behave as before.
 
-use plenipo_ledger::{NewWorker, Task};
-use plenipo_runtime::agent::Effort;
+use plenipo_ledger::{ChildConversation, NewWorker, Task};
+use plenipo_runtime::agent::{Effort, SessionStart};
 use serde_json::Value;
 
 use crate::context::Destination;
+
+/// Where a task delegated to a full-time member runs: the member's own conversation (Phase 8,
+/// ADR-016).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemberConversation {
+    pub conversation: ChildConversation,
+    /// Set when the member has no open conversation yet: the session to start, with the same
+    /// ID as `conversation` and metadata naming the member.
+    pub start: Option<SessionStart>,
+}
 
 /// Who a member is and whom it may address.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,11 +42,15 @@ pub struct Placement {
     pub model: Option<String>,
     /// The effort level the worker runs at (`None`: the runtime's default).
     pub effort: Option<Effort>,
-    /// The worker recorded with the child task, in the same transaction.
-    pub worker: NewWorker,
+    /// The worker recorded with the child task, in the same transaction; `None` when the task
+    /// goes to a full-time member, which does it in its own conversation (ADR-016).
+    pub worker: Option<NewWorker>,
+    /// For a full-time member: the conversation expected to run the task (checked again when
+    /// the task is dispatched, see [`Directory::conversation`]).
+    pub conversation: Option<ChildConversation>,
     /// The child's `workforce` record (its task's and its session's metadata). It must name
     /// `worker` (`agentId`, `positionId`), and may say why its runtime and model were chosen
-    /// (`routing`).
+    /// (`routing`). A full-time member's record names the member and has `"fullTime": true`.
     pub workforce: Value,
     /// Who the child worker is, for its instructions.
     pub identity: String,
@@ -61,4 +75,19 @@ pub trait Directory: Send + Sync + 'static {
         name: &str,
         reviewed: &[String],
     ) -> Result<Placement, String>;
+
+    /// The conversation that runs a task delegated to the full-time member described by
+    /// `workforce` (a child task's record with `"fullTime": true`): its open conversation, or a
+    /// new one to start. `Err` is why the member cannot take the task now (vacant, archived,
+    /// its AI tool not allowed), which fails the task with that reason.
+    fn conversation(&self, workforce: &Value) -> Result<MemberConversation, String> {
+        let _ = workforce;
+        Err("this organization does not hand work to full-time members".into())
+    }
+}
+
+/// True when a child task's `workforce` record sends it to a full-time member's own
+/// conversation.
+pub fn is_full_time(workforce: &Value) -> bool {
+    workforce["fullTime"].as_bool() == Some(true)
 }

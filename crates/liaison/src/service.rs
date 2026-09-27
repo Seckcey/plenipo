@@ -32,7 +32,7 @@ use crate::context::{
     self, ContextPacket, DeliveredReply, Destination, PacketArtifact, PacketCapabilities,
     PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
 };
-use crate::directory::{Directory, Placement, Team};
+use crate::directory::{is_full_time, Directory, Placement, Team};
 use crate::dto::*;
 use crate::error::{LiaisonError, Result};
 use crate::protocol::{self, cap_chars, Block, ContextRequest, Directive, PROTOCOL};
@@ -65,8 +65,9 @@ impl Default for LiaisonConfig {
         Self {
             max_depth: 3,
             max_requests_per_answer: 3,
-            max_rounds: 5,
-            max_workflow_handoffs: 12,
+            // Room for a Supervisor's review and repair loops (ADR-016).
+            max_rounds: 8,
+            max_workflow_handoffs: 16,
             // Short on purpose (ADR-012, brief messages between agents).
             reply_text_bytes: 8 * 1024,
             answer_context_bytes: 6 * 1024,
@@ -1032,8 +1033,17 @@ impl Liaison {
                     "capabilities": { "requested": d.capabilities, "granted": [] },
                     "contextFormat": CONTEXT_FORMAT,
                 });
+                // A full-time member does the task in its own conversation (ADR-016); any
+                // other worker gets a new one.
+                let session_id = placement
+                    .as_ref()
+                    .and_then(|p| p.conversation.as_ref())
+                    .map_or_else(
+                        || uuid::Uuid::new_v4().to_string(),
+                        |c| c.session_id.clone(),
+                    );
                 let mut metadata = json!({
-                    "sessionId": uuid::Uuid::new_v4().to_string(),
+                    "sessionId": session_id,
                     "runtimeId": accepted.runtime_id,
                     "turn": 1,
                     "liaison": {
@@ -1071,7 +1081,7 @@ impl Liaison {
                         metadata,
                     },
                     received,
-                    worker: placement.map(|p| Box::new(p.worker)),
+                    worker: placement.and_then(|p| p.worker.map(Box::new)),
                 }
             }
             Err(reason) => {
@@ -1231,15 +1241,27 @@ impl Liaison {
             return;
         }
         let this = self.clone();
+        let full_time = is_full_time(&child.metadata["workforce"]);
         tokio::spawn(async move {
             // Ends a running step or a wait; a turn still starting is retried by a later pass.
-            let _ = this.inner.runtime.cancel_turn(&session_id).await;
+            // A full-time member's conversation stops only this task, never another it works on.
+            let _ = if full_time {
+                this.inner.runtime.cancel_task(&session_id, &child.id).await
+            } else {
+                this.inner.runtime.cancel_turn(&session_id).await
+            };
             this.release(&key);
         });
     }
 
     fn spawn_dispatch(&self, request: LiaisonMessage, child: Task) {
-        let key = format!("dispatch:{}", request.id);
+        // One dispatch at a time per full-time member, so its first conversation is started
+        // once; its other tasks wait for the next pass.
+        let workforce = &child.metadata["workforce"];
+        let key = match workforce["agentId"].as_str() {
+            Some(agent) if is_full_time(workforce) => format!("member:{agent}"),
+            _ => format!("dispatch:{}", request.id),
+        };
         if !self.claim(&key) {
             return;
         }
@@ -1253,6 +1275,109 @@ impl Liaison {
             }
             this.release(&key);
         });
+    }
+
+    /// Record once that a delegated task waits for its member to finish another task.
+    async fn note_member_busy(&self, child: &Task, request: &LiaisonMessage) -> Result<()> {
+        let (tid, correlation) = (child.id.clone(), request.correlation_id.clone());
+        let who = recorded_label(request).unwrap_or_else(|| request.destination.clone());
+        self.blocking(move |l| {
+            if l.count_task_events(&tid, "liaison.waiting_for_member")? == 0 {
+                l.append_event(task_event(
+                    &tid,
+                    "liaison.waiting_for_member",
+                    json!({
+                        "correlationId": correlation,
+                        "reason": format!("waiting for {who} to finish its current task"),
+                    }),
+                ))?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Fail a child that cannot be dispatched (while it still waits to be).
+    async fn fail_dispatch(
+        &self,
+        request: &LiaisonMessage,
+        reason: String,
+        outcome: HandoffOutcome,
+    ) {
+        let id = request.id.clone();
+        let _ = self
+            .blocking(move |l| {
+                Ok(l.fail_handoff_dispatch(&id, &reason, json!({ "outcome": outcome }), ACTOR)?)
+            })
+            .await;
+    }
+
+    /// Run a task delegated to a full-time member in the member's own conversation (ADR-016):
+    /// resume it, or start its first one. A member busy with another task takes this one when
+    /// it is free (a later pass tries again).
+    async fn dispatch_member(
+        &self,
+        request: &LiaisonMessage,
+        child: &Task,
+        prompt: String,
+    ) -> Result<()> {
+        let Some(directory) = self.directory() else {
+            self.fail_dispatch(
+                request,
+                "the organization's directory is unavailable".into(),
+                HandoffOutcome::Failed,
+            )
+            .await;
+            return Ok(());
+        };
+        let workforce = child.metadata["workforce"].clone();
+        let found = tokio::task::spawn_blocking(move || directory.conversation(&workforce))
+            .await
+            .map_err(|e| LiaisonError::Internal(e.to_string()))?;
+        let member = match found {
+            Ok(member) => member,
+            Err(reason) => {
+                self.fail_dispatch(request, reason, HandoffOutcome::Failed)
+                    .await;
+                return Ok(());
+            }
+        };
+        let conversation = member.conversation.clone();
+        let (tid, assigned) = (child.id.clone(), conversation.clone());
+        let child = match self
+            .blocking(move |l| Ok(l.assign_child_conversation(&tid, &assigned, ACTOR)?))
+            .await
+        {
+            Ok(child) => child,
+            // Started or ended meanwhile: nothing to dispatch.
+            Err(LiaisonError::Ledger(LedgerError::InvalidInput(_))) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let input = TurnInput {
+            objective: child.objective.clone(),
+            prompt: Some(prompt),
+            task: TurnTask::Existing {
+                task_id: child.id.clone(),
+            },
+        };
+        let runtime = &self.inner.runtime;
+        let started = match member.start {
+            Some(start) => runtime.start_session_with(start, input).await,
+            None => {
+                runtime
+                    .resume_session_with(&conversation.session_id, input)
+                    .await
+            }
+        };
+        match started {
+            Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
+            Err(RuntimeError::SessionBusy(_)) => self.note_member_busy(&child, request).await,
+            Err(e) => {
+                let outcome = self.refusal_outcome(&conversation.runtime_id, &e);
+                self.fail_dispatch(request, e.to_string(), outcome).await;
+                Ok(())
+            }
+        }
     }
 
     /// Start the child's worker session. The dispatch is recorded when its turn begins.
@@ -1272,6 +1397,9 @@ impl Liaison {
         let workforce = child.metadata["workforce"].clone();
         let (_, destinations) = self.audience_async(workforce.clone()).await;
         let prompt = context::child_prompt(&packet, &destinations, self.limits());
+        if is_full_time(&workforce) {
+            return self.dispatch_member(request, child, prompt).await;
+        }
         let parent_session = request.source.strip_prefix("session:").unwrap_or_default();
         let mut metadata = json!({ "liaison": {
             "enabled": true,
@@ -1304,19 +1432,9 @@ impl Liaison {
         match self.inner.runtime.start_session_with(start, input).await {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(e) => {
-                let outcome = self.refusal_outcome(runtime_id, &e);
-                let (id, reason) = (request.id.clone(), e.to_string());
                 // Refused only while still waiting to be dispatched (not cancelled meanwhile).
-                let _ = self
-                    .blocking(move |l| {
-                        Ok(l.fail_handoff_dispatch(
-                            &id,
-                            &reason,
-                            json!({ "outcome": outcome }),
-                            ACTOR,
-                        )?)
-                    })
-                    .await;
+                let outcome = self.refusal_outcome(runtime_id, &e);
+                self.fail_dispatch(request, e.to_string(), outcome).await;
                 Ok(())
             }
         }
@@ -1385,11 +1503,16 @@ impl Liaison {
             .map(|(reply, request)| {
                 let result = &reply.envelope["result"];
                 let str_of = |v: &Value| v.as_str().map(str::to_owned);
+                let runtime = self.runtime_label(result["runtimeId"].as_str().unwrap_or("worker"));
+                // A member of the organization is named by its position (ADR-016).
+                let position = request
+                    .as_ref()
+                    .and_then(|r| r.destination.strip_prefix("role:").map(str::to_owned));
                 DeliveredReply {
-                    from: if reply.source == ACTOR {
-                        "Plenipo".into()
-                    } else {
-                        self.runtime_label(result["runtimeId"].as_str().unwrap_or("worker"))
+                    from: match (reply.source == ACTOR, position) {
+                        (true, _) => "Plenipo".into(),
+                        (false, Some(title)) => format!("{title} ({runtime})"),
+                        (false, None) => runtime,
                     },
                     request: request
                         .as_ref()

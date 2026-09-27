@@ -129,6 +129,9 @@ pub struct ProjectInfo {
     pub capability_profile: Option<String>,
     pub coordinator_position_id: Option<String>,
     pub active: bool,
+    /// Each objective gets its own branch and working copy when the folder is a git repository
+    /// (Phase 8).
+    pub branch_per_objective: bool,
     #[ts(type = "number")]
     pub created_at: u64,
 }
@@ -408,6 +411,10 @@ pub struct ProjectInput {
     pub allowed_runtimes: Vec<String>,
     #[ts(optional)]
     pub capability_profile: Option<String>,
+    /// A branch and working copy per objective (Phase 8); absent: on for a new project,
+    /// unchanged for an existing one.
+    #[ts(optional)]
+    pub branch_per_objective: Option<bool>,
     /// Creating only: the department and the coordinator.
     #[ts(optional)]
     pub department_id: Option<String>,
@@ -438,4 +445,53 @@ pub struct RoleInput {
     pub description: String,
     pub kind: PositionKind,
     pub staffing: Staffing,
+}
+
+/// One of a project's objectives, in brief (Phase 8: the Projects page).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ObjectiveBrief {
+    pub root_task_id: String,
+    pub objective: String,
+    /// Who was given it.
+    pub position_title: Option<String>,
+    pub state: plenipo_ledger::TaskState,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number | null")]
+    pub completed_at: Option<u64>,
+    /// Tasks in its tree (its own included), those still going, and those that failed.
+    pub tasks: u32,
+    pub active: u32,
+    pub failed: u32,
+    pub waiting_approvals: u32,
+    /// Its branch, when it has a working copy.
+    pub branch: Option<String>,
+}
+
+/// A project's objectives and working copies (Phase 8: the Projects page).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProjectWork {
+    pub project_id: String,
+    /// Newest first.
+    pub objectives: Vec<ObjectiveBrief>,
+    /// Newest first.
+    pub working_copies: Vec<plenipo_ledger::Workspace>,
+}
+
+/// Set up a software project in the Development department (Phase 8): the department and its VP
+/// when missing, then the project with its supervisor and the standard team.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct DevelopmentInput {
+    /// The project (its department and supervisor come from the template).
+    pub project: ProjectInput,
+    /// The AI tool of the VP and the supervisor; absent: automatic. The team is always
+    /// automatic (each role's model choices pick).
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
 }

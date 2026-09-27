@@ -9,9 +9,11 @@
 //! canvas shows, applies the owner's changes, gives persistent agents their objectives, and
 //! tells Liaison who each member's team is.
 
+mod conversation;
 pub mod directory;
 pub mod dto;
 pub mod error;
+pub mod outcome;
 mod prompt;
 mod service;
 mod snapshot;
@@ -20,4 +22,5 @@ mod view;
 
 pub use dto::*;
 pub use error::{Result, WorkforceError};
+pub use outcome::ObjectiveReport;
 pub use service::{Workforce, OWNER, PLENIPO};
