@@ -14,6 +14,7 @@ import { createInterface } from "node:readline";
 import { after, before, describe, it } from "node:test";
 
 import {
+  appPids,
   clickButton,
   launch,
   makeHome,
@@ -21,6 +22,7 @@ import {
   openSettings,
   screenshot as save,
   waitForShell,
+  waitPidGone,
   waitUntil,
 } from "../lib/app.mjs";
 
@@ -69,6 +71,7 @@ let sshd;
 
 const PANEL = 'section[aria-label="Terminal"]';
 const HANDLE = `${PANEL} [role="separator"][aria-label="Resize the terminal panel"]`;
+const ALL_EVENTS = 'ol[aria-label="All events"]';
 
 const textOf = (browser, selector) =>
   browser.execute((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ") ?? "", selector);
@@ -116,7 +119,12 @@ async function type(browser, line) {
       ),
     "the keyboard in the terminal",
   );
-  await browser.keys([...line, "Enter"]);
+  // One key at a time, as a person types: WebDriver's keys sent all at once reach the test
+  // display's webview faster than a keyboard can, and it drops repeated keys and spaces.
+  for (const key of [...line, "Enter"]) {
+    await browser.keys(key);
+    await browser.pause(40);
+  }
 }
 
 async function newTerminal(browser, item) {
@@ -200,8 +208,8 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
 
     // The Activity trail records that a terminal opened, never what was typed.
     await nav(browser, "Activity");
-    await clickButton(browser, "Events");
-    await waitForText(browser, "main", "You opened a terminal on this PC");
+    await clickButton(browser, "All events");
+    await waitForText(browser, ALL_EVENTS, "You opened a terminal on this PC");
     assert.ok(!(await textOf(browser, "main")).includes("plenipo-"), "nothing typed is recorded");
   });
 
@@ -215,6 +223,11 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
       "the panel's place saved",
     );
     await browser.pause(1500);
+    // Quit as the tray's Quit does (the same path): Plenipo closes the owner's terminals.
+    const [appPid] = appPids();
+    assert.ok(appPid, "found the Plenipo process");
+    process.kill(appPid, "SIGTERM");
+    await waitPidGone(appPid);
     await app.close();
     app = await launch(home, { SSH_AUTH_SOCK: AGENT_SOCK });
     browser = app.browser;
@@ -224,8 +237,8 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
     assert.equal(Number(await (await browser.$(HANDLE)).getAttribute("aria-valuenow")), size);
     assert.ok(await exists(browser, `${PANEL} [data-pip="coding"]`), "no terminal left open");
     await nav(browser, "Activity");
-    await clickButton(browser, "Events");
-    await waitForText(browser, "main", "Plenipo closed");
+    await clickButton(browser, "All events");
+    await waitForText(browser, ALL_EVENTS, "Plenipo closed");
   });
 
   it("opens a terminal on a server whose ID is pinned, and refuses one whose ID changed", async () => {

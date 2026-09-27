@@ -257,8 +257,26 @@ export async function screenshot(browser, name) {
   const dir = process.env.PLENIPO_E2E_SCREENSHOTS;
   if (!dir) return;
   mkdirSync(dir, { recursive: true });
+  // Pictures (Pip) are loaded and drawn first, so a screenshot never shows an empty space
+  // (the test display draws without a graphics card, and a large picture takes a moment).
+  try {
+    await browser.executeAsync((done) => {
+      Promise.all([...document.images].map((img) => img.decode().catch(() => undefined))).then(() =>
+        requestAnimationFrame(() => requestAnimationFrame(() => done(true))),
+      );
+    });
+  } catch {
+    // A picture that never loads is the page's problem to show, not the screenshot's.
+  }
   await browser.saveScreenshot(join(dir, `${name}.png`));
 }
+
+/** Whether a picture has loaded and has something to show (a broken one has no width). */
+export const pictureShown = (browser, selector) =>
+  browser.execute((s) => {
+    const img = document.querySelector(s);
+    return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+  }, selector);
 
 export const LOG = '[role="log"]';
 export const DETAIL = ".detail__header";

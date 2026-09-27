@@ -19,10 +19,11 @@ import {
   launch,
   makeHome,
   nav,
-  screenshot,
-  waitUntil,
   openSettings,
+  pictureShown,
+  screenshot,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -215,6 +216,10 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await waitForShell(browser);
     // Home comes first: Pip welcomes a new company, and nothing is hard-coded.
     await waitForText(browser, ".ui-hero", "ready for its first department");
+    await waitUntil(
+      () => pictureShown(browser, '.ui-hero img[data-pip="welcome"]'),
+      "Pip waving hello on Home",
+    );
     await screenshot(browser, "home-empty");
     await nav(browser, "Organization");
     await waitForText(browser, MAP, "Build your organization");

@@ -84,9 +84,9 @@ describe("Phase 2 ledger (real app)", () => {
     await waitForText(browser, DETAIL, objective);
     await waitForTrailLength(browser, 3);
     await clickButton(browser, "Await approval");
-    await waitForText(browser, TRAIL, "Running → Awaiting approval");
+    await waitForText(browser, TRAIL, "Running → Waiting for you");
     await clickButton(browser, "Resume");
-    await waitForText(browser, TRAIL, "Awaiting approval → Running");
+    await waitForText(browser, TRAIL, "Waiting for you → Running");
     await waitForTrailLength(browser, 5);
 
     const items = await trailItems(browser);

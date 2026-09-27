@@ -19,6 +19,7 @@ import {
   screenshot as save,
   waitUntil,
   openSettings,
+  pictureShown,
   waitForShell,
 } from "../lib/app.mjs";
 
@@ -112,6 +113,7 @@ const PROBES = [
   ".ui-status",
   ".ui-status__mark",
   ".ui-pill",
+  ".ui-tag",
   ".ui-badge",
   ".ui-health__track",
   ".ui-health__fill",
@@ -358,7 +360,7 @@ describe("Phase 12A: design system (real app)", () => {
     assert.deepEqual(clipped, []);
     // Plenipo opens on Home, where Pip greets the owner.
     assert.equal(await textOf(browser, ".ui-topbar__title"), "Home");
-    await waitUntil(() => exists(browser, ".ui-hero [data-pip]"), "Pip on Home");
+    await waitUntil(() => pictureShown(browser, ".ui-hero img[data-pip]"), "Pip on Home");
     assert.ok(
       await exists(
         browser,
@@ -733,23 +735,29 @@ describe("Phase 12A: design system (real app)", () => {
   });
 
   it("opens Home and the pages of a department, project, worker, and task, with Back (Phase 12)", async () => {
-    const { browser } = app;
+    let { browser } = app;
     await nav(browser, "Home");
-    const home = ".page--home";
+    const homePage = ".page--home";
     // The objective the Shop Supervisor finished, with its answer.
     await waitForText(
       browser,
-      `${home} [aria-label="Just finished"]`,
+      `${homePage} [aria-label="Just finished"]`,
       "Order this week's stock.",
       60_000,
     );
-    await waitForText(browser, `${home} [aria-label="Just finished"]`, "Ordered the week's stock.");
+    await waitForText(
+      browser,
+      `${homePage} [aria-label="Just finished"]`,
+      "Ordered the week's stock.",
+    );
     await waitUntil(
-      () => exists(browser, `${home} article[aria-label^="Operations,"]`),
+      () => exists(browser, `${homePage} article[aria-label^="Operations,"]`),
       "the Operations card",
     );
     await screenshot(browser, "home-dark");
-    await (await browser.$(`${home} article[aria-label^="Operations,"] .ui-card__open`)).click();
+    await (
+      await browser.$(`${homePage} article[aria-label^="Operations,"] .ui-card__open`)
+    ).click();
     await waitForText(browser, ".ui-topbar__title", "Department · Operations");
     await waitForText(browser, '[aria-label="Projects"]', "Shop");
     await waitForText(
@@ -788,16 +796,46 @@ describe("Phase 12A: design system (real app)", () => {
       )
     ).click();
     await waitForText(browser, ".ui-topbar__title", "Task");
-    await waitForText(browser, ".ui-page-head", "Objective");
+    await waitForText(browser, ".ui-page-head h1", "Order this week's stock.");
+    // The objective's own page (its kicker is drawn in capitals, so read its text, not its look).
+    assert.equal(
+      await browser.execute(() => document.querySelector(".ui-page-head__kicker")?.textContent),
+      "Objective",
+    );
     await waitUntil(
       () => exists(browser, '[aria-label="Delegation tree"] .ui-map__tile'),
       "the delegation tree",
     );
     await waitForText(browser, '[aria-label="Result"]', "Ordered the week's stock.", 30_000);
     await screenshot(browser, "page-task");
-    // The place comes back after a restart (checked in the unit tests); Back walks the trail.
+    // Back walks the trail.
     await clickButton(browser, "Back");
     await waitForText(browser, ".ui-topbar__title", "Supervisor · Shop Supervisor");
+
+    // The page comes back after a restart; Back then goes to the page's section.
+    await waitUntil(
+      () =>
+        browser.execute(
+          () => JSON.parse(localStorage.getItem("plenipo.place") ?? "{}").view === "worker",
+        ),
+      "the page saved",
+    );
+    await browser.pause(1500);
+    await app.close();
+    app = await launch(home, env);
+    browser = app.browser;
+    await browser.setWindowSize(1440, 960);
+    await waitForShell(browser);
+    await waitForText(browser, ".ui-topbar__title", "Supervisor · Shop Supervisor");
+    await waitForText(browser, '[aria-label="Recently finished"]', "Order this week's stock.");
+    assert.equal(
+      await (
+        await browser.$('//nav//button[.//span[normalize-space()="Workers"]]')
+      ).getAttribute("aria-current"),
+      "page",
+    );
+    await clickButton(browser, "Back");
+    await waitForText(browser, ".ui-topbar__title", "Workers");
   });
 
   it("Settings is one tidy place: sections on the left, notices, the terminal's shell, and About", async () => {
@@ -828,7 +866,7 @@ describe("Phase 12A: design system (real app)", () => {
     await waitForText(browser, ".settings-layout__panel", "Everything that happened (the Ledger)");
     await screenshot(browser, "settings-local-paths");
     await openSettings(browser, "About Plenipo");
-    await waitUntil(() => exists(browser, ".settings-about [data-pip]"), "Pip on About");
+    await waitUntil(() => pictureShown(browser, ".settings-about img[data-pip]"), "Pip on About");
     await screenshot(browser, "settings-about");
     // Settings → Servers is where it was, the same as before.
     await openSettings(browser, "Servers");
