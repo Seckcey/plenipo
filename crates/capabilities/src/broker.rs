@@ -2000,7 +2000,7 @@ impl ToolProvider for Broker {
         let permitted = levels
             .iter()
             .any(|(c, l)| *l != Level::Blocked && c.has_tools());
-        // Permissions a switch turned off (ADR-021), when those are all the role has.
+        // Permissions a switch turned off (ADR-023), when those are all the role has.
         let switched = switched_off_for(&config, &scope);
         let why = if !permitted && !switched.is_empty() {
             switched.join("; ")
@@ -2034,7 +2034,7 @@ impl ToolProvider for Broker {
 }
 
 /// Why the role's permissions give it no tools because the owner switched features off
-/// (ADR-021): one note per feature, empty when no switch is the cause.
+/// (ADR-023): one note per feature, empty when no switch is the cause.
 fn switched_off_for(config: &plenipo_guard::GuardConfig, scope: &Scope) -> Vec<&'static str> {
     let mut on = config.clone();
     on.switches.browser = true;

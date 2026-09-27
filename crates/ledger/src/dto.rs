@@ -1138,7 +1138,7 @@ pub struct OpenRequest {
     pub child: Option<Task>,
 }
 
-/// A lesson a worker learned from its work (ADR-022): what would help the next worker in its
+/// A lesson a worker learned from its work (ADR-024): what would help the next worker in its
 /// role. It waits for the owner unless the role learns on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

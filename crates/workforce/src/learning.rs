@@ -1,4 +1,4 @@
-//! Workers learn from their work (ADR-022). A worker may end its answer with a
+//! Workers learn from their work (ADR-024). A worker may end its answer with a
 //! `plenipo-lesson` block: one to three short lessons that would help the next worker in its
 //! role. Plenipo records them in the Ledger (secrets are already hidden in every answer); each
 //! waits for the owner's Keep or Discard unless the owner lets that role learn on its own.

@@ -598,8 +598,8 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 
 ## 12a. Switches and learning (v1.4)
 
-Decision records: [ADR-021 (on/off switches in Settings)](../adr/ADR-021-settings-switches.md)
-and [ADR-022 (workers learn from their work)](../adr/ADR-022-workers-learn-from-work.md).
+Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md)
+and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md).
 
 - **Switches** (`crates/guard/src/dto.rs` `Switches`, in the Guard settings, event
   `guard.switches_changed`): Plenipo's browser (on), the screen, mouse, and keyboard (off),

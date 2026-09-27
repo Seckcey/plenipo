@@ -313,7 +313,7 @@ describe("shownInTrail", () => {
   });
 });
 
-describe("describeEvent (learning, ADR-022)", () => {
+describe("describeEvent (learning, ADR-024)", () => {
   it("says what was learned and what the owner did with it", () => {
     expect(
       describeEvent(

@@ -6,7 +6,7 @@ import { Toggle } from "../components/SwitchSettings";
 import { useRun } from "../guard/useRun";
 import type { Learning } from "./useLearning";
 
-/** Settings → Switches: worker learning on or off (ADR-022). */
+/** Settings → Switches: worker learning on or off (ADR-024). */
 export function LearningSwitch({ learning }: { learning: Learning }) {
   const { pending, error, run } = useRun((s: LearningSnapshot) => learning.apply(s));
   const s = learning.snapshot;

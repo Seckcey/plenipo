@@ -322,7 +322,7 @@ impl Guard {
         Ok(())
     }
 
-    /// The owner's on/off switches (ADR-021).
+    /// The owner's on/off switches (ADR-023).
     pub fn set_switches(&self, switches: &Switches) -> Result<()> {
         self.update("guard.switches_changed", OWNER, |c| {
             if c.switches == *switches {

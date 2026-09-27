@@ -163,7 +163,7 @@ impl SensitiveKind {
 }
 
 /// What a sensitive action does: always asks (the default), or never runs. Only the website
-/// switches (ADR-021) let three kinds go ahead without asking, on allowed websites.
+/// switches (ADR-023) let three kinds go ahead without asking, on allowed websites.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -192,7 +192,7 @@ impl Default for GuardOptions {
     }
 }
 
-/// The owner's on/off switches (ADR-021): whole features, and what workers may do on the
+/// The owner's on/off switches (ADR-023): whole features, and what workers may do on the
 /// websites the owner allowed without asking first. The safety rules that keep the owner in
 /// charge (no passwords, secrets, or CAPTCHA attempts; the sign; Stop) have no switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -440,6 +440,6 @@ pub struct GuardSettings {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10).
     pub websites: crate::websites::WebsiteRules,
-    /// The owner's on/off switches (ADR-021).
+    /// The owner's on/off switches (ADR-023).
     pub switches: Switches,
 }

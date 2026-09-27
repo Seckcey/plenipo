@@ -45,7 +45,7 @@ export function Toggle({
 type Key = keyof Switches;
 
 /**
- * Settings → Switches (ADR-021): turn whole features on or off, and choose what workers may do on
+ * Settings → Switches (ADR-023): turn whole features on or off, and choose what workers may do on
  * your allowed websites without asking. The rules that keep you in charge have no switch.
  */
 export function SwitchSettings({ learning }: { learning?: ReactNode }) {

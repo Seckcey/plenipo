@@ -518,7 +518,7 @@ export function setWebsiteRules(rules: WebsiteRules): Promise<PermissionsSnapsho
   return call("set_website_rules", { rules });
 }
 
-/** Learning's settings and the lessons waiting and kept (ADR-022). */
+/** Learning's settings and the lessons waiting and kept (ADR-024). */
 export function getLearning(): Promise<LearningSnapshot> {
   return call("get_learning");
 }
@@ -547,7 +547,7 @@ export function removeLesson(lessonId: string): Promise<LearningSnapshot> {
   return call("remove_lesson", { lessonId });
 }
 
-/** The owner's on/off switches (ADR-021). Switching the browser or the screen off also stops
+/** The owner's on/off switches (ADR-023). Switching the browser or the screen off also stops
  * any worker using it now. */
 export function setSwitches(switches: Switches): Promise<PermissionsSnapshot> {
   return call("set_switches", { switches });

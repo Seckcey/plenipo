@@ -152,13 +152,13 @@ impl Workforce {
             }
             Err(e) => this.notice(format!("Could not add the built-in role templates: {e}")),
         }
-        // Lessons from workers' answers (ADR-022).
+        // Lessons from workers' answers (ADR-024).
         crate::learning::watch(&ledger);
         liaison.set_directory(Arc::new(WorkforceDirectory::new(ledger, router)));
         this
     }
 
-    // ---- Learning (ADR-022) ----------------------------------------------------------------
+    // ---- Learning (ADR-024) ----------------------------------------------------------------
 
     /// Learning's settings and the lessons waiting and kept.
     pub fn learning(&self) -> Result<crate::learning::LearningSnapshot> {

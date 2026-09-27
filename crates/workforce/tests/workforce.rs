@@ -522,7 +522,7 @@ async fn a_custom_role_gets_its_owners_working_instructions() {
     .contains("at most 12 lines"));
 }
 
-/// Workers learn from their work (ADR-022): a lesson in a worker's answer waits for the owner;
+/// Workers learn from their work (ADR-024): a lesson in a worker's answer waits for the owner;
 /// kept, it is in the instructions of the role's later workers; a role that learns on its own
 /// keeps them at once; with learning switched off, nothing is recorded or used.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

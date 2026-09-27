@@ -1,4 +1,4 @@
--- Plenipo Ledger, schema version 7: lessons workers learn from their work (ADR-022).
+-- Plenipo Ledger, schema version 7: lessons workers learn from their work (ADR-024).
 --
 -- At the end of a task a worker may write down what would help the next worker in its role.
 -- A lesson waits for the owner (Keep or Discard) unless the owner lets that role learn on its

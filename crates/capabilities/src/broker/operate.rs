@@ -57,7 +57,7 @@ pub(super) enum ControlWork {
         dy: i64,
     },
     Back,
-    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-021).
+    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023).
     PersonCheck,
     Click {
         facts: Box<ElementFacts>,
@@ -307,7 +307,7 @@ impl Broker {
             Capability::BrowserNavigate | Capability::BrowserAutomate => ControlKind::Browser,
             _ => ControlKind::Desktop,
         };
-        // A feature the owner switched off (ADR-021).
+        // A feature the owner switched off (ADR-023).
         if let Some(off) = self
             .inner
             .guard
@@ -925,7 +925,7 @@ impl Broker {
     }
 
     /// Keep a picture as evidence, unless it is a step's picture and the owner turned
-    /// screenshots off (ADR-021): approval cards always keep theirs.
+    /// screenshots off (ADR-023): approval cards always keep theirs.
     fn keep(&self, task_id: &str, bytes: &[u8], metadata: Value) -> Option<String> {
         let for_approval = metadata["action"] == "waiting for your approval";
         if !for_approval && !self.keeps_step_pictures() {
@@ -1068,7 +1068,7 @@ impl Broker {
 
     /// Data a page sent after a worker's action: let it go when the action was approved, ask
     /// the owner otherwise. What to tell the worker.
-    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-021): the page
+    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023): the page
     /// comes to the front with a sign asking the owner to solve it, and the worker waits for the
     /// owner's answer. The worker never touches the check; the owner's own clicks there do not
     /// count as taking over.
@@ -1202,7 +1202,7 @@ impl Broker {
                 sites.join(", ")
             ));
         }
-        // The owner's rules for sending (ADR-021): blocked never sends; the "send without asking"
+        // The owner's rules for sending (ADR-023): blocked never sends; the "send without asking"
         // switch lets it go when every address is on the allowed websites list.
         if let Ok(config) = self.inner.guard.config() {
             if config.sensitive_rule(SensitiveKind::Outbound) == SensitiveRule::Block {
@@ -1921,7 +1921,7 @@ impl Broker {
         Ok(self.inner.control.status())
     }
 
-    /// The owner switched a feature off (ADR-021): the workers using it stop now, and what they
+    /// The owner switched a feature off (ADR-023): the workers using it stop now, and what they
     /// wait for is refused. Guard refuses their later calls; unlike the emergency stop, nothing
     /// else changes.
     pub async fn switch_off_control(&self, kind: ControlKind) -> Result<ControlStatus> {

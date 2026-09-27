@@ -2175,7 +2175,7 @@ mod ipc_boundary_tests {
         )
         .expect_err("others is ask or block");
         assert!(err.to_string().contains("unknown variant"), "{err}");
-        // The owner's switches (ADR-021): the defaults, a change, and unknown fields refused.
+        // The owner's switches (ADR-023): the defaults, a change, and unknown fields refused.
         assert!(snap.settings.switches.browser && !snap.settings.switches.desktop);
         let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
             &main,

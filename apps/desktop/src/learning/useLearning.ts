@@ -13,7 +13,7 @@ export function affectsLearning(eventType: string): boolean {
   );
 }
 
-/** Learning (ADR-022), kept live: the settings and the lessons waiting and kept. */
+/** Learning (ADR-024), kept live: the settings and the lessons waiting and kept. */
 export function useLearning() {
   const { value, error, reload, apply } = useLive<LearningSnapshot>(getLearning, affectsLearning);
   return { snapshot: value, error, reload, apply };

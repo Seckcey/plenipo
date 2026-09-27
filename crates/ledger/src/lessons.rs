@@ -1,4 +1,4 @@
-//! Lessons workers learn from their work (ADR-022). A worker ends a task with what would help
+//! Lessons workers learn from their work (ADR-024). A worker ends a task with what would help
 //! the next worker in its role; each lesson waits for the owner's Keep or Discard, unless the
 //! owner lets that role learn on its own. Kept lessons go into the role's later workers'
 //! instructions. Every change is a `lesson.*` event in the same transaction.

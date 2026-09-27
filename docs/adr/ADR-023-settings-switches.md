@@ -1,6 +1,8 @@
-# ADR-021: On/off switches in Settings
+# ADR-023: On/off switches in Settings
 
 - **Status:** Accepted (by the owner, 2026-09-27)
+- **Number:** accepted as ADR-021 while in review; renumbered when ADR-021 went to the Free
+  and Pro editions (and ADR-022 to Kimi's file access)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
 - **Amends:** ADR-020 (Plenipo's browser and computer use), sections 4, 5, and 6
@@ -41,7 +43,7 @@ A **Switches** section in Settings (after Personalization), stored in the Guard 
 | Signing in (without asking)                     | Off    | On: pressing Sign in goes ahead without an approval, on allowed websites only.                  |
 | Hand me checks that a person is using a website | On     | On: a worker can hand a CAPTCHA to the owner (below). Off: the worker stops and says so.        |
 | Screenshots in the Activity trail               | On     | Off: steps keep no picture. Approval cards always keep theirs.                                  |
-| Worker learning                                 | On     | ADR-022 (workers learn from their work).                                                        |
+| Worker learning                                 | On     | ADR-024 (workers learn from their work).                                                        |
 
 ### 1. A feature switched off
 

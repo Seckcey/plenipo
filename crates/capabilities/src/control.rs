@@ -249,7 +249,7 @@ impl ControlCenter {
         stopped
     }
 
-    /// Stop every active session of one kind (the owner switched that feature off, ADR-021).
+    /// Stop every active session of one kind (the owner switched that feature off, ADR-023).
     /// Unlike [`ControlCenter::stop_all`], it sets no emergency stop. Returns the sessions stopped.
     pub fn stop_kind(&self, kind: ControlKind) -> Vec<ControlSession> {
         let stopped: Vec<ControlSession> = {

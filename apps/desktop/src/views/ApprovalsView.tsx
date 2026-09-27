@@ -15,7 +15,7 @@ import { useNow } from "../runtime/useNow";
 type Approvals = ReturnType<typeof useApprovals>;
 
 /**
- * Approvals: requests waiting for you (approval cards), new lessons workers learned (ADR-022),
+ * Approvals: requests waiting for you (approval cards), new lessons workers learned (ADR-024),
  * workers using permissions now (with Revoke), requests Guard blocked, and your recent answers. `approvals` is the app's live queue
  * (so an answer updates the sidebar count and the banner at once); without it the page keeps
  * its own.

@@ -577,7 +577,7 @@ pub async fn update_role(
     with_workforce(&workforce, move |w| w.update_role(&role_id, &input)).await
 }
 
-// ---- Learning (ADR-022) ---------------------------------------------------------------------
+// ---- Learning (ADR-024) ---------------------------------------------------------------------
 
 /// Learning's settings, and the lessons waiting for you and kept.
 #[tauri::command]
@@ -1172,7 +1172,7 @@ pub async fn set_guard_options(
     with_guard(&broker, move |g| g.set_options(&options)).await
 }
 
-/// The owner's on/off switches (ADR-021). Switching Plenipo's browser or the screen, mouse, and
+/// The owner's on/off switches (ADR-023). Switching Plenipo's browser or the screen, mouse, and
 /// keyboard off also stops any worker using it now.
 #[tauri::command]
 pub async fn set_switches(

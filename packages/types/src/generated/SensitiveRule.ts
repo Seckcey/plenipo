@@ -2,6 +2,6 @@
 
 /**
  * What a sensitive action does: always asks (the default), or never runs. Only the website
- * switches (ADR-021) let three kinds go ahead without asking, on allowed websites.
+ * switches (ADR-023) let three kinds go ahead without asking, on allowed websites.
  */
 export type SensitiveRule = "ask" | "block";

@@ -244,7 +244,7 @@ async fn harness(browser: Option<PathBuf>) -> H {
             others: OtherSites::Ask,
         })
         .unwrap();
-    // The screen, mouse, and keyboard start switched off (ADR-021); these tests switch them on.
+    // The screen, mouse, and keyboard start switched off (ADR-023); these tests switch them on.
     guard
         .set_switches(&Switches {
             desktop: true,
@@ -1360,7 +1360,7 @@ async fn the_researcher_reads_but_cannot_click() {
         .is_err());
 }
 
-/// The owner's switches (ADR-021): with "send without asking" on, a form on an allowed website
+/// The owner's switches (ADR-023): with "send without asking" on, a form on an allowed website
 /// goes out without an approval (still recorded, with its screenshot); with screenshots off, the
 /// trail keeps no pictures, but an approval card still does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1490,7 +1490,7 @@ async fn a_person_check_is_handed_to_the_owner() {
     );
 }
 
-/// Switching Plenipo's browser off (ADR-021) stops the worker using it at once; the next
+/// Switching Plenipo's browser off (ADR-023) stops the worker using it at once; the next
 /// worker gets no browser tools, and the trail says why.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn switching_the_browser_off_stops_it() {
@@ -1545,7 +1545,7 @@ async fn switching_the_browser_off_stops_it() {
 }
 
 /// A lesson from a task that used websites always waits for the owner, even when the role
-/// learns on its own (ADR-022): a website must not be able to plant one.
+/// learns on its own (ADR-024): a website must not be able to plant one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lessons_from_websites_always_wait_for_the_owner() {
     let browser = need_browser!();

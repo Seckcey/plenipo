@@ -168,7 +168,7 @@ pub fn level_for(config: &GuardConfig, scope: &Scope, c: Capability) -> LevelFor
             &mut checks,
         );
     }
-    // The owner's switches (ADR-021): a feature turned off is off for everyone.
+    // The owner's switches (ADR-023): a feature turned off is off for everyone.
     if let Some(off) = switched_off(config, c) {
         checks.push(Check {
             layer: Layer::Rule,
@@ -189,7 +189,7 @@ pub fn level_for(config: &GuardConfig, scope: &Scope, c: Capability) -> LevelFor
     }
 }
 
-/// Why `c` is off for every worker, when a switch turned its feature off (ADR-021).
+/// Why `c` is off for every worker, when a switch turned its feature off (ADR-023).
 pub fn switched_off(config: &GuardConfig, c: Capability) -> Option<&'static str> {
     match c {
         Capability::BrowserNavigate | Capability::BrowserAutomate if !config.switches.browser => {
@@ -413,7 +413,7 @@ pub fn evaluate(
                 .and_then(|c| sensitive::command(c, request.workspace))
         })
         .or_else(|| request.script.and_then(sensitive::script));
-    // The owner's website switches (ADR-021): on a website on the allowed list, sending, buying,
+    // The owner's website switches (ADR-023): on a website on the allowed list, sending, buying,
     // or signing in may go ahead without asking. A kind set to blocked stays blocked, and the
     // role's own "ask me" level still asks (below).
     let without_asking = |kind: SensitiveKind| {
@@ -841,7 +841,7 @@ mod tests {
         assert_eq!(eval(&c, &r, &buy).verdict, Verdict::Deny);
     }
 
-    /// The owner's switches (ADR-021): a feature switched off is off for every worker; the
+    /// The owner's switches (ADR-023): a feature switched off is off for every worker; the
     /// website switches let sending, buying, and signing in go ahead without asking, but only
     /// on allowed websites, never over a "blocked" rule, and never past a role's "ask me".
     #[test]

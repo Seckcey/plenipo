@@ -34,7 +34,7 @@ pub struct GuardConfig {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10, ADR-020).
     pub websites: WebsiteRules,
-    /// The owner's on/off switches (ADR-021). Missing in older documents: the defaults.
+    /// The owner's on/off switches (ADR-023). Missing in older documents: the defaults.
     pub switches: Switches,
 }
 

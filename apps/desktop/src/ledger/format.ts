@@ -232,7 +232,7 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
   return null;
 }
 
-/** ADR-022: lessons workers learn from their work. */
+/** ADR-024: lessons workers learn from their work. */
 function describeLearningEvent(type: string, p: Record<string, unknown>): string | null {
   const worker = str(p.worker) ?? "A worker";
   const text = brief(p.text, 200);

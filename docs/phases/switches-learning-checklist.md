@@ -14,15 +14,15 @@ owner accepted ADR-016, ADR-018, ADR-019, and ADR-020 on 2026-09-27, they asked 
   "if it's toggled on, agents don't need to ask. If it's toggled off they have to ask."
 - **CAPTCHA attempts, then retries** ("attempt captchas 3 times before passing it off"). Both
   were declined: that is getting past a website's security. A switch to **hand CAPTCHAs to the
-  owner** was built instead (ADR-021 §4).
+  owner** was built instead (ADR-023 §4).
 
 These are not in the rollout plan. They are recorded in two decision records:
 
-- **ADR-021 (on/off switches in Settings)**, which amends ADR-020 (Plenipo's browser and
+- **ADR-023 (on/off switches in Settings)**, which amends ADR-020 (Plenipo's browser and
   computer use).
-- **ADR-022 (workers learn from their work)**.
+- **ADR-024 (workers learn from their work)**.
 
-## Switches (ADR-021)
+## Switches (ADR-023)
 
 - [x] Guard settings: `Switches` (browser on, desktop off, send, buy, and sign in without asking
       off, CAPTCHAs to the owner on, screenshots on); `set_switches` with event
@@ -43,7 +43,7 @@ These are not in the rollout plan. They are recorded in two decision records:
 - [x] Settings → Switches screen, with the warning above the "without asking" switches and the
       "Always on" note (the sign, Take over, Stop, no passwords, no CAPTCHA attempts)
 
-## Learning (ADR-022)
+## Learning (ADR-024)
 
 - [x] Ledger migration 7: table `lessons`; add, keep (optionally edited), discard, remove; part
       of the export
@@ -76,7 +76,7 @@ These are not in the rollout plan. They are recorded in two decision records:
 
 ## Docs
 
-- [x] ADR-021 and ADR-022 (accepted by the owner on 2026-09-27); ADR-020 notes the amendment; the ADR index
+- [x] ADR-023 and ADR-024 (accepted by the owner on 2026-09-27); ADR-020 notes the amendment; the ADR index
 - [x] Architecture overview: the new commands and §12a
 - [x] Word list: switches, without asking, checks that a person is using a website, lessons
 - [x] README status, versioning guide (1.4.0), release notes `docs/releases/v1.4.0.md`

@@ -1,6 +1,8 @@
-# ADR-022: Workers learn from their work
+# ADR-024: Workers learn from their work
 
 - **Status:** Accepted (by the owner, 2026-09-27)
+- **Number:** accepted as ADR-022 while in review; renumbered when ADR-021 went to the Free
+  and Pro editions (and ADR-022 to Kimi's file access)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
 
@@ -10,7 +12,7 @@ When the owner accepted ADR-019 (every role knows its job), they asked: "can we 
 as they work so they get smarter and smarter on their own?" Asked how much say they want, they
 chose **"Ask me, switch per role"**: each lesson waits for their Keep or Discard, and each role
 has a switch to learn on its own. They also asked for a **Worker learning** switch in Settings
-(ADR-021, on/off switches in Settings).
+(ADR-023, on/off switches in Settings).
 
 Every worker starts fresh: its role's working instructions (ADR-019) and its task, nothing from
 earlier tasks. The rollout plan has no phase for this. It is a small step: plain notes in the

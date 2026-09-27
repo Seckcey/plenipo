@@ -1,4 +1,4 @@
-// v1.4 end-to-end: Settings → Switches (ADR-021) and workers learning from their work (ADR-022),
+// v1.4 end-to-end: Settings → Switches (ADR-023) and workers learning from their work (ADR-024),
 // in the real app with the stand-in AI tools. The owner turns a switch off and on again (it
 // stays as set); a Supervisor's answer carries a lesson, which waits on the Approvals page; the
 // owner keeps it in their own words; the role's details show it, and the role can learn on its

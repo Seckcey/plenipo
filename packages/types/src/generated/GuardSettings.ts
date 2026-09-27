@@ -19,6 +19,6 @@ export type GuardSettings = { capabilities: Array<CapabilityInfo>, sets: Array<P
  */
 websites: WebsiteRules, 
 /**
- * The owner's on/off switches (ADR-021).
+ * The owner's on/off switches (ADR-023).
  */
 switches: Switches, };

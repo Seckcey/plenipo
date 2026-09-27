@@ -2,7 +2,7 @@
 
 |              |                                                                                                                                                                                                 |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Scope**    | On/off switches in Settings (ADR-021) and workers learning from their work (ADR-022), asked for by the owner when accepting ADR-016, ADR-018, ADR-019, and ADR-020                              |
+| **Scope**    | On/off switches in Settings (ADR-023) and workers learning from their work (ADR-024), asked for by the owner when accepting ADR-016, ADR-018, ADR-019, and ADR-020                              |
 | **Branch**   | `claude/phase-10` (a new pull request after [PR #22](https://github.com/Seckcey/plenipo/pull/22))                                                                                               |
 | **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, and the new end-to-end spec against the release build with a real Chromium. GitHub CI: Rust, Frontend, E2E (Linux), Windows on the PR. |
 | **Date**     | 2026-09-27                                                                                                                                                                                      |
@@ -63,22 +63,22 @@ Result: 3 of 3 pass.
   over), and the worker only reads the page again afterwards.
 - **Lessons** are at most 3 a task and 300 characters each, secrets are already hidden in every
   answer, and a lesson can never change permissions. Lessons from website or screen work always
-  ask. Lessons from files do not force a review (ADR-022, Consequences).
+  ask. Lessons from files do not force a review (ADR-024, Consequences).
 
 ## 5. Deviations
 
-- Not in the rollout plan: both features are recorded in ADR-021 (on/off switches in Settings)
-  and ADR-022 (workers learn from their work), both **accepted by the owner** on 2026-09-27.
+- Not in the rollout plan: both features are recorded in ADR-023 (on/off switches in Settings)
+  and ADR-024 (workers learn from their work), both **accepted by the owner** on 2026-09-27.
 - ADR-020 (Plenipo's browser and computer use) section 4 said sending, buying, and signing in
-  **always** ask. ADR-021 amends it at the owner's request; off, the default, keeps it.
-- The owner's "CAPTCHA attempts" switch is not built (ADR-021, Alternatives considered).
+  **always** ask. ADR-023 amends it at the owner's request; off, the default, keeps it.
+- The owner's "CAPTCHA attempts" switch is not built (ADR-023, Alternatives considered).
 
 ## 6. Owner items
 
 | ID  | Item                                                                                                                                                                                                                                                             | Recommendation                                |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| O1  | ADR-021 (on/off switches in Settings) — **Accepted** by the owner on 2026-09-27. It means the switches decide what workers may use, and that with a "without asking" switch on, workers send, buy, or press Sign in on your allowed websites without asking you. | Done; keep the "without asking" ones off.     |
-| O2  | ADR-022 (workers learn from their work) — **Accepted** by the owner on 2026-09-27. It means workers write down lessons, you keep or discard each one (or let a role learn on its own), and kept lessons go to that role's later workers.                         | Done.                                         |
+| O1  | ADR-023 (on/off switches in Settings) — **Accepted** by the owner on 2026-09-27. It means the switches decide what workers may use, and that with a "without asking" switch on, workers send, buy, or press Sign in on your allowed websites without asking you. | Done; keep the "without asking" ones off.     |
+| O2  | ADR-024 (workers learn from their work) — **Accepted** by the owner on 2026-09-27. It means workers write down lessons, you keep or discard each one (or let a role learn on its own), and kept lessons go to that role's later workers.                         | Done.                                         |
 | O3  | Windows check (~20 min): the steps in [switches-learning-checklist.md](switches-learning-checklist.md#owner-check-on-windows-20-minutes).                                                                                                                        | Recommended with v1.4.0; fixes go in a patch. |
 | O4  | If a role of your own has the **Screen, mouse, and keyboard** permission set, turn that switch on after updating (it starts off).                                                                                                                                | After installing v1.4.0.                      |
 

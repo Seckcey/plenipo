@@ -66,7 +66,7 @@ pub enum Mode {
     Owner,
     /// The owner stopped all control.
     Stopped,
-    /// The owner is solving a check that a person is using the site (a CAPTCHA, ADR-021); the
+    /// The owner is solving a check that a person is using the site (a CAPTCHA, ADR-023); the
     /// worker waits and gets the tab back when the owner says it is done.
     Handed,
 }
