@@ -590,6 +590,19 @@ impl Broker {
             .map_or_else(|| scope.role_name.clone(), |p| p.title);
         if offered.is_empty() {
             self.release_writer(place.as_ref(), &grant_id);
+            let switched = switched_off_for(&config, &scope);
+            if !switched.is_empty() && !TOOLS.iter().any(|t| permitted(t.capability)) {
+                let _ = self.ledger().append_event(NewEvent {
+                    task_id: Some(step.task_id.into()),
+                    source: GUARD.into(),
+                    event_type: "guard.grant_skipped".into(),
+                    payload: json!({
+                        "worker": worker,
+                        "reason": format!("{worker} got no tools: {}.", switched.join("; ")),
+                    }),
+                    ..NewEvent::default()
+                });
+            }
             if let (Some(problem), true) = (&problem, TOOLS.iter().any(|t| permitted(t.capability)))
             {
                 // It has permissions it cannot use: say so where the owner will look.
@@ -2070,7 +2083,11 @@ impl ToolProvider for Broker {
         let permitted = levels
             .iter()
             .any(|(c, l)| *l != Level::Blocked && c.has_tools());
-        let why = if !permitted {
+        // Permissions a switch turned off (ADR-023), when those are all the role has.
+        let switched = switched_off_for(&config, &scope);
+        let why = if !permitted && !switched.is_empty() {
+            switched.join("; ")
+        } else if !permitted {
             format!(
                 "the {} role has no permissions in the owner's settings",
                 scope.role_name
@@ -2097,6 +2114,21 @@ impl ToolProvider for Broker {
              job needs more, say so in your answer and your lead or the owner can arrange it."
         ))
     }
+}
+
+/// Why the role's permissions give it no tools because the owner switched features off
+/// (ADR-023): one note per feature, empty when no switch is the cause.
+fn switched_off_for(config: &plenipo_guard::GuardConfig, scope: &Scope) -> Vec<&'static str> {
+    let mut on = config.clone();
+    on.switches.browser = true;
+    on.switches.desktop = true;
+    let mut notes: Vec<&'static str> = levels_for(&on, scope)
+        .iter()
+        .filter(|(c, l)| **l != Level::Blocked && c.has_tools())
+        .filter_map(|(c, _)| plenipo_guard::engine::switched_off(config, *c))
+        .collect();
+    notes.dedup();
+    notes
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -2201,11 +2233,13 @@ fn note_for(
     }
     if permitted(Capability::BrowserAutomate) {
         lines.push(
-            "Submitting a form, buying, signing in, and sending anything always wait for the \
-             owner's approval, and so does data a page sends after your click. Never type \
-             passwords, one-time codes, card details, or other secrets, and never try to get past \
-             a CAPTCHA: when a page needs a sign-in or a check that a person is there, stop and \
-             say that the owner should take over."
+            "Submitting a form, buying, signing in, and sending anything wait for the owner's \
+             approval unless the owner lets workers do them without asking on this website, and \
+             so does data a page sends after your click. Never type passwords, one-time codes, \
+             card details, or other secrets: when a page needs a sign-in, stop and say that the \
+             owner should sign in. Never try to answer a CAPTCHA (a check that a person is \
+             there): hand it to the owner with browser_person_check and wait, or, if that is \
+             refused, stop and say so."
                 .into(),
         );
     }

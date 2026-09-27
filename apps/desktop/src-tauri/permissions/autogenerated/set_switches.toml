@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-switches"
+description = "Enables the set_switches command without any pre-configured scope."
+commands.allow = ["set_switches"]
+
+[[permission]]
+identifier = "deny-set-switches"
+description = "Denies the set_switches command without any pre-configured scope."
+commands.deny = ["set_switches"]

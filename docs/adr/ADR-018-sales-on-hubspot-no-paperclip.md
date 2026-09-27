@@ -1,6 +1,6 @@
 # ADR-018: Phase 9 postponed — no Paperclip; a new Sales department later, on HubSpot
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 9 (postponed; recorded at the start of Phase 10)
 

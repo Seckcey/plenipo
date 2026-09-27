@@ -2,12 +2,16 @@ import { useAgents } from "../agents/useAgents";
 import { ModelSettings } from "../components/models/ModelSettings";
 import { PermissionSettings } from "../components/permissions/PermissionSettings";
 import { ServerSettings } from "../components/servers/ServerSettings";
+import { SwitchSettings } from "../components/SwitchSettings";
+import { LearningSwitch } from "../learning/Lessons";
+import { useLearning } from "../learning/useLearning";
 import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
 export function SettingsView() {
   const { state } = useRuntime();
   const agents = useAgents();
+  const learning = useLearning();
   return (
     <section className="view" aria-labelledby="settings-title">
       <h1 id="settings-title">Settings</h1>
@@ -19,6 +23,9 @@ export function SettingsView() {
 
       <h2>Personalization</h2>
       <TitlesSetting />
+
+      <h2>Switches</h2>
+      <SwitchSettings learning={<LearningSwitch learning={learning} />} />
 
       <h2>AI models</h2>
       <ModelSettings />

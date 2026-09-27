@@ -23,7 +23,7 @@
 use std::sync::Arc;
 
 use plenipo_capabilities::browser::BrowserStatus;
-use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::control::{ControlKind, ControlStatus};
 use plenipo_capabilities::{
     ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot, ServerIdentity,
     ServerTest, ServersSnapshot,
@@ -31,7 +31,7 @@ use plenipo_capabilities::{
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
     CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
-    SensitiveRule, ServerInput, WebsiteRules,
+    SensitiveRule, ServerInput, Switches, WebsiteRules,
 };
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
@@ -48,9 +48,9 @@ use plenipo_runtime::{
     ExecutionOutput, ExecutionRecord, RuntimeError, RuntimeOverview, Supervisor,
 };
 use plenipo_workforce::{
-    DepartmentInput, DevelopmentInput, HireInput, LeadInput, ObjectiveReport, OrgSnapshot,
-    OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob, RoleUpdate,
-    TitleTheme, WorkView, Workforce, WorkforceError,
+    DepartmentInput, DevelopmentInput, HireInput, LeadInput, LearningSnapshot, ObjectiveReport,
+    OrgSnapshot, OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob,
+    RoleUpdate, TitleTheme, WorkView, Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -581,6 +581,62 @@ pub async fn update_role(
     bounded("the description", &input.description)?;
     validate_job(&input.job)?;
     with_workforce(&workforce, move |w| w.update_role(&role_id, &input)).await
+}
+
+// ---- Learning (ADR-024) ---------------------------------------------------------------------
+
+/// Learning's settings, and the lessons waiting for you and kept.
+#[tauri::command]
+pub async fn get_learning(
+    workforce: State<'_, Workforce>,
+) -> Result<LearningSnapshot, CommandError> {
+    with_workforce(&workforce, |w| w.learning()).await
+}
+
+/// Worker learning on or off (Settings → Switches).
+#[tauri::command]
+pub async fn set_learning(
+    workforce: State<'_, Workforce>,
+    enabled: bool,
+) -> Result<LearningSnapshot, CommandError> {
+    with_workforce(&workforce, move |w| w.set_learning(enabled)).await
+}
+
+/// Whether a role learns on its own (its lessons kept without asking you).
+#[tauri::command]
+pub async fn set_role_learning(
+    workforce: State<'_, Workforce>,
+    role_id: String,
+    auto: bool,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("role", &role_id)?;
+    with_workforce(&workforce, move |w| w.set_role_learning(&role_id, auto)).await
+}
+
+/// Keep a waiting lesson (in your own words, when `text` is given) or discard it.
+#[tauri::command]
+pub async fn decide_lesson(
+    workforce: State<'_, Workforce>,
+    lesson_id: String,
+    keep: bool,
+    text: Option<String>,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("lesson", &lesson_id)?;
+    bounded_optional("the lesson", text.as_deref())?;
+    with_workforce(&workforce, move |w| {
+        w.decide_lesson(&lesson_id, keep, text.as_deref())
+    })
+    .await
+}
+
+/// Remove a kept lesson: the role's later workers no longer get it.
+#[tauri::command]
+pub async fn remove_lesson(
+    workforce: State<'_, Workforce>,
+    lesson_id: String,
+) -> Result<LearningSnapshot, CommandError> {
+    validate_id("lesson", &lesson_id)?;
+    with_workforce(&workforce, move |w| w.remove_lesson(&lesson_id)).await
 }
 
 /// A role's working instructions: a few short lines in each part (the Workforce checks them
@@ -1120,6 +1176,37 @@ pub async fn set_guard_options(
     options: GuardOptions,
 ) -> Result<PermissionsSnapshot, CommandError> {
     with_guard(&broker, move |g| g.set_options(&options)).await
+}
+
+/// The owner's on/off switches (ADR-023). Switching Plenipo's browser or the screen, mouse, and
+/// keyboard off also stops any worker using it now.
+#[tauri::command]
+pub async fn set_switches(
+    broker: State<'_, Broker>,
+    switches: Switches,
+) -> Result<PermissionsSnapshot, CommandError> {
+    let was = broker
+        .guard()
+        .config()
+        .map(|c| c.switches)
+        .unwrap_or_default();
+    let (browser_off, desktop_off) = (
+        was.browser && !switches.browser,
+        was.desktop && !switches.desktop,
+    );
+    let snapshot = with_guard(&broker, move |g| g.set_switches(&switches)).await?;
+    let b = broker.inner().clone();
+    if browser_off {
+        b.switch_off_control(ControlKind::Browser)
+            .await
+            .map_err(broker_error)?;
+    }
+    if desktop_off {
+        b.switch_off_control(ControlKind::Desktop)
+            .await
+            .map_err(broker_error)?;
+    }
+    Ok(snapshot)
 }
 
 /// Store a secret: its value goes to the operating system's protected storage, only its

@@ -21,7 +21,10 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use plenipo_guard::engine::Scope;
-use plenipo_guard::{Capability, Decision, Layer, Risk, SensitiveKind, Site, Verdict, Workspace};
+use plenipo_guard::{
+    Capability, Decision, Layer, Risk, SensitiveKind, SensitiveRule, Site, SiteVerdict, Verdict,
+    Workspace,
+};
 use plenipo_ledger::{ApprovalState, NewEvent};
 use serde_json::{json, Value};
 
@@ -54,6 +57,8 @@ pub(super) enum ControlWork {
         dy: i64,
     },
     Back,
+    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023).
+    PersonCheck,
     Click {
         facts: Box<ElementFacts>,
         what: String,
@@ -237,9 +242,10 @@ fn page_text(page: &Value, controls: bool) -> String {
     );
     if page["captcha"] == true {
         out.push_str(
-            "This page shows a CAPTCHA (a check that a person is using the site). Plenipo never \
-             solves CAPTCHAs or gets past site security: stop here, and say in your answer that \
-             the owner should take over.\n",
+            "This page shows a CAPTCHA (a check that a person is using the site). Never try to \
+             answer it: call browser_person_check to hand it to the owner, who solves it, then \
+             continue; if that is refused, stop here and say in your answer that the owner \
+             should take over.\n",
         );
     }
     if page["passwordFields"].as_u64().unwrap_or(0) > 0 {
@@ -302,6 +308,23 @@ impl Broker {
             Capability::SshConnect => ControlKind::Server,
             _ => ControlKind::Desktop,
         };
+        // A feature the owner switched off (ADR-023).
+        if let Some(off) = self
+            .inner
+            .guard
+            .config()
+            .ok()
+            .and_then(|c| plenipo_guard::engine::switched_off(&c, tool.capability))
+        {
+            let mut off = off.to_owned();
+            if let Some(first) = off.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+            return Some(format!(
+                "{off}. Do not try another way: say in your answer what you were doing and what \
+                 is left."
+            ));
+        }
         match control
             .session(&session_id(kind, grant_id))
             .map(|s| s.state)
@@ -381,8 +404,8 @@ impl Broker {
                 Layer::Rule,
                 format!(
                     "{reference} is part of a CAPTCHA (a check that a person is using the site). \
-                     Plenipo never solves CAPTCHAs or gets past site security: stop, and say that \
-                     the owner should take over."
+                     Plenipo never answers these checks for a worker: call browser_person_check to \
+                     hand it to the owner, or stop and say that the owner should take over."
                 ),
                 summary,
             ));
@@ -480,6 +503,47 @@ impl Broker {
                     format!("go back from {}", host_of(&tab.url())),
                     tab.url(),
                     ControlWork::Back,
+                );
+                p.site = Self::tab_site(&tab);
+                p
+            }
+            Action::BrowserPersonCheck => {
+                let s = "hand a person check to the owner".to_owned();
+                let tab = self.open_tab(grant_id, &s)?;
+                let captcha = tab
+                    .read(200, 0)
+                    .await
+                    .map(|page| page["captcha"] == true)
+                    .unwrap_or(false);
+                if !captcha {
+                    return Err(refuse(
+                        Layer::Target,
+                        "this page shows no check that a person is using the site, so there is \
+                         nothing to hand to the owner.",
+                        s,
+                    ));
+                }
+                let to_owner = self
+                    .inner
+                    .guard
+                    .config()
+                    .is_ok_and(|c| c.switches.captcha_to_owner);
+                if !to_owner {
+                    return Err(refuse(
+                        Layer::Rule,
+                        "the owner has not switched on handing these checks to them. Stop here, \
+                         and say in your answer that the owner should take over.",
+                        s,
+                    ));
+                }
+                let mut p = base(
+                    nav,
+                    format!(
+                        "hand you a check that a person is using {} (a CAPTCHA)",
+                        host_of(&tab.url())
+                    ),
+                    tab.url(),
+                    ControlWork::PersonCheck,
                 );
                 p.site = Self::tab_site(&tab);
                 p
@@ -591,7 +655,8 @@ impl Broker {
                 if focused.captcha {
                     return Err(refuse(
                         Layer::Rule,
-                        "the keyboard is in a CAPTCHA. Plenipo never solves CAPTCHAs: stop, and \
+                        "the keyboard is in a CAPTCHA. Plenipo never answers these checks for a \
+                         worker: call browser_person_check to hand it to the owner, or stop and \
                          say that the owner should take over.",
                         s,
                     ));
@@ -865,7 +930,13 @@ impl Broker {
         )
     }
 
+    /// Keep a picture as evidence, unless it is a step's picture and the owner turned
+    /// screenshots off (ADR-023): approval cards always keep theirs.
     fn keep(&self, task_id: &str, bytes: &[u8], metadata: Value) -> Option<String> {
+        let for_approval = metadata["action"] == "waiting for your approval";
+        if !for_approval && !self.keeps_step_pictures() {
+            return None;
+        }
         match self
             .inner
             .evidence
@@ -877,6 +948,14 @@ impl Broker {
                 None
             }
         }
+    }
+
+    /// The owner keeps a screenshot of every significant step (Settings → Switches).
+    fn keeps_step_pictures(&self) -> bool {
+        self.inner
+            .guard
+            .config()
+            .map_or(true, |c| c.switches.screenshots)
     }
 
     /// The grant's tab, opened (and the browser started) when needed; and a note for the
@@ -995,6 +1074,103 @@ impl Broker {
 
     /// Data a page sent after a worker's action: let it go when the action was approved, ask
     /// the owner otherwise. What to tell the worker.
+    /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023): the page
+    /// comes to the front with a sign asking the owner to solve it, and the worker waits for the
+    /// owner's answer. The worker never touches the check; the owner's own clicks there do not
+    /// count as taking over.
+    async fn person_check(&self, ctx: &CallContext<'_>) -> ControlDone {
+        let Some(tab) = self.grant_tab(ctx.grant_id) else {
+            return ControlDone {
+                result: Err("Your tab is gone; open the page again.".into()),
+                ..ControlDone::default()
+            };
+        };
+        tab.release_to(Mode::Handed).await;
+        let url = tab.url();
+        let host = host_of(&url);
+        self.inner.control.note(
+            &session_id(ControlKind::Browser, ctx.grant_id),
+            Some(url.clone()),
+            Some("waiting for you to solve a person check".into()),
+        );
+        let prepared = Prepared {
+            capability: Capability::BrowserNavigate,
+            risk: Risk::Web,
+            summary: format!("hand you a check that a person is using {host} (a CAPTCHA)"),
+            detail: format!(
+                "Plenipo's browser shows the page in front of other windows: {url}\nSolve the \
+                 check yourself, then press Approve. The worker never answers it."
+            ),
+            files: Vec::new(),
+            writes_git_dir: false,
+            command: None,
+            script: None,
+            inherent: None,
+            inherent_owned: None,
+            site: Site::parse(&url).ok(),
+            screenshot: self
+                .keep_page(&tab, ctx.task_id, ctx.worker, "waiting for your approval")
+                .await,
+            work: Work::Missing(String::new()),
+        };
+        let decision = Decision {
+            verdict: Verdict::Ask,
+            reason: format!(
+                "{host} asks whether a person is using it. Plenipo never answers these checks for \
+                 a worker: solve it yourself in Plenipo's browser (it is in front now), then \
+                 press Approve and {} continues; Deny stops it.",
+                ctx.worker
+            ),
+            layer: Layer::Rule,
+            risk: Risk::Web,
+            sensitive: None,
+            checks: Vec::new(),
+        };
+        let detail = self.redact(&prepared.detail);
+        let minutes = self
+            .inner
+            .guard
+            .config()
+            .map(|c| c.options.approval_minutes)
+            .unwrap_or(10);
+        let answer = self
+            .ask(
+                ctx.grant_id,
+                ctx.task_id,
+                ctx.runtime_id,
+                ctx.worker,
+                ctx.scope,
+                ctx.workspace,
+                ctx.tool,
+                &prepared,
+                &detail,
+                &decision,
+                minutes,
+            )
+            .await;
+        let solved = matches!(answer, Ok((_, ApprovalState::Approved)));
+        // Back to the worker, unless the owner took over or stopped it meanwhile.
+        tab.take_back().await;
+        let result = if solved && tab.mode() == Mode::Worker {
+            Ok(format!(
+                "The owner solved the check on {host}. Read the page again with browser_read and \
+                 continue."
+            ))
+        } else {
+            Err(format!(
+                "The owner did not solve the check on {host}. Stop here, and say in your answer \
+                 that this page needs a person."
+            ))
+        };
+        let url_now = tab.url();
+        ControlDone {
+            result,
+            images: Vec::new(),
+            screenshot: None,
+            url: Some(url_now),
+        }
+    }
+
     async fn decide_held(
         &self,
         ctx: &CallContext<'_>,
@@ -1031,6 +1207,35 @@ impl Broker {
                 "The page sent it to {} (you had the owner's approval).",
                 sites.join(", ")
             ));
+        }
+        // The owner's rules for sending (ADR-023): blocked never sends; the "send without asking"
+        // switch lets it go when every address is on the allowed websites list.
+        if let Ok(config) = self.inner.guard.config() {
+            if config.sensitive_rule(SensitiveKind::Outbound) == SensitiveRule::Block {
+                tab.release(&held, false).await;
+                return Some(format!(
+                    "Not sent: the page tried to send data to {}, and the owner set \"{}\" to \
+                     blocked. Do not try another way; say in your answer what you needed to send.",
+                    sites.join(", "),
+                    SensitiveKind::Outbound.label()
+                ));
+            }
+            let all_allowed = held.iter().all(|h| {
+                Site::parse(&h.url).is_ok_and(|s| {
+                    matches!(
+                        plenipo_guard::websites::check(&config.websites, &s),
+                        SiteVerdict::Allowed(_)
+                    )
+                })
+            });
+            if config.switches.send_without_asking && all_allowed {
+                tab.release(&held, true).await;
+                return Some(format!(
+                    "The page sent it to {} (the owner lets workers send on allowed websites \
+                     without asking).",
+                    sites.join(", ")
+                ));
+            }
         }
         let summary = format!(
             "let the page send data to {} after {what}",
@@ -1123,6 +1328,7 @@ impl Broker {
             }
             ControlWork::ScreenView => self.screen_view(ctx).await,
             ControlWork::TakeControl { reason } => self.take_control(ctx, &reason),
+            ControlWork::PersonCheck => self.person_check(ctx).await,
             w @ (ControlWork::ScreenClick { .. }
             | ControlWork::ScreenType { .. }
             | ControlWork::ScreenKeys { .. }
@@ -1721,6 +1927,60 @@ impl Broker {
             }),
             ..NewEvent::default()
         })?;
+        Ok(self.inner.control.status())
+    }
+
+    /// The owner switched a feature off (ADR-023): the workers using it stop now, and what they
+    /// wait for is refused. Guard refuses their later calls; unlike the emergency stop, nothing
+    /// else changes.
+    pub async fn switch_off_control(&self, kind: ControlKind) -> Result<ControlStatus> {
+        let stopped = self.inner.control.stop_kind(kind);
+        for s in &stopped {
+            let pending: Vec<String> = self
+                .state()
+                .grants
+                .get(&s.grant_id)
+                .map(|g| g.pending.iter().cloned().collect())
+                .unwrap_or_default();
+            for approval in &pending {
+                self.settle(
+                    approval,
+                    ApprovalState::Rejected,
+                    "owner",
+                    "You switched this off in Settings, so the worker stopped.",
+                );
+            }
+            match s.kind {
+                ControlKind::Browser => {
+                    if let Some(tab) = self.grant_tab(&s.grant_id) {
+                        tab.release_to(Mode::Stopped).await;
+                    }
+                }
+                ControlKind::Desktop => {
+                    let watch = self
+                        .state()
+                        .grants
+                        .get_mut(&s.grant_id)
+                        .and_then(|g| g.desktop.control.take());
+                    if let Some(w) = watch {
+                        w.ended.store(true, Ordering::SeqCst);
+                    }
+                    let desktop = self.inner_desktop();
+                    let _ = tokio::task::spawn_blocking(move || desktop.release_all()).await;
+                }
+            }
+        }
+        if !stopped.is_empty() {
+            self.ledger().append_event(NewEvent {
+                source: "owner".into(),
+                event_type: "control.switched_off".into(),
+                payload: json!({
+                    "kind": kind,
+                    "sessions": stopped.iter().map(|s| json!({ "kind": s.kind, "worker": s.worker, "taskId": s.task_id })).collect::<Vec<_>>(),
+                }),
+                ..NewEvent::default()
+            })?;
+        }
         Ok(self.inner.control.status())
     }
 

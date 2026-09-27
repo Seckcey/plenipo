@@ -20,6 +20,7 @@ import { useRuntime } from "./runtime/useRuntime";
 import { useControl } from "./control/useControl";
 import { sessionWords } from "./control/words";
 import { useApprovals } from "./guard/usePermissions";
+import { useLearning } from "./learning/useLearning";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -123,6 +124,7 @@ function Shell({ core }: { core: CoreState }) {
       .catch(() => undefined);
   }, []);
   const approvals = useApprovals();
+  const learning = useLearning();
   const control = useControl();
   const waiting = approvals.queue?.pending ?? [];
   const controlling = (control.status?.sessions ?? []).filter((s) => s.state === "active");
@@ -183,7 +185,7 @@ function Shell({ core }: { core: CoreState }) {
           onNavigate={navigate}
           activeCount={activeCount}
           workingCount={workingCount}
-          approvalCount={waiting.length}
+          approvalCount={waiting.length + (learning.snapshot?.waiting.length ?? 0)}
         />
         <main
           className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
@@ -252,7 +254,9 @@ function Shell({ core }: { core: CoreState }) {
               onOpenPosition={openPosition}
             />
           )}
-          {view === "approvals" && <ApprovalsView onOpenTask={openTask} approvals={approvals} />}
+          {view === "approvals" && (
+            <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
+          )}
           {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} />

@@ -103,6 +103,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (control !== null) return control;
   const server = describeServerEvent(e.eventType, p);
   if (server !== null) return server;
+  const learned = describeLearningEvent(e.eventType, p);
+  if (learned !== null) return learned;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -218,6 +220,8 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "Approval wait changed";
     case "guard.websites_changed":
       return "Website lists changed";
+    case "guard.switches_changed":
+      return "Switches changed (Settings → Switches)";
     case "guard.websites_added":
       return "Plenipo's starting website lists were stored";
     case "vault.secret_added":
@@ -226,6 +230,33 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return `Secret changed: ${str(p.name) ?? ""}`;
     case "vault.secret_removed":
       return `Secret removed: ${str(p.name) ?? ""}`;
+  }
+  return null;
+}
+
+/** ADR-024: lessons workers learn from their work. */
+function describeLearningEvent(type: string, p: Record<string, unknown>): string | null {
+  const worker = str(p.worker) ?? "A worker";
+  const text = brief(p.text, 200);
+  switch (type) {
+    case "lesson.added":
+      return p.state === "kept"
+        ? `${worker} learned (kept on its own): ${text}`
+        : `${worker} learned something (waiting for you): ${text}`;
+    case "lesson.kept":
+      return `You kept a lesson: ${text}`;
+    case "lesson.discarded":
+      return `You discarded a lesson: ${text}`;
+    case "lesson.removed":
+      return `You removed a lesson: ${text}`;
+    case "learning.switched":
+      return p.enabled === false
+        ? "You switched worker learning off"
+        : "You switched worker learning on";
+    case "learning.role_changed":
+      return p.auto === true
+        ? `${str(p.name) ?? "A role"} now learns on its own`
+        : `${str(p.name) ?? "A role"}'s lessons now wait for you`;
   }
   return null;
 }
@@ -267,6 +298,11 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     }
     case "control.allowed":
       return "You allowed browser, desktop, and server work again";
+    case "control.switched_off": {
+      const n = count(p.sessions);
+      const off = p.kind === "server" ? "remote computers (SSH)" : what;
+      return `You switched ${off} off: ${n} worker${n === 1 ? "" : "s"} stopped`;
+    }
   }
   return null;
 }

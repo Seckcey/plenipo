@@ -37,6 +37,8 @@ pub struct GuardConfig {
     pub websites: WebsiteRules,
     /// The servers workers may use over SSH (Phase 11, ADR-025).
     pub servers: Vec<Server>,
+    /// The owner's on/off switches (ADR-023). Missing in older documents: the defaults.
+    pub switches: Switches,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -358,6 +360,10 @@ impl GuardConfig {
     pub fn set_websites(&mut self, rules: &WebsiteRules) -> Result<()> {
         self.websites = websites::clean(rules).map_err(invalid)?;
         Ok(())
+    }
+
+    pub fn set_switches(&mut self, switches: &Switches) {
+        self.switches = switches.clone();
     }
 
     pub fn set_sensitive(&mut self, kind: SensitiveKind, rule: SensitiveRule) {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-learning"
+description = "Enables the set_learning command without any pre-configured scope."
+commands.allow = ["set_learning"]
+
+[[permission]]
+identifier = "deny-set-learning"
+description = "Denies the set_learning command without any pre-configured scope."
+commands.deny = ["set_learning"]

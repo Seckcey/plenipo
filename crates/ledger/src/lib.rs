@@ -9,6 +9,7 @@ pub mod dto;
 pub mod error;
 mod events;
 mod guard;
+mod lessons;
 mod liaison;
 mod maintenance;
 pub mod migrate;
@@ -28,6 +29,7 @@ use rusqlite::{Connection, ErrorCode};
 
 pub use dto::*;
 pub use error::{LedgerError, Result};
+pub use lessons::{clean_lesson, MAX_LESSONS_PER_TASK, MAX_LESSON_CHARS};
 pub use migrate::{Migration, MIGRATIONS};
 pub use workforce::RoleTemplate;
 

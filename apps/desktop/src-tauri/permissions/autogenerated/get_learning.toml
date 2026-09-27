@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-learning"
+description = "Enables the get_learning command without any pre-configured scope."
+commands.allow = ["get_learning"]
+
+[[permission]]
+identifier = "deny-get-learning"
+description = "Denies the get_learning command without any pre-configured scope."
+commands.deny = ["get_learning"]

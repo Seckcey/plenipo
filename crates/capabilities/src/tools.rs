@@ -304,6 +304,13 @@ pub const TOOLS: &[ToolDef] = &[
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {
+        name: "browser_person_check",
+        capability: Capability::BrowserNavigate,
+        risk: Risk::Web,
+        description: "Hand a check that a person is using the site (a CAPTCHA) to the owner: Plenipo shows them the page, they solve it themselves, and you continue when they say it is done. Never try to answer such a check yourself. Works only when the owner allows it; otherwise stop and say that the owner should take over.",
+        schema: || json!({ "type": "object", "properties": {} }),
+    },
+    ToolDef {
         name: "browser_click",
         capability: Capability::BrowserAutomate,
         risk: Risk::Web,
@@ -570,6 +577,7 @@ pub enum Action {
         pages: u32,
     },
     BrowserBack,
+    BrowserPersonCheck,
     BrowserClick {
         reference: String,
     },
@@ -948,6 +956,7 @@ pub fn parse(tool: &ToolDef, args: &Value) -> Result<Action, String> {
             pages: number(args, "pages", 1, 10)?.unwrap_or(1) as u32,
         },
         "browser_back" => Action::BrowserBack,
+        "browser_person_check" => Action::BrowserPersonCheck,
         "browser_click" => Action::BrowserClick {
             reference: reference(args)?,
         },

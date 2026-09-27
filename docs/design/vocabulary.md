@@ -114,6 +114,14 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | signing in                                                                 | authentication, login                                          |
 | screenshot (of the page or the screen)                                     | screen capture, vision pipeline                                |
 | terms of use (of a website)                                                | terms of service, ToS                                          |
+| Switches (Settings), on / off                                              | feature flags, toggles, enabled / disabled                     |
+| without asking you (on your allowed websites)                              | auto-approve, bypass approval                                  |
+| a check that a person is using a website (CAPTCHA, said once)              | CAPTCHA challenge, bot check, human verification               |
+| Hand me checks (you solve it; the worker waits)                            | CAPTCHA hand-off, human-in-the-loop                            |
+| lesson / what it has learned                                               | memory, learned knowledge, experience                          |
+| Keep / Discard (a lesson)                                                  | accept / reject, persist                                       |
+| Learn on its own (a role)                                                  | auto-accept lessons, autonomous learning                       |
+| Worker learning                                                            | continual learning, agent memory                               |
 | server, remote computer (in Settings → Servers)                            | host, remote host, host registry                               |
 | Connect to servers (the permission)                                        | SSH capability, ssh.connect                                    |
 | server ID / pin it (Check the server ID)                                   | host key, host key fingerprint / host key pinning              |

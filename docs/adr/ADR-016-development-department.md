@@ -1,6 +1,6 @@
 # ADR-016: The Development department — delegation, working copies, GitHub, and the result
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 8
 
