@@ -143,10 +143,10 @@ export function WorkersView({
       <h1 id="workers-title">Workers</h1>
       <p className="view__lead">
         Give an objective to an AI worker. It runs on your own signed-in Claude Code, Codex, or
-        Grok, watched over by Plenipo, and every step is recorded in the Ledger. For now workers
-        cannot change files or use the internet: Claude Code and Grok get none of their own tools,
-        and Codex runs read-only. With handoffs allowed, a worker can ask a worker on another AI
-        tool for help through Plenipo Liaison.
+        Grok, or Ollama, watched over by Plenipo, and every step is recorded in the Ledger. Tasks
+        you start here cannot change files or use the internet: Claude Code and Grok get none of
+        their own tools, Codex runs read-only, and Ollama only answers in text. With handoffs
+        allowed, a worker can ask a worker on another AI tool for help through Plenipo Liaison.
       </p>
 
       {state.status === "error" && (

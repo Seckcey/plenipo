@@ -214,6 +214,17 @@ pub struct AgentConfig {
     /// Extra fixed variables for every runtime process (tests and diagnostics only; never
     /// credentials).
     pub extra_env: Vec<(String, String)>,
+    /// Plenipo's bridge for AI tools reached through a service on this PC (ADR-017): the
+    /// program and its first arguments. Without it, such AI tools are shown as not usable.
+    pub bridge: Option<Bridge>,
+}
+
+/// A program Plenipo runs in place of an AI tool's own (for the sign-in check and tasks),
+/// usually Plenipo itself in a helper mode, e.g. `plenipo-desktop --plenipo-ollama`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bridge {
+    pub executable: PathBuf,
+    pub args: Vec<String>,
 }
 
 impl AgentConfig {
@@ -228,6 +239,7 @@ impl AgentConfig {
             activity_turns: 50,
             stored_activity_per_turn: 500,
             extra_env: Vec::new(),
+            bridge: None,
         }
     }
 }
@@ -293,6 +305,8 @@ pub struct AgentRuntime {
 /// A usable runtime, checked just before a turn.
 struct Ready {
     executable: PathBuf,
+    /// Arguments before the adapter's own (the bridge's, for bridged AI tools).
+    args_prefix: Vec<String>,
     env: Vec<(String, String)>,
     /// The sign-in check confirmed a subscription.
     billing_confirmed: bool,
@@ -720,12 +734,46 @@ impl AgentRuntime {
                 return (info, None);
             }
         }
-        let out = run_probe(&executable, &adapter.auth_args(), &env, &workdir, timeout).await;
+        // A bridged AI tool is checked and run through Plenipo's bridge (ADR-017).
+        let (executable, args_prefix) = if adapter.bridged() {
+            let bridge = self
+                .inner
+                .config
+                .bridge
+                .as_ref()
+                .ok_or_else(|| {
+                    format!(
+                        "This version of Plenipo cannot reach {} (its helper is not set up).",
+                        adapter.label()
+                    )
+                })
+                .and_then(|b| {
+                    self.inner
+                        .supervisor
+                        .allow_executable(&b.executable)
+                        .map(|exe| (exe, b.args.clone()))
+                        .map_err(|e| e.to_string())
+                });
+            match bridge {
+                Ok(bridge) => bridge,
+                Err(detail) => {
+                    info.installation.state = InstallState::Broken;
+                    info.installation.detail = Some(detail);
+                    info.auth = not_checked;
+                    return (info, None);
+                }
+            }
+        } else {
+            (executable, Vec::new())
+        };
+        let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
+        let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
         let billing_confirmed = info.auth.state == AuthState::Subscription;
         let ready = info.ready.then_some(Ready {
             executable,
+            args_prefix,
             env,
             billing_confirmed,
         });
@@ -1420,8 +1468,13 @@ impl AgentRuntime {
             step,
             prompt,
         } = launch;
-        // Plenipo's tools for this step (Phase 7), when the worker has permissions.
-        let tools = self.open_tools(&session, &task_id, step).await;
+        // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
+        // tool can use them.
+        let tools = if adapter.accepts_tools() {
+            self.open_tools(&session, &task_id, step).await
+        } else {
+            None
+        };
         let grant = tools.as_ref().map(|t| t.grant_id.clone());
         let prompt = match &tools {
             Some(t) => {
@@ -1467,7 +1520,7 @@ impl AgentRuntime {
             profile_id: format!("agent.{}", adapter.id()),
             label,
             executable: ready.executable,
-            args: adapter.turn_args(&request),
+            args: [ready.args_prefix, adapter.turn_args(&request)].concat(),
             env,
             working_dir: PathBuf::from(&session.working_dir),
             max_runtime: self.inner.config.turn_timeout,

@@ -103,14 +103,17 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForText(browser, ".shell__wordmark", "Plenipo");
     await nav(browser, "AI tools");
     const cards = '[aria-label="AI tools"]';
+    // Claude Code, Codex, and Grok are Ready; Ollama is found too, and Ready only when an Ollama
+    // service is signed in on this machine (the fake plays only its program).
     await waitUntil(
-      async () => (await textOf(browser, cards)).match(/Ready/g)?.length === 3,
+      async () => (await textOf(browser, cards)).match(/Ready/g)?.length >= 3,
       "every AI tool ready",
     );
     const text = await textOf(browser, cards);
     assert.match(text, /Claude Code[\s\S]*v2\.1\.999[\s\S]*Signed in \(subscription\)/);
     assert.match(text, /Codex[\s\S]*v0\.99\.0[\s\S]*ChatGPT sign-in/);
     assert.match(text, /Grok[\s\S]*xAI[\s\S]*v1\.0\.99[\s\S]*grok\.com sign-in/);
+    assert.match(text, /Ollama[\s\S]*v0\.34\.4/);
     assert.doesNotMatch(text, /owner@example\.com/, "no account identifiers shown");
     await screenshot(browser, "agent-runtimes");
   });

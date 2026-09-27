@@ -1,0 +1,23 @@
+Thinking...
+User asks: "Reply with exactly: hello from ollama cloud". We must output ex[2D[K
+exactly that text, no extra whitespace, punctuation, or formatting. Ensure [K
+no extra characters.
+...done thinking.
+
+hello from ollama cloud
+
+ollama : [?2026h[?25l[1GΓáÖ [K[?25h[?2026l[?2026h[?25l[1GΓá╣ [K[?25h[?2026l[?2026h[?25l
+[1G[K[?25h[?2026l[?25l[2K[1G[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h
+[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25h[?25l[?25htotal
+ duration:       322.902699ms
+At line:1 char:49
++ ... : hello from ollama cloud" | ollama run $model --verbose *>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([?2026h[?25l...   322.902699ms:String) [], RemoteExc 
+   eption
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+prompt eval count:    77 token(s)
+prompt eval cached:   48 token(s)
+eval count:           50 token(s)
+[?25l[?25h

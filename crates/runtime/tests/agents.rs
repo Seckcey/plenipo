@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, Effort, HostEnv, InstallState, MemorySessionStore,
+    AgentTurn, AgentUpdate, AuthState, Bridge, Effort, HostEnv, InstallState, MemorySessionStore,
     SessionStart, SessionState, SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook,
     TurnInput, TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
 };
@@ -207,6 +207,11 @@ fn harness_config(
     let mut config = AgentConfig::new(dir.path().join("workspaces"));
     config.extra_env = vec![(HOME_VAR.into(), home.display().to_string())];
     config.turn_timeout = Duration::from_secs(120);
+    // The `ollama` persona also plays Plenipo's Ollama bridge (ADR-017).
+    config.bridge = Some(Bridge {
+        executable: bin.join(exe_name("ollama")),
+        args: vec!["--plenipo-ollama".into()],
+    });
     tune(&mut config);
     let store = Arc::new(MemorySessionStore::default());
     let updates = Arc::new(Updates::default());
@@ -277,8 +282,11 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 3);
-    for (info, version) in runtimes.iter().zip(["2.1.999", "0.99.0", "1.0.99"]) {
+    assert_eq!(runtimes.len(), 4);
+    for (info, version) in runtimes
+        .iter()
+        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.4"])
+    {
         assert_eq!(
             info.installation.state,
             InstallState::Installed,
@@ -300,6 +308,10 @@ async fn installation_detection() {
     );
     assert_eq!(runtimes[1].auth.method.as_deref(), Some("ChatGPT sign-in"));
     assert_eq!(runtimes[2].auth.method.as_deref(), Some("grok.com sign-in"));
+    assert_eq!(
+        runtimes[3].auth.method.as_deref(),
+        Some("Ollama sign-in (free plan)")
+    );
     // No account identifier from the status output is kept.
     assert!(!format!("{runtimes:?}").contains("owner@example.com"));
     // The UI was told.
@@ -310,6 +322,46 @@ async fn installation_detection() {
         .unwrap()
         .iter()
         .any(|u| matches!(u, AgentUpdate::Runtimes(_))));
+}
+
+#[tokio::test]
+async fn ollama_runs_through_the_bridge_and_keeps_the_conversation() {
+    let h = harness();
+    h.rt.refresh().await;
+    let (detail, turn) = run(&h, "ollama", "Hello Ollama 5b2d").await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed, "{turn:#?}");
+    let args = h.last_args();
+    assert_eq!(args[..3], ["chat", "--model", "gpt-oss:120b-cloud"]);
+    assert!(!args.iter().any(|a| a.contains("5b2d")), "{args:?}");
+    h.rt.resume_session(&detail.session.id, "And again")
+        .await
+        .unwrap();
+    let detail = settled(&h.rt, &detail.session.id, 2).await;
+    let text = detail.turns[1].result.as_ref().unwrap().text.clone();
+    assert!(
+        text.unwrap_or_default().starts_with("Turn 2: "),
+        "{detail:#?}"
+    );
+    let args = h.last_args();
+    assert!(args.contains(&"--resume".to_owned()), "{args:?}");
+}
+
+#[tokio::test]
+async fn ollama_without_plenipos_bridge_is_not_usable() {
+    let h = harness_config(personas(), None, |c| c.bridge = None);
+    let info =
+        h.rt.refresh()
+            .await
+            .into_iter()
+            .find(|r| r.id == "ollama")
+            .unwrap();
+    assert_eq!(info.installation.state, InstallState::Broken, "{info:#?}");
+    assert!(!info.ready);
+    assert!(info
+        .installation
+        .detail
+        .unwrap_or_default()
+        .contains("helper is not set up"));
 }
 
 #[tokio::test]

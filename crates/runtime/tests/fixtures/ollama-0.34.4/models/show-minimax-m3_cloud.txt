@@ -1,0 +1,12 @@
+Model
+    architecture        minimax-m3
+    parameters          0
+    context length      512000
+    embedding length    0
+    quantization
+
+  Capabilities
+    completion
+    tools
+    thinking
+    vision

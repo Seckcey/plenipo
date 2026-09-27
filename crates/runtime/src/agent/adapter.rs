@@ -209,6 +209,18 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         false
     }
     fn turn_args(&self, request: &TurnRequest) -> Vec<String>;
+    /// Whether this AI tool runs through Plenipo's bridge ([`crate::agent::Bridge`]) instead of
+    /// its own program: the tool's program is still found and its version read, but the sign-in
+    /// check and every task run the bridge with [`Self::auth_args`] and [`Self::turn_args`]
+    /// (ADR-017, Ollama's cloud models through its service on this PC).
+    fn bridged(&self) -> bool {
+        false
+    }
+    /// Whether the AI tool can use Plenipo's tools (Phase 7). When false, a worker on it is
+    /// conversation only and no permission grant is opened for its steps.
+    fn accepts_tools(&self) -> bool {
+        true
+    }
     /// Variables this turn's process gets in addition (for example tool-call time limits).
     fn turn_env(&self, _request: &TurnRequest) -> Vec<(String, String)> {
         Vec::new()

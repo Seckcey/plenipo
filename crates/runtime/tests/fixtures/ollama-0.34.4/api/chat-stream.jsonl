@@ -1,0 +1,14 @@
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.304657313Z","message":{"role":"assistant","content":"","thinking":"The user asks"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.312147593Z","message":{"role":"assistant","content":"","thinking":": \"Reply with exactly:"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.319991382Z","message":{"role":"assistant","content":"","thinking":" hello from the api\". Must"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.327402842Z","message":{"role":"assistant","content":"","thinking":" output exactly that string"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.335388572Z","message":{"role":"assistant","content":"","thinking":"."},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.343024931Z","message":{"role":"assistant","content":"","thinking":" No extra punctuation"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.350768591Z","message":{"role":"assistant","content":"","thinking":", no quotes"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.358203371Z","message":{"role":"assistant","content":"","thinking":", no whitespace"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.365761801Z","message":{"role":"assistant","content":"","thinking":" before"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.37325196Z","message":{"role":"assistant","content":"","thinking":"/after. So output:"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.3808222Z","message":{"role":"assistant","content":"","thinking":" hello from the api."},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.396654019Z","message":{"role":"assistant","content":"hello from the api"},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.396694709Z","message":{"role":"assistant","content":""},"done":false}
+{"model":"gpt-oss:120b","created_at":"2026-09-27T00:21:13.500730305Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":341221036,"prompt_eval_count":75,"prompt_eval_cached_count":48,"eval_count":55}

@@ -12,8 +12,8 @@ use plenipo_runtime::agent::adapter::{find_version, ProcessEnd};
 use plenipo_runtime::agent::service::validate_model;
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSink, AgentTurn, AgentUpdate,
-    AuthState, Effort, HostEnv, InstallState, MemorySessionStore, ProviderSession, RuntimeAdapter,
-    TurnOutcome, TurnRequest,
+    AuthState, Bridge, Effort, HostEnv, InstallState, MemorySessionStore, ProviderSession,
+    RuntimeAdapter, TurnOutcome, TurnRequest,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ExecutionState, MetadataStore, ProfileRegistry, RuntimeEvent,
@@ -440,6 +440,11 @@ impl Fakes {
         );
         let mut config = AgentConfig::new(dir.path().join("workspaces"));
         config.extra_env = vec![(HOME_VAR.into(), home.display().to_string())];
+        // The `ollama` persona also plays Plenipo's Ollama bridge (ADR-017).
+        config.bridge = Some(Bridge {
+            executable: bin.join(exe_name("ollama")),
+            args: vec!["--plenipo-ollama".into()],
+        });
         let rt = AgentRuntime::new(
             config,
             builtin_adapters(),
@@ -492,6 +497,14 @@ async fn sign_in_check_tells_a_subscription_from_an_api_key() {
         let fakes = Fakes::new(auth);
         for info in fakes.rt.refresh().await {
             let at = format!("{} ({auth})", info.id);
+            let bridged = builtin_adapters()
+                .iter()
+                .any(|a| a.id() == info.id && a.bridged());
+            if bridged && auth == "api-key" {
+                // Reached through Plenipo's bridge, signed in with `ollama signin` only: there
+                // is no API-key sign-in to tell apart (ADR-017).
+                continue;
+            }
             assert_eq!(info.installation.state, InstallState::Installed, "{at}");
             assert!(info.installation.version.is_some(), "{at}");
             assert_eq!((info.auth.state, info.ready), (state, ready), "{at}");
