@@ -605,7 +605,12 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   WebSocket only in the tests, which stand in for the owner's hand); `tab.rs` gives each grant
   its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
-  (sending, buying, signing in).
+  (sending, buying, signing in). The browser never saves files (ADR-037): right after it shows
+  it is up, before any tab exists, `launch_once` tells it to refuse every download
+  (`Browser.setDownloadBehavior` with `deny` and `eventsEnabled`; a browser that does not take
+  the setting is not used), and a refused download (`Browser.downloadWillBegin`) is routed by
+  the frame that started it (`tab::Tabs`, each tab keeping its page's frames) to the worker's
+  tab as a note with its next result.
 - **Tools** (`tools.rs`, `broker/operate.rs`): `browser_open/read/screenshot/scroll/back`
   (visit) and `browser_click/type/press/select` (use), by references from `browser_read`;
   `screen_view` (see) and `screen_take_control/click/type/keys/scroll/release_control` (use the

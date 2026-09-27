@@ -138,13 +138,19 @@ async fn serve(
         tokio::time::sleep(Duration::from_secs(600)).await;
         return Ok(());
     }
+    let text_file = path.ends_with(".txt");
     let mut response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\
+        "HTTP/1.1 {status}\r\nContent-Type: {}; charset=utf-8\r\nContent-Length: {}\r\n\
          Cache-Control: no-store\r\nConnection: close\r\n",
+        if text_file { "text/plain" } else { "text/html" },
         html.len()
     );
     if let Some(l) = location {
         response.push_str(&format!("Location: {l}\r\n"));
+    }
+    if path == "/report.txt" {
+        // A file the website says to save rather than show (ADR-037).
+        response.push_str("Content-Disposition: attachment; filename=\"report.txt\"\r\n");
     }
     response.push_str("\r\n");
     response.push_str(&html);
@@ -358,6 +364,17 @@ fn route(
             "<form method=post action=\"/save\"><label>API key \
              <input name=key></label><button type=submit>Save</button></form>",
         )),
+        // Two links that save a file rather than open a page (ADR-037): the first because the
+        // website answers with `Content-Disposition: attachment`, the second because the link
+        // itself says so (its `download` attribute).
+        ("GET", "/download") => ok(page(
+            "Files to save",
+            "<p>Take the files.</p><ul>\
+             <li><a href=\"/report.txt\">Download the report</a></li>\
+             <li><a href=\"/notes.txt\" download=\"notes.txt\">Save the notes</a></li></ul>",
+        )),
+        ("GET", "/report.txt") => ok("The quarterly report.\n".into()),
+        ("GET", "/notes.txt") => ok("Notes for the worker.\n".into()),
         _ => (
             "404 Not Found",
             None,

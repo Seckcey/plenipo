@@ -8,10 +8,13 @@
   Automatic, Edge, or Chrome in Settings, and each browser has its own profile folder (section 2);
   by [ADR-029 (workers try a CAPTCHA three times before handing it to the
   owner)](ADR-029-captcha-attempts.md): a worker's touch of a CAPTCHA is refused only after three
-  counted tries (section 5); and by [ADR-035 (the network gate covers beacons, sends on the
+  counted tries (section 5); by [ADR-035 (the network gate covers beacons, sends on the
   page's own, and live connections)](ADR-035-network-gate-covers-sockets.md): Enter in any text
   box asks, data a page sends on its own is stopped, and a page with a live connection asks
-  before a click (section 4 and the known limits)
+  before a click (section 4 and the known limits); and by
+  [ADR-037 (Plenipo's browser does not save files)](ADR-037-browser-never-saves-files.md): every
+  download is refused from the browser's start, and the worker is told (section 2 and the known
+  limits)
 - **Date:** 2026-09-27
 - **Phase:** 10
 
@@ -191,6 +194,9 @@ separate.
   (ADR-035); a page whose own sends are stopped may not work until the worker acts on it.
 - **Live connections are not seen.** What a page sends through a WebSocket cannot be held; on
   such a page every click, Enter, and Space asks the owner first (ADR-035).
+- **Plenipo's browser saves no files** (ADR-037). A website's file (a report, an export) cannot
+  be taken by a worker: the browser refuses every download, and the worker is told. The owner
+  saves such a file in their own browser.
 - **Website lists go by name.** An allowed website whose name points at a local address (DNS
   rebinding) is not detected.
 - **Frames inside a page are not checked.** Content an allowed page embeds from another site

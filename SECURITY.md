@@ -41,7 +41,8 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used. Plenipo controls its browser over a private pipe between the two
   programs, not a network port, so no other program on your computer can connect to the browser
-  and drive it.
+  and drive it. Plenipo's browser never saves files to your computer: it refuses every download
+  from the moment it starts, and the worker is told why its click did nothing (ADR-037).
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)

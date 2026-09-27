@@ -1118,6 +1118,99 @@ async fn data_a_page_sends_on_its_own_is_stopped_and_the_worker_is_told() {
     assert_eq!(h.approvals_for(&task.id), 1, "only \"Buy now\" asked");
 }
 
+/// ADR-037: Plenipo's browser never saves files. A click on a link that saves a file (the
+/// website answers "attachment", or the link itself says `download`) saves nothing anywhere:
+/// not in the folder the browser would save to, not in its profile. The tab stays usable, and
+/// the worker is told with its next result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_page_cannot_save_files_in_plenipos_browser() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    // Where this browser would save files, if it saved any: its profile says so before it
+    // starts (Plenipo keeps the profile's other settings as they are).
+    let downloads = h.dir.path().join("downloads");
+    let prefs = h.profile().join("Default").join("Preferences");
+    std::fs::create_dir_all(prefs.parent().unwrap()).unwrap();
+    std::fs::write(
+        &prefs,
+        json!({ "download": {
+            "default_directory": downloads.display().to_string(),
+            "prompt_for_download": false
+        } })
+        .to_string(),
+    )
+    .unwrap();
+    let url = h.url("shop", "/download");
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": url })),
+                tool("browser_click", json!({ "ref": "e1" })),
+                tool("browser_click", json!({ "ref": "e2" })),
+                tool("browser_read", json!({}))
+            ], "say": "Done." }]),
+        )
+        .await;
+    // Both clicks happened, nothing asked, and the page is still there to read.
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 2, "{text}");
+    assert!(
+        clicks.iter().all(|c| c.contains("Clicked the link")),
+        "{text}"
+    );
+    assert!(
+        line(&text, "browser_read").contains("Page: \"Files to save\""),
+        "{text}"
+    );
+    assert_eq!(h.approvals_for(&task.id), 0);
+    // No file was saved: not where the browser would put it, not anywhere under the test's
+    // folders (its profile included), not even a part of one (`.crdownload`).
+    let saved: Vec<PathBuf> = std::fs::read_dir(&downloads)
+        .map(|d| d.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    assert!(saved.is_empty(), "files were saved: {saved:?}");
+    let stray = files_under(h.dir.path())
+        .into_iter()
+        .filter(|f| {
+            let name = f.file_name().unwrap_or_default().to_string_lossy();
+            name == "report.txt" || name == "notes.txt" || name.ends_with(".crdownload")
+        })
+        .collect::<Vec<_>>();
+    assert!(stray.is_empty(), "files were saved: {stray:?}");
+    // The worker hears of each file the page tried to save, and why it was not saved.
+    for name in ["report.txt", "notes.txt"] {
+        assert!(
+            text.contains(&format!("The page tried to save a file ({name}).")),
+            "{text}"
+        );
+    }
+    assert!(
+        text.contains("Plenipo's browser does not save files."),
+        "{text}"
+    );
+}
+
+/// Every file under `dir`, at any depth.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for entry in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                todo.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
 /// Plan: global stop. The owner's Stop halts all control at once: the worker waiting to send
 /// is refused, its permissions end, the page says "Stopped", nothing is sent, and no worker
 /// may use the browser or the screen until the owner allows it again.

@@ -17,13 +17,16 @@
 //!   is asked then;
 //! - WebSocket frames cannot be seen or held, so the tab only notes that the page has a live
 //!   connection (`Network.webSocketCreated`, forgotten on the next page), and the broker asks
-//!   the owner before a click, Enter, or Space on such a page ([`Tab::has_websocket`]).
+//!   the owner before a click, Enter, or Space on such a page ([`Tab::has_websocket`]);
+//! - a file a page tries to save (a download) is refused by the browser itself, for every tab,
+//!   from its start (ADR-037, [`super::Browser`]); the browser's event names only the frame that
+//!   started it, so the tab keeps the frames of its page, and [`Tabs`] finds the tab to tell.
 //!
 //! When the owner takes control or stops it, the tab stops checking (the owner browses freely)
 //! and its sign says so.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -152,6 +155,9 @@ pub struct CaptchaState {
 #[derive(Default)]
 struct State {
     main_frame: String,
+    /// The page's frames now (the main frame and those inside it), by the browser's frame ID:
+    /// a download the browser refused names only the frame that started it (ADR-037).
+    frames: HashSet<String>,
     /// The helper's execution context in the main frame's document.
     world: Option<i64>,
     url: String,
@@ -186,10 +192,13 @@ impl State {
         !self.sockets.is_empty()
     }
 
-    /// The main frame moved to a new page: what belonged to the old one is forgotten.
+    /// The main frame moved to a new page: what belonged to the old one is forgotten (the new
+    /// page's frames attach after it).
     fn page_changed(&mut self) {
         self.world = None;
         self.sockets.clear();
+        self.frames.clear();
+        self.frames.insert(self.main_frame.clone());
     }
 }
 
@@ -341,7 +350,11 @@ impl Tab {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        self.shared.state().main_frame = frame;
+        {
+            let mut s = self.shared.state();
+            s.frames.insert(frame.clone());
+            s.main_frame = frame;
+        }
         self.show_sign().await
     }
 
@@ -993,6 +1006,56 @@ impl Tab {
     }
 }
 
+/// The workers' tabs open now, so the browser's own events reach the worker they concern. A
+/// download the browser refused (`Browser.downloadWillBegin` under "deny", ADR-037) names only
+/// the frame that started it; this finds the tab that frame is in. Cheap to clone; clones share
+/// it.
+#[derive(Clone, Default)]
+pub struct Tabs {
+    tabs: Arc<Mutex<Vec<Weak<Shared>>>>,
+}
+
+impl Tabs {
+    /// Route the browser's own events to `tab` from now on (until it is gone).
+    pub fn watch(&self, tab: &Tab) {
+        self.add(&tab.shared);
+    }
+
+    fn add(&self, shared: &Arc<Shared>) {
+        let mut tabs = lock(&self.tabs);
+        tabs.retain(|t| t.strong_count() > 0);
+        tabs.push(Arc::downgrade(shared));
+    }
+
+    /// A page tried to save a file and the browser refused (ADR-037): the worker whose tab holds
+    /// the frame that started it hears so with its next result. `false` when no worker's tab
+    /// has that frame (a tab the owner opened, say).
+    pub fn download_refused(&self, params: &Value) -> bool {
+        let frame = params["frameId"].as_str().unwrap_or_default();
+        let filename = params["suggestedFilename"].as_str().unwrap_or_default();
+        let found = lock(&self.tabs)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find(|t| t.state().frames.contains(frame));
+        let Some(tab) = found else {
+            return false;
+        };
+        tab.note(download_note(filename));
+        true
+    }
+}
+
+/// What the worker hears when its page tried to save a file (ADR-037).
+fn download_note(filename: &str) -> String {
+    if filename.is_empty() {
+        "The page tried to save a file. Plenipo's browser does not save files.".into()
+    } else {
+        format!(
+            "The page tried to save a file ({filename}). Plenipo's browser does not save files."
+        )
+    }
+}
+
 fn sign_call(mode: Mode, worker: &str) -> String {
     format!(
         "globalThis.__plenipo && __plenipo.sign({}, {})",
@@ -1046,6 +1109,7 @@ async fn event_loop(
             "Network.webSocketCreated" | "Network.webSocketClosed" => {
                 socket_event(&shared, &e.method, p);
             }
+            "Page.frameAttached" | "Page.frameDetached" => frame_event(&shared, &e.method, p),
             "Page.navigatedWithinDocument" => {
                 let mut s = shared.state();
                 if p["frameId"].as_str() == Some(s.main_frame.as_str()) {
@@ -1146,6 +1210,20 @@ fn socket_event(shared: &Shared, method: &str, p: &Value) {
     }
 }
 
+/// A frame inside the page came or went (ADR-037: a download the browser refused names the
+/// frame that started it).
+fn frame_event(shared: &Shared, method: &str, p: &Value) {
+    let Some(id) = p["frameId"].as_str() else {
+        return;
+    };
+    let mut s = shared.state();
+    if method == "Page.frameAttached" {
+        s.frames.insert(id.to_owned());
+    } else {
+        s.frames.remove(id);
+    }
+}
+
 /// Plenipo's check of one page request (`None`: held for a decision).
 fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
     let method = p["request"]["method"]
@@ -1243,6 +1321,7 @@ mod tests {
         Shared {
             state: Mutex::new(State {
                 main_frame: "MAIN".into(),
+                frames: ["MAIN".to_owned()].into(),
                 policy: SitePolicy {
                     rules,
                     approved: HashSet::new(),
@@ -1413,6 +1492,82 @@ mod tests {
         );
         s.state().page_changed();
         assert!(!s.state().has_websocket());
+    }
+
+    /// ADR-037: the tab keeps the frames of its page, so a download the browser refused (which
+    /// names only the frame that started it) reaches the right worker.
+    #[test]
+    fn the_frames_of_the_page_are_kept_until_it_changes() {
+        let s = shared(WebsiteRules::default());
+        frame_event(
+            &s,
+            "Page.frameAttached",
+            &json!({ "frameId": "AD", "parentFrameId": "MAIN" }),
+        );
+        frame_event(
+            &s,
+            "Page.frameAttached",
+            &json!({ "frameId": "MAP", "parentFrameId": "MAIN" }),
+        );
+        assert!(s.state().frames.contains("MAIN"));
+        assert!(s.state().frames.contains("AD") && s.state().frames.contains("MAP"));
+        frame_event(
+            &s,
+            "Page.frameDetached",
+            &json!({ "frameId": "AD", "reason": "remove" }),
+        );
+        assert!(!s.state().frames.contains("AD"));
+        assert!(s.state().frames.contains("MAP"));
+        frame_event(&s, "Page.frameAttached", &json!({ "reason": "odd" }));
+        // A new page (whose main frame may be another) starts with its main frame only.
+        s.state().main_frame = "MAIN2".into();
+        s.state().page_changed();
+        assert_eq!(s.state().frames, ["MAIN2".to_owned()].into());
+    }
+
+    /// ADR-037: a refused download is noted for the worker whose page (or a frame in it) tried
+    /// it, in plain words; nobody is told of one from a tab no worker has.
+    #[test]
+    fn a_refused_download_is_noted_on_the_tab_whose_frame_started_it() {
+        let tabs = Tabs::default();
+        let a = Arc::new(shared(WebsiteRules::default()));
+        let b = Arc::new(shared(WebsiteRules::default()));
+        b.state().main_frame = "B".into();
+        b.state().page_changed();
+        tabs.add(&a);
+        tabs.add(&b);
+        frame_event(
+            &b,
+            "Page.frameAttached",
+            &json!({ "frameId": "B-AD", "parentFrameId": "B" }),
+        );
+        assert!(tabs.download_refused(&json!({
+            "frameId": "B-AD", "guid": "g1", "url": "http://ad.test/x.exe",
+            "suggestedFilename": "x.exe"
+        })));
+        assert!(a.state().notes.is_empty());
+        assert_eq!(
+            b.state().notes,
+            ["The page tried to save a file (x.exe). Plenipo's browser does not save files."]
+        );
+        assert!(tabs.download_refused(&json!({ "frameId": "MAIN", "guid": "g2" })));
+        assert_eq!(
+            a.state().notes,
+            ["The page tried to save a file. Plenipo's browser does not save files."]
+        );
+        // The same file tried twice is one note; a tab no worker has (the owner's) tells nobody.
+        assert!(tabs.download_refused(&json!({ "frameId": "MAIN", "guid": "g3" })));
+        assert_eq!(a.state().notes.len(), 1);
+        assert!(!tabs.download_refused(&json!({ "frameId": "OWNER", "suggestedFilename": "y" })));
+        // A tab that is gone is forgotten.
+        drop(b);
+        assert!(!tabs.download_refused(&json!({ "frameId": "B-AD", "suggestedFilename": "x.exe" })));
+        tabs.add(&a);
+        assert_eq!(
+            lock(&tabs.tabs).len(),
+            2,
+            "the gone tab was dropped from the list"
+        );
     }
 
     #[test]
