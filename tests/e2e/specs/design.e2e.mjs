@@ -1,4 +1,4 @@
-// Phase 12A end-to-end: the design system in the real app (ADR-029). The frame (names under the
+// Phase 12A end-to-end: the design system in the real app (ADR-030). The frame (names under the
 // icons, the light/dark switch remembered after a restart, the bell); the Gallery's look in both
 // themes against a checked-in snapshot of computed styles; keyboard use with visible focus; a
 // 5,000-row table; the smallest window; and activity strips drawn from real Ledger events.
@@ -147,6 +147,33 @@ const PROBES = [
   ".ui-table th",
   ".ui-table td",
   ".ui-table__footer",
+  ".ui-table__num",
+  ".ui-collection__count",
+  ".ui-list__row",
+  ".ui-facets",
+  ".ui-facets__group-head",
+  ".ui-facets__count",
+  ".ui-range__track",
+  ".ui-range__fill",
+  ".ui-range__marks",
+  ".ui-loading",
+  ".ui-banner",
+  ".ui-banner__title",
+  ".ui-banner--pending",
+  ".ui-banner--warn",
+  ".ui-banner--error",
+  ".ui-banner--ok",
+  ".ui-split__properties",
+  ".ui-split__timeline",
+  ".ui-props__title",
+  ".ui-props dt",
+  ".ui-props dd",
+  ".ui-timeline__rail",
+  ".ui-timeline__tick",
+  ".ui-timeline__event",
+  ".ui-timeline__event--error",
+  ".ui-timeline__event--pending",
+  ".ui-timeline__thumb",
   ".gallery__chip",
 ];
 
@@ -164,6 +191,8 @@ const STYLE = [
   "paddingLeft",
   "opacity",
   "stroke",
+  // Strips draw waiting and problems as shapes (not color alone), with gradients.
+  "backgroundImage",
 ];
 
 /** Each Gallery sample's computed styles; colors normalized to [r, g, b, a] through a canvas.
@@ -342,6 +371,13 @@ describe("Phase 12A: design system (real app)", () => {
     await setTheme(browser, "light");
     await nav(browser, "Settings");
     await screenshot(browser, "frame-light");
+    // The choice is in the page's storage; give the webview time to write it to disk before
+    // the app is closed.
+    await waitUntil(
+      () => browser.execute(() => localStorage.getItem("plenipo.theme") === "light"),
+      "the theme choice saved",
+    );
+    await browser.pause(1500);
     await app.close();
     app = await launch(home, env);
     browser = app.browser;
@@ -364,6 +400,12 @@ describe("Phase 12A: design system (real app)", () => {
         await showSection(browser, section);
         await screenshot(browser, `gallery-${t}-${section.slice(2)}`);
       }
+      // Jumping to a section scrolls the page area only; the window and its frame stay put.
+      const frame = await browser.execute(() => ({
+        window: document.scrollingElement.scrollTop,
+        topbar: Math.round(document.querySelector(".ui-topbar").getBoundingClientRect().top),
+      }));
+      assert.deepEqual(frame, { window: 0, topbar: 0 }, "the frame stays in place");
     }
     await setTheme(browser, "dark");
     await clickButton(browser, "Both side by side");
@@ -403,8 +445,16 @@ describe("Phase 12A: design system (real app)", () => {
           visible: el.matches(":focus-visible"),
           outline: cs.outlineStyle !== "none" && cs.outlineWidth !== "0px",
           outlineAfter: after.outlineStyle !== "none" && after.outlineWidth !== "0px",
+          windowFocused: document.hasFocus(),
         };
       });
+    // Focus outlines are drawn only in the active window: if another program holds the
+    // keyboard on the test display, say so plainly instead of failing on the outline.
+    await waitUntil(
+      () => browser.execute(() => document.hasFocus()),
+      "the app window to be the active window (does another program hold the keyboard focus?)",
+      10_000,
+    );
     // The strip: Tab from the top of the page reaches the first section. A marker just before
     // the app is the starting point, as when the window first opens.
     await browser.execute(() => {
@@ -416,14 +466,17 @@ describe("Phase 12A: design system (real app)", () => {
     await browser.keys("Tab");
     await browser.execute(() => document.getElementById("e2e-start")?.remove());
     // The browser marks keyboard focus as it handles the key; allow it a moment on a busy runner.
+    let last = null;
     await waitUntil(
       async () => {
-        const now = await focus();
-        return now.label === "Organization" && now.visible && now.outline ? now : null;
+        last = await focus();
+        return last.label === "Organization" && last.visible && last.outline ? last : null;
       },
       "keyboard focus with its outline on the strip's first section",
       3000,
-    );
+    ).catch((error) => {
+      throw new Error(`${error.message}; focus was ${JSON.stringify(last)}`);
+    });
     await browser.keys("Tab");
     assert.equal((await focus()).label, "Projects");
 
@@ -445,10 +498,61 @@ describe("Phase 12A: design system (real app)", () => {
     assert.equal(f.label, "Hide filters");
     assert.ok(f.visible && f.outline);
 
-    // The table: the Columns button, select all, then the first sortable header.
-    await browser.execute(() =>
-      document.querySelector('[data-gallery-section="g-table"] .ui-table__columns button')?.focus(),
-    );
+    // On by Tab alone: a group's heading, then its first checkbox (Space ticks it).
+    await browser.keys("Tab");
+    assert.equal((await focus()).label, "Status");
+    await browser.keys("Tab");
+    const box = () =>
+      browser.execute(() => {
+        const el = document.activeElement;
+        return {
+          type: el.getAttribute("type"),
+          checked: el.checked,
+          visible: el.matches(":focus-visible"),
+          outline: getComputedStyle(el).outlineStyle !== "none",
+        };
+      });
+    let b = await box();
+    assert.equal(b.type, "checkbox", "Tab reaches the first filter checkbox");
+    assert.ok(b.visible && b.outline, "the checkbox shows focus");
+    const shownOf = async () =>
+      Number(
+        /^Showing ([\d,]+)/
+          .exec(await textOf(browser, '[data-gallery-section="g-table"] .ui-facets__count'))?.[1]
+          .replace(/,/g, ""),
+      );
+    const before = await shownOf();
+    await browser.keys("\uE00D"); // Space
+    await waitUntil(async () => (await box()).checked, "Space ticks the checkbox");
+    assert.ok((await shownOf()) <= before, "a ticked filter never adds rows");
+    await browser.keys("\uE00D");
+    await waitUntil(async () => !(await box()).checked, "Space unticks it");
+    await waitUntil(async () => (await shownOf()) === before, "the rows come back");
+
+    // The range: Tab reaches the lower handle; the arrow keys move it.
+    const tabTo = async (label, why) => {
+      for (let i = 0; i < 40; i++) {
+        await browser.keys("Tab");
+        if ((await focus()).label === label) return;
+      }
+      assert.fail(why);
+    };
+    await tabTo("Last seen, lowest", "Tab reaches the range slider's lower handle");
+    const handle = () =>
+      browser.execute(() => ({
+        value: document.activeElement.value,
+        visible: document.activeElement.matches(":focus-visible"),
+      }));
+    const low = await handle();
+    assert.ok(low.visible, "the handle shows focus");
+    await browser.keys("ArrowRight");
+    await waitUntil(async () => (await handle()).value !== low.value, "the arrow key moves it");
+    await browser.keys("ArrowLeft");
+    await waitUntil(async () => (await handle()).value === low.value, "and back");
+
+    // Out of the filters and into the table, still by Tab: the Columns button, select all,
+    // then the first sortable header.
+    await tabTo("Columns", "Tab leaves the filters for the table's Columns button");
     await browser.keys("Tab");
     f = await focus();
     assert.match(f.label, /^Select all/);
@@ -545,8 +649,12 @@ describe("Phase 12A: design system (real app)", () => {
           Math.round(c.getBoundingClientRect().left),
         ),
       ).size;
+      // Scroll something far down the page into view: only the page area may move.
+      document.querySelector('[data-gallery-section="g-tokens"]')?.scrollIntoView();
       return {
         width: w,
+        windowScrolled: document.scrollingElement.scrollTop,
+        topbarTop: Math.round(rect(".ui-topbar").top),
         overflow: document.documentElement.scrollWidth - w,
         shell: Math.round(rect(".ui-shell").width),
         bell: rect(".ui-bell").right <= w,
@@ -560,6 +668,8 @@ describe("Phase 12A: design system (real app)", () => {
     });
     assert.ok(fit.width <= 820, `the window is small (${fit.width} px)`);
     assert.ok(fit.overflow <= 0, `nothing spills sideways (${fit.overflow} px)`);
+    assert.equal(fit.windowScrolled, 0, "the window itself never scrolls");
+    assert.equal(fit.topbarTop, 0, "the top bar stays at the top");
     assert.equal(fit.shell, fit.width);
     assert.ok(fit.bell && fit.theme, "the top bar's buttons stay on screen");
     assert.ok(fit.labels, "the strip keeps its names");
