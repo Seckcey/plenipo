@@ -26,7 +26,7 @@ export function AgentRuntimeCards() {
   return (
     <>
       <div className="section-header">
-        <h2>AI tools</h2>
+        <h2>Your AI tools</h2>
         <button
           type="button"
           className="button button--small"
@@ -37,9 +37,9 @@ export function AgentRuntimeCards() {
         </button>
       </div>
       <p className="muted">
-        Plenipo uses the AI tools already signed in on this computer: Claude Code, Codex, and
-        Ollama&apos;s cloud models. It never asks for passwords and never falls back to paid API
-        billing.
+        Plenipo uses the AI tools already signed in on this computer: Claude Code, Codex, Grok, and
+        Ollama&apos;s cloud models. It never asks for passwords or API keys and never falls back to
+        pay-per-use API billing.
       </p>
       {error && (
         <p className="status status--error" role="alert">

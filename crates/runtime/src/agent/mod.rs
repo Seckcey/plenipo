@@ -1,12 +1,14 @@
-//! Agent runtimes (Phase 3, ADR-007): provider-neutral adapter contract, the Claude Code and
-//! Codex adapters, CLI discovery, and the session service that runs turns under the
-//! supervisor.
+//! Agent runtimes (Phase 3, ADR-007): provider-neutral adapter contract, the Claude Code,
+//! Codex, and Grok adapters, the shared ACP driver (ADR-015), CLI discovery, and the session
+//! service that runs turns under the supervisor.
 
+pub mod acp;
 pub mod adapter;
 pub mod claude_code;
 pub mod codex;
 pub mod discovery;
 pub mod dto;
+pub mod grok;
 pub mod memory_store;
 pub mod ollama;
 pub mod service;
@@ -28,6 +30,7 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
     vec![
         std::sync::Arc::new(claude_code::ClaudeCode),
         std::sync::Arc::new(codex::Codex),
+        std::sync::Arc::new(grok::Grok),
         std::sync::Arc::new(ollama::Ollama),
     ]
 }

@@ -1,0 +1,9 @@
+{
+  "grokVersion": "1.0.41",
+  "channel": "stable",
+  "loginPolicy": {
+    "disableApiKeyAuth": null,
+    "forceLoginTeamUuid": null,
+    "apiKeyAuthDisabled": false
+  }
+}

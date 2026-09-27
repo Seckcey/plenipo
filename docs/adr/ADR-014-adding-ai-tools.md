@@ -1,6 +1,8 @@
 # ADR-014: Adding AI tools ahead of Phase 15
 
-- **Status:** Accepted (by the owner, 2026-09-26)
+- **Status:** Accepted (by the owner, 2026-09-26). Bar item 1 is widened by
+  [ADR-015](ADR-015-acp-ai-tools.md) (running AI tools over ACP): the prompt may also go in on
+  stdin over ACP.
 - **Date:** 2026-09-26
 - **Phase:** 15 (adapter parts pulled forward, after v0.7.0)
 

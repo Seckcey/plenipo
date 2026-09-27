@@ -279,6 +279,7 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
 const TOOL_NAMES: Record<string, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
+  grok: "Grok",
   ollama: "Ollama",
 };
 

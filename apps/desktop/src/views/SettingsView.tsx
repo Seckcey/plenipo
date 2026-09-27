@@ -73,8 +73,9 @@ export function SettingsView() {
         </li>
         <li>
           <strong>Only these:</strong> Plenipo itself (built-in checks and its Ollama connection),
-          the Claude Code, Codex, and Ollama it finds, and programs a worker runs with your
-          permission (Permissions above). Nothing on screen can supply a command, path, or argument.
+          the AI tools it finds (Claude Code, Codex, Grok, Ollama), and programs a worker runs with
+          your permission (Permissions above). Nothing on screen can supply a command, path, or
+          argument.
         </li>
         <li>
           <strong>Environment:</strong> programs get the operating system&apos;s basics plus
