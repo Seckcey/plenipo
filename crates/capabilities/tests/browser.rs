@@ -18,7 +18,7 @@ use plenipo_capabilities::browser::find_browser;
 use plenipo_capabilities::control::{session_id, ControlKind, ControlState};
 use plenipo_capabilities::desktop::{Button, Did, KeyPart, SyntheticDesktop};
 use plenipo_capabilities::{ApprovalView, Broker, BrokerConfig, MemorySecretStore};
-use plenipo_guard::{Guard, OtherSites, SecretInput, WebsiteRules};
+use plenipo_guard::{Guard, OtherSites, SecretInput, Switches, WebsiteRules};
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -244,6 +244,13 @@ async fn harness(browser: Option<PathBuf>) -> H {
             others: OtherSites::Ask,
         })
         .unwrap();
+    // The screen, mouse, and keyboard start switched off (ADR-021); these tests switch them on.
+    guard
+        .set_switches(&Switches {
+            desktop: true,
+            ..Switches::default()
+        })
+        .unwrap();
 
     let role = |name: &str| -> String {
         workforce
@@ -429,6 +436,11 @@ impl H {
             .filter(|e| e.event_type == event_type)
             .map(|e| e.payload)
             .collect()
+    }
+
+    /// How many approvals the task asked for.
+    fn approvals_for(&self, id: &str) -> usize {
+        self.events(id, "approval.requested").len()
     }
 
     fn all_events(&self, event_type: &str) -> Vec<Value> {
@@ -1334,4 +1346,188 @@ async fn the_researcher_reads_but_cannot_click() {
         .take_over(&session_id(ControlKind::Desktop, "nobody"), "test")
         .await
         .is_err());
+}
+
+/// The owner's switches (ADR-021): with "send without asking" on, a form on an allowed website
+/// goes out without an approval (still recorded, with its screenshot); with screenshots off, the
+/// trail keeps no pictures, but an approval card still does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switches_send_without_asking_and_screenshots_off() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    h.guard
+        .set_switches(&Switches {
+            desktop: true,
+            send_without_asking: true,
+            screenshots: false,
+            ..Switches::default()
+        })
+        .unwrap();
+    let (form, shop) = (h.url("shop", "/form"), h.url("shop", "/shop"));
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": form })),
+            tool("browser_type", json!({ "ref": "e1", "text": "Ada" })),
+            tool("browser_click", json!({ "ref": "e4" })),
+            tool("browser_open", json!({ "url": shop })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    // Buying still asks: "send without asking" covers sending only.
+    let a = h.pending().await;
+    assert_eq!(
+        a.sensitive_label.as_deref(),
+        Some("Money: buying, payments, refunds, payouts")
+    );
+    assert!(a.screenshot.is_some(), "approval cards keep their picture");
+    h.broker.resolve_approval(&a.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        line(&text, "browser_click").contains("Now on \"Thank you\""),
+        "sent without asking: {text}"
+    );
+    let sent = h.site.sent();
+    assert_eq!(sent.len(), 1, "the form, not the order: {sent:?}");
+    assert_eq!(sent[0].path, "/send");
+    // Recorded as usual, but without step pictures.
+    let used = h.events(&task.id, "capability.used");
+    assert!(used.iter().any(|u| u["tool"] == "browser_click"));
+    assert!(used.iter().all(|u| u["screenshot"].is_null()), "{used:?}");
+    assert_eq!(h.approvals_for(&task.id), 1, "only the order asked");
+}
+
+/// A check that a person is using the site (a CAPTCHA) goes to the owner: the worker never
+/// touches it, waits while the owner solves it in Plenipo's browser, and continues when the
+/// owner approves. With the switch off, the worker is told to stop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_person_check_is_handed_to_the_owner() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let captcha = h.url("shop", "/captcha");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": captcha })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_person_check", json!({})),
+            tool("browser_read", json!({}))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    let a = h.pending().await;
+    assert!(
+        a.summary
+            .contains("hand you a check that a person is using shop.test"),
+        "{}",
+        a.summary
+    );
+    assert!(
+        a.reason.contains("never answers these checks"),
+        "{}",
+        a.reason
+    );
+    assert!(a.screenshot.is_some());
+    // The owner's own clicks while solving it do not take the browser from the worker.
+    h.owner_clicks("Check").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(h
+        .broker
+        .control_status()
+        .sessions
+        .iter()
+        .all(|s| s.state == ControlState::Active));
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        line(&text, "browser_click").contains("call browser_person_check"),
+        "the worker never clicks the check: {text}"
+    );
+    assert!(
+        line(&text, "browser_person_check").contains("The owner solved the check"),
+        "{text}"
+    );
+    assert!(!line(&text, "browser_read").contains("failed"), "{text}");
+    h.finished(&root).await;
+
+    // Switched off: the worker is told to stop.
+    h.guard
+        .set_switches(&Switches {
+            desktop: true,
+            captcha_to_owner: false,
+            ..Switches::default()
+        })
+        .unwrap();
+    let (_, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": captcha })),
+                tool("browser_person_check", json!({}))
+            ], "say": "Done." }]),
+        )
+        .await;
+    assert!(
+        line(&text, "browser_person_check").contains("has not switched on handing these checks"),
+        "{text}"
+    );
+}
+
+/// Switching Plenipo's browser off (ADR-021) stops the worker using it at once; the next
+/// worker gets no browser tools, and the trail says why.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_the_browser_off_stops_it() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let (form, slow) = (h.url("shop", "/form"), h.url("shop", "/slow"));
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": form })),
+            tool("browser_open", json!({ "url": slow, "timeoutSeconds": 8 })),
+            tool("browser_read", json!({}))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    h.until("the worker to use the browser", |h| {
+        h.broker.control_status().active()
+    })
+    .await;
+    h.guard
+        .set_switches(&Switches {
+            browser: false,
+            ..Switches::default()
+        })
+        .unwrap();
+    let status = h
+        .broker
+        .switch_off_control(ControlKind::Browser)
+        .await
+        .unwrap();
+    assert!(!status.stopped, "not the emergency stop");
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        line(&text, "browser_read").contains("switched off"),
+        "{text}"
+    );
+    assert_eq!(h.all_events("control.switched_off").len(), 1);
+    h.finished(&root).await;
+    // The next worker gets no browser tools, and the trail says why.
+    let root = h.objective().await;
+    let task = h.worker_task(&root, "Web Assistant").await;
+    h.finished(&task.id).await;
+    let skipped = h.events(&task.id, "guard.grant_skipped");
+    assert!(
+        skipped.iter().any(|e| e["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains("Plenipo's browser is switched off"))),
+        "{skipped:?}"
+    );
 }

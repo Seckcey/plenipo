@@ -53,6 +53,7 @@ import type {
   TaskTree,
   TitleTheme,
   WebsiteRules,
+  Switches,
   WorkView,
 } from "@plenipo/types";
 
@@ -514,6 +515,12 @@ export function allowControl(): Promise<ControlStatus> {
 
 export function setWebsiteRules(rules: WebsiteRules): Promise<PermissionsSnapshot> {
   return call("set_website_rules", { rules });
+}
+
+/** The owner's on/off switches (ADR-021). Switching the browser or the screen off also stops
+ * any worker using it now. */
+export function setSwitches(switches: Switches): Promise<PermissionsSnapshot> {
+  return call("set_switches", { switches });
 }
 
 export function getBrowserStatus(): Promise<BrowserStatus> {

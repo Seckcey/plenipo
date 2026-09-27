@@ -236,6 +236,7 @@ pub fn configure<R: Runtime>(
             commands::take_over_control,
             commands::allow_control,
             commands::set_website_rules,
+            commands::set_switches,
             commands::get_browser_status,
             commands::open_browser,
             commands::get_screenshot,
@@ -2169,6 +2170,26 @@ mod ipc_boundary_tests {
         )
         .expect_err("others is ask or block");
         assert!(err.to_string().contains("unknown variant"), "{err}");
+        // The owner's switches (ADR-021): the defaults, a change, and unknown fields refused.
+        assert!(snap.settings.switches.browser && !snap.settings.switches.desktop);
+        let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
+            &main,
+            "set_switches",
+            serde_json::json!({ "switches": {
+                "browser": false, "desktop": true, "sendWithoutAsking": true,
+                "buyWithoutAsking": false, "signInWithoutAsking": false,
+                "captchaToOwner": false, "screenshots": false
+            } }),
+        ));
+        let s = &snap.settings.switches;
+        assert!(!s.browser && s.desktop && s.send_without_asking && !s.screenshots);
+        let err = invoke_json(
+            &main,
+            "set_switches",
+            serde_json::json!({ "switches": { "solveCaptchas": true } }),
+        )
+        .expect_err("no such switch");
+        assert!(err.to_string().contains("unknown field"), "{err}");
         // Screenshots only by ID.
         let err = invoke_json(
             &main,
@@ -2250,6 +2271,7 @@ mod ipc_boundary_tests {
             "take_over_control",
             "allow_control",
             "set_website_rules",
+            "set_switches",
             "get_browser_status",
             "open_browser",
             "get_screenshot",

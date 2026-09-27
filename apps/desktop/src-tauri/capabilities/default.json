@@ -79,6 +79,7 @@
     "allow-take-over-control",
     "allow-allow-control",
     "allow-set-website-rules",
+    "allow-set-switches",
     "allow-get-browser-status",
     "allow-open-browser",
     "allow-get-screenshot"

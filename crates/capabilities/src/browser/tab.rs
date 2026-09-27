@@ -66,6 +66,9 @@ pub enum Mode {
     Owner,
     /// The owner stopped all control.
     Stopped,
+    /// The owner is solving a check that a person is using the site (a CAPTCHA, ADR-021); the
+    /// worker waits and gets the tab back when the owner says it is done.
+    Handed,
 }
 
 impl Mode {
@@ -74,6 +77,7 @@ impl Mode {
             Self::Worker => "active",
             Self::Owner => "owner",
             Self::Stopped => "stopped",
+            Self::Handed => "handed",
         }
     }
 }
@@ -271,12 +275,7 @@ impl Tab {
             json!({ "source": PAGE_JS, "worldName": WORLD }),
         )
         .await?;
-        let patterns: Vec<Value> = ["Document", "XHR", "Fetch"]
-            .iter()
-            .map(|t| json!({ "urlPattern": "*", "resourceType": t, "requestStage": "Request" }))
-            .collect();
-        self.call("Fetch.enable", json!({ "patterns": patterns }))
-            .await?;
+        self.watch_requests().await?;
         let tree = self.call("Page.getFrameTree", json!({})).await?;
         let frame = tree["frameTree"]["frame"]["id"]
             .as_str()
@@ -284,6 +283,32 @@ impl Tab {
             .to_owned();
         self.shared.state().main_frame = frame;
         self.show_sign().await
+    }
+
+    /// Hold every page request for Plenipo's checks (while a worker has the tab).
+    async fn watch_requests(&self) -> Result<(), String> {
+        let patterns: Vec<Value> = ["Document", "XHR", "Fetch"]
+            .iter()
+            .map(|t| json!({ "urlPattern": "*", "resourceType": t, "requestStage": "Request" }))
+            .collect();
+        self.call("Fetch.enable", json!({ "patterns": patterns }))
+            .await
+            .map(|_| ())
+    }
+
+    /// The owner solved the check (or refused to): the worker has the tab again, with every
+    /// request checked. Nothing changes when the owner took over or stopped in the meantime.
+    pub async fn take_back(&self) {
+        {
+            let mut s = self.state();
+            if s.mode != Mode::Handed {
+                return;
+            }
+            s.mode = Mode::Worker;
+        }
+        self.shared.changed.notify_waiters();
+        let _ = self.watch_requests().await;
+        let _ = self.show_sign().await;
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -450,8 +475,9 @@ impl Tab {
         }
     }
 
-    /// Hand the tab to the owner (`Owner`) or stop it (`Stopped`): data held is stopped, pages
-    /// are no longer checked, and the sign says so. The tab stays open.
+    /// Hand the tab to the owner (`Owner`, or `Handed` to solve a check) or stop it (`Stopped`):
+    /// data held is stopped, pages are no longer checked, and the sign says so. The tab stays
+    /// open.
     pub async fn release_to(&self, mode: Mode) {
         let held = {
             let mut s = self.state();
@@ -475,7 +501,7 @@ impl Tab {
         }
         let _ = self.call("Fetch.disable", json!({})).await;
         let _ = self.show_sign().await;
-        if mode == Mode::Owner {
+        if matches!(mode, Mode::Owner | Mode::Handed) {
             let _ = self.call("Page.bringToFront", json!({})).await;
         }
     }

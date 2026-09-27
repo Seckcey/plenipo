@@ -216,6 +216,8 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return "Approval wait changed";
     case "guard.websites_changed":
       return "Website lists changed";
+    case "guard.switches_changed":
+      return "Switches changed (Settings → Switches)";
     case "guard.websites_added":
       return "Plenipo's starting website lists were stored";
     case "vault.secret_added":
@@ -261,6 +263,10 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     }
     case "control.allowed":
       return "You allowed browser and desktop control again";
+    case "control.switched_off": {
+      const n = count(p.sessions);
+      return `You switched ${what} off: ${n} worker${n === 1 ? "" : "s"} stopped`;
+    }
   }
   return null;
 }

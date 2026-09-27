@@ -322,6 +322,18 @@ impl Guard {
         Ok(())
     }
 
+    /// The owner's on/off switches (ADR-021).
+    pub fn set_switches(&self, switches: &Switches) -> Result<()> {
+        self.update("guard.switches_changed", OWNER, |c| {
+            if c.switches == *switches {
+                return Ok(None);
+            }
+            c.set_switches(switches);
+            Ok(Some((json!({ "switches": c.switches }), ())))
+        })?;
+        Ok(())
+    }
+
     pub fn set_sensitive(&self, kind: SensitiveKind, rule: SensitiveRule) -> Result<()> {
         self.update("guard.sensitive_changed", OWNER, |c| {
             c.set_sensitive(kind, rule);
@@ -447,6 +459,7 @@ impl Guard {
             options: config.options.clone(),
             secrets: config.secrets.clone(),
             websites: config.websites.clone(),
+            switches: config.switches.clone(),
             sets: config.sets,
         })
     }

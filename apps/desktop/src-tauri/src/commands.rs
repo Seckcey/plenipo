@@ -20,12 +20,12 @@
 use std::sync::Arc;
 
 use plenipo_capabilities::browser::BrowserStatus;
-use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::control::{ControlKind, ControlStatus};
 use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot};
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
     CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
-    SensitiveRule, WebsiteRules,
+    SensitiveRule, Switches, WebsiteRules,
 };
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
@@ -1114,6 +1114,37 @@ pub async fn set_guard_options(
     options: GuardOptions,
 ) -> Result<PermissionsSnapshot, CommandError> {
     with_guard(&broker, move |g| g.set_options(&options)).await
+}
+
+/// The owner's on/off switches (ADR-021). Switching Plenipo's browser or the screen, mouse, and
+/// keyboard off also stops any worker using it now.
+#[tauri::command]
+pub async fn set_switches(
+    broker: State<'_, Broker>,
+    switches: Switches,
+) -> Result<PermissionsSnapshot, CommandError> {
+    let was = broker
+        .guard()
+        .config()
+        .map(|c| c.switches)
+        .unwrap_or_default();
+    let (browser_off, desktop_off) = (
+        was.browser && !switches.browser,
+        was.desktop && !switches.desktop,
+    );
+    let snapshot = with_guard(&broker, move |g| g.set_switches(&switches)).await?;
+    let b = broker.inner().clone();
+    if browser_off {
+        b.switch_off_control(ControlKind::Browser)
+            .await
+            .map_err(broker_error)?;
+    }
+    if desktop_off {
+        b.switch_off_control(ControlKind::Desktop)
+            .await
+            .map_err(broker_error)?;
+    }
+    Ok(snapshot)
 }
 
 /// Store a secret: its value goes to the operating system's protected storage, only its

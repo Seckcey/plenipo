@@ -249,6 +249,31 @@ impl ControlCenter {
         stopped
     }
 
+    /// Stop every active session of one kind (the owner switched that feature off, ADR-021).
+    /// Unlike [`ControlCenter::stop_all`], it sets no emergency stop. Returns the sessions stopped.
+    pub fn stop_kind(&self, kind: ControlKind) -> Vec<ControlSession> {
+        let stopped: Vec<ControlSession> = {
+            let mut i = self.inner();
+            let stopped: Vec<ControlSession> = i
+                .sessions
+                .values_mut()
+                .filter(|s| s.kind == kind && s.state == ControlState::Active)
+                .map(|s| {
+                    s.state = ControlState::Stopped;
+                    s.clone()
+                })
+                .collect();
+            if !stopped.is_empty() {
+                i.revision += 1;
+            }
+            stopped
+        };
+        if !stopped.is_empty() {
+            self.changed();
+        }
+        stopped
+    }
+
     /// The owner allows control again after a stop.
     pub fn allow(&self) {
         {
@@ -320,6 +345,19 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.first(), Some(&(false, 0, false)));
         assert_eq!(seen.last(), Some(&(false, 1, false)));
+    }
+
+    #[test]
+    fn switching_a_feature_off_stops_only_its_sessions() {
+        let c = ControlCenter::default();
+        let b = c.begin(ControlKind::Browser, "g1", "t1", "Web Assistant", None);
+        let d = c.begin(ControlKind::Desktop, "g2", "t2", "Operator", None);
+        let stopped = c.stop_kind(ControlKind::Browser);
+        assert_eq!(stopped.len(), 1);
+        assert_eq!(stopped[0].id, b.id);
+        assert_eq!(c.session(&d.id).unwrap().state, ControlState::Active);
+        assert!(!c.stopped(), "no emergency stop");
+        assert!(c.stop_kind(ControlKind::Browser).is_empty());
     }
 
     /// Changes from many threads reach the listener in the order they happened: no status it

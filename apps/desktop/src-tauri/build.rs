@@ -76,6 +76,7 @@ const COMMANDS: &[&str] = &[
     "take_over_control",
     "allow_control",
     "set_website_rules",
+    "set_switches",
     "get_browser_status",
     "open_browser",
     "get_screenshot",

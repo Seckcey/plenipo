@@ -6,6 +6,7 @@ import type { PermissionSet } from "./PermissionSet";
 import type { RolePermissions } from "./RolePermissions";
 import type { SecretInfo } from "./SecretInfo";
 import type { SensitiveInfo } from "./SensitiveInfo";
+import type { Switches } from "./Switches";
 import type { UnitLimit } from "./UnitLimit";
 import type { WebsiteRules } from "./WebsiteRules";
 
@@ -16,4 +17,8 @@ export type GuardSettings = { capabilities: Array<CapabilityInfo>, sets: Array<P
 /**
  * Which websites workers may open in Plenipo's browser (Phase 10).
  */
-websites: WebsiteRules, };
+websites: WebsiteRules, 
+/**
+ * The owner's on/off switches (ADR-021).
+ */
+switches: Switches, };

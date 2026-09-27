@@ -283,6 +283,14 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
       "You allowed browser and desktop control again",
     );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
+    expect(describeEvent(event("guard.switches_changed", {}))).toBe(
+      "Switches changed (Settings → Switches)",
+    );
+    expect(
+      describeEvent(
+        event("control.switched_off", { kind: "browser", sessions: [{ worker: "W" }] }),
+      ),
+    ).toBe("You switched Plenipo's browser off: 1 worker stopped");
     expect(describeEvent(event("guard.sets_updated", { sets: ["writer"] }))).toBe(
       "Built-in permission sets you had not changed were brought up to date",
     );

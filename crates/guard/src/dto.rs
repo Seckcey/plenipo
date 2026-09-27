@@ -162,8 +162,8 @@ impl SensitiveKind {
     }
 }
 
-/// What a sensitive action does: always asks (the default), or never runs. It can never be
-/// allowed without asking.
+/// What a sensitive action does: always asks (the default), or never runs. Only the website
+/// switches (ADR-021) let three kinds go ahead without asking, on allowed websites.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -188,6 +188,59 @@ impl Default for GuardOptions {
     fn default() -> Self {
         Self {
             approval_minutes: DEFAULT_APPROVAL_MINUTES,
+        }
+    }
+}
+
+/// The owner's on/off switches (ADR-021): whole features, and what workers may do on the
+/// websites the owner allowed without asking first. The safety rules that keep the owner in
+/// charge (no passwords, secrets, or CAPTCHA attempts; the sign; Stop) have no switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export)]
+pub struct Switches {
+    /// Plenipo's browser. Off: no worker uses any website, whatever its permissions.
+    pub browser: bool,
+    /// The screen, mouse, and keyboard. Off (the default): no worker sees the screen or uses
+    /// the mouse and keyboard.
+    pub desktop: bool,
+    /// On websites on the allowed list, submit forms and send messages without asking.
+    pub send_without_asking: bool,
+    /// On websites on the allowed list, buy and pay without asking.
+    pub buy_without_asking: bool,
+    /// On websites on the allowed list, sign in without asking (workers still never type a
+    /// password).
+    pub sign_in_without_asking: bool,
+    /// When a website checks for a person (a CAPTCHA), the worker hands it to the owner to
+    /// solve and waits. Off: the worker stops there. Workers never try to solve one.
+    pub captcha_to_owner: bool,
+    /// Keep a screenshot of every significant step in the Activity trail. Off: only approval
+    /// cards keep a picture of the page.
+    pub screenshots: bool,
+}
+
+impl Default for Switches {
+    fn default() -> Self {
+        Self {
+            browser: true,
+            desktop: false,
+            send_without_asking: false,
+            buy_without_asking: false,
+            sign_in_without_asking: false,
+            captcha_to_owner: true,
+            screenshots: true,
+        }
+    }
+}
+
+impl Switches {
+    /// The switch that lets `kind` go ahead without asking on an allowed website, if any.
+    pub fn without_asking(&self, kind: SensitiveKind) -> Option<bool> {
+        match kind {
+            SensitiveKind::Outbound => Some(self.send_without_asking),
+            SensitiveKind::Payment => Some(self.buy_without_asking),
+            SensitiveKind::SignIn => Some(self.sign_in_without_asking),
+            _ => None,
         }
     }
 }
@@ -387,4 +440,6 @@ pub struct GuardSettings {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10).
     pub websites: crate::websites::WebsiteRules,
+    /// The owner's on/off switches (ADR-021).
+    pub switches: Switches,
 }

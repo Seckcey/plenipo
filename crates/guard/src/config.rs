@@ -34,6 +34,8 @@ pub struct GuardConfig {
     pub secrets: Vec<SecretInfo>,
     /// Which websites workers may open in Plenipo's browser (Phase 10, ADR-020).
     pub websites: WebsiteRules,
+    /// The owner's on/off switches (ADR-021). Missing in older documents: the defaults.
+    pub switches: Switches,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -355,6 +357,10 @@ impl GuardConfig {
     pub fn set_websites(&mut self, rules: &WebsiteRules) -> Result<()> {
         self.websites = websites::clean(rules).map_err(invalid)?;
         Ok(())
+    }
+
+    pub fn set_switches(&mut self, switches: &Switches) {
+        self.switches = switches.clone();
     }
 
     pub fn set_sensitive(&mut self, kind: SensitiveKind, rule: SensitiveRule) {

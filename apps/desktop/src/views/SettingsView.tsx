@@ -1,6 +1,7 @@
 import { useAgents } from "../agents/useAgents";
 import { ModelSettings } from "../components/models/ModelSettings";
 import { PermissionSettings } from "../components/permissions/PermissionSettings";
+import { SwitchSettings } from "../components/SwitchSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import { useRuntime } from "../runtime/useRuntime";
 
@@ -17,6 +18,9 @@ export function SettingsView() {
 
       <h2>Personalization</h2>
       <TitlesSetting />
+
+      <h2>Switches</h2>
+      <SwitchSettings />
 
       <h2>AI models</h2>
       <ModelSettings />
