@@ -1,9 +1,15 @@
-//! Activity over time: events counted in fixed time buckets (Phase 12A, ADR-029 §7).
+//! Activity over time: events counted in fixed time buckets (Phase 12A, ADR-030 §7).
 //!
 //! Downsampling: a series always has the number of buckets asked for (the UI asks for 96 over
 //! 24 hours: 15 minutes each). A longer range makes each bucket wider and adds the counts up,
-//! so nothing is dropped. Each bucket also counts problems (failures, blocks, refusals) and
-//! requests for approval, so a strip can show where they happened.
+//! so nothing is dropped. Each bucket also counts problems (failures and refusals) and requests
+//! for approval, so a strip can show where they happened.
+//!
+//! One request reads the time window once, grouped by bucket, position, and project, and then
+//! counts those groups for every scope asked for. So a page of cards costs one pass over the
+//! window, however many cards it has, and the Ledger is held only for that pass.
+
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, Connection, OptionalExtension as _};
 
@@ -18,65 +24,167 @@ pub const MAX_ACTIVITY_RANGE_MS: u64 = 366 * 24 * 3_600_000;
 /// The most scopes one request may ask for (one per card on screen).
 pub const MAX_ACTIVITY_SCOPES: usize = 500;
 
-/// An event that means something went wrong. Kept in one place so the UI and the Ledger agree.
+/// An event that means something went wrong. A task that is `blocked` is waiting on its team's
+/// replies (normal delegation), so it is not a problem. Execution events are named for their
+/// end state (`execution.failed`, `execution.timed_out`, `execution.interrupted`).
 const PROBLEM: &str = "(e.event_type LIKE '%failed'
      OR e.event_type LIKE '%rejected'
      OR e.event_type LIKE '%refused'
-     OR e.event_type IN ('guard.denied', 'execution.timed_out', 'ssh.host_key_changed',
-                         'approval.expired', 'diagnostic.failure')
+     OR e.event_type IN ('guard.denied', 'execution.timed_out', 'execution.interrupted',
+                         'ssh.host_key_changed', 'approval.expired', 'browser.tab_lost',
+                         'diagnostic.failure')
      OR (e.event_type = 'task.state_changed'
-         AND json_extract(e.payload, '$.to') IN ('failed', 'blocked')))";
+         AND json_extract(e.payload, '$.to') = 'failed'))";
 
 /// A request for the owner's approval.
 const WAITING: &str = "e.event_type = 'approval.requested'";
 
-/// Where a scope's work is: the position at the top of its team, and its projects.
-struct Reach {
-    /// The team's lead; the team is it and everyone reporting to it, directly or not.
-    lead: Option<String>,
-    /// Projects whose tasks count.
-    projects: Projects,
+/// The one pass over the window: events grouped by bucket, the task's position, and its project.
+/// Events without a task count only for the whole organization.
+fn scan_sql() -> String {
+    format!(
+        "SELECT (e.created_at - ?1) / ?3 AS b,
+                json_extract(t.metadata, '$.workforce.positionId') AS pos,
+                t.project_id AS proj,
+                COUNT(*),
+                SUM(CASE WHEN {PROBLEM} THEN 1 ELSE 0 END),
+                SUM(CASE WHEN {WAITING} THEN 1 ELSE 0 END)
+         FROM events e LEFT JOIN tasks t ON t.id = e.task_id
+         WHERE e.created_at >= ?1 AND e.created_at < ?2
+         GROUP BY b, pos, proj"
+    )
 }
 
-enum Projects {
-    None,
-    One(String),
-    OfDepartment(String),
+/// The organization's shape, read once per request.
+struct Org {
+    /// Positions reporting to each position (archived ones too, so past work still counts).
+    reports: HashMap<String, Vec<String>>,
+    /// Positions that head a department.
+    heads: HashSet<String>,
+    /// Positions that lead a project.
+    leads: HashSet<String>,
 }
 
-fn reach(c: &Connection, scope: &ActivityScope) -> Result<Option<Reach>> {
-    let found = |sql: &str, id: &str| -> Result<Option<Option<String>>> {
+impl Org {
+    fn read(c: &Connection) -> Result<Self> {
+        let mut reports: HashMap<String, Vec<String>> = HashMap::new();
+        let mut stmt = c.prepare("SELECT id, reports_to FROM positions")?;
+        for row in stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })? {
+            let (id, up) = row?;
+            if let Some(up) = up {
+                reports.entry(up).or_default().push(id);
+            }
+        }
+        let ids = |sql: &str| -> Result<HashSet<String>> {
+            let mut stmt = c.prepare(sql)?;
+            let out = stmt
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(out)
+        };
+        Ok(Self {
+            reports,
+            heads: ids(
+                "SELECT head_position_id FROM departments WHERE head_position_id IS NOT NULL",
+            )?,
+            leads: ids("SELECT coordinator_position_id FROM projects \
+                 WHERE coordinator_position_id IS NOT NULL")?,
+        })
+    }
+
+    /// `lead` and everyone below it, not going past a position in `stop` (another department's
+    /// head, or another project's lead), so a department counts its own work only.
+    fn team(&self, lead: &str, stop: &HashSet<String>) -> HashSet<String> {
+        let mut team = HashSet::from([lead.to_owned()]);
+        let mut next = vec![lead.to_owned()];
+        while let Some(at) = next.pop() {
+            for child in self.reports.get(&at).into_iter().flatten() {
+                if stop.contains(child) || !team.insert(child.clone()) {
+                    continue;
+                }
+                next.push(child.clone());
+            }
+        }
+        team
+    }
+}
+
+/// What a scope counts: every event, or the tasks of its team's positions and its projects.
+enum Reach {
+    All,
+    Some {
+        positions: HashSet<String>,
+        projects: HashSet<String>,
+    },
+}
+
+impl Reach {
+    fn counts(&self, pos: Option<&str>, proj: Option<&str>) -> bool {
+        match self {
+            Self::All => true,
+            Self::Some {
+                positions,
+                projects,
+            } => {
+                pos.is_some_and(|p| positions.contains(p))
+                    || proj.is_some_and(|p| projects.contains(p))
+            }
+        }
+    }
+}
+
+fn reach(c: &Connection, org: &Org, scope: &ActivityScope) -> Result<Reach> {
+    let lookup = |sql: &str, id: &str| -> Result<Option<Option<String>>> {
         Ok(c.query_row(sql, [id], |r| r.get::<_, Option<String>>(0))
             .optional()?)
     };
+    let without = |set: &HashSet<String>, keep: Option<&String>| -> HashSet<String> {
+        set.iter().filter(|p| Some(*p) != keep).cloned().collect()
+    };
     Ok(match scope {
-        ActivityScope::All => None,
+        ActivityScope::All => Reach::All,
         ActivityScope::Department(id) => {
-            let head = found("SELECT head_position_id FROM departments WHERE id = ?1", id)?
+            let head = lookup("SELECT head_position_id FROM departments WHERE id = ?1", id)?
                 .ok_or_else(|| LedgerError::NotFound(format!("department {id}")))?;
-            Some(Reach {
-                lead: head,
-                projects: Projects::OfDepartment(id.clone()),
-            })
+            let mut stmt = c.prepare("SELECT id FROM projects WHERE department_id = ?1")?;
+            let projects = stmt
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            Reach::Some {
+                positions: head
+                    .as_ref()
+                    .map(|h| org.team(h, &without(&org.heads, Some(h))))
+                    .unwrap_or_default(),
+                projects,
+            }
         }
         ActivityScope::Project(id) => {
-            let coordinator = found(
+            let lead = lookup(
                 "SELECT coordinator_position_id FROM projects WHERE id = ?1",
                 id,
             )?
             .ok_or_else(|| LedgerError::NotFound(format!("project {id}")))?;
-            Some(Reach {
-                lead: coordinator,
-                projects: Projects::One(id.clone()),
-            })
+            let stop: HashSet<String> = without(&org.leads, lead.as_ref())
+                .union(&org.heads)
+                .cloned()
+                .collect();
+            Reach::Some {
+                positions: lead
+                    .as_ref()
+                    .map(|l| org.team(l, &stop))
+                    .unwrap_or_default(),
+                projects: HashSet::from([id.clone()]),
+            }
         }
         ActivityScope::Position(id) => {
-            found("SELECT id FROM positions WHERE id = ?1", id)?
+            lookup("SELECT id FROM positions WHERE id = ?1", id)?
                 .ok_or_else(|| LedgerError::NotFound(format!("position {id}")))?;
-            Some(Reach {
-                lead: Some(id.clone()),
-                projects: Projects::None,
-            })
+            Reach::Some {
+                positions: org.team(id, &HashSet::new()),
+                projects: HashSet::new(),
+            }
         }
     })
 }
@@ -104,85 +212,44 @@ fn as_i64(ms: u64) -> i64 {
     i64::try_from(ms).unwrap_or(i64::MAX)
 }
 
-fn series(
-    c: &Connection,
-    scope: &ActivityScope,
-    from: u64,
-    to: u64,
-    buckets: u32,
-) -> Result<ActivitySeries> {
-    let width = validate(from, to, buckets)?;
-    let head = format!(
-        "SELECT (e.created_at - ?1) / ?3 AS b, COUNT(*),
-                SUM(CASE WHEN {PROBLEM} THEN 1 ELSE 0 END),
-                SUM(CASE WHEN {WAITING} THEN 1 ELSE 0 END)"
-    );
-    let range = "e.created_at >= ?1 AND e.created_at < ?2";
-    let mut out = vec![ActivityBucket::default(); buckets as usize];
-    let mut add = |b: i64, events: i64, problems: i64, waiting: i64| {
-        let Some(slot) = usize::try_from(b).ok().and_then(|i| out.get_mut(i)) else {
-            return;
-        };
-        let n = |v: i64| u32::try_from(v).unwrap_or(u32::MAX);
-        slot.events = n(events);
-        slot.problems = n(problems);
-        slot.waiting = n(waiting);
-    };
-    let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, i64, i64, i64)> {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-    };
-    let (from_i, to_i, width_i) = (as_i64(from), as_i64(to), as_i64(width));
+/// One group from the scan: its bucket, position, project, and counts.
+struct Group {
+    bucket: usize,
+    pos: Option<String>,
+    proj: Option<String>,
+    counts: ActivityBucket,
+}
 
-    match reach(c, scope)? {
-        None => {
-            let sql = format!("{head} FROM events e WHERE {range} GROUP BY b");
-            let mut stmt = c.prepare(&sql)?;
-            for r in stmt.query_map(params![from_i, to_i, width_i], row)? {
-                let (b, e, p, w) = r?;
-                add(b, e, p, w);
-            }
-        }
-        Some(reach) => {
-            let (projects, project_param) = match &reach.projects {
-                // Always bind ?5, so every scope uses the same parameters.
-                Projects::None => ("(0 AND ?5 IS NULL)", None),
-                Projects::One(id) => ("t.project_id = ?5", Some(id.as_str())),
-                Projects::OfDepartment(id) => (
-                    "t.project_id IN (SELECT id FROM projects WHERE department_id = ?5)",
-                    Some(id.as_str()),
-                ),
-            };
-            // The team: the lead and everyone below it (archived positions keep their place,
-            // so past work still counts). UNION stops at a cycle.
-            let sql = format!(
-                "WITH RECURSIVE team(id) AS (
-                     SELECT ?4 WHERE ?4 IS NOT NULL
-                     UNION
-                     SELECT p.id FROM positions p JOIN team ON p.reports_to = team.id
-                 )
-                 {head}
-                 FROM events e JOIN tasks t ON t.id = e.task_id
-                 WHERE {range}
-                   AND (json_extract(t.metadata, '$.workforce.positionId') IN (SELECT id FROM team)
-                        OR {projects})
-                 GROUP BY b"
-            );
-            let mut stmt = c.prepare(&sql)?;
-            for r in stmt.query_map(
-                params![from_i, to_i, width_i, reach.lead, project_param],
-                row,
-            )? {
-                let (b, e, p, w) = r?;
-                add(b, e, p, w);
-            }
-        }
-    }
-    Ok(ActivitySeries {
-        from,
-        to,
-        bucket_ms: width,
-        buckets: out,
-    })
+fn scan(c: &Connection, from: u64, to: u64, width: u64) -> Result<Vec<Group>> {
+    let n = |v: i64| u32::try_from(v).unwrap_or(u32::MAX);
+    let mut stmt = c.prepare(&scan_sql())?;
+    let rows = stmt
+        .query_map(params![as_i64(from), as_i64(to), as_i64(width)], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(b, pos, proj, events, problems, waiting)| {
+            Some(Group {
+                bucket: usize::try_from(b).ok()?,
+                pos,
+                proj,
+                counts: ActivityBucket {
+                    events: n(events),
+                    problems: n(problems),
+                    waiting: n(waiting),
+                },
+            })
+        })
+        .collect())
 }
 
 impl Ledger {
@@ -199,13 +266,40 @@ impl Ledger {
                 "at most {MAX_ACTIVITY_SCOPES} activity series at a time"
             )));
         }
-        validate(from, to, buckets)?;
-        self.read(|c| {
-            scopes
+        let width = validate(from, to, buckets)?;
+        if scopes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (reaches, groups) = self.read(|c| {
+            let org = Org::read(c)?;
+            let reaches = scopes
                 .iter()
-                .map(|s| series(c, s, from, to, buckets))
-                .collect()
-        })
+                .map(|s| reach(c, &org, s))
+                .collect::<Result<Vec<_>>>()?;
+            Ok((reaches, scan(c, from, to, width)?))
+        })?;
+        Ok(reaches
+            .iter()
+            .map(|reach| {
+                let mut out = vec![ActivityBucket::default(); buckets as usize];
+                for g in &groups {
+                    if !reach.counts(g.pos.as_deref(), g.proj.as_deref()) {
+                        continue;
+                    }
+                    if let Some(slot) = out.get_mut(g.bucket) {
+                        slot.events = slot.events.saturating_add(g.counts.events);
+                        slot.problems = slot.problems.saturating_add(g.counts.problems);
+                        slot.waiting = slot.waiting.saturating_add(g.counts.waiting);
+                    }
+                }
+                ActivitySeries {
+                    from,
+                    to,
+                    bucket_ms: width,
+                    buckets: out,
+                }
+            })
+            .collect())
     }
 }
 
@@ -330,7 +424,9 @@ mod tests {
         let from = NOW - DAY;
         let at = from + HOUR;
         for (t, payload) in [
-            ("turn.failed", json!({})),
+            ("execution.failed", json!({})),
+            ("execution.interrupted", json!({})),
+            ("browser.tab_lost", json!({})),
             ("liaison.dispatch_failed", json!({})),
             ("task.transition_rejected", json!({})),
             ("liaison.reply_refused", json!({})),
@@ -342,14 +438,18 @@ mod tests {
                 "task.state_changed",
                 json!({ "from": "running", "to": "failed" }),
             ),
-            (
-                "task.state_changed",
-                json!({ "from": "running", "to": "blocked" }),
-            ),
         ] {
             event(&l, None, t, payload, at);
         }
-        // Not problems:
+        // Not problems: waiting on the team's replies (normal delegation), a success, and the
+        // owner's answer.
+        event(
+            &l,
+            None,
+            "task.state_changed",
+            json!({ "from": "running", "to": "blocked" }),
+            at,
+        );
         event(
             &l,
             None,
@@ -369,8 +469,8 @@ mod tests {
         assert_eq!(
             s.buckets[1],
             ActivityBucket {
-                events: 13,
-                problems: 10,
+                events: 15,
+                problems: 11,
                 waiting: 1
             }
         );
@@ -408,6 +508,50 @@ mod tests {
             .map(|s| totals(s).0)
             .collect();
         assert_eq!(got, vec![6, 3, 2, 1, 1, 1, 0, 1]);
+    }
+
+    #[test]
+    fn a_department_counts_its_own_work_not_a_department_below_it() {
+        let l = ledger();
+        org(&l);
+        // The VP heads Leadership; the Development Manager (D) reports to the VP.
+        crate::lock(&l.conn)
+            .execute_batch(
+                "INSERT INTO roles (id, name, role_type, persistent, created_at) VALUES
+                     ('r-vp', 'Test VP', 'superintendent', 1, 0);
+                 INSERT INTO positions (id, title, role_id, reports_to, runtime_id, state, created_at, updated_at) VALUES
+                     ('V', 'VP', 'r-vp', NULL, 'claude', 'active', 0, 0);
+                 UPDATE positions SET reports_to = 'V' WHERE id = 'D';
+                 INSERT INTO departments (id, name, created_at, head_position_id) VALUES
+                     ('lead', 'Leadership', 0, 'V');",
+            )
+            .unwrap();
+        let at = NOW - HOUR;
+        task_for(&l, "t-vp", None, Some("V")); // the VP's own work
+        task_for(&l, "t-sd", None, Some("S")); // Development's worker
+        task_for(&l, "t-web", Some("web"), None); // a Development project
+        for t in ["t-vp", "t-sd", "t-web"] {
+            event(&l, Some(t), "diagnostic.echo", json!({}), at);
+        }
+        let got: Vec<u32> = l
+            .activity(
+                &[
+                    ActivityScope::Department("lead".into()),
+                    ActivityScope::Department("dev".into()),
+                    ActivityScope::Position("V".into()),
+                ],
+                NOW - DAY,
+                NOW,
+                96,
+            )
+            .unwrap()
+            .iter()
+            .map(|s| totals(s).0)
+            .collect();
+        // Leadership: only the VP's own work. Development: its worker and its project. The VP's
+        // position: the work of the VP and everyone under it (a project task that no position
+        // took counts for its project and department, not for a position).
+        assert_eq!(got, vec![1, 2, 2]);
     }
 
     #[test]
@@ -449,13 +593,11 @@ mod tests {
     fn uses_the_time_index() {
         let l = ledger();
         let conn = crate::lock(&l.conn);
+        // The real query, as each request runs it once.
         let plan: Vec<String> = conn
-            .prepare(
-                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM events e
-                 WHERE e.created_at >= 1 AND e.created_at < 2",
-            )
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", scan_sql()))
             .unwrap()
-            .query_map([], |r| r.get::<_, String>(3))
+            .query_map(params![1_i64, 2_i64, 1_i64], |r| r.get::<_, String>(3))
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();

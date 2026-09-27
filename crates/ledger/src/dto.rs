@@ -1210,7 +1210,7 @@ pub struct NewLessons {
     pub keep: bool,
 }
 
-/// Which part of the organization an activity series covers (Phase 12A, ADR-029 §7).
+/// Which part of the organization an activity series covers (Phase 12A, ADR-030 §7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "id", rename_all = "camelCase")]
 #[ts(export)]
@@ -1232,7 +1232,7 @@ pub enum ActivityScope {
 pub struct ActivityBucket {
     /// Everything recorded in the bucket.
     pub events: u32,
-    /// Failures, blocks, and refusals.
+    /// Failures, refusals, and timeouts (a task blocked on handoff replies is not a problem).
     pub problems: u32,
     /// Requests for the owner's approval.
     pub waiting: u32,

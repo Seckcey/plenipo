@@ -759,6 +759,26 @@ mod ipc_boundary_tests {
     }
 
     #[test]
+    fn activity_is_denied_to_other_windows_the_sign_and_remote_origins() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        // Valid arguments, so a refusal comes from the permission list, not from bad input.
+        let now = plenipo_ledger::now_ms();
+        let args = serde_json::json!({
+            "scopes": [{ "kind": "all" }],
+            "from": now - 86_400_000,
+            "to": now,
+            "buckets": 96,
+        });
+        assert!(invoke_json(&main, "get_activity", args.clone()).is_ok());
+        assert!(invoke_json(&other, "get_activity", args.clone()).is_err());
+        assert!(invoke_json(&sign, "get_activity", args.clone()).is_err());
+        assert!(invoke_with(&main, "get_activity", args, "https://example.com").is_err());
+    }
+
+    #[test]
     fn remote_origins_are_denied_even_in_main_window() {
         let app = app();
         let main = window(&app, "main");
