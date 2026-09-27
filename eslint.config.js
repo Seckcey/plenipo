@@ -55,6 +55,25 @@ export default tseslint.config(
     },
   },
   {
+    // No raw colors in feature code: every color is a design token (ADR-029 §3). Colors are
+    // written only in packages/ui/src/tokens.ts; scripts/check-colors.mjs checks the CSS.
+    files: ["apps/desktop/src/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}"],
+    ignores: ["packages/ui/src/tokens.ts", "**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: String.raw`Literal[value=/#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(/]`,
+          message: "Raw color: use a design token, e.g. var(--ui-accent) (ADR-029).",
+        },
+        {
+          selector: String.raw`TemplateElement[value.raw=/#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(/]`,
+          message: "Raw color: use a design token, e.g. var(--ui-accent) (ADR-029).",
+        },
+      ],
+    },
+  },
+  {
     files: [
       "apps/desktop/src/api/commands.ts",
       "apps/desktop/src/api/events.ts",
