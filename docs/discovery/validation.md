@@ -18,7 +18,9 @@ No app, website, dependency, workflow, license, or production changes are part o
 - The real Phase 12A Organization capture replaces the “screenshots coming” placeholder, with a
   development-version and synthetic-data caption. Approved Pip logos are copied, not redesigned.
 - Guard defaults in `crates/guard/src/dto.rs` and switch handling in `engine.rs` establish the
-  approval-switch caveat. SECURITY.md now describes that caveat.
+  approval-switch caveat. SECURITY.md now describes that caveat. Already-merged ADR-029 and the
+  browser broker also contradict the inherited absolute CAPTCHA guarantee; the policy now
+  describes that limitation without providing operational instructions or importing PR #36.
 - GitHub reports Issues/Discussions enabled, wiki disabled, and private vulnerability reporting
   **disabled**. SECURITY.md and issue-template text no longer promise unavailable private intake.
   Enabling it or publishing an approved monitored contact remains an owner decision.
@@ -45,6 +47,7 @@ Browser theme emulation is temporary and does not change account preferences.
 Initial push occurred after local `pnpm check`, but before the repository-mandated Rust checks,
 under coordination guidance that was subsequently corrected. Full Rust/bindings verification is
 required before a further push and final integration; no pre-push Rust pass is claimed retroactively.
-Rust tooling is unavailable in the local documentation checkout; Rust, binding, installer and
-real-app end-to-end validation must be assessed through exact-head GitHub CI. No desktop Docker,
-Coastline preview, production release, or provider task is needed for this work.
+Rust tooling is unavailable in the local documentation checkout. A separate isolated Coastline
+run will supply the required Rust and binding checks before the next push; exact-head GitHub CI
+also covers the Windows installer and real-app end-to-end checks. No desktop Docker, production
+release, or live provider task is part of this validation.

@@ -40,7 +40,9 @@ Plenipo's security promises, in plain words — a way around any of these is a v
   from the record.
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used.
-- Workers never type passwords or secrets, and never get past a CAPTCHA.
+- Workers never type passwords or secrets. CAPTCHA handling depends on the browser policy and
+  can include automated attempts before owner handoff; it is not an unconditional block on
+  automation. This describes current behavior, not a guarantee that a website permits it.
 - Sending, buying, and signing in ask for approval by default. The owner can explicitly enable
   the corresponding **without asking** switches for allowed websites. Other permission and
   Guard checks still apply; these switches are off by default.
