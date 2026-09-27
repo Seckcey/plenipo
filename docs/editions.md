@@ -3,7 +3,7 @@
 Plenipo is one app and one public codebase. A license key decides how far it scales and which
 business departments you can create.
 
-> **Status:** this page is the plan, not what ships today. Releases up to v1.5.0 have no license
+> **Status:** this page is the plan, not what ships today. Releases up to v1.6.0 have no license
 > check and no limits — everything is unlocked. The Free and Pro split arrives in a coming release
 > ([ADR-021](adr/ADR-021-editions-and-license.md), Free and Pro editions under the Elastic
 > License, and [ADR-022](adr/ADR-022-subscription-and-license-check.md), subscription pricing

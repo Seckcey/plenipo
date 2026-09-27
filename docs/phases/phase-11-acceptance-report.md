@@ -6,7 +6,7 @@
 | **Branch**   | `claude/phase-11` ([PR #28](https://github.com/Seckcey/plenipo/pull/28))                                                                                                                                                                        |
 | **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the full `pnpm e2e` against the release build. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see the PR.                                            |
 | **Date**     | 2026-09-27                                                                                                                                                                                                                                      |
-| **Result**   | Both acceptance criteria and all nine Phase 11 tests pass against a synthetic SSH server on `127.0.0.1`, stand-ins for the AI tools, and no internet; the owner's rules hold. Version **1.5.0**. The owner's Windows check is in the checklist. |
+| **Result**   | Both acceptance criteria and all nine Phase 11 tests pass against a synthetic SSH server on `127.0.0.1`, stand-ins for the AI tools, and no internet; the owner's rules hold. Version **1.6.0**. The owner's Windows check is in the checklist. |
 
 Screenshots (from the end-to-end run in the real app):
 
@@ -25,8 +25,8 @@ end-to-end** against the real release binary (6 Phase 1 + 6 Phase 2 + 9 Phase 3 
 Phase 5 + 5 Phase 6 + 4 Phase 7 + 4 Phase 8 + 6 Phase 10 + 3 switches and learning + 5 Phase
 11).
 
-The screenshots were taken from the release build made just before the version was set to
-1.5.0, so the corner shows v1.4.0; nothing else changed between them.
+The screenshots were taken from the release build made just before the version number was set,
+so the corner shows v1.4.0; nothing else changed between them.
 
 On screen the plan's hosts are **servers** (or **remote computers**), the host registry is
 **Settings → Servers**, a host key fingerprint is the **server ID**, environments are **Test**,
@@ -166,4 +166,4 @@ GitHub CI runs the same, plus the Windows job (tests, installer, and the launch 
 
 ## 10. Phase boundary
 
-Phase 11 adds no Ledger migration (the latest is still 7). The next phase starts from v1.5.0.
+Phase 11 adds no Ledger migration (the latest is still 7). The next phase starts from v1.6.0.

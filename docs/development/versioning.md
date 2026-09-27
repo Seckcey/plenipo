@@ -45,7 +45,7 @@ After the MVP:
 | Ollama's cloud models join the AI tools (ADR-017)                  | `1.2.0` |
 | Phase 10 — Browser automation and computer use (Phase 9 postponed) | `1.3.0` |
 | Switches in Settings and workers learning (ADR-023, ADR-024)       | `1.4.0` |
-| Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.5.0` |
+| Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.6.0` |
 
 ## Releasing
 

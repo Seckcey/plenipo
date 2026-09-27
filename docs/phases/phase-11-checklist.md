@@ -153,7 +153,7 @@ production steps carefully and deny anything you are not sure about.
 **Never** paste a key, password, or passphrase into a chat, an objective, or an email. They go
 only into Plenipo's Settings.
 
-1. **Install v1.5.0** and open Plenipo. **AI tools**: Claude Code is **Ready**.
+1. **Install v1.6.0** and open Plenipo. **AI tools**: Claude Code is **Ready**.
 2. **Settings → Servers** says "Remote computers (SSH) are switched off". Then **Add a
    server:**
    - **Name** `Staging`, the **Address**, the **Port** (usually 22), and **Sign in as**.
