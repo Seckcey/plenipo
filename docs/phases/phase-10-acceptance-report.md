@@ -127,15 +127,16 @@ All earlier phases' tests pass.
 
 ## 5. Defects found and fixed during Phase 10
 
-| Found by          | Problem                                                                                                            | Fix                                                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Integration tests | Reading the page hung while the browser held a page load waiting for the owner.                                    | Page reads have a short time limit while requests are held, and the page's "worker is acting" flag expires by itself.               |
-| Integration tests | After a click that opened a new page, Plenipo waited out the whole page-load limit before answering.               | It now tracks page loads and stops waiting when the new page has loaded.                                                            |
-| Unit tests        | On an upgrade, any other settings change wrote the website lists back empty before they were added.                | The website lists are added first.                                                                                                  |
-| E2E screenshots   | Two updates could reach the sign in the wrong order, so after **Stop** it could still show the worker as active.   | Updates carry a revision, are told in order, and the app ignores an older one; the tray and desktop window always apply the newest. |
-| E2E screenshots   | After **Take over**, the sign vanished as soon as the worker's step ended.                                         | It stays, saying you have control, until you press **Dismiss**.                                                                     |
-| E2E screenshots   | The Activity trail showed each screenshot's file path as a separate line.                                          | Left out: the picture shows with its action (the Ledger keeps both).                                                                |
-| Word check        | The permission set was named "Computer use", the tray said "runtimes", and one Activity event showed its raw name. | "Screen, mouse, and keyboard"; "programs"; plain words for `guard.sets_updated`.                                                    |
+| Found by                    | Problem                                                                                                                                    | Fix                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Integration tests           | Reading the page hung while the browser held a page load waiting for the owner.                                                            | Page reads have a short time limit while requests are held, and the page's "worker is acting" flag expires by itself.                     |
+| Integration tests           | After a click that opened a new page, Plenipo waited out the whole page-load limit before answering.                                       | It now tracks page loads and stops waiting when the new page has loaded.                                                                  |
+| Unit tests                  | On an upgrade, any other settings change wrote the website lists back empty before they were added.                                        | The website lists are added first.                                                                                                        |
+| E2E screenshots             | Two updates could reach the sign in the wrong order, so after **Stop** it could still show the worker as active.                           | Updates carry a revision, are told in order, and the app ignores an older one; the tray and desktop window always apply the newest.       |
+| E2E screenshots             | After **Take over**, the sign vanished as soon as the worker's step ended.                                                                 | It stays, saying you have control, until you press **Dismiss**.                                                                           |
+| E2E screenshots             | The Activity trail showed each screenshot's file path as a separate line.                                                                  | Left out: the picture shows with its action (the Ledger keeps both).                                                                      |
+| Word check                  | The permission set was named "Computer use", the tray said "runtimes", and one Activity event showed its raw name.                         | "Screen, mouse, and keyboard"; "programs"; plain words for `guard.sets_updated`.                                                          |
+| Merging main (Grok, Ollama) | A worker on Ollama, which cannot use Plenipo's tools, was told the wrong reason for having none (for example "the project has no folder"). | It is told that its AI tool cannot use Plenipo's tools, and where to choose another (`a_worker_on_an_ai_tool_without_tools_is_told_why`). |
 
 ## 6. Deliverables
 
@@ -172,7 +173,8 @@ All earlier phases' tests pass.
   - Another program running as the owner could reach the browser's control port while it runs.
   - The owner's keyboard is not noticed on the desktop.
   - Screenshots cannot be blurred.
-  - Whether Codex passes screenshots to its model is unverified.
+  - Whether Codex and Grok pass screenshots to their models is unverified.
+  - Ollama cannot use Plenipo's tools, so a worker on Ollama has no browser (it is told why).
 - **Website terms of use — owner's risk.**
   - Many websites forbid automated access in their terms, and acting through Plenipo's
     browser is acting under the owner's name. Breaking them can get the owner's account

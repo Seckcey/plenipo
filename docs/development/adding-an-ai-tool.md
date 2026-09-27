@@ -353,7 +353,7 @@ That is all the registration there is. The following pick the tool up on their o
 ## 10. Setup guide and screen text
 
 - **Setup guide.** Add a row to the table in
-  [`setup.md` §3](setup.md#3-ai-tools-claude-code-codex-and-grok-optional) with the official
+  [`setup.md` §3](setup.md#3-ai-tools-claude-code-codex-grok-and-ollama-optional) with the official
   install command and the subscription sign-in command. Add notes for anything the owner needs:
   the Windows build Plenipo runs, and what workers can do. Use plain words.
 - **Screen text that names the AI tools.** Today these still say "Claude Code and Codex". The

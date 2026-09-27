@@ -154,6 +154,7 @@ test website, **httpbin.org**. It exists for testing web requests: its pizza ord
 nothing, and only shows back what it received.
 
 1. **Install v1.3.0** and open Plenipo. **AI tools**: Claude Code and Codex are both **Ready**.
+   (Grok works too. Ollama cannot use Plenipo's tools, so it cannot run the Web Assistant.)
 2. **Settings → Permissions → Websites**:
    - The warning about websites' terms is shown, and LinkedIn, Facebook, Instagram, X, TikTok,
      and Amazon are on the Blocked list.

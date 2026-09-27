@@ -1181,6 +1181,43 @@ async fn a_project_without_a_folder_gives_no_file_tools_and_says_so() {
         .contains("the Website project has no folder"));
 }
 
+/// A worker whose AI tool cannot use Plenipo's tools (Ollama) is told that, not some other
+/// reason: its role has permissions and its project a folder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_worker_on_an_ai_tool_without_tools_is_told_why() {
+    use plenipo_runtime::agent::{StepInfo, ToolProvider};
+    let h = harness().await;
+    let task = h.objective("Say hello.").await;
+    h.finished(&task).await;
+    let overview = h.rt.overview().await.unwrap();
+    let session = overview
+        .sessions
+        .iter()
+        .find(|s| !s.metadata["workforce"].is_null())
+        .expect("the supervisor's conversation");
+    let note = |ai_tool: &'static str, takes_tools: bool| {
+        ToolProvider::note_without_tools(
+            &h.broker,
+            &StepInfo {
+                session,
+                task_id: &task,
+                step: 1,
+                ai_tool,
+                takes_tools,
+            },
+        )
+        .unwrap()
+    };
+    let ollama = note("Ollama", false);
+    assert!(
+        ollama.contains("you run on Ollama, which cannot use Plenipo's tools"),
+        "{ollama}"
+    );
+    assert!(!ollama.contains("no folder"), "{ollama}");
+    // With an AI tool that takes tools, the reason is about the settings instead.
+    assert!(!note("Claude Code", true).contains("cannot use Plenipo's tools"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn approvals_left_waiting_expire_when_plenipo_starts_again_and_tickets_are_single_use() {
     let h = harness().await;

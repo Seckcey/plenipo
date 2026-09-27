@@ -188,8 +188,11 @@ separate.
   or **Stop**.
 - **Screenshots cannot be blurred.** They show whatever was on the page or screen, and stay in
   Plenipo's data folder on this computer.
-- **Images for Codex are unverified.** Whether Codex passes MCP images to its model is not yet
-  checked with the real tool. Every screenshot comes with a description in words.
+- **Images for Codex and Grok are unverified.** Whether Codex and Grok pass MCP images to their
+  models is not yet checked with the real tools. Every screenshot comes with a description in
+  words.
+- **Ollama cannot use Plenipo's tools** (ADR-017), so a worker on Ollama has no browser. It is
+  told so, with the reason, and the owner can pick another AI tool for its role.
 - **Terms of use:** many websites forbid automated use in their terms, and Plenipo cannot
   judge a site's terms. The starting blocked list is not complete; the owner must check each
   site before allowing it. Google and Bing forbid automated searches, so searching should use

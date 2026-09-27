@@ -48,6 +48,10 @@ pub struct StepInfo<'a> {
     pub session: &'a AgentSession,
     pub task_id: &'a str,
     pub step: u32,
+    /// The AI tool the step runs on ("Claude Code").
+    pub ai_tool: &'a str,
+    /// Whether that AI tool can use Plenipo's tools at all (Ollama cannot).
+    pub takes_tools: bool,
 }
 
 /// Gives turn steps Plenipo's tools (the capability broker).

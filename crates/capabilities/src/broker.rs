@@ -1992,6 +1992,12 @@ impl ToolProvider for Broker {
                 "the {} role has no permissions in the owner's settings",
                 scope.role_name
             )
+        } else if !step.takes_tools {
+            format!(
+                "you run on {}, which cannot use Plenipo's tools; the owner can choose another AI \
+                 tool for the {} role in Settings → AI models",
+                step.ai_tool, scope.role_name
+            )
         } else {
             match &scope.project {
                 Some(p) if p.folder.is_none() => format!("the {} project has no folder", p.name),
