@@ -35,7 +35,10 @@ test("production build includes every local asset and valid internal destination
       assert.deepEqual(content, source, `Build changed the contents of ${file}`);
     }
     const release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
-    assert.equal(release.version, "1.3.0");
+    assert.match(release.version, /^\d+\.\d+\.\d+$/);
+    const visibleVersions = [...html.matchAll(/data-version>v([^<]+)</g)];
+    assert.equal(visibleVersions.length, 2);
+    assert.ok(visibleVersions.every((match) => match[1] === release.version));
     assert.equal(release.architecture, "x64");
     const downloads = [...html.matchAll(/data-download\s+href="([^"]+)"/g)];
     assert.equal(downloads.length, 2);

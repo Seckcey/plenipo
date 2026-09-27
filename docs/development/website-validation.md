@@ -22,6 +22,11 @@ Container checks ran on Coastline in isolated task directories; no desktop Docke
 - A stale stylesheet observed during iteration led to content-derived CSS/JS query hashes in
   the build. Tests verify those hashes and every local destination/asset. Final focused tests,
   lint and formatting passed after the visual fixes.
+- Release freshness: the published Windows installer changed to v1.4.0 during review. Both
+  download links, visible versions, structured metadata, and generated release metadata now agree;
+  the v1.4.0 installer resolved to HTTP 200. Focused website tests, lint, formatting, container
+  health, and browser version/download/FAQ checks passed after this update. Approval wording
+  reflects the release's optional settings, which start off, for allowed websites.
 
 The Rust validation container was capped at 2 GiB/2 CPUs with one compilation job; frontend checks
 ran in a 1 GiB container. Both were removed after checks. The separate temporary website preview
