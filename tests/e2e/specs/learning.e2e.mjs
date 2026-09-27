@@ -17,6 +17,8 @@ import {
   nav,
   screenshot as save,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -112,8 +114,8 @@ describe("v1.4 Switches and learning (real app, fake CLIs)", () => {
 
   it("Settings → Switches: starting states, and a switch stays as set", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
-    await nav(browser, "Settings");
+    await waitForShell(browser);
+    await openSettings(browser, "Switches");
     await waitUntil(() => exists(browser, "#switches-features"), "the Switches section");
     assert.equal(await switchState(browser, "Plenipo's browser"), "true");
     assert.equal(await switchState(browser, "Screen, mouse, and keyboard"), "false");

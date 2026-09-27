@@ -213,6 +213,37 @@ export async function nav(browser, label) {
   await (await browser.$(`//nav//button[.//span[normalize-space()="${label}"]]`)).click();
 }
 
+/** The app has drawn its frame: the left strip, with Plenipo's logo at its top. */
+export const waitForShell = (browser, timeoutMs) =>
+  waitUntil(
+    () =>
+      browser.execute(
+        () =>
+          document.querySelector(
+            'nav[aria-label="Main"] .ui-rail__brand [aria-label="Plenipo"]',
+          ) !== null,
+      ),
+    "Plenipo's frame",
+    timeoutMs,
+  );
+
+/**
+ * Open a section of Settings (Phase 12: one section at a time, from the list on the left), e.g.
+ * "Servers", "Permissions", "AI models", "Switches", "Personalization".
+ */
+export async function openSettings(browser, section) {
+  await nav(browser, "Settings");
+  const tab = await browser.$(
+    `//div[@role="tablist" and @aria-label="Settings sections"]//button[@role="tab"][normalize-space()="${section}"]`,
+  );
+  await tab.waitForClickable({ timeout: 10_000 });
+  await tab.click();
+  await waitUntil(
+    async () => (await tab.getAttribute("aria-selected")) === "true",
+    `Settings → ${section}`,
+  );
+}
+
 export async function clickButton(browser, label) {
   const button = await browser.$(
     `//button[normalize-space()="${label}" or @aria-label="${label}"]`,

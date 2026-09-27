@@ -18,6 +18,8 @@ import {
   nav,
   screenshot as save,
   waitUntil,
+  openSettings,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -321,7 +323,7 @@ describe("Phase 12A: design system (real app)", () => {
 
   it("frames every page: names under the icons, the page title, the bell, dark by default", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     assert.equal(await theme(browser), "dark");
     const labels = await browser.execute(() =>
       [...document.querySelectorAll('nav[aria-label="Main"] .ui-rail__label')].map((l) => ({
@@ -332,6 +334,7 @@ describe("Phase 12A: design system (real app)", () => {
     assert.deepEqual(
       labels.map((l) => l.text),
       [
+        "Home",
         "Organization",
         "Projects",
         "Workers",
@@ -353,7 +356,9 @@ describe("Phase 12A: design system (real app)", () => {
         .map((l) => l.textContent),
     );
     assert.deepEqual(clipped, []);
-    assert.equal(await textOf(browser, ".ui-topbar__title"), "Organization");
+    // Plenipo opens on Home, where Pip greets the owner.
+    assert.equal(await textOf(browser, ".ui-topbar__title"), "Home");
+    await waitUntil(() => exists(browser, ".ui-hero [data-pip]"), "Pip on Home");
     assert.ok(
       await exists(
         browser,
@@ -382,7 +387,7 @@ describe("Phase 12A: design system (real app)", () => {
     app = await launch(home, env);
     browser = app.browser;
     await browser.setWindowSize(1440, 960);
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     assert.equal(await theme(browser), "light", "the theme is remembered");
     await setTheme(browser, "dark");
   });
@@ -470,7 +475,7 @@ describe("Phase 12A: design system (real app)", () => {
     await waitUntil(
       async () => {
         last = await focus();
-        return last.label === "Organization" && last.visible && last.outline ? last : null;
+        return last.label === "Home" && last.visible && last.outline ? last : null;
       },
       "keyboard focus with its outline on the strip's first section",
       3000,
@@ -478,7 +483,7 @@ describe("Phase 12A: design system (real app)", () => {
       throw new Error(`${error.message}; focus was ${JSON.stringify(last)}`);
     });
     await browser.keys("Tab");
-    assert.equal((await focus()).label, "Projects");
+    assert.equal((await focus()).label, "Organization");
 
     // The filters: type in the search box and the 5,000 rows narrow down.
     await browser.execute(() =>
@@ -718,18 +723,122 @@ describe("Phase 12A: design system (real app)", () => {
       await exists(browser, '[data-gallery="live-cards"] article[aria-label^="Operations,"]'),
       "the department has a card too",
     );
-    // The top bar's picker lists them, and opens the project.
+    // The top bar's picker lists them, and opens the project's page.
     const picker = await browser.$('select[aria-label="Showing"], .ui-scope select');
     await picker.selectByVisibleText("Shop");
-    await waitForText(browser, ".ui-topbar__title", "Projects");
+    await waitForText(browser, ".ui-topbar__title", "Project · Shop");
     await openGallery(browser);
     await showSection(browser, "g-live");
     await screenshot(browser, "live-cards");
   });
 
+  it("opens Home and the pages of a department, project, worker, and task, with Back (Phase 12)", async () => {
+    const { browser } = app;
+    await nav(browser, "Home");
+    const home = ".page--home";
+    // The objective the Shop Supervisor finished, with its answer.
+    await waitForText(
+      browser,
+      `${home} [aria-label="Just finished"]`,
+      "Order this week's stock.",
+      60_000,
+    );
+    await waitForText(browser, `${home} [aria-label="Just finished"]`, "Ordered the week's stock.");
+    await waitUntil(
+      () => exists(browser, `${home} article[aria-label^="Operations,"]`),
+      "the Operations card",
+    );
+    await screenshot(browser, "home-dark");
+    await (await browser.$(`${home} article[aria-label^="Operations,"] .ui-card__open`)).click();
+    await waitForText(browser, ".ui-topbar__title", "Department · Operations");
+    await waitForText(browser, '[aria-label="Projects"]', "Shop");
+    await waitForText(
+      browser,
+      '[aria-label="Operations history"]',
+      "Order this week's stock.",
+      30_000,
+    );
+    await screenshot(browser, "page-department");
+    await (await browser.$('//ul[@aria-label="Projects"]//button[contains(., "Shop")]')).click();
+    await waitForText(browser, ".ui-topbar__title", "Project · Shop");
+    await waitForText(browser, '[aria-label="Objectives"]', "Order this week's stock.");
+    await waitUntil(
+      () => exists(browser, '[aria-label="Task tree"] .ui-map__tile'),
+      "the task tree",
+    );
+    await screenshot(browser, "page-project");
+    // Back returns to the department, and the strip marks the section a page belongs to.
+    await clickButton(browser, "Back");
+    await waitForText(browser, ".ui-topbar__title", "Department · Operations");
+    assert.equal(
+      await (
+        await browser.$('//nav//button[.//span[normalize-space()="Organization"]]')
+      ).getAttribute("aria-current"),
+      "page",
+    );
+    await (await browser.$('//ul[@aria-label="Projects"]//button[contains(., "Shop")]')).click();
+    await waitForText(browser, ".ui-topbar__title", "Project · Shop");
+    await clickButton(browser, "Shop Supervisor");
+    await waitForText(browser, ".ui-topbar__title", "Supervisor · Shop Supervisor");
+    await waitForText(browser, '[aria-label="Recently finished"]', "Order this week's stock.");
+    await screenshot(browser, "page-worker");
+    await (
+      await browser.$(
+        '//ul[@aria-label="Recently finished"]//button[contains(., "Order this week")]',
+      )
+    ).click();
+    await waitForText(browser, ".ui-topbar__title", "Task");
+    await waitForText(browser, ".ui-page-head", "Objective");
+    await waitUntil(
+      () => exists(browser, '[aria-label="Delegation tree"] .ui-map__tile'),
+      "the delegation tree",
+    );
+    await waitForText(browser, '[aria-label="Result"]', "Ordered the week's stock.", 30_000);
+    await screenshot(browser, "page-task");
+    // The place comes back after a restart (checked in the unit tests); Back walks the trail.
+    await clickButton(browser, "Back");
+    await waitForText(browser, ".ui-topbar__title", "Supervisor · Shop Supervisor");
+  });
+
+  it("Settings is one tidy place: sections on the left, notices, the terminal's shell, and About", async () => {
+    const { browser } = app;
+    await openSettings(browser, "Notifications");
+    await waitUntil(
+      () => exists(browser, 'button[role="switch"][aria-label="Finished work"]'),
+      "the notice choices",
+    );
+    await clickButton(browser, "Send a test notice");
+    // A computer without a notice service (the test display) says so plainly.
+    await waitUntil(
+      async () =>
+        /^Sent\.|did not show the notice/.test(
+          await browser.execute(
+            () =>
+              document.querySelector(".settings-notices__test [role]")?.textContent?.trim() ?? "",
+          ),
+        ),
+      "an answer from the test notice",
+      15_000,
+    );
+    await screenshot(browser, "settings-notifications");
+    await openSettings(browser, "Terminal");
+    await waitUntil(() => exists(browser, 'input[name="terminal-shell"]'), "the shell choices");
+    await screenshot(browser, "settings-terminal");
+    await openSettings(browser, "Local paths");
+    await waitForText(browser, ".settings-layout__panel", "Everything that happened (the Ledger)");
+    await screenshot(browser, "settings-local-paths");
+    await openSettings(browser, "About Plenipo");
+    await waitUntil(() => exists(browser, ".settings-about [data-pip]"), "Pip on About");
+    await screenshot(browser, "settings-about");
+    // Settings → Servers is where it was, the same as before.
+    await openSettings(browser, "Servers");
+    await waitUntil(() => exists(browser, "#servers-title"), "the Servers section");
+  });
+
   it("shows every page in both themes, with no errors", async () => {
     const { browser } = app;
     const pages = [
+      ["Home", "home"],
       ["Organization", "organization"],
       ["Projects", "projects"],
       ["Workers", "workers"],

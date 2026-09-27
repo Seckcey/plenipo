@@ -19,6 +19,7 @@ import {
   textOf,
   waitForText,
   waitUntil,
+  waitForShell,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -96,7 +97,7 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
 
   it("A1: a Codex worker gets a Claude Code review through Liaison and continues with it", async () => {
     const { browser } = app;
-    await waitForText(browser, ".shell__wordmark", "Plenipo");
+    await waitForShell(browser);
     await startTask(browser, "Codex", "Write a parser [handoff:claude-code]", { handoffs: true });
     await waitForText(browser, HEADER, "Handoffs allowed");
 
