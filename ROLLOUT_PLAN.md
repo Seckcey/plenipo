@@ -1088,6 +1088,8 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 # Phase 11 — SSH, Remote Infrastructure, and Operations Capabilities
 
+**Status: delivered in v1.5.0** (checklist and acceptance report in `docs/phases/phase-11-*`). Decisions: ADR-025 (servers over SSH, through Guard), with its deviations: Linux and Unix servers only, a program and its arguments rather than shell lines, **Disconnect** in place of Take over for servers, and no owner terminal or file copying yet; and ADR-026 (SSH built into Plenipo, not Windows' ssh.exe). Servers start switched off (Settings → Switches, ADR-023), and are in the Free edition (ADR-021).
+
 ## Goal
 
 Support Plenipo-managed work on authorized remote hosts such as development servers and infrastructure.

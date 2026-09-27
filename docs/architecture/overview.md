@@ -634,8 +634,8 @@ and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-
 - **Lessons** (`crates/ledger/src/lessons.rs`, migration 7 `lessons`; `crates/workforce/src/learning.rs`):
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300
   characters each) and records them for the worker's role, waiting or kept (`lesson.added`).
-  Lessons from a task that used the browser or the screen (itself or any task handed on from it)
-  always wait. The owner keeps (optionally edited), discards, or removes them (`lesson.kept`,
+  Lessons from a task that used the browser, the screen, or (Phase 11) a server (itself or any
+  task handed on from it: `task_used_web_screen_or_servers`) always wait. The owner keeps (optionally edited), discards, or removes them (`lesson.kept`,
   `lesson.discarded`, `lesson.removed`). Each worker's instructions (`directory.rs`) carry its
   role's newest 20 kept lessons and how to write one, unless learning is off (Ledger setting
   `learning`, events `learning.switched` and `learning.role_changed`).
@@ -681,6 +681,12 @@ and [ADR-026 (SSH built into Plenipo, not Windows' ssh.exe)](../adr/ADR-026-ssh-
 - **Control.** Each grant's servers are one control session (`server:<grant>`, with a
   `production` flag). The sign, footer, and tray name the worker and server; **Disconnect** stops
   its commands and closes its connections; **Stop all** covers servers.
+- **The switch** (`Switches.servers`, ADR-023): **Remote computers (SSH)**, off to start. Off,
+  `switched_off` blocks `ssh.connect` for every role (layer: rule), and `set_switches` stops
+  every server session (`switch_off_control(ControlKind::Server)`). `ServersSnapshot.switchedOn`
+  lets Settings → Servers say so.
+- **Lessons** (ADR-024): a task that used a server counts as outside content, so its lessons
+  always wait for the owner.
 - **Events:** `ssh.connected`, `ssh.connect_failed`, `ssh.host_key_changed`,
   `ssh.identity_checked`, `ssh.tested`, `ssh.command_started`, `ssh.output`,
   `ssh.command_finished`, `ssh.forward_opened`, `ssh.forward_closed`, `ssh.disconnected`,

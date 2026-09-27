@@ -249,7 +249,24 @@ the server's information, never as instructions.
   over, so the worker stops and disconnects. The owner continues in their own SSH program.
 - **No terminal for the owner** inside Plenipo, and no file copy tools (SFTP) in this phase.
 
-### 12. Free and Pro
+### 12. The switch, and lessons (v1.4.0)
+
+- **Remote computers (SSH)** is a switch in Settings → Switches, under
+  [ADR-023 (on/off switches in Settings)](ADR-023-settings-switches.md). **It starts off.**
+  - Off: Connect to servers is Blocked for every role, whatever its permission set or the
+    server's settings. A worker whose only permission it is gets no tools, and the Activity
+    trail says why.
+  - Switching it off disconnects every worker using a server at once, as **Disconnect** does,
+    and refuses what they were waiting for. It is not the emergency stop: nothing else stops.
+  - Settings → Servers says so while it is off. The owner can still add, check, and test
+    servers.
+- **Lessons** ([ADR-024, workers learn from their work](ADR-024-workers-learn-from-work.md)):
+  what a server prints is outside content, like a website or the screen. A lesson from a task
+  that ran commands on a server (itself, or any task it handed work to) **always waits for the
+  owner**, even for a role set to learn on its own, and is marked "From a task that used
+  websites or servers".
+
+### 13. Free and Pro
 
 Working on servers is in the **Free** edition, like Plenipo's browser and the screen, mouse, and
 keyboard. This is the owner's decision (2026-09-27), recorded in `docs/editions.md` under ADR-021

@@ -196,7 +196,10 @@ skipped locally and fail in CI.
 
 Workers whose role may **Connect to servers** (the **Operations Engineer**, or a role you give
 the **Servers** permission set) run commands on the Linux servers you add in **Settings →
-Servers**. Nothing to install: Plenipo has its own SSH client.
+Servers**. Nothing to install: Plenipo has its own SSH client (ADR-026).
+
+- **Turn it on:** **Settings → Switches → Remote computers (SSH)** starts off. Off, no worker
+  connects to any server; turning it off again disconnects any worker using one.
 
 - **Add a server:** its name, address, port, the user to sign in as, and whether it is
   test, staging, or production. Then **Check the server ID**, compare the

@@ -86,7 +86,8 @@ Full power, clearly bounded. That is the whole idea.
   restart a service, or deploy — only on the servers you add in **Settings → Servers**, and only
   after you have checked and pinned each server's ID. Keys and passwords stay in the Windows
   Credential Manager or your SSH agent. On a **production** server every command waits for you,
-  and deleting, wiping, or shutting down is off unless you turn it on.
+  and deleting, wiping, or shutting down is off unless you turn it on. It starts switched off
+  (**Settings → Switches → Remote computers (SSH)**).
 - **Writes everything down.** Every task, who did it on which AI model, files changed, tests and
   whether they passed, the review and its open findings, the branch and pull request, and every
   approval — in a local record you own.
@@ -189,6 +190,9 @@ shutting down is off unless you turn it on. Workers never reach other computers 
 A sign on every page shows who is connected to which server, with **Disconnect** and **Stop all**,
 and every command and its output are in the Activity trail. The new **Operations Engineer** role
 does this work.
+
+It starts off: turn on **Settings → Switches → Remote computers (SSH)** when you are ready.
+Lessons from a task that used a server always wait for you. Servers are in the Free edition.
 
 [Release notes](docs/releases/v1.5.0.md) · [ADR-025](docs/adr/ADR-025-servers-over-ssh.md)
 (servers over SSH, through Guard) · [ADR-026](docs/adr/ADR-026-ssh-built-in.md) (SSH built into
