@@ -37,7 +37,7 @@ Screenshots (from the end-to-end run in the real app):
   Diagnostics ([dark](evidence/phase-12a/page-diagnostics-dark.png),
   [light](evidence/phase-12a/page-diagnostics-light.png)).
 
-Test totals: see section 5.
+Test totals: **762 Rust** · **376 frontend** (201 design system + 175 app) · **68 end to end** against the real release binary (section 5).
 
 On screen the plan's words become plain ones ([word list](../design/vocabulary.md)): the scope
 selector is **Showing**, the notification badge is the **bell**, banners are **notices**, the
@@ -89,7 +89,14 @@ choice surviving a restart in the real app.
 
 ## 5. Test totals
 
-To be filled in with the final run.
+- **762 Rust** tests (Linux), including 7 new Ledger activity tests and the `get_activity` IPC
+  check.
+- **376 frontend** tests: **201** in the design system (`packages/ui`: 137 contrast checks,
+  tokens, status, activity, cards, table, filters, the detail view and map, the frame, controls,
+  and the Gallery) and **175** in the app (5 new for the frame and the Gallery).
+- **68 end to end** against the real release binary, in 12 groups: 6 Phase 1, 6 Phase 2, 10
+  Phase 3, 5 Phase 4, 5 Phase 5, 5 Phase 6, 4 Phase 7, 4 Phase 8, 6 Phase 10, 3 switches and
+  learning, 5 Phase 11, and **9 Phase 12A**.
 
 ## 6. Notes
 
