@@ -141,16 +141,19 @@ Coming with the next release. If you are running Plenipo already,
 
 ## Free and Pro
 
-| Edition  | What you get                                                                                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature.                     |
-| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it — and workers that learn from their work. |
+| Edition  | Price                                          | What you get                                                                                                                                                 |
+| -------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Free** | Free, no card, no account                      | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature.                     |
+| **Pro**  | **$9/month**, or **$99/year** — one month free | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it — and workers that learn from their work. |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
 > Releases up to v1.5.0 have no limits at all — everything is unlocked while the split is being
-> built.
+> built. When it ships, a Pro copy will check its subscription with 8 West about once a week,
+> sending only a license key id and a version number. A Free copy never checks in at all, and your
+> work never leaves your PC either way —
+> [ADR-022](docs/adr/ADR-022-subscription-and-license-check.md).
 
 ## Quick start
 
@@ -402,8 +405,8 @@ Further crates from the plan are added when the phase that needs them begins —
 ## Roadmap
 
 Plenipo follows [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md), phase by phase, each with a checklist and an
-acceptance report in [`docs/phases/`](docs/phases/). Next up: the Free and Pro split
-([ADR-021](docs/adr/ADR-021-editions-and-license.md)), then the Sales department on HubSpot
+acceptance report in [`docs/phases/`](docs/phases/). Next up: **Phase 11A**, the Free and Pro
+split and the license key ([ADR-021](docs/adr/ADR-021-editions-and-license.md)), then the Sales department on HubSpot
 ([ADR-018](docs/adr/ADR-018-sales-on-hubspot-no-paperclip.md)).
 
 Have an opinion on what should come next?
