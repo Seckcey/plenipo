@@ -57,6 +57,14 @@ commands ask every time. Review your permissions before delegating, and use **St
 **Take over** when needed. See [the security policy](../SECURITY.md) and the
 [v1.6.0 release notes](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0) for known limits.
 
+## Can Plenipo handle CAPTCHAs?
+
+Plenipo can handle some CAPTCHAs automatically and can hand checks to you. Results depend on
+the website, the installed version, and browser settings. This area is actively evolving; use
+the [release notes](https://github.com/Seckcey/plenipo/releases) to check what your version includes.
+Development improvements are not available in a downloaded installer until that release is
+published. No universal success rate is claimed.
+
 ## Where can I get help or suggest a feature?
 
 Use [Discussions](https://github.com/Seckcey/plenipo/discussions) for questions and ideas, and
