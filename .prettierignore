@@ -8,3 +8,5 @@ packages/types/src/generated/
 ROLLOUT_PLAN.md
 packages/ui/src/generated/
 tests/e2e/snapshots/
+# The owner's approved brand kit, kept exactly as delivered (its manifest has checksums).
+docs/brand/pip-brand-kit/

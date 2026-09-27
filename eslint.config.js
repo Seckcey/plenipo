@@ -17,6 +17,8 @@ export default tseslint.config(
       "**/coverage/**",
       "apps/desktop/src-tauri/**",
       "packages/types/src/generated/**",
+      // The owner's approved brand kit, kept exactly as delivered.
+      "docs/brand/pip-brand-kit/**",
     ],
   },
   js.configs.recommended,

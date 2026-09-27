@@ -2,3 +2,5 @@
 *.png binary
 *.ico binary
 *.icns binary
+# The owner's approved brand kit, kept byte for byte (its manifest lists checksums).
+docs/brand/pip-brand-kit/** -text -diff

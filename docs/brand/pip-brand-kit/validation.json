@@ -1,0 +1,919 @@
+{
+  "checkedAt": "2026-09-27T11:51:12.197757+00:00",
+  "productionCounts": {
+    "mascotPng": 15,
+    "logoPng": 4,
+    "logoHybridSvg": 4,
+    "faviconPng": 8,
+    "faviconVectorSvg": 2,
+    "faviconIco": 2
+  },
+  "pngChecks": [
+    {
+      "file": "mascots/pip-01-coding.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        0,
+        7,
+        1232,
+        1254
+      ],
+      "visibleBoundsAtAlpha8": [
+        277,
+        28,
+        1058,
+        1238
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.699095
+    },
+    {
+      "file": "mascots/pip-02-welcome.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        41,
+        17,
+        1200,
+        1230
+      ],
+      "visibleBoundsAtAlpha8": [
+        237,
+        22,
+        936,
+        1220
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.724635
+    },
+    {
+      "file": "mascots/pip-03-presenting.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        49,
+        32,
+        1200,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        271,
+        35,
+        1086,
+        1235
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.73986
+    },
+    {
+      "file": "mascots/pip-04-thinking.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        49,
+        17,
+        1218,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        304,
+        22,
+        897,
+        1233
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.761215
+    },
+    {
+      "file": "mascots/pip-05-celebrating.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        39,
+        22,
+        1234,
+        1241
+      ],
+      "visibleBoundsAtAlpha8": [
+        167,
+        23,
+        1082,
+        1237
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.713963
+    },
+    {
+      "file": "mascots/pip-06-quality-check.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        49,
+        17,
+        1200,
+        1230
+      ],
+      "visibleBoundsAtAlpha8": [
+        283,
+        21,
+        972,
+        1219
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.707587
+    },
+    {
+      "file": "mascots/pip-07-security.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        41,
+        21,
+        1200,
+        1234
+      ],
+      "visibleBoundsAtAlpha8": [
+        273,
+        27,
+        1033,
+        1225
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.679226
+    },
+    {
+      "file": "mascots/pip-08-planning.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        41,
+        21,
+        1200,
+        1228
+      ],
+      "visibleBoundsAtAlpha8": [
+        290,
+        25,
+        954,
+        1225
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.719688
+    },
+    {
+      "file": "mascots/pip-09-analytics.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        49,
+        21,
+        1198,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        275,
+        25,
+        1044,
+        1235
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.707291
+    },
+    {
+      "file": "mascots/pip-10-teamwork.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        0,
+        21,
+        1218,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        291,
+        26,
+        918,
+        1232
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.726417
+    },
+    {
+      "file": "mascots/pip-11-launch.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        0,
+        21,
+        1158,
+        1236
+      ],
+      "visibleBoundsAtAlpha8": [
+        173,
+        36,
+        1073,
+        1228
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.680145
+    },
+    {
+      "file": "mascots/pip-12-maintenance.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        105,
+        21,
+        1196,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        170,
+        36,
+        1047,
+        1232
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.699868
+    },
+    {
+      "file": "mascots/pip-13-learning.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        39,
+        39,
+        1206,
+        1227
+      ],
+      "visibleBoundsAtAlpha8": [
+        269,
+        48,
+        951,
+        1216
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.67223
+    },
+    {
+      "file": "mascots/pip-14-support.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        39,
+        20,
+        1224,
+        1238
+      ],
+      "visibleBoundsAtAlpha8": [
+        259,
+        24,
+        1050,
+        1234
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.728136
+    },
+    {
+      "file": "mascots/pip-15-recharging.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        0,
+        51,
+        1230,
+        1222
+      ],
+      "visibleBoundsAtAlpha8": [
+        216,
+        54,
+        1105,
+        1198
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.667573
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-dark.png",
+      "width": 3000,
+      "height": 1194,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        112,
+        120,
+        2887,
+        1079
+      ],
+      "visibleBoundsAtAlpha8": [
+        112,
+        120,
+        2887,
+        1079
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.793251
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-light.png",
+      "width": 3000,
+      "height": 1194,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        112,
+        120,
+        2887,
+        1079
+      ],
+      "visibleBoundsAtAlpha8": [
+        112,
+        120,
+        2887,
+        1079
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.793251
+    },
+    {
+      "file": "logos/plenipo-square-on-dark.png",
+      "width": 2000,
+      "height": 2000,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        450,
+        76,
+        1481,
+        1792
+      ],
+      "visibleBoundsAtAlpha8": [
+        450,
+        88,
+        1413,
+        1792
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.835743
+    },
+    {
+      "file": "logos/plenipo-square-on-light.png",
+      "width": 2000,
+      "height": 2000,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        450,
+        76,
+        1481,
+        1792
+      ],
+      "visibleBoundsAtAlpha8": [
+        450,
+        88,
+        1413,
+        1792
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.835743
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-16.png",
+      "width": 16,
+      "height": 16,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        253
+      ],
+      "rawAlphaBounds": [
+        2,
+        1,
+        14,
+        15
+      ],
+      "visibleBoundsAtAlpha8": [
+        2,
+        1,
+        14,
+        15
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.507812
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-256.png",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        38,
+        21,
+        218,
+        235
+      ],
+      "visibleBoundsAtAlpha8": [
+        38,
+        21,
+        218,
+        235
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.729141
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-32.png",
+      "width": 32,
+      "height": 32,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        4,
+        2,
+        28,
+        30
+      ],
+      "visibleBoundsAtAlpha8": [
+        4,
+        2,
+        28,
+        30
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.613281
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-48.png",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        7,
+        4,
+        41,
+        44
+      ],
+      "visibleBoundsAtAlpha8": [
+        7,
+        4,
+        41,
+        44
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.677517
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-16.png",
+      "width": 16,
+      "height": 16,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        253
+      ],
+      "rawAlphaBounds": [
+        2,
+        1,
+        14,
+        15
+      ],
+      "visibleBoundsAtAlpha8": [
+        2,
+        1,
+        14,
+        15
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.507812
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-256.png",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        38,
+        21,
+        218,
+        235
+      ],
+      "visibleBoundsAtAlpha8": [
+        38,
+        21,
+        218,
+        235
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.729141
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-32.png",
+      "width": 32,
+      "height": 32,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        4,
+        2,
+        28,
+        30
+      ],
+      "visibleBoundsAtAlpha8": [
+        4,
+        2,
+        28,
+        30
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.613281
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-48.png",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA",
+      "alphaRange": [
+        0,
+        255
+      ],
+      "rawAlphaBounds": [
+        7,
+        4,
+        41,
+        44
+      ],
+      "visibleBoundsAtAlpha8": [
+        7,
+        4,
+        41,
+        44
+      ],
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fullyTransparentPixelFraction": 0.677517
+    }
+  ],
+  "svgChecks": [
+    {
+      "file": "logos/plenipo-horizontal-on-dark.svg",
+      "viewBox": "0 0 749 298",
+      "pathCount": 9,
+      "embeddedRasterCount": 1,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": true
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-light.svg",
+      "viewBox": "0 0 749 298",
+      "pathCount": 9,
+      "embeddedRasterCount": 1,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": true
+    },
+    {
+      "file": "logos/plenipo-square-on-dark.svg",
+      "viewBox": "0 0 800 800",
+      "pathCount": 3,
+      "embeddedRasterCount": 1,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": false
+    },
+    {
+      "file": "logos/plenipo-square-on-light.svg",
+      "viewBox": "0 0 800 800",
+      "pathCount": 3,
+      "embeddedRasterCount": 1,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": false
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark.svg",
+      "viewBox": "0 0 100 100",
+      "pathCount": 3,
+      "embeddedRasterCount": 0,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": false
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light.svg",
+      "viewBox": "0 0 100 100",
+      "pathCount": 3,
+      "embeddedRasterCount": 0,
+      "externalDependencies": false,
+      "nativePathGeometryPreserved": true,
+      "outlinedWordmark": false
+    }
+  ],
+  "icoChecks": [
+    {
+      "file": "favicons/plenipo-favicon-on-light.ico",
+      "sizes": [
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          48,
+          48
+        ]
+      ],
+      "exactPngFrames": true
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark.ico",
+      "sizes": [
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          48,
+          48
+        ]
+      ],
+      "exactPngFrames": true
+    }
+  ],
+  "visualQa": {
+    "method": "Actual saved preview PNGs opened with view_image, composed from the exact saved production files.",
+    "files": [
+      "previews/pip-all-15-on-light.png",
+      "previews/pip-all-15-on-dark.png",
+      "previews/plenipo-logo-family.png",
+      "previews/plenipo-favicon-sizes.png"
+    ],
+    "observations": "15 distinct consistent full-body Pip activities; no clipped antennae/feet/props; readable light/dark silhouettes; complete Plenipo wordmark; large initial P and matching blue o; Pip seated on n and square P; no attribution; actual 16/32/48 px favicon review.",
+    "alphaNote": "Original generated alpha preserved, including negligible alpha-1 residual pixels in pose 01. No opaque matte or visible checkerboard. Visible bounds are reported at alpha >= 8."
+  },
+  "scope": {
+    "websiteChanged": false,
+    "appCodeChanged": false,
+    "deployed": false,
+    "runtimeResourcesCreated": false
+  },
+  "preservedWebsiteReview": [
+    {
+      "file": "website.html",
+      "sha256": "c05954d4905acb6f6a55261245b3558d195fc49c851414c289e66d98daacd22d",
+      "unchanged": true
+    },
+    {
+      "file": "refined-website.png",
+      "sha256": "78cfb64b703a42f35ff4c8d64907232f241fc417dc8584760bba7fb620476034",
+      "unchanged": true
+    }
+  ]
+}
