@@ -46,9 +46,11 @@ use crate::worktrees::{self, Git};
 
 mod operate;
 mod servers;
+mod terminals;
 
 use operate::{CallContext, ControlWork, DesktopUse};
 use servers::{Caller, ServerPrep, SshUse, SshWork};
+pub use terminals::{TerminalSink, MAX_TERMINALS, PREFERENCES};
 
 /// Source of Guard's own events.
 const GUARD: &str = "guard";
@@ -250,6 +252,8 @@ struct Inner {
     control: ControlCenter,
     /// Screenshots kept as evidence.
     evidence: Evidence,
+    /// The owner's terminals (Phase 12, ADR-031), apart from every worker's grant.
+    terminals: terminals::Terminals,
 }
 
 /// Cheap to clone; clones share state.
@@ -408,6 +412,7 @@ impl Broker {
                 desktop: RwLock::new(Arc::new(SystemDesktop)),
                 control: ControlCenter::default(),
                 evidence: Evidence::new(config.screenshots_dir.clone()),
+                terminals: terminals::Terminals::default(),
                 config,
             }),
         };
@@ -1242,7 +1247,9 @@ impl Broker {
                 checks: Vec::new(),
             };
             let summary = tool.name.replace('_', " ");
-            return self.deny(grant_id, &task_id, &worker, tool, &summary, "", &decision);
+            return self.deny(
+                grant_id, &task_id, &worker, tool, &summary, "", &decision, None,
+            );
         }
         let at = Where {
             ws: workspace.as_ref(),
@@ -1278,7 +1285,9 @@ impl Broker {
                     sensitive: None,
                     checks: Vec::new(),
                 };
-                return self.deny(grant_id, &task_id, &worker, tool, &r.summary, "", &decision);
+                return self.deny(
+                    grant_id, &task_id, &worker, tool, &r.summary, "", &decision, None,
+                );
             }
         };
         let current = level_for(&config, &scope, prepared.capability);
@@ -1349,6 +1358,7 @@ impl Broker {
                     &prepared.summary,
                     &detail,
                     &decision,
+                    prepared.server.as_ref().map(|s| s.server.name.as_str()),
                 )
             }
             Verdict::Ask => {
@@ -1516,6 +1526,7 @@ impl Broker {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn deny(
         &self,
         grant_id: &str,
@@ -1525,6 +1536,7 @@ impl Broker {
         summary: &str,
         detail: &str,
         decision: &Decision,
+        server: Option<&str>,
     ) -> CallResult {
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.blocked += 1;
@@ -1544,6 +1556,8 @@ impl Broker {
                 "reason": decision.reason,
                 "layer": decision.layer,
                 "checks": decision.checks,
+                // A server command's server, for the worker's watch tab (Phase 12).
+                "server": server,
             }),
             ..NewEvent::default()
         });

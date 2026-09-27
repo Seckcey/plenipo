@@ -13,7 +13,9 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_capabilities::control::{session_id, ControlKind, ControlState};
-use plenipo_capabilities::{ApprovalView, Broker, BrokerConfig, MemorySecretStore};
+use plenipo_capabilities::{
+    ApprovalView, Broker, BrokerConfig, MemorySecretStore, TerminalEvent, TerminalPlace,
+};
 use plenipo_guard::{
     CommandClass, Environment, Guard, HostKeyInput, ServerApproval, ServerInput, SignIn, Switches,
 };
@@ -343,6 +345,8 @@ async fn harness() -> H {
     let dev = Sshd::start(Options {
         seed: 1,
         authorized: vec![client.public_key().clone()],
+        // The owner's terminal gets a shell here (Phase 12); workers never ask for one.
+        shell: true,
         files: [(
             "/srv/app/config.txt".to_owned(),
             format!("db_host=localhost\nshop_login={SHOP_PASSWORD}\n"),
@@ -1609,4 +1613,186 @@ async fn lessons_from_servers_always_wait_for_the_owner() {
     assert!(lesson.from_web, "marked as from outside content");
     assert_eq!(lesson.task_id.as_deref(), Some(task.id.as_str()));
     assert!(learning.kept.is_empty(), "not kept on its own");
+}
+
+/// Plan (Phase 12, ADR-031): a worker cannot send keystrokes to the owner's terminal. While the
+/// owner has a terminal open on the Dev box, an Operations Engineer tries every name a terminal
+/// command could have: each is refused as a tool that does not exist, no AI tool is offered one,
+/// and the server's shell gets nothing from the worker. Workers keep using `ssh_run`, one
+/// command at a time, and never ask for a terminal or a shell.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plan_a_worker_cannot_type_into_the_owners_terminal() {
+    let h = harness().await;
+    let screen = Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = {
+        use base64::Engine as _;
+        let screen = Arc::clone(&screen);
+        Arc::new(move |event: TerminalEvent| {
+            if let TerminalEvent::Output { data } = event {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .unwrap();
+                screen
+                    .lock()
+                    .unwrap()
+                    .push_str(&String::from_utf8_lossy(&bytes));
+            }
+        })
+    };
+    let terminal = h
+        .broker
+        .open_terminal(
+            &TerminalPlace::Server {
+                server_id: h.server_id("Dev box"),
+            },
+            80,
+            24,
+            sink,
+        )
+        .await
+        .unwrap();
+    h.until("the owner's prompt", |_| {
+        screen.lock().unwrap().contains("deploy@synthetic:~$ ")
+    })
+    .await;
+
+    // The worker's AI tool lists Plenipo's tools too.
+    let dir = h.dir.path().join("home").join(".plenipo-fake-agent");
+    let _ = std::fs::remove_dir_all(dir.join("script-used"));
+    let tries = [
+        "write_terminal",
+        "terminal_write",
+        "open_terminal",
+        "resize_terminal",
+        "close_terminal",
+        "ssh_shell",
+        "send_keys",
+    ];
+    let calls: Vec<Value> = tries
+        .iter()
+        .map(|name| {
+            tool(
+                name,
+                json!({ "terminalId": terminal.id, "data": "echo worker-typed\r", "server": "Dev box" }),
+            )
+        })
+        .collect();
+    let script = json!({
+        "Ops Supervisor": [
+            { "handoffs": [{ "to": "role:Operations Engineer", "objective": "Do the server task." }] },
+            { "say": "Done." }
+        ],
+        "Operations Engineer": [{ "tools": calls, "listTools": true, "say": "Tried." }],
+    });
+    std::fs::write(dir.join("script.json"), script.to_string()).unwrap();
+    let root = h.objective().await;
+    let task = h.worker_task(&root, "Operations Engineer").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    for name in tries {
+        let answer = result(&text, name, 0);
+        assert!(
+            answer.contains(&format!("There is no tool named {name}.")),
+            "{answer}"
+        );
+    }
+    let offered = text
+        .lines()
+        .find(|l| l.starts_with("Tools: "))
+        .expect("the tool list");
+    assert!(offered.contains("ssh_run"), "{offered}");
+    assert!(
+        !offered.contains("terminal"),
+        "a terminal tool was offered: {offered}"
+    );
+    for t in plenipo_capabilities::tools::TOOLS {
+        assert!(
+            !t.name.contains("terminal") && !tries.contains(&t.name),
+            "{} is a terminal tool",
+            t.name
+        );
+    }
+
+    // The owner's terminal and the server's shell got nothing from the worker.
+    let seen = h.dev.seen();
+    assert!(seen.shell_lines.is_empty(), "{:?}", seen.shell_lines);
+    assert_eq!((seen.pty, seen.shell), (1, 1), "only the owner's terminal");
+    assert!(!screen.lock().unwrap().contains("worker-typed"));
+    // The owner's terminal still works, and is still the owner's alone.
+    h.broker
+        .write_terminal(&terminal.id, b"echo owner-typed\r")
+        .unwrap();
+    h.until("the owner's typing", |_| {
+        screen.lock().unwrap().contains("\r\nowner-typed\r\n")
+    })
+    .await;
+    assert_eq!(h.dev.seen().shell_lines, ["echo owner-typed"]);
+    h.broker
+        .close_terminal(&terminal.id, "you closed it")
+        .unwrap();
+    h.until("the terminal to close", |h| {
+        h.broker.open_terminals().is_empty()
+    })
+    .await;
+}
+
+/// Plan (Phase 12, ADR-031): the owner's Stop in a worker's watch tab stops the command running
+/// now (TERM, then KILL), and is recorded; the worker is told, and its step goes on: its next
+/// command runs on the same connection. (Disconnect, which ends the step's server work, is
+/// `plan_cancellation`.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_owners_stop_ends_only_the_command_running_now() {
+    let h = harness().await;
+    h.allow_without_asking("Dev box");
+    h.script(
+        "Operations Engineer",
+        json!([{ "tools": [
+            run_on("Dev box", "stubborn", &[]),
+            run_on("Dev box", "whoami", &[]),
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    let task = h.worker_task(&root, "Operations Engineer").await;
+    h.until("the command to start", |h| {
+        !h.events(&task.id, "ssh.command_started").is_empty()
+    })
+    .await;
+    let command = h.events(&task.id, "ssh.command_started")[0]["commandId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    h.broker.stop_server_command(&command).unwrap();
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let stopped = result(&text, "ssh_run", 0);
+    assert!(
+        stopped.contains("Stopped by Plenipo (you pressed Stop)"),
+        "{stopped}"
+    );
+    let next = result(&text, "ssh_run", 1);
+    assert!(next.contains("Finished (exit code 0)"), "{next}");
+    // It ignored TERM, so it got KILL.
+    let seen = h.dev.seen();
+    assert!(
+        seen.signals.contains(&"TERM:stubborn".to_owned()),
+        "{seen:?}"
+    );
+    assert!(
+        seen.signals.contains(&"KILL:stubborn".to_owned()),
+        "{seen:?}"
+    );
+    assert_eq!(
+        seen.connections, 1,
+        "the connection stayed open for the next command"
+    );
+    let finished = h.events(&task.id, "ssh.command_finished");
+    assert_eq!(finished[0]["ending"], "stopped");
+    assert_eq!(finished[0]["why"], "you pressed Stop");
+    assert_eq!(finished[1]["exitCode"], 0);
+    let asked = h.events(&task.id, "ssh.command_stop_requested");
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0]["commandId"], command.as_str());
+    // A command that has finished cannot be stopped.
+    let err = h.broker.stop_server_command(&command).unwrap_err();
+    assert!(err.to_string().contains("not running any more"), "{err}");
 }

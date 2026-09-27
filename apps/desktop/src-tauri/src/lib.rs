@@ -252,6 +252,13 @@ pub fn configure<R: Runtime>(
             commands::remove_server,
             commands::check_server_identity,
             commands::test_server,
+            commands::stop_server_command,
+            commands::get_terminal_settings,
+            commands::set_terminal_shell,
+            commands::open_terminal,
+            commands::write_terminal,
+            commands::resize_terminal,
+            commands::close_terminal,
         ])
 }
 
@@ -274,6 +281,16 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 if let Some(liaison) = app.try_state::<Liaison>() {
                     liaison.shutdown();
                 }
+                // The owner's terminals end with Plenipo (and their closing is recorded).
+                if let Some(broker) = app.try_state::<plenipo_capabilities::Broker>() {
+                    broker.close_all_terminals("Plenipo closed");
+                    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                    while !broker.open_terminals().is_empty()
+                        && std::time::Instant::now() < deadline
+                    {
+                        tokio_sleep(Duration::from_millis(25)).await;
+                    }
+                }
                 let mut stopped = 0;
                 if let Some(agents) = app.try_state::<AgentRuntime>() {
                     stopped += agents.shutdown(SHUTDOWN_GRACE).await;
@@ -289,6 +306,12 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             });
         }
     }
+}
+
+async fn tokio_sleep(d: Duration) {
+    tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d))
+        .await
+        .ok();
 }
 
 /// Treat SIGTERM/SIGINT (logout, `kill`, Ctrl+C in a dev terminal) like "Quit": run the
@@ -2484,6 +2507,102 @@ mod ipc_boundary_tests {
                 "{cmd}"
             );
         }
+    }
+
+    /// The owner's terminal (Phase 12, ADR-031): its commands work in the main window, take a
+    /// place and never a program, and are refused to every other window, the sign, and web
+    /// pages, so nothing but the owner can type into it.
+    #[test]
+    fn the_terminal_is_the_owners_alone() {
+        use plenipo_capabilities::{TerminalInfo, TerminalSettings};
+        let app = app();
+        let main = window(&app, "main");
+        let settings: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
+        assert_eq!(settings.shells.len(), 3);
+        assert!(settings.open.is_empty());
+        let open = |place: serde_json::Value| serde_json::json!({ "place": place, "cols": 80, "rows": 24, "events": "__CHANNEL__:7" });
+        // A place, never a program: anything more, or a server ID that is not an ID, is refused.
+        for bad in [
+            serde_json::json!({ "kind": "thisPc", "program": "calc.exe" }),
+            serde_json::json!({ "kind": "server", "serverId": "../x" }),
+            serde_json::json!({ "kind": "program", "path": "C:/Windows/System32/cmd.exe" }),
+        ] {
+            assert!(
+                invoke_json(&main, "open_terminal", open(bad.clone())).is_err(),
+                "{bad}"
+            );
+        }
+        let err = invoke_json(
+            &main,
+            "open_terminal",
+            open(serde_json::json!({ "kind": "server", "serverId": SESSION })),
+        )
+        .expect_err("no such server");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("no longer in the list"),
+            "{err}"
+        );
+        let info: TerminalInfo = body(invoke_json(
+            &main,
+            "open_terminal",
+            open(serde_json::json!({ "kind": "thisPc" })),
+        ));
+        assert_eq!(info.title, "This PC");
+        let id = info.id.clone();
+        let typed = serde_json::json!({ "terminalId": id, "data": "echo hi\r" });
+        let size = serde_json::json!({ "terminalId": id, "cols": 100, "rows": 30 });
+        assert!(invoke_json(&main, "write_terminal", typed.clone()).is_ok());
+        assert!(invoke_json(&main, "resize_terminal", size.clone()).is_ok());
+        let err = invoke_json(
+            &main,
+            "write_terminal",
+            serde_json::json!({ "terminalId": id, "data": "x".repeat(70_000) }),
+        )
+        .expect_err("too much at once");
+        assert_eq!(err["kind"], "invalidInput");
+        // Nobody else, even with a real terminal and valid arguments: the refusal comes from the
+        // permission list, not from bad input.
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let close = serde_json::json!({ "terminalId": id });
+        let stop = serde_json::json!({ "commandId": SESSION });
+        for (cmd, args) in [
+            ("get_terminal_settings", serde_json::json!({})),
+            (
+                "set_terminal_shell",
+                serde_json::json!({ "shell": "commandPrompt" }),
+            ),
+            (
+                "open_terminal",
+                open(serde_json::json!({ "kind": "thisPc" })),
+            ),
+            ("write_terminal", typed.clone()),
+            ("resize_terminal", size.clone()),
+            ("close_terminal", close.clone()),
+            ("stop_server_command", stop.clone()),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd} from a web page"
+            );
+        }
+        let open_now: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
+        assert_eq!(open_now.open.len(), 1, "still open, untouched");
+        assert!(invoke_json(&main, "close_terminal", close).is_ok());
+        // Stopping a command that is not running is refused plainly.
+        let err = invoke_json(&main, "stop_server_command", stop).expect_err("nothing runs");
+        assert!(
+            err["message"].as_str().unwrap().contains("not running"),
+            "{err}"
+        );
     }
 
     #[test]

@@ -208,3 +208,11 @@ export type { ServerView } from "./generated/ServerView";
 export type { ServersSnapshot } from "./generated/ServersSnapshot";
 export type { SignIn } from "./generated/SignIn";
 export type { StoredSignIn } from "./generated/StoredSignIn";
+
+// The owner's terminal (Phase 12, ADR-031)
+export type { ShellOption } from "./generated/ShellOption";
+export type { TerminalEvent } from "./generated/TerminalEvent";
+export type { TerminalInfo } from "./generated/TerminalInfo";
+export type { TerminalPlace } from "./generated/TerminalPlace";
+export type { TerminalSettings } from "./generated/TerminalSettings";
+export type { TerminalShell } from "./generated/TerminalShell";

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-terminal-shell"
+description = "Enables the set_terminal_shell command without any pre-configured scope."
+commands.allow = ["set_terminal_shell"]
+
+[[permission]]
+identifier = "deny-set-terminal-shell"
+description = "Denies the set_terminal_shell command without any pre-configured scope."
+commands.deny = ["set_terminal_shell"]

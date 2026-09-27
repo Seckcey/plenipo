@@ -22,6 +22,7 @@ pub mod relay;
 pub mod screens;
 mod server;
 pub mod ssh;
+pub mod terminal;
 pub mod tools;
 pub mod vault;
 pub mod worktrees;

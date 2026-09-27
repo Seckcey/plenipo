@@ -94,6 +94,13 @@
     "allow-save-server",
     "allow-remove-server",
     "allow-check-server-identity",
-    "allow-test-server"
+    "allow-test-server",
+    "allow-stop-server-command",
+    "allow-get-terminal-settings",
+    "allow-set-terminal-shell",
+    "allow-open-terminal",
+    "allow-write-terminal",
+    "allow-resize-terminal",
+    "allow-close-terminal"
   ]
 }

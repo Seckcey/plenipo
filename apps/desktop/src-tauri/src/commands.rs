@@ -18,15 +18,21 @@
 //! their ID only — it can never drive the browser or the mouse and keyboard. Servers (Phase 11)
 //! are configuration too: the UI edits the server list, sends a key or password once (to the
 //! operating system's protected storage), reads a server's identity to pin it, and tests a
-//! connection; it can never run a command on a server.
+//! connection; it can never run a command on a server for a worker. The owner's own terminal
+//! (Phase 12, ADR-031) is the one place the owner types freely, on this PC or on a server: it
+//! names a place (this PC, or a server by its ID), never a program or a path; Plenipo picks the
+//! shell, checks the server's pinned ID, and signs in without showing the sign-in. Its commands
+//! are the owner's alone (the main window's), never a worker's tool.
 
 use std::sync::Arc;
 
+use plenipo_capabilities::broker::TerminalSink;
 use plenipo_capabilities::browser::BrowserStatus;
 use plenipo_capabilities::control::{ControlKind, ControlStatus};
 use plenipo_capabilities::{
     ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot, ServerIdentity,
-    ServerTest, ServersSnapshot,
+    ServerTest, ServersSnapshot, TerminalEvent, TerminalInfo, TerminalPlace, TerminalSettings,
+    TerminalShell,
 };
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
@@ -52,6 +58,7 @@ use plenipo_workforce::{
     OrgSnapshot, OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob,
     RoleUpdate, TitleTheme, WorkView, Workforce, WorkforceError,
 };
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::smoke::{SmokeTest, EXIT_READY};
@@ -1486,6 +1493,106 @@ pub async fn test_server(
     validate_id("server", &server_id)?;
     let broker = broker.inner().clone();
     broker.test_server(&server_id).await.map_err(broker_error)
+}
+
+/// The owner's Stop in a worker's watch tab (Phase 12, ADR-031): the command running now is sent
+/// TERM, then KILL. The worker's step goes on (Disconnect ends it: `take_over_control`).
+#[tauri::command]
+pub fn stop_server_command(
+    broker: State<'_, Broker>,
+    command_id: String,
+) -> Result<(), CommandError> {
+    validate_id("command", &command_id)?;
+    broker
+        .stop_server_command(&command_id)
+        .map_err(broker_error)
+}
+
+// ---- The owner's terminal (Phase 12, ADR-031) ---------------------------------------------------
+
+/// Most bytes typed or pasted at once.
+const MAX_TERMINAL_INPUT: usize = 64 * 1024;
+
+/// Settings → Terminal: the shell for this PC, the choices, and the terminals open now.
+#[tauri::command]
+pub async fn get_terminal_settings(
+    broker: State<'_, Broker>,
+) -> Result<TerminalSettings, CommandError> {
+    with_broker(&broker, Broker::terminal_settings).await
+}
+
+/// Choose the shell a new terminal on this PC starts. A choice, never a path.
+#[tauri::command]
+pub async fn set_terminal_shell(
+    broker: State<'_, Broker>,
+    shell: TerminalShell,
+) -> Result<TerminalSettings, CommandError> {
+    with_broker(&broker, move |b| b.set_terminal_shell(shell)).await
+}
+
+/// Open a terminal for you, on this PC or on a server from Settings → Servers. What it shows
+/// comes on `events`, as it happens; nothing you type or see is recorded.
+#[tauri::command]
+pub async fn open_terminal(
+    broker: State<'_, Broker>,
+    place: TerminalPlace,
+    cols: u16,
+    rows: u16,
+    events: Channel<TerminalEvent>,
+) -> Result<TerminalInfo, CommandError> {
+    if let TerminalPlace::Server { server_id } = &place {
+        validate_id("server", server_id)?;
+    }
+    let sink: TerminalSink = std::sync::Arc::new(move |event| {
+        // The window may have closed; the terminal then ends with Plenipo.
+        let _ = events.send(event);
+    });
+    let broker = broker.inner().clone();
+    broker
+        .open_terminal(&place, cols, rows, sink)
+        .await
+        .map_err(broker_error)
+}
+
+/// What you type (or paste) into a terminal.
+#[tauri::command]
+pub fn write_terminal(
+    broker: State<'_, Broker>,
+    terminal_id: String,
+    data: String,
+) -> Result<(), CommandError> {
+    validate_id("terminal", &terminal_id)?;
+    if data.len() > MAX_TERMINAL_INPUT {
+        return Err(CommandError::invalid_input(
+            "that is too much to paste at once",
+        ));
+    }
+    broker
+        .write_terminal(&terminal_id, data.as_bytes())
+        .map_err(broker_error)
+}
+
+/// The terminal's panel changed size (in characters).
+#[tauri::command]
+pub fn resize_terminal(
+    broker: State<'_, Broker>,
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), CommandError> {
+    validate_id("terminal", &terminal_id)?;
+    broker
+        .resize_terminal(&terminal_id, cols, rows)
+        .map_err(broker_error)
+}
+
+/// Close a terminal: its shell, and the programs it started, end.
+#[tauri::command]
+pub fn close_terminal(broker: State<'_, Broker>, terminal_id: String) -> Result<(), CommandError> {
+    validate_id("terminal", &terminal_id)?;
+    broker
+        .close_terminal(&terminal_id, "you closed it")
+        .map_err(broker_error)
 }
 
 fn app_info_for(version: &str) -> AppInfo {

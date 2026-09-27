@@ -488,6 +488,8 @@ struct Step {
     delay: Option<u64>,
     crash: bool,
     usage_limit: bool,
+    /// Also list Plenipo's tools (as `[tools-list]` does).
+    list_tools: bool,
 }
 
 impl Step {
@@ -507,6 +509,7 @@ impl Step {
             delay: v["delay"].as_u64(),
             crash: v["crash"].as_bool().unwrap_or(false),
             usage_limit: v["usageLimit"].as_bool().unwrap_or(false),
+            list_tools: v["listTools"].as_bool().unwrap_or(false),
         }
     }
 
@@ -521,6 +524,9 @@ impl Step {
         }
         if let Some(ms) = self.delay {
             m.push_str(&format!("[delay:{ms}] "));
+        }
+        if self.list_tools {
+            m.push_str("[tools-list] ");
         }
         m
     }

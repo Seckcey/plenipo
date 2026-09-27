@@ -92,6 +92,13 @@ const COMMANDS: &[&str] = &[
     "remove_server",
     "check_server_identity",
     "test_server",
+    "stop_server_command",
+    "get_terminal_settings",
+    "set_terminal_shell",
+    "open_terminal",
+    "write_terminal",
+    "resize_terminal",
+    "close_terminal",
 ];
 
 fn main() {
