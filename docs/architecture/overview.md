@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 10) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 10 and v1.4) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -218,6 +218,18 @@ Browser and computer commands (Phase 10). The website lists are part of Guard's 
 | `get_browser_status` | —                        | `BrowserStatus`       | Which browser Plenipo uses, its profile folder, whether it is open                                    |
 | `open_browser`       | `url?`                   | `BrowserStatus`       | Open Plenipo's browser for the owner (to sign in to a website workers will use)                       |
 | `get_screenshot`     | `artifactId`             | `Screenshot`          | A kept screenshot as a `data:` URL (only files in Plenipo's screenshot folder recorded in the Ledger) |
+
+Switches and learning commands (v1.4). The switches are part of Guard's settings
+(`PermissionsSnapshot.settings.switches`); learning is a Workforce setting.
+
+| Command             | Input                       | Returns               | Purpose                                                                                                    |
+| ------------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `set_switches`      | `switches` (`Switches`)     | `PermissionsSnapshot` | Settings → Switches. Switching the browser or the screen off also stops the workers using it now           |
+| `get_learning`      | —                           | `LearningSnapshot`    | Worker learning on or off, the roles that learn on their own, lessons waiting (oldest first) and kept      |
+| `set_learning`      | `enabled`                   | `LearningSnapshot`    | Worker learning on or off                                                                                  |
+| `set_role_learning` | `roleId`, `auto`            | `LearningSnapshot`    | Whether a role learns on its own (its lessons are kept without asking, except from websites or the screen) |
+| `decide_lesson`     | `lessonId`, `keep`, `text?` | `LearningSnapshot`    | Keep (in the owner's words, if given) or discard a waiting lesson                                          |
+| `remove_lesson`     | `lessonId`                  | `LearningSnapshot`    | Remove a kept lesson                                                                                       |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -583,6 +595,41 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 - **Role instructions** (`crates/workforce/src/templates.rs`, `prompt.rs`): each role's job,
   returns, limits, and when to ask its lead, plus what its permissions allow and do not; custom
   roles take the same in the owner's words (`update_role`).
+
+## 12a. Switches and learning (v1.4)
+
+Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md)
+and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md).
+
+- **Switches** (`crates/guard/src/dto.rs` `Switches`, in the Guard settings, event
+  `guard.switches_changed`): Plenipo's browser (on), the screen, mouse, and keyboard (off),
+  sending, buying, and signing in without asking (off), handing CAPTCHAs to the owner (on),
+  screenshots in the Activity trail (on). Worker learning is shown with them.
+- **A feature switched off** (`engine.rs` `switched_off`): Guard's level for its capabilities is
+  Blocked (layer: rule), whatever the permissions. `set_switches` stops its sessions
+  (`ControlCenter::stop_kind`, no sticky stop) and refuses their waiting approvals
+  (`control.switched_off`); a worker given no tools because of a switch is told why
+  (`guard.grant_skipped`).
+- **Without asking** (`engine.rs`, `broker/operate.rs` `decide_held`): a sending, buying, or
+  signing-in check is allowed only for `browser.automate`, on a website on the Allowed list,
+  when that sensitive kind's rule is Ask and the role's level is not Ask. Data the page sends
+  after the action is released the same way when every website involved is allowed.
+- **CAPTCHAs** (`browser_person_check`, `ControlWork::PersonCheck`): with a CAPTCHA on the page,
+  the worker asks the owner to solve it. The tab goes to mode `handed` (purple sign; the owner's
+  clicks are not a take over), comes to the front, and interception stops until the owner
+  answers (`Tab::take_back`). The worker never clicks, types, or presses keys in one.
+- **Screenshots off** (`keep()`): steps keep no picture; approval pictures are always kept.
+- **Lessons** (`crates/ledger/src/lessons.rs`, migration 7 `lessons`; `crates/workforce/src/learning.rs`):
+  a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300
+  characters each) and records them for the worker's role, waiting or kept (`lesson.added`).
+  Lessons from a task that used the browser or the screen (itself or any task handed on from it)
+  always wait. The owner keeps (optionally edited), discards, or removes them (`lesson.kept`,
+  `lesson.discarded`, `lesson.removed`). Each worker's instructions (`directory.rs`) carry its
+  role's newest 20 kept lessons and how to write one, unless learning is off (Ledger setting
+  `learning`, events `learning.switched` and `learning.role_changed`).
+- **Screens:** Settings → Switches (`SwitchSettings.tsx`); Approvals → New lessons, and a role's
+  "What it has learned" and **Learn on its own** in its details (`learning/Lessons.tsx`). The
+  sidebar's Approvals count includes waiting lessons.
 
 ## 13. Launch smoke test
 

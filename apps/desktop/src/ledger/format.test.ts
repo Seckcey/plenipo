@@ -283,6 +283,14 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
       "You allowed browser and desktop control again",
     );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
+    expect(describeEvent(event("guard.switches_changed", {}))).toBe(
+      "Switches changed (Settings → Switches)",
+    );
+    expect(
+      describeEvent(
+        event("control.switched_off", { kind: "browser", sessions: [{ worker: "W" }] }),
+      ),
+    ).toBe("You switched Plenipo's browser off: 1 worker stopped");
     expect(describeEvent(event("guard.sets_updated", { sets: ["writer"] }))).toBe(
       "Built-in permission sets you had not changed were brought up to date",
     );
@@ -302,5 +310,28 @@ describe("shownInTrail", () => {
     );
     expect(shownInTrail(event("artifact.recorded", { type: "report", path: "/r.md" }))).toBe(true);
     expect(shownInTrail(event("capability.used", { screenshot: "a1" }))).toBe(true);
+  });
+});
+
+describe("describeEvent (learning, ADR-024)", () => {
+  it("says what was learned and what the owner did with it", () => {
+    expect(
+      describeEvent(
+        event("lesson.added", {
+          worker: "Web Assistant",
+          text: "Use the Orders page.",
+          state: "waiting",
+        }),
+      ),
+    ).toBe("Web Assistant learned something (waiting for you): Use the Orders page.");
+    expect(describeEvent(event("lesson.kept", { text: "Use the Orders page." }))).toBe(
+      "You kept a lesson: Use the Orders page.",
+    );
+    expect(describeEvent(event("learning.role_changed", { name: "Scout", auto: true }))).toBe(
+      "Scout now learns on its own",
+    );
+    expect(describeEvent(event("learning.switched", { enabled: false }))).toBe(
+      "You switched worker learning off",
+    );
   });
 });

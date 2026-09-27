@@ -74,16 +74,20 @@ Full power, clearly bounded. That is the whole idea.
 - **Stops for your approval on anything that matters.** Deploying, DNS, passwords, payments,
   publishing, running as administrator, submitting a form, buying, signing in, sending anything —
   each one waits, with a card that says exactly what will run, and a screenshot when it happens in a
-  browser.
+  browser. On websites you trust, **Settings → Switches** can let workers send, buy, or press Sign in
+  without asking; all three start off.
 - **Does the work on websites too.** In **Plenipo's own browser**, never yours: its own profile, so
   your sign-ins and saved passwords are never touched. You choose which sites workers may open.
-  Workers never type passwords and never get past a CAPTCHA — when a site needs you signed in, you
-  sign in yourself.
+  Workers never type passwords and never try a CAPTCHA: they hand it to you to solve, and when a site
+  needs you signed in, you sign in yourself.
+- **Gets better at your work.** Workers write down short lessons from what they did. You keep the
+  good ones (or let a role learn on its own), and that role's later workers follow them.
 - **Writes everything down.** Every task, who did it on which AI model, files changed, tests and
   whether they passed, the review and its open findings, the branch and pull request, and every
   approval — in a local record you own.
 - **Gives you the kill switch.** Whenever a worker is using the browser or the desktop, a sign on
-  the page says so, with **Take over** and **Stop all**. The Windows tray has the same Stop.
+  the page says so, with **Take over** and **Stop all**. The Windows tray has the same Stop, and
+  **Settings → Switches** turns the browser or the screen, mouse, and keyboard off for every worker.
 
 ## How it works
 
@@ -130,15 +134,15 @@ Coming with the next release. If you are running Plenipo already,
 
 ## Free and Pro
 
-| Edition  | What you get                                                                                                                             |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature. |
-| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it.                      |
+| Edition  | What you get                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Free** | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature.                     |
+| **Pro**  | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it — and workers that learn from their work. |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
-> Releases up to v1.3.0 have no limits at all — everything is unlocked while the split is being
+> Releases up to v1.4.0 have no limits at all — everything is unlocked while the split is being
 > built.
 
 ## Quick start
@@ -161,7 +165,26 @@ Prefer not to build it? [Download the latest Windows installer](https://github.c
 
 ## What's new
 
-Plenipo is built phase by phase. Current version: **v1.3.0**.
+Plenipo is built phase by phase. Current version: **v1.4.0**.
+
+<details>
+<summary><strong>v1.4.0 — Switches in Settings, and workers that learn from their work</strong></summary>
+
+**Settings → Switches** turns Plenipo's browser and the screen, mouse, and keyboard on or off for
+every worker (the screen starts off). It also decides whether workers may send, buy, or press Sign
+in **without asking you** on your allowed websites; all three start off, so workers ask. When a
+website shows a CAPTCHA, the worker hands it to you and waits while you solve it; workers never try
+one. Screenshots in the Activity trail can be switched off, and approval cards keep theirs.
+
+Workers now write down short **lessons** from their work. You keep, edit, or discard each one on the
+Approvals page, or let a role **learn on its own**, and kept lessons go to that role's later
+workers. Lessons from tasks that used websites or your screen always ask you first.
+
+[Release notes](docs/releases/v1.4.0.md) · [ADR-023](docs/adr/ADR-023-settings-switches.md)
+(on/off switches in Settings) · [ADR-024](docs/adr/ADR-024-workers-learn-from-work.md) (workers
+learn from their work)
+
+</details>
 
 <details>
 <summary><strong>v1.3.0 — Plenipo's browser, and the screen, mouse, and keyboard</strong> (Phase 10)</summary>
