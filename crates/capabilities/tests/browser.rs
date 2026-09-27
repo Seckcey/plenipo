@@ -1619,6 +1619,84 @@ async fn a_captcha_is_tried_three_times_before_handoff() {
     assert!(!text.contains("try 1 of 3"), "{text}");
 }
 
+/// A real check keeps its checkbox inside its own frame (ADR-032): the page read lists that
+/// frame as a control and names it as the check's checkbox, the click lands on the checkbox
+/// itself (not on the words beside it), and the result says the check passed, so the worker
+/// moves on, a further click there is refused, and the tries start over. A check that opens a
+/// puzzle instead points the worker at the hand-off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_captcha_in_its_own_frame_is_clicked_and_its_verdict_read() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let framed = h.url("shop", "/captcha-frame");
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": framed })),
+                tool("browser_click", json!({ "ref": "e1" })),
+                tool("browser_read", json!({})),
+                tool("browser_click", json!({ "ref": "e1" }))
+            ], "say": "Done." }]),
+        )
+        .await;
+    // The page read names the check, its maker, and its checkbox.
+    assert!(text.contains("(reCAPTCHA, a check that a person"), "{text}");
+    assert!(text.contains("Its checkbox is e1"), "{text}");
+    assert!(
+        text.contains("e1: checkbox \"I'm not a robot (reCAPTCHA)\" (the CAPTCHA's own checkbox"),
+        "{text}"
+    );
+    // The click hit the checkbox inside the frame and the check passed.
+    let clicked = line(&text, "browser_click");
+    assert!(
+        clicked.contains("Clicked the checkbox \"I'm not a robot (reCAPTCHA)\""),
+        "{clicked}"
+    );
+    assert!(text.contains("try 1 of 3"), "{text}");
+    assert!(text.contains("The check is passed"), "{text}");
+    // Read again: passed already, nothing to do; a further click is refused and no try counted.
+    assert!(text.contains("is passed already"), "{text}");
+    let refused: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click failed"))
+        .collect();
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(refused[0].contains("passed already"), "{refused:?}");
+    assert_eq!(text.matches(" of 3").count(), 1, "{text}");
+    // Clicking the check is not sending anything: nothing waited for the owner or reached the
+    // site.
+    assert_eq!(h.approvals_for(&task.id), 0);
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+
+    // The same check opening a puzzle: the worker hears so, and is pointed at the hand-off.
+    let puzzle = h.url("shop", "/captcha-frame?puzzle");
+    let (_, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": puzzle })),
+                tool("browser_click", json!({ "ref": "e1" })),
+                tool("browser_read", json!({}))
+            ], "say": "Done." }]),
+        )
+        .await;
+    assert!(text.contains("try 1 of 3"), "{text}");
+    assert!(
+        text.contains("The check now shows a puzzle"),
+        "the click's result says a puzzle opened: {text}"
+    );
+    assert!(
+        line(&text, "browser_click").contains("Clicked") && text.contains("browser_person_check"),
+        "{text}"
+    );
+    assert!(
+        text.contains("It shows a puzzle (pictures to pick)"),
+        "the page read says so too: {text}"
+    );
+    assert!(!text.contains("The check is passed"), "{text}");
+}
+
 /// Switching Plenipo's browser off (ADR-023) stops the worker using it at once; the next
 /// worker gets no browser tools, and the trail says why.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

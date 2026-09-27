@@ -1,7 +1,7 @@
 # Repository presentation validation
 
 Review date: September 27, 2026. Base: `eb49e9f8e53e25ab7d66babd79b65dfeee6278f9`.
-Reconciled with main `30a77643760dfae4bab09593535a611a4d8f37dd` before final verification.
+Initially reconciled with main `30a77643760dfae4bab09593535a611a4d8f37dd` before verification.
 Scope: repository docs, copied presentation assets, and GitHub About/topics/social preview.
 No app, website, dependency, workflow, license, or production changes are part of this work.
 
@@ -21,7 +21,7 @@ No app, website, dependency, workflow, license, or production changes are part o
 - Guard defaults in `crates/guard/src/dto.rs` and switch handling in `engine.rs` establish the
   approval-switch caveat. SECURITY.md now describes that caveat. Already-merged ADR-029 and the
   browser broker also contradict the inherited absolute CAPTCHA guarantee; the policy now
-  describes that limitation without providing operational instructions or importing PR #36.
+  describes that limitation without providing operational instructions.
   FAQ and security wording account for ongoing CAPTCHA improvements: results depend on the
   website, settings, and installed version; release notes establish what has shipped. No
   unverified success rate or pending improvement is presented as a published capability.
@@ -67,9 +67,20 @@ The run completed September 27 at 14:37:27 UTC with Rust 1.98.1, Debian Chromium
 build/test thread, a 2 GiB memory limit, and two CPUs. It held the shared test lock and used its
 own source, copied build cache, runtime, and container. A copied-cache path mismatch was fixed
 in the temporary test setup before the successful full run; no application source was changed.
-The test container was removed and the shared lock verified free. Only this receipt and copies
-of the reviewed PNG evidence follow that tested source. Final formatting and diff checks passed.
+The test container was removed and the shared lock verified free. At push `acebed6`, only this
+receipt and copies of the reviewed PNG evidence followed that tested source. Formatting and
+diff checks passed.
 
 All eight initial-head GitHub checks passed, including Windows installer/smoke and Linux real-app
 end-to-end checks. Final-head GitHub CI remains the coordinator's merge gate. No desktop Docker,
 production release, or live provider task is part of this validation.
+
+## Reconciliation after the CAPTCHA merge
+
+PR #36 merged independently while PR #37's checks ran, advancing main to
+`00444f35023179806907851dbc25454b3933a7fb`. This branch incorporates that main revision without
+changing its application code. README conflicts retain the reviewed Pip presentation and
+provider details. SECURITY retains accurate approval defaults and version-aware CAPTCHA
+wording, including the absence of an external solving service. The FAQ now acknowledges the
+merged checkbox and result-feedback improvements while distinguishing source from installers.
+The combined source requires fresh mandatory checks before the next push.

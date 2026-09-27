@@ -59,11 +59,14 @@ commands ask every time. Review your permissions before delegating, and use **St
 
 ## Can Plenipo handle CAPTCHAs?
 
-Plenipo can handle some CAPTCHAs automatically and can hand checks to you. Results depend on
-the website, the installed version, and browser settings. This area is actively evolving; use
-the [release notes](https://github.com/Seckcey/plenipo/releases) to check what your version includes.
-Development improvements are not available in a downloaded installer until that release is
-published. No universal success rate is claimed.
+Plenipo can handle some CAPTCHAs automatically and can hand checks to you. Development changes
+merged on September 27 improve checkbox handling and tell workers when a check has passed or
+needs your help. These changes address problems that previously prevented successful checks.
+
+Results still depend on the website, the installed version, and browser settings. Use the
+[release notes](https://github.com/Seckcey/plenipo/releases) to check what your version includes.
+Merged improvements are not available in a downloaded installer until that release is published.
+No universal success rate is claimed.
 
 ## Where can I get help or suggest a feature?
 

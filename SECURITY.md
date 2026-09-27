@@ -41,8 +41,8 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used.
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
-  can hand checks to the owner. Behavior and results depend on the installed version, browser
-  policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
+  can hand checks to the owner. It uses no solving service. Behavior and results depend on the
+  installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
   for changes; neither successful completion nor permission from a website is guaranteed.
 - Sending, buying, and signing in ask for approval by default. The owner can explicitly enable
   the corresponding **without asking** switches for allowed websites. Other permission and

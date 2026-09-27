@@ -18,6 +18,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use plenipo_guard::websites::{self, SiteVerdict};
 use plenipo_guard::{Site, WebsiteRules};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, Notify};
 use tokio::time::Instant;
@@ -115,6 +116,27 @@ pub struct SitePolicy {
 
 /// How many times a worker may try a CAPTCHA before Plenipo hands it to the owner (ADR-029).
 pub const CAPTCHA_TRIES: u32 = 3;
+/// How long Plenipo watches a CAPTCHA after a worker's try, for it to pass, open a puzzle, or go
+/// away (ADR-032).
+pub const CAPTCHA_VERDICT_WAIT: Duration = Duration::from_secs(4);
+
+/// The page's CAPTCHA in one look (the helper's `captchaState`, ADR-032).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CaptchaState {
+    /// A check shows on the page.
+    pub present: bool,
+    /// Who makes it: "reCAPTCHA", "hCaptcha", "Cloudflare Turnstile", "Arkose", or "CAPTCHA".
+    pub provider: String,
+    /// It is passed: its provider wrote the answer into the page.
+    pub solved: bool,
+    /// It opened a puzzle (pictures to pick) in its own frame.
+    pub challenge: bool,
+    /// Only a badge that works by itself (invisible reCAPTCHA): nothing to click.
+    pub invisible: bool,
+    /// The reference of its checkbox, when it has one a worker can click.
+    pub checkbox: Option<String>,
+}
 
 #[derive(Default)]
 struct State {
@@ -130,8 +152,10 @@ struct State {
     acting: bool,
     held: Vec<Held>,
     /// Tries a worker has made at this page's CAPTCHA (ADR-029); cleared when the page no longer
-    /// shows one.
+    /// shows one, or shows it passed (ADR-032).
     captcha_attempts: u32,
+    /// Where Plenipo last left the mouse pointer in the page (the next click glides from there).
+    pointer: Option<(f64, f64)>,
     /// What the worker should hear with its next result (a page Plenipo stopped, …).
     notes: Vec<String>,
     policy: SitePolicy,
@@ -365,25 +389,40 @@ impl Tab {
         self.state().captcha_attempts
     }
 
-    /// Count one try at the page's CAPTCHA, and say in the worker's next result which try it was
-    /// (ADR-029).
-    pub fn note_captcha_attempt(&self) -> u32 {
-        let used = {
-            let mut s = self.state();
-            s.captcha_attempts += 1;
-            s.captcha_attempts
-        };
-        self.shared.note(format!(
-            "That was try {used} of {CAPTCHA_TRIES} on the CAPTCHA (a check that a person is \
-             using the site): you may keep trying until {CAPTCHA_TRIES}; after that, hand it to \
-             the owner with browser_person_check."
-        ));
-        used
+    /// Count one try at the page's CAPTCHA (a submitted answer, ADR-029): the tries used so far.
+    pub fn count_captcha_try(&self) -> u32 {
+        let mut s = self.state();
+        s.captcha_attempts += 1;
+        s.captcha_attempts
     }
 
-    /// The CAPTCHA is gone (answered, or the page moved on): tries start over (ADR-029).
+    /// The CAPTCHA is gone or passed (the page moved on): tries start over (ADR-029, ADR-032).
     pub fn clear_captcha_attempts(&self) {
         self.state().captcha_attempts = 0;
+    }
+
+    /// The page's CAPTCHA in one look (ADR-032).
+    pub async fn captcha_state(&self) -> Result<CaptchaState, String> {
+        let v = self.helper("__plenipo.captchaState()").await?;
+        serde_json::from_value(v).map_err(|e| format!("the page's helper answered oddly: {e}"))
+    }
+
+    /// After a worker's try at the CAPTCHA: watch the check for up to `wait` until it is passed,
+    /// opens a puzzle, or is gone, and say how it stands (ADR-032). Passed or gone, the tries
+    /// start over. `None` when the page cannot be read (it is changing).
+    pub async fn captcha_verdict(&self, wait: Duration) -> Option<CaptchaState> {
+        let deadline = Instant::now() + wait;
+        loop {
+            let state = self.captcha_state().await.ok()?;
+            let decided = state.solved || state.challenge || !state.present;
+            if decided || Instant::now() >= deadline || self.mode() != Mode::Worker {
+                if state.solved || !state.present {
+                    self.clear_captcha_attempts();
+                }
+                return Some(state);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
 
     // ---- The helper's world ----------------------------------------------------------------
@@ -540,13 +579,13 @@ impl Tab {
 
     // ---- Reading ---------------------------------------------------------------------------
 
-    /// The page in words: address, title, text, numbered controls, CAPTCHA.
+    /// The page in words: address, title, text, numbered controls, CAPTCHA (and how it stands).
     pub async fn read(&self, max_chars: usize, max_controls: usize) -> Result<Value, String> {
         let _busy = self.busy.lock().await;
         let page = self
             .helper(&format!("__plenipo.read({max_chars}, {max_controls})"))
             .await?;
-        if page["captcha"] != true {
+        if page["captcha"] != true || page["captchaInfo"]["solved"] == true {
             self.clear_captcha_attempts();
         }
         Ok(page)
@@ -753,16 +792,41 @@ impl Tab {
             .map(|_| ())
     }
 
-    /// Click the center of a control (its facts were just read).
+    /// Click a control where its facts say (its middle; a CAPTCHA widget's checkbox). The
+    /// pointer glides there first and the button is held a moment, as in a person's click
+    /// (ADR-032).
     pub async fn click(&self, facts: &ElementFacts) -> Result<Settled, String> {
         let _busy = self.busy.lock().await;
         let (x, y) = (facts.x, facts.y);
-        self.acting(async {
+        let from = self.state().pointer;
+        let settled = self
+            .acting(async {
+                self.glide(from, (x, y)).await?;
+                self.mouse("mousePressed", x, y, 1).await?;
+                tokio::time::sleep(Duration::from_millis(70)).await;
+                self.mouse("mouseReleased", x, y, 1).await
+            })
+            .await;
+        self.state().pointer = Some((x, y));
+        settled
+    }
+
+    /// Move the pointer to `to` in a dozen steps along a gently bowed path, slow at both ends,
+    /// from where it last was (or from a little below and left of the target).
+    async fn glide(&self, from: Option<(f64, f64)>, to: (f64, f64)) -> Result<(), String> {
+        let (x1, y1) = to;
+        let (x0, y0) = from.unwrap_or(((x1 - 160.0).max(0.0), y1 + 90.0));
+        let steps: u8 = 12;
+        for i in 1..=steps {
+            let t = f64::from(i) / f64::from(steps);
+            let eased = t * t * (3.0 - 2.0 * t);
+            let bow = (std::f64::consts::PI * t).sin() * 6.0;
+            let x = x0 + (x1 - x0) * eased + bow;
+            let y = y0 + (y1 - y0) * eased - bow;
             self.mouse("mouseMoved", x, y, 0).await?;
-            self.mouse("mousePressed", x, y, 1).await?;
-            self.mouse("mouseReleased", x, y, 1).await
-        })
-        .await
+            tokio::time::sleep(Duration::from_millis(14)).await;
+        }
+        self.mouse("mouseMoved", x1, y1, 0).await
     }
 
     /// Type `text` into a control, replacing what it holds; then press Enter when `enter`.
@@ -981,7 +1045,13 @@ async fn event_loop(
                     Some("input") => Some(Signal::OwnerInput),
                     _ => None,
                 };
-                if let Some(signal) = signal.filter(|_| shared.state().mode == Mode::Worker) {
+                // While Plenipo acts, a click or key in the page is its own, wherever it lands
+                // (the helper in a frame inside the page cannot tell, ADR-032).
+                let counts = |signal: &Signal| {
+                    let s = shared.state();
+                    s.mode == Mode::Worker && !(s.acting && *signal == Signal::OwnerInput)
+                };
+                if let Some(signal) = signal.filter(counts) {
                     signals(&target, signal);
                 }
             }
@@ -1203,6 +1273,19 @@ mod tests {
             &s,
             &paused("POST", "https://blocked.test/", "Document", "MAIN")
         )));
+    }
+
+    #[test]
+    fn a_captcha_state_reads_from_the_helper() {
+        let state: CaptchaState = serde_json::from_value(json!({
+            "present": true, "provider": "reCAPTCHA", "solved": false, "challenge": false,
+            "invisible": false, "checkbox": "e3"
+        }))
+        .unwrap();
+        assert_eq!(state.checkbox.as_deref(), Some("e3"));
+        assert_eq!(state.provider, "reCAPTCHA");
+        let bare: CaptchaState = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(bare, CaptchaState::default(), "missing fields read as off");
     }
 
     #[test]
