@@ -249,6 +249,13 @@ the server's information, never as instructions.
   over, so the worker stops and disconnects. The owner continues in their own SSH program.
 - **No terminal for the owner** inside Plenipo, and no file copy tools (SFTP) in this phase.
 
+**Planned (owner direction, 2026-09-27; `ROLLOUT_PLAN.md`):**
+
+- Phase 12: a terminal panel the owner can hide, with a watch tab for each worker using a server.
+  Workers still run one command at a time through Guard and never type into the owner's terminal.
+- Phase 15: Windows servers (Server 2016 and newer), with PowerShell command kinds; and, not a
+  priority, a connection to Milepost, 8 West IT's RMM, as another way to reach client servers.
+
 ### 12. The switch, and lessons (v1.4.0)
 
 - **Remote computers (SSH)** is a switch in Settings → Switches, under

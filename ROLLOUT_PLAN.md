@@ -11,6 +11,8 @@
 
 **Added after Phase 10 (v1.4.0):** on/off switches in Settings, including letting workers send, buy, or press Sign in without asking on allowed websites and handing CAPTCHAs to the owner (ADR-023, which amends ADR-020); and workers that learn from their work, with the owner keeping or discarding each lesson (ADR-024). Neither changes a phase.
 
+**Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
+
 ---
 
 ## 1. Product Definition
@@ -1179,7 +1181,7 @@ Phase 11A runs before Phase 11 and before the postponed Phase 9: the Sales depar
 
 # Phase 11 — SSH, Remote Infrastructure, and Operations Capabilities
 
-**Status: delivered in v1.6.0** (checklist and acceptance report in `docs/phases/phase-11-*`). Decisions: ADR-025 (servers over SSH, through Guard), with its deviations: Linux and Unix servers only, a program and its arguments rather than shell lines, **Disconnect** in place of Take over for servers, and no owner terminal or file copying yet; and ADR-026 (SSH built into Plenipo, not Windows' ssh.exe). Servers start switched off (Settings → Switches, ADR-023), and are in the Free edition (ADR-021). Phase 11 was delivered ahead of Phase 11A, which this plan puts first: servers are Free, so there is nothing for the license to gate.
+**Status: delivered in v1.6.0** (checklist and acceptance report in `docs/phases/phase-11-*`). Decisions: ADR-025 (servers over SSH, through Guard), with its deviations: Linux and Unix servers only, a program and its arguments rather than shell lines, **Disconnect** in place of Take over for servers, and no owner terminal or file copying yet (the terminal panel is planned in Phase 12, and Windows servers in Phase 15); and ADR-026 (SSH built into Plenipo, not Windows' ssh.exe). Servers start switched off (Settings → Switches, ADR-023), and are in the Free edition (ADR-021). Phase 11 was delivered ahead of Phase 11A, which this plan puts first: servers are Free, so there is nothing for the license to gate.
 
 ## Goal
 
@@ -1377,6 +1379,16 @@ All screens in this phase are assembled from the Phase 12A design system and com
 - approvals
 - final result
 
+### Terminal panel (owner direction, 2026-09-27)
+
+A panel at the bottom or side of the window that the owner can show, hide, and resize, like the terminal in a code editor. It amends ADR-025 (servers over SSH, through Guard), which left out a terminal for the owner; detail it in an ADR before building.
+
+- **Your terminal:** the owner types freely, on this PC or on a server from Settings → Servers, signed in with the server's stored sign-in (never shown). The owner is in charge, so Guard does not check what the owner types; the server's pinned server ID is still checked before signing in.
+- **Watch tabs:** one per worker using a server. It shows each command the worker runs and its output as it arrives, with **Stop** and **Disconnect** right there. A tab opens when a worker connects and stays readable after it disconnects.
+- **Workers never type into the owner's terminal.** They keep using `ssh_run`, one command at a time through Guard, so every command is still checked, asked about when it must be, and recorded. The watch tab only shows what Guard already let through.
+- Several tabs at once; the panel remembers whether it was open and its size.
+- Production servers are marked red in their tabs, as everywhere else.
+
 ### Settings
 - providers
 - authentication state
@@ -1400,6 +1412,10 @@ All screens in this phase are assembled from the Phase 12A design system and com
 - empty states
 - error states
 - accessibility smoke tests
+- terminal panel: open, hide, resize, and restore after a restart
+- the owner's terminal on this PC and on a synthetic SSH server, with a changed server ID refused
+- a worker's watch tab shows its commands and output live, and Stop and Disconnect there end its work
+- a worker cannot send keystrokes to the owner's terminal
 
 ## Acceptance Criteria
 
@@ -1416,6 +1432,7 @@ Core workflows stable.
 - cosmetic redesigns that delay functionality
 - mobile application
 - remote multi-user console
+- workers typing into the owner's terminal, or running shell lines (pipes, `&&`) through it
 
 ---
 
@@ -1555,6 +1572,8 @@ Prove Plenipo is genuinely provider- and department-independent.
 - additional provider adapter when justified
 - Marketing department templates
 - Operations/NOC templates
+- Windows servers for Operations (owner direction, 2026-09-27; see below)
+- Milepost connection, last in this phase and not a priority (see below)
 - reusable role packs
 - import/export of sanitized organization configuration
 
@@ -1579,6 +1598,24 @@ New departments should reuse:
 
 Do not fork the orchestration engine per department.
 
+### Windows servers
+
+Every 8 West IT client runs Windows servers, the oldest Windows Server 2016. Phase 11 supports only Linux and Unix servers (ADR-025 §11).
+
+- **Command kinds for PowerShell:** Guard sorts PowerShell commands into the same six kinds as on Linux: look around (`Get-*`, `Test-*`), start, stop, and restart services (`Restart-Service`), install, deploy, and change files, delete, wipe, or shut down (`Remove-Item`, `Stop-Computer`), run as administrator, and other. It also keeps the never list: no reaching other computers from a server (`Enter-PSSession`, `Invoke-Command -ComputerName`, `mstsc`), no scanning, and no credential dumping.
+- **Quoting and paths:** Windows quoting and `C:\` paths, with the server's folders checked the same way.
+- **How Plenipo reaches them:** OpenSSH Server, built into Windows Server 2019 and newer (an optional feature that must be turned on) and a separate install on Server 2016; or PowerShell Remoting (WinRM), which is often already on inside a client's network. Choose in an ADR.
+- Everything else from Phase 11 stays: the pinned server ID, sign-ins in the Vault, Test/Staging/Production, the switch, the sign, Stop all, and the Activity trail.
+
+### Milepost connection (not a priority)
+
+Milepost is 8 West IT's own RMM (remote monitoring and management), a separate app in its own repository. It already has an agent on every client computer that reaches out to Milepost, so no ports are opened on a client's network. A Plenipo worker could run commands on client servers through it instead of connecting directly.
+
+- **Milepost side, built in Milepost's own repository under its own rules** (remote commands and new switches need the owner's explicit approval there): a small API only for Plenipo, with its own key that expires and can be switched off, limited to the clients the owner chooses. It lists a client's servers, runs one PowerShell command on one server, and returns the result. Milepost records the full text of every command Plenipo sends.
+- **Plenipo side:** Milepost's servers appear in Settings → Servers as another way to reach a server; its key is kept in the Vault; Guard checks each command first, with the Windows command kinds above.
+- **Every server reached through Milepost starts as Production,** so every command asks the owner: Milepost's agent runs commands as Windows' SYSTEM account, with full power over the server.
+- Known limits of Milepost today (2026-09-27): queued commands report their output only when they finish, cannot be cancelled once running, and stop after 5 minutes; its live terminal needs Windows Server 2019 or newer.
+
 ## Tests
 
 - provider adapter contract suite
@@ -1586,6 +1623,8 @@ Do not fork the orchestration engine per department.
 - model-policy switching
 - mixed-provider workflow
 - role pack export/import
+- Windows servers: each PowerShell command kind, the never list, quoting, and folders, against a synthetic Windows SSH server
+- Milepost connection (when built): a synthetic Milepost API; an expired or switched-off key is refused; every command asks the owner
 
 ## Acceptance Criteria
 
@@ -1593,7 +1632,7 @@ A new provider or department can be added without changing the fundamental task,
 
 ## Dependencies
 
-Stable production architecture.
+Stable production architecture. Windows servers build on Phase 11. The Milepost connection needs the Milepost API, built first in Milepost's repository.
 
 ## Out of Scope
 
