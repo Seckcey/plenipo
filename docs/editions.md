@@ -44,10 +44,10 @@ on it.
 
 ## What Pro costs
 
-| Plan    | Price                                                                                 |
-| ------- | ------------------------------------------------------------------------------------- |
-| Monthly | **$9.99 a month**                                                                     |
-| Yearly  | **$107.99 a year** — that works out to about **$9 a month**, 10% off the monthly plan |
+| Plan    | Price                                                          |
+| ------- | -------------------------------------------------------------- |
+| Monthly | **$9 a month**                                                 |
+| Yearly  | **$99 a year** — that is **$8.25 a month**, and one month free |
 
 Free is free, with no card and no account, and stays that way.
 

@@ -13,13 +13,13 @@ license key would be **verified entirely on the owner's own PC**, with no accoun
 server, and no network call. That followed directly from ADR-002 (local-first architecture), and it
 is the right answer for a one-time purchase.
 
-The owner has since chosen subscription pricing: **$9.99 a month, or $107.99 a year**. The yearly
-price is twelve months less ten percent ($107.89), rounded up to the next .99. It works out to
-very nearly $9.00 a month, and is advertised that way.
+The owner has since chosen subscription pricing: **$9 a month, or $99 a year**. Twelve months of
+the monthly plan is $108, so the yearly plan is exactly one month free — $8.25 a month — and is
+advertised that way.
 
 A subscription and a purely offline check cannot both be true. If Plenipo never asks anything, it
 can never learn that a subscription ended: one payment would buy Pro forever, and the monthly plan
-would be a one-time $9.99 purchase. The ADR-021 decision has to be replaced rather than stretched.
+would be a one-time $9 purchase. The ADR-021 decision has to be replaced rather than stretched.
 
 Three ways out were considered, and are recorded in **Alternatives considered** below.
 
@@ -57,9 +57,10 @@ Three ways out were considered, and are recorded in **Alternatives considered** 
   summary.** Saying Plenipo never phones home while it phones home weekly would be a lie, and a
   source-available app is one `grep` away from being caught in it. The honest line is: your work
   never leaves your PC; the licence check is the only thing that does, and only if you are paying.
-- **Monthly billing costs more to collect.** Card processing takes roughly $0.59 of each $9.99 —
-  about 5.9% — against roughly $3.43 of each $107.99, about 3.2%. A yearly customer also cannot
-  churn for twelve months. The yearly plan should be the default option shown.
+- **Monthly billing costs more to collect.** Card processing takes roughly $0.56 of each $9 —
+  about 6.2% — against roughly $3.17 of each $99, about 3.2%. A yearly customer also cannot churn
+  for twelve months, and is charged once instead of twelve times. The yearly plan should be the
+  default option shown.
 - **Selling worldwide brings sales tax obligations** (EU and UK VAT, US state sales tax, and
   others). A payment processor alone does not carry those; a merchant of record does, for a larger
   cut. This is a business decision for the owner and their accountant, outside this ADR and outside
