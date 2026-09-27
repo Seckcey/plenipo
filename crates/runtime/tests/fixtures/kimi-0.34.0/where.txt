@@ -1,0 +1,5 @@
+
+
+Source      : C:\Users\<user>\.kimi-code\bin\kimi.exe
+CommandType : Application
+Version     : 24.15.0.0

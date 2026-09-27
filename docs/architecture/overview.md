@@ -24,7 +24,7 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │ Plenipo Runtime (crates/runtime)     │   │
 │   ▲ events: plenipo://runtime              │  - Supervisor, profiles, policy      │   │
 │   ▲ events: plenipo://agents               │  - agent runtimes: adapters (Claude  │   │
-│   └────────────────────────────────────────│    Code, Codex, Grok), sessions      │   │
+│   └────────────────────────────────────────│    Code, Codex, Grok, Kimi, Ollama)  │   │
 │                                            │  - persists via Ledger               │   │
 │                                            │ Plenipo Liaison (crates/liaison)     │   │
 │                                            │  - handoffs between workers: checks, │   │
@@ -293,12 +293,15 @@ cancelled` (terminal states are final).
 ## 6. Agent runtimes (Phase 3)
 
 Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
-and Codex) and [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP).
+and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP), and
+[ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
+and writes going through Plenipo).
 
 - **Contract.** `RuntimeAdapter` (`crates/runtime/src/agent/adapter.rs`) is provider-neutral:
   detection, sign-in check, capabilities, turn arguments (new or resumed provider session),
   a stream parser producing normalized `AgentEvent`s, and a normalized `TurnResult`. Vendor
-  names appear only in `agent/claude_code.rs`, `agent/codex.rs`, and `agent/grok.rs`.
+  names appear only in `agent/claude_code.rs`, `agent/codex.rs`, `agent/grok.rs`,
+  `agent/kimi.rs`, and `agent/ollama/`.
 - **Surface.** The official non-interactive CLIs: `claude -p --output-format stream-json` and
   `codex exec --json`. One turn = one supervised execution; the objective is written to stdin.
 - **Tasks that talk (ADR-015).** Grok's one-task mode cannot read stdin, so it runs
@@ -309,16 +312,32 @@ and Codex) and [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over 
   driver answers the tool's permission requests (Plenipo's tool server yes, anything else no)
   and never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
   seconds before the process tree is ended.
+- **File access through Plenipo (ADR-027).** Kimi (`kimi acp`) uses the same driver, with the
+  options its own unswitchable tools need. `initialize` offers file reads and writes, so Kimi
+  asks Plenipo for every file (`fs/read_text_file`, `fs/write_text_file`). The driver turns each
+  into a `FileRequest` (`Parsed::files`); the service carries it out through
+  `ToolProvider::file_access` — the broker's `read_file` / `write_file` path, so Guard decides,
+  secrets are hidden, and the use is recorded (`capability.used` with `fileRequest: true`) — and
+  gives the answer back with `TurnParser::file_answered` while the task goes on. A worker without
+  a grant has every file refused. Kimi's own shell is refused, its file changes are allowed once
+  only for a worker whose grant offers `write_file` (a change it reports done that never came to
+  Plenipo stops the task), and nothing is approved for a whole session. Its mode, model, and
+  thinking level are set with `session/set_config_option` before the prompt and checked; a mode
+  other than `default` or `plan` stops the task.
 - **Boundary.** The UI names a runtime ID, an objective, an optional (validated) model, and a
   session ID. Executables come only from detection (PATH + known install locations; Windows
   `.exe` only), are allowlisted by Core, and re-checked at spawn.
 - **Billing.** Sign-in is checked before every turn with the CLI's own status command; signed
   out, API-key, and third-party-cloud sign-ins are refused. Claude Code's reported credential
   source is checked again in each stream. API-key variables are never passed to children.
-  Grok also runs with `GROK_DISABLE_API_KEY_AUTH=1`, so it refuses API keys itself.
+  Grok also runs with `GROK_DISABLE_API_KEY_AUTH=1`, so it refuses API keys itself. Kimi's
+  check (`kimi provider list`) must show the subscription provider (`managed:kimi-code`,
+  `source=oauth`), and Plenipo runs only its `kimi-code/…` models (model names may carry one
+  provider prefix, `provider/model`).
 - **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex:
   read-only sandbox. Grok: an agent profile with none of its own tools, no subagents, memory,
-  web fetch, or Claude Code/Cursor settings. Each session has its own empty workspace. Organization workers with
+  web fetch, or Claude Code/Cursor settings. Kimi: its files through Guard, its shell refused,
+  its `plan` mode for a worker without permissions. Each session has its own empty workspace. Organization workers with
   permissions get Plenipo's tools for each step (§10).
 - **Sessions.** `runtime_sessions` (migration 0002) maps Plenipo's session to the provider
   session ID. Each turn is a task (`metadata.sessionId`) with an execution, `agent.*` activity
@@ -328,7 +347,7 @@ and Codex) and [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over 
   `interrupted`. A usage limit never switches provider. Turns running when Plenipo stopped are
   recorded as interrupted on the next start.
 - **Tests** run against `plenipo-fake-agent`, a test double that speaks each tool's format
-  (Grok: ACP).
+  (Grok and Kimi: ACP).
 - **Adding an AI tool** ([ADR-014](../adr/ADR-014-adding-ai-tools.md), adding AI tools ahead of
   Phase 15): the [adapter guide](../development/adding-an-ai-tool.md) is the contract, and
   `crates/runtime/tests/contract.rs` checks it for every adapter in `builtin_adapters()`. The
@@ -344,7 +363,7 @@ Decision record: [ADR-008](../adr/ADR-008-liaison.md).
   `priority`; protocol `plenipo-liaison/1`). Liaison parses them as untrusted input: unknown
   or identity fields (sender, IDs, correlation) are refused; the sender is whoever Plenipo's
   own records say is running that turn.
-- **Destinations are runtimes** (`claude-code`, `codex`, `grok`, or `runtime:<id>`) for sessions the
+- **Destinations are runtimes** (`claude-code`, `codex`, `grok`, `kimi`, or `runtime:<id>`) for sessions the
   owner starts in Workers, and **roles** (`role:<title>`) for organization members, resolved
   by the Workforce directory (§8). Another worker's session can never be addressed. A request
   never falls back to another provider.

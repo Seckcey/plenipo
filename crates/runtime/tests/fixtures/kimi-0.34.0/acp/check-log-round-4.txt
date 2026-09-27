@@ -1,0 +1,19 @@
+---- started: kimi acp (pid 15072)
+==== session id: session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b
+==== prompt: Read the file notes.txt in the current folder and tell me exactly what it says.
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+==== prompt: Read the file C:\Users\<user>\plenipo-cli-checks\outside-note.txt and tell me exactly what it says.
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+!! Kimi asked this script to fs/read_text_file; refusing
+==== prompt: Create a file named test4.txt containing the word hi.
+!! Kimi asked permission; answering NO
+==== prompt: Run the shell command: echo hello-from-shell
+!! Kimi asked permission; answering NO
+==== test4.txt exists after refusing everything: False
+==== switching the model
+---- exit code: 0

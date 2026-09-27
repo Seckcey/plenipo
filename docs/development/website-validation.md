@@ -4,6 +4,14 @@ Validated on September 27, 2026, against desktop base `a3439987d803f04a2e323c1cc
 This change adds the website without modifying desktop source, its manifests, or generated bindings.
 Container checks ran on Coastline in isolated task directories; no desktop Docker was used.
 
+After PR #27 documented planned Pro pricing and PR #29 merged, the two pricing statements were
+reconciled against main `189e6d61c5fbbf6cc217b5cb31666d6bf021dd3b`. Planned Pro is $9/month or
+$99/year; v1.4.0 remains free and unrestricted. This follow-up changes website copy only.
+The follow-up passed `pnpm check` in a disposable 1 GiB/1 CPU Coastline container, the two website
+build/metadata tests, image health, and browser pricing/FAQ checks with no 320 px page overflow
+or console errors. The completed original desktop CI also passed; desktop code, configuration,
+lockfiles, and bindings are unchanged by the pricing reconciliation.
+
 ## Checks
 
 - `pnpm check`: passed versions, formatting, lint, workspace type checks, 157 desktop tests,
@@ -29,8 +37,8 @@ Container checks ran on Coastline in isolated task directories; no desktop Docke
   reflects the release's optional settings, which start off, for allowed websites.
 
 The Rust validation container was capped at 2 GiB/2 CPUs with one compilation job; frontend checks
-ran in a 1 GiB container. Both were removed after checks. The separate temporary website preview
-uses a 64 MiB limit and is retired after the permanent release. Host backup and unrelated apps
+ran in a 1 GiB container. Both were removed after checks. Each temporary website preview
+uses a 64 MiB limit and is retired after its acceptance checks. Host backup and unrelated apps
 were preserved. Exact merged revision, image and public acceptance belong in the deployment
 receipt; a preview test is not proof that the public hostname is live.
 

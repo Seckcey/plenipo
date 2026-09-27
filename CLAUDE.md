@@ -1,5 +1,9 @@
 # Plenipo — notes for AI coding sessions
 
+- **Always explain like the owner is in 5th grade.** Every time you explain something to the
+  owner — in chat, in a pull request summary, or in steps to follow — use short sentences and
+  everyday words. Say what happened and what the owner needs to do first. If you must use a
+  technical word, say what it means in a few simple words right after it.
 - **Plain words on screen.** Everything a person sees uses simple, everyday words. Follow
   [`docs/design/vocabulary.md`](docs/design/vocabulary.md): "AI tool", not "runtime"; Worker →
   Supervisor → Manager → VP → President, not coordinator or superintendent. Code keeps the

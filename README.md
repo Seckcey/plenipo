@@ -5,7 +5,7 @@
 <p align="center">
   <strong>Hand it an outcome. Your AI organization gets it done.</strong><br>
   A Windows desktop app that runs a whole AI workforce on your own PC — on your own Claude Code,
-  Codex, Grok, and Ollama sign-ins. No API keys, no cloud, no per-token bill.
+  Codex, Grok, Kimi, and Ollama sign-ins. No API keys, no cloud, no per-token bill.
 </p>
 
 <p align="center">
@@ -63,8 +63,8 @@ Full power, clearly bounded. That is the whole idea.
 - **Builds you an org chart that works.** Create departments and projects, drag roles onto a lead to
   build a team, and give a Supervisor an objective. Its workers show up under it while they work and
   leave when they are done.
-- **Runs on the AI tools you already have.** Claude Code, Codex, Grok, and Ollama, on your own
-  sign-ins. Plenipo never uses API keys, so there is no per-token bill for any of this.
+- **Runs on the AI tools you already have.** Claude Code, Codex, Grok, Kimi, and Ollama, on your
+  own sign-ins. Plenipo never uses API keys, so there is no per-token bill for any of this.
 - **Picks the right model for each role.** Say which models a role may use, in what order, how hard
   they should think, and whether reviews must come from a different AI company. Plenipo shows you
   the model every worker would get, and why.
@@ -143,7 +143,7 @@ Coming with the next release. If you are running Plenipo already,
 
 | Edition  | Price                                          | What you get                                                                                                                                                 |
 | -------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Free** | Free, no card, no account                      | One department, one project, three workers at a time, and the whole Development department. All four AI tools, and every safety feature.                     |
+| **Free** | Free, no card, no account                      | One department, one project, three workers at a time, and the whole Development department. All five AI tools, and every safety feature.                     |
 | **Pro**  | **$9/month**, or **$99/year** — one month free | Unlimited departments, projects, and workers, plus the business departments — Sales on HubSpot and what follows it — and workers that learn from their work. |
 
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
@@ -168,8 +168,8 @@ pnpm dev          # run the desktop app with hot reload
 ```
 
 No API keys, provider logins, or `.env` file are needed to build or launch. To run workers, install
-and sign in to at least one of Claude Code, Codex, Grok, and Ollama — see the
-[setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-and-ollama-optional).
+and sign in to at least one of Claude Code, Codex, Grok, Kimi, and Ollama — see the
+[setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-and-ollama-optional).
 
 Prefer not to build it? [Download the latest Windows installer](https://github.com/Seckcey/plenipo/releases/latest).
 
@@ -200,6 +200,18 @@ Lessons from a task that used a server always wait for you. Servers are in the F
 [Release notes](docs/releases/v1.6.0.md) · [ADR-025](docs/adr/ADR-025-servers-over-ssh.md)
 (servers over SSH, through Guard) · [ADR-026](docs/adr/ADR-026-ssh-built-in.md) (SSH built into
 Plenipo, not Windows' ssh.exe)
+
+</details>
+
+<details>
+<summary><strong>v1.5.0 — Kimi joins the AI tools</strong></summary>
+
+Moonshot AI's Kimi Code, on your own Kimi subscription. Kimi's own tools cannot be switched off,
+so every file it reads or writes goes through Plenipo and Guard, inside the project folder; its own
+command line is always refused, and it never runs in its auto or yolo modes.
+[Release notes](docs/releases/v1.5.0.md) ·
+[ADR-027](docs/adr/ADR-027-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
+and writes going through Plenipo)
 
 </details>
 
@@ -360,8 +372,8 @@ crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, ev
 crates/liaison/          Plenipo Liaison: handoff protocol, context packets, replies between
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
-                         agent runtime adapters (Claude Code, Codex, Grok over ACP, Ollama) and
-                         sessions
+                         agent runtime adapters (Claude Code, Codex, Grok and Kimi over ACP,
+                         Ollama) and sessions
 crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
                          role templates), live snapshot, role routing for Liaison
 crates/router/           Plenipo Router: model registry, role model policies, explained

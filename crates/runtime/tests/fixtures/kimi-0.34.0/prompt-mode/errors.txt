@@ -1,0 +1,26 @@
+## kimi --output-format stream-json (prompt on stdin, no -p)
+kimi : error: Output format is only supported in prompt mode.
+At line:1 char:42
++ ... ly: hello from stdin" | kimi --output-format stream-json *>&1 | Out-F ...
++                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (error: Output f...in prompt mode.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+## kimi --plan -p ...
+kimi : error: Cannot combine --prompt with --plan.
+At line:1 char:1
++ kimi --plan -p "Create a file named test.txt containing the word hi"  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (error: Cannot c...pt with --plan.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+## kimi -m no-such-model -p hi --output-format stream-json
+{"role":"meta","type":"system.version","version":"0.34.0"}
+kimi : error: failed to run prompt: Model "no-such-model" is not configured in config.toml.
+At line:1 char:1
++ kimi -m no-such-model -p "hi" --output-format stream-json *>&1 | Out- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (error: failed t...in config.toml.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+See log: C:/Users/<user>/.kimi-code/logs/kimi-code.log

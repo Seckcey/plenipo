@@ -23,12 +23,12 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::adapter::{
-    cap, first_line, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser, TurnRequest,
-    MAX_EVENT_TEXT,
+    cap, first_line, FileRequest, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
+    TurnRequest, MAX_EVENT_TEXT,
 };
 use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
-use crate::agent::tools::{with_note, StepInfo, StepTools, TextFilter, ToolProvider};
+use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, OutputLine, OutputStream};
 use crate::error::RuntimeError;
 use crate::profile::{LaunchSpec, StdinFeed};
@@ -1747,9 +1747,27 @@ impl TurnContext {
         done: Option<watch::Sender<bool>>,
     ) {
         let mut stopping = false;
+        // Answers to the files the AI tool asked Plenipo for (ADR-027), as they come.
+        let (answers_tx, mut answers) = mpsc::unbounded_channel::<(u64, FileAnswer)>();
         loop {
-            let line = tokio::select! {
-                line = rx.recv() => line,
+            let parsed = tokio::select! {
+                line = rx.recv() => {
+                    let Some(line) = line else { break };
+                    if stopping {
+                        continue; // stopped by policy: drain, but record nothing more from this turn
+                    }
+                    if line.stream == OutputStream::Stderr {
+                        parser.stderr(&line.text);
+                        continue;
+                    }
+                    parser.line(&line.text, line.truncated)
+                }
+                Some((id, answer)) = answers.recv() => {
+                    if stopping {
+                        continue;
+                    }
+                    parser.file_answered(id, answer)
+                }
                 asked = async {
                     match interrupt.as_mut() {
                         Some(rx) => rx.recv().await,
@@ -1765,18 +1783,12 @@ impl TurnContext {
                     continue;
                 }
             };
-            let Some(line) = line else { break };
-            if stopping {
-                continue; // stopped by policy: drain, but record nothing more from this turn
-            }
-            if line.stream == OutputStream::Stderr {
-                parser.stderr(&line.text);
-                continue;
-            }
-            let parsed = parser.line(&line.text, line.truncated);
             self.write(parsed.send);
             if parsed.close_input {
                 self.input = None;
+            }
+            for request in parsed.files {
+                self.file_request(request, &answers_tx);
             }
             for event in parsed.events {
                 self.event(event).await;
@@ -1820,6 +1832,32 @@ impl TurnContext {
         self.input = None;
         let result = parser.finish(&end);
         self.complete(result, done).await;
+    }
+
+    /// Carry out a file the AI tool asked for (ADR-027) through the step's grant, and send the
+    /// answer back when it is ready: Guard may make it wait for the owner, and the task goes on
+    /// meanwhile. A step without a grant has every file request refused.
+    fn file_request(
+        &self,
+        request: FileRequest,
+        answers: &mpsc::UnboundedSender<(u64, FileAnswer)>,
+    ) {
+        let FileRequest { id, access } = request;
+        let answers = answers.clone();
+        match (&self.grant, self.runtime.tool_provider()) {
+            (Some(grant), Some(provider)) => {
+                let pending = provider.file_access(grant, access);
+                tokio::spawn(async move {
+                    let _ = answers.send((id, pending.await));
+                });
+            }
+            _ => {
+                let _ = answers.send((
+                    id,
+                    Err("Not done: this worker has no permission to use files.".into()),
+                ));
+            }
+        }
     }
 
     /// Write lines to the process's stdin (a task that talks, ADR-015).
@@ -2309,13 +2347,22 @@ fn validate_session_id(id: &str) -> Result<String, RuntimeError> {
     }
 }
 
-/// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}` — a model name, never a flag or a path.
+/// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]*`, optionally after a provider `[A-Za-z0-9][A-Za-z0-9._-]*`
+/// and one `/` (Kimi's `kimi-code/k3`, ADR-027), at most 64 characters — a model name, never a
+/// flag or a path.
 pub fn validate_model(model: &str) -> Result<String, RuntimeError> {
-    let mut chars = model.chars();
+    let part = |p: &str, more: &[char]| {
+        let mut chars = p.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+            && chars.all(|c| c.is_ascii_alphanumeric() || "._-".contains(c) || more.contains(&c))
+    };
+    let name = |p: &str| part(p, &[':', '[', ']']);
     let ok = (1..=64).contains(&model.len())
-        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && chars
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '[' | ']' | '-'));
+        && match model.split_once('/') {
+            None => name(model),
+            // The provider: letters, digits, `.`, `_`, `-` only (never a drive such as `C:`).
+            Some((provider, rest)) => part(provider, &[]) && name(rest),
+        };
     if ok {
         Ok(model.to_owned())
     } else {
@@ -2423,6 +2470,8 @@ mod tests {
             "gpt-5.1-codex",
             "claude-fable-5",
             "org:model_1",
+            "kimi-code/k3",
+            "kimi-code/kimi-for-coding-highspeed",
         ] {
             assert!(validate_model(good).is_ok(), "{good}");
         }
@@ -2432,7 +2481,15 @@ mod tests {
             "-m",
             "a b",
             "../x",
-            "a/b",
+            "./x",
+            "/x",
+            "a/",
+            "a//b",
+            "a/b/c",
+            "a/../b",
+            "a/-m",
+            "a\\b",
+            "C:/x",
             "m;rm",
             &"a".repeat(65),
         ] {

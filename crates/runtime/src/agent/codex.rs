@@ -575,6 +575,7 @@ mod tests {
             args: vec![r#"--plenipo-tools=C:\Users\me\t.json"#.into()],
             config_file: "unused".into(),
             call_timeout: std::time::Duration::from_secs(3600),
+            tools: Vec::new(),
         };
         let args = Codex.turn_args(&TurnRequest {
             session: ProviderSession::Resume { id: "t1".into() },

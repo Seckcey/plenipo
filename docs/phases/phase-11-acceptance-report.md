@@ -162,6 +162,11 @@ Run on Linux, on the final branch after merging `main` (v1.4.0):
 - `pnpm bindings`, with no diff in `packages/types/src/generated`
 - `pnpm e2e` against the release build (58 tests)
 
+After Kimi (v1.5.0, Seckcey/plenipo#23) was merged into `main`, the branch merged `main` again
+and was checked again: `pnpm check` (168 frontend tests), `cargo fmt`, `cargo clippy`, `cargo
+test` (742 tests, all 13 server tests among them), and `pnpm bindings` with no diff. The
+end-to-end suite runs on CI.
+
 GitHub CI runs the same, plus the Windows job (tests, installer, and the launch smoke test).
 
 ## 10. Phase boundary

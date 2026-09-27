@@ -1,0 +1,5 @@
+{"method":"initialize","params":{"clientInfo":{"version":"1","name":"plenipo-check"},"protocolVersion":1,"clientCapabilities":{"terminal":false,"fs":{"readTextFile":false,"writeTextFile":false}}},"id":1,"jsonrpc":"2.0"}
+{"method":"session/new","params":{"cwd":"C:\\Users\\<user>\\plenipo-cli-checks\\kimi-scratch","mcpServers":[]},"id":2,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Reply with exactly: hello from acp","type":"text"}],"sessionId":"session_0fe194e1-3bd2-4568-be4a-8ad5d6d06c7c"},"id":3,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Create a file named test3.txt containing the word hi, using your file writing tool.","type":"text"}],"sessionId":"session_0fe194e1-3bd2-4568-be4a-8ad5d6d06c7c"},"id":4,"jsonrpc":"2.0"}
+{"result":{"outcome":{"optionId":"reject","outcome":"selected"}},"id":0,"jsonrpc":"2.0"}

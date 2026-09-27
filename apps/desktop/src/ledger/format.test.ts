@@ -41,6 +41,8 @@ describe("describeEvent (Phase 3 agent events)", () => {
     expect(sourceLabel("owner")).toBe("you");
     expect(sourceLabel("owner", { capitalize: true })).toBe("You");
     expect(sourceLabel("agent:claude-code")).toBe("Claude Code");
+    expect(sourceLabel("agent:grok")).toBe("Grok");
+    expect(sourceLabel("agent:kimi")).toBe("Kimi");
     expect(sourceLabel("agent:gemini")).toBe("gemini");
     expect(describeEvent(event("agent.message", { text: "x".repeat(500) })).length).toBeLessThan(
       170,

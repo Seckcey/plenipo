@@ -1,0 +1,18 @@
+{"method":"initialize","params":{"clientInfo":{"version":"1","name":"plenipo-check"},"protocolVersion":1,"clientCapabilities":{"terminal":true,"fs":{"readTextFile":true,"writeTextFile":true}}},"id":1,"jsonrpc":"2.0"}
+{"method":"session/new","params":{"cwd":"C:\\Users\\<user>\\plenipo-cli-checks\\kimi-scratch","mcpServers":[]},"id":2,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Read the file notes.txt in the current folder and tell me exactly what it says.","type":"text"}],"sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":3,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":0,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":1,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":2,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":3,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Read the file C:\\Users\\<user>\\plenipo-cli-checks\\outside-note.txt and tell me exactly what it says.","type":"text"}],"sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":4,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":4,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":5,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":6,"jsonrpc":"2.0"}
+{"error":{"code":-32000,"message":"Refused by Plenipo check"},"id":7,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Create a file named test4.txt containing the word hi.","type":"text"}],"sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":5,"jsonrpc":"2.0"}
+{"result":{"outcome":{"optionId":"reject","outcome":"selected"}},"id":8,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Run the shell command: echo hello-from-shell","type":"text"}],"sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":6,"jsonrpc":"2.0"}
+{"result":{"outcome":{"optionId":"reject","outcome":"selected"}},"id":9,"jsonrpc":"2.0"}
+{"method":"session/set_config_option","params":{"configId":"model","value":"kimi-code/kimi-for-coding-highspeed","sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":7,"jsonrpc":"2.0"}
+{"method":"session/prompt","params":{"prompt":[{"text":"Reply with exactly: hello from highspeed","type":"text"}],"sessionId":"session_3ea4a020-46d0-4ced-9bc1-6378b1b5fa4b"},"id":8,"jsonrpc":"2.0"}

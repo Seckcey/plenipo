@@ -15,6 +15,6 @@ a Pro license, is in docs/editions.md.
 LLC. The Elastic License 2.0 grants no trademark rights.
 
 Plenipo runs work on AI tools you install and sign in to yourself — Claude Code, Codex,
-Grok, and Ollama. Those products are licensed by their own vendors under their own terms,
+Grok, Kimi, and Ollama. Those products are licensed by their own vendors under their own terms,
 and are not covered by this license. Third-party Rust and npm dependencies keep their own
 licenses; see Cargo.toml, Cargo.lock, and the pnpm lockfile.

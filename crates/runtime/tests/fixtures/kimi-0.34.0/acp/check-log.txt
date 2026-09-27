@@ -1,0 +1,7 @@
+---- started: kimi acp (pid 24496)
+==== session id: session_0fe194e1-3bd2-4568-be4a-8ad5d6d06c7c
+!! Kimi asked permission; answering NO
+==== test3.txt exists after refusing permission: False
+---- exit code: 0
+---- started: kimi acp (pid 11212)
+---- exit code: 0

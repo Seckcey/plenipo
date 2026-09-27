@@ -49,5 +49,6 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 
 - Whatever the AI models themselves decide to write or say. Plenipo constrains what a worker
   _can do_, not what a model thinks.
-- Problems in Claude Code, Codex, Grok, or Ollama themselves — report those to their vendors.
+- Problems in Claude Code, Codex, Grok, Kimi, or Ollama themselves — report those to their
+  vendors.
 - Anything that needs an attacker to already be signed in as the owner on that Windows account.

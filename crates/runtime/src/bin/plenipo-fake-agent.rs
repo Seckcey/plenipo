@@ -1,12 +1,16 @@
 //! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
 //! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`, `grok`,
-//! `ollama`; `.exe` on Windows); it answers like the real CLI named by its file stem: `--version`, the
-//! sign-in status command, and one turn in the provider's JSON-lines stream format with the
-//! prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent … stdio` answers
-//! `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and stdout, asks
-//! permission before each tool call, and stops a slow task on `session/cancel`. Under any other name, `--personas` lists the persona names, one per
-//! line, so test helpers install every persona without naming them.
+//! `kimi`, `ollama`; `.exe` on Windows); it answers like the real CLI named by its file stem:
+//! `--version`, the sign-in status command, and one turn in the provider's JSON-lines stream
+//! format with the prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent …
+//! stdio` answers `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and
+//! stdout, asks permission before each tool call, and stops a slow task on `session/cancel`.
+//! `kimi acp` talks ACP too, like Kimi Code 0.34.0 (ADR-027): it takes its mode, model, and
+//! thinking level through `session/set_config_option`, and asks Plenipo for the files it reads
+//! and writes (`fs/read_text_file`, `fs/write_text_file`) when Plenipo offers file access. Under
+//! any other name, `--personas` lists the persona names, one per line, so test helpers install
+//! every persona without naming them.
 //!
 //! State lives in `<HOME or USERPROFILE>/.plenipo-fake-agent/`:
 //! - `auth` (optional, comma-separated flags): `subscription` (default), `api-key`,
@@ -57,6 +61,14 @@
 //! whether that was allowed. `last-acp.json` records what Plenipo sent to open the session,
 //! and `authenticate-called` appears if Plenipo ever asked Grok to sign in.
 //!
+//! Kimi asks for a tool server's tool by the tool's own name. Its own tools have markers too:
+//! `[own-read:PATH]` (its Read, through Plenipo when offered), `[own-write:PATH|TEXT]` (its
+//! Write: asks first, then the change goes through Plenipo), `[write-around:PATH|TEXT]` (asks,
+//! then reports the change done without sending it to Plenipo), and `[own-shell]` (its Bash:
+//! asks, never runs anything); the answer says which option Plenipo chose and what happened.
+//! `[settings]` adds the model, thinking level, and mode it ran with; `[yolo]` makes it switch
+//! itself to its "yolo" mode. Its `last-acp.json` also has `initialize` and `settings`.
+//!
 //! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
 //! bridge (`--plenipo-ollama auth` and `--plenipo-ollama chat …`) in the bridge's output
 //! format, so tests point `AgentConfig::bridge` at it. It has no tools.
@@ -76,6 +88,7 @@ const PERSONAS: &[(&str, Answer)] = &[
     ("claude", claude),
     ("codex", codex),
     ("grok", grok),
+    ("kimi", kimi),
     ("ollama", ollama),
 ];
 
@@ -1780,6 +1793,619 @@ fn grok_agent(args: &[String]) -> i32 {
             ("session/new" | "session/resume" | "session/load", Some(id)) => {
                 agent.open(&id, method, &params);
             }
+            ("session/prompt", Some(id)) => {
+                if !agent.prompt(&id, &params) {
+                    return 0;
+                }
+            }
+            ("session/cancel", None) => {}
+            (_, Some(id)) => acp_error(&id, -32601, "Method not found"),
+            (_, None) => {}
+        }
+    }
+    0
+}
+
+// ---- Kimi (ACP, ADR-015 and ADR-027) ----------------------------------------------------------
+
+/// The Kimi subscription's models, their names, and their thinking levels, as `session/new`
+/// lists them (0.34.0; the levels of K2.8 Preview and K3-256k are made up here).
+const KIMI_MODELS: &[(&str, &str, &[&str])] = &[
+    (
+        "kimi-code/kimi-for-coding",
+        "K2.8 Preview",
+        &["low", "high"],
+    ),
+    (
+        "kimi-code/kimi-for-coding-highspeed",
+        "K2.7 Code Highspeed",
+        &["on", "low"],
+    ),
+    ("kimi-code/k3", "K3", &["low", "high", "max"]),
+    ("kimi-code/k3-256k", "K3-256k", &["low", "high", "max"]),
+];
+const KIMI_MODES: &[&str] = &["default", "plan", "auto", "yolo"];
+
+fn kimi(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("--version" | "-V") => {
+            println!("0.34.99");
+            0
+        }
+        Some("provider") if args.get(1).map(String::as_str) == Some("list") => kimi_providers(),
+        Some("acp") if args.len() == 1 => kimi_acp(args),
+        _ => {
+            eprintln!("fake kimi: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+/// `kimi provider list`: each provider and where its credential comes from. The signed-out
+/// and API-key wordings are this double's own (not seen on the real CLI).
+fn kimi_providers() -> i32 {
+    let listed = match auth_mode() {
+        "signed-out" => "No providers configured. Run `kimi login` to sign in.".to_owned(),
+        "api-key" => "managed:kimi-code  type=kimi  models=4  source=api_key".to_owned(),
+        "cloud" => "moonshot-ai  type=openai  models=2  source=config".to_owned(),
+        "unknown-status" => {
+            eprintln!("error: failed to read config.toml");
+            return 1;
+        }
+        _ => "managed:kimi-code  type=kimi  models=4  source=oauth".to_owned(),
+    };
+    println!("{listed}\n\nDefault model: kimi-code/k3");
+    0
+}
+
+/// Messages from Plenipo, and requests this double makes of it.
+struct AcpPeer {
+    input: std::sync::mpsc::Receiver<Value>,
+    /// Messages read while waiting for something else, handled next.
+    queued: std::collections::VecDeque<Value>,
+    next_request: u64,
+}
+
+impl AcpPeer {
+    fn next(&mut self) -> Option<Value> {
+        self.queued.pop_front().or_else(|| self.input.recv().ok())
+    }
+
+    /// Ask Plenipo something and wait for its answer, keeping everything else for later.
+    fn request(&mut self, method: &str, params: Value) -> Option<Value> {
+        self.next_request += 1;
+        let id = 1000 + self.next_request;
+        out(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        loop {
+            let v = self.input.recv().ok()?;
+            if v.get("method").is_none() && v["id"] == json!(id) {
+                return Some(v);
+            }
+            self.queued.push_back(v);
+        }
+    }
+
+    /// Whether Plenipo asked to cancel the running prompt.
+    fn cancelled(&mut self) -> bool {
+        while let Ok(v) = self.input.try_recv() {
+            if v["method"] == json!("session/cancel") {
+                return true;
+            }
+            self.queued.push_back(v);
+        }
+        false
+    }
+}
+
+/// One `kimi acp` process: the ACP exchange for one task.
+struct KimiAgent {
+    peer: AcpPeer,
+    /// Plenipo offered file access (`fs` in `initialize`).
+    files: bool,
+    session: Option<String>,
+    cwd: String,
+    server: Option<ToolServer>,
+    model: String,
+    thinking: String,
+    mode: String,
+    calls: u64,
+    /// What Plenipo sent, kept in `last-acp.json`.
+    record: Value,
+}
+
+impl KimiAgent {
+    fn save(&self) {
+        let _ = std::fs::write(state_dir().join("last-acp.json"), self.record.to_string());
+    }
+
+    fn config_options(&self) -> Value {
+        let levels = KIMI_MODELS
+            .iter()
+            .find(|m| m.0 == self.model)
+            .map_or(&[][..], |m| m.2);
+        json!([
+            { "type": "select", "id": "model", "name": "Model", "category": "model",
+              "currentValue": self.model,
+              "options": KIMI_MODELS.iter().map(|m| json!({ "value": m.0, "name": m.1 }))
+                  .collect::<Vec<_>>() },
+            { "type": "select", "id": "thinking", "name": "Thinking", "category": "thought_level",
+              "currentValue": self.thinking,
+              "options": levels.iter().map(|l| json!({ "value": l, "name": l })).collect::<Vec<_>>() },
+            { "type": "select", "id": "mode", "name": "Mode", "category": "mode",
+              "currentValue": self.mode,
+              "options": KIMI_MODES.iter().map(|m| json!({ "value": m, "name": m }))
+                  .collect::<Vec<_>>() }
+        ])
+    }
+
+    fn session_state(&self) -> Value {
+        json!({ "configOptions": self.config_options(), "modes": {
+            "currentModeId": self.mode,
+            "availableModes": KIMI_MODES.iter().map(|m| json!({ "id": m, "name": m }))
+                .collect::<Vec<_>>() } })
+    }
+
+    fn open(&mut self, id: &Value, method: &str, params: &Value) {
+        self.record["method"] = json!(method);
+        self.record["params"] = params.clone();
+        self.save();
+        if auth_mode() == "signed-out" {
+            acp_error(id, -32000, "Authentication required");
+            return;
+        }
+        self.cwd = params["cwd"].as_str().unwrap_or("").to_owned();
+        self.server = params["mcpServers"].as_array().and_then(|servers| {
+            servers
+                .iter()
+                .find(|s| s["name"] == json!("plenipo"))
+                .map(|s| ToolServer {
+                    command: s["command"].as_str().unwrap_or("").to_owned(),
+                    args: s["args"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(str::to_owned))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+        });
+        let session = if method == "session/new" {
+            let n = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos() & 0xffff_ffff_ffff);
+            format!("session_{:08x}-kimi-{n:012x}", std::process::id())
+        } else {
+            let wanted = params["sessionId"].as_str().unwrap_or("").to_owned();
+            match load_session(&wanted) {
+                Some(s) if s["cwd"] == json!(self.cwd) => {
+                    if method == "session/load" {
+                        for prompt in s["prompts"].as_array().into_iter().flatten() {
+                            acp_update(
+                                &wanted,
+                                json!({ "sessionUpdate": "user_message_chunk",
+                                        "content": { "type": "text", "text": prompt } }),
+                            );
+                            grok_chunk(&wanted, "(earlier answer)");
+                        }
+                    }
+                    wanted
+                }
+                _ => {
+                    acp_error(id, -32002, &format!("Session not found: {wanted}"));
+                    return;
+                }
+            }
+        };
+        self.session = Some(session.clone());
+        let mut result = self.session_state();
+        if method == "session/new" {
+            result["sessionId"] = json!(session);
+        }
+        acp_result(id, result);
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "available_commands_update",
+                    "availableCommands": [{ "name": "compact", "description": "Compact" }] }),
+        );
+    }
+
+    fn set_option(&mut self, id: &Value, params: &Value) {
+        let option = params["configId"].as_str().unwrap_or("");
+        let value = params["value"].as_str().unwrap_or("").to_owned();
+        let ok = match option {
+            "model" => match KIMI_MODELS.iter().find(|m| m.0 == value) {
+                Some(m) => {
+                    if !m.2.contains(&self.thinking.as_str()) {
+                        self.thinking = m.2.first().copied().unwrap_or("").to_owned();
+                    }
+                    self.model = value.clone();
+                    true
+                }
+                None => false,
+            },
+            "thinking" => {
+                let levels = KIMI_MODELS
+                    .iter()
+                    .find(|m| m.0 == self.model)
+                    .map_or(&[][..], |m| m.2);
+                let ok = levels.contains(&value.as_str());
+                if ok {
+                    self.thinking = value.clone();
+                }
+                ok
+            }
+            "mode" => {
+                let ok = KIMI_MODES.contains(&value.as_str());
+                if ok {
+                    self.mode = value.clone();
+                }
+                ok
+            }
+            _ => false,
+        };
+        if !ok {
+            acp_error(
+                id,
+                -32602,
+                &format!("Invalid params: {value:?} is not a value of {option:?}"),
+            );
+            return;
+        }
+        if let Some(settings) = self.record["settings"].as_array_mut() {
+            settings.push(json!([option, value]));
+        } else {
+            self.record["settings"] = json!([[option, value]]);
+        }
+        self.save();
+        let session = self.session.clone().unwrap_or_default();
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "config_option_update", "configOptions": self.config_options() }),
+        );
+        acp_result(id, json!({ "configOptions": self.config_options() }));
+    }
+
+    fn call_id(&mut self) -> String {
+        self.calls += 1;
+        format!("{}:tool_fake{:04}", self.calls, std::process::id() & 0xffff)
+    }
+
+    /// Ask permission like Kimi 0.34.0: the tool's own name as the title, and what it would do.
+    /// Returns the option Plenipo chose.
+    fn permission(&mut self, call: &str, title: &str, doing: &str) -> String {
+        let answer = self.peer.request(
+            "session/request_permission",
+            json!({
+                "sessionId": self.session,
+                "options": [
+                    { "optionId": "approve_once", "name": "Approve once", "kind": "allow_once" },
+                    { "optionId": "approve_always", "name": "Approve for this session",
+                      "kind": "allow_always" },
+                    { "optionId": "reject", "name": "Reject", "kind": "reject_once" }
+                ],
+                "toolCall": { "toolCallId": call, "title": title, "content": [{ "type": "content",
+                    "content": { "type": "text", "text": format!("Requesting approval to {doing}") } }] }
+            }),
+        );
+        answer
+            .and_then(|a| a.pointer("/result/outcome/optionId").cloned())
+            .and_then(|o| o.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "cancelled".into())
+    }
+
+    fn announce(&self, call: &str, title: &str, kind: &str) {
+        let session = self.session.clone().unwrap_or_default();
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "tool_call", "toolCallId": call, "title": title,
+                    "kind": kind, "status": "pending" }),
+        );
+    }
+
+    fn finished(&self, call: &str, ok: bool, text: &str) {
+        let session = self.session.clone().unwrap_or_default();
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "tool_call_update", "toolCallId": call,
+                    "status": if ok { "completed" } else { "failed" },
+                    "content": [{ "type": "content", "content": { "type": "text", "text": text } }] }),
+        );
+    }
+
+    /// A path as Kimi sends it: absolute, relative ones taken from the conversation's folder.
+    fn absolute(&self, path: &str) -> String {
+        if Path::new(path).is_absolute() {
+            path.to_owned()
+        } else {
+            Path::new(&self.cwd).join(path).display().to_string()
+        }
+    }
+
+    /// Kimi's own Read: the file comes from Plenipo when it offers file access.
+    fn own_read(&mut self, path: &str) -> String {
+        let call = self.call_id();
+        self.announce(&call, "Read", "read");
+        if !self.files {
+            self.finished(&call, true, "(read directly)");
+            return format!("Read {path}: read by Kimi itself.");
+        }
+        let asked = json!({ "sessionId": self.session, "path": self.absolute(path) });
+        match self.peer.request("fs/read_text_file", asked) {
+            Some(a) if a.get("error").is_none() => {
+                let content = a["result"]["content"].as_str().unwrap_or("").to_owned();
+                self.finished(&call, true, &content);
+                format!("Read {path}: {}", content.lines().next().unwrap_or(""))
+            }
+            a => {
+                let why = a
+                    .and_then(|a| a["error"]["message"].as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "no answer".into());
+                self.finished(&call, false, &why);
+                format!("Read {path} failed: {}", why.lines().next().unwrap_or(""))
+            }
+        }
+    }
+
+    /// Kimi's own Write: asks first; the change goes to Plenipo when it offers file access.
+    /// `around`: the change is reported done but never sent to Plenipo.
+    fn own_write(&mut self, path: &str, content: &str, around: bool) -> String {
+        let call = self.call_id();
+        self.announce(&call, "Write", "edit");
+        let chosen = self.permission(&call, "Write", &format!("Writing {path}"));
+        if !chosen.starts_with("approve") {
+            self.finished(
+                &call,
+                false,
+                "Tool \"Write\" was not run because the user rejected the approval request.",
+            );
+            return format!("Write {path} answer: {chosen}.");
+        }
+        if around || !self.files {
+            self.finished(&call, true, "Wrote the file.");
+            return format!("Write {path} answer: {chosen}; written by Kimi itself.");
+        }
+        let asked =
+            json!({ "sessionId": self.session, "path": self.absolute(path), "content": content });
+        match self.peer.request("fs/write_text_file", asked) {
+            Some(a) if a.get("error").is_none() => {
+                self.finished(&call, true, "Wrote the file.");
+                format!("Write {path} answer: {chosen}; done.")
+            }
+            a => {
+                let why = a
+                    .and_then(|a| a["error"]["message"].as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "no answer".into());
+                self.finished(&call, false, &why);
+                format!(
+                    "Write {path} answer: {chosen}; failed: {}",
+                    why.lines().next().unwrap_or("")
+                )
+            }
+        }
+    }
+
+    /// Kimi's own shell: asks first, and never runs anything here.
+    fn own_shell(&mut self) -> String {
+        let call = self.call_id();
+        self.announce(&call, "Bash", "execute");
+        let chosen = self.permission(&call, "Bash", "Running: echo hello-from-shell");
+        let ok = chosen.starts_with("approve");
+        self.finished(&call, ok, if ok { "hello-from-shell" } else { "rejected" });
+        format!("Shell answer: {chosen}.")
+    }
+
+    /// One prompt; `false` when the process should end right away.
+    fn prompt(&mut self, id: &Value, params: &Value) -> bool {
+        let Some(session) = self.session.clone() else {
+            acp_error(id, -32602, "Invalid params: unknown session");
+            return true;
+        };
+        let prompt = params["prompt"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        let (noted, prompt) = strip_note(&prompt);
+        let (mut mode, said) = view(&prompt);
+        if let Mode::Worker { granted, .. } = &mut mode {
+            *granted = noted;
+        }
+        if said.contains("[malformed]") {
+            raw("<html>502 Bad Gateway</html>");
+            raw("this is not json");
+            return false;
+        }
+        let first = first_prompt(&session).unwrap_or_else(|| said.clone());
+        let (n, previous) = remember(&session, &said);
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "session_info_update", "title": first_line(&said) }),
+        );
+        if said.contains("[crash]") {
+            grok_chunk(&session, "Starting");
+            eprintln!("Error: simulated crash\n    at kimi (fake.js:1:1)");
+            std::process::exit(1);
+        }
+        for (marker, code, message) in [
+            (
+                "[usage-limit]",
+                -32603,
+                "Usage limit reached for your Kimi plan (429). Try again later.",
+            ),
+            ("[auth-expired]", -32000, "Authentication required"),
+            ("[offline]", -32603, "Network error: connection refused"),
+        ] {
+            if said.contains(marker) {
+                acp_error(id, code, message);
+                return true;
+            }
+        }
+        if said.contains("[slow]") {
+            for i in 1..=300 {
+                if self.peer.cancelled() {
+                    acp_result(id, json!({ "stopReason": "cancelled" }));
+                    return true;
+                }
+                grok_chunk(&session, &format!("tick {i} "));
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+        if said.contains("[unknown]") {
+            acp_update(&session, json!({ "sessionUpdate": "brand_new_update" }));
+        }
+        if said.contains("[yolo]") {
+            // Kimi switching itself to a mode Plenipo never allows.
+            self.mode = "yolo".into();
+            acp_update(
+                &session,
+                json!({ "sessionUpdate": "current_mode_update", "currentModeId": "yolo" }),
+            );
+        }
+        delay(&said);
+        let mut extra = Vec::new();
+        if said.contains("[settings]") {
+            extra.push(format!(
+                "Settings: model {}, thinking {}, mode {}.",
+                self.model, self.thinking, self.mode
+            ));
+        }
+        for path in markers(&said, "own-read") {
+            let line = self.own_read(path);
+            extra.push(line);
+        }
+        for (marker, around) in [("own-write", false), ("write-around", true)] {
+            for spec in markers(&said, marker) {
+                let (path, content) = spec.split_once('|').unwrap_or((spec, ""));
+                let line = self.own_write(path, content, around);
+                extra.push(line);
+            }
+        }
+        if said.contains("[own-shell]") {
+            let line = self.own_shell();
+            extra.push(line);
+        }
+        let calls = tool_calls(&said);
+        let list = said.contains("[tools-list]");
+        if !calls.is_empty() || list {
+            // Like Kimi 0.34.0 is expected to: a tool server's tool is asked for by its own
+            // name, then called over MCP.
+            let mut permitted = Vec::new();
+            let mut refused = Vec::new();
+            for (name, input) in calls {
+                let call = self.call_id();
+                self.announce(&call, &name, "other");
+                let chosen = self.permission(&call, &name, &format!("Call MCP tool `{name}`."));
+                if chosen.starts_with("approve") {
+                    permitted.push((name, input));
+                } else {
+                    refused.push((
+                        name,
+                        input,
+                        "the client refused the tool call".to_owned(),
+                        true,
+                    ));
+                }
+            }
+            let (names, mut outcomes) = use_tools(self.server.as_ref(), &permitted, list);
+            outcomes.extend(refused);
+            extra.extend(tool_lines(&names, list, &outcomes));
+        }
+        let mut text = if said.contains("[big]") {
+            "B".repeat(1024 * 1024)
+        } else {
+            answer(n, &mode, &said, previous.as_deref(), &first)
+        };
+        if !extra.is_empty() {
+            text = format!("{text}\n{}", extra.join("\n"));
+        }
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "agent_thought_chunk",
+                    "content": { "type": "text", "text": "Thinking." } }),
+        );
+        let bytes = text.as_bytes();
+        let mut start = 0;
+        while start < bytes.len() {
+            let mut end = (start + 4096).min(bytes.len());
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            grok_chunk(&session, &text[start..end]);
+            start = end;
+        }
+        // Like the real CLI: no token usage in the answer, the context size after it.
+        acp_result(id, json!({ "stopReason": "end_turn" }));
+        acp_update(
+            &session,
+            json!({ "sessionUpdate": "usage_update", "used": 21733, "size": 1_048_576 }),
+        );
+        true
+    }
+}
+
+/// The first line of `text`, for a conversation title.
+fn first_line(text: &str) -> String {
+    text.lines().next().unwrap_or("").chars().take(80).collect()
+}
+
+fn kimi_acp(args: &[String]) -> i32 {
+    record_invocation(args);
+    let mut agent = KimiAgent {
+        peer: AcpPeer {
+            input: acp_input(),
+            queued: std::collections::VecDeque::new(),
+            next_request: 0,
+        },
+        files: false,
+        session: None,
+        cwd: String::new(),
+        server: None,
+        model: "kimi-code/k3".into(),
+        thinking: "low".into(),
+        mode: "default".into(),
+        calls: 0,
+        record: json!({}),
+    };
+    while let Some(message) = agent.peer.next() {
+        let Some(method) = message["method"].as_str() else {
+            continue; // an answer nobody waits for
+        };
+        let id = message.get("id").cloned();
+        let params = message.get("params").cloned().unwrap_or(Value::Null);
+        match (method, id) {
+            ("initialize", Some(id)) => {
+                agent.files = params
+                    .pointer("/clientCapabilities/fs/readTextFile")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                agent.record["initialize"] = params.clone();
+                agent.save();
+                acp_result(
+                    &id,
+                    json!({
+                        "protocolVersion": 1,
+                        "agentCapabilities": {
+                            "loadSession": true,
+                            "promptCapabilities": { "image": true, "audio": false, "embeddedContext": true },
+                            "sessionCapabilities": { "list": {}, "resume": {}, "close": {} },
+                            "mcpCapabilities": { "http": true, "sse": true },
+                            "auth": { "logout": {} }
+                        },
+                        "authMethods": [{ "id": "login", "type": "terminal",
+                                          "name": "Login with Kimi account", "args": ["--login"] }],
+                        "agentInfo": { "name": "Kimi Code CLI", "version": "0.34.99" }
+                    }),
+                );
+            }
+            ("authenticate", Some(id)) => {
+                let _ = std::fs::write(state_dir().join("authenticate-called"), "yes");
+                acp_error(&id, -32603, "fake kimi: would start a device-code sign-in");
+            }
+            ("session/new" | "session/resume" | "session/load", Some(id)) => {
+                agent.open(&id, method, &params);
+            }
+            ("session/set_config_option", Some(id)) => agent.set_option(&id, &params),
             ("session/prompt", Some(id)) => {
                 if !agent.prompt(&id, &params) {
                     return 0;
