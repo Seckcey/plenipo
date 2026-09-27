@@ -76,8 +76,9 @@ Full power, clearly bounded. That is the whole idea.
   each one waits, with a card that says exactly what will run, and a screenshot when it happens in a
   browser. On websites you trust, **Settings → Switches** can let workers send, buy, or press Sign in
   without asking; all three start off.
-- **Does the work on websites too.** In **Plenipo's own browser**, never yours: its own profile, so
-  your sign-ins and saved passwords are never touched. You choose which sites workers may open.
+- **Does the work on websites too.** In **Plenipo's own browser**, never yours: Microsoft Edge or
+  Google Chrome, your pick, with its own profile, so your sign-ins and saved passwords are never
+  touched. You choose which sites workers may open.
   Workers never type passwords and never try a CAPTCHA: they hand it to you to solve, and when a site
   needs you signed in, you sign in yourself.
 - **Gets better at your work.** Workers write down short lessons from what they did. You keep the

@@ -24,8 +24,8 @@ use plenipo_capabilities::control::{ControlKind, ControlStatus};
 use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot};
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
-    CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
-    SensitiveRule, Switches, WebsiteRules,
+    BrowserChoice, CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput,
+    SensitiveKind, SensitiveRule, Switches, WebsiteRules,
 };
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
@@ -1333,6 +1333,17 @@ pub async fn set_website_rules(
 /// Plenipo's browser: which one, whether it runs, and its own profile folder.
 #[tauri::command]
 pub async fn get_browser_status(broker: State<'_, Broker>) -> Result<BrowserStatus, CommandError> {
+    Ok(broker.browser_status().await)
+}
+
+/// Which browser is Plenipo's browser (ADR-028): Automatic, Microsoft Edge, or Google Chrome.
+/// An open browser stays open; the choice is used from its next start.
+#[tauri::command]
+pub async fn set_browser_choice(
+    broker: State<'_, Broker>,
+    choice: BrowserChoice,
+) -> Result<BrowserStatus, CommandError> {
+    with_guard(&broker, move |g| g.set_browser_choice(choice)).await?;
     Ok(broker.browser_status().await)
 }
 

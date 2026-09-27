@@ -83,6 +83,7 @@ const COMMANDS: &[&str] = &[
     "decide_lesson",
     "remove_lesson",
     "get_browser_status",
+    "set_browser_choice",
     "open_browser",
     "get_screenshot",
 ];

@@ -204,12 +204,16 @@ Notes:
 Workers that you allow to visit or use websites work in **Plenipo's browser**: the Microsoft
 Edge that comes with Windows 11, or Google Chrome if you prefer it. Nothing to install.
 
-- **Which browser:** Plenipo takes Edge, then Chrome. To use another Chromium-based browser, set
-  the full path in `PLENIPO_BROWSER` before starting Plenipo. **Settings → Permissions →
-  Websites** shows which one it found.
-- **Its own profile:** `%LOCALAPPDATA%\com.eightwest.plenipo\browser-profile`. Your own browser
-  profile, sign-ins, and saved passwords are never used. Delete that folder to sign Plenipo's
-  browser out of everything.
+- **Which browser:** **Settings → Permissions → Websites → Browser**: **Automatic** (Edge, or
+  Chrome when Edge is not installed; the starting choice), **Microsoft Edge**, or **Google
+  Chrome** ([ADR-028](../adr/ADR-028-choosing-plenipos-browser.md), choosing Plenipo's browser).
+  A new choice is used the next time Plenipo's browser starts; close its window to switch now.
+  To use another Chromium-based browser, set the full path in `PLENIPO_BROWSER` before starting
+  Plenipo (the menu then does not apply).
+- **Its own profile:** `%LOCALAPPDATA%\com.eightwest.plenipo\browser-profile` for Edge, and
+  `browser-profile-chrome` next to it for Chrome. Each browser keeps its own sign-ins, so after
+  switching, sign in to your websites again. Your own browser profile, sign-ins, and saved
+  passwords are never used. Delete a folder to sign that browser out of everything.
 - **Signing in to a website workers will use:** **Settings → Permissions → Websites → Open
   Plenipo's browser** (with the website's address), sign in yourself, then close the tab.
   Workers never sign in or type passwords.

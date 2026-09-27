@@ -96,6 +96,8 @@ jobs:
       - name: Run end-to-end tests
         env:
           PLENIPO_E2E_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots
+          # The runner's browsers can take close to 30 seconds to start; allow 90 (ADR-028).
+          PLENIPO_BROWSER_START_SECONDS: "90"
         run: xvfb-run -a pnpm e2e
       - uses: actions/upload-artifact@v7
         if: always()

@@ -36,6 +36,8 @@ pub struct GuardConfig {
     pub websites: WebsiteRules,
     /// The owner's on/off switches (ADR-023). Missing in older documents: the defaults.
     pub switches: Switches,
+    /// Which browser is Plenipo's browser (ADR-028). Missing in older documents: Automatic.
+    pub browser_choice: BrowserChoice,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -361,6 +363,10 @@ impl GuardConfig {
 
     pub fn set_switches(&mut self, switches: &Switches) {
         self.switches = switches.clone();
+    }
+
+    pub fn set_browser_choice(&mut self, choice: BrowserChoice) {
+        self.browser_choice = choice;
     }
 
     pub fn set_sensitive(&mut self, kind: SensitiveKind, rule: SensitiveRule) {

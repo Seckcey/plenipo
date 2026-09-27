@@ -5,7 +5,8 @@
 // form, and sending it waits for the owner's approval, with a screenshot of the page; the
 // blocked website never opens; a sign on every page shows who is using the browser; Take over
 // and the emergency Stop halt the worker; and the Activity trail keeps each step with its
-// screenshot. The browser is a real Chrome or Chromium (PLENIPO_BROWSER, or the one installed).
+// screenshot. The browser is a real Chrome or Chromium: the owner chooses Google Chrome in
+// Settings (ADR-028) where it is installed, as on the CI runner, or PLENIPO_BROWSER names one.
 // Real AI tools and Windows are checked by the owner (Phase 10 checklist).
 
 import assert from "node:assert/strict";
@@ -251,11 +252,24 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
     await browser.pause(500);
     assert.ok(!(await exists(browser, 'form[aria-label="Website lists"] [role="alert"]')));
     // Plenipo's browser is found, with its own profile.
-    await waitForText(
-      browser,
-      'div.plenipo-browser[aria-label="Plenipo\'s browser"]',
-      "with its own profile",
+    const box = 'div.plenipo-browser[aria-label="Plenipo\'s browser"]';
+    await waitForText(browser, box, "with its own profile");
+    // The owner chooses Google Chrome (ADR-028) where it is installed; the CI runner has Edge
+    // too. Each browser keeps its own profile folder.
+    const chrome = await browser.execute(
+      (s) => document.querySelector(`${s} select option[value="chrome"]`)?.disabled === false,
+      box,
     );
+    if (chrome) {
+      await (await browser.$(`${box} select`)).selectByAttribute("value", "chrome");
+      await waitUntil(
+        async () =>
+          /(Google Chrome|Chromium), with its own profile/.test(await textOf(browser, box)),
+        "Google Chrome chosen",
+      );
+    } else {
+      assert.ok(!process.env.CI, "the CI runner has Google Chrome");
+    }
     await browser.execute(() =>
       document.querySelector("#websites-title")?.scrollIntoView({ block: "start" }),
     );
