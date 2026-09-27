@@ -40,6 +40,24 @@ you already pay for, and every step is written down.
 
 You are the President. You approve what matters and stay out of the rest.
 
+## Where the name comes from
+
+**Plenipo** — _PLEN-ih-poh_ — is short for **plenipotentiary**: a diplomat sent abroad with full
+power to negotiate and sign on behalf of a government, without going home for approval on every
+point.
+
+That is the job Plenipo gives an AI worker. A Supervisor hands it an objective and it acts with real
+authority — it writes files, runs programs, commits to a branch, opens a browser. It does not stop
+to ask about every step, because a worker that asks about everything costs you more attention than
+doing the job yourself.
+
+And like a real plenipotentiary, its authority has edges. It is given a brief — its job, what it
+hands back, its limits, and when to come ask. It works inside its own folder. And the things no
+government ever delegates — money, passwords, publishing, anything that cannot be taken back — come
+back to the President for a signature.
+
+Full power, clearly bounded. That is the whole idea.
+
 ## What it does
 
 - **Builds you an org chart that works.** Create departments and projects, drag roles onto a lead to
