@@ -11,6 +11,7 @@ import {
   PANEL_KEY,
   PANEL_MIN,
   panelMax,
+  TERMINAL_BUTTON_ID,
   type OwnerTab,
   type PanelState,
   type TerminalTab,
@@ -140,7 +141,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) {
         e.preventDefault();
+        // Hidden while the keyboard was in it: the keyboard goes back to the Terminal button.
+        const inPanel =
+          panelRef.current.open &&
+          document.activeElement?.closest('section[aria-label="Terminal"]') != null;
         toggle();
+        if (inPanel) document.getElementById(TERMINAL_BUTTON_ID)?.focus();
       }
     };
     window.addEventListener("keydown", onKey);

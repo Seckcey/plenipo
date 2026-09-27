@@ -18,7 +18,7 @@ import {
 import { getServers, getTerminalSettings } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
 import { OwnerTerminal } from "./OwnerTerminal";
-import { PANEL_MIN, type TerminalTab } from "./panel";
+import { PANEL_MIN, TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
 import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
@@ -82,6 +82,18 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const toTabs = () => {
     if (t.active) document.getElementById(`terminal-tab-${t.active}`)?.focus();
   };
+  // When the last tab closes, the keyboard goes to the panel's way to open one, not to the top
+  // of the window.
+  const section = useRef<HTMLElement>(null);
+  const hadTabs = useRef(t.tabs.length > 0);
+  useEffect(() => {
+    const has = t.tabs.length > 0;
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (hadTabs.current && !has && open && lost) {
+      section.current?.querySelector<HTMLButtonElement>(".terminal-panel__empty button")?.focus();
+    }
+    hadTabs.current = has;
+  }, [t.tabs.length, open]);
   /** Hidden with its button: the keyboard goes back to the Terminal button in the top bar. */
   const hide = () => {
     t.hide();
@@ -161,6 +173,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
 
   return (
     <section
+      ref={section}
       className={cx("terminal-panel", `terminal-panel--${side}`)}
       hidden={!open}
       aria-label="Terminal"
@@ -284,8 +297,6 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
 function shellLabel(settings: TerminalSettings): string | undefined {
   return settings.shells.find((s) => s.shell === settings.shell)?.label;
 }
-
-const TERMINAL_BUTTON_ID = "terminal-button";
 
 /** The Terminal button in the top bar, with the count of new watch tabs. */
 export function TerminalButton() {

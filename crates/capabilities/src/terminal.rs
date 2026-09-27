@@ -208,15 +208,27 @@ pub fn home_folder() -> Option<PathBuf> {
         .filter(|p| p.is_absolute() && p.is_dir())
 }
 
+/// Whether Plenipo itself runs as administrator on Windows (an elevated token). Never true
+/// elsewhere.
+pub fn runs_as_administrator() -> bool {
+    #[cfg(windows)]
+    {
+        job::is_elevated()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Why a terminal on this PC must not start: Plenipo itself runs as administrator, so the shell
 /// would too (ADR-031: never as administrator).
 pub fn refuse_elevated() -> Result<(), String> {
-    #[cfg(windows)]
-    if job::is_elevated() {
+    if runs_as_administrator() {
         return Err(
             "Plenipo is running as administrator, so a terminal would be too. Close \
                     Plenipo and start it normally (not \"Run as administrator\") to use the \
-                    terminal"
+                    terminal."
                 .into(),
         );
     }

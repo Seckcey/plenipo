@@ -82,6 +82,10 @@ pub struct BrokerConfig {
     pub screenshots_dir: PathBuf,
     /// Time limits for SSH connections to the owner's servers (Phase 11).
     pub ssh: crate::ssh::Limits,
+    /// No terminal on this PC while Plenipo runs as administrator on Windows, since its shell
+    /// would too (ADR-031). Always on in Plenipo; tests turn it off to reach the shell on test
+    /// machines that run everything as administrator (GitHub's Windows machines do).
+    pub terminal_refuses_administrator: bool,
 }
 
 impl BrokerConfig {
@@ -98,6 +102,7 @@ impl BrokerConfig {
             command_timeout: Duration::from_secs(10 * 60),
             approval_minute: Duration::from_secs(60),
             ssh: crate::ssh::Limits::default(),
+            terminal_refuses_administrator: true,
         }
     }
 }

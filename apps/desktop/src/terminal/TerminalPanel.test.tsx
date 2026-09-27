@@ -290,6 +290,36 @@ describe("the terminal panel", () => {
     expect(screen.getByRole("button", { name: /^Terminal/ })).toHaveFocus();
   });
 
+  it("arrow keys move along the tabs without taking the keyboard into a terminal; closing the last tab keeps it in the panel", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: /^Terminal/ }));
+    await user.click(screen.getByRole("button", { name: "Open a terminal on this PC" }));
+    await screen.findByRole("tab", { name: "This PC" });
+    await user.click(screen.getByRole("button", { name: "New terminal" }));
+    await user.click(await screen.findByRole("menuitem", { name: /This PC/ }));
+    await waitFor(() => expect(screen.getAllByRole("tab", { name: "This PC" })).toHaveLength(2));
+    const [first] = xterm.made;
+    const tabs = screen.getAllByRole("tab", { name: "This PC" });
+    tabs[1]!.focus();
+    const before = first!.focused;
+    await user.keyboard("{ArrowLeft}");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[0]).toHaveFocus();
+    expect(first!.focused).toBe(before);
+    // Delete closes a tab and keeps the keyboard in the list; the last one leaves it on the way
+    // to open another.
+    await user.keyboard("{Delete}");
+    await waitFor(() => expect(screen.getAllByRole("tab", { name: "This PC" })).toHaveLength(1));
+    await user.keyboard("{Delete}");
+    const open = await screen.findByRole("button", { name: "Open a terminal on this PC" });
+    await waitFor(() => expect(open).toHaveFocus());
+    // Ctrl+` from inside the panel hides it and gives the keyboard to the Terminal button.
+    await user.keyboard("{Control>}`{/Control}");
+    expect(panel()).not.toBeVisible();
+    expect(screen.getByRole("button", { name: /^Terminal/ })).toHaveFocus();
+  });
+
   it("says why a terminal could not open, and tries again", async () => {
     const user = userEvent.setup();
     api.openTerminal.mockRejectedValueOnce({

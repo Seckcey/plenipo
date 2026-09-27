@@ -94,7 +94,14 @@ async fn shows(screen: &Shared, what: &str) {
     }
 }
 
+/// The tests reach the shell even on test machines that run everything as administrator
+/// (GitHub's Windows machines do). Plenipo itself refuses then:
+/// `a_terminal_on_this_pc_never_runs_as_administrator`.
 async fn harness() -> H {
+    harness_with(false).await
+}
+
+async fn harness_with(refuses_administrator: bool) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let ledger = Arc::new(Ledger::open(&dir.path().join("ledger").join(DB_FILE_NAME)).unwrap());
     let sup = Supervisor::new(
@@ -112,11 +119,13 @@ async fn harness() -> H {
             ..Switches::default()
         })
         .unwrap();
+    let mut config = BrokerConfig::new(PathBuf::from("unused-relay"), dir.path().join("tickets"));
+    config.terminal_refuses_administrator = refuses_administrator;
     let broker = Broker::new(
         guard.clone(),
         sup,
         Arc::new(MemorySecretStore::with_limit(1_280)),
-        BrokerConfig::new(PathBuf::from("unused-relay"), dir.path().join("tickets")),
+        config,
     );
     let sshd = Sshd::start(Options {
         seed: 7,
@@ -456,6 +465,76 @@ async fn switching_remote_computers_off_closes_the_owners_server_terminals() {
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].id, local.id);
     h.closed(&local, &here).await;
+}
+
+/// A slow way to a server: each connection waits `delay` before it reaches `to`.
+async fn slow_proxy(to: u16, delay: Duration) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut client, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                if let Ok(mut server) = tokio::net::TcpStream::connect(("127.0.0.1", to)).await {
+                    let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                }
+            });
+        }
+    });
+    port
+}
+
+/// A reload of the page closes every terminal. One still opening then (a slow server) closes as
+/// soon as it opens, instead of running with nobody left to show it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_still_opening_when_the_page_reloads_closes_as_it_opens() {
+    let h = harness().await;
+    let mut input = h.server_input("Shop");
+    input.port = slow_proxy(h.sshd.port, Duration::from_millis(800)).await;
+    h.broker.save_server(&input).unwrap();
+    let screen = Shared::default();
+    let opening = {
+        let (broker, place, sink) = (h.broker.clone(), h.shop(), sink(&screen));
+        tokio::spawn(async move { broker.open_terminal(&place, 80, 24, sink).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    h.broker.close_all_terminals("the window was reloaded");
+    let err = opening.await.unwrap().unwrap_err().to_string();
+    assert!(err.contains("the window was reloaded"), "{err}");
+    until("the terminal to end", || {
+        screen.lock().unwrap().ended.is_some()
+    })
+    .await;
+    assert!(h.broker.open_terminals().is_empty());
+    assert_eq!(
+        h.events("terminal.closed")[0]["why"],
+        "the window was reloaded"
+    );
+}
+
+/// ADR-031: never as administrator. While Plenipo runs as administrator on Windows (GitHub's
+/// Windows machines run everything that way), a terminal on this PC is refused, saying why, and
+/// nothing is recorded; otherwise it opens. A server's terminal still opens: it runs as the user
+/// set up on the server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_on_this_pc_never_runs_as_administrator() {
+    let h = harness_with(true).await;
+    let screen = Shared::default();
+    let here = h
+        .broker
+        .open_terminal(&TerminalPlace::ThisPc, 80, 24, sink(&screen))
+        .await;
+    if plenipo_capabilities::terminal::runs_as_administrator() {
+        let err = here.unwrap_err().to_string();
+        assert!(err.contains("running as administrator"), "{err}");
+        assert!(h.broker.open_terminals().is_empty());
+        assert!(h.events("terminal.opened").is_empty());
+    } else {
+        h.closed(&here.unwrap(), &screen).await;
+    }
+    let server = Shared::default();
+    let shop = h.open(&h.shop(), &server).await;
+    h.closed(&shop, &server).await;
 }
 
 /// The shell for this PC is chosen in Settings → Terminal, and kept.

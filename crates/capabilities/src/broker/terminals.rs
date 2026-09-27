@@ -14,7 +14,7 @@
 //!   from every worker's grant and control session.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -56,6 +56,9 @@ pub(super) struct Terminals {
     open: Mutex<HashMap<String, Arc<Open>>>,
     /// Terminals still opening (a server's can take a while): they count toward the limit.
     opening: AtomicUsize,
+    /// Counts the times every terminal was closed (a reload of the page, or quitting): one
+    /// still opening then is closed as soon as it opens, since nobody is left to show it.
+    closed_all: AtomicU64,
 }
 
 /// A place kept for a terminal while it opens; given back when the opening ends, whichever
@@ -140,6 +143,7 @@ impl Broker {
     ) -> Result<TerminalInfo> {
         self.refuse_while_a_worker_has_the_screen()?;
         let _slot = self.reserve_terminal()?;
+        let born = self.terminals().closed_all.load(Ordering::SeqCst);
         let size = Size::clamped(cols, rows);
         let id = uuid::Uuid::new_v4().to_string();
         let output: terminal::Output = {
@@ -150,12 +154,30 @@ impl Broker {
                 });
             })
         };
-        match place {
-            TerminalPlace::ThisPc => self.open_here(id, size, output, sink),
+        let info = match place {
+            TerminalPlace::ThisPc => self.open_here(id, size, output, sink)?,
             TerminalPlace::Server { server_id } => {
-                self.open_on_server(id, server_id, size, output, sink).await
+                self.open_on_server(id, server_id, size, output, sink)
+                    .await?
             }
+        };
+        // While it opened, the page that asked for it went (a reload, or Plenipo quitting), or
+        // Remote computers (SSH) was switched off: it closes at once.
+        let gone = self.terminals().closed_all.load(Ordering::SeqCst) != born;
+        let switched_off = matches!(info.place, TerminalPlace::Server { .. })
+            && !self.inner.guard.config()?.switches.servers;
+        if gone || switched_off {
+            let why = if gone {
+                "the window was reloaded"
+            } else {
+                "you switched Remote computers (SSH) off"
+            };
+            let _ = self.close_terminal(&info.id, why);
+            return Err(BrokerError::Invalid(format!(
+                "The terminal closed as it opened: {why}"
+            )));
         }
+        Ok(info)
     }
 
     /// Record the terminal as open and keep it; `start` starts its shell. If the shell ended
@@ -228,7 +250,9 @@ impl Broker {
         output: terminal::Output,
         sink: TerminalSink,
     ) -> Result<TerminalInfo> {
-        terminal::refuse_elevated().map_err(BrokerError::Invalid)?;
+        if self.inner.config.terminal_refuses_administrator {
+            terminal::refuse_elevated().map_err(BrokerError::Invalid)?;
+        }
         let choice = self.terminal_settings()?.shell;
         let program = terminal::shell_program(choice).map_err(BrokerError::Invalid)?;
         let info = TerminalInfo {
@@ -319,7 +343,7 @@ impl Broker {
                     "This server's ID changed. {} now shows {} ({}), not the {expected} you \
                      pinned. This can mean the server was reinstalled, or that another computer \
                      is pretending to be it, so Plenipo did not sign in and sent nothing. Check \
-                     the server ID in Settings → Servers",
+                     the server ID in Settings → Servers.",
                     server.name, seen.fingerprint, seen.algorithm
                 )));
             }
@@ -448,6 +472,7 @@ impl Broker {
     /// Close every terminal (Plenipo is quitting, or its window's page loaded again and no
     /// longer shows them).
     pub fn close_all_terminals(&self, why: &str) {
+        self.terminals().closed_all.fetch_add(1, Ordering::SeqCst);
         self.close_terminals_where(why, |_| true);
     }
 

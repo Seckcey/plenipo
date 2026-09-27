@@ -179,6 +179,7 @@ export function OwnerTerminal({
     if (term.current) term.current.options.theme = terminalTheme(theme);
   }, [theme]);
 
+  // Shown: fit the panel's size.
   useEffect(() => {
     if (!active || !visible) return;
     try {
@@ -186,8 +187,18 @@ export function OwnerTerminal({
     } catch {
       // Not laid out yet.
     }
-    term.current?.focus();
-  }, [active, visible, focusToken]);
+  }, [active, visible]);
+
+  // The keyboard goes into the terminal when it opens, when the panel is shown, and when the
+  // panel asks (its tab clicked, a new terminal); a tab reached with the arrow keys leaves the
+  // keyboard in the list of tabs.
+  const activeNow = useRef(active);
+  useLayoutEffect(() => {
+    activeNow.current = active;
+  });
+  useEffect(() => {
+    if (activeNow.current && visible) term.current?.focus();
+  }, [visible, focusToken]);
 
   const where = tab.place.kind === "thisPc" ? "this PC" : tab.title;
   return (

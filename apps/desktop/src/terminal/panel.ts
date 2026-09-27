@@ -17,6 +17,8 @@ export interface PanelState {
 }
 
 export const PANEL_KEY = "plenipo.terminal";
+/** The Terminal button in the top bar (the keyboard goes back to it when the panel hides). */
+export const TERMINAL_BUTTON_ID = "terminal-button";
 export const DEFAULT_PANEL: PanelState = { open: false, side: "bottom", size: 260 };
 /** The panel's smallest size, and the least room it leaves the page. */
 export const PANEL_MIN = 120;
