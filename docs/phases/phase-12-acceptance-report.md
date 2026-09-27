@@ -6,7 +6,7 @@
 | **Branch**   | `claude/wizardly-wozniak-uupnb5` ([PR #65](https://github.com/Seckcey/plenipo/pull/65))                                                                                                                                                                                                                                                                                          |
 | **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the full `pnpm e2e` (73 tests) against the release build. GitHub CI: Rust, Frontend, E2E (Linux), Windows — see the pull request.                                                                                                                                                        |
 | **Date**     | 2026-09-27                                                                                                                                                                                                                                                                                                                                                                       |
-| **Result**   | Both acceptance criteria and all twelve Phase 12 tests pass; every deliverable is built. Version **1.8.0**. Decisions: ADR-031 (the terminal panel), accepted and built; ADR-033 (Home, a page for each thing, pop-up notices, and Settings in one place), proposed. Real Windows notices, and the terminal with PowerShell and a real server, are the owner's check on Windows. |
+| **Result**   | Both acceptance criteria and all twelve Phase 12 tests pass; every deliverable is built. Version **1.8.0**. Decisions: ADR-031 (the terminal panel), accepted and built; ADR-033 (Home, a page for each thing, pop-up notices, and Settings in one place), accepted. Real Windows notices, and the terminal with PowerShell and a real server, are the owner's check on Windows. |
 
 Screenshots (from the end-to-end run in the real app):
 
@@ -194,8 +194,8 @@ finding before it was fixed. Fixed:
   notice**), and the terminal with PowerShell on this PC and on a real server. Windows builds and
   runs the tests in CI, but a real notice needs the installed app.
 - **ADR-033 (Home, a page for each thing, pop-up notices, and Settings in one place) is
-  proposed.** Accepting it means agreeing with how this phase put the plan together: the worker
+  accepted** (by the owner, 2026-09-27): the owner agrees with how this phase put the plan together: the worker
   page is about a position, **Showing** opens a page, notices are decided by Plenipo and never by
   the page, local paths are shown, not changed, and the terminal's few extra rules (ADR-033 §8).
-- **Still open from earlier phases:** ADR-025 (servers over SSH, through Guard) is proposed, and
-  the owner's Phase 11 check on Windows with a real server is still to do.
+- **From earlier phases:** ADR-025 (servers over SSH, through Guard) is accepted (by the owner,
+  2026-09-27); the owner's Phase 11 check on Windows with a real server is still to do.

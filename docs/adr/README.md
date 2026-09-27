@@ -39,7 +39,7 @@ architecture must be recorded here.
 | [022](ADR-022-subscription-and-license-check.md)  | Subscription pricing and the weekly license check                                 | Accepted |
 | [023](ADR-023-settings-switches.md)               | On/off switches in Settings                                                       | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)         | Workers learn from their work                                                     | Accepted |
-| [025](ADR-025-servers-over-ssh.md)                | Servers over SSH, through Guard                                                   | Proposed |
+| [025](ADR-025-servers-over-ssh.md)                | Servers over SSH, through Guard                                                   | Accepted |
 | [026](ADR-026-ssh-built-in.md)                    | SSH built into Plenipo (russh), not Windows' ssh.exe                              | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md) | Kimi over ACP: file access through Plenipo                                        | Accepted |
 | [028](ADR-028-choosing-plenipos-browser.md)       | Choosing Plenipo's browser: Automatic, Edge, or Chrome                            | Accepted |
@@ -47,4 +47,4 @@ architecture must be recorded here.
 | [030](ADR-030-design-system.md)                   | One design system for every screen                                                | Accepted |
 | [031](ADR-031-terminal-panel.md)                  | The terminal panel (amends 025)                                                   | Accepted |
 | [032](ADR-032-captcha-checkbox-and-verdict.md)    | Workers see the CAPTCHA they try, and hear how each try went (amends 029)         | Accepted |
-| [033](ADR-033-pages-notices-settings.md)          | Home, a page for each thing, pop-up notices, and Settings in one place            | Proposed |
+| [033](ADR-033-pages-notices-settings.md)          | Home, a page for each thing, pop-up notices, and Settings in one place            | Accepted |

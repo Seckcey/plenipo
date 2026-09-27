@@ -1,6 +1,6 @@
 # ADR-025: Servers over SSH, through Guard
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
 - **Phase:** 11
 - **Number:** 025, because 021 (Free and Pro editions) is on `main`, 022 is taken by the Kimi AI
