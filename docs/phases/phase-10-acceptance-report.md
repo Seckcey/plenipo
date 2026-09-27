@@ -17,9 +17,9 @@ Screenshots (from the end-to-end run in the real app):
 - [Take over](evidence/phase-10/take-over.png)
 - [the emergency Stop](evidence/phase-10/emergency-stop.png)
 
-Test totals: **RUST_TOTAL Rust** (Linux, including 12 browser and computer-use integration
-tests against a real headless Chromium) · **FRONTEND_TOTAL frontend** · **E2E_TOTAL
-end-to-end** against the real release binary (6 Phase 1 + 6 Phase 2 + 8 Phase 3 + 5 Phase 4 + 5
+Test totals: **657 Rust** (Linux, including 12 browser and computer-use integration
+tests against a real headless Chromium) · **150 frontend** · **50
+end-to-end** against the real release binary (6 Phase 1 + 6 Phase 2 + 9 Phase 3 + 5 Phase 4 + 5
 Phase 5 + 5 Phase 6 + 4 Phase 7 + 4 Phase 8 + 6 Phase 10).
 
 On screen the plan's managed browser is **Plenipo's browser**, its domain policy is the
@@ -199,25 +199,26 @@ All earlier phases' tests pass.
 
 ## 9. Owner items
 
-| ID  | Item                                                                                                                                                                                                                                                                                                                                                                                         | Recommendation                                |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| O1  | ADR-018 (Phase 9 postponed, no Paperclip, a Sales department later on HubSpot) — **Proposed**. Accepting it means Plenipo never integrates Paperclip. The next Sales work is a new department built in Plenipo, with HubSpot as its CRM through HubSpot's official API and a private app token kept in Windows Credential Manager, and with no outbound messages sent without your approval. | Accept.                                       |
-| O2  | ADR-019 (every role knows its job) — **Proposed**. Accepting it means every worker is told its job, what it hands back, its limits, and when to ask; the built-in Writer set can commit; and you can write the same for your own roles. Built-in roles' instructions stay Plenipo's.                                                                                                         | Accept.                                       |
-| O3  | ADR-020 (Plenipo's browser and computer use, through Guard) — **Proposed**. Accepting it means workers may use websites only in Plenipo's own browser, as your website lists allow. Anything that sends, buys, or signs in always asks you. The mouse and keyboard are a last resort that asks every time. Stop and Take over are always one click away. You accept the known limits in §7.  | Accept.                                       |
-| O4  | Windows check with Edge and the **real** AI tools (~40 min): the steps in [phase-10-checklist.md](phase-10-checklist.md#owner-check-on-windows-40-minutes).                                                                                                                                                                                                                                  | Recommended with v1.3.0; fixes go in a patch. |
-| O5  | Website terms: check the terms of every website before you allow it (§7). Keep banks and payment sites blocked.                                                                                                                                                                                                                                                                              | Before allowing any website.                  |
-| O6  | Earlier items still open: ADR-016 (the Development department) is still Proposed, and the Phase 8 Windows check with the real CLIs is still to come.                                                                                                                                                                                                                                         | As in the Phase 8 report.                     |
+| ID  | Item                                                                                                                                                                                                                                                                                                                                                                                         | Recommendation                                                  |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| O1  | ADR-018 (Phase 9 postponed, no Paperclip, a Sales department later on HubSpot) — **Proposed**. Accepting it means Plenipo never integrates Paperclip. The next Sales work is a new department built in Plenipo, with HubSpot as its CRM through HubSpot's official API and a private app token kept in Windows Credential Manager, and with no outbound messages sent without your approval. | Accept.                                                         |
+| O2  | ADR-019 (every role knows its job) — **Proposed**. Accepting it means every worker is told its job, what it hands back, its limits, and when to ask; the built-in Writer set can commit; and you can write the same for your own roles. Built-in roles' instructions stay Plenipo's.                                                                                                         | Accept.                                                         |
+| O3  | ADR-020 (Plenipo's browser and computer use, through Guard) — **Proposed**. Accepting it means workers may use websites only in Plenipo's own browser, as your website lists allow. Anything that sends, buys, or signs in always asks you. The mouse and keyboard are a last resort that asks every time. Stop and Take over are always one click away. You accept the known limits in §7.  | Accept.                                                         |
+| O4  | Windows check with Edge and the **real** AI tools (~40 min): the steps in [phase-10-checklist.md](phase-10-checklist.md#owner-check-on-windows-40-minutes).                                                                                                                                                                                                                                  | Recommended with v1.3.0; fixes go in a patch.                   |
+| O5  | Website terms: check the terms of every website before you allow it (§7). Keep banks and payment sites blocked.                                                                                                                                                                                                                                                                              | Before allowing any website.                                    |
+| O6  | Earlier items still open: ADR-016 (the Development department) is still Proposed, and the Phase 8 Windows check with the real CLIs is still to come.                                                                                                                                                                                                                                         | As in the Phase 8 report.                                       |
+| O7  | **Version 1.3.0, not 1.1.0.** v1.1.0 (Grok) and v1.2.0 (Ollama's cloud models) were released from `main` while Phase 10 was in progress, and a released version cannot be reused. `main` is merged into this branch, and every AI tool's tests pass with Phase 10.                                                                                                                           | Nothing to do; noted in the release notes and versioning guide. |
 
 ## 10. Verification
 
-| Check                                                                     | Result                                                        |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — FRONTEND_TOTAL frontend tests                          |
-| `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                                          |
-| `cargo test --workspace`                                                  | Pass — RUST_TOTAL tests                                       |
-| `pnpm e2e` against the release build (Linux, Xvfb, Chromium)              | Pass — E2E_TOTAL of E2E_TOTAL, including the 6 Phase 10 tests |
-| Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)                   |
-| GitHub CI on the PR                                                       | Linked from the PR                                            |
+| Check                                                                     | Result                                          |
+| ------------------------------------------------------------------------- | ----------------------------------------------- |
+| `pnpm check` (versions, format, lint, typecheck, tests)                   | Pass — 150 frontend tests                       |
+| `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` | Pass                                            |
+| `cargo test --workspace`                                                  | Pass — 657 tests                                |
+| `pnpm e2e` against the release build (Linux, Xvfb, Chromium)              | Pass — 50 of 50, including the 6 Phase 10 tests |
+| Generated TypeScript bindings                                             | Up to date (`pnpm bindings` leaves no diff)     |
+| GitHub CI on the PR                                                       | Linked from the PR                              |
 
 ## 11. Phase boundary
 
