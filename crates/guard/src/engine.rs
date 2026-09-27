@@ -199,6 +199,9 @@ pub fn switched_off(config: &GuardConfig, c: Capability) -> Option<&'static str>
         Capability::ComputerObserve | Capability::ComputerControl if !config.switches.desktop => {
             Some("the screen, mouse, and keyboard are switched off (Settings → Switches)")
         }
+        Capability::SshConnect if !config.switches.servers => {
+            Some("remote computers (SSH) are switched off (Settings → Switches)")
+        }
         _ => None,
     }
 }
@@ -1000,6 +1003,12 @@ mod tests {
     fn servers_are_checked_with_their_settings() {
         use crate::servers::*;
         let mut c = config();
+        // Remote computers (SSH) start switched off (ADR-023).
+        assert!(!c.switches.servers);
+        c.set_switches(&Switches {
+            servers: true,
+            ..Switches::default()
+        });
         c.assign_role("ops", Some("servers")).unwrap();
         let s = Scope {
             role_id: "ops".into(),
@@ -1084,7 +1093,11 @@ mod tests {
             (d.verdict, d.layer, d.sensitive),
             (Verdict::Ask, Layer::Risk, Some(SensitiveKind::Production))
         );
-        assert!(d.reason.contains("it changes a production server"), "{}", d.reason);
+        assert!(
+            d.reason.contains("it changes a production server"),
+            "{}",
+            d.reason
+        );
         let mut c3 = c2.clone();
         c3.set_sensitive(SensitiveKind::Privilege, SensitiveRule::Ask);
         c3.set_sensitive(SensitiveKind::Production, SensitiveRule::Block);
@@ -1101,6 +1114,16 @@ mod tests {
         );
         let d = run(&c3, &s, "uptime");
         assert_eq!((d.verdict, d.sensitive), (Verdict::Ask, None));
+        // Switched off: blocked for every role, whatever the server says.
+        c.set_switches(&Switches::default());
+        let d = run(&c, &s, "uptime");
+        assert_eq!((d.verdict, d.layer), (Verdict::Deny, Layer::Rule));
+        assert!(
+            d.reason.contains("remote computers (SSH) are switched off"),
+            "{}",
+            d.reason
+        );
+        assert_eq!(levels_for(&c, &s)[&Capability::SshConnect], Level::Blocked);
     }
 
     #[test]

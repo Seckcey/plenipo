@@ -50,5 +50,6 @@ export function sampleServers(servers: ServerView[] = [sampleServer()]): Servers
     classes,
     vault: { available: true, label: "Windows Credential Manager", stored: [] },
     notices: [],
+    switchedOn: true,
   };
 }

@@ -51,6 +51,24 @@ describe("Settings → Switches", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
+  it("keeps remote computers (SSH) off until you turn them on", async () => {
+    const on = samplePermissions();
+    on.settings.switches.servers = true;
+    api.setSwitches.mockResolvedValue(on);
+    render(<SwitchSettings />);
+    const ssh = await screen.findByRole("switch", { name: "Remote computers (SSH)" });
+    expect(ssh).toHaveAttribute("aria-checked", "false");
+    await userEvent.setup().click(ssh);
+    expect(api.setSwitches).toHaveBeenCalledWith({
+      ...samplePermissions().settings.switches,
+      servers: true,
+    });
+    expect(await screen.findByRole("switch", { name: "Remote computers (SSH)" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
   it("shows a refusal", async () => {
     api.setSwitches.mockRejectedValue(new commands.PlenipoCommandError("internal", "Ledger busy"));
     render(<SwitchSettings />);

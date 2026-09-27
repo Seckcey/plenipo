@@ -47,9 +47,16 @@ export function ServerSettings() {
       <p className="muted">
         Workers whose role may <em>Connect to servers</em> run commands over SSH only on the servers
         listed here, only if the server lists their role, and only the kinds of commands it allows.
-        Plenipo checks each server&apos;s ID every time it connects. Keys and passwords are
-        kept in {s.vault.label}: workers never see them, and neither does anything Plenipo records.
+        Plenipo checks each server&apos;s ID every time it connects. Keys and passwords are kept in{" "}
+        {s.vault.label}: workers never see them, and neither does anything Plenipo records.
       </p>
+      {!s.switchedOn && (
+        <p className="notice-box notice-box--danger" role="note">
+          <strong>Remote computers (SSH) are switched off</strong> in Settings → Switches, so no
+          worker connects to any server. You can still add servers and test them here; turn the
+          switch on when you want workers to use them.
+        </p>
+      )}
       <p className="notice-box" role="note">
         <strong>Production servers are marked in red.</strong> Every command on one waits for your
         approval, and deleting, wiping, or shutting down is blocked there unless you turn it on —
@@ -162,12 +169,12 @@ function ServerCard({
       </div>
       {v.identityChanged && (
         <p className="form-error" role="alert">
-          <strong>This server&apos;s ID changed</strong> {ago(v.identityChanged.at, now)}: it
-          showed the server ID <code>{v.identityChanged.fingerprint}</code> (
-          {v.identityChanged.algorithm}), not the one you pinned. Plenipo did not sign in, and
-          workers are blocked from it. If you know why (for example, the server was reinstalled),
-          check the new server ID with your hosting provider and pin it with <em>Change</em>.
-          Otherwise, treat it as a possible attack.
+          <strong>This server&apos;s ID changed</strong> {ago(v.identityChanged.at, now)}: it showed
+          the server ID <code>{v.identityChanged.fingerprint}</code> ({v.identityChanged.algorithm}
+          ), not the one you pinned. Plenipo did not sign in, and workers are blocked from it. If
+          you know why (for example, the server was reinstalled), check the new server ID with your
+          hosting provider and pin it with <em>Change</em>. Otherwise, treat it as a possible
+          attack.
         </p>
       )}
       {v.problem && !v.identityChanged && <p className="form-error">{v.problem}</p>}

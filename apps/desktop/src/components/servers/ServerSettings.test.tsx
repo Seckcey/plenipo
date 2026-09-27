@@ -35,6 +35,19 @@ afterEach(() => {
 });
 
 describe("Settings → Servers", () => {
+  it("says so while remote computers (SSH) are switched off", async () => {
+    api.getServers.mockResolvedValue({ ...sampleServers(), switchedOn: false });
+    render(<ServerSettings />);
+    expect(
+      await screen.findByText(/Remote computers \(SSH\) are switched off/),
+    ).toBeInTheDocument();
+    cleanup();
+    api.getServers.mockResolvedValue(sampleServers());
+    render(<ServerSettings />);
+    await screen.findByText(/Production servers are marked in red/);
+    expect(screen.queryByText(/Remote computers \(SSH\) are switched off/)).toBeNull();
+  });
+
   it("marks a production server plainly, with its server ID, roles, and rules", async () => {
     const dev = sampleServer({
       id: "srv-dev",

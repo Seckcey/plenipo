@@ -241,10 +241,10 @@ impl Ledger {
         })
     }
 
-    /// The task, or any task handed on from it, used Plenipo's browser or saw the screen. Its
-    /// lessons may carry what a website or another program said, so they always wait for the
-    /// owner.
-    pub fn task_used_web_or_screen(&self, task_id: &str) -> Result<bool> {
+    /// The task, or any task handed on from it, used Plenipo's browser, saw the screen, or ran
+    /// commands on a server (Phase 11). Its lessons may carry what a website, another program, or
+    /// a server said, so they always wait for the owner.
+    pub fn task_used_web_screen_or_servers(&self, task_id: &str) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
                 "WITH RECURSIVE tree(id) AS ( \
@@ -253,8 +253,10 @@ impl Ledger {
                  SELECT EXISTS (SELECT 1 FROM events JOIN tree ON events.task_id = tree.id \
                    WHERE (event_type = 'capability.used' \
                      AND (json_extract(payload, '$.capability') LIKE 'browser.%' \
-                       OR json_extract(payload, '$.capability') LIKE 'computer.%')) \
-                   OR event_type = 'control.started')",
+                       OR json_extract(payload, '$.capability') LIKE 'computer.%' \
+                       OR json_extract(payload, '$.capability') LIKE 'ssh.%')) \
+                   OR event_type = 'control.started' \
+                   OR event_type LIKE 'ssh.%')",
                 [task_id],
                 |r| r.get(0),
             )?)
@@ -397,14 +399,14 @@ mod tests {
             .unwrap();
         assert_eq!(added[0].state, LessonState::Kept);
         assert!(added[0].decided_at.is_some());
-        assert!(!l.task_used_web_or_screen(&t).unwrap());
+        assert!(!l.task_used_web_screen_or_servers(&t).unwrap());
         assert!(l
             .add_lessons(&new("no-such-role", &t, &["x"], false), "a")
             .is_err());
     }
 
     #[test]
-    fn web_or_screen_use_anywhere_below_a_task_counts() {
+    fn web_screen_or_server_use_anywhere_below_a_task_counts() {
         let (_d, l) = ledger();
         let (parent, other) = (task(&l), task(&l));
         let child = l
@@ -431,13 +433,29 @@ mod tests {
             .unwrap();
         };
         used(&parent, "files.read");
-        assert!(!l.task_used_web_or_screen(&parent).unwrap());
+        assert!(!l.task_used_web_screen_or_servers(&parent).unwrap());
         // A website read by a task handed on from it counts for the task that handed it on.
         used(&child, "browser.navigate");
-        assert!(l.task_used_web_or_screen(&parent).unwrap());
-        assert!(l.task_used_web_or_screen(&child).unwrap());
+        assert!(l.task_used_web_screen_or_servers(&parent).unwrap());
+        assert!(l.task_used_web_screen_or_servers(&child).unwrap());
         // So does seeing the screen.
         used(&other, "computer.observe");
-        assert!(l.task_used_web_or_screen(&other).unwrap());
+        assert!(l.task_used_web_screen_or_servers(&other).unwrap());
+        // And running commands on a server (Phase 11): through the permission, or any of the
+        // server events (a connection alone brings in what the server says).
+        let (ssh, connected) = (task(&l), task(&l));
+        used(&ssh, "ssh.connect");
+        assert!(l.task_used_web_screen_or_servers(&ssh).unwrap());
+        l.append_event(crate::dto::NewEvent {
+            task_id: Some(connected.clone()),
+            execution_id: None,
+            source: "capabilities".into(),
+            destination: None,
+            event_type: "ssh.command_finished".into(),
+            payload: serde_json::json!({ "server": "Shop" }),
+        })
+        .unwrap();
+        assert!(l.task_used_web_screen_or_servers(&connected).unwrap());
+        assert!(!l.task_used_web_screen_or_servers(&task(&l)).unwrap());
     }
 }

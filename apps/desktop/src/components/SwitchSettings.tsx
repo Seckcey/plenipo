@@ -78,6 +78,13 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
           disabled={pending}
           onChange={flip("desktop")}
         />
+        <Toggle
+          label="Remote computers (SSH)"
+          hint="Off to start with. On: workers whose permissions allow it run commands on the servers you set up in Settings → Servers, with the rules you gave each one. Turning it off disconnects any worker using a server now."
+          checked={s.servers}
+          disabled={pending}
+          onChange={flip("servers")}
+        />
         {learning}
       </section>
       <section aria-labelledby="switches-websites">
@@ -130,8 +137,8 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
       </section>
       <p className="muted switches__always">
         Always on, with no switch: workers never type passwords or secrets and never try to get past
-        a CAPTCHA; the sign shows whenever a worker uses the browser or your mouse; and Stop halts
-        it at once.
+        a CAPTCHA; the sign shows whenever a worker uses the browser, your mouse, or a server; and
+        Stop halts it at once.
       </p>
       {error && (
         <p className="form-error" role="alert">

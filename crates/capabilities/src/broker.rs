@@ -2122,6 +2122,7 @@ fn switched_off_for(config: &plenipo_guard::GuardConfig, scope: &Scope) -> Vec<&
     let mut on = config.clone();
     on.switches.browser = true;
     on.switches.desktop = true;
+    on.switches.servers = true;
     let mut notes: Vec<&'static str> = levels_for(&on, scope)
         .iter()
         .filter(|(c, l)| **l != Level::Blocked && c.has_tools())

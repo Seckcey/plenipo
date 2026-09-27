@@ -7,6 +7,7 @@ import { useLive } from "../guard/usePermissions";
 export function affectsServers(eventType: string): boolean {
   return (
     eventType.startsWith("guard.server_") ||
+    eventType === "guard.switches_changed" ||
     eventType.startsWith("ssh.") ||
     eventType === "vault.server_sign_in_stored" ||
     eventType === "guard.role_assigned" ||

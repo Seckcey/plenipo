@@ -1230,6 +1230,7 @@ impl Broker {
                 .filter(|n| n.contains("server"))
                 .cloned()
                 .collect(),
+            switched_on: config.switches.servers,
         })
     }
 

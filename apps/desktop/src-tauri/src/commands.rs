@@ -1178,8 +1178,8 @@ pub async fn set_guard_options(
     with_guard(&broker, move |g| g.set_options(&options)).await
 }
 
-/// The owner's on/off switches (ADR-023). Switching Plenipo's browser or the screen, mouse, and
-/// keyboard off also stops any worker using it now.
+/// The owner's on/off switches (ADR-023). Switching Plenipo's browser, the screen, mouse, and
+/// keyboard, or remote computers (SSH, Phase 11) off also stops any worker using it now.
 #[tauri::command]
 pub async fn set_switches(
     broker: State<'_, Broker>,
@@ -1190,9 +1190,10 @@ pub async fn set_switches(
         .config()
         .map(|c| c.switches)
         .unwrap_or_default();
-    let (browser_off, desktop_off) = (
+    let (browser_off, desktop_off, servers_off) = (
         was.browser && !switches.browser,
         was.desktop && !switches.desktop,
+        was.servers && !switches.servers,
     );
     let snapshot = with_guard(&broker, move |g| g.set_switches(&switches)).await?;
     let b = broker.inner().clone();
@@ -1203,6 +1204,11 @@ pub async fn set_switches(
     }
     if desktop_off {
         b.switch_off_control(ControlKind::Desktop)
+            .await
+            .map_err(broker_error)?;
+    }
+    if servers_off {
+        b.switch_off_control(ControlKind::Server)
             .await
             .map_err(broker_error)?;
     }

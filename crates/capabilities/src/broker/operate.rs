@@ -1111,6 +1111,8 @@ impl Broker {
             screenshot: self
                 .keep_page(&tab, ctx.task_id, ctx.worker, "waiting for your approval")
                 .await,
+            server: None,
+            harmless: false,
             work: Work::Missing(String::new()),
         };
         let decision = Decision {
@@ -1967,6 +1969,9 @@ impl Broker {
                     }
                     let desktop = self.inner_desktop();
                     let _ = tokio::task::spawn_blocking(move || desktop.release_all()).await;
+                }
+                ControlKind::Server => {
+                    self.stop_servers(&s.grant_id, "you switched remote computers (SSH) off");
                 }
             }
         }

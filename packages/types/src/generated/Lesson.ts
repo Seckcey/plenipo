@@ -15,7 +15,7 @@ taskId: string | null, positionId: string | null,
  */
 worker: string, text: string, state: LessonState, 
 /**
- * Its task (or a task handed on from it) used websites or the screen: such lessons always
- * wait for the owner.
+ * Its task (or a task handed on from it) used websites, the screen, or a server (Phase 11):
+ * such lessons always wait for the owner.
  */
 fromWeb: boolean, createdAt: number, decidedAt: number | null, decidedBy: string | null, };

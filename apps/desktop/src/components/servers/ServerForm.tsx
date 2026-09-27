@@ -253,8 +253,8 @@ export function ServerForm({
       <fieldset className="field">
         <legend>Its server ID</legend>
         <p className="muted">
-          Its fingerprint, which Plenipo checks every time it connects, before it signs in. If it ever changes,
-          workers are blocked from the server until you check and pin it again.
+          Its fingerprint, which Plenipo checks every time it connects, before it signs in. If it
+          ever changes, workers are blocked from the server until you check and pin it again.
         </p>
         {pinned && (
           <p>

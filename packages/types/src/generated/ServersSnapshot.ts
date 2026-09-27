@@ -11,4 +11,9 @@ export type ServersSnapshot = { servers: Array<ServerView>, roles: Array<ServerR
 /**
  * Where keys and passwords are kept ("Windows Credential Manager").
  */
-vault: VaultStatus, notices: Array<string>, };
+vault: VaultStatus, notices: Array<string>, 
+/**
+ * The owner's "Remote computers (SSH)" switch (Settings → Switches, ADR-023). Off: no
+ * worker connects to any server; the owner can still add and test servers.
+ */
+switchedOn: boolean, };

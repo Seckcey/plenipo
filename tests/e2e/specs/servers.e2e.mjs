@@ -226,6 +226,8 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
     await nav(browser, "Settings");
     await waitUntil(() => exists(browser, "#servers-title"), "the Servers section");
     await waitForText(browser, ".servers", "Production servers are marked in red.");
+    // Remote computers (SSH) start switched off (Settings → Switches), and the section says so.
+    await waitForText(browser, ".servers", "Remote computers (SSH) are switched off");
     await clickButton(browser, "Add a server");
     const form = "Add a server";
     await (await field(browser, form, "Name")).setValue("Shop");
@@ -269,6 +271,22 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
       document.querySelector("#servers-title")?.scrollIntoView({ block: "start" }),
     );
     await screenshot(browser, "servers-settings");
+    // Turn remote computers on for workers.
+    const sshSwitch = 'button[role="switch"][aria-label="Remote computers (SSH)"]';
+    assert.equal(await (await browser.$(sshSwitch)).getAttribute("aria-checked"), "false");
+    await (await browser.$(sshSwitch)).click();
+    await waitUntil(
+      async () => (await (await browser.$(sshSwitch)).getAttribute("aria-checked")) === "true",
+      "the Remote computers (SSH) switch to turn on",
+    );
+    await waitUntil(
+      async () => !(await textOf(browser, ".servers")).includes("are switched off"),
+      "the switched-off notice to go",
+    );
+    await browser.execute(() =>
+      document.querySelector("#switches-features")?.scrollIntoView({ block: "start" }),
+    );
+    await screenshot(browser, "server-switch");
   });
 
   it("builds an Operations team with an Operations Engineer", async () => {

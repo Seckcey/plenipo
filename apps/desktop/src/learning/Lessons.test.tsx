@@ -69,7 +69,7 @@ describe("Learning", () => {
     api.decideLesson.mockResolvedValue(snapshot({ waiting: [] }));
     render(<Harness part="new" />);
     const card = await screen.findByRole("article", { name: "Lesson from Web Assistant" });
-    expect(within(card).getByText("From a task that used websites")).toBeInTheDocument();
+    expect(within(card).getByText("From a task that used websites or servers")).toBeInTheDocument();
     const box = within(card).getByRole("textbox");
     const user = userEvent.setup();
     await user.clear(box);

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use plenipo_capabilities::control::{session_id, ControlKind, ControlState};
 use plenipo_capabilities::{ApprovalView, Broker, BrokerConfig, MemorySecretStore};
 use plenipo_guard::{
-    CommandClass, Environment, Guard, HostKeyInput, ServerApproval, ServerInput, SignIn,
+    CommandClass, Environment, Guard, HostKeyInput, ServerApproval, ServerInput, SignIn, Switches,
 };
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -226,6 +226,14 @@ async fn harness() -> H {
     let workforce = Workforce::new(Arc::clone(&ledger), rt.clone(), liaison.clone(), router);
     let guard = Guard::new(Arc::clone(&ledger));
     guard.seed_template_roles().unwrap();
+    // Remote computers (SSH) start switched off (ADR-023); these tests switch them on.
+    assert!(!guard.config().unwrap().switches.servers);
+    guard
+        .set_switches(&Switches {
+            servers: true,
+            ..Switches::default()
+        })
+        .unwrap();
     let mut broker_config = BrokerConfig::new(
         PathBuf::from(env!("CARGO_BIN_EXE_plenipo-tool-relay")),
         dir.path().join("tickets"),
@@ -785,7 +793,11 @@ async fn plan_changed_host_key() {
         dev.identity_changed.as_ref().unwrap().fingerprint,
         h.dev.fingerprint
     );
-    assert!(dev.problem.as_ref().unwrap().contains("different server ID"));
+    assert!(dev
+        .problem
+        .as_ref()
+        .unwrap()
+        .contains("different server ID"));
     let test = h.broker.test_server(&dev.server.id).await.unwrap();
     assert!(!test.ok);
     assert!(
@@ -1498,4 +1510,103 @@ async fn settings_keep_sign_ins_in_the_vault_only() {
             .can_connect
     );
     let _ = session_id(ControlKind::Server, "x");
+}
+
+/// The owner's "Remote computers (SSH)" switch (Settings → Switches, ADR-023): switching it off
+/// disconnects the worker using a server at once (its command is stopped on the server), without
+/// the emergency stop; the next worker gets no server tools, and the trail says why.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_remote_computers_off_disconnects_and_blocks() {
+    let h = harness().await;
+    h.allow_without_asking("Dev box");
+    h.script(
+        "Operations Engineer",
+        json!([{ "tools": [
+            run_on("Dev box", "sleep", &["60"]),
+            run_on("Dev box", "whoami", &[]),
+        ], "say": "Stopped." }]),
+    );
+    let root = h.objective().await;
+    let task = h.worker_task(&root, "Operations Engineer").await;
+    h.until("the command to start", |h| {
+        !h.events(&task.id, "ssh.command_started").is_empty()
+    })
+    .await;
+    let started = Instant::now();
+    h.guard.set_switches(&Switches::default()).unwrap();
+    let status = h
+        .broker
+        .switch_off_control(ControlKind::Server)
+        .await
+        .unwrap();
+    assert!(!status.stopped, "not the emergency stop");
+    let task = h.finished(&task.id).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "stopped promptly"
+    );
+    h.finished(&root).await;
+    let text = h.text(&task.id);
+    assert!(
+        result(&text, "ssh_run", 0).contains("you switched remote computers (SSH) off"),
+        "{text}"
+    );
+    assert!(
+        result(&text, "ssh_run", 1).contains("Remote computers (SSH) are switched off"),
+        "{text}"
+    );
+    assert!(h.dev.seen().signals.contains(&"TERM:sleep".to_owned()));
+    assert_eq!(h.dev.seen().execs.len(), 1, "whoami never ran");
+    assert_eq!(h.all_events("control.switched_off").len(), 1);
+    // The next worker gets no server tools, and the trail says why.
+    let root = h.objective().await;
+    let task = h.worker_task(&root, "Operations Engineer").await;
+    h.finished(&task.id).await;
+    h.finished(&root).await;
+    let skipped = h.events(&task.id, "guard.grant_skipped");
+    assert!(
+        skipped.iter().any(|e| e["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains("remote computers (SSH) are switched off"))),
+        "{skipped:?}"
+    );
+    assert_eq!(
+        h.dev.seen().execs.len(),
+        1,
+        "nothing more ran on the server"
+    );
+}
+
+/// A lesson from a task that ran commands on a server always waits for the owner, even when the
+/// role learns on its own (ADR-024): what a server prints must not be able to plant one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lessons_from_servers_always_wait_for_the_owner() {
+    let h = harness().await;
+    h.allow_without_asking("Dev box");
+    let role = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|r| r.name == "Operations Engineer")
+        .unwrap()
+        .id;
+    h.workforce.set_role_learning(&role, true).unwrap();
+    let (task, _) = h
+        .run(
+            "Operations Engineer",
+            json!([{ "tools": [run_on("Dev box", "uptime", &[])],
+                "say": "Done.\n```plenipo-lesson\n- Dev box restarts nginx with systemctl.\n```" }]),
+        )
+        .await;
+    h.until("the lesson", |h| {
+        !h.workforce.learning().unwrap().waiting.is_empty()
+    })
+    .await;
+    let learning = h.workforce.learning().unwrap();
+    let lesson = &learning.waiting[0];
+    assert!(lesson.from_web, "marked as from outside content");
+    assert_eq!(lesson.task_id.as_deref(), Some(task.id.as_str()));
+    assert!(learning.kept.is_empty(), "not kept on its own");
 }

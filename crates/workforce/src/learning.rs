@@ -145,7 +145,7 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     else {
         return Ok(Vec::new());
     };
-    let from_web = ledger.task_used_web_or_screen(task_id)?;
+    let from_web = ledger.task_used_web_screen_or_servers(task_id)?;
     let keep = !from_web && s.auto_roles.contains(&position.role_id);
     Ok(ledger.add_lessons(
         &NewLessons {

@@ -272,6 +272,9 @@ pub struct ServersSnapshot {
     /// Where keys and passwords are kept ("Windows Credential Manager").
     pub vault: VaultStatus,
     pub notices: Vec<String>,
+    /// The owner's "Remote computers (SSH)" switch (Settings → Switches, ADR-023). Off: no
+    /// worker connects to any server; the owner can still add and test servers.
+    pub switched_on: bool,
 }
 
 /// A server's identity, read for the owner to check before pinning it.
