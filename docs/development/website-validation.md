@@ -45,20 +45,34 @@ The approved artwork matches the references; website exports reduce resolution f
 and decorative provider images use empty alt text because adjacent labels identify each tool.
 Browser scope is Chromium at the tested sizes; this does not claim testing in every browser.
 
-All five repository-required commands passed on the isolated Coastline source copy:
+The initial five repository-required commands passed on the isolated Coastline source copy:
 `pnpm check` (240 UI tests, 175 desktop tests, 2 website tests, plus versions/format/lint/types),
 `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
 `cargo test --workspace --locked` (765 passed, none failed/ignored), and `pnpm bindings`
 (189 export checks; the complete generated-file list and byte hashes stayed unchanged).
-The Rust/application tree matches base `eb49e9f`; the imported branding source was checked at
+That initial Rust/application tree matched base `eb49e9f`; the imported branding source was checked at
 `1088f62` with the final manifest/ZIP cache links. Later receipt/evidence-only additions receive
 focused formatting/build verification. Final merge/release identity belongs in the deployment
 receipt.
+
+After the browser changes and GitHub presentation work merged into main `ebe55f9`, this branch
+was reconciled as `4b4e246695ed599ef927f6d0d1a3fd5bf9d3ed48`. All 1,183 files from its source
+archive were verified after transfer. Archive SHA-256:
+`d168a93628ee408700555a3fcb2a3c14aaa190b32f08716a24775bd7aabf9dfe`.
+All five required commands passed again on that combined source at 15:30:57 UTC on September 27:
+240 UI, 175 desktop, 2 website, 767 Rust, and 189 binding-export tests, with no failed or ignored
+Rust tests and no generated-file name or byte changes. This includes all 18 synthetic browser
+tests. Branding assets, website source, and the reviewed layout are unchanged from `8e9c40e`;
+the branch adds no desktop or Rust edits beyond merged main. Only this factual receipt follows
+the tested source, with focused formatting and website-build verification before pushing.
 
 Checks used a 2 GiB/2 CPU container with one compilation job and serial Rust tests. Debian
 Chromium was installed in that container for the repository's synthetic browser tests. The
 preview used a separate Coastline task directory and a 64 MiB container. No desktop Docker,
 other application data, app source, or GitHub repository settings were changed.
+The completed preview, network, port reservation, SSH forward, and test containers were removed;
+the persistent shared lock files were retained. Publishing remains pending until the coordinator
+hands off the approved merged revision and the actual origin/public release passes verification.
 
 ## Original website delivery
 
