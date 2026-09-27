@@ -1,10 +1,10 @@
-//! Kimi adapter (Moonshot AI's Kimi Code CLI) over ACP (ADR-015, ADR-021).
+//! Kimi adapter (Moonshot AI's Kimi Code CLI) over ACP (ADR-015, ADR-022).
 //!
 //! Kimi's one-task mode (`kimi -p`) takes the prompt only as an argument and changes files
 //! without asking, so a task runs `kimi acp` and talks ACP through the shared driver
 //! ([`super::acp`]): the prompt, like everything else, goes in on stdin, one process per task.
 //!
-//! Kimi's own tools cannot be switched off, so ADR-021 (Kimi over ACP, with its file reads and
+//! Kimi's own tools cannot be switched off, so ADR-022 (Kimi over ACP, with its file reads and
 //! writes going through Plenipo) holds it this way:
 //! - Plenipo offers Kimi file access, so every file Kimi reads or writes comes to Plenipo, which
 //!   carries it out through Guard under the worker's permissions (none for a worker without);

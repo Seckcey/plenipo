@@ -1,5 +1,5 @@
 //! Agent runtimes (Phase 3, ADR-007): provider-neutral adapter contract, the Claude Code,
-//! Codex, Grok, Kimi, and Ollama adapters, the shared ACP driver (ADR-015, ADR-021), CLI
+//! Codex, Grok, Kimi, and Ollama adapters, the shared ACP driver (ADR-015, ADR-022), CLI
 //! discovery, and the session service that runs turns under the supervisor.
 
 pub mod acp;

@@ -270,7 +270,7 @@ cancelled` (terminal states are final).
 
 Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
 and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP), and
-[ADR-021](../adr/ADR-021-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
+[ADR-022](../adr/ADR-022-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
 and writes going through Plenipo).
 
 - **Contract.** `RuntimeAdapter` (`crates/runtime/src/agent/adapter.rs`) is provider-neutral:
@@ -288,7 +288,7 @@ and writes going through Plenipo).
   driver answers the tool's permission requests (Plenipo's tool server yes, anything else no)
   and never asks it to sign in. Cancel asks the tool to stop (`session/cancel`) for up to five
   seconds before the process tree is ended.
-- **File access through Plenipo (ADR-021).** Kimi (`kimi acp`) uses the same driver, with the
+- **File access through Plenipo (ADR-022).** Kimi (`kimi acp`) uses the same driver, with the
   options its own unswitchable tools need. `initialize` offers file reads and writes, so Kimi
   asks Plenipo for every file (`fs/read_text_file`, `fs/write_text_file`). The driver turns each
   into a `FileRequest` (`Parsed::files`); the service carries it out through

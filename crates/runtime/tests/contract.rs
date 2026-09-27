@@ -216,7 +216,7 @@ fn turn_arguments_carry_the_choices_and_no_secrets() {
                 ProviderSession::New { preassigned } => preassigned.as_ref(),
             };
             // Each choice is in the arguments, or in the messages of a task that talks
-            // (ADR-015; Kimi's model and thinking level are session settings, ADR-021).
+            // (ADR-015; Kimi's model and thinking level are session settings, ADR-022).
             let sent = messages(a.as_ref(), &request);
             let carried = |value: &str| {
                 let quoted = format!("\"{value}\"");

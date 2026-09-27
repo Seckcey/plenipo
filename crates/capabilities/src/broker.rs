@@ -274,7 +274,7 @@ struct Prepared {
 enum Work {
     List(Resolved),
     Read(Resolved, usize, usize),
-    /// The file's text as it is, for an AI tool's own read (ADR-021).
+    /// The file's text as it is, for an AI tool's own read (ADR-022).
     ReadText(Resolved, usize, usize),
     Search(Resolved, String, bool),
     Write(Resolved, String),
@@ -1127,7 +1127,7 @@ impl Broker {
     }
 
     /// Read or write a file for the AI tool of a grant's step, which asked Plenipo instead of
-    /// opening the file itself (ADR-021, Kimi over ACP). It is the worker's own `read_file` or
+    /// opening the file itself (ADR-022, Kimi over ACP). It is the worker's own `read_file` or
     /// `write_file` call in every way that matters: confined to the folder, checked by Guard,
     /// approved by the owner when Guard asks, recorded, and answered with secrets hidden. A read
     /// answers the file's text as it is, never cut short.
@@ -2072,7 +2072,7 @@ impl ToolProvider for Broker {
 }
 
 /// What a caller asked of a grant: one of Plenipo's tools by the worker, or a file by its AI
-/// tool (ADR-021).
+/// tool (ADR-022).
 enum Asked {
     Call(Value),
     File(FileAccess),

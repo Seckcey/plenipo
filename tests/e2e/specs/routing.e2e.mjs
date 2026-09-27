@@ -301,7 +301,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "Type another name…",
     ]);
     await screenshot(browser, "models-add-menu-grok");
-    // Kimi's models carry their provider's name (ADR-021): only the Kimi subscription's.
+    // Kimi's models carry their provider's name (ADR-022): only the Kimi subscription's.
     await chooseTool("Kimi");
     await waitUntil(
       async () => (await menuOptions()).includes("kimi-code/k3"),

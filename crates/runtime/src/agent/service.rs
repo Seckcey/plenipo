@@ -1747,7 +1747,7 @@ impl TurnContext {
         done: Option<watch::Sender<bool>>,
     ) {
         let mut stopping = false;
-        // Answers to the files the AI tool asked Plenipo for (ADR-021), as they come.
+        // Answers to the files the AI tool asked Plenipo for (ADR-022), as they come.
         let (answers_tx, mut answers) = mpsc::unbounded_channel::<(u64, FileAnswer)>();
         loop {
             let parsed = tokio::select! {
@@ -1834,7 +1834,7 @@ impl TurnContext {
         self.complete(result, done).await;
     }
 
-    /// Carry out a file the AI tool asked for (ADR-021) through the step's grant, and send the
+    /// Carry out a file the AI tool asked for (ADR-022) through the step's grant, and send the
     /// answer back when it is ready: Guard may make it wait for the owner, and the task goes on
     /// meanwhile. A step without a grant has every file request refused.
     fn file_request(
@@ -2348,7 +2348,7 @@ fn validate_session_id(id: &str) -> Result<String, RuntimeError> {
 }
 
 /// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]*`, optionally after a provider `[A-Za-z0-9][A-Za-z0-9._-]*`
-/// and one `/` (Kimi's `kimi-code/k3`, ADR-021), at most 64 characters — a model name, never a
+/// and one `/` (Kimi's `kimi-code/k3`, ADR-022), at most 64 characters — a model name, never a
 /// flag or a path.
 pub fn validate_model(model: &str) -> Result<String, RuntimeError> {
     let part = |p: &str, more: &[char]| {

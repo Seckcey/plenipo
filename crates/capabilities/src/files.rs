@@ -131,7 +131,7 @@ pub fn read(file: &Resolved, offset: usize, limit: usize) -> Out {
     Ok(out)
 }
 
-/// A text file exactly as it is, for an AI tool's own reads (ADR-021): all of it, or `limit`
+/// A text file exactly as it is, for an AI tool's own reads (ADR-022): all of it, or `limit`
 /// lines from line `offset` (from 1), with their line endings. Never cut short silently.
 pub fn read_text(file: &Resolved, offset: usize, limit: usize) -> Out {
     let meta = fs::metadata(&file.abs).map_err(|e| io(file.shown(), &e))?;

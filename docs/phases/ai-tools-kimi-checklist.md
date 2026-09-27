@@ -1,15 +1,15 @@
 # AI tools: Kimi — Implementation Checklist
 
-**Status:** built and tested with the fake Kimi on `claude/ai-tools-kimi`; waiting for the
-owner's check on Windows with the real CLI (see the
-[acceptance report](ai-tools-kimi-acceptance-report.md), §6).
+**Status:** built, tested with the fake Kimi, and checked by the owner on Windows with the real
+CLI on 2026-09-27 (see the [acceptance report](ai-tools-kimi-acceptance-report.md), §6 and §8).
+Ready for review.
 
 Adds Kimi Code, Moonshot AI's official coding CLI, as an AI tool under ADR-014 (the rules for
-adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and ADR-021 (Kimi over
+adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and ADR-022 (Kimi over
 ACP, with its file reads and writes going through Plenipo), accepted by the owner on 2026-09-26.
-ADR-021 was numbered ADR-016 when accepted; it was renumbered on 2026-09-27 because `main`
-already uses ADR-016 for the Development department and ADR-018 to ADR-020 for Phase 9 and
-Phase 10. Guide:
+ADR-022 was numbered ADR-016 when accepted; it was renumbered on 2026-09-27 because `main`
+already uses ADR-016 for the Development department, ADR-018 to ADR-020 for Phase 9 and
+Phase 10, and ADR-021 for the editions and license. Guide:
 [`adding-an-ai-tool.md`](../development/adding-an-ai-tool.md), §11. The owner checked the real CLI
 on Windows 11 with a Kimi subscription; the raw outputs are in
 [`crates/runtime/tests/fixtures/kimi-0.34.0/`](../../crates/runtime/tests/fixtures/kimi-0.34.0/README.md).
@@ -39,9 +39,9 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       `session/new` answer carries the conversation ID and settings, `session/update` the text,
       thoughts, and tool calls, the `session/prompt` answer the stop reason. Kimi reports no
       token counts.
-- [ ] Subscription sign-in only; no API key or password ever needed — `kimi login` (device code)
-      signs in to the Kimi subscription (`source=oauth`); the owner is signed in this way.
-      **Owner check:** tasks run on it.
+- [x] Subscription sign-in only; no API key or password ever needed — `kimi login` (device code)
+      signs in to the Kimi subscription (`source=oauth`); the owner is signed in this way, and
+      tasks ran on it in the owner's check (2026-09-27).
 - [x] Sign-in status check tells a subscription from an API key — `kimi provider list`: only
       `managed:kimi-code … source=oauth` counts; another source (an API key) is refused, and
       no Kimi subscription provider reads as signed out. The signed-out wording is still to
@@ -50,7 +50,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       (`0.34.0`), `session/load` with the conversation ID (checked on the real CLI).
       **Owner check:** resume and cancel in Plenipo.
 - [x] Least privilege: flags that stop writes and network — no flag can switch Kimi's own tools
-      off, so ADR-021: every file Kimi reads or writes comes to Plenipo and goes through Guard,
+      off, so ADR-022: every file Kimi reads or writes comes to Plenipo and goes through Guard,
       its own shell is refused, and its mode is `default` (or `plan` for a worker without
       permissions). **Owner check:** Kimi's approved writes come to Plenipo, and its web tools
       (if any) ask first.
@@ -67,7 +67,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
       `%USERPROFILE%\.kimi-code`
 - [x] Turn arguments: `acp`; the conversation, mode, model, and thinking level travel in ACP
       messages
-- [x] Parser: the shared ACP driver (`acp.rs`) with ADR-021's options — file access through
+- [x] Parser: the shared ACP driver (`acp.rs`) with ADR-022's options — file access through
       Guard, session settings, allowed modes, `session/load` to resume, tool names in titles,
       and the refusal of models outside `kimi-code/…`
 - [x] Capabilities: tool posture, thinking levels (low, high, max), the four `kimi-code/…`
@@ -75,7 +75,7 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
 - [x] Unit tests in the module, using the recorded outputs (`tests/fixtures/kimi-0.34.0/`)
 - [x] Plenipo's tool server wired in (ACP `mcpServers`), tested through the real broker and relay
 
-## ADR-021 (Kimi over ACP, with its file reads and writes going through Plenipo) — what it asked for
+## ADR-022 (Kimi over ACP, with its file reads and writes going through Plenipo) — what it asked for
 
 - [x] §1 Kimi runs over ACP through the shared driver, one `kimi acp` per task
 - [x] §2 `initialize` offers `fs.readTextFile` and `fs.writeTextFile`, and no terminal; each
@@ -121,9 +121,10 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
 - [x] End-to-end: Kimi on the AI tools page, a Kimi task, its models in the model menu
 - [x] All pre-push checks from CLAUDE.md
 - [x] `pnpm e2e` against the release build (51 of 51 passed on Linux after merging v1.3.0)
-- [ ] Owner's check on Windows with the real CLI: one task, resume, cancel, files through
-      Guard, and a refusal —
-      [acceptance report §6](ai-tools-kimi-acceptance-report.md#6-owner-check-on-windows-about-20-minutes)
+- [x] Owner's check on Windows with the real CLI: one task, resume, cancel, files through
+      Guard, and a refusal — passed, reported by the owner on 2026-09-27
+      ([acceptance report §6](ai-tools-kimi-acceptance-report.md#6-owner-check-on-windows-about-20-minutes),
+      [§8](ai-tools-kimi-acceptance-report.md#8-owner-results))
 - [x] Acceptance report `docs/phases/ai-tools-kimi-acceptance-report.md`
 
 ## Still to check
@@ -132,10 +133,11 @@ on Windows 11 with a Kimi subscription; the raw outputs are in
   Until then, Plenipo's general wording rules classify them.
 - What `kimi provider list` prints when signed out (Plenipo reads "no Kimi subscription
   provider" as signed out, whatever the wording).
-- How Kimi asks to use a tool of Plenipo's tool server (Plenipo accepts the tool's own name, or
-  the name with `plenipo__` / `mcp__plenipo__` before it).
-- Whether an approved Kimi write always comes to Plenipo as `fs/write_text_file` (if it does
-  not, Plenipo stops the task and says so).
-- Whether Kimi has web tools that run without asking in its `default` mode.
+- The exact name Kimi puts in a permission request for a tool of Plenipo's tool server. The
+  owner's check passed, so Kimi's requests were recognized; the text itself was not captured
+  (Plenipo accepts the tool's own name, or the name with `plenipo__` / `mcp__plenipo__` before
+  it).
+- If a later Kimi version ever writes an approved change itself instead of asking Plenipo,
+  Plenipo stops the task and says so; each new Kimi version needs the owner's check again.
 - `kimi provider list --json` is not used: it prints Kimi's raw settings, which could hold a
   key.

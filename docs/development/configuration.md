@@ -6,7 +6,7 @@
    config file. Every setting has a safe default.
 2. **No secrets in files Plenipo reads from the repo or environment.** Provider credentials are
    never stored in `.env`, config files, or SQLite. Plenipo uses the Claude Code, Codex, Grok,
-   and Kimi CLIs' own existing sign-ins (Phase 3, ADR-007; Grok, ADR-015; Kimi, ADR-021) and
+   and Kimi CLIs' own existing sign-ins (Phase 3, ADR-007; Grok, ADR-015; Kimi, ADR-022) and
    never reads their credential files; from Phase 7,
    secrets are referenced through Windows Credential Manager (Plenipo Vault) by handle, not value.
 3. **User settings live in the per-user app data directory**, not next to the executable.
@@ -54,7 +54,7 @@ switches that keep it to the least it can do until Guard grants permissions: `GR
 run on xAI's side), and `GROK_CLAUDE_*_ENABLED=0` / `GROK_CURSOR_*_ENABLED=0` for skills, hooks,
 tool servers, agents, and rules (so it does not load your Claude Code or Cursor settings).
 
-Kimi (ADR-021, Kimi over ACP, with its file reads and writes going through Plenipo) finds its
+Kimi (ADR-022, Kimi over ACP, with its file reads and writes going through Plenipo) finds its
 settings and sign-in in your user folder (`%USERPROFILE%\.kimi-code`, which Plenipo never
 reads), so it needs no variable of its own. Its model and thinking level are set in the ACP
 session, not in variables.

@@ -157,7 +157,7 @@ impl H {
     fn resumed(&self, runtime: &str) -> String {
         if matches!(runtime, "grok" | "kimi") {
             let acp = self.last_acp();
-            // Grok resumes; Kimi loads, the way checked on the real CLI (ADR-021).
+            // Grok resumes; Kimi loads, the way checked on the real CLI (ADR-022).
             let method = if runtime == "grok" {
                 "session/resume"
             } else {
@@ -1571,7 +1571,7 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
     assert!(matches!(err, RuntimeError::Store(_)), "{err}");
 }
 
-// ---- Kimi (ADR-021: Kimi over ACP, with its file reads and writes going through Plenipo) ------
+// ---- Kimi (ADR-022: Kimi over ACP, with its file reads and writes going through Plenipo) ------
 
 async fn run_kimi(
     h: &H,

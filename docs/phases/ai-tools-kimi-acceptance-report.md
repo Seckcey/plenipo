@@ -1,13 +1,13 @@
 # AI tools: Kimi — Acceptance Report
 
-**Branch:** `claude/ai-tools-kimi` · **Status:** built and tested with the fake Kimi; waiting for
-the owner's check on Windows with the real CLI (§6).
+**Branch:** `claude/ai-tools-kimi` · **Status:** built, tested with the fake Kimi, and checked by
+the owner on Windows with the real CLI on 2026-09-27 (§6, §8). Ready for review.
 
 Decisions: ADR-014 (adding AI tools ahead of Phase 15), ADR-015 (running AI tools over ACP), and
-[ADR-021](../adr/ADR-021-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
+[ADR-022](../adr/ADR-022-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
 and writes going through Plenipo), accepted by the owner on 2026-09-26 as ADR-016 and renumbered
-on 2026-09-27 (`main` uses ADR-016 for the Development department and ADR-018 to ADR-020 for
-Phase 9 and Phase 10). Checklist:
+on 2026-09-27 (`main` uses ADR-016 for the Development department, ADR-018 to ADR-020 for
+Phase 9 and Phase 10, and ADR-021 for the editions and license). Checklist:
 [`ai-tools-kimi-checklist.md`](ai-tools-kimi-checklist.md).
 
 ## 1. How Kimi got here
@@ -17,14 +17,14 @@ The owner checked Kimi Code 0.34.0 on Windows 11 with a Kimi subscription (step 
 Its one-task mode (`kimi -p`) fails two rules: the task text must be an argument, and it wrote a
 file without asking. Its ACP mode (`kimi acp`) passes both: the task text is a message on its
 input, and every change waited for permission. Unlike Grok, Kimi's own tools cannot be switched
-off, so ADR-021 has Plenipo offer Kimi file access and answer every file request itself, through
+off, so ADR-022 has Plenipo offer Kimi file access and answer every file request itself, through
 Guard. The adapter waited for Grok's shared ACP driver (ADR-015), which reached `main` in v1.1.0.
 
 ## 2. What was built
 
 - `crates/runtime/src/agent/kimi.rs`: the adapter (sign-in check, models, settings, and the
   driver options below).
-- `crates/runtime/src/agent/acp.rs`: the shared driver gains ADR-021's options (file access
+- `crates/runtime/src/agent/acp.rs`: the shared driver gains ADR-022's options (file access
   through Plenipo, session settings, allowed modes, `session/load` to resume, tool names in
   titles, and an early refusal). Grok's behaviour is unchanged.
 - The runtime and the broker: a file request from an AI tool is carried out through Guard while
@@ -69,11 +69,11 @@ Guard. The adapter waited for Grok's shared ACP driver (ADR-015), which reached 
 
 | Change                                                                                    | Why                                                                                                              | Decision   |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------- |
-| `ToolProvider::file_access`, `Parsed::files`, `TurnParser::file_answered`                 | Kimi's file requests arrive on its output; the broker must answer them through Guard while the task goes on.     | ADR-021 §2 |
-| `Broker::file_request` (the same path as a tool call; recorded with `fileRequest: true`)  | One place where Guard decides, whether the worker or its AI tool asks.                                           | ADR-021 §2 |
-| `ToolServer::tools` (the tool names a grant offers)                                       | Kimi names a tool server's tool by its own name; only names the grant offers count.                              | ADR-021 §3 |
-| Model names may carry one provider prefix (`kimi-code/k3`), in the runtime and the Ledger | Kimi's model names; ADR-021 §6 names them. Still never a flag or a path (`../x`, `/x`, `C:/x`, `a/b/c` refused). | ADR-021 §6 |
-| Contract suite: model and effort may travel in an ACP tool's messages                     | Kimi takes them as session settings, not arguments.                                                              | ADR-021 §5 |
+| `ToolProvider::file_access`, `Parsed::files`, `TurnParser::file_answered`                 | Kimi's file requests arrive on its output; the broker must answer them through Guard while the task goes on.     | ADR-022 §2 |
+| `Broker::file_request` (the same path as a tool call; recorded with `fileRequest: true`)  | One place where Guard decides, whether the worker or its AI tool asks.                                           | ADR-022 §2 |
+| `ToolServer::tools` (the tool names a grant offers)                                       | Kimi names a tool server's tool by its own name; only names the grant offers count.                              | ADR-022 §3 |
+| Model names may carry one provider prefix (`kimi-code/k3`), in the runtime and the Ledger | Kimi's model names; ADR-022 §6 names them. Still never a flag or a path (`../x`, `/x`, `C:/x`, `a/b/c` refused). | ADR-022 §6 |
+| Contract suite: model and effort may travel in an ACP tool's messages                     | Kimi takes them as session settings, not arguments.                                                              | ADR-022 §5 |
 
 ## 5. Security notes
 
@@ -196,4 +196,12 @@ persona, with the recorded output added to the fixtures.
 
 ## 8. Owner results
 
-Waiting for the owner's check (§6).
+- **§6 on Windows (2026-09-27):** the owner ran the check with the real Kimi Code, signed in with
+  a Kimi subscription, and reported that it went as described. The detailed outputs (the
+  `kimi provider list` text and the **Activity** lines) were not sent back, so this record rests
+  on the owner's report.
+- What this settles from §7: Kimi's requests for Plenipo's tools were recognized, its approved
+  writes went through Plenipo, and its web request was refused.
+- Still open: the texts of a usage limit and an expired sign-in, what `kimi provider list`
+  prints when signed out, and the exact name Kimi puts in a permission request for Plenipo's
+  tools.
