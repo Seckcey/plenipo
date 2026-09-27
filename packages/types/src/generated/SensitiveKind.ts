@@ -3,4 +3,4 @@
 /**
  * Kinds of actions the plan says need the owner's approval by default.
  */
-export type SensitiveKind = "production" | "dns" | "credentials" | "database" | "cloudDelete" | "payment" | "outbound" | "privilege" | "outsideWorkspace";
+export type SensitiveKind = "production" | "dns" | "credentials" | "database" | "cloudDelete" | "payment" | "outbound" | "privilege" | "outsideWorkspace" | "signIn" | "desktopControl";

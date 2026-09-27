@@ -12,15 +12,20 @@
 //! model name), roles, and choices; it never selects a worker's AI tool directly. Permissions
 //! (Phase 7) are configuration too: the UI edits permission sets, rules, and secret references,
 //! answers approvals, and revokes grants by ID. It can never run a tool itself, and a secret's
-//! value only goes in (to the operating system's protected storage), never back out.
+//! value only goes in (to the operating system's protected storage), never back out. Browser and
+//! computer control (Phase 10) is the owner's to stop, take over, and allow again; the UI edits
+//! the website lists, opens Plenipo's browser for the owner, and reads kept screenshots by
+//! their ID only — it can never drive the browser or the mouse and keyboard.
 
 use std::sync::Arc;
 
-use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot};
+use plenipo_capabilities::browser::BrowserStatus;
+use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::{ApprovalQueue, Broker, BrokerError, PermissionsSnapshot, Screenshot};
 use plenipo_core::{AppInfo, CommandError, SyntheticTaskAction};
 use plenipo_guard::{
     CommandRules, Guard, GuardError, GuardOptions, PermissionSetInput, SecretInput, SensitiveKind,
-    SensitiveRule,
+    SensitiveRule, WebsiteRules,
 };
 use plenipo_ledger::{
     BackupInfo, ExportInfo, IntegrityReport, Ledger, LedgerError, LedgerEvent, LedgerStatus,
@@ -38,8 +43,8 @@ use plenipo_runtime::{
 };
 use plenipo_workforce::{
     DepartmentInput, DevelopmentInput, HireInput, LeadInput, ObjectiveReport, OrgSnapshot,
-    OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, TitleTheme, WorkView,
-    Workforce, WorkforceError,
+    OversightRole, PositionPatchInput, ProjectInput, ProjectWork, RoleInput, RoleJob, RoleUpdate,
+    TitleTheme, WorkView, Workforce, WorkforceError,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -552,7 +557,43 @@ pub async fn create_role(
 ) -> Result<OrgSnapshot, CommandError> {
     bounded("the name", &input.name)?;
     bounded("the description", &input.description)?;
+    if let Some(job) = &input.job {
+        validate_job(job)?;
+    }
     with_workforce(&workforce, move |w| w.create_role(&input)).await
+}
+
+/// Change a role the owner created: its name, description, and working instructions.
+#[tauri::command]
+pub async fn update_role(
+    workforce: State<'_, Workforce>,
+    role_id: String,
+    input: RoleUpdate,
+) -> Result<OrgSnapshot, CommandError> {
+    validate_id("role", &role_id)?;
+    bounded("the name", &input.name)?;
+    bounded("the description", &input.description)?;
+    validate_job(&input.job)?;
+    with_workforce(&workforce, move |w| w.update_role(&role_id, &input)).await
+}
+
+/// A role's working instructions: a few short lines in each part (the Workforce checks them
+/// in detail).
+fn validate_job(job: &RoleJob) -> Result<(), CommandError> {
+    for (what, lines) in [
+        ("what the role does", &job.duties),
+        ("what it hands back", &job.returns),
+        ("what it must not do", &job.limits),
+        ("when it asks for help", &job.ask_lead),
+    ] {
+        if lines.len() > 64 {
+            return Err(CommandError::invalid_input(format!(
+                "{what} has too many lines"
+            )));
+        }
+        lines.iter().try_for_each(|l| bounded(what, l))?;
+    }
+    Ok(())
 }
 
 /// Create a department with its head position.
@@ -1148,6 +1189,89 @@ pub async fn revoke_grant(
         b.snapshot()
     })
     .await
+}
+
+// ---- Browser and computer control (Phase 10) --------------------------------------------------
+
+/// Who uses Plenipo's browser or the mouse and keyboard now, and whether you stopped control.
+#[tauri::command]
+pub fn get_control_status(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
+    Ok(broker.control_status())
+}
+
+/// The emergency stop: all browser and desktop control halts at once, and stays stopped until
+/// you allow it again.
+#[tauri::command]
+pub async fn stop_all_control(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
+    let broker = broker.inner().clone();
+    broker.stop_all_control(OWNER).await.map_err(broker_error)
+}
+
+/// Take over a worker's use of the browser or the mouse and keyboard: that worker stops.
+#[tauri::command]
+pub async fn take_over_control(
+    broker: State<'_, Broker>,
+    session_id: String,
+) -> Result<ControlStatus, CommandError> {
+    let valid = session_id.split_once(':').is_some_and(|(kind, id)| {
+        matches!(kind, "browser" | "desktop") && validate_execution_id(id).is_ok()
+    });
+    if !valid {
+        return Err(CommandError::invalid_input("invalid control session id"));
+    }
+    let broker = broker.inner().clone();
+    broker
+        .take_over(&session_id, "you pressed Take over in Plenipo")
+        .await
+        .map_err(broker_error)
+}
+
+/// Let workers use the browser and the desktop again after a stop.
+#[tauri::command]
+pub async fn allow_control(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
+    with_broker(&broker, |b| b.allow_control(OWNER)).await
+}
+
+/// The website lists: allowed, blocked, and what other websites do.
+#[tauri::command]
+pub async fn set_website_rules(
+    broker: State<'_, Broker>,
+    rules: WebsiteRules,
+) -> Result<PermissionsSnapshot, CommandError> {
+    validate_rules("allowed websites", &rules.allowed)?;
+    validate_rules("blocked websites", &rules.blocked)?;
+    with_guard(&broker, move |g| g.set_websites(&rules)).await
+}
+
+/// Plenipo's browser: which one, whether it runs, and its own profile folder.
+#[tauri::command]
+pub async fn get_browser_status(broker: State<'_, Broker>) -> Result<BrowserStatus, CommandError> {
+    Ok(broker.browser_status().await)
+}
+
+/// Open Plenipo's browser for you (for example to sign in to a website workers will use).
+#[tauri::command]
+pub async fn open_browser(
+    broker: State<'_, Broker>,
+    url: Option<String>,
+) -> Result<BrowserStatus, CommandError> {
+    bounded_optional("the address", url.as_deref())?;
+    let broker = broker.inner().clone();
+    broker
+        .open_browser_for_owner(url.as_deref())
+        .await
+        .map_err(broker_error)?;
+    Ok(broker.browser_status().await)
+}
+
+/// A kept screenshot, by its ID (Plenipo chooses the file; the UI never names a path).
+#[tauri::command]
+pub async fn get_screenshot(
+    broker: State<'_, Broker>,
+    artifact_id: String,
+) -> Result<Screenshot, CommandError> {
+    validate_id("screenshot", &artifact_id)?;
+    with_broker(&broker, move |b| b.screenshot_view(&artifact_id)).await
 }
 
 fn app_info_for(version: &str) -> AppInfo {

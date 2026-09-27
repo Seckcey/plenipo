@@ -8,6 +8,8 @@ import type {
   TaskBrief,
   WorkView,
   WorkerInfo,
+  RoleInfo,
+  RoleJob,
 } from "@plenipo/types";
 
 import { getWork, toCommandError } from "../../api/commands";
@@ -53,6 +55,7 @@ export interface InspectorActions {
   newRole: () => void;
   editDepartment: (id: string) => void;
   editProject: (id: string) => void;
+  editRole: (id: string) => void;
   rename: () => void;
   confirm: (request: {
     title: string;
@@ -148,6 +151,49 @@ function findWorker(
     if (worker) return { worker, position };
   }
   return null;
+}
+
+const JOB_HEADINGS: [keyof RoleJob, string][] = [
+  ["duties", "Its job"],
+  ["returns", "What it hands back"],
+  ["limits", "What it must not do"],
+  ["askLead", "When it asks its lead for help"],
+];
+
+/** What the position's role does: its description and working instructions (ADR-019). */
+function RoleJobSection({ role, onEdit }: { role: RoleInfo; onEdit: (id: string) => void }) {
+  const lists = JOB_HEADINGS.filter(([k]) => role.job[k].length > 0);
+  return (
+    <Section title={`What the ${role.name} role does`}>
+      {role.description && <p className="muted">{role.description}</p>}
+      {lists.length > 0 && (
+        <details className="inspector__job">
+          <summary>Working instructions</summary>
+          {lists.map(([k, heading]) => (
+            <div key={k}>
+              <h4>{heading}</h4>
+              <ul className="inspector__list">
+                {role.job[k].map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </details>
+      )}
+      {!role.template && (
+        <div className="actions">
+          <button
+            type="button"
+            className="button button--small button--quiet"
+            onClick={() => onEdit(role.id)}
+          >
+            Edit role
+          </button>
+        </div>
+      )}
+    </Section>
+  );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -272,6 +318,22 @@ function OrganizationPanel({
         <Fact label="Done (24 h)" value={s.completed24h} />
         <Fact label="Failed (24 h)" value={s.failed24h} />
       </dl>
+      {snapshot.roles.some((r) => !r.template) && (
+        <Section title="Roles you created">
+          <ul className="inspector__list">
+            {snapshot.roles
+              .filter((r) => !r.template)
+              .map((r) => (
+                <li key={r.id}>
+                  {r.name}{" "}
+                  <button type="button" className="link" onClick={() => actions.editRole(r.id)}>
+                    Edit
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </Section>
+      )}
       <Section title="AI tools">
         <ul className="inspector__list">
           {snapshot.runtimes.map((r) => (
@@ -425,6 +487,8 @@ function PositionPanel({
       </dl>
 
       {p.active && p.route && <RouteSection p={p} snapshot={snapshot} />}
+
+      {role && <RoleJobSection role={role} onEdit={actions.editRole} />}
 
       {p.currentTask && (
         <Section title="Current objective">

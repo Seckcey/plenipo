@@ -2691,3 +2691,157 @@ button {
 .project code {
   overflow-wrap: anywhere;
 }
+
+/* ---- Browser and desktop control (Phase 10) ------------------------------------------------- */
+
+.banner--control {
+  align-items: flex-start;
+  border-color: var(--warn);
+}
+
+.banner--control-active {
+  border-width: 2px;
+  border-color: var(--error);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.control__sessions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.control__session {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.control__session strong {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.control__detail {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.control__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.control__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--error);
+  box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7);
+  animation: control-pulse 1.4s ease-out infinite;
+}
+
+@keyframes control-pulse {
+  to {
+    box-shadow: 0 0 0 8px rgba(255, 107, 107, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control__dot {
+    animation: none;
+  }
+}
+
+.button--stop {
+  padding: 8px 18px;
+  border-color: var(--error);
+  background: var(--error);
+  color: #fff;
+  font-weight: 600;
+}
+
+.shell__footer-control {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.indicator {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  height: 100vh;
+  padding: 0 14px;
+  border: 3px solid var(--error);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.indicator__words {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.indicator__words .muted {
+  font-size: 0.8rem;
+}
+
+.websites textarea {
+  width: 100%;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.websites__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.shot {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.shot--thumb {
+  max-width: 320px;
+  cursor: zoom-in;
+}
+
+.notice-box {
+  padding: 8px 12px;
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  background: rgba(224, 161, 0, 0.08);
+}
+
+.plenipo-browser {
+  margin-top: 12px;
+}
+
+.plenipo-browser input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.shot__show {
+  margin-left: 8px;
+}
+
+.trail__text .shot {
+  margin-bottom: 4px;
+}
+
+.inspector__job h4 {
+  margin: 8px 0 2px;
+  font-size: 0.85rem;
+}

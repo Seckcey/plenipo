@@ -1,7 +1,7 @@
 # Architecture Overview
 
 This document is the architectural contract for Plenipo. It describes what exists today
-(through Phase 8) and the boundaries later phases must respect. Decisions behind it are in
+(through Phase 10) and the boundaries later phases must respect. Decisions behind it are in
 [`docs/adr`](../adr/README.md); the delivery sequence is in [`ROLLOUT_PLAN.md`](../../ROLLOUT_PLAN.md).
 
 ## 1. Shape of the system
@@ -44,6 +44,10 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │    approvals, file/program/git work, │   │
 │                                            │    Vault (OS credential store)       │   │
 │                                            │    working copies, GitHub via gh     │   │
+│                                            │  - Plenipo's browser (DevTools, own  │   │
+│                                            │    profile), screen, mouse, keyboard │   │
+│   ▲ events: plenipo://control              │  - control center: sign, Stop, Take  │   │
+│                                            │    over                              │   │
 │                                            │    ▲ 127.0.0.1, per-step ticket      │   │
 │                                            └────┼─────────────┬───────────────────┘   │
 └─────────────────────────────────────────────────┼─────────────┼───────────────────────┘
@@ -81,6 +85,10 @@ operations itself. This is enforced by:
 `apps/desktop/src-tauri/src/lib.rs` (`ipc_boundary_tests`) verifies this against the real
 capability configuration: granted commands succeed from `main`; unknown commands, OS plugin
 commands, remote origins, and windows without a grant are all rejected.
+
+A third window, the **control indicator** (`control-indicator`, shown above all windows while a
+worker uses the mouse and keyboard), has its own grant (`capabilities/indicator.json`): it may
+read who has control, stop all control, and take over. Nothing else.
 
 Privileged operations (process supervision, filesystem, Git, …) exist **only** as validated
 Core operations behind this boundary. Workers reach files, programs, and git only through
@@ -137,6 +145,7 @@ Workforce commands (Phase 5). Every change returns the organization as it is aft
 | `rename_organization`     | `name`                                  | `OrgSnapshot`        | The organization's display name                                                                                 |
 | `set_organization_titles` | `titles` (`TitleTheme`)                 | `OrgSnapshot`        | What the app calls the ranks (display only; ADR-010)                                                            |
 | `create_role`             | `input` (`RoleInput`)                   | `OrgSnapshot`        | A custom role (class and staffing)                                                                              |
+| `update_role`             | `roleId`, `input` (`RoleUpdate`)        | `OrgSnapshot`        | Change a role you created: name, what it does, and its working instructions (ADR-019); built-in roles refused   |
 | `create_department`       | `input` (`DepartmentInput`)             | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                                             |
 | `update_department`       | `departmentId`, `input`                 | `OrgSnapshot`        | Name, description, active                                                                                       |
 | `remove_department`       | `departmentId`                          | `OrgSnapshot`        | Delete a department without projects; its head position is archived                                             |
@@ -197,10 +206,24 @@ Development commands (Phase 8). A project's branch setting is part of its settin
 | `get_project_work`     | `projectId`                  | `ProjectWork`     | A project's objectives (newest first, in brief) and working copies                                             |
 | `remove_workspace`     | `workspaceId`                | `ProjectWork`     | Remove a finished objective's working copy; its branch stays                                                   |
 
+Browser and computer commands (Phase 10). The website lists are part of Guard's settings.
+
+| Command              | Input                    | Returns               | Purpose                                                                                               |
+| -------------------- | ------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `get_control_status` | —                        | `ControlStatus`       | Who uses Plenipo's browser or the mouse and keyboard now, and whether control is stopped              |
+| `stop_all_control`   | —                        | `ControlStatus`       | The emergency Stop: every session halts, those workers' permissions end, no new control until allowed |
+| `take_over_control`  | `sessionId`              | `ControlStatus`       | The owner takes one session (`browser:<grant>` or `desktop:<grant>`): its worker stops                |
+| `allow_control`      | —                        | `ControlStatus`       | Allow control again after a Stop                                                                      |
+| `set_website_rules`  | `rules` (`WebsiteRules`) | `PermissionsSnapshot` | Allowed and blocked websites, and what other websites do (ask or blocked)                             |
+| `get_browser_status` | —                        | `BrowserStatus`       | Which browser Plenipo uses, its profile folder, whether it is open                                    |
+| `open_browser`       | `url?`                   | `BrowserStatus`       | Open Plenipo's browser for the owner (to sign in to a website workers will use)                       |
+| `get_screenshot`     | `artifactId`             | `Screenshot`          | A kept screenshot as a `data:` URL (only files in Plenipo's screenshot folder recorded in the Ledger) |
+
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
 `{ kind: "lifecycle", record }`); `plenipo://ledger` carries each committed `LedgerEvent`;
-`plenipo://agents` carries `AgentUpdate` (`activity`, `turn`, `session`, or `runtimes`).
+`plenipo://agents` carries `AgentUpdate` (`activity`, `turn`, `session`, or `runtimes`);
+`plenipo://control` carries `ControlStatus` (with a `revision`, so the UI ignores an older one).
 The frontend subscribes only through `src/api/events.ts`.
 
 All commands return `Result<T, CommandError>`; the TS client converts rejections into
@@ -450,8 +473,8 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   "Approved / Always ask me first / Never run" (command rules), "Secrets" (the Vault). The
   **Approvals** page: "waiting for your approval", "Approve / Deny", "Revoke".
 - **Registry** (`crates/guard/src/registry.rs`): filesystem.read/write, shell.exec,
-  powershell.exec, git.read/write, and (Phase 8) github.read/write have tools now;
-  ssh.connect, browser.\*, computer.\*, mcp.invoke, network.local, and process.manage are
+  powershell.exec, git.read/write, (Phase 8) github.read/write, and (Phase 10) browser.\* and
+  computer.\* have tools now; ssh.connect, mcp.invoke, network.local, and process.manage are
   registered for later phases.
 - **Configuration** is the Ledger's `guard` setting: permission sets (7 built in), each role's
   set, department limits, command rules, blocked files, the sensitive-action rules, options, and
@@ -529,7 +552,58 @@ the result)](../adr/ADR-016-development-department.md).
   and working copies. It reloads (debounced) on `task.*`, `liaison.*`, `workspace.*`,
   `approval.*`, `session.*`, `capability.used`, and `agent.result` events.
 
-## 12. Launch smoke test
+## 12. Browser and computer use (Phase 10)
+
+Decision records: [ADR-020 (Plenipo's browser and computer use, through Guard)](../adr/ADR-020-browser-and-computer-use.md)
+and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instructions.md).
+
+- **Words on screen.** "Plenipo's browser", "Visit websites" (`browser.navigate`), "Use
+  websites" (`browser.automate`), "See the screen" (`computer.observe`), "Use the mouse and
+  keyboard" (`computer.control`), "Take over", "Stop all", "Allow again", and **Settings →
+  Permissions → Websites** (the plan's domain policy).
+- **Plenipo's browser** (`crates/capabilities/src/browser/`). The installed Edge or Chrome
+  (`PLENIPO_BROWSER` to choose), started as a supervised program with its own profile in
+  `<app data>/browser-profile` (no password saving, sync, or extensions) and a random DevTools
+  port on `127.0.0.1`. `cdp.rs` speaks the Chrome DevTools Protocol over a WebSocket (flattened
+  sessions); `tab.rs` gives each grant its own tab, with page helpers (`page.js`) in an isolated
+  world and a binding only that world sees; `classify.rs` decides what a click or submit is
+  (sending, buying, signing in).
+- **Tools** (`tools.rs`, `broker/operate.rs`): `browser_open/read/screenshot/scroll/back`
+  (visit) and `browser_click/type/press/select` (use), by references from `browser_read`;
+  `screen_view` (see) and `screen_take_control/click/type/keys/scroll/release_control` (use the
+  mouse and keyboard). Every call goes through Guard: the permission set, the website lists
+  (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
+  (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
+  never allow).
+- **Network gate.** While a worker's action runs, the tab intercepts requests (`Fetch`): a
+  document or script request that is not a plain read is held until the owner approves, a
+  form the page sends by itself is failed, and a page on a blocked website never loads.
+- **Never:** typing into password, one-time-code, or card fields; typing a secret; clicking or
+  typing in a CAPTCHA; the Windows key. Page text reaches the worker marked as the website's.
+- **Screenshots** (`screens.rs`): after every significant action and before every approval,
+  kept in `<app data>/screenshots/<task>/` as a Ledger `screenshot` artifact with its SHA-256,
+  linked from `capability.used` and approvals, given to the worker as an MCP image with a
+  description in words, and shown in the Activity trail and on approval cards.
+- **The desktop** (`desktop.rs`): `xcap` (Windows) or X11 (Linux) for screenshots, `enigo` for
+  input; `SyntheticDesktop` stands in for tests. Coordinates are the last screenshot's.
+- **Control center** (`control.rs`): every session (browser or desktop, active, taken over, or
+  stopped) and the sticky emergency stop, told to the app (`plenipo://control`), the tray, and
+  the indicator window in order, with a revision. Stop halts every session, releases held input,
+  revokes those grants, and refuses new control until `allow_control`. Take over (a button, the
+  owner's own click or key in the page, or moving the mouse on the desktop) stops that worker and
+  refuses its waiting approvals; the tab stays open for the owner.
+- **Signs.** A banner on every page and the footer (`ControlBanner.tsx`), the tray menu line and
+  **Stop all browser and desktop control** (`tray.rs`), the indicator window above all others
+  while the desktop is controlled (`indicator.rs`, `IndicatorView.tsx`), and in the browser a
+  colored frame and label inside the page (in a closed shadow root) with **Take over**.
+- **Events:** `browser.started`, `browser.tab_lost`, `browser.opened_by_owner`,
+  `control.started`, `control.taken_over`, `control.stopped`, `control.allowed`,
+  `control.ended`, `guard.websites_changed`.
+- **Role instructions** (`crates/workforce/src/templates.rs`, `prompt.rs`): each role's job,
+  returns, limits, and when to ask its lead, plus what its permissions allow and do not; custom
+  roles take the same in the owner's words (`update_role`).
+
+## 13. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
 has rendered **and** successfully called Core, and the process exits 0. If that does not
@@ -537,27 +611,27 @@ happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The 
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
 
-## 13. Target component map
+## 14. Target component map
 
 From the rollout plan. **Desktop**, **Core**, **Runtime** (supervisor and agent runtime
 adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**, **Guard**,
-**Vault**, and the GitHub integration exist today.
+**Vault**, the GitHub integration, and Plenipo's browser and computer use exist today.
 
-| Component    | Responsibility                                                   | Introduced |
-| ------------ | ---------------------------------------------------------------- | ---------- |
-| Desktop      | UI                                                               | Phase 0    |
-| Core         | Orchestration and domain logic, shared DTOs                      | Phase 0    |
-| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                   | Phase 1, 3 |
-| Ledger       | SQLite system of record ✅                                       | Phase 2    |
-| Liaison      | Task/message/event bus ✅                                        | Phase 4    |
-| Workforce    | Departments, roles, coordinators, workers ✅                     | Phase 5    |
-| Router       | Role → provider/model selection ✅                               | Phase 6    |
-| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, SSH, browser | Phase 7+   |
-| Guard        | Permissions, approvals, policy enforcement ✅                    | Phase 7    |
-| Vault        | Credential references (OS-protected storage) ✅                  | Phase 7    |
-| Integrations | GitHub ✅, Paperclip, CrewOS                                     | Phase 8+   |
+| Component    | Responsibility                                                                       | Introduced |
+| ------------ | ------------------------------------------------------------------------------------ | ---------- |
+| Desktop      | UI                                                                                   | Phase 0    |
+| Core         | Orchestration and domain logic, shared DTOs                                          | Phase 0    |
+| Runtime      | Supervisor ✅, Codex / Claude Code adapters ✅                                       | Phase 1, 3 |
+| Ledger       | SQLite system of record ✅                                                           | Phase 2    |
+| Liaison      | Task/message/event bus ✅                                                            | Phase 4    |
+| Workforce    | Departments, roles, coordinators, workers ✅                                         | Phase 5    |
+| Router       | Role → provider/model selection ✅                                                   | Phase 6    |
+| Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH | Phase 7+   |
+| Guard        | Permissions, approvals, policy enforcement ✅                                        | Phase 7    |
+| Vault        | Credential references (OS-protected storage) ✅                                      | Phase 7    |
+| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                               | Phase 8+   |
 
-## 14. Invariants every phase must keep
+## 15. Invariants every phase must keep
 
 - **Local-first** ([ADR-002](../adr/ADR-002-local-first-architecture.md)): the desktop app owns
   execution; remote surfaces never become the privileged runtime.

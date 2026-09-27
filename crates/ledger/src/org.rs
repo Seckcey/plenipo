@@ -168,6 +168,36 @@ impl Ledger {
         })
     }
 
+    /// Change a role the owner created: its name, description, and metadata (built-in roles
+    /// are refused). Every position holding it keeps it.
+    pub fn update_role(
+        &self,
+        id: &str,
+        name: &str,
+        description: &str,
+        metadata: &Value,
+        actor: &str,
+    ) -> Result<Role> {
+        let name = name_ok(name)?;
+        let metadata = metadata_text(metadata)?;
+        self.write(|tx, out| {
+            let current = one(tx, &format!("SELECT {ROLE_COLS} FROM roles WHERE id = ?1"), id, role_row)?
+                .ok_or_else(|| LedgerError::NotFound(format!("role {id}")))?;
+            if current.metadata["template"] == true {
+                return Err(LedgerError::InvalidInput(
+                    "built-in roles keep their instructions; create a role of your own to write different ones".into(),
+                ));
+            }
+            tx.execute(
+                "UPDATE roles SET name = ?2, description = ?3, metadata = ?4 WHERE id = ?1",
+                params![id, name, description, metadata],
+            )?;
+            org_event(tx, out, actor, "role_updated", json!({ "id": id, "name": name, "formerly": current.name }))?;
+            one(tx, &format!("SELECT {ROLE_COLS} FROM roles WHERE id = ?1"), id, role_row)?
+                .ok_or_else(|| LedgerError::NotFound(id.to_owned()))
+        })
+    }
+
     pub fn role(&self, id: &str) -> Result<Option<Role>> {
         self.read(|c| {
             one(

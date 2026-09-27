@@ -183,6 +183,9 @@ Everything below needs the real, signed-in Kimi inside Plenipo:
 - that an approved Kimi write comes to Plenipo as `fs/write_text_file` (step 0 offered file
   access but refused the write, so the write itself was never seen);
 - whether Kimi has web tools that run without asking;
+- whether Kimi passes screenshots from Plenipo's browser and computer tools to its model
+  (ADR-020, Plenipo's browser and computer use through Guard; unverified for Codex and Grok
+  too);
 - how Kimi finds project files: its own relative paths start from its conversation folder,
   which is outside the project, so Guard refuses them; Kimi is told the project folder, and
   Plenipo's tools take paths relative to it (step 10 shows which way Kimi goes);

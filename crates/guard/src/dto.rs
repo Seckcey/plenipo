@@ -97,10 +97,14 @@ pub enum SensitiveKind {
     Outbound,
     Privilege,
     OutsideWorkspace,
+    /// Signing in to a website or app (Phase 10).
+    SignIn,
+    /// A worker taking control of the mouse and keyboard (Phase 10).
+    DesktopControl,
 }
 
 impl SensitiveKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Production,
         Self::Dns,
         Self::Credentials,
@@ -108,6 +112,8 @@ impl SensitiveKind {
         Self::CloudDelete,
         Self::Payment,
         Self::Outbound,
+        Self::SignIn,
+        Self::DesktopControl,
         Self::Privilege,
         Self::OutsideWorkspace,
     ];
@@ -120,10 +126,12 @@ impl SensitiveKind {
             Self::Credentials => "Changing passwords, keys, or other credentials",
             Self::Database => "Deleting or wiping database data",
             Self::CloudDelete => "Deleting cloud resources",
-            Self::Payment => "Money: payments, refunds, payouts",
+            Self::Payment => "Money: buying, payments, refunds, payouts",
             Self::Outbound => "Sending or publishing outside this computer",
             Self::Privilege => "Running as administrator",
             Self::OutsideWorkspace => "Deleting or overwriting files outside the project folder",
+            Self::SignIn => "Signing in to a website or app",
+            Self::DesktopControl => "Taking control of your mouse and keyboard",
         }
     }
 
@@ -135,10 +143,21 @@ impl SensitiveKind {
             Self::Credentials => "passwd, gh auth, aws iam create-access-key, docker login",
             Self::Database => "DROP TABLE, TRUNCATE, redis-cli flushall, prisma migrate reset",
             Self::CloudDelete => "aws … delete, az … delete, terraform destroy, kubectl delete",
-            Self::Payment => "stripe refunds create, payouts, charges",
-            Self::Outbound => "git push, npm publish, docker push, gh pr create, sending email",
+            Self::Payment => {
+                "stripe refunds create, payouts, charges; Buy now, Place order, Pay, or Checkout \
+                 on a website"
+            }
+            Self::Outbound => {
+                "git push, npm publish, docker push, gh pr create, sending email; submitting a \
+                 form or sending a message on a website"
+            }
             Self::Privilege => "sudo, runas, Start-Process -Verb RunAs",
             Self::OutsideWorkspace => "rm, del, or move with a path outside the project folder",
+            Self::SignIn => "a Sign in or Log in button, a form with a password field",
+            Self::DesktopControl => {
+                "a worker starting to use the mouse and keyboard (asked each time, with its \
+                 reason)"
+            }
         }
     }
 }
@@ -223,6 +242,10 @@ pub enum Risk {
     Delete,
     /// Reaches outside this computer.
     External,
+    /// Uses a website in Plenipo's browser (Phase 10).
+    Web,
+    /// Sees or uses this computer's screen, mouse, and keyboard (Phase 10).
+    Screen,
 }
 
 impl Risk {
@@ -233,6 +256,8 @@ impl Risk {
             Self::Run => "Runs a program",
             Self::Delete => "Deletes files",
             Self::External => "Reaches outside this computer",
+            Self::Web => "Uses a website",
+            Self::Screen => "Uses your screen, mouse, or keyboard",
         }
     }
 }
@@ -360,4 +385,6 @@ pub struct GuardSettings {
     pub sensitive: Vec<SensitiveInfo>,
     pub options: GuardOptions,
     pub secrets: Vec<SecretInfo>,
+    /// Which websites workers may open in Plenipo's browser (Phase 10).
+    pub websites: crate::websites::WebsiteRules,
 }

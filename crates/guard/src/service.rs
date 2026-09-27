@@ -163,6 +163,15 @@ impl Guard {
             })?;
             return Ok(());
         }
+        // Website lists (Phase 10): an installation from before them starts with the defaults
+        // (checked first: any other change writes the whole document, lists included).
+        let stored = self.ledger().setting(SETTING)?.unwrap_or(Value::Null);
+        if stored.get("websites").is_none() {
+            self.update("guard.websites_added", PLENIPO, |c| {
+                c.websites = crate::defaults::default_websites();
+                Ok(Some((json!({ "websites": c.websites }), ())))
+            })?;
+        }
         let config = self.config()?;
         let mut probe = config.clone();
         if !probe.add_missing_builtins().is_empty() {
@@ -172,7 +181,7 @@ impl Guard {
             })?;
         }
         // Built-in sets the owner never changed gain this version's permissions (Phase 8:
-        // GitHub).
+        // GitHub; v1.3: the Writer set commits, websites have tools).
         if !self.config()?.upgrade_builtins().is_empty() {
             self.update("guard.sets_updated", PLENIPO, |c| {
                 let updated = c.upgrade_builtins();
@@ -304,6 +313,15 @@ impl Guard {
         Ok(())
     }
 
+    /// The owner's website lists (Phase 10).
+    pub fn set_websites(&self, rules: &crate::websites::WebsiteRules) -> Result<()> {
+        self.update("guard.websites_changed", OWNER, |c| {
+            c.set_websites(rules)?;
+            Ok(Some((json!({ "websites": c.websites }), ())))
+        })?;
+        Ok(())
+    }
+
     pub fn set_sensitive(&self, kind: SensitiveKind, rule: SensitiveRule) -> Result<()> {
         self.update("guard.sensitive_changed", OWNER, |c| {
             c.set_sensitive(kind, rule);
@@ -428,6 +446,7 @@ impl Guard {
                 .collect(),
             options: config.options.clone(),
             secrets: config.secrets.clone(),
+            websites: config.websites.clone(),
             sets: config.sets,
         })
     }
@@ -551,6 +570,29 @@ mod tests {
     }
 
     #[test]
+    fn an_earlier_installation_gets_the_website_lists_and_new_sets_once() {
+        let l = ledger();
+        // Settings as v1.0 stored them: no website lists, no web or computer sets.
+        let mut earlier = GuardConfig::with_defaults();
+        earlier
+            .sets
+            .retain(|s| s.id != "web-assistant" && s.id != "computer-use");
+        let mut value = earlier.to_value();
+        value.as_object_mut().unwrap().remove("websites");
+        l.update_setting(SETTING, "test.seed", "test", |_| {
+            Ok((value.clone(), json!({})))
+        })
+        .unwrap();
+        let g = Guard::new(l.clone());
+        let c = g.config().unwrap();
+        assert_eq!(c.websites, crate::defaults::default_websites());
+        assert!(c.set("web-assistant").is_some() && c.set("computer-use").is_some());
+        let before = l.recent_events(200).unwrap().len();
+        let _again = Guard::new(l.clone());
+        assert_eq!(l.recent_events(200).unwrap().len(), before, "only once");
+    }
+
+    #[test]
     fn changes_are_validated_recorded_and_secret_values_never_stored() {
         let l = ledger();
         let g = Guard::new(l.clone());
@@ -594,6 +636,22 @@ mod tests {
         g.remove_set(&set.id).unwrap();
         let settings = g.settings().unwrap();
         assert_eq!(settings.capabilities.len(), 16);
+        assert!(settings
+            .websites
+            .blocked
+            .contains(&"linkedin.com".to_owned()));
+        g.set_websites(&crate::websites::WebsiteRules {
+            allowed: vec!["https://Example.com/x".into()],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(g.config().unwrap().websites.allowed, ["example.com"]);
+        assert!(g
+            .set_websites(&crate::websites::WebsiteRules {
+                allowed: vec!["file:///etc".into()],
+                ..Default::default()
+            })
+            .is_err());
         assert_eq!(settings.sensitive.len(), SensitiveKind::ALL.len());
         assert!(settings
             .roles

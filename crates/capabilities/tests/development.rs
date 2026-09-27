@@ -1221,8 +1221,10 @@ async fn scenario_documentation_only_change() {
             { "say": "README updated and reviewed." }
         ],
         "Documentation Writer": [
-            { "say": "Added.",
-              "tools": [write("README.md", "# Website\n\n## Install\nRun the installer.\n")] }
+            { "say": "Added and committed.",
+              "tools": [write("README.md", "# Website\n\n## Install\nRun the installer.\n"),
+                        commit(&["README.md"], "Add install steps")[0].clone(),
+                        commit(&["README.md"], "Add install steps")[1].clone()] }
         ],
         "Code Reviewer": [
             { "tools": [tool("read_file", json!({ "path": "README.md" }))],
@@ -1248,17 +1250,24 @@ async fn scenario_documentation_only_change() {
             "Code Reviewer"
         ]
     );
-    // Only the README changed; the writer cannot commit (its set does not save to git), so
-    // the change is in the working copy and the result says it is not committed.
+    // Only the README changed, and the writer committed it on the objective's branch: its
+    // Writer set saves to git (ADR-019), so nothing is left uncommitted.
     assert_eq!(r.files.len(), 1);
     assert_eq!(r.files[0].path, "README.md");
-    assert!(!r.files[0].committed);
+    assert!(r.files[0].committed);
     assert!(r.checks.is_empty(), "nothing to test");
     assert!(r.findings.is_empty());
     assert!(
-        r.problems.iter().any(|p| p.contains("not committed yet")),
+        !r.problems.iter().any(|p| p.contains("not committed")),
         "{:?}",
         r.problems
+    );
+    assert!(
+        r.branches
+            .iter()
+            .any(|b| b.commits.iter().any(|c| c.subject == "Add install steps")),
+        "{:?}",
+        r.branches
     );
 }
 

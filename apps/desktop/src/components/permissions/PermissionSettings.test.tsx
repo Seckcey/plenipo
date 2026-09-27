@@ -21,6 +21,9 @@ vi.mock("../../api/commands", async (importOriginal) => {
     setGuardOptions: vi.fn(),
     saveSecret: vi.fn(),
     removeSecret: vi.fn(),
+    setWebsiteRules: vi.fn(),
+    getBrowserStatus: vi.fn(),
+    openBrowser: vi.fn(),
   };
 });
 vi.mock("../../api/events", () => ({
@@ -41,9 +44,13 @@ beforeEach(() => {
     api.setGuardOptions,
     api.saveSecret,
     api.removeSecret,
+    api.setWebsiteRules,
   ]) {
     f.mockResolvedValue(samplePermissions());
   }
+  const browser = { name: "Microsoft Edge", running: false, profile: "C:/Plenipo/browser" };
+  api.getBrowserStatus.mockResolvedValue(browser);
+  api.openBrowser.mockResolvedValue({ ...browser, running: true });
   void events;
 });
 
@@ -144,6 +151,35 @@ describe("Settings → Permissions", () => {
     await user.type(within(files).getByLabelText("Blocked files"), "\nsecrets/");
     await user.click(within(files).getByRole("button", { name: "Save blocked files" }));
     expect(api.setBlockedFiles).toHaveBeenCalledWith([".env", "*.pem", "secrets/"]);
+  });
+
+  it("manages the website lists and opens Plenipo's browser for the owner to sign in", async () => {
+    render(<PermissionSettings />);
+    const form = await screen.findByRole("form", { name: "Website lists" });
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Check a website's terms before you allow it.",
+    );
+    const user = userEvent.setup();
+    const allowed = within(form).getByLabelText("Allowed (open without asking)");
+    expect(allowed).toHaveValue("example.com");
+    await user.type(allowed, "\n  shop.example.org ");
+    await user.type(within(form).getByLabelText("Blocked (never open)"), "\nfacebook.com");
+    await user.selectOptions(within(form).getByLabelText("Other websites"), "block");
+    await user.click(within(form).getByRole("button", { name: "Save websites" }));
+    expect(api.setWebsiteRules).toHaveBeenCalledWith({
+      allowed: ["example.com", "shop.example.org"],
+      blocked: ["linkedin.com", "facebook.com"],
+      others: "block",
+    });
+    const browser = screen.getByLabelText("Plenipo's browser");
+    expect(
+      await within(browser).findByText(/Microsoft Edge, with its own profile/),
+    ).toBeInTheDocument();
+    expect(within(browser).getByText("Not open")).toBeInTheDocument();
+    await user.type(within(browser).getByLabelText("Website to open"), "https://example.com/login");
+    await user.click(within(browser).getByRole("button", { name: "Open Plenipo's browser" }));
+    expect(api.openBrowser).toHaveBeenCalledWith("https://example.com/login");
+    expect(await within(browser).findByText("Open")).toBeInTheDocument();
   });
 
   it("sets what a sensitive action does and how long approvals wait", async () => {

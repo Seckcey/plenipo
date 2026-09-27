@@ -7,6 +7,7 @@
 **Initial AI runtimes:** OpenAI Codex and Anthropic Claude Code  
 **Primary build target:** Windows 11  
 **Document purpose:** Execution plan for Claude Code / Opus 5.5 and future implementation agents.
+**Plan changes:** Phase 9 is postponed and Paperclip will not be integrated; a new Sales department will be built in Plenipo later, with HubSpot as its CRM (ADR-018, 2026-09-27). Phase 10 comes next.
 
 ---
 
@@ -81,7 +82,7 @@ Plenipo should evolve into these logical components:
 - **Plenipo Guard** — permissions, approvals, policy enforcement
 - **Plenipo Ledger** — durable tasks, messages, events, executions, audit history
 - **Plenipo Vault** — credential references and protected secrets
-- **Plenipo Integrations** — Paperclip, GitHub, CrewOS, and future business systems
+- **Plenipo Integrations** — GitHub, HubSpot (the CRM of the future Sales department), CrewOS, and future business systems
 
 ### 2.3 Initial organizational model
 
@@ -91,14 +92,8 @@ Plenipo should evolve into these logical components:
     - Project Coordinator: Milepost
     - Project Coordinator: Waypoint
     - additional project coordinators
-  - Sales Manager / Paperclip bridge
-    - Westy
-    - Scout
-    - Quinn
-    - Harper
-    - Riley
-    - Morgan
-    - Avery
+  - Sales Manager (postponed: a new Sales department built in Plenipo, with HubSpot as its CRM — Phase 9, ADR-018)
+    - sales roles, named by the owner when the department is built
   - future departments
     - Marketing
     - Operations
@@ -195,7 +190,7 @@ None.
 - AI runtimes
 - departments
 - task execution
-- Paperclip
+- business-system integrations (CRM, sales)
 - browser control
 - SSH
 - production deployment
@@ -393,7 +388,7 @@ Minimum entities:
 - hash
 - metadata
 
-Keep schemas extensible. Do not prematurely reproduce every field from Paperclip.
+Keep schemas extensible. Do not prematurely reproduce every field of an external business system (such as a CRM).
 
 ## Tests
 
@@ -690,7 +685,7 @@ Phase 4 complete.
 
 ## Out of Scope
 
-- Paperclip import
+- importing an organization from another system
 - model policy intelligence
 - cross-device org sync
 
@@ -961,71 +956,68 @@ Phases 0-7 complete.
 
 ---
 
-# Phase 9 — Paperclip Sales Department Integration
+# Phase 9 — Sales Department on HubSpot (postponed)
+
+**Status: postponed** (owner direction, 2026-09-27; ADR-018). Paperclip will not be integrated: its Sales department was never working. When the owner schedules this phase, Plenipo builds a new Sales department from scratch, with the owner's existing HubSpot account as its CRM. Detail the phase in its own checklist before starting; the items below are a starting sketch.
 
 ## Goal
 
-Bring the existing Paperclip-managed Sales Department into Plenipo without discarding Paperclip's task, approval, and business workflow responsibilities.
+Give Plenipo a working Sales department, built on the same engine as Development, that uses the owner's HubSpot account as its CRM.
 
 ## Deliverables
 
-- Paperclip integration adapter
-- Sales department visualization
-- Westy manager representation
-- Scout
-- Quinn
-- Harper
-- Riley
-- Morgan
-- Avery
-- task/status synchronization
-- handoff between Plenipo departments and Paperclip sales work
+- Sales department template: data over the Phase 5 engine, like Development (a Sales Manager and on-call sales roles; the owner names the positions)
+- HubSpot connection through HubSpot's official API, with a HubSpot private app access token kept in the Vault and never shown to workers
+- HubSpot tools through the capability broker and Guard (for example: search and read contacts, companies, and deals; create and update records; log notes and tasks; draft emails), with permission sets for sales roles
 - source-of-truth rules
+- handoff between Development and Sales work
+- Sales on the Organization and Projects pages
 
 ## Architectural Rule
 
 Do not casually duplicate mutable business state.
 
-Paperclip remains authoritative for the sales workflow fields it owns. Plenipo should display and orchestrate through an integration boundary rather than silently creating a competing sales database.
+HubSpot remains authoritative for CRM data. Plenipo keeps its own tasks, approvals, and audit trail, and refers to HubSpot records by ID and link rather than silently creating a competing sales database.
 
 Define explicitly which system owns:
-- task state
-- agent execution state
-- prospect records
-- CRM data
-- message drafts
-- approvals
-- audit events
+- task state (Plenipo)
+- agent execution state (Plenipo)
+- contact, company, and deal records (HubSpot)
+- CRM activity and notes (HubSpot)
+- message drafts (decide when the phase is planned)
+- approvals (Plenipo)
+- audit events (Plenipo)
+
+Capability order (Phase 10): HubSpot's API first; the browser only for screens the API does not cover.
 
 ## Tests
 
 - load Sales department
-- show Westy hierarchy
-- read current tasks
+- read contacts and deals (a HubSpot test account or a stand-in HubSpot API)
 - submit approved new objective
-- observe Paperclip task status
-- receive completion
-- provider failure
-- network failure
+- record changes reach HubSpot only as policy allows
+- outbound message waits for approval
+- HubSpot API failure (rate limit, network failure)
+- expired or revoked token
 - duplicate submission prevention
 - cross-department handoff
 
 ## Acceptance Criteria
 
-From one Plenipo window the user can see both Development and Sales, give work to the appropriate manager, and understand which system owns each record.
+From one Plenipo window the user can see both Development and Sales, give work to the Sales Manager, and understand which system owns each record.
 
-No production customer/prospect secrets are copied unnecessarily into the Plenipo Ledger.
+No production customer/prospect secrets are copied unnecessarily into the Plenipo Ledger. No outbound message leaves without approval.
 
 ## Dependencies
 
-Development MVP stable and Paperclip interface documented.
+The owner schedules it (ADR-018). Development MVP stable (released as v1.0.0). Guard and the capability broker (Phase 7). A HubSpot account with a private app and the scopes the tools need. Phase 10's browser is an optional fallback, not a requirement.
 
 ## Out of Scope
 
-- replacing Paperclip
+- Paperclip integration, import, or migration (ADR-018)
 - replacing HubSpot/CRM
 - autonomous unapproved outbound sales communication
-- migrating all Paperclip data
+- bulk migration of CRM data into Plenipo
 
 ---
 
@@ -1081,7 +1073,7 @@ An authorized agent can complete a controlled browser task in a synthetic enviro
 
 ## Dependencies
 
-Guard and capability system stable.
+Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (ADR-018).
 
 ## Out of Scope
 

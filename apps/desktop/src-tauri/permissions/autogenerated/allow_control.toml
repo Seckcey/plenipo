@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-allow-control"
+description = "Enables the allow_control command without any pre-configured scope."
+commands.allow = ["allow_control"]
+
+[[permission]]
+identifier = "deny-allow-control"
+description = "Denies the allow_control command without any pre-configured scope."
+commands.deny = ["allow_control"]

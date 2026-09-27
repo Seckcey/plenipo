@@ -40,68 +40,80 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 
 ## Say this, not that
 
-| Say                                          | Not                                      |
-| -------------------------------------------- | ---------------------------------------- |
-| AI tool (Claude Code, Codex)                 | runtime, agent runtime, provider         |
-| full-time (one agent holds the position)     | persistent                               |
-| on call (a new worker for each task)         | on-demand, ephemeral                     |
-| brought in (a worker)                        | spawned                                  |
-| rank                                         | class, kind                              |
-| supervisor, manager, VP                      | coordinator, superintendent, head        |
-| you                                          | the owner (in text written to the owner) |
-| conversation                                 | session                                  |
-| task (one objective and its answer)          | turn                                     |
-| run (of a program)                           | execution                                |
-| approved program                             | launch profile                           |
-| program                                      | process                                  |
-| time limit                                   | maximum runtime                          |
-| this version of Plenipo                      | this build                               |
-| permissions                                  | capabilities                             |
-| permission set                               | capability profile                       |
-| Allowed / Ask me / Blocked                   | allow / require approval / deny          |
-| permission limit (of a project, department)  | project policy, department policy        |
-| permissions in use (a worker's, now)         | runtime grant                            |
-| waiting for your approval                    | pending approval, awaiting approval      |
-| Approve / Deny                               | accept / reject                          |
-| Not approved (a request)                     | rejected                                 |
-| Revoke (a worker's permissions)              | revoke grant                             |
-| approved (programs that run without asking)  | allowlisted commands                     |
-| Never run / never open                       | deny rules, denylist                     |
-| sensitive action                             | high-risk action, risk class             |
-| project folder                               | workspace, working directory             |
-| Plenipo's tools                              | MCP server, tool server, broker          |
-| secret                                       | credential, secret reference             |
-| Windows Credential Manager (where it's kept) | Vault, keyring, credential store         |
-| hidden by Plenipo                            | redacted                                 |
-| Blocked: … tried to …                        | denied, policy violation                 |
-| what it can do                               | capabilities (of an AI tool)             |
-| AI model, model                              | model (fine as is)                       |
-| model choices (of a role)                    | model policy                             |
-| first choice                                 | preferred model                          |
-| backups (tried in order)                     | fallback models                          |
-| Automatic (follows the role's choices)       | policy-routed, routing: policy           |
-| fixed (an AI tool you set)                   | pinned                                   |
-| AI company (OpenAI, Anthropic)               | provider (when the company is meant)     |
-| a different AI company                       | cross-provider                           |
-| usage limit                                  | usage cap, rate limit, capacity          |
-| pay-per-use API billing                      | API fallback, API billing                |
-| sees images / makes images / uses a computer | vision / image generation / computer use |
-| context size (tokens are pieces of words)    | context window                           |
-| why this model                               | routing explanation                      |
-| effort (how hard the model thinks)           | reasoning effort, thinking budget        |
-| the AI tool's models (e.g. Claude Code's)    | known models, model aliases, presets     |
-| Ultra (effort)                               | ultra                                    |
-| Extra high (effort)                          | xhigh                                    |
-| working copy (of the project folder)         | worktree, git worktree                   |
-| branch                                       | branch (fine as is)                      |
-| pull request                                 | PR                                       |
-| result (of an objective)                     | outcome report, objective report         |
-| open findings (from a review)                | unresolved findings                      |
-| Changes requested / Approved (a review)      | request-changes / approve                |
-| Committed / Not committed (a file)           | staged, dirty, working tree              |
-| Pushed (a branch, to the server)             | published, upstream                      |
-| Projects (the page)                          | project dashboard                        |
-| hands it to (a lead to its team)             | delegates, dispatches                    |
+| Say                                                                        | Not                                                            |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| AI tool (Claude Code, Codex)                                               | runtime, agent runtime, provider                               |
+| full-time (one agent holds the position)                                   | persistent                                                     |
+| on call (a new worker for each task)                                       | on-demand, ephemeral                                           |
+| brought in (a worker)                                                      | spawned                                                        |
+| rank                                                                       | class, kind                                                    |
+| supervisor, manager, VP                                                    | coordinator, superintendent, head                              |
+| you                                                                        | the owner (in text written to the owner)                       |
+| conversation                                                               | session                                                        |
+| task (one objective and its answer)                                        | turn                                                           |
+| run (of a program)                                                         | execution                                                      |
+| approved program                                                           | launch profile                                                 |
+| program                                                                    | process                                                        |
+| time limit                                                                 | maximum runtime                                                |
+| this version of Plenipo                                                    | this build                                                     |
+| permissions                                                                | capabilities                                                   |
+| permission set                                                             | capability profile                                             |
+| Allowed / Ask me / Blocked                                                 | allow / require approval / deny                                |
+| permission limit (of a project, department)                                | project policy, department policy                              |
+| permissions in use (a worker's, now)                                       | runtime grant                                                  |
+| waiting for your approval                                                  | pending approval, awaiting approval                            |
+| Approve / Deny                                                             | accept / reject                                                |
+| Not approved (a request)                                                   | rejected                                                       |
+| Revoke (a worker's permissions)                                            | revoke grant                                                   |
+| approved (programs that run without asking)                                | allowlisted commands                                           |
+| Never run / never open                                                     | deny rules, denylist                                           |
+| sensitive action                                                           | high-risk action, risk class                                   |
+| project folder                                                             | workspace, working directory                                   |
+| Plenipo's tools                                                            | MCP server, tool server, broker                                |
+| secret                                                                     | credential, secret reference                                   |
+| Windows Credential Manager (where it's kept)                               | Vault, keyring, credential store                               |
+| hidden by Plenipo                                                          | redacted                                                       |
+| Blocked: … tried to …                                                      | denied, policy violation                                       |
+| what it can do                                                             | capabilities (of an AI tool)                                   |
+| AI model, model                                                            | model (fine as is)                                             |
+| model choices (of a role)                                                  | model policy                                                   |
+| first choice                                                               | preferred model                                                |
+| backups (tried in order)                                                   | fallback models                                                |
+| Automatic (follows the role's choices)                                     | policy-routed, routing: policy                                 |
+| fixed (an AI tool you set)                                                 | pinned                                                         |
+| AI company (OpenAI, Anthropic)                                             | provider (when the company is meant)                           |
+| a different AI company                                                     | cross-provider                                                 |
+| usage limit                                                                | usage cap, rate limit, capacity                                |
+| pay-per-use API billing                                                    | API fallback, API billing                                      |
+| sees images / makes images / uses a computer                               | vision / image generation / computer use                       |
+| context size (tokens are pieces of words)                                  | context window                                                 |
+| why this model                                                             | routing explanation                                            |
+| effort (how hard the model thinks)                                         | reasoning effort, thinking budget                              |
+| the AI tool's models (e.g. Claude Code's)                                  | known models, model aliases, presets                           |
+| Ultra (effort)                                                             | ultra                                                          |
+| Extra high (effort)                                                        | xhigh                                                          |
+| working copy (of the project folder)                                       | worktree, git worktree                                         |
+| branch                                                                     | branch (fine as is)                                            |
+| pull request                                                               | PR                                                             |
+| result (of an objective)                                                   | outcome report, objective report                               |
+| open findings (from a review)                                              | unresolved findings                                            |
+| Changes requested / Approved (a review)                                    | request-changes / approve                                      |
+| Committed / Not committed (a file)                                         | staged, dirty, working tree                                    |
+| Pushed (a branch, to the server)                                           | published, upstream                                            |
+| Projects (the page)                                                        | project dashboard                                              |
+| hands it to (a lead to its team)                                           | delegates, dispatches                                          |
+| its job / what it hands back / what it must not do / when it asks for help | duties / deliverables / constraints / escalation (role prompt) |
+| Plenipo's browser (its own profile)                                        | managed browser, browser runtime                               |
+| Visit websites / Use websites                                              | browser navigation / browser automation                        |
+| See the screen / Use the mouse and keyboard                                | computer observe / computer control, computer use              |
+| Screen, mouse, and keyboard (the permission set)                           | Computer use                                                   |
+| website lists: Allowed / Blocked / Other websites                          | domain policy, allowlist, denylist                             |
+| the sign (a worker is using the browser)                                   | session indicator                                              |
+| Take over (you take control; the worker stops)                             | user takes control, handover, preempt                          |
+| Stop all / Allow again                                                     | emergency stop, kill switch, re-enable                         |
+| signing in                                                                 | authentication, login                                          |
+| screenshot (of the page or the screen)                                     | screen capture, vision pipeline                                |
+| terms of use (of a website)                                                | terms of service, ToS                                          |
 
 ## Where technical words may stay
 

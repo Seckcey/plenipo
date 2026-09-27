@@ -86,6 +86,13 @@ jobs:
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
       - name: Build fake agent CLIs for Phase 3 tests
         run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
+      # Phase 10 starts the runner's Google Chrome, with its sandbox on (as on Windows). Ubuntu's
+      # AppArmor keeps unprivileged programs from the user namespaces that sandbox needs.
+      - name: Let Chrome's sandbox use user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Run end-to-end tests
         env:
           PLENIPO_E2E_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots

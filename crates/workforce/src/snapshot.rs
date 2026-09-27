@@ -359,6 +359,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                         .to_owned(),
                     purpose: strings("purpose"),
                     default_capabilities: strings("defaultCapabilities"),
+                    job: crate::templates::job_of(r),
                 }
             })
             .collect(),

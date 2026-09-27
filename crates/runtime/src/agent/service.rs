@@ -395,6 +395,7 @@ impl AgentRuntime {
         session: &AgentSession,
         task_id: &str,
         step: u32,
+        ai_tool: &'static str,
     ) -> Option<StepTools> {
         let provider = self.tool_provider()?;
         let (session, task_id) = (session.clone(), task_id.to_owned());
@@ -403,6 +404,33 @@ impl AgentRuntime {
                 session: &session,
                 task_id: &task_id,
                 step,
+                ai_tool,
+                takes_tools: true,
+            })
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// What a step without tools should know about that, if anything.
+    async fn note_without_tools(
+        &self,
+        session: &AgentSession,
+        task_id: &str,
+        step: u32,
+        ai_tool: &'static str,
+        takes_tools: bool,
+    ) -> Option<String> {
+        let provider = self.tool_provider()?;
+        let (session, task_id) = (session.clone(), task_id.to_owned());
+        tokio::task::spawn_blocking(move || {
+            provider.note_without_tools(&StepInfo {
+                session: &session,
+                task_id: &task_id,
+                step,
+                ai_tool,
+                takes_tools,
             })
         })
         .await
@@ -1470,8 +1498,10 @@ impl AgentRuntime {
         } = launch;
         // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
         // tool can use them.
-        let tools = if adapter.accepts_tools() {
-            self.open_tools(&session, &task_id, step).await
+        let takes_tools = adapter.accepts_tools();
+        let tools = if takes_tools {
+            self.open_tools(&session, &task_id, step, adapter.label())
+                .await
         } else {
             None
         };
@@ -1481,7 +1511,13 @@ impl AgentRuntime {
                 request.tools = Some(t.server.clone());
                 with_note(&t.note, &prompt)
             }
-            None => prompt,
+            None => match self
+                .note_without_tools(&session, &task_id, step, adapter.label(), takes_tools)
+                .await
+            {
+                Some(note) => with_note(&note, &prompt),
+                None => prompt,
+            },
         };
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));

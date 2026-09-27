@@ -94,6 +94,20 @@ pub struct RoleInfo {
     /// Capabilities the role's work calls for (its template). What a worker may actually do
     /// comes from the role's permission set in Guard (Phase 7).
     pub default_capabilities: Vec<String>,
+    /// Its working instructions (ADR-019), written into every worker's instructions.
+    pub job: RoleJob,
+}
+
+/// A role's working instructions (ADR-019): what it is responsible for, what it hands back,
+/// what it must not do, and when it asks its lead for help. Plain words, one item per entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export)]
+pub struct RoleJob {
+    pub duties: Vec<String>,
+    pub returns: Vec<String>,
+    pub limits: Vec<String>,
+    pub ask_lead: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -445,6 +459,20 @@ pub struct RoleInput {
     pub description: String,
     pub kind: PositionKind,
     pub staffing: Staffing,
+    /// What the role does, in the owner's words (ADR-019).
+    #[serde(default)]
+    #[ts(optional)]
+    pub job: Option<RoleJob>,
+}
+
+/// A change to a role the owner created (built-in roles keep their instructions).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct RoleUpdate {
+    pub name: String,
+    pub description: String,
+    pub job: RoleJob,
 }
 
 /// One of a project's objectives, in brief (Phase 8: the Projects page).
