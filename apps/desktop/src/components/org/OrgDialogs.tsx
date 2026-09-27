@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import type {
   DepartmentInfo,
   DepartmentInput,
+  DevelopmentInput,
   HireInput,
   LeadInput,
   OrgSnapshot,
@@ -875,6 +876,95 @@ export function EditProjectDialog({
           pending={pending}
           label="Save"
           disabled={settings.name.trim() === ""}
+          onCancel={onCancel}
+        />
+      </form>
+    </Modal>
+  );
+}
+
+/** The Development template's team (Phase 8): the roles a new Development project is staffed
+ * with, all on call. */
+const DEVELOPMENT_TEAM = [
+  "Senior Developer",
+  "Code Reviewer",
+  "QA Engineer",
+  "Documentation Writer",
+];
+
+/** Set up a software project from the Development template (Phase 8). */
+export function SetUpDevelopmentDialog({
+  snapshot,
+  onCancel,
+  onSubmit,
+}: {
+  snapshot: OrgSnapshot;
+  onCancel: () => void;
+  onSubmit: Submit<DevelopmentInput>;
+}) {
+  const readyRuntimes = snapshot.runtimes.filter((r) => r.ready).map((r) => r.id);
+  const [settings, setSettings] = useState<ProjectSettingsState>({
+    name: "",
+    description: "",
+    repositoryUrl: "",
+    localPath: "",
+    allowedRuntimes: readyRuntimes.length > 0 ? readyRuntimes : snapshot.runtimes.map((r) => r.id),
+    capabilityProfile: "",
+    branchPerObjective: true,
+  });
+  const [runtimeId, setRuntimeId] = useState("");
+  const { pending, error, run } = useSubmit();
+  const t = titlesOf(snapshot);
+  const hasDepartment = snapshot.departments.some(
+    (d) => d.active && d.name.toLowerCase() === "development",
+  );
+  const refused = runtimeId !== "" && !settings.allowedRuntimes.includes(runtimeId);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void run(() =>
+      onSubmit({ project: settingsInput(settings), ...(runtimeId ? { runtimeId } : {}) }),
+    );
+  };
+  return (
+    <Modal title="Set up a Development project" onClose={onCancel} wide>
+      <form className="modal__body" aria-label="Set up a Development project" onSubmit={submit}>
+        <p className="muted">
+          {hasDepartment
+            ? "The project joins the Development department"
+            : `Plenipo creates the Development department with its ${rankName(t, "superintendent")}`}
+          , then the project with its {rankName(t, "projectCoordinator")} and a team on call:{" "}
+          {DEVELOPMENT_TEAM.join(", ")}. Give objectives on the Projects page; each one gets its own
+          branch.
+        </p>
+        <ProjectSettingsFields
+          snapshot={snapshot}
+          value={settings}
+          onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+        />
+        <Field
+          label={`AI tool of the ${hasDepartment ? "" : `${rankName(t, "superintendent")} and the `}${rankName(t, "projectCoordinator")}`}
+          hint={
+            refused ? (
+              <span className="field__warn">Pick one of the project&apos;s allowed AI tools.</span>
+            ) : (
+              "The team is always automatic: each role's model choices pick its AI tool and model."
+            )
+          }
+        >
+          <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
+            <option value="">Automatic (the role&apos;s model choices)</option>
+            {snapshot.runtimes.map((r) => (
+              <option key={r.id} value={r.id}>
+                {runtimeChoiceLabel(snapshot, r.id)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <FormError error={error} />
+        <Footer
+          pending={pending}
+          label="Set up"
+          disabled={settings.name.trim() === "" || refused}
           onCancel={onCancel}
         />
       </form>
