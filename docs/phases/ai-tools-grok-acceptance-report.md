@@ -132,8 +132,10 @@ prints a key, do not paste it.
 8. Start another Grok task: _"Count slowly from 1 to 300, one number per line."_ Choose
    **Cancel** while it runs. It should read **Cancelled** within about five seconds. Then follow
    up with _"Continue."_ It should answer in the same conversation.
-9. In **Organization**, set the Website Supervisor's AI tool to Grok (details panel → **Edit
-   title, AI tool, or model**) in a project with a folder. Give it: _"Read README.md and
+9. In **Organization**, select the Website Supervisor. In its details panel, under **Project:
+   Website**, choose **Edit project**, tick **Grok** under **Allowed AI tools**, and save (a
+   project made before Grok existed does not allow it yet). Then choose **Edit title, AI tool,
+   or model**, pick **Grok**, and save. The project needs a folder. Give it: _"Read README.md and
    summarize it. Then run `dir` yourself."_ The summary should come from Plenipo's file tool
    (shown in **Activity**). Grok must not run `dir` with its own tools: either it says it cannot,
    or **Activity** shows "Grok asked to use … Plenipo refused it".
