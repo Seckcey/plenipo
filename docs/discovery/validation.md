@@ -26,7 +26,7 @@ No app, website, dependency, workflow, license, or production changes are part o
 ## Verification
 
 The local `pnpm check` passed: version alignment, repository formatting, lint, typecheck, 240
-shared UI tests, 175 desktop frontend tests, and 11 website tests. `git diff --check` passed.
+shared UI tests, 175 desktop frontend tests, and 2 website tests. `git diff --check` passed.
 A link audit checked 99 local documentation/image targets and anchors with no failures.
 The public website, release page, latest-release redirect, and Discussions returned HTTP 200;
 the issue-creation URL correctly redirects an unsigned-in visitor to GitHub login.
@@ -37,7 +37,14 @@ bytes. GitHub Settings displayed the uploaded Pip card successfully. About now n
 tools and their concrete purpose; topics remain at 20, replacing redundant `tauri-app` with
 `kimi-code`. The existing correct homepage was retained. No security setting was changed.
 
-Actual GitHub README rendering is checked on the review branch before handoff.
+Actual GitHub README rendering was checked on `codex/github-discoverability` at initial head
+`1606b63`: Pip header in both light and dark themes, loaded image dimensions and selected source,
+real screenshot and caption, release guidance, tables, links, and rendered Mermaid hierarchy.
+Browser theme emulation is temporary and does not change account preferences.
+
+Initial push occurred after local `pnpm check`, but before the repository-mandated Rust checks,
+under coordination guidance that was subsequently corrected. Full Rust/bindings verification is
+required before a further push and final integration; no pre-push Rust pass is claimed retroactively.
 Rust tooling is unavailable in the local documentation checkout; Rust, binding, installer and
 real-app end-to-end validation must be assessed through exact-head GitHub CI. No desktop Docker,
 Coastline preview, production release, or provider task is needed for this work.

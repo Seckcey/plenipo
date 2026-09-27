@@ -85,8 +85,8 @@ is visible on screen, include a screenshot.
 
 ## How contributions are licensed
 
-Plenipo is licensed under the [Elastic License 2.0](LICENSE) and ships in a Free and a paid Pro
-edition ([`docs/editions.md`](docs/editions.md)). So that contributed code can go into both:
+Plenipo is licensed under the [Elastic License 2.0](LICENSE), with Free and paid Pro editions
+planned ([`docs/editions.md`](docs/editions.md)). So that contributed code can go into both:
 
 By opening a pull request, you confirm that the work is yours to give, and you license it to 8 West
 Ventures, LLC under the Elastic License 2.0 together with a perpetual, worldwide, royalty-free,
