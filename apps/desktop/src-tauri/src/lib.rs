@@ -5,14 +5,24 @@
 //! `capabilities/default.json`; nothing else is exposed.
 
 pub mod agent_host;
+pub mod backup_host;
 pub mod commands;
+pub mod diagnostics;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
+pub mod logs;
 pub mod notices;
+pub mod recovery;
 pub mod runtime_host;
+pub mod settings_health;
 pub mod smoke;
+pub mod start_close;
 pub mod tray;
+pub mod uninstall;
+pub mod update_host;
+pub mod upkeep_commands;
+pub mod window_watch;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -40,6 +50,11 @@ pub struct ShellOptions {
     pub persistence: Persistence,
     /// Where pop-up notices go (the system's, or kept for tests).
     pub notices: notices::Output,
+    /// Start with Windows can be turned on (Phase 13; never in tests, which must not change
+    /// the computer's sign-in list).
+    pub autostart: bool,
+    /// Watch the window's page and bring it back if it stops (Phase 13).
+    pub window_watch: bool,
 }
 
 impl Default for ShellOptions {
@@ -48,8 +63,43 @@ impl Default for ShellOptions {
             tray: true,
             persistence: Persistence::AppData,
             notices: notices::Output::System,
+            autostart: true,
+            window_watch: true,
         }
     }
+}
+
+/// This run's "Plenipo is running" note (Phase 13): none for a temporary Ledger.
+pub struct RunNote(pub Option<Arc<recovery::RunNoteKeeper>>);
+
+impl RunNote {
+    /// A clean exit: the next start will not report a crash.
+    pub fn finish(&self) {
+        if let Some(keeper) = &self.0 {
+            keeper.finish();
+        }
+    }
+}
+
+/// Settings Plenipo could not read at start (Phase 13).
+pub struct SettingsProblems(pub std::sync::Mutex<Vec<plenipo_core::SettingsProblem>>);
+
+/// Plenipo was started by Windows at sign-in (stay in the tray).
+pub struct StartedInTray(pub bool);
+
+/// Work is going: a program is running, a terminal is open, or a task is not finished.
+pub fn work_going<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
+    let active = app
+        .try_state::<Supervisor>()
+        .map_or(0, |s| s.active_count());
+    let terminals = app
+        .try_state::<plenipo_capabilities::Broker>()
+        .map_or(0, |b| b.open_terminals().len());
+    let tasks = app
+        .try_state::<Arc<plenipo_ledger::Ledger>>()
+        .and_then(|l| l.unfinished_tasks().ok())
+        .map_or(0, |t| t.len());
+    active + terminals + tasks > 0
 }
 
 /// Where quitting is: running, stopping owned processes, or done and free to exit.
@@ -95,18 +145,84 @@ pub fn configure<R: Runtime>(
     smoke: SmokeTest,
     options: ShellOptions,
 ) -> Builder<R> {
+    // The notification plugin shows Plenipo's notices. Its own commands are granted to no
+    // window (capabilities/default.json), so only Plenipo decides what a notice says.
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    // Start with Windows (Phase 13): its own commands are granted to no window either;
+    // Settings uses Plenipo's own command.
+    let builder = if options.autostart {
+        builder.plugin(start_close::autostart_plugin())
+    } else {
+        builder
+    };
     builder
-        // The notification plugin shows Plenipo's notices. Its own commands are granted to no
-        // window (capabilities/default.json), so only Plenipo decides what a notice says.
-        .plugin(tauri_plugin_notification::init())
         .manage(smoke)
         .manage(ShutdownState::default())
         .setup(move |app| {
+            let args: Vec<String> = std::env::args().collect();
+            // Opened only to ask a running Plenipo to quit, and none was running: nothing to do.
+            if start_close::asked_to_quit(&args) {
+                app.handle().exit(0);
+                return Ok(());
+            }
             let smoke = app.state::<SmokeTest>();
             if let SmokeMode::Enabled { timeout } = smoke.mode() {
                 smoke.arm_watchdog(app.handle().clone(), timeout);
             }
+            let version = app.package_info().version.to_string();
+            let data = match options.persistence {
+                Persistence::AppData => app.path().app_local_data_dir().ok(),
+                Persistence::InMemory => None,
+            };
+            // Phase 13: the log files first, so everything after is in them.
+            if let Some(data) = &data {
+                logs::install(&data.join("logs"));
+            }
+            log::info!(
+                "Plenipo {version} is starting ({} {})",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
+            // How the last run ended (read before this run's note replaces it).
+            let (previous, keeper) = match &data {
+                Some(data) => {
+                    let note = data.join("run").join(recovery::RUN_NOTE);
+                    let previous = recovery::previous_end(&note, recovery::boot_ms());
+                    (
+                        previous,
+                        Some(recovery::RunNoteKeeper::start(note, &version)),
+                    )
+                }
+                None => (recovery::PreviousEnd::Clean, None),
+            };
+            // A restore chosen in Diagnostics happens now, before the Ledger opens.
+            let db = data
+                .as_ref()
+                .and_then(|_| ledger_host::ledger_path(app.handle()).ok());
+            let restored = db.as_deref().and_then(ledger_host::apply_pending_restore);
+            let existed = db.as_ref().is_some_and(|p| p.exists());
+            if let (Some(keeper), Some(db)) = (&keeper, &db) {
+                if ledger_host::needs_layout_change(db) {
+                    keeper.set_phase(recovery::Phase::ChangingLayout);
+                }
+            }
             let ledger = ledger_host::open(app.handle(), options.persistence);
+            if let Some(keeper) = &keeper {
+                keeper.set_phase(recovery::Phase::Running);
+                keeper.keep_beating();
+            }
+            if let Some(restored) = &restored {
+                ledger_host::record_restore(&ledger, restored);
+            }
+            // A new version backs up the Ledger before anything writes to it.
+            backup_host::before_upgrade(&ledger, existed, &version);
+            // What was in progress when the last run ended, before the services mark it
+            // stopped.
+            let before = if previous.is_unclean() {
+                recovery::in_progress(&ledger)
+            } else {
+                recovery::InProgress::default()
+            };
             app.manage(ledger.clone());
             app.manage(options.persistence);
             let supervisor =
@@ -145,10 +261,51 @@ pub fn configure<R: Runtime>(
             )));
             // Workforce (Phase 5): the organization, and Liaison's directory for its members,
             // whose workers the Router places.
-            let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
+            let workforce = Workforce::new(
+                ledger.clone(),
+                agents.clone(),
+                liaison.clone(),
+                router.clone(),
+            );
             // Built-in roles get their starting permission sets once (after they are seeded).
             if let Err(e) = guard.seed_template_roles() {
-                eprintln!("[plenipo] could not give the built-in roles their permissions: {e}");
+                log::warn!("could not give the built-in roles their permissions: {e}");
+            }
+            // Phase 13: the services have marked what the last run left unfinished; record
+            // the recovery, and what could not be read.
+            recovery::record(&ledger, &previous, &before, &version);
+            let problems = settings_health::problems(&guard, &router);
+            if let Some(logs) = logs::installed() {
+                logs.set_filter(broker.text_filter());
+            }
+            let busy = supervisor.clone();
+            backup_host::start_daily(&ledger, move || busy.active_count() > 0);
+            let updates = update_host::Updates::new(&version, update_host::built_source());
+            if let Some(data) = &data {
+                update_host::clean_up(&data.join(update_host::FOLDER));
+                if updates.checks_by_itself() {
+                    upkeep_commands::check_for_updates_daily(
+                        updates.clone(),
+                        guard.clone(),
+                        ledger.clone(),
+                    );
+                }
+            }
+            manage_upkeep(
+                app.handle(),
+                RunNote(keeper),
+                problems,
+                updates,
+                start_close::started_in_tray(&args),
+            );
+            if options.window_watch {
+                window_watch::start(
+                    app.handle(),
+                    app.state::<Arc<window_watch::WindowWatch>>()
+                        .inner()
+                        .clone(),
+                    upkeep_commands::window_timing(&app.state::<SmokeTest>()),
+                );
             }
             app.manage(guard);
             app.manage(broker);
@@ -161,26 +318,37 @@ pub fn configure<R: Runtime>(
             if options.tray {
                 // A missing tray (e.g. no status-notifier host on Linux) is not fatal.
                 if let Err(e) = tray::create(app) {
-                    eprintln!("[plenipo] system tray unavailable: {e}");
+                    log::warn!("system tray unavailable: {e}");
+                }
+            }
+            // Started by Windows at sign-in: stay in the tray (ADR-036). Otherwise show the
+            // window, which starts hidden so that nothing flashes.
+            if !start_close::started_in_tray(&args) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
                 }
             }
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window must not silently kill running work (a program, or the
-            // owner's terminal): hide to the tray instead. With nothing running (or no tray to
-            // come back from), close normally.
+            // Closing the window never stops approved work unless the owner chose that
+            // (ADR-036): hide to the tray while work is going (or always), or quit the normal
+            // way, which stops the work and records it.
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
                 let app = window.app_handle();
-                let active = app
-                    .try_state::<Supervisor>()
-                    .map_or(0, |s| s.active_count());
-                let terminals = app
-                    .try_state::<plenipo_capabilities::Broker>()
-                    .map_or(0, |b| b.open_terminals().len());
-                if window.label() == "main" && active + terminals > 0 && tray::exists(app) {
-                    api.prevent_close();
-                    let _ = window.hide();
+                let choice = app
+                    .try_state::<Arc<plenipo_ledger::Ledger>>()
+                    .map(|l| start_close::close_window(&l))
+                    .unwrap_or_default();
+                api.prevent_close();
+                match start_close::close_action(choice, work_going(app), tray::exists(app)) {
+                    start_close::CloseAction::Hide => {
+                        let _ = window.hide();
+                    }
+                    start_close::CloseAction::Quit => app.exit(0),
                 }
             }
         })
@@ -300,53 +468,120 @@ pub fn configure<R: Runtime>(
             commands::write_terminal,
             commands::resize_terminal,
             commands::close_terminal,
+            upkeep_commands::get_recovery_status,
+            upkeep_commands::run_again,
+            upkeep_commands::dismiss_recovery,
+            upkeep_commands::dismiss_window_recovery,
+            upkeep_commands::window_alive,
+            upkeep_commands::reset_settings,
+            upkeep_commands::get_start_and_close,
+            upkeep_commands::set_start_and_close,
+            upkeep_commands::list_ledger_backups,
+            upkeep_commands::restore_ledger_backup,
+            upkeep_commands::cancel_ledger_restore,
+            upkeep_commands::save_diagnostics_file,
+            upkeep_commands::get_update_status,
+            upkeep_commands::check_for_updates,
+            upkeep_commands::install_update,
         ])
+}
+
+/// Put Phase 13's state in place (the app's setup, and the IPC tests).
+pub fn manage_upkeep<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    note: RunNote,
+    problems: Vec<plenipo_core::SettingsProblem>,
+    updates: Arc<update_host::Updates>,
+    in_tray: bool,
+) {
+    app.manage(note);
+    app.manage(SettingsProblems(std::sync::Mutex::new(problems)));
+    app.manage(updates);
+    app.manage(StartedInTray(in_tray));
+    app.manage(Arc::new(recovery::RecoveryState::default()));
+    app.manage(Arc::new(window_watch::WindowWatch::default()));
+}
+
+/// Stop the work the normal way, recording how it ended: Liaison stops handing out work, the
+/// owner's terminals end, then running AI tool turns and programs are stopped. Used by Quit,
+/// by installing an update, and by restarting to restore a backup. Returns how many programs
+/// were stopped.
+pub async fn stop_work<R: Runtime>(app: &tauri::AppHandle<R>) -> usize {
+    // Liaison stops handing out work first. The agent runtime then stops its turns through
+    // the supervisor and records their results (waiting turns stay as recorded; the next start
+    // marks them interrupted); the supervisor then has nothing left to stop.
+    if let Some(liaison) = app.try_state::<Liaison>() {
+        liaison.shutdown();
+    }
+    // The owner's terminals end with Plenipo (and their closing is recorded).
+    if let Some(broker) = app.try_state::<plenipo_capabilities::Broker>() {
+        broker.close_all_terminals("Plenipo closed");
+        // A server terminal waits up to 2 s for the server to answer its close.
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        while !broker.open_terminals().is_empty() && std::time::Instant::now() < deadline {
+            tokio_sleep(Duration::from_millis(25)).await;
+        }
+    }
+    let mut stopped = 0;
+    if let Some(agents) = app.try_state::<AgentRuntime>() {
+        stopped += agents.shutdown(SHUTDOWN_GRACE).await;
+    }
+    if let Some(supervisor) = app.try_state::<Supervisor>() {
+        stopped += supervisor.shutdown(SHUTDOWN_GRACE).await;
+    }
+    if stopped > 0 {
+        log::info!("terminated {stopped} running process(es) on exit");
+    }
+    stopped
+}
+
+/// The work is stopped and recorded: the exit that follows is Plenipo's own, not a crash.
+pub fn mark_stopped<R: Runtime>(app: &tauri::AppHandle<R>) {
+    app.state::<ShutdownState>().finished();
+    if let Some(note) = app.try_state::<RunNote>() {
+        note.finish();
+    }
+    if let Some(logs) = logs::installed() {
+        logs.flush();
+    }
 }
 
 /// Handle app-level events. On the first exit request, terminate owned processes and record
 /// their final state before letting the app exit. Exit requests that arrive meanwhile (the
 /// window being destroyed, a second Quit) are held until that is done.
 pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
-    if let RunEvent::ExitRequested { api, code, .. } = event {
-        let step = app.state::<ShutdownState>().exit_requested();
-        if step != ExitStep::Allow {
+    match event {
+        // The last window closed because Plenipo is opening it again (a crashed window,
+        // ADR-036): that is not a quit.
+        RunEvent::ExitRequested {
+            api, code: None, ..
+        } if app
+            .try_state::<Arc<window_watch::WindowWatch>>()
+            .is_some_and(|w| w.is_reopening(plenipo_ledger::now_ms())) =>
+        {
             api.prevent_exit();
         }
-        if step == ExitStep::Start {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                // Liaison stops handing out work first. The agent runtime then stops its turns
-                // through the supervisor and records their results (waiting turns stay as
-                // recorded; the next start marks them interrupted); the supervisor then has
-                // nothing left to stop.
-                if let Some(liaison) = app.try_state::<Liaison>() {
-                    liaison.shutdown();
-                }
-                // The owner's terminals end with Plenipo (and their closing is recorded).
-                if let Some(broker) = app.try_state::<plenipo_capabilities::Broker>() {
-                    broker.close_all_terminals("Plenipo closed");
-                    // A server terminal waits up to 2 s for the server to answer its close.
-                    let deadline = std::time::Instant::now() + Duration::from_secs(4);
-                    while !broker.open_terminals().is_empty()
-                        && std::time::Instant::now() < deadline
-                    {
-                        tokio_sleep(Duration::from_millis(25)).await;
-                    }
-                }
-                let mut stopped = 0;
-                if let Some(agents) = app.try_state::<AgentRuntime>() {
-                    stopped += agents.shutdown(SHUTDOWN_GRACE).await;
-                }
-                if let Some(supervisor) = app.try_state::<Supervisor>() {
-                    stopped += supervisor.shutdown(SHUTDOWN_GRACE).await;
-                }
-                if stopped > 0 {
-                    eprintln!("[plenipo] terminated {stopped} running process(es) on exit");
-                }
-                app.state::<ShutdownState>().finished();
-                app.exit(code.unwrap_or(0));
-            });
+        RunEvent::ExitRequested { api, code, .. } => {
+            let step = app.state::<ShutdownState>().exit_requested();
+            if step != ExitStep::Allow {
+                api.prevent_exit();
+            }
+            if step == ExitStep::Start {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    stop_work(&app).await;
+                    log::info!("Plenipo quit");
+                    mark_stopped(&app);
+                    app.exit(code.unwrap_or(0));
+                });
+            }
         }
+        RunEvent::Exit => {
+            if let Some(logs) = logs::installed() {
+                logs.flush();
+            }
+        }
+        _ => {}
     }
 }
 
@@ -373,7 +608,7 @@ fn quit_on_termination_signal<R: Runtime>(app: tauri::AppHandle<R>) {
             _ = term.recv() => {}
             _ = int.recv() => {}
         }
-        eprintln!("[plenipo] termination signal received; shutting down");
+        log::info!("termination signal received; shutting down");
         app.exit(0);
     });
     #[cfg(not(unix))]
@@ -385,7 +620,15 @@ pub fn run() -> i32 {
     let smoke = SmokeTest::from_env();
     let outcome = smoke.clone();
 
-    let runtime_code = configure(tauri::Builder::default(), smoke, ShellOptions::default())
+    // One Plenipo at a time (Phase 13, ADR-036): opening it again shows the one running, and
+    // `--quit` asks it to quit the normal way. First, so a second launch stops before anything
+    // else starts. Windows only: the target, and Linux test runs start one after another.
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        start_close::on_second_launch(app, &args);
+    }));
+    let runtime_code = configure(builder, smoke, ShellOptions::default())
         .build(tauri::generate_context!())
         .expect("error while building Plenipo")
         .run_return(on_run_event);
@@ -424,6 +667,12 @@ mod ipc_boundary_tests {
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
     fn app() -> App<MockRuntime> {
+        app_with_autostart(false)
+    }
+
+    /// `autostart`: with the Start with Windows plugin in place (its own commands must still be
+    /// refused to every window; only Plenipo's command uses it).
+    fn app_with_autostart(autostart: bool) -> App<MockRuntime> {
         let app = configure(
             mock_builder(),
             SmokeTest::new(SmokeMode::Disabled),
@@ -431,6 +680,8 @@ mod ipc_boundary_tests {
                 tray: false,
                 persistence: Persistence::InMemory,
                 notices: notices::Output::Kept,
+                autostart,
+                window_watch: false,
             },
         )
         .build(tauri::generate_context!())
@@ -466,6 +717,13 @@ mod ipc_boundary_tests {
         )));
         let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
         guard.seed_template_roles().unwrap();
+        manage_upkeep(
+            app.handle(),
+            RunNote(None),
+            Vec::new(),
+            update_host::Updates::new("1.9.0", update_host::built_source()),
+            false,
+        );
         app.manage(guard);
         app.manage(broker);
         app.manage(supervisor);
@@ -2791,6 +3049,154 @@ mod ipc_boundary_tests {
         .expect_err("not granted");
         assert!(err.to_string().contains("not allowed"), "{err}");
         assert_eq!(app.state::<Arc<notices::Notices>>().kept().len(), 1);
+    }
+
+    /// Phase 13: recovery, Start and close, backups and restore, the diagnostics file, and
+    /// updates are the main window's alone, and none takes a path.
+    #[test]
+    fn keeping_plenipo_dependable_is_the_main_windows_alone() {
+        use plenipo_core::{RecoveryStatus, StartAndClose, UpdateState, UpdateStatus};
+        let app = app();
+        let main = window(&app, "main");
+        let status: RecoveryStatus = body(invoke(&main, "get_recovery_status"));
+        assert_eq!(
+            status,
+            RecoveryStatus::default(),
+            "nothing to recover in a new Ledger"
+        );
+        let backups: plenipo_ledger::LedgerBackups = body(invoke(&main, "list_ledger_backups"));
+        assert!(backups.backups.is_empty() && backups.pending_restore.is_none());
+        let start: StartAndClose = body(invoke(&main, "get_start_and_close"));
+        assert!(!start.can_start_with_windows && !start.start_with_windows);
+        assert_eq!(
+            start.close_window,
+            plenipo_core::CloseWindow::KeepWhileWorking
+        );
+        // The close choice is kept; Start with Windows cannot be turned on without the plugin.
+        let changed: StartAndClose = body(invoke_json(
+            &main,
+            "set_start_and_close",
+            serde_json::json!({ "input": { "startWithWindows": false, "closeWindow": "alwaysKeep" } }),
+        ));
+        assert_eq!(changed.close_window, plenipo_core::CloseWindow::AlwaysKeep);
+        let err = invoke_json(
+            &main,
+            "set_start_and_close",
+            serde_json::json!({ "input": { "startWithWindows": true, "closeWindow": "quit" } }),
+        )
+        .expect_err("not available here");
+        assert!(
+            err["message"].as_str().unwrap().contains("not available"),
+            "{err}"
+        );
+        assert!(invoke_json(
+            &main,
+            "set_start_and_close",
+            serde_json::json!({ "input": { "startWithWindows": false, "closeWindow": "quit", "path": "x" } }),
+        )
+        .is_err());
+        let updates: UpdateStatus = body(invoke(&main, "get_update_status"));
+        assert_eq!(updates.state, UpdateState::NotChecked);
+        assert!(!updates.can_install, "a test copy has no updater key");
+        assert!(invoke_json(
+            &main,
+            "window_alive",
+            serde_json::json!({ "visible": true })
+        )
+        .is_ok());
+        // A restore names a backup from the list: never a path, never on a temporary Ledger.
+        for name in [
+            "../../plenipo.db",
+            "C:/Windows/System32/evil.db",
+            "daily-backup-1790000000000.db",
+        ] {
+            let err = invoke_json(
+                &main,
+                "restore_ledger_backup",
+                serde_json::json!({ "name": name }),
+            )
+            .expect_err(name);
+            assert_eq!(err["kind"], "invalidInput", "{name}: {err}");
+        }
+        // No diagnostics file for a temporary run, and no update to install.
+        assert!(invoke(&main, "save_diagnostics_file").is_err());
+        let err = invoke_json(
+            &main,
+            "install_update",
+            serde_json::json!({ "stopWork": true }),
+        )
+        .expect_err("nothing to install");
+        assert_eq!(err["kind"], "invalidInput");
+        // Run again: a real task id only, and only an objective that stopped.
+        assert!(invoke_json(&main, "run_again", serde_json::json!({ "taskId": "../x" })).is_err());
+        let err = invoke_json(
+            &main,
+            "reset_settings",
+            serde_json::json!({ "key": "organization" }),
+        )
+        .expect_err("only damaged settings Plenipo knows");
+        assert_eq!(err["kind"], "invalidInput");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let task = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        for (cmd, args) in [
+            ("get_recovery_status", serde_json::json!({})),
+            ("run_again", serde_json::json!({ "taskId": task })),
+            ("dismiss_recovery", serde_json::json!({ "id": task })),
+            ("dismiss_window_recovery", serde_json::json!({})),
+            ("window_alive", serde_json::json!({ "visible": true })),
+            ("reset_settings", serde_json::json!({ "key": "guard" })),
+            ("get_start_and_close", serde_json::json!({})),
+            (
+                "set_start_and_close",
+                serde_json::json!({ "input": { "startWithWindows": true, "closeWindow": "quit" } }),
+            ),
+            ("list_ledger_backups", serde_json::json!({})),
+            (
+                "restore_ledger_backup",
+                serde_json::json!({ "name": "daily-backup-1790000000000.db" }),
+            ),
+            ("cancel_ledger_restore", serde_json::json!({})),
+            ("save_diagnostics_file", serde_json::json!({})),
+            ("get_update_status", serde_json::json!({})),
+            ("check_for_updates", serde_json::json!({})),
+            ("install_update", serde_json::json!({ "stopWork": true })),
+        ] {
+            assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
+            assert!(
+                invoke_json(&sign, cmd, args.clone()).is_err(),
+                "the sign must not reach {cmd}"
+            );
+            assert!(
+                invoke_with(&main, cmd, args, "https://example.com").is_err(),
+                "{cmd} from a web page"
+            );
+        }
+    }
+
+    /// Start with Windows' own commands, and one-at-a-time's, are granted to no window: only
+    /// Plenipo's command (Settings → Start and close) changes the sign-in list.
+    #[test]
+    fn the_start_with_windows_plugin_is_reachable_by_no_window() {
+        let app = app_with_autostart(true);
+        let main = window(&app, "main");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in [
+            "plugin:autostart|enable",
+            "plugin:autostart|disable",
+            "plugin:autostart|is_enabled",
+            "plugin:single-instance|anything",
+            "plugin:updater|check",
+            "plugin:updater|download_and_install",
+            "plugin:process|restart",
+        ] {
+            let err = invoke(&main, cmd).expect_err(cmd);
+            assert!(!err.is_null(), "{cmd}");
+            assert!(invoke(&sign, cmd).is_err(), "the sign must not reach {cmd}");
+        }
+        // The plugin is there (so the refusal is the permissions', not a missing command).
+        let err = invoke(&main, "plugin:autostart|is_enabled").unwrap_err();
+        assert!(err.to_string().contains("not allowed"), "{err}");
     }
 
     #[test]

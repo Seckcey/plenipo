@@ -3,8 +3,17 @@
 //! With `PLENIPO_SMOKE_TEST=1` the app launches normally, waits for the UI to
 //! call `frontend_ready`, and exits 0. If the UI never reports ready (render
 //! failure, runtime error, IPC failure) a watchdog exits with code 1.
+//!
+//! Phase 13's Windows installer tests add, only in smoke mode:
+//! - `PLENIPO_SMOKE_REPORT=<file>`: when ready, write what the app found (version, how the last
+//!   run ended, backups, updates) to that file as JSON, for the test to check;
+//! - `PLENIPO_SMOKE_SCENARIO`: `stay` (report and keep running, idle), `start-work` (start a
+//!   long program and a task, report, and keep running until the test ends Plenipo),
+//!   `window-crash` (keep running until the window is brought back after the test ends its
+//!   WebView2 programs), or `update` (check for an update and install it).
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -46,23 +55,84 @@ impl SmokeMode {
     }
 }
 
+/// What a smoke run does once the window is ready (Phase 13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scenario {
+    /// Report and exit 0 (the launch smoke test).
+    Ready,
+    /// Report and keep running with nothing to do (the test ends Plenipo: idle).
+    Stay,
+    /// Start a long program and a task, report, and keep running (the test ends Plenipo).
+    StartWork,
+    /// Keep running until the window is brought back, then report and exit 0.
+    WindowCrash,
+    /// Check for an update and install it.
+    Update,
+}
+
+impl Scenario {
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(str::trim) {
+            Some("stay") => Self::Stay,
+            Some("start-work") => Self::StartWork,
+            Some("window-crash") => Self::WindowCrash,
+            Some("update") => Self::Update,
+            _ => Self::Ready,
+        }
+    }
+}
+
 /// Smoke-test mode plus the recorded outcome. Cheap to clone; clones share state.
 #[derive(Debug, Clone)]
 pub struct SmokeTest {
     mode: SmokeMode,
     outcome: Arc<AtomicI32>,
+    scenario: Scenario,
+    report: Option<PathBuf>,
+    readies: Arc<AtomicU32>,
 }
 
 impl SmokeTest {
     pub fn new(mode: SmokeMode) -> Self {
+        Self::with_scenario(mode, Scenario::Ready, None)
+    }
+
+    pub fn with_scenario(mode: SmokeMode, scenario: Scenario, report: Option<PathBuf>) -> Self {
         Self {
             mode,
             outcome: Arc::new(AtomicI32::new(PENDING)),
+            scenario,
+            report,
+            readies: Arc::new(AtomicU32::new(0)),
         }
     }
 
     pub fn from_env() -> Self {
-        Self::new(SmokeMode::from_env())
+        let mode = SmokeMode::from_env();
+        if mode == SmokeMode::Disabled {
+            return Self::new(mode);
+        }
+        Self::with_scenario(
+            mode,
+            Scenario::parse(std::env::var("PLENIPO_SMOKE_SCENARIO").ok().as_deref()),
+            std::env::var_os("PLENIPO_SMOKE_REPORT")
+                .map(PathBuf::from)
+                .filter(|p| !p.as_os_str().is_empty()),
+        )
+    }
+
+    pub fn scenario(&self) -> Scenario {
+        self.scenario
+    }
+
+    /// Where to write the report, if the test asked for one.
+    pub fn report_path(&self) -> Option<&PathBuf> {
+        self.report.as_ref()
+    }
+
+    /// Count a "ready" from the window; returns how many there have been, this one included.
+    pub fn ready_count(&self) -> u32 {
+        self.readies.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     pub fn mode(&self) -> SmokeMode {
@@ -95,14 +165,14 @@ impl SmokeTest {
 
     /// Exit with failure if the frontend has not reported ready within `timeout`.
     pub fn arm_watchdog<R: Runtime>(&self, app: AppHandle<R>, timeout: Duration) {
-        eprintln!("[plenipo] smoke test mode: waiting up to {timeout:?} for frontend");
+        log::info!("smoke test mode: waiting up to {timeout:?} for frontend");
         let this = self.clone();
         std::thread::spawn(move || {
             std::thread::sleep(timeout);
             if !this.record(EXIT_TIMEOUT) {
                 return; // frontend already reported ready
             }
-            eprintln!("[plenipo] smoke test FAILED: frontend did not report ready in {timeout:?}");
+            log::info!("smoke test FAILED: frontend did not report ready in {timeout:?}");
             app.exit(EXIT_TIMEOUT);
             // `exit` asks the event loop to stop; force it if the loop is wedged.
             std::thread::sleep(Duration::from_secs(5));
@@ -176,6 +246,19 @@ mod tests {
         assert!(late_ready.record(EXIT_TIMEOUT));
         assert!(!late_ready.record(EXIT_READY));
         assert_eq!(late_ready.resolve_exit_code(0), EXIT_TIMEOUT);
+    }
+
+    #[test]
+    fn scenarios_are_read_from_their_names() {
+        assert_eq!(Scenario::parse(None), Scenario::Ready);
+        assert_eq!(Scenario::parse(Some("stay")), Scenario::Stay);
+        assert_eq!(Scenario::parse(Some("start-work")), Scenario::StartWork);
+        assert_eq!(Scenario::parse(Some("window-crash")), Scenario::WindowCrash);
+        assert_eq!(Scenario::parse(Some(" update ")), Scenario::Update);
+        assert_eq!(Scenario::parse(Some("anything")), Scenario::Ready);
+        let smoke = SmokeTest::new(SmokeMode::parse(Some("1"), None));
+        assert_eq!(smoke.ready_count(), 1);
+        assert_eq!(smoke.clone().ready_count(), 2, "clones share the count");
     }
 
     #[test]

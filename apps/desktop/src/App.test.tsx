@@ -9,6 +9,7 @@ import * as events from "./api/events";
 import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 import { sampleWork } from "./test/projectFixtures";
+import { NO_RECOVERY, crashRecovery, updateReady, upToDate } from "./test/upkeepFixtures";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -52,6 +53,11 @@ vi.mock("./api/commands", async (importOriginal) => {
     getTaskTree: vi.fn(),
     getObjectiveReport: vi.fn(),
     getLearning: vi.fn(),
+    getRecoveryStatus: vi.fn(),
+    runAgain: vi.fn(),
+    dismissRecovery: vi.fn(),
+    windowAlive: vi.fn(),
+    getUpdateStatus: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -128,6 +134,9 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   delete document.documentElement.dataset.theme;
+  api.getRecoveryStatus.mockResolvedValue(NO_RECOVERY);
+  api.windowAlive.mockResolvedValue(undefined);
+  api.getUpdateStatus.mockResolvedValue(upToDate());
   api.getActivity.mockImplementation((scopes, from, to, buckets = 96) =>
     Promise.resolve(
       scopes.map(() => ({
@@ -308,6 +317,31 @@ describe("Ledger notices", () => {
     const notice = await screen.findByText(/Imported 3 execution\(s\)/);
     expect(notice.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Keeping Plenipo dependable (Phase 13)", () => {
+  it("says after a crash what stopped, as a notice and not an alarm, on every page", async () => {
+    api.getRecoveryStatus.mockResolvedValue(crashRecovery());
+    render(<App />);
+    const notice = await screen.findByRole("status", { name: "How Plenipo last stopped" });
+    expect(notice).toHaveTextContent(/Plenipo closed unexpectedly at/);
+    expect(notice).toHaveTextContent("Fix the login page");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // The page tells Plenipo it is alive, so a frozen window can be brought back.
+    await waitFor(() => expect(api.windowAlive).toHaveBeenCalledWith(true));
+  });
+
+  it("marks a ready update next to the version, and opens Settings → Updates from it", async () => {
+    api.getUpdateStatus.mockResolvedValue(updateReady());
+    render(<App />);
+    const mark = await screen.findByRole("button", { name: /Update ready: Plenipo 1\.10\.0/ });
+    expect(await screen.findByLabelText("Application version")).toBeInTheDocument();
+    await userEvent.setup().click(mark);
+    expect(await screen.findByRole("tab", { name: "Updates" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });
 

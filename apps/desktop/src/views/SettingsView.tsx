@@ -25,6 +25,8 @@ import {
   type SettingsSection,
 } from "../settings/sections";
 import { TerminalSettings } from "../settings/TerminalSettings";
+import { StartAndCloseSettings } from "../upkeep/StartAndCloseSettings";
+import { UpdateSettings } from "../upkeep/UpdateSettings";
 
 /**
  * Settings in one place (Phase 12): a list of sections on the left, one section at a time, and
@@ -107,6 +109,7 @@ export function SettingsView({
           )}
           {current === "notifications" && <NotificationSettings />}
           {current === "terminal" && <TerminalSettings />}
+          {current === "startAndClose" && <StartAndCloseSettings />}
           {current === "personalization" && (
             <>
               <TitlesSetting />
@@ -117,6 +120,7 @@ export function SettingsView({
           )}
           {current === "localPaths" && <LocalPathsSettings />}
           {current === "diagnostics" && <DiagnosticsSummary go={go} info={info} />}
+          {current === "updates" && <UpdateSettings />}
           {current === "about" && <AboutPlenipo info={info} />}
         </div>
       </div>

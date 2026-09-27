@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import type { AppInfo, LedgerStatus, LocalPath, OrgSnapshot } from "@plenipo/types";
+import type { AppInfo, LedgerBackups, LedgerStatus, LocalPath, OrgSnapshot } from "@plenipo/types";
 import {
   Button,
   EmptyState,
@@ -18,7 +18,7 @@ import {
   type Status,
 } from "@plenipo/ui";
 
-import { getLedgerStatus, getLocalPaths, toCommandError } from "../api/commands";
+import { getLedgerStatus, getLocalPaths, listLedgerBackups, toCommandError } from "../api/commands";
 import { AUTH_LABEL, notReadyHint, runtimeStatus } from "../agents/format";
 import { useAgents } from "../agents/useAgents";
 import type { Go } from "../components/views";
@@ -31,6 +31,7 @@ import { useLive } from "../pages/useLive";
 import { count, when } from "../pages/words";
 import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
+import { DiagnosticsFileButton } from "../upkeep/BackupsPanel";
 
 const TONE: Record<ReturnType<typeof runtimeStatus>["tone"], Status> = {
   ok: "ok",
@@ -261,9 +262,15 @@ export function DiagnosticsSummary({ go, info }: { go: Go; info: AppInfo | null 
     () => getLedgerStatus(),
     (e) => e.eventType.startsWith("ledger."),
   );
+  const backups = useLive<LedgerBackups>(
+    "backups",
+    () => listLedgerBackups(),
+    (e) => e.eventType.startsWith("ledger."),
+  );
   const active = Object.values(state.executions).filter(isActive).length;
   const ready = agents.state.runtimes.filter((r) => r.ready).length;
   const l = ledger.value;
+  const lastBackup = backups.value?.backups[0] ?? l?.lastBackup ?? null;
   return (
     <div className="settings-section__body">
       <div className="settings-section__actions">
@@ -299,10 +306,11 @@ export function DiagnosticsSummary({ go, info }: { go: Go; info: AppInfo | null 
           },
           {
             label: "Last backup",
-            value: l?.lastBackup ? when(l.lastBackup.createdAt) : "None yet",
+            value: lastBackup ? when(lastBackup.createdAt) : "None yet",
           },
         ]}
       />
+      <DiagnosticsFileButton />
       <h3>Programs Plenipo runs</h3>
       <ul className="settings">
         <li>
@@ -350,10 +358,15 @@ export function AboutPlenipo({ info }: { info: AppInfo | null }) {
       <h3>Window behavior</h3>
       <ul className="settings">
         <li>
-          Closing the window while programs or your terminals are running keeps them running; use
-          the tray icon to reopen Plenipo or stop them.
+          Plenipo lives in the tray. Closing the window while work is going keeps the work running;
+          use the tray icon to reopen Plenipo or stop the work. Settings → Start and close changes
+          this.
         </li>
         <li>Quitting from the tray stops everything that is running and records how it ended.</li>
+        <li>
+          If Plenipo, or Windows, stops unexpectedly, Plenipo tells you what stopped when it starts
+          again, and nothing runs again until you choose Run again.
+        </li>
       </ul>
     </div>
   );

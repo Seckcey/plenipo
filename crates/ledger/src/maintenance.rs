@@ -59,7 +59,7 @@ fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
 }
 
 /// Reopen a backup read-only and run an integrity check.
-fn verify(path: &Path) -> bool {
+pub(crate) fn verify(path: &Path) -> bool {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .and_then(|c| c.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)))
         .is_ok_and(|r| r == "ok")

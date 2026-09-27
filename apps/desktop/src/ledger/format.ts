@@ -114,10 +114,69 @@ export function describeEvent(e: LedgerEvent): string {
   if (terminal !== null) return terminal;
   const learned = describeLearningEvent(e.eventType, p);
   if (learned !== null) return learned;
+  const upkeep = describeUpkeepEvent(e.eventType, p);
+  if (upkeep !== null) return upkeep;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
   return e.eventType;
+}
+
+const RECOVERY_WORDS: Record<string, string> = {
+  crash: "Plenipo closed unexpectedly",
+  windowsRestart: "Windows restarted while Plenipo was running",
+  layoutChange: "Plenipo was stopped while updating the Ledger's layout",
+};
+
+const BACKUP_WORDS: Record<string, string> = {
+  manual: "made by you",
+  daily: "the daily one",
+  beforeUpgrade: "before a new version",
+  beforeUpdate: "before an update",
+  beforeMigration: "before a layout change",
+  beforeRestore: "before a restore",
+};
+
+/** Phase 13: recovery, backups and restore, versions and updates. */
+function describeUpkeepEvent(type: string, p: Record<string, unknown>): string | null {
+  switch (type) {
+    case "plenipo.recovered": {
+      const stopped = Array.isArray(p.stoppedTasks) ? p.stoppedTasks.length : 0;
+      const what = RECOVERY_WORDS[str(p.cause) ?? ""] ?? "Plenipo did not close normally";
+      return `${what}; ${stopped === 1 ? "1 task was" : `${stopped} tasks were`} stopped`;
+    }
+    case "plenipo.run_again":
+      return "You ran this task again";
+    case "plenipo.window_recovered":
+      return p.reopened === true
+        ? "The window stopped responding and was opened again"
+        : "The window stopped responding and was reloaded";
+    case "plenipo.version_changed":
+      return str(p.from)
+        ? `Plenipo was updated from ${str(p.from)} to ${str(p.to) ?? "a new version"}`
+        : `Plenipo ${str(p.to) ?? ""} started for the first time on this Ledger`.replace("  ", " ");
+    case "plenipo.update_available":
+      return `Plenipo ${str(p.version) ?? ""} is ready to install`;
+    case "plenipo.update_installing":
+      return `Installing Plenipo ${str(p.to) ?? ""} (the Ledger was backed up first)`;
+    case "plenipo.update_failed":
+      return `The update was not installed: ${str(p.message) ?? ""}`.trim();
+    case "ledger.backed_up":
+      return `The Ledger was backed up (${BACKUP_WORDS[str(p.kind) ?? ""] ?? "a backup"})`;
+    case "ledger.restore_requested":
+      return `You chose to restore the Ledger from ${str(p.backup) ?? "a backup"}`;
+    case "ledger.restored":
+      return `The Ledger was restored from ${str(p.backup) ?? "a backup"}`;
+    case "ledger.restore_failed":
+      return "The Ledger could not be restored; it was left as it was";
+    case "guard.request_refused":
+      return `Plenipo refused to reach ${str(p.host) ?? "an address"} for ${str(p.purpose) ?? "itself"}`;
+    case "guard.settings_reset":
+      return "Your permission settings were reset to their starting values (after a backup)";
+    case "routing.settings_reset":
+      return "Your AI model settings were reset to their starting values (after a backup)";
+  }
+  return null;
 }
 
 const OVERSIGHT_WORD: Record<string, string> = {

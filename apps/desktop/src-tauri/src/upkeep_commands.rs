@@ -1,0 +1,678 @@
+//! Phase 13 commands: recovery, starting and closing, backups and restore, the diagnostics
+//! file, and updates (ADR-036, background work; ADR-037, updates). Every one is the main
+//! window's alone (capabilities/default.json): the sign and web pages are refused.
+//!
+//! None takes a path: a backup is named from the list Core gives, the diagnostics file goes
+//! where Core chooses, and an update comes only from the address built into this copy.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use plenipo_core::{
+    CommandError, DiagnosticsFile, RecoveryStatus, StartAndClose, StartAndCloseInput, UpdateState,
+    UpdateStatus,
+};
+use plenipo_guard::Guard;
+use plenipo_ledger::{Ledger, LedgerBackups, NewEvent, NewTask, TaskState};
+use plenipo_liaison::Liaison;
+use plenipo_runtime::agent::AgentRuntime;
+use plenipo_runtime::Supervisor;
+use plenipo_workforce::Workforce;
+use serde_json::{json, Value};
+use tauri::{AppHandle, Manager as _, Runtime, State};
+
+use crate::commands::{
+    ledger_error, to_command_error, validate_task_id, with_ledger, workforce_error,
+};
+use crate::recovery::{self, RecoveryState, RunAgain};
+use crate::runtime_host::Persistence;
+use crate::smoke::{Scenario, SmokeTest, EXIT_READY};
+use crate::update_host::{self, Updates};
+use crate::window_watch::{self, WindowWatch};
+use crate::{settings_health, start_close, SettingsProblems};
+
+const OWNER: &str = "owner";
+
+/// An AI tool's name from its ID ("claude-code" → "Claude Code").
+fn tool_names(agents: Option<&AgentRuntime>) -> impl Fn(&str) -> String {
+    let runtimes = agents.map(AgentRuntime::runtimes).unwrap_or_default();
+    move |id: &str| {
+        runtimes
+            .iter()
+            .find(|r| r.id == id)
+            .map_or_else(|| id.to_owned(), |r| r.label.clone())
+    }
+}
+
+fn recovery_status<R: Runtime>(app: &AppHandle<R>) -> Result<RecoveryStatus, CommandError> {
+    let ledger = app.state::<Arc<Ledger>>();
+    let state = app.state::<Arc<RecoveryState>>();
+    let problems = app
+        .state::<SettingsProblems>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    let agents = app.try_state::<AgentRuntime>();
+    let tool = tool_names(agents.as_deref());
+    recovery::status(&ledger, &state, problems, &tool).map_err(ledger_error)
+}
+
+async fn recovery_status_off_thread<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<RecoveryStatus, CommandError> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || recovery_status(&app))
+        .await
+        .map_err(|e| CommandError::internal(e.to_string()))?
+}
+
+// ---- Recovery ------------------------------------------------------------------------------
+
+/// What recovery has to tell the owner: how the last run ended and what stopped, a window that
+/// was brought back, and settings that could not be read.
+#[tauri::command]
+pub async fn get_recovery_status<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<RecoveryStatus, CommandError> {
+    recovery_status_off_thread(&app).await
+}
+
+/// Run a stopped objective again: the same objective to the same worker, through the normal
+/// checks (routing, permissions). Only an objective that stopped or failed can be.
+#[tauri::command]
+pub async fn run_again<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+    workforce: State<'_, Workforce>,
+    liaison: State<'_, Liaison>,
+    task_id: String,
+) -> Result<RecoveryStatus, CommandError> {
+    validate_task_id(&task_id)?;
+    let id = task_id.clone();
+    let task = with_ledger(&ledger, move |l| {
+        l.task(&id)?
+            .ok_or_else(|| plenipo_ledger::LedgerError::NotFound(format!("task {id}")))
+    })
+    .await?;
+    let plan = recovery::run_again_plan(&task).map_err(CommandError::invalid_input)?;
+    let detail = match plan {
+        RunAgain::Position {
+            position_id,
+            project_id,
+            objective,
+        } => workforce
+            .give_objective(&position_id, &objective, project_id.as_deref())
+            .await
+            .map_err(workforce_error)?,
+        RunAgain::Conversation {
+            session_id,
+            objective,
+        } => liaison
+            .resume_session(&session_id, &objective)
+            .await
+            .map_err(to_command_error)?,
+    };
+    let new_task = detail.turns.last().map(|t| t.task_id.clone());
+    let l = Arc::clone(&ledger);
+    tauri::async_runtime::spawn_blocking(move || {
+        recovery::record_run_again(&l, &task_id, new_task.as_deref());
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?;
+    recovery_status_off_thread(&app).await
+}
+
+/// Leave the stopped tasks stopped: the notice about the last run goes away.
+#[tauri::command]
+pub async fn dismiss_recovery<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+    id: String,
+) -> Result<RecoveryStatus, CommandError> {
+    crate::commands::validate_id("recovery", &id)?;
+    with_ledger(&ledger, move |l| recovery::dismiss(l, &id)).await?;
+    recovery_status_off_thread(&app).await
+}
+
+/// The owner read that the window was brought back.
+#[tauri::command]
+pub async fn dismiss_window_recovery<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<RecoveryState>>,
+) -> Result<RecoveryStatus, CommandError> {
+    state.dismiss_window();
+    recovery_status_off_thread(&app).await
+}
+
+/// The window's page is alive (every few seconds; ADR-036 item 3). `visible`: the page can be
+/// seen (WebView2 may slow a hidden page down).
+#[tauri::command]
+pub async fn window_alive(
+    watch: State<'_, Arc<WindowWatch>>,
+    state: State<'_, Arc<RecoveryState>>,
+    ledger: State<'_, Arc<Ledger>>,
+    visible: bool,
+) -> Result<(), CommandError> {
+    if let Some(reopened) = watch.alive(visible, plenipo_ledger::now_ms()) {
+        let (ledger, state) = (Arc::clone(&ledger), Arc::clone(&state));
+        tauri::async_runtime::spawn_blocking(move || {
+            window_watch::record(&ledger, &state, reopened);
+        });
+    }
+    Ok(())
+}
+
+/// Reset settings Plenipo could not read to their starting values (after a backup of the
+/// Ledger, which keeps the damaged ones).
+#[tauri::command]
+pub async fn reset_settings<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+    guard: State<'_, Guard>,
+    key: String,
+) -> Result<RecoveryStatus, CommandError> {
+    if key.len() > 64 {
+        return Err(CommandError::invalid_input("unknown settings"));
+    }
+    let (l, g, k) = (Arc::clone(&ledger), guard.inner().clone(), key.clone());
+    tauri::async_runtime::spawn_blocking(move || settings_health::reset(&l, &g, &k))
+        .await
+        .map_err(|e| CommandError::internal(e.to_string()))?
+        .map_err(CommandError::invalid_input)?;
+    app.state::<SettingsProblems>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .retain(|p| p.key != key);
+    recovery_status_off_thread(&app).await
+}
+
+// ---- Start and close (ADR-036) ---------------------------------------------------------------
+
+/// Settings → Start and close.
+#[tauri::command]
+pub async fn get_start_and_close<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<StartAndClose, CommandError> {
+    let l = Arc::clone(&ledger);
+    tauri::async_runtime::spawn_blocking(move || start_close::settings(&app, &l))
+        .await
+        .map_err(|e| CommandError::internal(e.to_string()))
+}
+
+/// Change Settings → Start and close.
+#[tauri::command]
+pub async fn set_start_and_close<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+    input: StartAndCloseInput,
+) -> Result<StartAndClose, CommandError> {
+    let l = Arc::clone(&ledger);
+    tauri::async_runtime::spawn_blocking(move || {
+        start_close::set_close_window(&l, input.close_window).map_err(ledger_error)?;
+        match start_close::start_with_windows(&app) {
+            Some(on) if on != input.start_with_windows => {
+                start_close::set_start_with_windows(&app, input.start_with_windows)
+                    .map_err(CommandError::invalid_input)?;
+            }
+            None if input.start_with_windows => {
+                return Err(CommandError::invalid_input(
+                    "Starting with Windows is not available on this computer.",
+                ));
+            }
+            _ => {}
+        }
+        Ok(start_close::settings(&app, &l))
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?
+}
+
+// ---- Backups and restore -----------------------------------------------------------------------
+
+/// Every backup of the Ledger, newest first, and a restore waiting for the next start.
+#[tauri::command]
+pub async fn list_ledger_backups(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<LedgerBackups, CommandError> {
+    with_ledger(&ledger, Ledger::backups_overview).await
+}
+
+/// Restore the Ledger from one of its backups, named from the list (never a path). Plenipo
+/// keeps the Ledger as it is now as a backup, then restarts to restore it: running work stops
+/// the normal way first.
+#[tauri::command]
+pub async fn restore_ledger_backup<R: Runtime>(
+    app: AppHandle<R>,
+    ledger: State<'_, Arc<Ledger>>,
+    name: String,
+) -> Result<LedgerBackups, CommandError> {
+    if name.len() > 200 {
+        return Err(CommandError::invalid_input(
+            "that is not one of the Ledger's backups",
+        ));
+    }
+    let overview = with_ledger(&ledger, move |l| {
+        let path = l.path().ok_or_else(|| {
+            plenipo_ledger::LedgerError::InvalidInput(
+                "a temporary Ledger has no backups to restore".into(),
+            )
+        })?;
+        let backup = plenipo_ledger::backups::request_restore(path, &name)?;
+        l.append_event(NewEvent {
+            source: OWNER.into(),
+            event_type: "ledger.restore_requested".into(),
+            payload: json!({ "backup": backup.name }),
+            ..NewEvent::default()
+        })?;
+        l.backups_overview()
+    })
+    .await?;
+    log::warn!("a restore of the Ledger was asked for; Plenipo restarts to do it");
+    restart_plenipo(&app);
+    Ok(overview)
+}
+
+/// Forget a restore that was asked for but has not happened yet.
+#[tauri::command]
+pub async fn cancel_ledger_restore(
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<LedgerBackups, CommandError> {
+    with_ledger(&ledger, |l| {
+        if let Some(path) = l.path() {
+            plenipo_ledger::backups::cancel_restore(path)?;
+        }
+        l.backups_overview()
+    })
+    .await
+}
+
+/// Stop the work the normal way, then start Plenipo again.
+fn restart_plenipo<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // Let the answer reach the window first.
+        tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(500)))
+            .await
+            .ok();
+        crate::stop_work(&app).await;
+        crate::mark_stopped(&app);
+        app.request_restart();
+    });
+}
+
+// ---- The diagnostics file ----------------------------------------------------------------------
+
+/// Save a diagnostics file (in Plenipo's own folder) to send when something went wrong. It
+/// holds no task text, no answers, no terminal input, and no secrets.
+#[tauri::command]
+pub async fn save_diagnostics_file<R: Runtime>(
+    app: AppHandle<R>,
+    persistence: State<'_, Persistence>,
+) -> Result<DiagnosticsFile, CommandError> {
+    if *persistence != Persistence::AppData {
+        return Err(CommandError::invalid_input(
+            "diagnostics files are saved only when Plenipo keeps its files",
+        ));
+    }
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| CommandError::internal(e.to_string()))?
+        .join("diagnostics");
+    let about = about(&app).await;
+    let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
+    let filter = app
+        .try_state::<plenipo_capabilities::Broker>()
+        .map(|b| b.text_filter())
+        .unwrap_or_else(|| {
+            let r = plenipo_guard::Redactor::default();
+            Arc::new(move |t: &str| r.redact(t).into_owned())
+        });
+    let logs = crate::logs::installed()
+        .map(|l| l.files())
+        .unwrap_or_default();
+    let file = tauri::async_runtime::spawn_blocking(move || {
+        let events = ledger
+            .recent_events(crate::diagnostics::EVENTS)
+            .unwrap_or_default();
+        crate::diagnostics::write(
+            &dir,
+            &crate::diagnostics::Contents {
+                about,
+                events,
+                logs,
+            },
+            &filter,
+        )
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?
+    .map_err(|e| CommandError::internal(format!("the diagnostics file could not be saved: {e}")))?;
+    log::info!("a diagnostics file was saved");
+    Ok(file)
+}
+
+/// What `about.json` says: the facts that help, nothing of the owner's work.
+async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
+    let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
+    let (status, integrity, backups) = {
+        let l = Arc::clone(&ledger);
+        tauri::async_runtime::spawn_blocking(move || {
+            (
+                l.status().ok(),
+                l.integrity_check().ok(),
+                l.backups().unwrap_or_default(),
+            )
+        })
+        .await
+        .unwrap_or((None, None, Vec::new()))
+    };
+    let tools: Vec<Value> = app
+        .try_state::<AgentRuntime>()
+        .map(|a| a.runtimes())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "name": r.label,
+                "installed": r.installation.state,
+                "version": r.installation.version,
+                "signIn": r.auth.state,
+                "ready": r.ready,
+            })
+        })
+        .collect();
+    let supervisor = app.try_state::<Supervisor>();
+    json!({
+        "savedAt": chrono::Local::now().to_rfc3339(),
+        "plenipo": crate::commands::app_info_for(&app.package_info().version.to_string()),
+        "windows": {
+            "name": sysinfo::System::long_os_version(),
+            "kernel": sysinfo::System::kernel_version(),
+        },
+        "ledger": status,
+        "integrity": integrity,
+        "backups": backups.iter().map(|b| json!({
+            "name": b.name, "kind": b.kind, "createdAt": b.created_at,
+            "sizeBytes": b.size_bytes, "restorable": b.restorable,
+        })).collect::<Vec<_>>(),
+        "lastRun": recovery_status_off_thread(app).await.ok(),
+        "startAndClose": start_close::settings(app, &ledger),
+        "updates": app.state::<Arc<Updates>>().status(),
+        "aiTools": tools,
+        "programsRunning": supervisor.as_ref().map(|s| s.active_count()),
+        "notices": {
+            "programs": supervisor.as_ref().map(|s| s.overview().notices),
+            "permissions": app.try_state::<Guard>().map(|g| g.notices()),
+        },
+    })
+}
+
+// ---- Updates (ADR-037) ------------------------------------------------------------------------
+
+/// Settings → Updates.
+#[tauri::command]
+pub fn get_update_status(updates: State<'_, Arc<Updates>>) -> Result<UpdateStatus, CommandError> {
+    Ok(updates.status())
+}
+
+/// Check now whether a newer version exists (GitHub Releases, through Guard).
+#[tauri::command]
+pub async fn check_for_updates(
+    updates: State<'_, Arc<Updates>>,
+    guard: State<'_, Guard>,
+    ledger: State<'_, Arc<Ledger>>,
+) -> Result<UpdateStatus, CommandError> {
+    Ok(updates.check_now(&guard, &ledger).await)
+}
+
+/// Install the newer version: only when the owner says so, and only one 8 West signed.
+/// `stop_work`: the owner agreed that running work stops. On success Plenipo quits and the
+/// installer opens the new version.
+#[tauri::command]
+pub async fn install_update<R: Runtime>(
+    app: AppHandle<R>,
+    stop_work: bool,
+) -> Result<UpdateStatus, CommandError> {
+    install(&app, stop_work).await
+}
+
+async fn install<R: Runtime>(
+    app: &AppHandle<R>,
+    stop_work: bool,
+) -> Result<UpdateStatus, CommandError> {
+    let updates = Arc::clone(&app.state::<Arc<Updates>>());
+    let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
+    let guard = app.state::<Guard>().inner().clone();
+    if updates.status().state == UpdateState::Installing {
+        return Err(CommandError::invalid_input(
+            "the update is already being installed",
+        ));
+    }
+    if crate::work_going(app) && !stop_work {
+        return Err(CommandError::invalid_input(
+            "Work is running. Installing the update stops it; say so to go ahead.",
+        ));
+    }
+    if !cfg!(windows) {
+        let message = "Updates are installed on Windows only.".to_owned();
+        updates.install_failed(&ledger, message.clone());
+        return Err(CommandError::invalid_input(message));
+    }
+    let (release, bytes) = updates
+        .download(&guard)
+        .await
+        .map_err(CommandError::invalid_input)?;
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| CommandError::internal(e.to_string()))?
+        .join(update_host::FOLDER);
+    let version = app.package_info().version.to_string();
+    let (l, v, r) = (Arc::clone(&ledger), version.clone(), release.clone());
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        update_host::prepare(&l, &dir, &v, &r, &bytes)
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?;
+    let path = match prepared {
+        Ok(path) => path,
+        Err(message) => {
+            updates.install_failed(&ledger, message.clone());
+            return Err(CommandError::invalid_input(message));
+        }
+    };
+    log::warn!("installing Plenipo {} (from {version})", release.version);
+    crate::stop_work(app).await;
+    crate::mark_stopped(app);
+    match update_host::start_installer(&path) {
+        Ok(()) => {
+            app.exit(0);
+            Ok(updates.status())
+        }
+        Err(e) => {
+            let message = format!(
+                "The installer could not be started ({e}). Plenipo {version} is still installed; \
+                 the work that was running was stopped. Plenipo restarts now."
+            );
+            updates.install_failed(&ledger, message.clone());
+            app.request_restart();
+            Err(CommandError::internal(message))
+        }
+    }
+}
+
+/// Check once a day, by itself (copies that can install updates).
+pub fn check_for_updates_daily(updates: Arc<Updates>, guard: Guard, ledger: Arc<Ledger>) {
+    let _ = std::thread::Builder::new()
+        .name("plenipo-update-check".into())
+        .spawn(move || {
+            std::thread::sleep(update_host::FIRST_CHECK);
+            loop {
+                tauri::async_runtime::block_on(updates.check_now(&guard, &ledger));
+                std::thread::sleep(update_host::CHECK_EVERY);
+            }
+        });
+}
+
+// ---- Smoke tests (CI) -----------------------------------------------------------------------
+
+/// The window watch's timing: quicker in the window-crash smoke test.
+pub fn window_timing(smoke: &SmokeTest) -> window_watch::Timing {
+    if smoke.is_enabled() && smoke.scenario() == Scenario::WindowCrash {
+        window_watch::Timing {
+            quiet: Duration::from_secs(8),
+            every: Duration::from_secs(1),
+        }
+    } else {
+        window_watch::Timing::default()
+    }
+}
+
+/// What the app found, for the Windows installer tests to check.
+fn smoke_report<R: Runtime>(app: &AppHandle<R>, extra: Value) -> Value {
+    let ledger = app.state::<Arc<Ledger>>();
+    let backups = ledger.backups().unwrap_or_default();
+    let status = ledger.status().ok();
+    let types: Vec<String> = ledger
+        .recent_events(300)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    json!({
+        "version": app.package_info().version.to_string(),
+        "persistent": status.as_ref().map(|s| s.persistent),
+        "schemaVersion": status.as_ref().map(|s| s.schema_version),
+        "ledgerNotices": status.as_ref().map(|s| s.notices.clone()),
+        "lastVersion": crate::backup_host::last_version(&ledger),
+        "recovery": recovery_status(app).ok(),
+        "backups": backups.iter().map(|b| json!({ "name": b.name, "kind": b.kind })).collect::<Vec<_>>(),
+        "updates": app.state::<Arc<Updates>>().status(),
+        "logFiles": crate::logs::installed().map_or(0, |l| l.files().len()),
+        "eventTypes": types,
+        "extra": extra,
+    })
+}
+
+fn write_report<R: Runtime>(app: &AppHandle<R>, smoke: &SmokeTest, extra: Value) {
+    let Some(path) = smoke.report_path() else {
+        return;
+    };
+    let report = smoke_report(app, extra);
+    let tmp = path.with_extension("tmp");
+    let written = serde_json::to_vec_pretty(&report)
+        .map_err(std::io::Error::other)
+        .and_then(|b| std::fs::write(&tmp, b))
+        .and_then(|()| std::fs::rename(&tmp, path));
+    if let Err(e) = written {
+        log::error!("smoke test: the report could not be written: {e}");
+    }
+}
+
+/// The window reported ready in a smoke run.
+pub fn smoke_ready<R: Runtime>(app: &AppHandle<R>, smoke: &SmokeTest) {
+    let count = smoke.ready_count();
+    match smoke.scenario() {
+        Scenario::Ready => {
+            if smoke.record(EXIT_READY) {
+                write_report(app, smoke, Value::Null);
+                log::info!("smoke test: frontend reported ready; exiting 0");
+                app.exit(EXIT_READY);
+            }
+        }
+        Scenario::Stay if count == 1 => {
+            smoke.record(EXIT_READY);
+            write_report(app, smoke, json!({ "stage": "ready" }));
+            log::info!("smoke test: ready; staying open until ended");
+        }
+        Scenario::StartWork if count == 1 => {
+            smoke.record(EXIT_READY);
+            let (app, smoke) = (app.clone(), smoke.clone());
+            tauri::async_runtime::spawn(async move {
+                let started = start_work(&app).await;
+                write_report(&app, &smoke, started);
+                log::info!("smoke test: work started; waiting to be ended");
+            });
+        }
+        Scenario::WindowCrash if count == 1 => {
+            write_report(app, smoke, json!({ "stage": "ready" }));
+            log::info!("smoke test: waiting for the window to be ended and brought back");
+        }
+        Scenario::WindowCrash => {
+            let (app, smoke) = (app.clone(), smoke.clone());
+            std::thread::spawn(move || {
+                for _ in 0..200 {
+                    let back = app.state::<Arc<RecoveryState>>().window();
+                    if let Some(back) = back {
+                        if smoke.record(EXIT_READY) {
+                            write_report(&app, &smoke, json!({ "stage": "back", "window": back }));
+                            log::info!("smoke test: the window was brought back; exiting 0");
+                            app.exit(EXIT_READY);
+                        }
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            });
+        }
+        Scenario::Update if count == 1 => {
+            smoke.record(EXIT_READY);
+            let (app, smoke) = (app.clone(), smoke.clone());
+            tauri::async_runtime::spawn(async move {
+                let updates = Arc::clone(&app.state::<Arc<Updates>>());
+                let guard = app.state::<Guard>().inner().clone();
+                let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
+                let status = updates.check_now(&guard, &ledger).await;
+                write_report(&app, &smoke, json!({ "stage": "checked" }));
+                if status.state == UpdateState::Available {
+                    if let Err(e) = install(&app, true).await {
+                        write_report(
+                            &app,
+                            &smoke,
+                            json!({ "stage": "failed", "error": e.message }),
+                        );
+                        app.exit(2);
+                    }
+                } else {
+                    app.exit(2);
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Start a long program and a running task (the smoke test then ends Plenipo mid-work).
+async fn start_work<R: Runtime>(app: &AppHandle<R>) -> Value {
+    let execution = match app.try_state::<Supervisor>() {
+        Some(s) => s.start("diagnostic.long-running").await.ok().map(|r| r.id),
+        None => None,
+    };
+    let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let task = ledger
+            .create_task(
+                NewTask {
+                    requested_by: OWNER.into(),
+                    objective: "Smoke test: a task left running".into(),
+                    metadata: json!({ "synthetic": true }),
+                    ..NewTask::default()
+                },
+                OWNER,
+            )
+            .ok()?;
+        ledger
+            .transition_task(&task.id, TaskState::Running, OWNER, None)
+            .ok()
+            .map(|t| t.id)
+    })
+    .await
+    .ok()
+    .flatten();
+    json!({ "execution": execution, "task": task })
+}

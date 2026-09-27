@@ -227,3 +227,21 @@ export type { NoticeSettings } from "./generated/NoticeSettings";
 export type { PullRequestRef } from "./generated/PullRequestRef";
 export type { TaskRecord } from "./generated/TaskRecord";
 export type { WorkRecord } from "./generated/WorkRecord";
+
+// Keeping Plenipo dependable (Phase 13, ADR-036 background work, ADR-037 updates)
+export type { AvailableUpdate } from "./generated/AvailableUpdate";
+export type { BackupKind } from "./generated/BackupKind";
+export type { CloseWindow } from "./generated/CloseWindow";
+export type { DiagnosticsFile } from "./generated/DiagnosticsFile";
+export type { LedgerBackup } from "./generated/LedgerBackup";
+export type { LedgerBackups } from "./generated/LedgerBackups";
+export type { Recovery } from "./generated/Recovery";
+export type { RecoveryCause } from "./generated/RecoveryCause";
+export type { RecoveryStatus } from "./generated/RecoveryStatus";
+export type { SettingsProblem } from "./generated/SettingsProblem";
+export type { StartAndClose } from "./generated/StartAndClose";
+export type { StartAndCloseInput } from "./generated/StartAndCloseInput";
+export type { StoppedTask } from "./generated/StoppedTask";
+export type { UpdateState } from "./generated/UpdateState";
+export type { UpdateStatus } from "./generated/UpdateStatus";
+export type { WindowRecovery } from "./generated/WindowRecovery";

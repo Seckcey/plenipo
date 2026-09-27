@@ -25,8 +25,20 @@ plenipo-runtime = { path = "../../../crates/runtime" }
 plenipo-workforce = { path = "../../../crates/workforce" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# When Windows last started, to tell a crash from a restart (Phase 13, ADR-036).
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+# The diagnostics file (Phase 13).
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+log = { version = "0.4", features = ["std"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "~2.4"
+# Start with Windows (HKCU Run) and one Plenipo at a time (Phase 13, ADR-036). Their own
+# commands are granted to no window.
+tauri-plugin-autostart = "~2.5"
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "~2.4"
 
 [target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["signal"] }

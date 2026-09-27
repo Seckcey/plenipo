@@ -19,7 +19,7 @@ export const OUTCOME_LABEL: Record<TurnOutcome, string> = {
   billingNotAllowed: "Blocked: API billing",
   providerUnavailable: "AI tool unavailable",
   malformedOutput: "Unreadable output",
-  crashed: "Crashed",
+  crashed: "AI tool stopped unexpectedly",
   interrupted: "Interrupted",
 };
 

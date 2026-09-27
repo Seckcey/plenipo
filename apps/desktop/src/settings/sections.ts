@@ -10,9 +10,11 @@ export type SettingsSection =
   | "switches"
   | "notifications"
   | "terminal"
+  | "startAndClose"
   | "personalization"
   | "localPaths"
   | "diagnostics"
+  | "updates"
   | "about";
 
 /** Each section: its name on the list, and a line about it at its top. */
@@ -71,6 +73,12 @@ export const SETTINGS_SECTIONS: readonly {
     lead: "The shell your terminal on this PC starts.",
   },
   {
+    id: "startAndClose",
+    label: "Start and close",
+    icon: "play",
+    lead: "Whether Plenipo starts with Windows, and what closing its window does.",
+  },
+  {
     id: "personalization",
     label: "Personalization",
     icon: "user",
@@ -87,6 +95,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "Diagnostics",
     icon: "diagnostics",
     lead: "How Plenipo is doing, and the technical details for troubleshooting.",
+  },
+  {
+    id: "updates",
+    label: "Updates",
+    icon: "refresh",
+    lead: "New versions of Plenipo: checked once a day, installed only when you say so.",
   },
   {
     id: "about",

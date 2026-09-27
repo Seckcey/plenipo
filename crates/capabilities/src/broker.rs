@@ -45,7 +45,7 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod operate;
-mod servers;
+pub(crate) mod servers;
 mod terminals;
 
 use operate::{CallContext, ControlWork, DesktopUse};

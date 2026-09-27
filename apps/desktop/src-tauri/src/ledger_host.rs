@@ -38,7 +38,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Arc<Led
     let handle = app.clone();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         if let Err(e) = handle.emit_to("main", LEDGER_EVENT, event) {
-            eprintln!("[plenipo] failed to emit ledger event: {e}");
+            log::warn!("failed to emit ledger event: {e}");
         }
     }));
     ledger
@@ -47,19 +47,57 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Arc<Led
 fn in_memory(notice: Option<String>) -> Ledger {
     let ledger = Ledger::open_in_memory().expect("in-memory SQLite is always available");
     if let Some(notice) = notice {
-        eprintln!("[plenipo] {notice}");
+        log::warn!("{notice}");
         ledger.add_notice(notice);
     }
     ledger
 }
 
-fn ledger_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+pub fn ledger_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
         .map_err(|e| e.to_string())?
         .join("ledger")
         .join(DB_FILE_NAME))
+}
+
+/// Before opening (Phase 13): carry out a restore chosen in Diagnostics, if one was.
+pub fn apply_pending_restore(path: &Path) -> Option<plenipo_ledger::RestoreOutcome> {
+    let outcome = plenipo_ledger::backups::apply_pending_restore(path)?;
+    if outcome.restored.is_some() {
+        log::warn!("{}", outcome.message);
+    } else {
+        log::error!("{}", outcome.message);
+    }
+    Some(outcome)
+}
+
+/// The Ledger at `path` is about to have its layout changed (a migration) when opened.
+pub fn needs_layout_change(path: &Path) -> bool {
+    plenipo_ledger::backups::layout_of_file(path)
+        .is_some_and(|v| v > 0 && v < plenipo_ledger::migrate::latest(plenipo_ledger::MIGRATIONS))
+}
+
+/// Record a restore that happened at this start, and tell the owner.
+pub fn record_restore(ledger: &Ledger, outcome: &plenipo_ledger::RestoreOutcome) {
+    ledger.add_notice(outcome.message.clone());
+    let event = plenipo_ledger::NewEvent {
+        source: "owner".into(),
+        event_type: if outcome.restored.is_some() {
+            "ledger.restored".into()
+        } else {
+            "ledger.restore_failed".into()
+        },
+        payload: serde_json::json!({
+            "backup": outcome.restored.as_ref().map(|b| &b.name),
+            "keptAs": outcome.kept_as,
+        }),
+        ..plenipo_ledger::NewEvent::default()
+    };
+    if let Err(e) = ledger.append_event(event) {
+        log::warn!("the restore could not be recorded: {e}");
+    }
 }
 
 /// Move Phase 1's `executions.json` into the ledger (once), then rename the file.

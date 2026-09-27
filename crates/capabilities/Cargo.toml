@@ -32,6 +32,12 @@ test = false
 base64 = "0.22"
 dunce = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+log = "0.4"
+# Plenipo's own update check and download (Phase 13, ADR-037): Windows' own TLS (SChannel) on
+# Windows; each request passes Guard first.
+minisign-verify = "0.2"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+semver = "1"
 # Mouse and keyboard for computer use (Phase 10): SendInput on Windows, XTest on Linux.
 enigo = { version = "0.6", default-features = false }
 plenipo-guard = { path = "../guard" }
@@ -75,6 +81,8 @@ enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 x11rb = "0.13"
 
 [dev-dependencies]
+# Signs test releases with a throwaway key (Phase 13 update tests).
+minisign = "0.10"
 plenipo-liaison = { path = "../liaison" }
 plenipo-router = { path = "../router" }
 plenipo-workforce = { path = "../workforce" }

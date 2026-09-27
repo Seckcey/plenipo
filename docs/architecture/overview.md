@@ -267,8 +267,9 @@ Decision record: [ADR-005](../adr/ADR-005-runtime-supervisor.md).
 - **Lifecycle**: UUID per launch; `starting → running → succeeded | failed | cancelled |
 timedOut`; `interrupted` for runs left active by a previous session.
 - **Output**: 8 KiB line cap, 1,000-line ring buffer, batched events (50 ms / 200 lines).
-- **Shutdown**: tray Quit, last-window close, SIGTERM/SIGINT → graceful shutdown. Closing the
-  window with work running hides to the tray.
+- **Shutdown**: tray Quit, `plenipo-desktop.exe --quit`, the installer, SIGTERM/SIGINT →
+  graceful shutdown. What closing the window does is the owner's choice (Settings → Start and
+  close, ADR-036): by default it hides to the tray while work is going, and quits otherwise.
 - **UI state** lives above the views, so navigation never loses it; after a webview reload it
   is rebuilt from `get_runtime_overview` + `get_execution_output` and deduplicated by `seq`.
 
@@ -786,6 +787,64 @@ Decision records: [ADR-031](../adr/ADR-031-terminal-panel.md) (the terminal pane
 - **Settings** is one list of sections (`views/SettingsView.tsx`, `settings/`); the last one comes
   back, and another page can open a section. Local paths are read-only (`get_local_paths`).
 
+## 13c. Keeping Plenipo dependable (Phase 13)
+
+Decision records: [ADR-036](../adr/ADR-036-background-work.md) (background work) and
+[ADR-037](../adr/ADR-037-updates.md) (updates).
+
+- **One Plenipo per person, in the tray** (ADR-036, option D: no separate Windows service). The
+  work lives in the one Plenipo process; the window comes and goes. `tauri-plugin-single-instance`
+  (Windows) hands a second launch to the first, which shows its window (or quits, for `--quit`).
+  The main window starts hidden and is shown unless Plenipo started with `--in-tray` (Start with
+  Windows). `start_close.rs`: the close choice (`keepWhileWorking` by default, `alwaysKeep`,
+  `quit`), and Start with Windows through `tauri-plugin-autostart` (the `HKCU\…\Run` value
+  `Plenipo`, off by default; no window may call the plugin's own commands).
+- **The window watch** (`window_watch.rs`): the page says it is alive every 5 seconds
+  (`window_alive`); a page quiet for 30 seconds while the window shows is reloaded, then the
+  window is closed and opened again (the work never stops), and recorded
+  (`plenipo.window_recovered`).
+- **How the last run ended** (`recovery.rs`): a note in `run\plenipo-running.json` with a
+  heartbeat every 30 seconds and the step it is on (opening, changing the Ledger's layout,
+  running), removed at a clean exit. At the next start a note left behind means a crash, a
+  Windows restart (its last heartbeat is before Windows started), an interrupted layout change,
+  or, when it cannot be read, unknown. The unfinished tasks are listed first; the services then mark
+  the work that was going as stopped, as before; then the recovery is recorded with the cause (`plenipo.recovered`, a notice), and the
+  window offers **Run again** (a new task with the same objective, for the same position or AI
+  tool) or **Leave stopped**. Nothing runs again by itself.
+- **Backups and restore** (Ledger `backups.rs`): kinds told apart by file names (made by you,
+  daily, before a new version, before an update, before a layout change, before a restore), each
+  kept to its own number. A daily backup after 10 minutes and then each day, waiting for idle
+  (up to two days); one before a new version first uses the Ledger (`backup_host.rs`). A restore
+  is a request next to the Ledger, applied at the next start before the Ledger opens; the Ledger
+  as it was is kept (`before-restore-*`), and a backup that is damaged or from a newer Plenipo is
+  refused, leaving the Ledger alone.
+- **Log files** (`logs.rs`, the `log` crate): `logs\plenipo.log`, 2 MB each, five kept; every
+  line is redacted by Guard's redactor and the broker's secret filter first. The terminal's
+  typing and output are never logged.
+- **Diagnostics file** (`diagnostics.rs`): a zip with `README.txt`, `about.json` (version,
+  Windows, the Ledger's health and backups, how the last run ended, the AI tools found, the
+  switches of Start and close and Updates), `recent-events.json` (types and times only, no
+  payloads), and the log files; five kept in `diagnostics\`.
+- **Updates** (ADR-037, `update_host.rs`, capabilities `updates.rs`): `latest.json` from the
+  newest GitHub release, read through Guard's outbound rules (`guard::outbound`, purpose
+  `Updates`: HTTPS to Plenipo's releases on github.com and GitHub's download hosts only; each
+  redirect checked again). The installer must carry the updater key's signature, whose trusted
+  comment names the version `latest.json` claims. The endpoint and the public key are built in
+  (`PLENIPO_UPDATE_ENDPOINT`, `PLENIPO_UPDATER_PUBLIC_KEY`); copies without the key cannot
+  install. Checking: 3 minutes after start, then daily, for Free and Pro. Installing (only on
+  **Install now**): download and check, back up (`pre-update-*`), stop the work, start the
+  installer (`/P /UPDATE /R`, outside Plenipo's job), and quit. Any failure before the installer
+  starts leaves this version running.
+- **The installer** (NSIS, `windows/hooks.nsh`, `windows/English.nsh`): asks a running 1.9+ to
+  quit the normal way first; uninstalling keeps your data unless "Also delete my Plenipo data" is
+  ticked (`/DELETEAPPDATA` when silent), which also removes the secrets Plenipo kept in Windows
+  Credential Manager (`--plenipo-forget-secrets`).
+- **Commands** (main window only; the sign window and web pages are refused, IPC tests):
+  `get_recovery_status`, `run_again`, `dismiss_recovery`, `dismiss_window_recovery`,
+  `window_alive`, `reset_settings`, `get_start_and_close`, `set_start_and_close`,
+  `list_ledger_backups`, `restore_ledger_backup`, `cancel_ledger_restore`,
+  `save_diagnostics_file`, `get_update_status`, `check_for_updates`, `install_update`.
+
 ## 14. Launch smoke test
 
 With `PLENIPO_SMOKE_TEST=1`, the app launches normally, the UI calls `frontend_ready` once it
@@ -793,6 +852,11 @@ has rendered **and** successfully called Core, and the process exits 0. If that 
 happen within `PLENIPO_SMOKE_TIMEOUT_SECS` (default 60) a watchdog exits 1. The outcome is
 tracked in shared state rather than trusting the runtime's exit-code propagation, which is not
 reliable on every platform. CI runs this against the release build on Windows.
+
+Phase 13's installer tests (`scripts/windows/installer-tests.ps1`) add
+`PLENIPO_SMOKE_SCENARIO` (`stay`, `start-work`, `window-crash`, `update`) and
+`PLENIPO_SMOKE_REPORT` (a JSON report of the version, how the last run ended, the backups, and
+the Ledger's recent event types).
 
 ## 15. Target component map
 

@@ -108,9 +108,28 @@ const COMMANDS: &[&str] = &[
     "write_terminal",
     "resize_terminal",
     "close_terminal",
+    "get_recovery_status",
+    "run_again",
+    "dismiss_recovery",
+    "dismiss_window_recovery",
+    "window_alive",
+    "reset_settings",
+    "get_start_and_close",
+    "set_start_and_close",
+    "list_ledger_backups",
+    "restore_ledger_backup",
+    "cancel_ledger_restore",
+    "save_diagnostics_file",
+    "get_update_status",
+    "check_for_updates",
+    "install_update",
 ];
 
 fn main() {
+    // Where updates come from, and the updater key's public half, are built in by the Release
+    // workflow (ADR-037); a change to either rebuilds the app.
+    println!("cargo:rerun-if-env-changed=PLENIPO_UPDATE_ENDPOINT");
+    println!("cargo:rerun-if-env-changed=PLENIPO_UPDATER_PUBLIC_KEY");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 

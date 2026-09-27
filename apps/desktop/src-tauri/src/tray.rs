@@ -96,7 +96,7 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
                 let broker = broker.inner().clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = broker.stop_all_control("owner").await {
-                        eprintln!("[plenipo] could not stop control: {e}");
+                        log::warn!("could not stop control: {e}");
                     }
                 });
             }
@@ -107,12 +107,9 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     }
 }
 
+/// Show the window (opening it again if it was closed for good, ADR-036).
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    crate::start_close::show_main_window(app);
 }
 
 pub fn exists<R: Runtime>(app: &AppHandle<R>) -> bool {

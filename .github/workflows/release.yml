@@ -9,6 +9,11 @@ name: Release
 # The installer and the app are signed as 8 West Ventures, LLC through Azure Artifact Signing
 # (docs/development/code-signing.md). Run workflow with "dry run" ticked builds and signs from any
 # branch, checks the signature, and keeps the installer as a download; it publishes nothing.
+#
+# Updates (Phase 13, ADR-037): the installer also gets an updater signature made with the updater
+# key (secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the key's public
+# half is built into Plenipo (repository variable PLENIPO_UPDATER_PUBLIC_KEY), and the release
+# carries latest.json, which installed copies read once a day.
 
 on:
   push:
@@ -87,13 +92,21 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
         run: |
-          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET; do
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Repository secret $name is not set; see docs/development/code-signing.md"
               exit 1
             fi
           done
+          # Not a secret: the updater key's public half, built into Plenipo (ADR-037).
+          if [ -z "$PLENIPO_UPDATER_PUBLIC_KEY" ]; then
+            echo "::error::Repository variable PLENIPO_UPDATER_PUBLIC_KEY is not set; see docs/development/code-signing.md"
+            exit 1
+          fi
       - name: Install the signing tool
         run: cargo install artifact-signing-cli --version 0.11.0 --locked
       # The tool defaults to signtool at one fixed Windows SDK version and the Azure CLI at one
@@ -117,6 +130,10 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          # The updater signature (Tauri's signing tool) and the public half built into Plenipo.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -133,13 +150,36 @@ jobs:
             if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
           }
           pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+      - name: The updater signature is Plenipo's, for this version, and latest.json is written
+        shell: bash
+        env:
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          installer=(target/release/bundle/nsis/*-setup.exe)
+          test -f "${installer[0]}"
+          sig="${installer[0]}.sig"
+          if [ ! -f "$sig" ]; then
+            echo "::error::No updater signature was made (${sig}); check the updater key secrets"
+            exit 1
+          fi
+          # The same check Plenipo makes before installing: the key built into it, this version.
+          cargo run --release --locked -p plenipo-capabilities --example verify_update -- \
+            "${installer[0]}" "$sig" "$version"
+          notes="docs/releases/v$version.md"
+          if [ ! -f "$notes" ]; then notes="$RUNNER_TEMP/no-notes.md"; printf '# v%s\n' "$version" > "$notes"; fi
+          node scripts/update-manifest.mjs "$version" "${installer[0]}" "$sig" "$notes" \
+            target/release/bundle/nsis/latest.json
       # Kept before the check, so a dry run that fails the check still leaves the installer to look at.
       - name: Keep the signed installer (dry run)
         if: inputs.dry_run
         uses: actions/upload-artifact@v7
         with:
           name: plenipo-signed-installer-dry-run
-          path: target/release/bundle/nsis/*-setup.exe
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*-setup.exe.sig
+            target/release/bundle/nsis/latest.json
           retention-days: 7
       # Checked inside the installer: that copy of the app is the one customers get. Tauri leaves
       # target/release/plenipo-desktop.exe unsigned after bundling, so that file proves nothing.
@@ -181,7 +221,11 @@ jobs:
           fi
           installer=(target/release/bundle/nsis/*-setup.exe)
           test -f "${installer[0]}"
-          gh release create "$RELEASE_TAG" "${installer[@]}" \
+          # The updater signature and latest.json go with it (ADR-037).
+          test -f "${installer[0]}.sig"
+          test -f target/release/bundle/nsis/latest.json
+          gh release create "$RELEASE_TAG" "${installer[@]}" "${installer[0]}.sig" \
+            target/release/bundle/nsis/latest.json \
             "${tag_source[@]}" \
             --title "$title" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
