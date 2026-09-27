@@ -635,6 +635,7 @@ mod tests {
             args: vec!["--plenipo-tools=/data/t.json".into()],
             config_file: "/data/t.mcp.json".into(),
             call_timeout: std::time::Duration::from_secs(3600),
+            tools: Vec::new(),
         };
         let request = TurnRequest {
             tools: Some(tools),

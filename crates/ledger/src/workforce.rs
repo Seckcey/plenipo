@@ -137,15 +137,23 @@ pub fn clean_runtime_id(id: &str) -> Result<String> {
     }
 }
 
-/// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}` — a model name, never a flag or a path (the same
-/// rule the agent runtime applies).
+/// `[A-Za-z0-9][A-Za-z0-9._:\[\]-]*`, optionally after a provider `[A-Za-z0-9][A-Za-z0-9._-]*`
+/// and one `/` (Kimi's `kimi-code/k3`), at most 64 characters — a model name, never a flag or a
+/// path (the same rule the agent runtime applies).
 pub fn clean_model(model: &str) -> Result<String> {
     let model = model.trim();
-    let mut chars = model.chars();
+    let part = |p: &str, more: &[char]| {
+        let mut chars = p.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+            && chars.all(|c| c.is_ascii_alphanumeric() || "._-".contains(c) || more.contains(&c))
+    };
+    let name = |p: &str| part(p, &[':', '[', ']']);
     let ok = (1..=64).contains(&model.len())
-        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && chars
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '[' | ']' | '-'));
+        && match model.split_once('/') {
+            None => name(model),
+            // The provider: letters, digits, `.`, `_`, `-` only (never a drive such as `C:`).
+            Some((provider, rest)) => part(provider, &[]) && name(rest),
+        };
     if ok {
         Ok(model.to_owned())
     } else {
@@ -2238,6 +2246,24 @@ impl Ledger {
 mod tests {
     use super::*;
     use crate::test_support::*;
+
+    #[test]
+    fn model_names_are_names_never_flags_or_paths() {
+        for good in [
+            "sonnet",
+            "opus[1m]",
+            "org:model_1",
+            "kimi-code/k3",
+            " gpt-6-sol ",
+        ] {
+            assert!(clean_model(good).is_ok(), "{good}");
+        }
+        for bad in [
+            "", "-m", "a b", "../x", "/x", "a/", "a//b", "a/b/c", "C:/x", "a\\b", "a/-m",
+        ] {
+            assert!(clean_model(bad).is_err(), "{bad}");
+        }
+    }
 
     fn template(name: &'static str, role_type: RoleType, persistent: bool) -> RoleTemplate {
         RoleTemplate {

@@ -21,7 +21,8 @@ use plenipo_ledger::{
     WorkspaceState,
 };
 use plenipo_runtime::agent::tools::{
-    StepInfo, StepTools, TextFilter, ToolProvider, ToolServer, SERVER_NAME,
+    FileAccess, FileAnswer, Pending, StepInfo, StepTools, TextFilter, ToolProvider, ToolServer,
+    SERVER_NAME,
 };
 use plenipo_runtime::Supervisor;
 use serde_json::{json, Value};
@@ -228,6 +229,8 @@ struct Prepared {
 enum Work {
     List(Resolved),
     Read(Resolved, usize, usize),
+    /// The file's text as it is, for an AI tool's own read (ADR-018).
+    ReadText(Resolved, usize, usize),
     Search(Resolved, String, bool),
     Write(Resolved, String),
     Edit(Resolved, String, String, bool),
@@ -610,6 +613,7 @@ impl Broker {
             .and_then(|p| self.ledger().project(&p.id).ok().flatten())
             .and_then(|p| p.repository_url)
             .and_then(|url| crate::github::repo_of(&url));
+        let tool_names = offered.iter().map(|t| (*t).to_owned()).collect();
         let grant = Grant {
             id: grant_id.clone(),
             ticket: ticket.clone(),
@@ -647,6 +651,7 @@ impl Broker {
                 args,
                 config_file: config_path,
                 call_timeout: self.inner.config.call_timeout,
+                tools: tool_names,
             },
             note,
         }))
@@ -1044,6 +1049,26 @@ impl Broker {
         let Some(tool) = tools::find(name) else {
             return CallResult::error(format!("There is no tool named {name}."));
         };
+        self.act(grant_id, tool, Asked::Call(args)).await
+    }
+
+    /// Read or write a file for the AI tool of a grant's step, which asked Plenipo instead of
+    /// opening the file itself (ADR-018, Kimi over ACP). It is the worker's own `read_file` or
+    /// `write_file` call in every way that matters: confined to the folder, checked by Guard,
+    /// approved by the owner when Guard asks, recorded, and answered with secrets hidden. A read
+    /// answers the file's text as it is, never cut short.
+    pub async fn file_request(&self, grant_id: &str, access: FileAccess) -> CallResult {
+        let name = match access {
+            FileAccess::Read { .. } => "read_file",
+            FileAccess::Write { .. } => "write_file",
+        };
+        let Some(tool) = tools::find(name) else {
+            return CallResult::error(format!("There is no tool named {name}."));
+        };
+        self.act(grant_id, tool, Asked::File(access)).await
+    }
+
+    async fn act(&self, grant_id: &str, tool: &'static ToolDef, asked: Asked) -> CallResult {
         let context = {
             let s = self.state();
             s.grants.get(grant_id).map(|g| {
@@ -1074,7 +1099,12 @@ impl Broker {
         else {
             return CallResult::error("This task step has ended; its tools are closed.");
         };
-        let action = match tools::parse(tool, &args) {
+        let file_request = matches!(asked, Asked::File(_));
+        let action = match asked {
+            Asked::Call(args) => tools::parse(tool, &args),
+            Asked::File(access) => file_action(access),
+        };
+        let action = match action {
             Ok(a) => a,
             Err(e) => return CallResult::error(format!("{}: {e}", tool.name)),
         };
@@ -1095,7 +1125,15 @@ impl Broker {
             search: self.inner.config.search_path.clone(),
         };
         let prepared = match prepare(tool, action, &at, self.inner.config.command_timeout) {
-            Ok(p) => p,
+            Ok(mut p) => {
+                // An AI tool's own read gets the file as it is, not Plenipo's numbered view.
+                if file_request {
+                    if let Work::Read(r, offset, limit) = p.work {
+                        p.work = Work::ReadText(r, offset, limit);
+                    }
+                }
+                p
+            }
             Err(r) => {
                 let decision = Decision {
                     verdict: Verdict::Deny,
@@ -1225,6 +1263,7 @@ impl Broker {
                 "approvalId": approval_id,
                 "executionId": execution,
                 "pullRequest": pull_request,
+                "fileRequest": file_request,
             }),
             ..NewEvent::default()
         });
@@ -1439,6 +1478,10 @@ impl Broker {
             Work::List(p) => (blocking(Box::new(move || files::list(&p))).await, None),
             Work::Read(p, o, l) => (
                 blocking(Box::new(move || files::read(&p, o, l))).await,
+                None,
+            ),
+            Work::ReadText(p, o, l) => (
+                blocking(Box::new(move || files::read_text(&p, o, l))).await,
                 None,
             ),
             Work::Search(p, q, c) => {
@@ -1814,6 +1857,45 @@ impl ToolProvider for Broker {
     fn close(&self, grant_id: &str) {
         self.end_grant(grant_id);
     }
+
+    fn file_access(&self, grant_id: &str, access: FileAccess) -> Pending<FileAnswer> {
+        let (this, grant_id) = (self.clone(), grant_id.to_owned());
+        Box::pin(async move {
+            let r = this.file_request(&grant_id, access).await;
+            if r.is_error {
+                Err(r.text)
+            } else {
+                Ok(r.text)
+            }
+        })
+    }
+}
+
+/// What a caller asked of a grant: one of Plenipo's tools by the worker, or a file by its AI
+/// tool (ADR-018).
+enum Asked {
+    Call(Value),
+    File(FileAccess),
+}
+
+/// The action for an AI tool's own file request, with the same limits as Plenipo's tools.
+fn file_action(access: FileAccess) -> std::result::Result<Action, String> {
+    Ok(match access {
+        FileAccess::Read { path, line, limit } => Action::Read {
+            path,
+            offset: line.unwrap_or(1).max(1),
+            limit: limit.unwrap_or(usize::MAX),
+        },
+        FileAccess::Write { path, content } => {
+            if content.len() > tools::MAX_WRITE_BYTES {
+                return Err(format!(
+                    "files written in one call are limited to {} bytes",
+                    tools::MAX_WRITE_BYTES
+                ));
+            }
+            Action::Write { path, content }
+        }
+    })
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {

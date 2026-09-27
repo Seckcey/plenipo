@@ -19,7 +19,7 @@ use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
     AgentEvent, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
-use crate::agent::tools::ToolServer;
+use crate::agent::tools::{FileAccess, FileAnswer, ToolServer};
 use crate::dto::{ExecutionState, TokenUsage};
 
 /// Longest final answer kept in a result.
@@ -104,6 +104,16 @@ pub struct Parsed {
     pub send: Vec<String>,
     /// The task is over: close the process's stdin so it can exit (ADR-015).
     pub close_input: bool,
+    /// Files the AI tool asked Plenipo to read or write for it (ADR-018). Plenipo carries each
+    /// out through Guard and gives the answer to [`TurnParser::file_answered`].
+    pub files: Vec<FileRequest>,
+}
+
+/// One file the AI tool asked Plenipo to read or write (ADR-018), numbered by the parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRequest {
+    pub id: u64,
+    pub access: FileAccess,
 }
 
 impl Parsed {
@@ -146,6 +156,11 @@ pub trait TurnParser: Send {
     }
     /// One stdout line (JSON lines expected).
     fn line(&mut self, text: &str, truncated: bool) -> Parsed;
+    /// Plenipo's answer to the file request `id` from [`Parsed::files`] (ADR-018). Answers may
+    /// come in any order, and while the task goes on.
+    fn file_answered(&mut self, _id: u64, _answer: FileAnswer) -> Parsed {
+        Parsed::none()
+    }
     /// One stderr line; kept to explain failures, never parsed as events.
     fn stderr(&mut self, text: &str);
     /// The process ended: produce the normalized result.

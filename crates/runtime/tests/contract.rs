@@ -215,24 +215,23 @@ fn turn_arguments_carry_the_choices_and_no_secrets() {
                 ProviderSession::Resume { id } => Some(id),
                 ProviderSession::New { preassigned } => preassigned.as_ref(),
             };
+            // Each choice is in the arguments, or in the messages of a task that talks
+            // (ADR-015; Kimi's model and thinking level are session settings, ADR-018).
+            let sent = messages(a.as_ref(), &request);
+            let carried = |value: &str| {
+                let quoted = format!("\"{value}\"");
+                passes(&args, value) || sent.iter().any(|m| m.contains(&quoted))
+            };
             if let Some(session) = session {
-                // In the arguments, or in the messages of a task that talks (ADR-015).
-                let quoted = format!("\"{session}\"");
-                assert!(
-                    passes(&args, session)
-                        || messages(a.as_ref(), &request)
-                            .iter()
-                            .any(|m| m.contains(&quoted)),
-                    "{id}: session ID missing: {args:?}"
-                );
+                assert!(carried(session), "{id}: session ID missing: {args:?}");
             }
             if let Some(model) = &request.model {
-                assert!(passes(&args, model), "{id}: model missing: {args:?}");
+                assert!(carried(model), "{id}: model missing: {args:?} {sent:?}");
             }
             if let Some(effort) = request.effort {
                 assert!(
-                    passes(&args, effort.as_str()),
-                    "{id}: effort missing: {args:?}"
+                    carried(effort.as_str()),
+                    "{id}: effort missing: {args:?} {sent:?}"
                 );
             }
         }

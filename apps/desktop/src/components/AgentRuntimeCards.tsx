@@ -5,7 +5,7 @@ import { AUTH_LABEL, INSTALL_LABEL, notReadyHint, runtimeStatus } from "../agent
 import { useAgents } from "../agents/useAgents";
 import { formatTime } from "../runtime/format";
 
-/** Each AI tool (Claude Code, Codex, Ollama): whether it is installed and signed in, and what it can do. */
+/** Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama): whether it is installed and signed in, and what it can do. */
 export function AgentRuntimeCards() {
   const { state, refresh } = useAgents();
   const [checking, setChecking] = useState(false);
@@ -37,9 +37,9 @@ export function AgentRuntimeCards() {
         </button>
       </div>
       <p className="muted">
-        Plenipo uses the AI tools already signed in on this computer: Claude Code, Codex, Grok, and
-        Ollama&apos;s cloud models. It never asks for passwords or API keys and never falls back to
-        pay-per-use API billing.
+        Plenipo uses the AI tools already signed in on this computer: Claude Code, Codex, Grok,
+        Kimi, and Ollama&apos;s cloud models. It never asks for passwords or API keys and never
+        falls back to pay-per-use API billing.
       </p>
       {error && (
         <p className="status status--error" role="alert">

@@ -3,28 +3,40 @@
 //! ACP is JSON-RPC 2.0, one message per line, on the AI tool's stdin and stdout. Plenipo is the
 //! client. A task is one supervised process, and the whole exchange happens in it:
 //!
-//! 1. `initialize` (protocol version 1; Plenipo offers no file or terminal access of its own);
+//! 1. `initialize` (protocol version 1; Plenipo offers no terminal, and file access only when
+//!    the adapter asks for it, below);
 //! 2. `session/new`, or `session/resume` / `session/load` for a follow-up, with Plenipo's tool
 //!    server when the worker has permissions;
-//! 3. `session/prompt` with the task text, once the conversation ID is known; the tool streams
+//! 3. the adapter's session settings, if any (`session/set_config_option`, each checked);
+//! 4. `session/prompt` with the task text, once the conversation ID is known; the tool streams
 //!    `session/update` notifications and may ask `session/request_permission`;
-//! 4. the `session/prompt` answer ends the task, and stdin is closed so the tool exits.
+//! 5. the `session/prompt` answer ends the task, and stdin is closed so the tool exits.
 //!
 //! Plenipo answers every permission request itself: a call to its own tool server is allowed
 //! (Guard decides inside the call), anything else is refused. It never sends `authenticate`,
 //! which could start a sign-in in a browser; a tool that is not signed in is reported as such.
 //! Unknown messages are ignored and counted (ADR-007 §7).
+//!
+//! For an AI tool whose own tools cannot be switched off, an adapter turns on **file access
+//! through Plenipo** (ADR-018, Kimi over ACP): `initialize` offers file reads and writes, and
+//! each `fs/read_text_file` / `fs/write_text_file` becomes a [`FileRequest`] that Plenipo carries
+//! out through Guard under the worker's permissions (a worker without them has every file
+//! request refused). The tool's own file changes are allowed only for a worker that may change
+//! files, since the change itself then comes to Plenipo; its own shell and everything else are
+//! refused, and no approval ever covers a whole session. The adapter can also require modes: a
+//! mode outside them stops the task.
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
 use crate::agent::adapter::{
-    cap, first_line, tool_summary, Parsed, ProcessEnd, ProviderSession, Stop, TurnParser,
-    TurnState, MAX_EVENT_TEXT,
+    cap, first_line, tool_summary, FileRequest, Parsed, ProcessEnd, ProviderSession, Stop,
+    TurnParser, TurnState, MAX_EVENT_TEXT,
 };
 use crate::agent::dto::{AgentEvent, NoticeLevel, TurnOutcome, TurnResult};
-use crate::agent::tools::ToolServer;
+use crate::agent::tools::{FileAccess, FileAnswer, ToolServer};
 use crate::dto::TokenUsage;
 
 /// The ACP protocol version Plenipo speaks.
@@ -34,6 +46,13 @@ pub const PROTOCOL_VERSION: u64 = 1;
 const INITIALIZE: u64 = 1;
 const OPEN: u64 = 2;
 const PROMPT: u64 = 3;
+/// Session settings are numbered from here, one ID each.
+const SETTING: u64 = 10;
+/// Most tool calls remembered by ID (a permission request may not repeat the call's kind).
+const MAX_CALLS: usize = 256;
+/// Plenipo's tool that writes files: only a worker whose grant offers it may let the AI tool
+/// change files (ADR-018).
+const WRITE_TOOL: &str = "write_file";
 
 /// What an ACP adapter tells the driver about one task.
 #[derive(Debug, Clone, Default)]
@@ -48,6 +67,23 @@ pub struct AcpTask {
     pub model: Option<String>,
     /// Extra `_meta` fields for opening the session (for example an agent profile).
     pub session_meta: Option<Value>,
+    /// File access through Plenipo (ADR-018): see the module notes.
+    pub file_access: bool,
+    /// Settings sent with `session/set_config_option` after the conversation opens and before
+    /// the prompt, in order, as (option ID, value). The option IDs `model` and `mode` are also
+    /// what the task reports and checks.
+    pub settings: Vec<(String, String)>,
+    /// When not empty, the only modes the tool may be in once the prompt is sent; the task
+    /// stops if it reports another (ADR-018 §4).
+    pub allowed_modes: Vec<String>,
+    /// Reopen a conversation with `session/load` even when the tool offers `session/resume`.
+    pub load_to_resume: bool,
+    /// The tool names the tool in a permission request's title (Kimi), so a title may name a
+    /// tool of Plenipo's tool server: with the server's name before it, or bare.
+    pub title_is_tool_name: bool,
+    /// Refuse the task as soon as the tool answers `initialize`, before any conversation opens
+    /// (for example a model Plenipo does not run on this tool).
+    pub refusal: Option<Stop>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +93,17 @@ enum Phase {
     Initializing,
     /// Opening or loading the conversation; updates now are history being replayed.
     Opening,
+    /// Sending the session settings, one at a time.
+    Configuring,
     Prompting,
     Done,
+}
+
+/// A tool call the tool announced: what it calls it, and its kind (`read`, `edit`, `execute`, …).
+#[derive(Debug, Clone, Default)]
+struct Call {
+    title: Option<String>,
+    kind: Option<String>,
 }
 
 /// One task over ACP.
@@ -73,6 +118,19 @@ pub struct AcpTurn {
     stop_reason: Option<String>,
     /// Plenipo asked the tool to stop.
     cancel_asked: bool,
+    /// The next session setting to send (an index into `task.settings`).
+    setting: usize,
+    /// The tool's mode, as last reported.
+    mode: Option<String>,
+    /// Tool calls announced in this task, by ID.
+    calls: HashMap<String, Call>,
+    /// File requests waiting for Plenipo's answer: number → (JSON-RPC ID, is a write).
+    files: HashMap<u64, (Value, bool)>,
+    next_file: u64,
+    /// The tool's own file changes Plenipo allowed whose write has not come to Plenipo yet.
+    unwritten: HashSet<String>,
+    /// The worker's activity already says its files are closed.
+    files_refused_noted: bool,
 }
 
 impl AcpTurn {
@@ -87,6 +145,13 @@ impl AcpTurn {
             message: String::new(),
             stop_reason: None,
             cancel_asked: false,
+            setting: 0,
+            mode: None,
+            calls: HashMap::new(),
+            files: HashMap::new(),
+            next_file: 0,
+            unwritten: HashSet::new(),
+            files_refused_noted: false,
         }
     }
 
@@ -136,6 +201,18 @@ impl AcpTurn {
         }
     }
 
+    /// Plenipo stops the task: the process is ended.
+    fn stop(&mut self, outcome: TurnOutcome, reason: String) -> Parsed {
+        let stop = Stop { outcome, reason };
+        self.state.stop = Some(stop.clone());
+        self.phase = Phase::Done;
+        Parsed {
+            stop: Some(stop),
+            close_input: true,
+            ..Parsed::none()
+        }
+    }
+
     fn initialized(&mut self, result: &Value) -> Parsed {
         let version = result.get("protocolVersion").and_then(Value::as_u64);
         if version != Some(PROTOCOL_VERSION) {
@@ -144,17 +221,10 @@ impl AcpTurn {
                 self.label(),
                 version.map_or_else(|| "(none)".to_owned(), |v| v.to_string())
             );
-            let stop = Stop {
-                outcome: TurnOutcome::MalformedOutput,
-                reason,
-            };
-            self.state.stop = Some(stop.clone());
-            self.phase = Phase::Done;
-            return Parsed {
-                stop: Some(stop),
-                close_input: true,
-                ..Parsed::none()
-            };
+            return self.stop(TurnOutcome::MalformedOutput, reason);
+        }
+        if let Some(refusal) = self.task.refusal.clone() {
+            return self.stop(refusal.outcome, refusal.reason);
         }
         let caps = result.get("agentCapabilities");
         let can = |pointer: &str| {
@@ -162,13 +232,14 @@ impl AcpTurn {
                 .is_some_and(|v| !v.is_null() && v != &json!(false))
         };
         let cwd = self.task.working_dir.display().to_string();
+        let resume = !self.task.load_to_resume && can("/sessionCapabilities/resume");
         let (method, params) = match &self.task.session {
             ProviderSession::New { .. } => (
                 "session/new",
                 json!({ "cwd": cwd, "mcpServers": self.mcp_servers() }),
             ),
             // `session/resume` does not replay the history; `session/load` does.
-            ProviderSession::Resume { id } if can("/sessionCapabilities/resume") => (
+            ProviderSession::Resume { id } if resume => (
                 "session/resume",
                 json!({ "sessionId": id, "cwd": cwd, "mcpServers": self.mcp_servers() }),
             ),
@@ -204,14 +275,90 @@ impl AcpTurn {
                 self.label()
             ));
         };
+        let options = result.get("configOptions");
         let model = ["/models/currentModelId", "/_meta/modelState/currentModelId"]
             .iter()
             .find_map(|p| result.pointer(p).and_then(Value::as_str))
-            .map(str::to_owned);
+            .map(str::to_owned)
+            .or_else(|| options.and_then(|o| option_value(o, "model")));
         if model.is_some() {
             self.state.model = model;
         }
-        self.state.provider_session_id = Some(id.clone());
+        if let Some(mode) = result
+            .pointer("/modes/currentModeId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| options.and_then(|o| option_value(o, "mode")))
+        {
+            self.mode = Some(mode);
+        }
+        self.state.provider_session_id = Some(id);
+        self.phase = Phase::Configuring;
+        self.next_setting()
+    }
+
+    /// Send the next session setting, or the prompt once they are all set.
+    fn next_setting(&mut self) -> Parsed {
+        let Some((option, value)) = self.task.settings.get(self.setting).cloned() else {
+            return self.send_prompt();
+        };
+        let session = self.state.provider_session_id.clone().unwrap_or_default();
+        Parsed {
+            send: vec![request(
+                SETTING + self.setting as u64,
+                "session/set_config_option",
+                json!({ "sessionId": session, "configId": option, "value": value }),
+            )],
+            ..Parsed::none()
+        }
+    }
+
+    /// The tool answered a setting: it must now hold the value asked for.
+    fn setting_set(&mut self, result: &Value) -> Parsed {
+        let (option, value) = self.task.settings[self.setting].clone();
+        let reported = result
+            .get("configOptions")
+            .and_then(|o| option_value(o, &option));
+        if let Some(now) = reported.filter(|now| *now != value) {
+            return self.fail(format!(
+                "{} did not take the setting {option} = {value} (it reports {now}).",
+                self.label()
+            ));
+        }
+        match option.as_str() {
+            "model" => self.state.model = Some(value),
+            "mode" => self.mode = Some(value),
+            _ => {}
+        }
+        self.setting += 1;
+        self.next_setting()
+    }
+
+    /// Whether the tool's `mode` is one the adapter allows.
+    fn mode_allowed(&self, mode: &str) -> bool {
+        self.task.allowed_modes.is_empty() || self.task.allowed_modes.iter().any(|m| m == mode)
+    }
+
+    fn mode_stop(&mut self, mode: &str) -> Parsed {
+        let reason = format!(
+            "{} switched to its \"{}\" mode, which Plenipo does not allow; the task was stopped.",
+            self.label(),
+            first_line(mode, 40)
+        );
+        self.stop(TurnOutcome::Failed, reason)
+    }
+
+    /// The tool reported its mode during the task.
+    fn mode_reported(&mut self, mode: &str) -> Option<Parsed> {
+        self.mode = Some(mode.to_owned());
+        (!self.mode_allowed(mode)).then(|| self.mode_stop(mode))
+    }
+
+    fn send_prompt(&mut self) -> Parsed {
+        if let Some(mode) = self.mode.clone().filter(|m| !self.mode_allowed(m)) {
+            return self.mode_stop(&mode);
+        }
+        let id = self.state.provider_session_id.clone().unwrap_or_default();
         self.phase = Phase::Prompting;
         let prompt = request(
             PROMPT,
@@ -263,24 +410,23 @@ impl AcpTurn {
     }
 
     fn response(&mut self, id: Option<u64>, message: &Value) -> Parsed {
+        let setting = (self.phase == Phase::Configuring).then(|| SETTING + self.setting as u64);
         if let Some(error) = message.get("error") {
             let text = error_text(error);
-            return match id {
-                Some(INITIALIZE | OPEN | PROMPT) => {
-                    let mut parsed = self.fail(text);
-                    parsed.events.extend(self.flush_message());
-                    parsed
-                }
-                _ => {
-                    self.state.unknown += 1;
-                    Parsed::none()
-                }
-            };
+            let ours = matches!(id, Some(INITIALIZE | OPEN | PROMPT)) || id == setting;
+            if !ours {
+                self.state.unknown += 1;
+                return Parsed::none();
+            }
+            let mut parsed = self.fail(text);
+            parsed.events.extend(self.flush_message());
+            return parsed;
         }
         let result = message.get("result").cloned().unwrap_or(Value::Null);
         match (id, self.phase) {
             (Some(INITIALIZE), Phase::Initializing) => self.initialized(&result),
             (Some(OPEN), Phase::Opening) => self.opened(&result),
+            (Some(n), Phase::Configuring) if Some(n) == setting => self.setting_set(&result),
             (Some(PROMPT), Phase::Prompting) => self.prompted(&result),
             _ => {
                 self.state.unknown += 1;
@@ -291,27 +437,91 @@ impl AcpTurn {
 
     /// A request from the tool, which must be answered.
     fn request_from_tool(&mut self, id: &Value, method: &str, params: &Value) -> Parsed {
-        if method != "session/request_permission" {
-            // Plenipo offers no file, terminal, or other client methods.
-            return Parsed {
-                send: vec![json!({
-                    "jsonrpc": "2.0", "id": id,
-                    "error": { "code": -32601, "message": "Method not found" }
-                })
-                .to_string()],
+        match method {
+            "session/request_permission" => self.permission(id, params),
+            "fs/read_text_file" | "fs/write_text_file" if self.task.file_access => {
+                self.file(id, method == "fs/write_text_file", params)
+            }
+            // Plenipo offers no terminal, and no other client methods.
+            _ => Parsed {
+                send: vec![reply_error(id, -32601, "Method not found")],
                 ..Parsed::none()
-            };
+            },
         }
+    }
+
+    /// Whether a permission request is for a tool of Plenipo's tool server.
+    fn is_server_call(&self, call: &Value, server: &ToolServer) -> bool {
+        is_tool_server_call(call, &server.name)
+            || (self.task.title_is_tool_name
+                && call
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| names_server_tool(t, server)))
+    }
+
+    /// The worker may change files: its grant offers Plenipo's `write_file`.
+    fn can_write(&self) -> bool {
+        self.task
+            .tools
+            .as_ref()
+            .is_some_and(|t| t.tools.iter().any(|n| n == WRITE_TOOL))
+    }
+
+    fn permission(&mut self, id: &Value, params: &Value) -> Parsed {
         let call = params.get("toolCall").unwrap_or(&Value::Null);
-        let allowed = self
+        let call_id = call
+            .get("toolCallId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let kind = call
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                let known = self.calls.get(call_id.as_deref()?)?;
+                known.kind.clone()
+            });
+        let what = call_name(call);
+        let label = self.label();
+        let server_call = self
             .task
             .tools
             .as_ref()
-            .is_some_and(|t| is_tool_server_call(call, &t.name));
-        let wanted: &[&str] = if allowed {
-            &["allow_once", "allow_always"]
+            .is_some_and(|t| self.is_server_call(call, t));
+        let own_edit = !server_call && self.task.file_access && kind.as_deref() == Some("edit");
+        // Why the request is refused, as the task's activity says it; `None` allows it.
+        let refusal = if server_call {
+            None
+        } else if !self.task.file_access {
+            Some(format!(
+                "{label} asked to use {what}; Plenipo refused it (only Plenipo's own tools are \
+                 allowed)."
+            ))
+        } else if kind.as_deref() == Some("execute") {
+            Some(format!(
+                "{label} asked to run a command with its own shell ({what}); Plenipo refused it. \
+                 Workers run programs with Plenipo's run_command tool."
+            ))
+        } else if own_edit {
+            (!self.can_write()).then(|| {
+                format!(
+                    "{label} asked to change a file ({what}); Plenipo refused it: this worker has \
+                     no permission to change files."
+                )
+            })
         } else {
-            &["reject_once", "reject_always"]
+            Some(format!(
+                "{label} asked to use {what}; Plenipo refused it (only Plenipo's own tools and \
+                 file access through Plenipo are allowed)."
+            ))
+        };
+        // Each approval covers one action (ADR-013); with file access through Plenipo, never a
+        // whole session (ADR-018).
+        let wanted: &[&str] = match (&refusal, self.task.file_access) {
+            (None, true) => &["allow_once"],
+            (None, false) => &["allow_once", "allow_always"],
+            (Some(_), _) => &["reject_once", "reject_always"],
         };
         let options = params.get("options").and_then(Value::as_array);
         let choice = wanted.iter().find_map(|kind| {
@@ -320,6 +530,10 @@ impl AcpTurn {
                 .find(|o| o.get("kind").and_then(Value::as_str) == Some(kind))
                 .and_then(|o| o.get("optionId").cloned())
         });
+        if let (true, None, Some(_), Some(call_id)) = (own_edit, &refusal, &choice, call_id) {
+            // The change itself must now come to Plenipo as `fs/write_text_file`.
+            self.unwritten.insert(call_id);
+        }
         let outcome = match choice {
             Some(option) => json!({ "outcome": "selected", "optionId": option }),
             None => json!({ "outcome": "cancelled" }),
@@ -330,18 +544,86 @@ impl AcpTurn {
             ],
             ..Parsed::none()
         };
-        if !allowed {
-            let what = call_name(call);
+        if let Some(text) = refusal {
             parsed.events.push(AgentEvent::Notice {
                 level: NoticeLevel::Info,
-                text: format!(
-                    "{} asked to use {what}; Plenipo refused it (only Plenipo's own tools are \
-                     allowed).",
-                    self.label()
-                ),
+                text,
             });
         }
         parsed
+    }
+
+    /// The tool asks Plenipo to read or write a file for it (ADR-018).
+    fn file(&mut self, id: &Value, write: bool, params: &Value) -> Parsed {
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .filter(|p| !p.trim().is_empty());
+        let content = params.get("content").and_then(Value::as_str);
+        let same_session = match (
+            params.get("sessionId").and_then(Value::as_str),
+            &self.state.provider_session_id,
+        ) {
+            (Some(asked), Some(ours)) => asked == ours,
+            _ => true,
+        };
+        let (Some(path), true, true) = (path, same_session, !write || content.is_some()) else {
+            return Parsed {
+                send: vec![reply_error(id, -32602, "Invalid params")],
+                ..Parsed::none()
+            };
+        };
+        if self.task.tools.is_none() {
+            let mut parsed = Parsed {
+                send: vec![reply_error(
+                    id,
+                    -32000,
+                    "Not done: this worker has no permission to use files. Do not try to get \
+                     around this; say in your answer what you needed.",
+                )],
+                ..Parsed::none()
+            };
+            if !std::mem::replace(&mut self.files_refused_noted, true) {
+                parsed.events.push(AgentEvent::Notice {
+                    level: NoticeLevel::Info,
+                    text: format!(
+                        "{} asked to open a file; this worker has no permission to use files, \
+                         so Plenipo refused.",
+                        self.label()
+                    ),
+                });
+            }
+            return parsed;
+        }
+        let access = if write {
+            // The tool's allowed changes are now coming to Plenipo.
+            self.unwritten.clear();
+            FileAccess::Write {
+                path: path.to_owned(),
+                content: content.unwrap_or_default().to_owned(),
+            }
+        } else {
+            let number = |key: &str| {
+                params
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .and_then(|n| usize::try_from(n).ok())
+            };
+            FileAccess::Read {
+                path: path.to_owned(),
+                line: number("line"),
+                limit: number("limit"),
+            }
+        };
+        self.next_file += 1;
+        self.files.insert(self.next_file, (id.clone(), write));
+        Parsed {
+            files: vec![FileRequest {
+                id: self.next_file,
+                access,
+            }],
+            ..Parsed::none()
+        }
     }
 
     fn update(&mut self, params: &Value) -> Parsed {
@@ -351,7 +633,8 @@ impl AcpTurn {
             .and_then(Value::as_str)
             .unwrap_or("");
         if self.phase != Phase::Prompting {
-            // History replayed while a conversation loads, or noise before the prompt.
+            // History replayed while a conversation loads, the tool's answers to the settings,
+            // or noise before the prompt.
             return Parsed::none();
         }
         let mut parsed = Parsed::none();
@@ -366,40 +649,90 @@ impl AcpTurn {
             }
             "tool_call" => {
                 parsed.events.extend(self.flush_message());
+                let text = |key: &str| update.get(key).and_then(Value::as_str).map(str::to_owned);
+                if let Some(id) = text("toolCallId") {
+                    if self.calls.len() >= MAX_CALLS {
+                        self.calls.clear();
+                    }
+                    self.calls.insert(
+                        id,
+                        Call {
+                            title: text("title"),
+                            kind: text("kind"),
+                        },
+                    );
+                }
                 let input = update.get("rawInput").unwrap_or(&Value::Null);
                 parsed.events.push(AgentEvent::ToolUse {
                     tool: call_name(update),
                     summary: tool_summary(input),
                 });
             }
-            "tool_call_update" => {
-                let status = update.get("status").and_then(Value::as_str);
-                if matches!(status, Some("completed" | "failed")) {
-                    let text = update
-                        .pointer("/content/0/content/text")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    parsed.events.push(AgentEvent::ToolResult {
-                        tool: update
-                            .get("title")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
-                        is_error: status == Some("failed"),
-                        summary: first_line(text, 200),
-                    });
+            "tool_call_update" => return self.call_updated(update),
+            "current_mode_update" => {
+                if let Some(mode) = update.get("currentModeId").and_then(Value::as_str) {
+                    return self.mode_reported(mode).unwrap_or_default();
+                }
+            }
+            "config_option_update" => {
+                if let Some(mode) = update
+                    .get("configOptions")
+                    .and_then(|o| option_value(o, "mode"))
+                {
+                    return self.mode_reported(&mode).unwrap_or_default();
                 }
             }
             "agent_thought_chunk"
             | "user_message_chunk"
             | "plan"
             | "available_commands_update"
-            | "current_mode_update"
-            | "config_option_update"
             | "session_info_update"
             | "usage_update" => {}
             _ => self.state.unknown += 1,
         }
         parsed
+    }
+
+    fn call_updated(&mut self, update: &Value) -> Parsed {
+        let id = update.get("toolCallId").and_then(Value::as_str);
+        if let (Some(id), Some(kind)) = (id, update.get("kind").and_then(Value::as_str)) {
+            if let Some(call) = self.calls.get_mut(id) {
+                call.kind = Some(kind.to_owned());
+            }
+        }
+        let status = update.get("status").and_then(Value::as_str);
+        if !matches!(status, Some("completed" | "failed")) {
+            return Parsed::none();
+        }
+        let known = id.and_then(|i| self.calls.get(i));
+        let tool = update
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| known.and_then(|c| c.title.clone()));
+        let text = update
+            .pointer("/content/0/content/text")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let result = AgentEvent::ToolResult {
+            tool: tool.clone(),
+            is_error: status == Some("failed"),
+            summary: first_line(text, 200),
+        };
+        let unwritten = id.is_some_and(|i| self.unwritten.remove(i));
+        if unwritten && status == Some("completed") {
+            // An allowed change that never came to Plenipo: it happened outside Guard.
+            let reason = format!(
+                "{} reported a file change ({}) that did not go through Plenipo; the task was \
+                 stopped.",
+                self.label(),
+                tool.as_deref().unwrap_or("a file tool")
+            );
+            let mut parsed = self.stop(TurnOutcome::Failed, reason);
+            parsed.events.push(result);
+            return parsed;
+        }
+        Parsed::one(result)
     }
 }
 
@@ -407,13 +740,14 @@ impl TurnParser for AcpTurn {
     fn open(&mut self, prompt: &str) -> Option<Vec<String>> {
         self.prompt = prompt.to_owned();
         self.phase = Phase::Initializing;
+        let files = self.task.file_access;
         Some(vec![request(
             INITIALIZE,
             "initialize",
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {
-                    "fs": { "readTextFile": false, "writeTextFile": false },
+                    "fs": { "readTextFile": files, "writeTextFile": files },
                     "terminal": false,
                 },
                 "clientInfo": { "name": "plenipo", "version": env!("CARGO_PKG_VERSION") },
@@ -473,6 +807,24 @@ impl TurnParser for AcpTurn {
         parsed
     }
 
+    fn file_answered(&mut self, id: u64, answer: FileAnswer) -> Parsed {
+        let Some((request, write)) = self.files.remove(&id) else {
+            return Parsed::none();
+        };
+        let line = match answer {
+            Ok(_) if write => json!({ "jsonrpc": "2.0", "id": request, "result": {} }).to_string(),
+            Ok(content) => {
+                json!({ "jsonrpc": "2.0", "id": request, "result": { "content": content } })
+                    .to_string()
+            }
+            Err(why) => reply_error(&request, -32000, &why),
+        };
+        Parsed {
+            send: vec![line],
+            ..Parsed::none()
+        }
+    }
+
     fn stderr(&mut self, text: &str) {
         self.state.stderr(text);
     }
@@ -503,6 +855,11 @@ fn request(id: u64, method: &str, params: Value) -> String {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string()
 }
 
+/// One JSON-RPC error answer line.
+fn reply_error(id: &Value, code: i64, message: &str) -> String {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } }).to_string()
+}
+
 /// A JSON-RPC error as one line: its message, and its data when that is text.
 fn error_text(error: &Value) -> String {
     let message = error
@@ -515,6 +872,21 @@ fn error_text(error: &Value) -> String {
     }
 }
 
+/// The current value of a session setting in a `configOptions` list, found by its ID or its
+/// category (`model`, `mode`, `thought_level`, …).
+fn option_value(options: &Value, option: &str) -> Option<String> {
+    options
+        .as_array()?
+        .iter()
+        .find(|o| {
+            o.get("id").and_then(Value::as_str) == Some(option)
+                || o.get("category").and_then(Value::as_str) == Some(option)
+        })?
+        .get("currentValue")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 /// A tool call's name, as the tool reports it.
 fn call_name(call: &Value) -> String {
     ["/_meta/toolName", "/toolName", "/title", "/kind"]
@@ -524,20 +896,29 @@ fn call_name(call: &Value) -> String {
         .map_or_else(|| "a tool".to_owned(), |s| first_line(s, 80))
 }
 
+/// Whether a tool name carries the name of the tool server `server` before it
+/// (`mcp__plenipo__read`, `plenipo__read`, `plenipo:read`, `plenipo/read`).
+fn has_server_prefix(name: &str, server: &str) -> bool {
+    let name = name.strip_prefix("mcp__").unwrap_or(name);
+    [
+        format!("{server}__"),
+        format!("{server}:"),
+        format!("{server}/"),
+    ]
+    .iter()
+    .any(|p| name.starts_with(p.as_str()))
+}
+
+/// Whether `name` is a tool of `server`: with the server's name before it, or bare and one of
+/// the tools the server offers.
+fn names_server_tool(name: &str, server: &ToolServer) -> bool {
+    has_server_prefix(name, &server.name) || server.tools.iter().any(|t| t == name)
+}
+
 /// Whether a permission request is for a tool of the server named `server`: its tool name
 /// carries the server's name as a prefix (`mcp__plenipo__read`, `plenipo__read`,
 /// `plenipo:read`), or its input names the server (a generic "use a tool server's tool" call).
 pub fn is_tool_server_call(call: &Value, server: &str) -> bool {
-    let prefixed = |name: &str| {
-        let name = name.strip_prefix("mcp__").unwrap_or(name);
-        [
-            format!("{server}__"),
-            format!("{server}:"),
-            format!("{server}/"),
-        ]
-        .iter()
-        .any(|p| name.starts_with(p.as_str()))
-    };
     let names = ["/_meta/toolName", "/toolName"]
         .iter()
         .filter_map(|p| call.pointer(p).and_then(Value::as_str));
@@ -548,7 +929,7 @@ pub fn is_tool_server_call(call: &Value, server: &str) -> bool {
                 .and_then(Value::as_str)
         })
         .any(|s| s == server);
-    input_server || names.into_iter().any(prefixed)
+    input_server || names.into_iter().any(|n| has_server_prefix(n, server))
 }
 
 /// Token usage from a `session/prompt` answer (`usage` or `_meta.usage`, either naming).
@@ -604,9 +985,11 @@ mod tests {
                 args: vec!["--plenipo-tools=ticket".into()],
                 config_file: "/app/tools.json".into(),
                 call_timeout: std::time::Duration::from_secs(60),
+                tools: vec!["read_file".into(), "write_file".into()],
             }),
             model: Some("grok-4.6".into()),
             session_meta: Some(json!({ "agentProfile": { "tools": [] } })),
+            ..AcpTask::default()
         }
     }
 

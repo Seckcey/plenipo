@@ -5,8 +5,9 @@ Phase 15. It walks through the `RuntimeAdapter` trait in
 [`crates/runtime/src/agent/adapter.rs`](../../crates/runtime/src/agent/adapter.rs), using the
 adapters that ship today as worked examples:
 [`claude_code.rs`](../../crates/runtime/src/agent/claude_code.rs) (Claude Code),
-[`codex.rs`](../../crates/runtime/src/agent/codex.rs) (Codex), and, for a tool that talks over
-ACP, [`grok.rs`](../../crates/runtime/src/agent/grok.rs) (Grok; see
+[`codex.rs`](../../crates/runtime/src/agent/codex.rs) (Codex), and, for tools that talk over
+ACP, [`grok.rs`](../../crates/runtime/src/agent/grok.rs) (Grok) and
+[`kimi.rs`](../../crates/runtime/src/agent/kimi.rs) (Kimi; see
 [§11](#11-a-tool-that-talks-over-acp)).
 
 Four decision records set the rules:
@@ -19,6 +20,9 @@ Four decision records set the rules:
   settings are for.
 - **ADR-015 (running AI tools over ACP)** lets a tool whose one-task mode cannot read the prompt
   from stdin run over ACP instead, where the prompt also goes in on stdin.
+- **ADR-018 (Kimi over ACP, with its file reads and writes going through Plenipo)** covers an
+  ACP tool whose own tools cannot be switched off: Plenipo offers it file access and answers each
+  file request through Guard.
 
 In code, an AI tool is a _runtime_ and its company is a _provider_. On screen they are "AI tool"
 and "AI company" ([word list](../design/vocabulary.md)).
@@ -398,6 +402,26 @@ What differs from a one-way adapter:
 - **The fake CLI** answers ACP messages: see the `grok` persona in `plenipo-fake-agent`
   (`initialize`, `session/new`/`resume`/`load`, `session/prompt`, a permission request before
   each tool call, `session/cancel` during `[slow]`).
+
+### When the tool's own tools cannot be switched off (ADR-018)
+
+Kimi is the example ([`kimi.rs`](../../crates/runtime/src/agent/kimi.rs)). Its built-in tools
+have no off switch, so the adapter turns on the driver's options for such a tool in its
+`AcpTask`:
+
+| `AcpTask` field      | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file_access`        | `initialize` offers file reads and writes, so the tool asks Plenipo for every file. Each `fs/read_text_file` / `fs/write_text_file` becomes a `FileRequest` in `Parsed::files`; the service carries it out with `ToolProvider::file_access` (Guard decides, as for the worker's own `read_file` / `write_file`) and hands the answer to `TurnParser::file_answered`. Without a grant, every file request is refused. The tool's own shell (`execute`) is refused; its own file changes (`edit`) are allowed once only when the grant offers `write_file`, and a change it reports done that never came to Plenipo stops the task. No approval covers a whole session. |
+| `settings`           | Session settings sent with `session/set_config_option` before the prompt, in order (Kimi: `mode`, `model`, `thinking`); each answer must show the value asked for.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `allowed_modes`      | The only modes the tool may be in once the prompt is sent (Kimi: `default`, `plan`); any other stops the task.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `load_to_resume`     | Reopen a conversation with `session/load` even when `session/resume` is offered (the way checked on the real CLI).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `title_is_tool_name` | The permission request's title is the tool's name, so a Plenipo tool named there (bare, or as `plenipo__…` / `mcp__plenipo__…`) counts as a call to Plenipo's tool server. Bare names count only when the step's `ToolServer::tools` lists them.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `refusal`            | Stop the task as soon as the tool answers `initialize`, before any conversation opens (Kimi: a model outside its subscription's `kimi-code/…`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+Its arguments are just `acp`: the model and effort are settings, not flags, and the contract suite
+accepts them in the messages. The fake's `kimi` persona asks for files the same way; its markers
+`[own-read:PATH]`, `[own-write:PATH|TEXT]`, `[write-around:PATH|TEXT]`, `[own-shell]`,
+`[settings]`, and `[yolo]` exercise each rule.
 
 ## Checklist for a tool branch
 

@@ -1,6 +1,6 @@
 //! Phase 3 runtime adapter tests: the real session service, supervisor, and adapters driving
-//! `plenipo-fake-agent` installed as `claude` and `codex`. Each plan test runs for both
-//! runtimes. No network, no accounts.
+//! `plenipo-fake-agent` installed as each AI tool (`claude`, `codex`, `grok`, `kimi`, and
+//! `ollama`). Each plan test runs for every tool it applies to. No network, no accounts.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,7 +18,7 @@ use plenipo_runtime::{
     RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
-const RUNTIMES: [&str; 3] = ["claude-code", "codex", "grok"];
+const RUNTIMES: [&str; 4] = ["claude-code", "codex", "grok", "kimi"];
 const WAIT: Duration = Duration::from_secs(30);
 const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
@@ -146,15 +146,24 @@ impl H {
             .unwrap()
     }
 
-    /// The provider session a follow-up resumed: from the arguments, or, for Grok (ACP,
-    /// ADR-015), from the message that opened the session.
+    /// What Plenipo last sent to open an ACP session (ADR-015).
+    fn last_acp(&self) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(self.state().join("last-acp.json")).unwrap())
+            .unwrap()
+    }
+
+    /// The provider session a follow-up resumed: from the arguments, or, for Grok and Kimi
+    /// (ACP, ADR-015), from the message that opened the session.
     fn resumed(&self, runtime: &str) -> String {
-        if runtime == "grok" {
-            let acp: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(self.state().join("last-acp.json")).unwrap(),
-            )
-            .unwrap();
-            assert_eq!(acp["method"], "session/resume", "{acp}");
+        if matches!(runtime, "grok" | "kimi") {
+            let acp = self.last_acp();
+            // Grok resumes; Kimi loads, the way checked on the real CLI (ADR-018).
+            let method = if runtime == "grok" {
+                "session/resume"
+            } else {
+                "session/load"
+            };
+            assert_eq!(acp["method"], method, "{acp}");
             return acp["params"]["sessionId"].as_str().unwrap().to_owned();
         }
         let flag = if runtime == "claude-code" {
@@ -282,10 +291,10 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 4);
+    assert_eq!(runtimes.len(), 5);
     for (info, version) in runtimes
         .iter()
-        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.4"])
+        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4"])
     {
         assert_eq!(
             info.installation.state,
@@ -308,8 +317,9 @@ async fn installation_detection() {
     );
     assert_eq!(runtimes[1].auth.method.as_deref(), Some("ChatGPT sign-in"));
     assert_eq!(runtimes[2].auth.method.as_deref(), Some("grok.com sign-in"));
+    assert_eq!(runtimes[3].auth.method.as_deref(), Some("Kimi sign-in"));
     assert_eq!(
-        runtimes[3].auth.method.as_deref(),
+        runtimes[4].auth.method.as_deref(),
         Some("Ollama sign-in (free plan)")
     );
     // No account identifier from the status output is kept.
@@ -519,7 +529,13 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
             result.text.as_deref(),
             Some("Turn 1: you said \"hello there\". Previous: None.")
         );
-        assert!(result.usage.is_some_and(|u| u.output_tokens > 0));
+        // Kimi 0.34.0 reports no token counts over ACP (only its context size).
+        let counts_tokens = runtime != "kimi";
+        assert_eq!(
+            result.usage.is_some_and(|u| u.output_tokens > 0),
+            counts_tokens,
+            "{runtime}"
+        );
         assert_eq!(turn.number, 1);
         assert_eq!(turn.objective, "hello there");
 
@@ -576,7 +592,7 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
             agent.provider_session_id.as_deref(),
             Some(provider_id.as_str())
         );
-        assert!(agent.usage.is_some());
+        assert_eq!(agent.usage.is_some(), counts_tokens, "{runtime}");
         let args = h.last_args();
         assert!(!args.iter().any(|a| a.contains("hello")), "{args:?}");
         assert_eq!(exec.args, args);
@@ -679,9 +695,9 @@ async fn cancellation_stops_the_turn_and_the_session_stays_resumable() {
         assert!(!turn.running, "{runtime}: recorded before cancel returns");
         assert_eq!(outcome(turn), TurnOutcome::Cancelled);
         let exec = h.sup.record(turn.execution_id.as_deref().unwrap()).unwrap();
-        // A tool that talks (Grok, ADR-015) is asked to stop and ends by itself; the others
-        // are ended by Plenipo.
-        let ended = if runtime == "grok" {
+        // A tool that talks (Grok and Kimi, ADR-015) is asked to stop and ends by itself; the
+        // others are ended by Plenipo.
+        let ended = if matches!(runtime, "grok" | "kimi") {
             ExecutionState::Succeeded
         } else {
             ExecutionState::Cancelled
@@ -1553,4 +1569,146 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
         .await
         .unwrap_err();
     assert!(matches!(err, RuntimeError::Store(_)), "{err}");
+}
+
+// ---- Kimi (ADR-018: Kimi over ACP, with its file reads and writes going through Plenipo) ------
+
+async fn run_kimi(
+    h: &H,
+    objective: &str,
+    model: Option<&str>,
+    effort: Option<Effort>,
+) -> (AgentSessionDetail, AgentTurn) {
+    let started =
+        h.rt.start_session_with(
+            SessionStart {
+                runtime_id: "kimi".into(),
+                model: model.map(str::to_owned),
+                effort,
+                ..SessionStart::default()
+            },
+            TurnInput::owner(objective),
+        )
+        .await
+        .unwrap();
+    let detail = settled(&h.rt, &started.session.id, 1).await;
+    let turn = detail.turns.last().unwrap().clone();
+    (detail, turn)
+}
+
+#[tokio::test]
+async fn kimi_takes_its_mode_model_and_thinking_level_before_the_prompt() {
+    let h = harness();
+    let (detail, turn) = run_kimi(
+        &h,
+        "hello [settings]",
+        Some("kimi-code/kimi-for-coding-highspeed"),
+        Some(Effort::Low),
+    )
+    .await;
+    let result = turn.result.unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Completed, "{result:#?}");
+    // A worker without Plenipo's tools runs in Kimi's read-only mode.
+    assert!(
+        result.text.as_deref().unwrap().contains(
+            "Settings: model kimi-code/kimi-for-coding-highspeed, thinking low, mode plan."
+        ),
+        "{result:#?}"
+    );
+    assert_eq!(
+        detail.session.model.as_deref(),
+        Some("kimi-code/kimi-for-coding-highspeed")
+    );
+    let acp = h.last_acp();
+    assert_eq!(
+        acp["settings"],
+        serde_json::json!([
+            ["mode", "plan"],
+            ["model", "kimi-code/kimi-for-coding-highspeed"],
+            ["thinking", "low"]
+        ])
+    );
+    // File access through Plenipo; no terminal; the prompt only on stdin.
+    let caps = &acp["initialize"]["clientCapabilities"];
+    assert_eq!(caps["fs"]["readTextFile"], true);
+    assert_eq!(caps["terminal"], false);
+    assert_eq!(h.last_args(), ["acp"]);
+    assert!(!h.state().join("authenticate-called").exists());
+
+    // No model named: Kimi's default is named anyway, never Kimi's own setting.
+    let h = harness();
+    let (_, turn) = run_kimi(&h, "hi [settings]", None, None).await;
+    assert!(turn
+        .result
+        .unwrap()
+        .text
+        .unwrap()
+        .contains("model kimi-code/k3,"));
+    assert_eq!(
+        h.last_acp()["settings"],
+        serde_json::json!([["mode", "plan"], ["model", "kimi-code/k3"]])
+    );
+}
+
+#[tokio::test]
+async fn kimi_without_permissions_reads_changes_and_runs_nothing() {
+    let h = harness();
+    let secret = h.dir.path().join("secret.txt");
+    std::fs::write(&secret, "do not read").unwrap();
+    let objective = format!(
+        "try [own-read:{}] [own-write:made.txt|x] [own-shell]",
+        secret.display()
+    );
+    let (_, turn) = run_kimi(&h, &objective, None, None).await;
+    let result = turn.result.unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Completed, "{result:#?}");
+    let text = result.text.unwrap();
+    assert!(
+        text.contains("failed: Not done: this worker has no permission"),
+        "{text}"
+    );
+    assert!(!text.contains("do not read"), "{text}");
+    assert!(text.contains("Write made.txt answer: reject."), "{text}");
+    assert!(text.contains("Shell answer: reject."), "{text}");
+    let activity = h.store.activity(&turn.task_id);
+    let notices: Vec<String> = activity
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Notice { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        notices.iter().any(|n| n.contains("run_command")),
+        "{notices:?}"
+    );
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.contains("no permission to use files")),
+        "{notices:?}"
+    );
+}
+
+#[tokio::test]
+async fn kimi_is_stopped_when_it_leaves_the_modes_plenipo_allows() {
+    let h = harness();
+    let (_, turn) = run_kimi(&h, "go [yolo] [delay:2000]", None, None).await;
+    let result = turn.result.unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Failed, "{result:#?}");
+    assert!(result.summary.contains("\"yolo\""), "{}", result.summary);
+}
+
+#[tokio::test]
+async fn kimi_runs_only_the_subscription_models() {
+    let h = harness();
+    let (_, turn) = run_kimi(&h, "hi", Some("moonshot/kimi-k2"), None).await;
+    let result = turn.result.unwrap();
+    assert_eq!(
+        result.outcome,
+        TurnOutcome::BillingNotAllowed,
+        "{result:#?}"
+    );
+    // Refused before any conversation was opened.
+    assert!(h.last_acp().get("method").is_none());
 }

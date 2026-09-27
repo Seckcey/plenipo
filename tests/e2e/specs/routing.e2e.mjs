@@ -229,6 +229,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "Claude Code (default model)",
       "Codex (default model)",
       "Grok (default model)",
+      "Kimi (default model)",
     ]) {
       assert.ok(models.includes(m), `${m} listed`);
     }
@@ -300,6 +301,20 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "Type another name…",
     ]);
     await screenshot(browser, "models-add-menu-grok");
+    // Kimi's models carry their provider's name (ADR-018): only the Kimi subscription's.
+    await chooseTool("Kimi");
+    await waitUntil(
+      async () => (await menuOptions()).includes("kimi-code/k3"),
+      "Kimi's models in the menu",
+    );
+    assert.deepEqual((await menuOptions()).slice(0, 6), [
+      "The AI tool's default (already in your list)",
+      "kimi-code/k3",
+      "kimi-code/k3-256k",
+      "kimi-code/kimi-for-coding",
+      "kimi-code/kimi-for-coding-highspeed",
+      "Type another name…",
+    ]);
     await chooseTool("Claude Code");
     await waitUntil(
       async () => (await menuOptions()).includes("sonnet"),

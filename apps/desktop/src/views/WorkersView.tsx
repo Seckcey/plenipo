@@ -142,11 +142,12 @@ export function WorkersView({
     <section className="view" aria-labelledby="workers-title">
       <h1 id="workers-title">Workers</h1>
       <p className="view__lead">
-        Give an objective to an AI worker. It runs on your own signed-in Claude Code, Codex, or
-        Grok, or Ollama, watched over by Plenipo, and every step is recorded in the Ledger. Tasks
+        Give an objective to an AI worker. It runs on your own signed-in Claude Code, Codex, Grok,
+        Kimi, or Ollama, watched over by Plenipo, and every step is recorded in the Ledger. Tasks
         you start here cannot change files or use the internet: Claude Code and Grok get none of
-        their own tools, Codex runs read-only, and Ollama only answers in text. With handoffs
-        allowed, a worker can ask a worker on another AI tool for help through Plenipo Liaison.
+        their own tools, Kimi runs in its read-only mode and Plenipo refuses it every file, Codex
+        runs read-only, and Ollama only answers in text. With handoffs allowed, a worker can ask a
+        worker on another AI tool for help through Plenipo Liaison.
       </p>
 
       {state.status === "error" && (

@@ -244,7 +244,12 @@ async fn harness_on(supervisor_tool: &str) -> H {
             description: String::new(),
             repository_url: None,
             local_path: Some(folder.display().to_string()),
-            allowed_runtimes: vec!["claude-code".into(), "codex".into(), "grok".into()],
+            allowed_runtimes: vec![
+                "claude-code".into(),
+                "codex".into(),
+                "grok".into(),
+                "kimi".into(),
+            ],
             capability_profile: None,
             branch_per_objective: None,
             department_id: Some(department),
@@ -540,6 +545,153 @@ async fn a_grok_worker_uses_plenipo_tools_over_acp_and_nothing_else() {
     assert!(
         h.broker.grants().is_empty(),
         "the grant ended with the step"
+    );
+}
+
+/// Kimi's own read of `path` (an absolute path, as Kimi sends them).
+fn own_read(path: &Path) -> String {
+    format!("[own-read:{}]", path.display())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kimi_worker_reads_only_through_guard_and_never_uses_its_own_shell() {
+    // Kimi (ADR-018): every file Kimi reads comes to Plenipo, which answers it through Guard;
+    // its own file changes need a worker that may change files, and its shell is refused.
+    let h = harness_on("kimi").await;
+    let task = h
+        .objective(&format!(
+            "{} {} {} {} [own-write:{}|x] [own-shell] {}",
+            own_read(&h.folder.join("README.md")),
+            own_read(&h.dir.path().join("outside.txt")),
+            own_read(&h.folder.join(".env")),
+            own_read(&h.folder.join("config.txt")),
+            h.folder.join("notes.txt").display(),
+            tool("read_file", serde_json::json!({ "path": "README.md" })),
+        ))
+        .await;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    // Inside the folder: read, as it is.
+    let readme = h.folder.join("README.md").display().to_string();
+    assert!(
+        text.contains(&format!("Read {readme}: # Website")),
+        "{text}"
+    );
+    // Outside the folder, and a blocked file: refused by Guard, and Kimi is told why.
+    let refused = lines_of(&text, "Read ")
+        .into_iter()
+        .filter(|l| l.contains("failed: Blocked"))
+        .count();
+    assert_eq!(refused, 2, "{text}");
+    assert!(!text.contains("not yours"), "{text}");
+    assert!(!text.contains("postgres://"), "{text}");
+    // Secrets are hidden in what Kimi reads.
+    assert!(!text.contains("tok_12345678abcdef"), "{text}");
+    // The Supervisor's "Read only" set: Kimi may not change files, nor run its own shell.
+    let notes = h.folder.join("notes.txt").display().to_string();
+    assert!(
+        text.contains(&format!("Write {notes} answer: reject.")),
+        "{text}"
+    );
+    assert!(text.contains("Shell answer: reject."), "{text}");
+    assert!(!h.folder.join("notes.txt").exists());
+    // Plenipo's own tool, named by Kimi without the server's name: allowed, Guard decides.
+    assert!(
+        text.contains("Tool read_file: README.md (2 lines)"),
+        "{text}"
+    );
+    // Recorded like the worker's own calls, and marked as Kimi's own requests.
+    let used = h.events(&task, "capability.used");
+    assert_eq!(used.len(), 3, "{used:?}");
+    assert_eq!(
+        used.iter().filter(|u| u["fileRequest"] == true).count(),
+        2,
+        "{used:?}"
+    );
+    assert_eq!(h.events(&task, "guard.denied").len(), 2);
+    let notices = h.events(&task, "agent.notice");
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.to_string().contains("run_command")),
+        "{notices:?}"
+    );
+    assert!(
+        h.broker.grants().is_empty(),
+        "the grant ended with the step"
+    );
+    assert!(
+        !h.everything_recorded().contains("tok_12345678abcdef"),
+        "no secret recorded"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kimi_developer_changes_files_only_through_guard() {
+    let h = harness().await;
+    h.workforce
+        .hire(&HireInput {
+            role_id: h.role("Senior Developer"),
+            title: "Kimi Developer".into(),
+            reports_to: Some(h.supervisor.clone()),
+            runtime_id: Some("kimi".into()),
+            model: None,
+            vacant: None,
+        })
+        .unwrap();
+    let notes = h.folder.join("notes.txt");
+    let work = format!(
+        "[own-write:{}|hello from kimi] [own-write:{}|X=1] [own-shell]",
+        notes.display(),
+        h.folder.join(".env").display(),
+    );
+    let task = h.objective(&handoff("Kimi Developer", &work)).await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    let text = h.text(&child.id);
+    // Allowed once (never for the whole session), then written by Plenipo.
+    assert!(
+        text.contains(&format!(
+            "Write {} answer: approve_once; done.",
+            notes.display()
+        )),
+        "{text}"
+    );
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "hello from kimi");
+    // A blocked file stays blocked, whoever asks.
+    assert!(text.contains("approve_once; failed: Blocked"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(h.folder.join(".env")).unwrap(),
+        "DATABASE_URL=postgres://x\n"
+    );
+    assert!(text.contains("Shell answer: reject."), "{text}");
+    let used = h.events(&child.id, "capability.used");
+    assert!(
+        used.iter()
+            .any(|u| u["tool"] == "write_file" && u["fileRequest"] == true),
+        "{used:?}"
+    );
+    h.finished(&task).await;
+
+    // A change Kimi reports done without sending it to Plenipo stops the task.
+    let around = format!("[write-around:{}|x]", h.folder.join("other.txt").display());
+    let task = h.objective(&handoff("Kimi Developer", &around)).await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    let result = h
+        .ledger
+        .last_task_event(&child.id, "agent.result")
+        .unwrap()
+        .expect("a result");
+    let result: TurnResult = serde_json::from_value(result.payload).unwrap();
+    assert_eq!(
+        result.outcome,
+        plenipo_runtime::agent::TurnOutcome::Failed,
+        "{result:#?}"
+    );
+    assert!(
+        result.summary.contains("did not go through Plenipo"),
+        "{result:#?}"
     );
 }
 

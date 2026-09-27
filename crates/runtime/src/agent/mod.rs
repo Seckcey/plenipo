@@ -1,6 +1,6 @@
 //! Agent runtimes (Phase 3, ADR-007): provider-neutral adapter contract, the Claude Code,
-//! Codex, and Grok adapters, the shared ACP driver (ADR-015), CLI discovery, and the session
-//! service that runs turns under the supervisor.
+//! Codex, Grok, Kimi, and Ollama adapters, the shared ACP driver (ADR-015, ADR-018), CLI
+//! discovery, and the session service that runs turns under the supervisor.
 
 pub mod acp;
 pub mod adapter;
@@ -9,12 +9,13 @@ pub mod codex;
 pub mod discovery;
 pub mod dto;
 pub mod grok;
+pub mod kimi;
 pub mod memory_store;
 pub mod ollama;
 pub mod service;
 pub mod tools;
 
-pub use adapter::{ProviderSession, RuntimeAdapter, TurnParser, TurnRequest};
+pub use adapter::{FileRequest, ProviderSession, RuntimeAdapter, TurnParser, TurnRequest};
 pub use discovery::HostEnv;
 pub use dto::*;
 pub use memory_store::MemorySessionStore;
@@ -23,7 +24,9 @@ pub use service::{
     SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnRef, TurnTask,
     MAX_PROMPT_BYTES, OWNER, STEP_SEQ,
 };
-pub use tools::{StepInfo, StepTools, TextFilter, ToolProvider, ToolServer};
+pub use tools::{
+    FileAccess, FileAnswer, Pending, StepInfo, StepTools, TextFilter, ToolProvider, ToolServer,
+};
 
 /// The adapters this build ships, in display order.
 pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
@@ -31,6 +34,7 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
         std::sync::Arc::new(claude_code::ClaudeCode),
         std::sync::Arc::new(codex::Codex),
         std::sync::Arc::new(grok::Grok),
+        std::sync::Arc::new(kimi::Kimi),
         std::sync::Arc::new(ollama::Ollama),
     ]
 }
