@@ -338,6 +338,7 @@ impl Browser {
                 working_dir: config.profile_dir.clone(),
                 max_runtime: plenipo_runtime::profile::MAX_RUNTIME_LIMIT,
                 stdin: None,
+                stdin_feed: None,
                 max_line_bytes: None,
                 observer: None,
                 agent: None,

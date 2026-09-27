@@ -7,7 +7,7 @@ use std::sync::Arc;
 use plenipo_ledger::Ledger;
 use plenipo_liaison::store::LedgerSessionStore;
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv,
+    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, Bridge, HostEnv,
 };
 use plenipo_runtime::Supervisor;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
@@ -50,8 +50,14 @@ pub fn create<R: Runtime>(
             HostEnv::new(None, None, None),
         ),
     };
+    let mut config = AgentConfig::new(workspace_root);
+    // Plenipo itself is the Ollama bridge (ADR-017): `main` runs it before Tauri starts.
+    config.bridge = std::env::current_exe().ok().map(|executable| Bridge {
+        executable,
+        args: vec![plenipo_runtime::agent::ollama::bridge::ARG.into()],
+    });
     AgentRuntime::new(
-        AgentConfig::new(workspace_root),
+        config,
         builtin_adapters(),
         supervisor,
         Arc::new(LedgerSessionStore(ledger)),

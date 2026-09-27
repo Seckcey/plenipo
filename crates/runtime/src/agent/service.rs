@@ -31,7 +31,7 @@ use crate::agent::dto::*;
 use crate::agent::tools::{with_note, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, OutputLine, OutputStream};
 use crate::error::RuntimeError;
-use crate::profile::LaunchSpec;
+use crate::profile::{LaunchSpec, StdinFeed};
 use crate::supervisor::Supervisor;
 
 /// Longest objective accepted (characters).
@@ -42,6 +42,8 @@ pub const MAX_PROMPT_BYTES: usize = 256 * 1024;
 pub const STEP_SEQ: u64 = 1_000_000;
 /// Actor recorded for turns the person using the app asked for.
 pub const OWNER: &str = "owner";
+/// How long a task that talks (ADR-015) gets to stop itself when cancelled.
+const CANCEL_GRACE: Duration = Duration::from_secs(5);
 
 /// Where sessions and turns are recorded. The desktop app backs this with the Ledger.
 /// Calls may block (they run on a blocking thread).
@@ -212,6 +214,17 @@ pub struct AgentConfig {
     /// Extra fixed variables for every runtime process (tests and diagnostics only; never
     /// credentials).
     pub extra_env: Vec<(String, String)>,
+    /// Plenipo's bridge for AI tools reached through a service on this PC (ADR-017): the
+    /// program and its first arguments. Without it, such AI tools are shown as not usable.
+    pub bridge: Option<Bridge>,
+}
+
+/// A program Plenipo runs in place of an AI tool's own (for the sign-in check and tasks),
+/// usually Plenipo itself in a helper mode, e.g. `plenipo-desktop --plenipo-ollama`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bridge {
+    pub executable: PathBuf,
+    pub args: Vec<String>,
 }
 
 impl AgentConfig {
@@ -226,6 +239,7 @@ impl AgentConfig {
             activity_turns: 50,
             stored_activity_per_turn: 500,
             extra_env: Vec::new(),
+            bridge: None,
         }
     }
 }
@@ -250,6 +264,8 @@ struct Active {
     step: u32,
     step_started_at: u64,
     done: watch::Receiver<bool>,
+    /// Asks a task that talks (ADR-015) to stop itself before its process is ended.
+    interrupt: Option<mpsc::UnboundedSender<()>>,
 }
 
 #[derive(Default)]
@@ -289,6 +305,8 @@ pub struct AgentRuntime {
 /// A usable runtime, checked just before a turn.
 struct Ready {
     executable: PathBuf,
+    /// Arguments before the adapter's own (the bridge's, for bridged AI tools).
+    args_prefix: Vec<String>,
     env: Vec<(String, String)>,
     /// The sign-in check confirmed a subscription.
     billing_confirmed: bool,
@@ -737,12 +755,46 @@ impl AgentRuntime {
                 return (info, None);
             }
         }
-        let out = run_probe(&executable, &adapter.auth_args(), &env, &workdir, timeout).await;
+        // A bridged AI tool is checked and run through Plenipo's bridge (ADR-017).
+        let (executable, args_prefix) = if adapter.bridged() {
+            let bridge = self
+                .inner
+                .config
+                .bridge
+                .as_ref()
+                .ok_or_else(|| {
+                    format!(
+                        "This version of Plenipo cannot reach {} (its helper is not set up).",
+                        adapter.label()
+                    )
+                })
+                .and_then(|b| {
+                    self.inner
+                        .supervisor
+                        .allow_executable(&b.executable)
+                        .map(|exe| (exe, b.args.clone()))
+                        .map_err(|e| e.to_string())
+                });
+            match bridge {
+                Ok(bridge) => bridge,
+                Err(detail) => {
+                    info.installation.state = InstallState::Broken;
+                    info.installation.detail = Some(detail);
+                    info.auth = not_checked;
+                    return (info, None);
+                }
+            }
+        } else {
+            (executable, Vec::new())
+        };
+        let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
+        let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
         let billing_confirmed = info.auth.state == AuthState::Subscription;
         let ready = info.ready.then_some(Ready {
             executable,
+            args_prefix,
             env,
             billing_confirmed,
         });
@@ -1180,7 +1232,12 @@ impl AgentRuntime {
         expected: Option<&str>,
     ) -> Result<AgentSessionDetail, RuntimeError> {
         enum Target {
-            Running(String, Option<String>, watch::Receiver<bool>),
+            Running(
+                String,
+                Option<String>,
+                watch::Receiver<bool>,
+                Option<mpsc::UnboundedSender<()>>,
+            ),
             Waiting(String),
         }
         let target = {
@@ -1223,13 +1280,26 @@ impl AgentRuntime {
                             "The turn is still starting; try again in a moment.".into(),
                         )
                     })?;
-                    Target::Running(execution, active.task_id.clone(), active.done.clone())
+                    Target::Running(
+                        execution,
+                        active.task_id.clone(),
+                        active.done.clone(),
+                        active.interrupt.clone(),
+                    )
                 }
             }
         };
         let waiting = match target {
-            Target::Running(execution, task, mut done) => {
-                self.inner.supervisor.cancel(&execution).await?;
+            Target::Running(execution, task, mut done, interrupt) => {
+                // A task that talks is asked to stop itself first (ADR-015 §7).
+                let asked = interrupt.is_some_and(|i| i.send(()).is_ok());
+                let stopped = asked
+                    && tokio::time::timeout(CANCEL_GRACE, done.wait_for(|d| *d))
+                        .await
+                        .is_ok();
+                if !stopped {
+                    self.inner.supervisor.cancel(&execution).await?;
+                }
                 let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
                 // The step may have ended just before the cancel, with the turn going on to wait
                 // for handoff replies (it already reads as waiting): end that wait as well. It is
@@ -1355,6 +1425,7 @@ impl AgentRuntime {
                 step: 1,
                 step_started_at: crate::now_ms(),
                 done: done_rx,
+                interrupt: None,
             },
         );
         Ok(Reservation {
@@ -1418,8 +1489,13 @@ impl AgentRuntime {
             step,
             prompt,
         } = launch;
-        // Plenipo's tools for this step (Phase 7), when the worker has permissions.
-        let tools = self.open_tools(&session, &task_id, step).await;
+        // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
+        // tool can use them.
+        let tools = if adapter.accepts_tools() {
+            self.open_tools(&session, &task_id, step).await
+        } else {
+            None
+        };
         let grant = tools.as_ref().map(|t| t.grant_id.clone());
         let prompt = match &tools {
             Some(t) => {
@@ -1444,15 +1520,36 @@ impl AgentRuntime {
         } else {
             format!("{} · task {number} · step {step}", adapter.label())
         };
+        let mut parser = adapter.parser(&request);
+        // A task that talks (ADR-015) opens with the parser's own lines and keeps stdin open;
+        // otherwise the prompt is the whole of stdin.
+        let (stdin, input) = match parser.open(&prompt) {
+            None => (Some(prompt.into_bytes()), None),
+            Some(opening) => {
+                let (tx, feed) = StdinFeed::new();
+                for line in opening {
+                    let _ = tx.send(input_line(line));
+                }
+                (None, Some((tx, feed)))
+            }
+        };
+        let (interrupt_tx, interrupt_rx) = match input {
+            Some(_) => {
+                let (tx, rx) = mpsc::unbounded_channel();
+                (Some(tx), Some(rx))
+            }
+            None => (None, None),
+        };
         let spec = LaunchSpec {
             profile_id: format!("agent.{}", adapter.id()),
             label,
             executable: ready.executable,
-            args: adapter.turn_args(&request),
+            args: [ready.args_prefix, adapter.turn_args(&request)].concat(),
             env,
             working_dir: PathBuf::from(&session.working_dir),
             max_runtime: self.inner.config.turn_timeout,
-            stdin: Some(prompt.into_bytes()),
+            stdin,
+            stdin_feed: input.as_ref().map(|(_, feed)| feed.clone()),
             max_line_bytes: Some(self.inner.config.max_line_bytes),
             observer: Some(tx),
             agent: Some(Box::new(AgentAttribution {
@@ -1465,7 +1562,6 @@ impl AgentRuntime {
                 usage: None,
             })),
         };
-        let parser = adapter.parser(&request);
         let ctx = TurnContext {
             runtime: self.clone(),
             session: session.clone(),
@@ -1475,6 +1571,7 @@ impl AgentRuntime {
             seq: u64::from(step.saturating_sub(1)) * STEP_SEQ,
             stored: 0,
             grant,
+            input: input.map(|(tx, _)| tx),
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
@@ -1497,6 +1594,7 @@ impl AgentRuntime {
         };
         if let Some(active) = self.lock().active.get_mut(&session.id) {
             active.execution_id = Some(execution_id.clone());
+            active.interrupt = interrupt_tx;
         }
         self.emit_turn(&session_id, &task_id).await;
         self.emit_session(session);
@@ -1504,7 +1602,7 @@ impl AgentRuntime {
             execution_id: Some(execution_id),
             ..ctx
         };
-        let handle = tokio::spawn(ctx.consume(parser, rx, done));
+        let handle = tokio::spawn(ctx.consume(parser, rx, interrupt_rx, done));
         {
             let mut state = self.lock();
             state.consumers.retain(|h| !h.is_finished());
@@ -1573,7 +1671,14 @@ fn turn_request(
         effort: session.effort,
         billing_confirmed,
         tools: None,
+        working_dir: PathBuf::from(&session.working_dir),
     }
+}
+
+/// One line for a process's stdin.
+fn input_line(mut line: String) -> Vec<u8> {
+    line.push('\n');
+    line.into_bytes()
 }
 
 /// What to launch for one step.
@@ -1612,6 +1717,9 @@ struct TurnContext {
     stored: u32,
     /// The step's grant of Plenipo's tools, closed when the step ends.
     grant: Option<String>,
+    /// Writes to the process's stdin while a task that talks runs (ADR-015); dropped to
+    /// close it.
+    input: Option<mpsc::UnboundedSender<Vec<u8>>>,
 }
 
 impl TurnContext {
@@ -1623,10 +1731,29 @@ impl TurnContext {
         mut self,
         mut parser: Box<dyn TurnParser>,
         mut rx: mpsc::UnboundedReceiver<OutputLine>,
+        mut interrupt: Option<mpsc::UnboundedReceiver<()>>,
         done: Option<watch::Sender<bool>>,
     ) {
         let mut stopping = false;
-        while let Some(line) = rx.recv().await {
+        loop {
+            let line = tokio::select! {
+                line = rx.recv() => line,
+                asked = async {
+                    match interrupt.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if asked.is_some() {
+                        // Cancel (ADR-015 §7): the task is asked to stop itself first.
+                        let lines = parser.cancel();
+                        self.write(lines);
+                    }
+                    interrupt = None;
+                    continue;
+                }
+            };
+            let Some(line) = line else { break };
             if stopping {
                 continue; // stopped by policy: drain, but record nothing more from this turn
             }
@@ -1635,6 +1762,10 @@ impl TurnContext {
                 continue;
             }
             let parsed = parser.line(&line.text, line.truncated);
+            self.write(parsed.send);
+            if parsed.close_input {
+                self.input = None;
+            }
             for event in parsed.events {
                 self.event(event).await;
             }
@@ -1674,8 +1805,18 @@ impl TurnContext {
                 duration_ms: None,
             },
         };
+        self.input = None;
         let result = parser.finish(&end);
         self.complete(result, done).await;
+    }
+
+    /// Write lines to the process's stdin (a task that talks, ADR-015).
+    fn write(&self, lines: Vec<String>) {
+        if let Some(input) = &self.input {
+            for line in lines {
+                let _ = input.send(input_line(line));
+            }
+        }
     }
 
     async fn event(&mut self, event: AgentEvent) {

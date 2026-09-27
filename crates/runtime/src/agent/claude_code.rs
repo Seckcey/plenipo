@@ -331,8 +331,8 @@ impl Parser {
         };
         self.state.stop = Some(stop.clone());
         Parsed {
-            events: Vec::new(),
             stop: Some(stop),
+            ..Parsed::none()
         }
     }
 
@@ -565,6 +565,7 @@ mod tests {
             effort: None,
             billing_confirmed: true,
             tools: None,
+            working_dir: PathBuf::new(),
         }
     }
 
@@ -615,6 +616,7 @@ mod tests {
             effort: Some(Effort::XHigh),
             billing_confirmed: true,
             tools: None,
+            working_dir: PathBuf::new(),
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
@@ -636,6 +638,7 @@ mod tests {
         };
         let request = TurnRequest {
             tools: Some(tools),
+            working_dir: PathBuf::new(),
             ..new_request()
         };
         let args = ClaudeCode.turn_args(&request);
@@ -848,6 +851,7 @@ mod tests {
             effort: None,
             billing_confirmed: true,
             tools: None,
+            working_dir: PathBuf::new(),
         });
         let events = feed(
             p.as_mut(),

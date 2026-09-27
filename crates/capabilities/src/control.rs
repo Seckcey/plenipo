@@ -352,7 +352,10 @@ mod tests {
             t.join().unwrap();
         }
         let heard = heard.lock().unwrap();
-        assert!(heard.windows(2).all(|w| w[0] <= w[1]), "never an older status");
+        assert!(
+            heard.windows(2).all(|w| w[0] <= w[1]),
+            "never an older status"
+        );
         assert_eq!(*heard.last().unwrap(), c.status().revision);
         assert!(c.status().stopped && c.status().sessions.is_empty());
     }

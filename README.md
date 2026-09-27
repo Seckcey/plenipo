@@ -5,6 +5,11 @@ your AI organization — VPs, managers, and supervisors that stay on the job —
 the work to supervisors and specialist workers, grants only the permissions each task needs,
 watches over the work, and keeps a complete record of it.
 
+> **AI tools:** Claude Code, Codex, Grok (xAI's Grok Build, run over ACP —
+> [ADR-015](docs/adr/ADR-015-acp-ai-tools.md), running AI tools over ACP), and now Ollama's cloud
+> models ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its
+> service on your PC). Each uses your own sign-in; Plenipo never uses API keys.
+>
 > **Status:** Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
 > on websites that have no official connection — in **Plenipo's own browser**, never yours: it
 > has its own profile, so your sign-ins and saved passwords are never used. **Settings →
@@ -58,8 +63,8 @@ watches over the work, and keeps a complete record of it.
 > appear under it while they work and leave when done, with every step in the durable local
 > Ledger. The chain of command reads Worker → Supervisor → Manager → VP → President (you);
 > **Settings → Personalization → Titles** can rename the ranks after a U.S. military branch or
-> the Mafia. Agents run on your own signed-in Claude Code and Codex (subscription sign-ins only,
-> no API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
+> the Mafia. Agents run on your own signed-in Claude Code, Codex, Grok, and Ollama (subscription sign-ins
+> only, no pay-per-use API billing). See [`ROLLOUT_PLAN.md`](ROLLOUT_PLAN.md).
 
 ## Stack
 
@@ -84,8 +89,8 @@ pnpm dev          # run the desktop app with hot reload
 ```
 
 No API keys, provider logins, or `.env` file are needed to build or launch. To run workers,
-install and sign in to Claude Code and/or Codex — see the
-[setup guide](docs/development/setup.md#3-ai-tools-claude-code-and-codex-phase-3-optional).
+install and sign in to at least one of Claude Code, Codex, Grok, and Ollama — see the
+[setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-and-ollama-optional).
 
 ## Common commands
 
@@ -114,7 +119,8 @@ crates/ledger/           Plenipo Ledger: SQLite system of record, migrations, ev
 crates/liaison/          Plenipo Liaison: handoff protocol, context packets, replies between
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
-                         agent runtime adapters (Claude Code, Codex) and sessions
+                         agent runtime adapters (Claude Code, Codex, Grok over ACP, Ollama) and
+                         sessions
 crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
                          role templates), live snapshot, role routing for Liaison
 crates/router/           Plenipo Router: model registry, role model policies, explained

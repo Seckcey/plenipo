@@ -29,7 +29,9 @@ architecture must be recorded here.
 | [012](ADR-012-brief-agent-messages.md)          | Brief messages between agents                                         | Accepted |
 | [013](ADR-013-guard-capability-broker.md)       | Guard, capability broker, and human approval                          | Accepted |
 | [014](ADR-014-adding-ai-tools.md)               | Adding AI tools ahead of Phase 15                                     | Accepted |
+| [015](ADR-015-acp-ai-tools.md)                  | Running AI tools over ACP                                             | Accepted |
 | [016](ADR-016-development-department.md)        | Development department: delegation, working copies, GitHub, result    | Proposed |
+| [017](ADR-017-ollama-cloud-models.md)           | Ollama cloud models through its service                               | Accepted |
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
 | [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Proposed |
 | [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard                     | Proposed |

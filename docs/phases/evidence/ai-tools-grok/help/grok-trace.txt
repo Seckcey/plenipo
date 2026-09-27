@@ -1,0 +1,15 @@
+Export or upload session trace data
+
+Usage: grok trace [OPTIONS] <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  Session ID to export/upload
+
+Options:
+      --local                 Save locally only, skip remote upload
+  -o, --output <OUTPUT>       Output path (default: $GROK_HOME/trace-exports/<session-id>.tar.gz)
+      --json                  Emit machine-readable JSON output
+      --debug                 Enable debug logging
+      --debug-file <FILE>     Write debug logs to FILE
+  -h, --help                  Print help
+      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

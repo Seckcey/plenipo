@@ -37,6 +37,14 @@ The **minor** version increases by one each time a rollout phase is accepted, un
 - After `1.0.0`, normal SemVer applies: minor for new features (Phases 9+), major for
   breaking changes.
 
+After the MVP:
+
+| Release                                                            | Version |
+| ------------------------------------------------------------------ | ------- |
+| Grok joins the AI tools (ADR-015)                                  | `1.1.0` |
+| Ollama's cloud models join the AI tools (ADR-017)                  | `1.2.0` |
+| Phase 10 — Browser automation and computer use (Phase 9 postponed) | `1.3.0` |
+
 ## Releasing
 
 1. Update the version in the files above (and `Cargo.lock`: `cargo update --workspace`).

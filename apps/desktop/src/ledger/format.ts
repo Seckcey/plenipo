@@ -329,7 +329,12 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
   return null;
 }
 
-const TOOL_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex" };
+const TOOL_NAMES: Record<string, string> = {
+  "claude-code": "Claude Code",
+  codex: "Codex",
+  grok: "Grok",
+  ollama: "Ollama",
+};
 
 /**
  * Who recorded an event or asked for a task, in plain words: Plenipo's own parts are "Plenipo",

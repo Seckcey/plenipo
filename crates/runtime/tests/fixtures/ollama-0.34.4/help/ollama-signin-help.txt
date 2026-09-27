@@ -1,0 +1,7 @@
+Sign in to ollama.com
+
+Usage:
+  ollama signin [flags]
+
+Flags:
+  -h, --help   help for signin
