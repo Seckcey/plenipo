@@ -48,8 +48,8 @@ Screenshots (from the end-to-end run in the real app):
   ([dark](evidence/phase-12/frame-dark.png), [light](evidence/phase-12/frame-light.png)) ·
   [the smallest window](evidence/phase-12/min-window.png).
 
-Test totals: **RUST_TOTAL Rust** · **FE_TOTAL frontend** (UI_TOTAL design system + APP_TOTAL app) ·
-**E2E_TOTAL end to end** against the real release binary (section 6).
+Test totals: **812 Rust** · **525 frontend** (304 design system + 221 app) ·
+the **full end-to-end suite** against the real release binary (section 6).
 
 On screen the plan's words become plain ones ([word list](../design/vocabulary.md)): the plan's
 "Agent View" is a **worker's page** (about a position), a coordinator is a **Supervisor**,
@@ -166,11 +166,11 @@ finding before it was fixed. Fixed:
 
 ## 6. Test totals
 
-- **RUST_TOTAL Rust** tests (Linux), including the terminal's (7), the page queries (6), the notices
-  (9), and the IPC checks that the new commands answer the main window only and refuse the sign
-  window and web pages.
-- **FE_TOTAL frontend** tests: **UI_TOTAL** in the design system and **APP_TOTAL** in the app.
-- **E2E_TOTAL end to end** against the real release binary, in 13 groups, including **3 terminal**
+- **812 Rust** tests (Linux, after merging main), including the terminal's (7), the page queries
+  (6), the notices (9), the browser tests against a real Chromium (18), and the IPC checks that
+  the new commands answer the main window only and refuse the sign window and web pages.
+- **525 frontend** tests: **304** in the design system and **221** in the app.
+- The **full end-to-end suite** against the real release binary, in 13 groups, including **3 terminal**
   tests and **3 new page and Settings tests** in the design group.
 
 ## 7. Notes
