@@ -36,6 +36,10 @@ mod job;
 const GATHER: Duration = Duration::from_millis(4);
 /// Most output sent to the screen at once.
 const MAX_CHUNK: usize = 64 * 1024;
+/// How long a shell on this PC has, once it has ended, to let its last output through. Windows'
+/// pseudo console closes at once when its input is closed first; should it ever not, the
+/// terminal still ends, within the time Plenipo gives its terminals when it quits.
+const LAST_OUTPUT: Duration = Duration::from_secs(3);
 
 /// Where output goes (to the screen), and how a terminal ended.
 pub type Output = Arc<dyn Fn(&[u8]) + Send + Sync>;
@@ -239,7 +243,7 @@ pub fn refuse_elevated() -> Result<(), String> {
 
 /// A shell running in a pseudo terminal on this PC.
 pub struct LocalShell {
-    input: mpsc::Sender<Vec<u8>>,
+    input: mpsc::Sender<Option<Vec<u8>>>,
     master: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     closing: Arc<Mutex<Option<String>>>,
@@ -253,7 +257,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// Start `shell` in `cwd`, sized `size`. Its output goes to `output` as it arrives; `ended` is
-/// called once, after the last output, when it ends.
+/// called once, after the last output, when it ends (at most `LAST_OUTPUT` later).
 pub fn start_local(
     shell: &ShellProgram,
     cwd: Option<&Path>,
@@ -341,11 +345,12 @@ pub fn start_local(
         .map_err(|e| format!("Plenipo could not start the terminal ({e})"))?;
 
     // Typing: written in order, on a thread of its own (a busy shell may take a while to read).
-    let (input, typed) = mpsc::channel::<Vec<u8>>();
+    // `None` closes the way in, once the shell has ended.
+    let (input, typed) = mpsc::channel::<Option<Vec<u8>>>();
     std::thread::Builder::new()
         .name("plenipo-terminal-write".into())
         .spawn(move || {
-            while let Ok(bytes) = typed.recv() {
+            while let Ok(Some(bytes)) = typed.recv() {
                 if writer
                     .write_all(&bytes)
                     .and_then(|()| writer.flush())
@@ -362,6 +367,7 @@ pub fn start_local(
     {
         let master = Arc::clone(&master);
         let closing = Arc::clone(&closing);
+        let typing = input.clone();
         #[cfg(windows)]
         let job = Arc::clone(&job);
         std::thread::Builder::new()
@@ -371,9 +377,23 @@ pub fn start_local(
                 // Programs the shell left running end with it.
                 #[cfg(windows)]
                 drop(lock(&job).take());
-                drop(lock(&master).take());
-                let _ = read_thread.join();
-                let _ = pump.join();
+                // The way in closes first. As it starts, Windows' pseudo console asks the
+                // screen where the cursor is and waits for the answer; one closed before the
+                // screen answered would go on waiting instead of closing.
+                let _ = typing.send(None);
+                let pty = lock(&master).take();
+                let (done, last_output) = mpsc::channel::<()>();
+                let closer = std::thread::Builder::new()
+                    .name("plenipo-terminal-close".into())
+                    .spawn(move || {
+                        drop(pty);
+                        let _ = read_thread.join();
+                        let _ = pump.join();
+                        let _ = done.send(());
+                    });
+                if closer.is_ok() && last_output.recv_timeout(LAST_OUTPUT).is_err() {
+                    eprintln!("[plenipo] a terminal's last output did not come; it ends anyway");
+                }
                 let code = status
                     .as_ref()
                     .ok()
@@ -398,7 +418,7 @@ pub fn start_local(
 impl LocalShell {
     pub fn write(&self, bytes: &[u8]) -> Result<(), String> {
         self.input
-            .send(bytes.to_vec())
+            .send(Some(bytes.to_vec()))
             .map_err(|_| "the terminal has ended".to_owned())
     }
 

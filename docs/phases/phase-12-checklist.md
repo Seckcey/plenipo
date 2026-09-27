@@ -66,7 +66,9 @@ free ADR is **ADR-033**.
   (`win32job`), and no terminal opens while Plenipo runs as administrator (`is_elevated`); both
   are safe wrappers, because the workspace forbids unsafe code. GitHub's Windows machines run
   everything as administrator, so the tests turn that refusal off there to reach PowerShell,
-  and `a_terminal_on_this_pc_never_runs_as_administrator` checks the refusal itself. Off Windows (development, CI,
+  and `a_terminal_on_this_pc_never_runs_as_administrator` checks the refusal itself. Windows'
+  pseudo console asks the screen where the cursor is as it starts (xterm.js answers); a terminal
+  closes its way in first, so one closed before the answer still closes. Off Windows (development, CI,
   and the end-to-end tests) the shell is `$SHELL`, else `/bin/sh`.
 - **Commands (main window only):** `get_terminal_settings`, `set_terminal_shell`,
   `open_terminal` (output streams back on a Tauri `ipc::Channel`, base64), `write_terminal`,

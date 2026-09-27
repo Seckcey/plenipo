@@ -194,10 +194,38 @@ impl H {
     }
 
     async fn open(&self, place: &TerminalPlace, screen: &Shared) -> TerminalInfo {
-        self.broker
+        let info = self
+            .broker
             .open_terminal(place, 80, 24, sink(screen))
             .await
-            .unwrap()
+            .unwrap();
+        self.answer(&info, screen);
+        info
+    }
+
+    /// Answer the terminal's questions about the cursor, as the owner's screen (xterm.js) does:
+    /// "top left". As it starts, Windows' pseudo console asks where the cursor is (ESC [ 6 n)
+    /// and shows nothing until it hears back.
+    fn answer(&self, info: &TerminalInfo, screen: &Shared) {
+        let (broker, id, screen) = (self.broker.clone(), info.id.clone(), Arc::clone(screen));
+        tokio::spawn(async move {
+            let mut answered = 0;
+            loop {
+                let (asked, ended) = {
+                    let s = screen.lock().unwrap();
+                    let asked = s.bytes.windows(4).filter(|w| *w == b"\x1b[6n").count();
+                    (asked, s.ended.is_some())
+                };
+                if ended {
+                    break;
+                }
+                while answered < asked {
+                    let _ = broker.write_terminal(&id, b"\x1b[1;1R");
+                    answered += 1;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
     }
 
     async fn closed(&self, info: &TerminalInfo, screen: &Shared) {
@@ -227,6 +255,10 @@ async fn plan_the_owners_terminal_on_this_pc() {
     assert!(!info.detail.is_empty());
     assert_eq!(h.broker.open_terminals(), std::slice::from_ref(&info));
 
+    // Typing waits for the shell's prompt on Windows, as a person does.
+    if cfg!(windows) {
+        shows(&screen, "PS ").await;
+    }
     // Something only the shell can work out: its answer, not the typing echoed back.
     let (typed, answer) = if cfg!(windows) {
         ("Write-Output ('pc-' + 6*7)\r", "pc-42")
@@ -535,6 +567,30 @@ async fn a_terminal_on_this_pc_never_runs_as_administrator() {
     let server = Shared::default();
     let shop = h.open(&h.shop(), &server).await;
     h.closed(&shop, &server).await;
+}
+
+/// As it starts, Windows' pseudo console asks the screen where the cursor is and waits for the
+/// answer (the owner's screen gives it at once). A terminal closed before its screen answered
+/// still closes, and at once: Plenipo closes the terminal's way in first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_closed_before_its_screen_answered_still_closes() {
+    let h = harness().await;
+    let screen = Shared::default();
+    let info = h
+        .broker
+        .open_terminal(&TerminalPlace::ThisPc, 80, 24, sink(&screen))
+        .await
+        .unwrap();
+    // Nothing answers here, as when the owner closes a terminal the moment it opens.
+    let started = Instant::now();
+    h.closed(&info, &screen).await;
+    // At once, not after Plenipo's time limit for a terminal's last output (3 seconds).
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "the terminal took {:?} to close",
+        started.elapsed()
+    );
+    assert_eq!(h.events("terminal.closed").len(), 1);
 }
 
 /// The shell for this PC is chosen in Settings → Terminal, and kept.
