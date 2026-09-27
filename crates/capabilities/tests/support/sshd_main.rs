@@ -1,7 +1,8 @@
 //! Test helper: the synthetic SSH server (`support/sshd.rs`) as a program, for the end-to-end
 //! test. Never shipped.
 //!
-//! `plenipo-test-sshd [--port N] [--seed N] [--user NAME] [--password TEXT] [--file PATH=TEXT]`
+//! `plenipo-test-sshd [--port N] [--seed N] [--user NAME] [--password TEXT] [--file PATH=TEXT]
+//! [--authorized PUBLIC_KEY_FILE]`
 //! prints `{"port":…,"fingerprint":"SHA256:…","algorithm":"ssh-ed25519"}` on one line, then serves
 //! on 127.0.0.1 until it is stopped.
 
@@ -19,6 +20,13 @@ async fn main() {
             "--seed" => options.seed = value.parse().expect("--seed N"),
             "--user" => options.user = value,
             "--password" => options.password = value,
+            "--authorized" => {
+                let text = std::fs::read_to_string(&value).expect("--authorized PUBLIC_KEY_FILE");
+                options.authorized.push(
+                    russh::keys::PublicKey::from_openssh(text.trim())
+                        .expect("an OpenSSH public key"),
+                );
+            }
             "--file" => {
                 let (path, text) = value.split_once('=').expect("--file PATH=TEXT");
                 options.files.insert(path.into(), format!("{text}\n"));

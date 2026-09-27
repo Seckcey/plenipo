@@ -541,8 +541,10 @@ impl server::Handler for Conn {
                 "cat" => {
                     let file = args.first().cloned().unwrap_or_default();
                     let path = match (&cwd, file.starts_with('/')) {
-                        (Some(dir), false) => format!("{dir}/{file}"),
-                        _ => file.clone(),
+                        (_, true) => file.clone(),
+                        (Some(dir), false) if dir.starts_with('/') => format!("{dir}/{file}"),
+                        (Some(dir), false) => format!("/home/{user}/{dir}/{file}"),
+                        (None, false) => format!("/home/{user}/{file}"),
                     };
                     match options.files.get(&path) {
                         Some(text) => {

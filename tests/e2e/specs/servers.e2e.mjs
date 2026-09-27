@@ -5,11 +5,11 @@
 // connection — then an Operations Engineer runs commands there: each one waits for the owner's
 // approval on a card marked PRODUCTION; the sign on every page shows the worker connected, and
 // Disconnect stops it; the Activity trail keeps the connection, the commands, and their output
-// with the password hidden; and a server that shows another identity is blocked before
+// with a password hidden; and a server that shows another identity is blocked before
 // Plenipo signs in. Real servers and Windows are checked by the owner (Phase 11 checklist).
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -39,6 +39,15 @@ const SSHD = resolve(
 );
 const PASSWORD = "e2e-shop-password-4417";
 
+// Plenipo signs in with the owner's SSH agent here: a real `ssh-agent` holding a new key. (On
+// Linux the kernel keyring that stands in for Windows Credential Manager belongs to each thread,
+// which containers do not always give; keys and passwords in the Vault are covered by the Rust
+// tests, and on Windows by the owner's check.)
+const AGENT_SOCK = join(home, "agent.sock");
+const KEY = join(home, "id_e2e");
+execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "plenipo-e2e", "-f", KEY]);
+const agent = spawn("ssh-agent", ["-D", "-a", AGENT_SOCK], { stdio: "ignore" });
+
 /** Start the synthetic server; resolves with its port and identity once it listens. */
 function startSshd(seed, port = 0) {
   const child = spawn(
@@ -52,8 +61,10 @@ function startSshd(seed, port = 0) {
       "shop",
       "--password",
       PASSWORD,
+      "--authorized",
+      `${KEY}.pub`,
       "--file",
-      `/var/www/shop/config.txt=db_password=${PASSWORD}`,
+      `/home/shop/config.txt=DB_PASSWORD=${PASSWORD}`,
     ],
     { stdio: ["ignore", "pipe", "inherit"] },
   );
@@ -80,12 +91,19 @@ function textOf(browser, selector) {
   );
 }
 
-const waitForText = (browser, selector, needle, timeoutMs) =>
-  waitUntil(
-    async () => (await textOf(browser, selector)).includes(needle),
-    `"${needle}" in ${selector}`,
-    timeoutMs,
-  );
+/** Wait for `needle` in `selector`; on a timeout, say what it showed instead. */
+const waitForText = async (browser, selector, needle, timeoutMs) => {
+  try {
+    return await waitUntil(
+      async () => (await textOf(browser, selector)).includes(needle),
+      `"${needle}" in ${selector}`,
+      timeoutMs,
+    );
+  } catch (error) {
+    console.error(`--- ${selector} showed ---\n${await textOf(browser, selector)}`);
+    throw error;
+  }
+};
 
 const exists = (browser, selector) =>
   browser.execute((s) => document.querySelector(s) !== null, selector);
@@ -165,12 +183,15 @@ async function delegate(browser, objective, work) {
 
 /** Open the approval card that says `summary`, check it, and answer. */
 async function answer(browser, summary, approve, check) {
-  await waitForText(browser, ".banner--approval", "is waiting for your approval", 60_000);
-  await clickButton(browser, "Review");
+  await nav(browser, "Approvals");
   const card = `article[aria-label="Operations Engineer wants to ${summary}"]`;
-  await waitUntil(() => exists(browser, card), `the card "${summary}"`, 30_000);
+  await waitUntil(() => exists(browser, card), `the card "${summary}"`, 60_000);
   if (check) await check(card);
-  const button = await browser.$(`${card}//button[normalize-space()="${approve ? "Approve" : "Deny"}"]`);
+  const button = await browser.$(
+    `//article[@aria-label="Operations Engineer wants to ${summary}"]//button[normalize-space()="${
+      approve ? "Approve" : "Deny"
+    }"]`,
+  );
   await button.click();
   await waitUntil(async () => !(await exists(browser, card)), "the card to be answered", 30_000);
 }
@@ -179,13 +200,24 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
   let app;
 
   before(async () => {
+    await waitUntil(async () => {
+      try {
+        execFileSync("ssh-add", ["-q", KEY], {
+          env: { ...process.env, SSH_AUTH_SOCK: AGENT_SOCK },
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "the SSH agent to take the key");
     sshd = await startSshd(1);
-    app = await launch(home, env);
+    app = await launch(home, { ...env, SSH_AUTH_SOCK: AGENT_SOCK });
     await app.browser.setWindowSize(1600, 1000);
   });
   after(async () => {
     await app?.close();
     sshd?.child.kill();
+    agent.kill();
   });
 
   it("Settings → Servers: add a production server, check and pin its identity, and test it", async () => {
@@ -206,8 +238,8 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await waitForText(browser, `form[aria-label="${form}"]`, "Production server.");
     await (
       await browser.$(`//form[@aria-label="${form}"]//select[@aria-label="How Plenipo signs in"]`)
-    ).selectByAttribute("value", "password");
-    await (await field(browser, form, "Password")).setValue(PASSWORD);
+    ).selectByAttribute("value", "agent");
+    await waitForText(browser, `form[aria-label="${form}"]`, "never forwarded to the server");
     await clickButton(browser, "Check the server's identity");
     const identity = '[aria-label="The server\'s identity"]';
     await waitForText(browser, identity, sshd.fingerprint, 30_000);
@@ -226,8 +258,11 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await waitForText(browser, SHOP_CARD, "PRODUCTION");
     await waitForText(browser, SHOP_CARD, sshd.fingerprint);
     await waitForText(browser, SHOP_CARD, "Before every command (production)");
-    await waitForText(browser, SHOP_CARD, "stored in");
-    assert.ok(!(await textOf(browser, ".servers")).includes(PASSWORD), "the password is never shown");
+    await waitForText(
+      browser,
+      SHOP_CARD,
+      "with your SSH agent (it signs in for Plenipo, and is never forwarded",
+    );
     await clickButton(browser, "Test the connection");
     await waitForText(browser, SHOP_CARD, "Connected to Shop as shop and signed in", 30_000);
     await browser.execute(() =>
@@ -272,6 +307,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     });
     await answer(browser, "run cat config.txt on Shop", true);
     // The third command waits too; meanwhile the worker is connected, and the sign says so.
+    await nav(browser, "Organization");
     await waitForText(browser, ".banner--approval", "is waiting for your approval", 60_000);
     await waitForText(browser, CONTROL, "Operations Engineer is connected to Shop (production)");
     await waitForText(browser, CONTROL, "PRODUCTION");
@@ -305,11 +341,13 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await waitForText(browser, trail, "Operations Engineer ran on Shop (PRODUCTION): uptime");
     await waitForText(browser, trail, "load average");
     await waitForText(browser, trail, "The command on Shop finished");
-    await waitForText(browser, trail, "db_password=[hidden by Plenipo: Shop's sign-in]");
+    await waitForText(browser, trail, "DB_PASSWORD=[hidden by Plenipo: secret setting]");
     await waitForText(browser, trail, "You disconnected Operations Engineer from its servers");
     assert.ok(!(await textOf(browser, trail)).includes(PASSWORD), "the password is hidden");
     await browser.execute(() =>
-      document.querySelector('[aria-label="Output from the server"]')?.scrollIntoView({ block: "center" }),
+      document
+        .querySelector('[aria-label="Output from the server"]')
+        ?.scrollIntoView({ block: "center" }),
     );
     await screenshot(browser, "server-trail");
   });
@@ -328,13 +366,17 @@ describe("Phase 11 servers: settings, production approvals, the sign, and identi
     await waitForText(browser, SHOP_CARD, sshd.fingerprint);
     await waitForText(browser, SHOP_CARD, "Plenipo did not sign in");
     await browser.execute(() =>
-      document.querySelector('li[aria-label="Shop, production server"]')?.scrollIntoView({ block: "start" }),
+      document
+        .querySelector('li[aria-label="Shop, production server"]')
+        ?.scrollIntoView({ block: "start" }),
     );
     await screenshot(browser, "server-identity-changed");
     // No approval was even asked: the command was blocked first.
     assert.ok(!(await exists(browser, ".banner--approval")));
     await nav(browser, "Activity");
-    const task = await browser.$('//button[starts-with(@aria-label, "Check the shop server again")]');
+    const task = await browser.$(
+      '//button[starts-with(@aria-label, "Check the shop server again")]',
+    );
     await task.waitForExist({ timeout: 10_000 });
     await task.click();
     await (await browser.$('(//ol[@aria-label="Delegation tree"]//button)[2]')).click();

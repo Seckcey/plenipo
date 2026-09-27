@@ -10,7 +10,20 @@ watches over the work, and keeps a complete record of it.
 > models ([ADR-017](docs/adr/ADR-017-ollama-cloud-models.md), Ollama's cloud models through its
 > service on your PC). Each uses your own sign-in; Plenipo never uses API keys.
 >
-> **Status:** Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
+> **Status:** Phase 11 — Servers (v1.5.0). Workers can now work on your servers over SSH —
+> checking status and logs, restarting services, and deploying — only on the servers you set up
+> in **Settings → Servers**. Each server has a friendly name, its address, how Plenipo signs in
+> (a key or password kept in Windows Credential Manager, or your own SSH agent — workers never
+> see them), its identity, which you check and pin when you add it, whether it is a development,
+> staging, or **production** server (production is red everywhere), which roles may use it, the
+> kinds of commands it allows, and its folders. Plenipo checks each server's identity before it
+> signs in; if it ever changes, the work is blocked and you are told. On production, every
+> command waits for your approval, and deleting, wiping, or shutting down is blocked unless you
+> turn it on. Workers never reach other computers from a server. A sign on every page shows who
+> is connected to which server, with **Disconnect** and **Stop all**, and every command and its
+> output are in the Activity trail. The new **Operations Engineer** role does this work.
+>
+> Phase 10 — Plenipo's browser, and the screen, mouse, and keyboard (v1.3.0). Workers can now do tasks
 > on websites that have no official connection — in **Plenipo's own browser**, never yours: it
 > has its own profile, so your sign-ins and saved passwords are never used. **Settings →
 > Permissions → Websites** says which websites workers may open, which never, and whether others
@@ -126,12 +139,14 @@ crates/workforce/        Plenipo Workforce: organization engine (positions, team
 crates/router/           Plenipo Router: model registry, role model policies, explained
                          choice of AI tool and model, usage limits
 crates/guard/            Plenipo Guard: permission registry and sets, policy engine, folder
-                         confinement, command rules, sensitive actions, secret redaction
+                         confinement, command rules, sensitive actions, secret redaction,
+                         servers and the kinds of commands on them
 crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
                          program, git, and GitHub tools, working copies (a branch per
                          objective), approvals, Vault (OS credential store), Plenipo's
-                         browser, screenshots, the screen, mouse, and keyboard, and the
-                         control center (sign, Stop, Take over)
+                         browser, screenshots, the screen, mouse, and keyboard, SSH to the
+                         owner's servers, and the control center (sign, Stop, Take over,
+                         Disconnect)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview

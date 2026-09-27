@@ -3028,3 +3028,16 @@ button {
 .trail__output--err {
   border-color: var(--warn);
 }
+
+.server-form .choice input[type="radio"],
+.server-form .choice input[type="checkbox"] {
+  flex: none;
+  width: auto;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.server-form .choice span {
+  color: var(--text);
+  font-size: 0.9rem;
+}

@@ -5,7 +5,7 @@ import { removeServer, testServer, toCommandError } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { ago } from "../../org/format";
 import { useNow } from "../../runtime/useNow";
-import { approvalWords, ENVIRONMENT_LABEL, SIGN_IN_LABEL } from "../../servers/format";
+import { approvalWords, ENVIRONMENT_LABEL, SIGN_IN_PHRASE } from "../../servers/format";
 import { useServers } from "../../servers/useServers";
 import { Refusal } from "../models/shared";
 import { ServerForm } from "./ServerForm";
@@ -135,7 +135,7 @@ function ServerCard({
         ? v.stored.password
           ? `stored in ${snapshot.vault.label}`
           : "not stored"
-        : "your SSH agent signs in; it is never forwarded to the server";
+        : "it signs in for Plenipo, and is never forwarded to the server";
   const runTest = async () => {
     setTesting(true);
     setTest(null);
@@ -174,7 +174,7 @@ function ServerCard({
       <dl className="server__facts">
         <dt>Signs in as</dt>
         <dd>
-          {s.user}, with {SIGN_IN_LABEL[s.signIn].toLowerCase()} ({stored})
+          {s.user}, with {SIGN_IN_PHRASE[s.signIn]} ({stored})
         </dd>
         <dt>Identity</dt>
         <dd>

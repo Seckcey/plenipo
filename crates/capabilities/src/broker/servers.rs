@@ -1138,9 +1138,11 @@ impl Broker {
         let config = self.inner.guard.config()?;
         let store = self.inner.store.as_ref();
         let has = |id: String| vault::read(store, &id).ok().flatten().is_some();
-        let changes = self
-            .ledger()
-            .events_of_types(&["ssh.host_key_changed"], 500)?;
+        // Newest first: identity changes, and connections and tests that succeeded.
+        let identity = self.ledger().events_of_types(
+            &["ssh.host_key_changed", "ssh.connected", "ssh.tested"],
+            1000,
+        )?;
         let connected: HashMap<String, Vec<String>> = {
             let s = self.state();
             let mut m: HashMap<String, Vec<String>> = HashMap::new();
@@ -1162,9 +1164,17 @@ impl Broker {
                     password: has(password_id(&s.id)),
                 };
                 let pinned_at = s.host_key.as_ref().map_or(0, |k| k.pinned_at);
-                let identity_changed = changes
+                // A change since it was pinned counts until a later connection or test succeeds
+                // with the pinned identity (the server was set right again).
+                let identity_changed = identity
                     .iter()
-                    .find(|e| e.payload["serverId"] == s.id.as_str() && e.created_at > pinned_at)
+                    .filter(|e| e.payload["serverId"] == s.id.as_str())
+                    .find(|e| match e.event_type.as_str() {
+                        "ssh.host_key_changed" => e.created_at > pinned_at,
+                        "ssh.tested" => e.payload["ok"] == true,
+                        _ => true,
+                    })
+                    .filter(|e| e.event_type == "ssh.host_key_changed")
                     .map(|e| IdentityChange {
                         algorithm: e.payload["algorithm"].as_str().unwrap_or_default().into(),
                         fingerprint: e.payload["seen"].as_str().unwrap_or_default().into(),

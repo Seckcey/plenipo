@@ -35,3 +35,4 @@ architecture must be recorded here.
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md) | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot | Proposed |
 | [019](ADR-019-role-working-instructions.md)     | Every role knows its job: working instructions for all roles          | Proposed |
 | [020](ADR-020-browser-and-computer-use.md)      | Plenipo's browser and computer use, through Guard                     | Proposed |
+| [023](ADR-023-servers-over-ssh.md)              | Servers over SSH, through Guard                                       | Proposed |

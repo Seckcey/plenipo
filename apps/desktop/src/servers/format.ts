@@ -22,6 +22,13 @@ export const SIGN_IN_LABEL: Record<SignIn, string> = {
   agent: "My SSH agent",
 };
 
+/** How Plenipo signs in, as part of a sentence ("with a private key"). */
+export const SIGN_IN_PHRASE: Record<SignIn, string> = {
+  key: "a private key",
+  password: "a password",
+  agent: "your SSH agent",
+};
+
 export const APPROVAL_LABEL: Record<ServerApproval, string> = {
   every: "Ask me before every command",
   changes: "Ask me before anything that is not looking around",

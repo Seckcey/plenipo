@@ -847,6 +847,26 @@ async fn plan_changed_host_key() {
     };
     assert!(identity("Dev box").is_none(), "pinned again");
     assert!(identity("Shop").is_some(), "still blocked until pinned");
+    // The real Shop answers at its address again: once a test succeeds with the pinned identity,
+    // the warning goes.
+    h.shop.stop();
+    h.shop = Sshd::start(Options {
+        seed: 2,
+        port: shop_port,
+        user: "shop".into(),
+        password: SHOP_PASSWORD.into(),
+        ..Options::default()
+    })
+    .await;
+    let test = h.broker.test_server(&h.server_id("Shop")).await.unwrap();
+    assert!(test.ok, "{}", test.message);
+    assert!(h
+        .broker
+        .servers()
+        .unwrap()
+        .servers
+        .iter()
+        .all(|s| s.identity_changed.is_none()));
 }
 
 /// Plan: denied role. A role the server does not list is blocked before any connection; a role

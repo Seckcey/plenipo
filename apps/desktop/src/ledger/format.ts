@@ -317,7 +317,12 @@ function describeServerEvent(type: string, p: Record<string, unknown>): string |
             : ending === "refused"
               ? `was not run${str(p.why) ? ` (${str(p.why)})` : ""}`
               : (ENDING_WORDS[ending] ?? "ended");
-      const secs = typeof p.seconds === "number" ? ` after ${p.seconds} s` : "";
+      const secs =
+        typeof p.seconds !== "number"
+          ? ""
+          : p.seconds < 1
+            ? " in under a second"
+            : ` after ${p.seconds} s`;
       return `The command on ${server} ${how}${secs}`;
     }
     case "ssh.disconnected":

@@ -183,15 +183,50 @@ Edge that comes with Windows 11, or Google Chrome if you prefer it. Nothing to i
   permission set to a role of your own only when no API, program, or website will do; taking control asks
   you every time. Windows' own administrator prompts (UAC) cannot be clicked by any program,
   which is as it should be.
-- **Stop:** **Stop all** on the sign in the app, **Stop all browser and desktop control** in the
-  tray menu, or **Stop** on the small window shown while a worker has the mouse and keyboard.
+- **Stop:** **Stop all** on the sign in the app, **Stop all browser, desktop, and server work**
+  in the tray menu, or **Stop** on the small window shown while a worker has the mouse and
+  keyboard.
 
 `cargo test --workspace` includes the Phase 10 browser tests, which start Edge or Chrome
 without a window against a small test website on this computer (no internet). Set
 `PLENIPO_TEST_BROWSER` to the browser's full path to pick one; without a browser they are
 skipped locally and fail in CI.
 
-## 5. Build a release and installer
+## 5. Servers over SSH (Phase 11, optional)
+
+Workers whose role may **Connect to servers** (the **Operations Engineer**, or a role you give
+the **Servers** permission set) run commands on the Linux servers you add in **Settings →
+Servers**. Nothing to install: Plenipo has its own SSH client.
+
+- **Add a server:** its name, address, port, the user to sign in as, and whether it is
+  development, staging, or production. Then **Check the server's identity**, compare the
+  fingerprint with the one your hosting provider shows (or run
+  `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server), and pin it. Choose the roles
+  that may use it, the kinds of commands, and its folders.
+- **How Plenipo signs in:**
+  - **A private key:** choose the key file (for example `%USERPROFILE%\.ssh\id_ed25519`) and
+    type its passphrase if it has one.
+  - **A password.**
+  - **My SSH agent:** Windows' **OpenSSH Authentication Agent** service. Set it to start
+    automatically in **Services** and add your key with `ssh-add`. Or use Pageant.
+
+  Keys and passwords go to **Windows Credential Manager** (long keys in numbered pieces) and are
+  never shown again, to you or to a worker. **Never paste them into a chat or an objective.**
+- **Sign in as a limited user,** not `root`: looking around can read anything that user can
+  read.
+- **Test the connection** checks the identity and the sign-in without running anything.
+- **Production:** every command waits for your approval on a red **PRODUCTION** card.
+  Deleting, wiping, or shutting down is off there unless you turn it on (then it still asks).
+- **Stop:** **Disconnect** on the sign stops one worker. **Stop all** (in the app or the tray)
+  stops every worker's server work until **Allow again**.
+
+Servers must run a POSIX shell (Linux, macOS, BSD). Windows servers are not supported yet
+(ADR-023).
+
+`cargo test --workspace` includes the Phase 11 server tests, against a synthetic SSH server on
+this computer (no internet, nothing run on a real server).
+
+## 6. Build a release and installer
 
 ```powershell
 pnpm build
@@ -205,7 +240,7 @@ Outputs:
 
 The installer is not code-signed yet (planned for Phase 13), so Windows SmartScreen may warn.
 
-## 6. Verify everything locally (same as CI)
+## 7. Verify everything locally (same as CI)
 
 ```powershell
 pnpm check
@@ -222,7 +257,7 @@ $p = Start-Process target\release\plenipo-desktop.exe -PassThru; $null = $p.Hand
 Remove-Item Env:PLENIPO_SMOKE_TEST
 ```
 
-## 7. End-to-end tests
+## 8. End-to-end tests
 
 `pnpm e2e` drives the real release build through WebDriver. It runs in CI on Linux; locally:
 
@@ -233,6 +268,7 @@ cargo install tauri-driver --locked
 # each run
 pnpm --filter @plenipo/desktop tauri build --no-bundle
 cargo build --release -p plenipo-runtime --bin plenipo-fake-agent
+cargo build --release -p plenipo-capabilities --bin plenipo-test-sshd
 xvfb-run -a pnpm e2e        # or plain `pnpm e2e` on a desktop session
 ```
 
@@ -261,8 +297,15 @@ The Phase 10 test starts a small test website on `127.0.0.1` (no internet), allo
 Settings → Permissions → Websites, and gives a Web Assistant browser tool calls; the app uses
 the Edge or Chrome it finds (set `PLENIPO_BROWSER` to choose, for example a Chromium without
 Chrome installed). It approves the form it sends, then takes over and stops the next ones.
+The Phase 11 test starts a synthetic SSH server on `127.0.0.1` (`plenipo-test-sshd`, no
+internet) and an `ssh-agent` holding a new key (the OpenSSH client tools must be installed). It
+adds the server in Settings → Servers as production, pins its identity, and approves an
+Operations Engineer's commands there. Then it disconnects the worker, and restarts the server
+with another identity, which is blocked. (On Linux, the kernel keyring that stands in for
+Windows Credential Manager belongs to each thread, which containers do not always give; so this
+test signs in with the agent.)
 
-## 8. Linux (development / CI only)
+## 9. Linux (development / CI only)
 
 ```bash
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
