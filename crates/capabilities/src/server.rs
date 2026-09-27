@@ -1,7 +1,8 @@
 //! The tool server: listens on the loopback address for relays, admits a connection only with
-//! the ticket of an open grant, then speaks MCP (JSON-RPC, one message per line) for it. Every
-//! request is handled on its own task, so a call waiting for the owner's approval never holds
-//! up the others.
+//! the ticket of an open grant and only from the process tree of that grant's AI tool
+//! (ADR-034), then speaks MCP (JSON-RPC, one message per line) for it. Every request is
+//! handled on its own task, so a call waiting for the owner's approval never holds up the
+//! others.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -23,7 +24,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// Bind to a free port on the loopback address and serve `broker`'s grants. Returns the port.
 pub async fn start(broker: Broker) -> std::io::Result<u16> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
-    let port = listener.local_addr()?.port();
+    let local = listener.local_addr()?;
+    let port = local.port();
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
@@ -33,7 +35,7 @@ pub async fn start(broker: Broker) -> std::io::Result<u16> {
                         continue;
                     }
                     let broker = broker.clone();
-                    tokio::spawn(connection(broker, stream));
+                    tokio::spawn(connection(broker, stream, peer, local));
                 }
                 Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
             }
@@ -73,7 +75,7 @@ async fn read_line<R: tokio::io::AsyncBufRead + Unpin>(
     }
 }
 
-async fn connection(broker: Broker, stream: TcpStream) {
+async fn connection(broker: Broker, stream: TcpStream, peer: SocketAddr, local: SocketAddr) {
     let _ = stream.set_nodelay(true);
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
@@ -84,6 +86,11 @@ async fn connection(broker: Broker, stream: TcpStream) {
     let Some(grant_id) = hello.and_then(|h| broker.grant_for_ticket(&h.ticket)) else {
         return; // Unknown or ended ticket: close without a word.
     };
+    // The ticket is honored only from the AI tool's own process tree (ADR-034): any other
+    // program that read it is closed the same way, and the refusal is recorded.
+    if !broker.admit(&grant_id, peer, local).await {
+        return;
+    }
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let writer = tokio::spawn(async move {
         while let Some(line) = rx.recv().await {

@@ -5,8 +5,9 @@
 //! - It runs through the supervisor like every program Plenipo starts (its own process tree,
 //!   stopped when Plenipo quits), and is always visible: never hidden, with the browser's own
 //!   "controlled by automated test software" bar and Plenipo's sign on every page a worker uses.
-//! - Plenipo talks to it over the DevTools protocol on a loopback port ([`cdp`]); each worker's
-//!   step gets its own tab ([`tab`]).
+//! - Plenipo talks to it over the DevTools protocol on two private pipes the browser inherits
+//!   from Plenipo ([`cdp`]) — never a network port, so no other program on the computer can
+//!   connect to the browser and drive it; each worker's step gets its own tab ([`tab`]).
 //! - The profile never saves passwords or card details.
 //! - If it crashes or is closed, the next browser tool call starts it again.
 //! - The owner chooses which browser (ADR-028): Automatic (Edge, then Chrome), Edge, or Chrome.
@@ -20,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use plenipo_guard::BrowserChoice;
-use plenipo_runtime::{LaunchSpec, Supervisor};
+use plenipo_runtime::{ExtraPipes, LaunchSpec, Supervisor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex as AsyncMutex;
@@ -258,6 +259,7 @@ fn prepare_profile(dir: &Path) -> std::io::Result<()> {
     prefs["autofill"]["profile_enabled"] = json!(false);
     prefs["autofill"]["credit_card_enabled"] = json!(false);
     std::fs::write(&prefs_file, prefs.to_string())?;
+    // Plenipo's browser has no DevTools port; a file from an older version saying otherwise goes.
     let _ = std::fs::remove_file(dir.join("DevToolsActivePort"));
     Ok(())
 }
@@ -277,7 +279,10 @@ fn root_on_linux() -> bool {
 fn arguments(config: &BrowserConfig, profile: &Path) -> Vec<String> {
     let mut args: Vec<String> = [
         format!("--user-data-dir={}", profile.display()),
-        "--remote-debugging-port=0".into(),
+        // The DevTools protocol over the two pipes the browser inherits (descriptors 3 and 4),
+        // never `--remote-debugging-port`: a port has no lock on its door, and any program
+        // running as the owner could open it.
+        "--remote-debugging-pipe".into(),
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
         // Shows the browser's own "controlled by automated test software" bar.
@@ -518,6 +523,10 @@ impl Browser {
             .iter()
             .filter_map(|k| std::env::var(k).ok().map(|v| ((*k).to_owned(), v)))
             .collect();
+        // The browser inherits its end of two pipes (its descriptors 3 and 4) and speaks the
+        // DevTools protocol over them; Plenipo keeps the other ends. No network port exists.
+        let (pipes, ends) = ExtraPipes::create()
+            .map_err(|e| format!("could not prepare the pipes to Plenipo's browser: {e}"))?;
         let record = sup
             .launch(LaunchSpec {
                 profile_id: "capability.browser".into(),
@@ -532,48 +541,39 @@ impl Browser {
                 max_line_bytes: None,
                 observer: None,
                 agent: None,
+                extra_pipes: Some(pipes),
             })
             .await
             .map_err(|e| format!("{name} could not be started: {e}"))?;
-        let deadline = tokio::time::Instant::now() + config.launch_timeout;
-        let port_file = profile.join("DevToolsActivePort");
-        let address = loop {
-            if let Ok(text) = std::fs::read_to_string(&port_file) {
-                let mut lines = text.lines();
-                if let (Some(port), Some(path)) = (lines.next(), lines.next()) {
-                    if port.trim().parse::<u16>().is_ok() && path.starts_with("/devtools/") {
-                        break format!("ws://127.0.0.1:{}{}", port.trim(), path.trim());
-                    }
-                }
-            }
-            let ended = sup
-                .overview()
-                .executions
-                .iter()
-                .find(|e| e.id == record.id)
-                .is_none_or(|e| e.state.is_terminal());
-            if ended {
-                return Err(LaunchError::Failed(format!(
-                    "{name} closed right after it started (is Plenipo's browser already open \
-                     from an earlier start? Close it and try again)"
-                )));
-            }
-            if tokio::time::Instant::now() >= deadline {
-                let _ = sup.cancel(&record.id).await;
-                return Err(LaunchError::NotReady(format!(
-                    "{name} did not get ready within {} seconds",
-                    config.launch_timeout.as_secs()
-                )));
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        };
-        let (cdp, mut browser_events) = match Cdp::connect(&address).await {
+        let (cdp, mut browser_events) = match Cdp::over_pipe(ends) {
             Ok(c) => c,
             Err(e) => {
                 let _ = sup.cancel(&record.id).await;
                 return Err(LaunchError::Failed(e));
             }
         };
+        // Its first answer shows the browser is up. A browser that ends instead closes its end
+        // of the pipe, which closes the connection at once. (Stopping the browser closes the
+        // connection too, so look before stopping it.)
+        if cdp
+            .call(None, "Browser.getVersion", json!({}), config.launch_timeout)
+            .await
+            .is_err()
+        {
+            let closed = cdp.is_closed();
+            let _ = sup.cancel(&record.id).await;
+            return Err(if closed {
+                LaunchError::Failed(format!(
+                    "{name} closed right after it started (is Plenipo's browser already open \
+                     from an earlier start? Close it and try again)"
+                ))
+            } else {
+                LaunchError::NotReady(format!(
+                    "{name} did not get ready within {} seconds",
+                    config.launch_timeout.as_secs()
+                ))
+            });
+        }
         // The browser's own events are not needed; drain them.
         tokio::spawn(async move { while browser_events.recv().await.is_some() {} });
         Ok(Running {
@@ -662,13 +662,30 @@ mod tests {
         };
         let args = arguments(&config, dir.path());
         assert!(args.iter().any(|a| a.starts_with("--user-data-dir=")));
-        assert!(args.contains(&"--remote-debugging-port=0".to_owned()));
         assert!(args.contains(&"--enable-automation".to_owned()));
         assert!(args.contains(&"--headless=new".to_owned()));
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
         assert!(
             !arguments(&BrowserConfig::new(dir.path().to_path_buf()), dir.path())
                 .contains(&"--headless=new".to_owned())
+        );
+    }
+
+    /// The app's browser is driven over the pipes it inherits, never a DevTools port: a port
+    /// is open to every program running as the owner.
+    #[test]
+    fn the_browser_is_controlled_over_a_pipe_never_a_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = arguments(&BrowserConfig::new(dir.path().to_path_buf()), dir.path());
+        assert!(
+            args.contains(&"--remote-debugging-pipe".to_owned()),
+            "{args:?}"
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|a| a.starts_with("--remote-debugging-port")),
+            "{args:?}"
         );
     }
 
@@ -745,7 +762,8 @@ mod tests {
     }
 
     /// A stand-in for Edge: a shell script that notes each start in the `starts` file, then runs
-    /// `then` with `$STARTS` and `$PROFILE` (the browser's profile folder) set.
+    /// `then` with `$STARTS` and `$PROFILE` (the browser's profile folder) set. Like the real
+    /// browser, it gets the DevTools pipes as its descriptors 3 (commands) and 4 (answers).
     #[cfg(unix)]
     fn fake_browser(
         then: &str,
@@ -793,7 +811,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_browser_slow_to_start_is_stopped_and_started_once_more() {
-        // It never gets ready: no DevTools address, ever.
+        // It never gets ready: it never answers on the pipe.
         let (dir, browser, supervisor) = fake_browser("exec sleep 60", Duration::from_secs(1));
         let error = browser
             .connection()
@@ -818,21 +836,34 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn the_second_start_is_connected_to_once_it_gets_ready() {
-        // Slow the first time. The second time it gets ready the way a real browser does, but
-        // at an address where nothing answers: connecting is what fails, which shows the second
-        // start was waited for and used.
-        let (dir, browser, _supervisor) = fake_browser(
+        // Slow the first time. The second time it gets ready the way the real browser does: once
+        // Plenipo's first command (ID 1) starts arriving on its descriptor 3, it answers on its
+        // descriptor 4, as one JSON text ended by a NUL byte. It never wrote a
+        // `DevToolsActivePort` file: it has no port.
+        let (dir, browser, supervisor) = fake_browser(
             "if [ -e \"$STARTS.once\" ]; then\n  \
-             printf '1\\n/devtools/browser/x\\n' > \"$PROFILE/DevToolsActivePort\"\n\
+             head -c 1 <&3 > /dev/null\n  \
+             printf '{\"id\":1,\"result\":{\"product\":\"Fake/1\"}}\\0' >&4\n\
              else touch \"$STARTS.once\"; fi\nexec sleep 60",
             Duration::from_secs(1),
         );
-        let error = browser.connection().await.err().expect("nothing answers");
-        assert!(
-            error.starts_with("could not connect to Plenipo's browser"),
-            "{error}"
-        );
+        let (cdp, start) = browser
+            .connection()
+            .await
+            .expect("the second start answers");
+        assert_eq!(start, Start::Started);
+        assert!(!cdp.is_closed());
         assert_eq!(starts(&dir), 2);
+        assert!(!dir
+            .path()
+            .join("profile")
+            .join("DevToolsActivePort")
+            .exists());
+        let run = browser.execution_id().await.expect("its run");
+        supervisor.cancel(&run).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), cdp.closed())
+            .await
+            .expect("the connection ends with the browser");
     }
 
     #[cfg(unix)]

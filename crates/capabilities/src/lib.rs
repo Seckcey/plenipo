@@ -17,6 +17,7 @@ mod error;
 pub mod files;
 pub mod github;
 pub mod mcp;
+mod process;
 pub mod programs;
 pub mod relay;
 pub mod screens;

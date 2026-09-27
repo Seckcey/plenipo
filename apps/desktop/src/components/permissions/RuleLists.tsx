@@ -51,6 +51,11 @@ export function CommandLists({
         — never a shell command line. When a worker may run programs, approved commands run at once
         and anything else asks you. Sensitive actions (below) always ask.
       </p>
+      <p className="muted">
+        Approved programs run with your full account, and a project&apos;s own build and test
+        scripts run as part of them. Approve script runners like <code>npm run</code> only for
+        projects you trust.
+      </p>
       <form className="permissions__rules" aria-label="Command lists" onSubmit={submit}>
         <label className="field">
           <span>Approved: run without asking</span>

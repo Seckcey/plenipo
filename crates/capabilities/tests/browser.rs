@@ -162,6 +162,13 @@ impl Drop for H {
 /// Web Assistant, a Researcher, and a Desk Operator (a custom role with the Screen, mouse, and keyboard set).
 /// Websites: shop.test allowed, blocked.test blocked, others ask.
 async fn harness(browser: Option<PathBuf>) -> H {
+    harness_with(browser, true).await
+}
+
+/// The harness; with `outside_port`, the browser also opens a DevTools port on `127.0.0.1` for
+/// the tests' own second connection (`outside`, the owner's hand). The app never passes that
+/// flag: Plenipo itself talks to the browser over the pipes it inherits, here as in the app.
+async fn harness_with(browser: Option<PathBuf>, outside_port: bool) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -226,6 +233,13 @@ async fn harness(browser: Option<PathBuf>) -> H {
         // CI containers and runners may not allow Chrome's sandbox; the test pages are ours.
         "--no-sandbox".into(),
     ];
+    if outside_port {
+        // Tests only (see `harness_with`): the browser takes the pipe and a port together.
+        broker_config
+            .browser
+            .extra_args
+            .push("--remote-debugging-port=0".into());
+    }
     broker_config.browser.limits.navigation = Duration::from_secs(20);
     // Several tests start a fresh browser at once. On a small CI runner one of them can take
     // longer than the 30 seconds Plenipo allows a single browser on the owner's PC.
@@ -511,7 +525,7 @@ impl H {
     }
 
     /// A second DevTools connection to the test browser, outside Plenipo (as the owner's own
-    /// hand would be).
+    /// hand would be), over the port the tests' harness adds; the app's browser has none.
     async fn outside(&self) -> Cdp {
         let text = std::fs::read_to_string(self.profile().join("DevToolsActivePort")).unwrap();
         let mut lines = text.lines();
@@ -720,6 +734,7 @@ async fn plan_browser_session_launch() {
     let status = h.broker.browser_status().await;
     assert!(status.running);
     assert_eq!(PathBuf::from(&status.profile), h.profile());
+    // The tests' own port (`harness_with`); the app's browser has none (see the pipe test).
     assert!(h.profile().join("DevToolsActivePort").is_file());
     let prefs: Value = serde_json::from_str(
         &std::fs::read_to_string(h.profile().join("Default").join("Preferences")).unwrap(),
@@ -740,6 +755,42 @@ async fn plan_browser_session_launch() {
     }
     h.broker.browser().close().await;
     assert!(!h.broker.browser_status().await.running);
+}
+
+/// Plenipo controls its browser over the two private pipes the browser inherits, not a network
+/// port. Started as the app starts it — without the tests' extra port — the browser leaves no
+/// `DevToolsActivePort` file in its profile (there is no port to tell of), and a worker reads a
+/// page all the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_browser_is_driven_over_a_pipe_with_no_port() {
+    let browser = need_browser!();
+    let h = harness_with(Some(browser), false).await;
+    let url = h.url("shop", "/");
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": url })),
+                tool("browser_read", json!({}))
+            ] }]),
+        )
+        .await;
+    assert!(
+        line(&text, "browser_open").contains("Opened \"Synthetic Shop\""),
+        "{text}"
+    );
+    assert!(text.contains("link \"Contact us\""), "{text}");
+    assert_eq!(h.events(&task.id, "capability.used").len(), 2);
+    let status = h.broker.browser_status().await;
+    assert!(status.running && status.problem.is_none(), "{status:?}");
+    assert!(
+        !h.profile().join("DevToolsActivePort").exists(),
+        "no port, so no file telling of one"
+    );
+    let run = h.broker.browser().execution_id().await.expect("its run");
+    h.broker.browser().close().await;
+    let record = h.sup.wait(&run).await.unwrap();
+    assert!(record.state.is_terminal(), "{record:?}");
 }
 
 /// Plan: screenshot capture. A screenshot of the page goes to the worker as a picture (for a
@@ -956,6 +1007,115 @@ async fn plan_approval_gated_submit() {
     assert!(text.contains("by itself"), "{text}");
     let asked = h.events(&task.id, "approval.requested");
     assert_eq!(asked.len(), 2);
+}
+
+/// ADR-035: a chat composer (a contenteditable outside any form) sends on Enter, and the page
+/// sends over a live connection (a WebSocket) the network gate cannot see into. Enter asks the
+/// owner before it is pressed, and nothing reaches the site until they approve; a click on a
+/// harmless-looking button on such a page asks too, naming the live connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_composer_and_a_live_connection_ask_before_sending() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let chat = h.url("shop", "/chat");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": chat })),
+            tool("browser_type", json!({ "ref": "e1", "text": "hello there" })),
+            tool("browser_press", json!({ "key": "Enter" })),
+            tool("browser_click", json!({ "ref": "e2" }))
+        ], "say": "Sent." }]),
+    );
+    let root = h.objective().await;
+    // Enter in the composer (no <form> anywhere) asks: it sends what the box holds.
+    let enter = h.pending().await;
+    assert_eq!(enter.capability_label, "Use websites");
+    assert_eq!(
+        enter.sensitive_label.as_deref(),
+        Some("Sending or publishing outside this computer")
+    );
+    assert!(enter.summary.contains("press Enter"), "{}", enter.summary);
+    assert!(enter.reason.contains("text box"), "{}", enter.reason);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing reaches the site before approval: {:?}",
+        h.site.sent()
+    );
+    h.broker.resolve_approval(&enter.id, true, "owner").unwrap();
+    // Approved, the message goes over the page's live connection.
+    h.until("the message over the socket", |h| !h.site.sent().is_empty())
+        .await;
+    // "Go" looks harmless, but the page has a live connection the gate cannot see into: ask.
+    let click = h.pending().await;
+    assert_ne!(click.id, enter.id);
+    assert!(click.summary.contains("\"Go\""), "{}", click.summary);
+    assert!(click.reason.contains("live connection"), "{}", click.reason);
+    assert_eq!(
+        click.sensitive_label.as_deref(),
+        Some("Sending or publishing outside this computer")
+    );
+    h.broker
+        .resolve_approval(&click.id, false, "owner")
+        .unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        line(&text, "browser_press").contains("Pressed Enter"),
+        "{text}"
+    );
+    assert!(
+        line(&text, "browser_click").contains("failed: Not done"),
+        "{text}"
+    );
+    let sent = h.site.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].method, "WS");
+    assert_eq!(sent[0].path, "/ws");
+    assert_eq!(sent[0].body, "hello there");
+    assert_eq!(h.approvals_for(&task.id), 2);
+}
+
+/// ADR-035: data a page sends on its own, outside any worker action (a POST its script starts
+/// on a timer, long after the click), is never sent silently: Plenipo stops it, and the worker
+/// is told with its next result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn data_a_page_sends_on_its_own_is_stopped_and_the_worker_is_told() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let late = h.url("shop", "/late-send");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": late })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // "Go" goes ahead (nothing is sent while Plenipo watches the click). "Buy now" waits for the
+    // owner; meanwhile the page's timer fires its POST, with no worker action running.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(
+        h.site.sent().is_empty(),
+        "the late POST never reached the site: {:?}",
+        h.site.sent()
+    );
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert!(
+        text.contains("tried to send data to shop.test") && text.contains("on its own"),
+        "{text}"
+    );
+    assert!(text.contains("Plenipo stopped it"), "{text}");
+    assert_eq!(h.approvals_for(&task.id), 1, "only \"Buy now\" asked");
 }
 
 /// Plan: global stop. The owner's Stop halts all control at once: the worker waiting to send

@@ -1452,3 +1452,75 @@ async fn approvals_left_waiting_expire_when_plenipo_starts_again_and_tickets_are
     let n = conn.read_to_end(&mut answer).unwrap_or(0);
     assert_eq!(n, 0, "no answer: {}", String::from_utf8_lossy(&answer));
 }
+
+/// ADR-034 (approved programs run as the owner): a grant's ticket is honored only from the AI
+/// tool Plenipo started for that step, or a program that AI tool started. Any other program
+/// that copies the ticket is turned away without a word, and the owner can see it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_ticket_works_only_from_the_ai_tools_own_process_tree() {
+    let h = harness().await;
+    // The Supervisor's AI tool waits before it uses its tools, so its ticket stays on disk long
+    // enough for another program (this test) to copy it.
+    let task = h
+        .objective(&format!(
+            "[delay:6000] {}",
+            tool("read_file", serde_json::json!({ "path": "README.md" }))
+        ))
+        .await;
+    let tickets = h.dir.path().join("tickets");
+    let deadline = Instant::now() + WAIT;
+    let ticket: plenipo_capabilities::relay::Ticket = loop {
+        let found = std::fs::read_dir(&tickets)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .find(|p| p.to_string_lossy().ends_with(".ticket.json"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| serde_json::from_str(&t).ok());
+        if let Some(t) = found {
+            break t;
+        }
+        assert!(Instant::now() < deadline, "no ticket appeared");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    // This test process is neither the AI tool nor started by it (it is the AI tool's
+    // ancestor): the tool server closes the connection without answering.
+    use std::io::{BufRead as _, Write as _};
+    let mut conn = std::net::TcpStream::connect(("127.0.0.1", ticket.port)).unwrap();
+    conn.set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
+    writeln!(conn, "{}", serde_json::json!({ "ticket": ticket.ticket })).unwrap();
+    writeln!(
+        conn,
+        "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}}"
+    )
+    .unwrap();
+    let mut line = String::new();
+    let n = std::io::BufReader::new(&conn)
+        .read_line(&mut line)
+        .unwrap_or(0);
+    if cfg!(any(target_os = "linux", windows)) {
+        assert_eq!(n, 0, "no answer: {line}");
+        let refused = h.events(&task, "tool_server.ticket_refused");
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert_eq!(
+            refused[0]["connectingPid"].as_u64(),
+            Some(u64::from(std::process::id()))
+        );
+        assert!(
+            refused[0]["expectedRootPid"].as_u64().is_some(),
+            "{refused:?}"
+        );
+    } else {
+        // No way to tell programs apart here: allowed, and said so.
+        assert!(line.contains("\"result\""), "{line}");
+        assert!(!h.events(&task, "tool_server.ticket_unchecked").is_empty());
+    }
+    // The AI tool's own relay (a program it started) is served as before.
+    h.finished(&task).await;
+    let text = h.text(&task);
+    assert!(text.contains("Tool read_file: README.md"), "{text}");
+    // The ticket itself is never recorded.
+    assert!(!h.everything_recorded().contains(&ticket.ticket));
+}

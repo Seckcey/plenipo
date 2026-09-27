@@ -13,18 +13,26 @@
 //! 5. the `session/prompt` answer ends the task, and stdin is closed so the tool exits.
 //!
 //! Plenipo answers every permission request itself: a call to its own tool server is allowed
-//! (Guard decides inside the call), anything else is refused. It never sends `authenticate`,
-//! which could start a sign-in in a browser; a tool that is not signed in is reported as such.
-//! Unknown messages are ignored and counted (ADR-007 §7).
+//! (Guard decides inside the call), anything else is refused. Plenipo knows a call is for its
+//! tool server only from the tool name the AI tool itself sets (`_meta.toolName` or `toolName`
+//! with the server's name before it, as in `mcp__plenipo__read_file`); the call's input
+//! (`rawInput`) is text the model wrote, so what it says never decides. A shell command
+//! (`execute`) is decided first: only Plenipo's own `run_command`, named that way, may run a
+//! program. Each approval covers one action (ADR-013); Plenipo never chooses "allow for this
+//! session". It never sends `authenticate`, which could start a sign-in in a browser; a tool
+//! that is not signed in is reported as such. Unknown messages are ignored and counted
+//! (ADR-007 §7).
 //!
 //! For an AI tool whose own tools cannot be switched off, an adapter turns on **file access
 //! through Plenipo** (ADR-027, Kimi over ACP): `initialize` offers file reads and writes, and
 //! each `fs/read_text_file` / `fs/write_text_file` becomes a [`FileRequest`] that Plenipo carries
 //! out through Guard under the worker's permissions (a worker without them has every file
 //! request refused). The tool's own file changes are allowed only for a worker that may change
-//! files, since the change itself then comes to Plenipo; its own shell and everything else are
-//! refused, and no approval ever covers a whole session. The adapter can also require modes: a
-//! mode outside them stops the task.
+//! files, since the change itself then comes to Plenipo; its own shell is refused whatever else
+//! the request says, and so is everything else. Such a tool may name one of Plenipo's tools in
+//! a request's title (`title_is_tool_name`): that counts, except for a shell command, and each
+//! call allowed by its title is noted in the task's activity. The adapter can also require
+//! modes: a mode outside them stops the task.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -53,6 +61,8 @@ const MAX_CALLS: usize = 256;
 /// Plenipo's tool that writes files: only a worker whose grant offers it may let the AI tool
 /// change files (ADR-027).
 const WRITE_TOOL: &str = "write_file";
+/// Plenipo's tool that runs programs: the only tool a shell command (`execute`) may be.
+const RUN_TOOL: &str = "run_command";
 
 /// What an ACP adapter tells the driver about one task.
 #[derive(Debug, Clone, Default)]
@@ -79,7 +89,8 @@ pub struct AcpTask {
     /// Reopen a conversation with `session/load` even when the tool offers `session/resume`.
     pub load_to_resume: bool,
     /// The tool names the tool in a permission request's title (Kimi), so a title may name a
-    /// tool of Plenipo's tool server: with the server's name before it, or bare.
+    /// tool of Plenipo's tool server: with the server's name before it, or bare. Never for a
+    /// shell command (`execute`), and each call allowed by its title is noted in the activity.
     pub title_is_tool_name: bool,
     /// Refuse the task as soon as the tool answers `initialize`, before any conversation opens
     /// (for example a model Plenipo does not run on this tool).
@@ -104,6 +115,15 @@ enum Phase {
 struct Call {
     title: Option<String>,
     kind: Option<String>,
+}
+
+/// How a permission request was found to be for Plenipo's tool server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerCall<'a> {
+    /// By the tool name the AI tool itself sets, with the server's name before it: this tool.
+    Named(&'a str),
+    /// By its title, which names one of the server's tools (`title_is_tool_name`).
+    Titled,
 }
 
 /// One task over ACP.
@@ -450,14 +470,27 @@ impl AcpTurn {
         }
     }
 
-    /// Whether a permission request is for a tool of Plenipo's tool server.
-    fn is_server_call(&self, call: &Value, server: &ToolServer) -> bool {
-        is_tool_server_call(call, &server.name)
-            || (self.task.title_is_tool_name
-                && call
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .is_some_and(|t| names_server_tool(t, server)))
+    /// Whether, and how, a permission request is for a tool of Plenipo's tool server. Only what
+    /// the AI tool itself sets counts: the tool name with the server's name before it, or, for
+    /// an adapter whose titles are tool names, the title. The call's input (`rawInput`) is text
+    /// the model wrote and never decides. A title never counts for a shell command
+    /// (`execute`): Plenipo's tools are not asked for that way (ADR-027).
+    fn server_call<'a>(
+        &self,
+        call: &'a Value,
+        kind: Option<&str>,
+        server: &ToolServer,
+    ) -> Option<ServerCall<'a>> {
+        if let Some(tool) = named_server_tool(call, &server.name) {
+            return Some(ServerCall::Named(tool));
+        }
+        let titled = self.task.title_is_tool_name
+            && kind != Some("execute")
+            && call
+                .get("title")
+                .and_then(Value::as_str)
+                .is_some_and(|t| names_server_tool(t, server));
+        titled.then_some(ServerCall::Titled)
     }
 
     /// The worker may change files: its grant offers Plenipo's `write_file`.
@@ -482,26 +515,33 @@ impl AcpTurn {
                 let known = self.calls.get(call_id.as_deref()?)?;
                 known.kind.clone()
             });
+        let execute = kind.as_deref() == Some("execute");
         let what = call_name(call);
         let label = self.label();
         let server_call = self
             .task
             .tools
             .as_ref()
-            .is_some_and(|t| self.is_server_call(call, t));
-        let own_edit = !server_call && self.task.file_access && kind.as_deref() == Some("edit");
-        // Why the request is refused, as the task's activity says it; `None` allows it.
-        let refusal = if server_call {
+            .and_then(|t| self.server_call(call, kind.as_deref(), t));
+        let own_edit =
+            server_call.is_none() && self.task.file_access && kind.as_deref() == Some("edit");
+        // Why the request is refused, as the task's activity says it; `None` allows it. A shell
+        // command is decided first, whatever else the request says (ADR-027): with file access
+        // through Plenipo the AI tool's own shell is always refused; otherwise only Plenipo's
+        // own `run_command`, named by the AI tool itself, may run a program.
+        let refusal = if execute
+            && (self.task.file_access || !matches!(server_call, Some(ServerCall::Named(RUN_TOOL))))
+        {
+            Some(format!(
+                "{label} asked to run a command with its own shell ({what}); Plenipo refused it. \
+                 Workers run programs with Plenipo's run_command tool."
+            ))
+        } else if server_call.is_some() {
             None
         } else if !self.task.file_access {
             Some(format!(
                 "{label} asked to use {what}; Plenipo refused it (only Plenipo's own tools are \
                  allowed)."
-            ))
-        } else if kind.as_deref() == Some("execute") {
-            Some(format!(
-                "{label} asked to run a command with its own shell ({what}); Plenipo refused it. \
-                 Workers run programs with Plenipo's run_command tool."
             ))
         } else if own_edit {
             (!self.can_write()).then(|| {
@@ -516,12 +556,12 @@ impl AcpTurn {
                  file access through Plenipo are allowed)."
             ))
         };
-        // Each approval covers one action (ADR-013); with file access through Plenipo, never a
-        // whole session (ADR-027).
-        let wanted: &[&str] = match (&refusal, self.task.file_access) {
-            (None, true) => &["allow_once"],
-            (None, false) => &["allow_once", "allow_always"],
-            (Some(_), _) => &["reject_once", "reject_always"],
+        // Each approval covers one action (ADR-013): Plenipo never chooses "allow for this
+        // session" (ADR-027).
+        let wanted: &[&str] = if refusal.is_none() {
+            &["allow_once"]
+        } else {
+            &["reject_once", "reject_always"]
         };
         let options = params.get("options").and_then(Value::as_array);
         let choice = wanted.iter().find_map(|kind| {
@@ -544,11 +584,24 @@ impl AcpTurn {
             ],
             ..Parsed::none()
         };
-        if let Some(text) = refusal {
-            parsed.events.push(AgentEvent::Notice {
+        match refusal {
+            Some(text) => parsed.events.push(AgentEvent::Notice {
                 level: NoticeLevel::Info,
                 text,
-            });
+            }),
+            // Allowed by its title alone: the activity says which tool and why, so the owner
+            // can see the decision.
+            None if server_call == Some(ServerCall::Titled) => {
+                parsed.events.push(AgentEvent::Notice {
+                    level: NoticeLevel::Info,
+                    text: format!(
+                        "{label} asked to use {what}; Plenipo allowed it because that is one of \
+                         Plenipo's own tools, named in the request (Plenipo's rules still apply \
+                         inside the call)."
+                    ),
+                });
+            }
+            None => {}
         }
         parsed
     }
@@ -896,40 +949,40 @@ fn call_name(call: &Value) -> String {
         .map_or_else(|| "a tool".to_owned(), |s| first_line(s, 80))
 }
 
-/// Whether a tool name carries the name of the tool server `server` before it
-/// (`mcp__plenipo__read`, `plenipo__read`, `plenipo:read`, `plenipo/read`).
-fn has_server_prefix(name: &str, server: &str) -> bool {
-    let name = name.strip_prefix("mcp__").unwrap_or(name);
-    [
-        format!("{server}__"),
-        format!("{server}:"),
-        format!("{server}/"),
-    ]
-    .iter()
-    .any(|p| name.starts_with(p.as_str()))
+/// The tool a name names once the name of the tool server `server` before it is taken off
+/// (`mcp__plenipo__read`, `plenipo__read`, `plenipo:read`, `plenipo/read` → `read`); `None`
+/// when the name does not carry it.
+fn strip_server_prefix<'a>(name: &'a str, server: &str) -> Option<&'a str> {
+    let rest = name
+        .strip_prefix("mcp__")
+        .unwrap_or(name)
+        .strip_prefix(server)?;
+    ["__", ":", "/"]
+        .iter()
+        .find_map(|sep| rest.strip_prefix(sep))
 }
 
 /// Whether `name` is a tool of `server`: with the server's name before it, or bare and one of
 /// the tools the server offers.
 fn names_server_tool(name: &str, server: &ToolServer) -> bool {
-    has_server_prefix(name, &server.name) || server.tools.iter().any(|t| t == name)
+    strip_server_prefix(name, &server.name).is_some() || server.tools.iter().any(|t| t == name)
 }
 
-/// Whether a permission request is for a tool of the server named `server`: its tool name
-/// carries the server's name as a prefix (`mcp__plenipo__read`, `plenipo__read`,
-/// `plenipo:read`), or its input names the server (a generic "use a tool server's tool" call).
+/// The tool of the server named `server` a permission request is for, from the tool name the
+/// AI tool itself sets (`_meta.toolName` or `toolName`, as in `mcp__plenipo__read_file` →
+/// `read_file`). Nothing else counts: the call's input (`rawInput`) is text the model wrote,
+/// so a server named there proves nothing.
+fn named_server_tool<'a>(call: &'a Value, server: &str) -> Option<&'a str> {
+    ["/_meta/toolName", "/toolName"]
+        .iter()
+        .filter_map(|p| call.pointer(p).and_then(Value::as_str))
+        .find_map(|n| strip_server_prefix(n, server))
+}
+
+/// Whether a permission request is for a tool of the server named `server`, by the tool name
+/// the AI tool itself sets (see [`named_server_tool`]).
 pub fn is_tool_server_call(call: &Value, server: &str) -> bool {
-    let names = ["/_meta/toolName", "/toolName"]
-        .iter()
-        .filter_map(|p| call.pointer(p).and_then(Value::as_str));
-    let input_server = ["server", "serverName", "server_name", "mcpServer"]
-        .iter()
-        .filter_map(|k| {
-            call.pointer(&format!("/rawInput/{k}"))
-                .and_then(Value::as_str)
-        })
-        .any(|s| s == server);
-    input_server || names.into_iter().any(|n| has_server_prefix(n, server))
+    named_server_tool(call, server).is_some()
 }
 
 /// Token usage from a `session/prompt` answer (`usage` or `_meta.usage`, either naming).
@@ -1027,11 +1080,28 @@ mod tests {
 
     /// Open a new session and get to the prompt (Grok's real `initialize` answer).
     fn prompting(tools: bool) -> AcpTurn {
-        let mut t = AcpTurn::new(task(new_session(), tools));
+        prompting_on(task(new_session(), tools))
+    }
+
+    fn prompting_on(task: AcpTask) -> AcpTurn {
+        let mut t = AcpTurn::new(task);
         t.open("Say hi");
         t.line(grok_line(0), false);
         t.line(&answer(OPEN, json!({ "sessionId": "s-1" })), false);
         t
+    }
+
+    /// A Kimi-shaped task (ADR-027): file access through Plenipo, titles that are tool names,
+    /// and Plenipo's `run_command` among the tools offered.
+    fn kimi_task() -> AcpTask {
+        let mut task = task(new_session(), true);
+        task.runtime_label = "Kimi";
+        task.file_access = true;
+        task.title_is_tool_name = true;
+        if let Some(server) = task.tools.as_mut() {
+            server.tools.push("run_command".into());
+        }
+        task
     }
 
     #[test]
@@ -1248,7 +1318,11 @@ mod tests {
     }
 
     fn permission(tools: bool, tool_call: Value, options: Value) -> (Parsed, AcpTurn) {
-        let mut t = prompting(tools);
+        permission_on(task(new_session(), tools), tool_call, options)
+    }
+
+    fn permission_on(task: AcpTask, tool_call: Value, options: Value) -> (Parsed, AcpTurn) {
+        let mut t = prompting_on(task);
         let p = t.line(
             &json!({ "jsonrpc": "2.0", "id": 77, "method": "session/request_permission",
                      "params": { "sessionId": "s-1", "toolCall": tool_call, "options": options } })
@@ -1266,9 +1340,17 @@ mod tests {
         ])
     }
 
+    /// The option Plenipo chose in its answer.
+    fn chosen(p: &Parsed) -> Value {
+        sent(p)[0]["result"]["outcome"]["optionId"].clone()
+    }
+
     #[test]
     fn only_plenipo_tool_calls_are_allowed() {
+        // Plenipo's tool, named by the AI tool itself (`_meta.toolName`): allowed for this one
+        // action only, although "always" is offered.
         let plenipo = json!({ "toolCallId": "c1", "title": "use_tool",
+                              "_meta": { "toolName": "mcp__plenipo__read_file" },
                               "rawInput": { "server": "plenipo", "tool": "read_file" } });
         let (p, _) = permission(true, plenipo.clone(), options());
         let reply = &sent(&p)[0];
@@ -1281,13 +1363,14 @@ mod tests {
 
         // Without Plenipo's tools, the same call is refused.
         let (p, _) = permission(false, plenipo, options());
-        assert_eq!(sent(&p)[0]["result"]["outcome"]["optionId"], "no");
+        assert_eq!(chosen(&p), "no");
 
-        // The tool's own tools, or another server's, are refused and noted.
+        // The tool's own tools, or another server's, are refused and noted, whatever the call's
+        // input says: the model writes the input, so naming Plenipo there proves nothing.
         let own = json!({ "toolCallId": "c2", "title": "run_terminal_command",
-                          "rawInput": { "command": "rm -rf /" } });
+                          "rawInput": { "command": "rm -rf /", "server": "plenipo" } });
         let (p, _) = permission(true, own, options());
-        assert_eq!(sent(&p)[0]["result"]["outcome"]["optionId"], "no");
+        assert_eq!(chosen(&p), "no");
         assert!(matches!(
             &p.events[..],
             [AgentEvent::Notice { text, .. }] if text.contains("run_terminal_command")
@@ -1306,17 +1389,20 @@ mod tests {
     }
 
     #[test]
-    fn tool_server_calls_are_recognized_by_name_or_by_server() {
+    fn tool_server_calls_are_recognized_by_the_tool_s_name_only() {
         for call in [
-            json!({ "rawInput": { "server": "plenipo", "tool": "x" } }),
-            json!({ "rawInput": { "server_name": "plenipo" } }),
             json!({ "_meta": { "toolName": "mcp__plenipo__read_file" } }),
             json!({ "toolName": "plenipo__read_file" }),
             json!({ "toolName": "plenipo:read_file" }),
+            json!({ "toolName": "plenipo/read_file" }),
         ] {
             assert!(is_tool_server_call(&call, "plenipo"), "{call}");
         }
+        // The call's input is the model's own text: naming the server there proves nothing.
         for call in [
+            json!({ "rawInput": { "server": "plenipo", "tool": "x" } }),
+            json!({ "rawInput": { "server_name": "plenipo" } }),
+            json!({ "rawInput": { "serverName": "plenipo", "mcpServer": "plenipo" } }),
             json!({ "rawInput": { "server": "github" } }),
             json!({ "toolName": "mcp__plenipoevil__x" }),
             json!({ "toolName": "read_file", "title": "plenipo__read_file" }),
@@ -1325,6 +1411,81 @@ mod tests {
         ] {
             assert!(!is_tool_server_call(&call, "plenipo"), "{call}");
         }
+    }
+
+    #[test]
+    fn grok_s_own_tools_are_refused_whatever_their_input_says() {
+        // Tools not on Grok's own-tools list (a new one, or the generic `use_tool`) are still
+        // not Plenipo's when only the input, which the model writes, says so.
+        for call in [
+            json!({ "toolCallId": "c1", "title": "fetch_url", "kind": "fetch",
+                    "rawInput": { "url": "https://example.com", "server": "plenipo" } }),
+            json!({ "toolCallId": "c2", "title": "shell", "kind": "execute",
+                    "rawInput": { "command": "cat secrets.txt", "serverName": "plenipo" } }),
+            json!({ "toolCallId": "c3", "title": "use_tool", "kind": "other",
+                    "rawInput": { "server": "plenipo", "tool": "read_file" } }),
+        ] {
+            let (p, _) = permission(true, call.clone(), options());
+            assert_eq!(chosen(&p), "no", "{call}");
+            assert!(
+                matches!(
+                    &p.events[..],
+                    [AgentEvent::Notice { text, .. }] if text.contains("Plenipo refused it")
+                ),
+                "{call}: {:?}",
+                p.events
+            );
+        }
+
+        // A shell command is Plenipo's only as its own `run_command`, named by Grok itself.
+        let run = |tool: &str| {
+            json!({ "toolCallId": "c4", "title": "use_tool", "kind": "execute",
+                    "_meta": { "toolName": format!("mcp__plenipo__{tool}") },
+                    "rawInput": { "server": "plenipo", "tool": tool } })
+        };
+        let (p, _) = permission(true, run("run_command"), options());
+        assert_eq!(chosen(&p), "yes", "once, never for the session");
+        assert!(p.events.is_empty());
+        let (p, _) = permission(true, run("read_file"), options());
+        assert_eq!(chosen(&p), "no");
+    }
+
+    #[test]
+    fn a_kimi_title_names_a_plenipo_tool_except_for_a_shell_command() {
+        // Kimi (ADR-027) names Plenipo's tool bare in the title. A shell command is never one
+        // of Plenipo's for it, however the request is named.
+        for call in [
+            json!({ "toolCallId": "c1", "title": "run_command", "kind": "execute" }),
+            json!({ "toolCallId": "c2", "title": "mcp__plenipo__run_command", "kind": "execute" }),
+            json!({ "toolCallId": "c3", "title": "Bash", "kind": "execute",
+                    "_meta": { "toolName": "mcp__plenipo__run_command" } }),
+        ] {
+            let (p, _) = permission_on(kimi_task(), call.clone(), options());
+            assert_eq!(chosen(&p), "no", "{call}");
+            assert!(
+                matches!(
+                    &p.events[..],
+                    [AgentEvent::Notice { text, .. }]
+                        if text.contains("own shell") && text.contains("run_command")
+                ),
+                "{call}: {:?}",
+                p.events
+            );
+        }
+
+        // Any other kind: allowed for this one action, and the activity says which tool and why.
+        let read = json!({ "toolCallId": "c4", "title": "read_file", "kind": "other" });
+        let (p, _) = permission_on(kimi_task(), read, options());
+        assert_eq!(chosen(&p), "yes", "once, never for the session");
+        assert!(
+            matches!(
+                &p.events[..],
+                [AgentEvent::Notice { level: NoticeLevel::Info, text }]
+                    if text.contains("read_file") && text.contains("allowed")
+            ),
+            "{:?}",
+            p.events
+        );
     }
 
     #[test]

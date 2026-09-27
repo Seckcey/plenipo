@@ -1,8 +1,11 @@
 //! Which clicks and key presses in Plenipo's browser are sensitive (Phase 10, ADR-020):
 //! submitting a form or sending something, buying, and signing in always wait for the owner's
 //! approval. Plenipo reads the control from the page (its kind, its words, its form) and errs
-//! on the side of asking. What a page's own scripts do is caught by the network check in the
-//! tab (data sent right after a worker's action also waits for approval).
+//! on the side of asking. This check is only the first line: what a page's own scripts send
+//! over plain requests is caught by the network gate in the tab (data sent right after a
+//! worker's action is held for approval; data sent outside an action is stopped), and a page
+//! with a live connection (a WebSocket, which the gate cannot see into) asks before any click
+//! or Enter (ADR-035, the network gate covers sockets; see `broker/operate.rs`).
 
 use plenipo_guard::SensitiveKind;
 use serde::Deserialize;
@@ -192,9 +195,17 @@ pub fn click(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
 
 /// Why submitting the form a control belongs to (pressing Enter in it, or typing with
 /// "submit") is sensitive: always, since it sends what the form holds; the kind says what it
-/// looks like.
+/// looks like. A text box outside any form (a chat or comment composer) sends what it holds on
+/// Enter too, through the page's own script (ADR-035).
 pub fn submit(f: &ElementFacts) -> (SensitiveKind, String) {
-    let form = f.form.clone().unwrap_or_default();
+    let Some(form) = f.form.clone() else {
+        return (
+            SensitiveKind::Outbound,
+            "Enter in this text box sends what it holds to the website (a message, a comment, \
+             a reply)"
+                .into(),
+        );
+    };
     if form.has_password {
         return (
             SensitiveKind::SignIn,
@@ -223,13 +234,16 @@ pub fn submit(f: &ElementFacts) -> (SensitiveKind, String) {
     )
 }
 
-/// Why pressing Enter on this control is sensitive, if it is: in a form it submits it; on a
-/// button or link it clicks it.
+/// Why pressing Enter on this control is sensitive, if it is: in any single-line text box (an
+/// input, a contenteditable, a role=textbox), inside a form or not, it sends what the box holds
+/// (ADR-035); in a multi-line box (a textarea) it is a new line; on a button or link it clicks
+/// it.
 pub fn enter(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
     if !f.found {
         return None;
     }
-    if f.editable && f.tag != "textarea" && f.form.is_some() {
+    let text_box = f.editable || f.role == "textbox";
+    if text_box && f.tag != "textarea" {
         return Some(submit(f));
     }
     click(f)
@@ -391,14 +405,46 @@ mod tests {
             ..field.clone()
         };
         assert_eq!(enter(&search).unwrap().0, SensitiveKind::Outbound);
+        // A text box outside any form (a chat composer) sends on Enter too (ADR-035).
         let outside = ElementFacts {
             form: None,
             ..field
         };
+        let (kind, why) = enter(&outside).expect("Enter in a text box sends");
+        assert_eq!(kind, SensitiveKind::Outbound);
+        assert!(why.contains("text box"), "{why}");
+        let composer = ElementFacts {
+            found: true,
+            tag: "div".into(),
+            role: "textbox".into(),
+            editable: true,
+            ..ElementFacts::default()
+        };
+        assert_eq!(enter(&composer).unwrap().0, SensitiveKind::Outbound);
+        let plain_textbox = ElementFacts {
+            editable: false,
+            ..composer
+        };
         assert_eq!(
-            enter(&outside),
-            None,
-            "Enter outside a form submits nothing"
+            enter(&plain_textbox).unwrap().0,
+            SensitiveKind::Outbound,
+            "a role=textbox control counts even when the page marks it oddly"
+        );
+        // Enter in a multi-line box is a new line, inside a form or not.
+        let textarea = ElementFacts {
+            found: true,
+            tag: "textarea".into(),
+            editable: true,
+            form: Some(FormFacts::default()),
+            ..ElementFacts::default()
+        };
+        assert_eq!(enter(&textarea), None);
+        assert_eq!(
+            enter(&ElementFacts {
+                form: None,
+                ..textarea
+            }),
+            None
         );
         assert_eq!(enter(&ElementFacts::default()), None);
     }

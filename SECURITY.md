@@ -39,7 +39,9 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Secrets live in the Windows Credential Manager. Workers never see them, and secrets are redacted
   from the record.
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
-  passwords are never used.
+  passwords are never used. Plenipo controls its browser over a private pipe between the two
+  programs, not a network port, so no other program on your computer can connect to the browser
+  and drive it.
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
@@ -47,8 +49,28 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Sending, buying, and signing in ask for approval by default. The owner can explicitly enable
   the corresponding **without asking** switches for allowed websites. Other permission and
   Guard checks still apply; these switches are off by default.
+- In Plenipo's browser, the network gate works like this (ADR-035):
+  - **Asked before the action:** a click or key press whose control looks like sending, buying,
+    or signing in; Enter in any text box (a form field, a chat or comment composer, inside a form
+    or not); and any click, Enter, or Space on a page that has a live connection (a WebSocket),
+    because Plenipo cannot see what goes through one.
+  - **Held for approval:** data the page sends right after a worker's click or key press — any
+    page, form, script, or beacon request (`Document`, `XHR`, `Fetch`, `Ping`, `Other`) that is
+    not a plain read (GET, HEAD, OPTIONS) — until the owner approves or refuses.
+  - **Stopped, and the worker told:** data the page tries to send on its own, with no worker
+    action running (a form it submits by itself, a script's POST on a timer, a beacon).
+  - **Not seen:** what goes through a live connection (WebSocket frames) or a plain page load
+    (a link that changes something with a GET); those are covered only by the asks above.
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
+
+Programs a worker is allowed to run (the approved list, and anything you approve when asked)
+run with your own account, the same as if you had started them. Plenipo checks which program
+starts, and it gives a worker's tools only to the AI tool's own program and the programs that
+AI tool starts (ADR-034); it does not yet put those programs in a sandbox (a box that limits
+what a program can touch). A project's own build and test scripts run as part of a program
+like `cargo test` or `npm run`, so treat a project's scripts as code you trust, and approve
+script runners only for projects you trust.
 
 ## Out of scope
 

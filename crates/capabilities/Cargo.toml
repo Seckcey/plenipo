@@ -46,7 +46,8 @@ russh = { version = "0.63", default-features = false, features = ["ring", "rsa"]
 sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
-# The DevTools protocol of Plenipo's browser (Phase 10), over a loopback WebSocket; no TLS.
+# Tests only: a second DevTools connection to Plenipo's browser over a loopback WebSocket, as
+# the owner's own hand (Phase 10). The app talks to its browser over a pipe; no TLS.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 ts-rs = "11"
 uuid = { version = "1", features = ["v4"] }
@@ -61,6 +62,14 @@ keyring = { version = "3.6", features = ["windows-native"] }
 # administrator. Safe wrappers (the workspace forbids unsafe code).
 is_elevated = "0.1"
 win32job = "2"
+# Which program holds a loopback connection, and its parents (ADR-034: the tool server binds
+# a ticket to the AI tool's process tree).
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
 # Screen capture for computer use (Phase 10).
 xcap = "0.9"
 
@@ -80,5 +89,12 @@ plenipo-router = { path = "../router" }
 plenipo-workforce = { path = "../workforce" }
 tempfile = "3"
 
-[lints]
-workspace = true
+[lints.rust]
+# The workspace forbids unsafe code. This crate denies it instead, so that exactly one module —
+# the Windows lookup of which program holds a loopback connection, behind the tool server's
+# ticket check (ADR-034) — may allow it for its calls into Windows. Everywhere else in this
+# crate, unsafe code is still a build error.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

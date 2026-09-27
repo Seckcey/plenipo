@@ -228,7 +228,9 @@ fn list(items: &[&str]) -> Vec<String> {
 }
 
 /// Everyday build, test, and lint commands; programs that delete, download, reach other
-/// computers, run a shell, or change the system.
+/// computers, run a shell, or change the system. Script runners (`npm run`, `make test`) run
+/// a project's own scripts with the owner's account, so they are not approved for every
+/// project: the owner approves them where the project is trusted (ADR-034).
 pub fn default_commands() -> CommandRules {
     CommandRules {
         approved: list(&[
@@ -240,20 +242,17 @@ pub fn default_commands() -> CommandRules {
             "cargo doc *",
             "cargo tree *",
             "npm test *",
-            "npm run *",
             "npx tsc *",
             "npx eslint *",
             "npx prettier *",
             "npx vitest *",
             "npx jest *",
             "pnpm test *",
-            "pnpm run *",
             "pnpm lint *",
             "pnpm build *",
             "pnpm typecheck *",
             "pnpm check *",
             "yarn test *",
-            "yarn run *",
             "yarn build *",
             "yarn lint *",
             "tsc *",
@@ -282,8 +281,6 @@ pub fn default_commands() -> CommandRules {
             "gradle build *",
             "./gradlew test *",
             "./gradlew build *",
-            "make test *",
-            "make build *",
             "make lint *",
             "make check *",
         ]),
@@ -393,5 +390,29 @@ mod tests {
         }
         let w = default_websites();
         assert_eq!(crate::websites::clean(&w).unwrap(), w);
+    }
+
+    /// Script runners run a project's own scripts with the owner's account, so they are
+    /// approved per project, never for everyone (ADR-034).
+    #[test]
+    fn script_runners_are_not_approved_by_default() {
+        let c = default_commands();
+        for runner in [
+            "npm run *",
+            "pnpm run *",
+            "yarn run *",
+            "make test *",
+            "make build *",
+        ] {
+            assert!(!c.approved.contains(&runner.to_owned()), "{runner}");
+        }
+        for kept in [
+            "cargo test *",
+            "cargo build *",
+            "python -m pytest *",
+            "./gradlew test *",
+        ] {
+            assert!(c.approved.contains(&kept.to_owned()), "{kept}");
+        }
     }
 }

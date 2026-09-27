@@ -1,12 +1,23 @@
 //! One tab of Plenipo's browser, for one worker's step (Phase 10, ADR-020).
 //!
 //! The tab keeps what it learns from the browser's events (its address, loads, crashes, the
-//! helper's world), and checks every page request itself:
+//! helper's world), and checks every page request itself (the network gate, ADR-020 section 4,
+//! ADR-035):
 //! - a page opened in the tab must pass the owner's website lists (blocked websites never
 //!   open; a website on neither list opens only once the owner approved it for this step);
-//! - data a page sends right after a worker's click or key press (a form, a message) is held
-//!   until Plenipo decides: the broker asks the owner, then lets it go or stops it;
-//! - a form a page tries to send by itself, with no worker action, is stopped.
+//! - data a page sends right after a worker's click or key press (a form, a message, a beacon:
+//!   any `Document`, `XHR`, `Fetch`, `Ping`, or `Other` request that is not a plain GET, HEAD,
+//!   or OPTIONS read) is held until Plenipo decides: the broker asks the owner, then lets it
+//!   go or stops it;
+//! - data a page tries to send by itself, with no worker action (a form it submits on its own,
+//!   a script's POST on a timer, a beacon), is stopped, and the worker is told so with its
+//!   next result. It is stopped rather than held because nobody can decide it: an approval
+//!   belongs to a worker's tool call, and a request held between calls would wait for an action
+//!   it had nothing to do with. The worker can act on the page (click or press) and the owner
+//!   is asked then;
+//! - WebSocket frames cannot be seen or held, so the tab only notes that the page has a live
+//!   connection (`Network.webSocketCreated`, forgotten on the next page), and the broker asks
+//!   the owner before a click, Enter, or Space on such a page ([`Tab::has_websocket`]).
 //!
 //! When the owner takes control or stops it, the tab stops checking (the owner browses freely)
 //! and its sign says so.
@@ -103,7 +114,7 @@ pub struct Held {
     pub url: String,
     /// The website it goes to (`host` or `host:port`).
     pub site: String,
-    /// `Document` (a form) or `XHR`/`Fetch` (a page script).
+    /// `Document` (a form), `XHR`/`Fetch` (a page script), `Ping` (a beacon), or `Other`.
     pub kind: String,
 }
 
@@ -151,6 +162,10 @@ struct State {
     gone: bool,
     acting: bool,
     held: Vec<Held>,
+    /// The page's live connections (WebSockets) open now, by the browser's request ID. The gate
+    /// cannot see what goes through them, so the broker asks before acting on such a page
+    /// (ADR-035).
+    sockets: HashSet<String>,
     /// Tries a worker has made at this page's CAPTCHA (ADR-029); cleared when the page no longer
     /// shows one, or shows it passed (ADR-032).
     captcha_attempts: u32,
@@ -163,6 +178,19 @@ struct State {
     worker: String,
     /// The registered script that draws the sign on each new page.
     sign_script: Option<String>,
+}
+
+impl State {
+    /// The page has a live connection (a WebSocket) open now.
+    fn has_websocket(&self) -> bool {
+        !self.sockets.is_empty()
+    }
+
+    /// The main frame moved to a new page: what belonged to the old one is forgotten.
+    fn page_changed(&mut self) {
+        self.world = None;
+        self.sockets.clear();
+    }
 }
 
 struct Shared {
@@ -295,6 +323,8 @@ impl Tab {
     async fn set_up(&self) -> Result<(), String> {
         self.call("Page.enable", json!({})).await?;
         self.call("Runtime.enable", json!({})).await?;
+        // Network events tell the tab when the page opens a live connection (ADR-035).
+        self.call("Network.enable", json!({})).await?;
         self.call(
             "Runtime.addBinding",
             json!({ "name": BINDING, "executionContextName": WORLD }),
@@ -315,9 +345,16 @@ impl Tab {
         self.show_sign().await
     }
 
-    /// Hold every page request for Plenipo's checks (while a worker has the tab).
+    /// Hold every page request for Plenipo's checks (while a worker has the tab): pages and
+    /// forms (`Document`), scripts' requests (`XHR`, `Fetch`), beacons (`Ping`, which is how
+    /// `navigator.sendBeacon` shows), and whatever else (`Other`). The names are the DevTools
+    /// protocol's `Network.ResourceType` values, as `Fetch.enable` takes them; the browser's
+    /// filter accepts only some of them (checked on Chrome 141: `EventSource` and `WebSocket`
+    /// are refused, and `Fetch.enable` fails outright, so the tab does not open). An
+    /// `EventSource` only receives (a GET stream), and WebSockets are covered by
+    /// [`Tab::has_websocket`] (ADR-035).
     async fn watch_requests(&self) -> Result<(), String> {
-        let patterns: Vec<Value> = ["Document", "XHR", "Fetch"]
+        let patterns: Vec<Value> = ["Document", "XHR", "Fetch", "Ping", "Other"]
             .iter()
             .map(|t| json!({ "urlPattern": "*", "resourceType": t, "requestStage": "Request" }))
             .collect();
@@ -363,6 +400,13 @@ impl Tab {
 
     pub fn url(&self) -> String {
         self.state().url.clone()
+    }
+
+    /// The page has a live connection (a WebSocket) open now. The network gate cannot see what
+    /// the page sends through it, so the broker asks the owner before a click or key press that
+    /// may send (ADR-035).
+    pub fn has_websocket(&self) -> bool {
+        self.state().has_websocket()
     }
 
     /// Replace the website lists (the owner's settings as they are now).
@@ -997,7 +1041,10 @@ async fn event_loop(
                     .as_str()
                     .map_or_else(|| s.main_frame.clone(), str::to_owned);
                 s.navigations += 1;
-                s.world = None;
+                s.page_changed();
+            }
+            "Network.webSocketCreated" | "Network.webSocketClosed" => {
+                socket_event(&shared, &e.method, p);
             }
             "Page.navigatedWithinDocument" => {
                 let mut s = shared.state();
@@ -1086,6 +1133,19 @@ enum Answer {
     Stop,
 }
 
+/// The page opened or closed a live connection (a WebSocket, ADR-035).
+fn socket_event(shared: &Shared, method: &str, p: &Value) {
+    let Some(id) = p["requestId"].as_str() else {
+        return;
+    };
+    let mut s = shared.state();
+    if method == "Network.webSocketCreated" {
+        s.sockets.insert(id.to_owned());
+    } else {
+        s.sockets.remove(id);
+    }
+}
+
 /// Plenipo's check of one page request (`None`: held for a decision).
 fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
     let method = p["request"]["method"]
@@ -1152,16 +1212,25 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
             });
             return None;
         }
-        if kind == "Document" {
-            let note = format!(
-                "The page tried to send a form to {} by itself, without any action of yours; \
-                 Plenipo stopped it.",
-                site.map_or_else(|| url.to_owned(), |x| x.shown())
-            );
-            drop(s);
-            shared.note(note);
-            return Some(Answer::Stop);
-        }
+        // Sent with no worker action (a form the page submits on its own, a script's POST on a
+        // timer, a beacon): stopped, and the worker is told (ADR-035). See the module notes for
+        // why it is stopped rather than held.
+        let shown = site.map_or_else(|| url.to_owned(), |x| x.shown());
+        let note = if kind == "Document" {
+            format!(
+                "The page tried to send a form to {shown} by itself, without any action of yours; \
+                 Plenipo stopped it."
+            )
+        } else {
+            format!(
+                "The page tried to send data to {shown} on its own, outside your action; Plenipo \
+                 stopped it. To send it, act on the page (click or press a key): the owner is \
+                 asked then."
+            )
+        };
+        drop(s);
+        shared.note(note);
+        return Some(Answer::Stop);
     }
     Some(Answer::Go)
 }
@@ -1248,14 +1317,37 @@ mod tests {
             ..WebsiteRules::default()
         });
         let form = paused("POST", "http://127.0.0.1:8080/send", "Document", "MAIN");
-        // No action: a form the page sends by itself is stopped; a script's POST goes ahead.
+        // No action: a form the page sends by itself is stopped, and so is a script's POST or a
+        // beacon (ADR-035); the worker is told in both cases. Plain reads go ahead.
         assert!(!go(check_request(&s, &form)));
         assert!(s.state().notes.iter().any(|n| n.contains("by itself")));
+        assert!(!go(check_request(
+            &s,
+            &paused("POST", "http://127.0.0.1:8080/api", "Fetch", "MAIN")
+        )));
+        assert!(!go(check_request(
+            &s,
+            &paused("POST", "http://127.0.0.1:8080/beacon", "Ping", "MAIN")
+        )));
+        assert!(
+            s.state()
+                .notes
+                .iter()
+                .any(|n| n.contains("on its own") && n.contains("127.0.0.1:8080")),
+            "{:?}",
+            s.state().notes
+        );
         assert!(go(check_request(
             &s,
-            &paused("POST", "http://127.0.0.1:8080/beacon", "Fetch", "MAIN")
+            &paused("GET", "http://127.0.0.1:8080/favicon.ico", "Other", "MAIN")
         )));
-        // During a worker's action, sending is held for a decision.
+        assert!(go(check_request(
+            &s,
+            &paused("OPTIONS", "http://127.0.0.1:8080/api", "XHR", "MAIN")
+        )));
+        assert!(s.state().held.is_empty());
+        // During a worker's action, sending is held for a decision: forms, scripts' requests,
+        // beacons, and whatever else the page sends.
         s.state().acting = true;
         assert!(check_request(&s, &form).is_none());
         assert!(check_request(
@@ -1263,16 +1355,64 @@ mod tests {
             &paused("PUT", "http://127.0.0.1:8080/api", "XHR", "MAIN")
         )
         .is_none());
+        assert!(check_request(
+            &s,
+            &paused("POST", "http://127.0.0.1:8080/beacon", "Ping", "MAIN")
+        )
+        .is_none());
+        assert!(check_request(
+            &s,
+            &paused("POST", "http://127.0.0.1:8080/misc", "Other", "MAIN")
+        )
+        .is_none());
         let held = std::mem::take(&mut s.state().held);
-        assert_eq!(held.len(), 2);
+        assert_eq!(held.len(), 4);
         assert_eq!(held[0].site, "127.0.0.1:8080");
         assert_eq!(held[0].method, "POST");
+        assert_eq!(held[2].kind, "Ping");
         // Once the owner has control, nothing is checked.
         s.state().mode = Mode::Owner;
         assert!(go(check_request(
             &s,
             &paused("POST", "https://blocked.test/", "Document", "MAIN")
         )));
+    }
+
+    #[test]
+    fn a_live_connection_is_noticed_until_the_page_changes() {
+        let s = shared(WebsiteRules::default());
+        assert!(!s.state().has_websocket());
+        socket_event(
+            &s,
+            "Network.webSocketCreated",
+            &json!({ "requestId": "W1", "url": "ws://chat.test/ws" }),
+        );
+        socket_event(
+            &s,
+            "Network.webSocketCreated",
+            &json!({ "requestId": "W2", "url": "ws://chat.test/ws" }),
+        );
+        assert!(s.state().has_websocket());
+        socket_event(
+            &s,
+            "Network.webSocketClosed",
+            &json!({ "requestId": "W1", "timestamp": 1.0 }),
+        );
+        assert!(s.state().has_websocket(), "one socket is still open");
+        socket_event(
+            &s,
+            "Network.webSocketClosed",
+            &json!({ "requestId": "W2", "timestamp": 2.0 }),
+        );
+        assert!(!s.state().has_websocket());
+        // A new page starts with no live connection, whatever the old one had.
+        socket_event(
+            &s,
+            "Network.webSocketCreated",
+            &json!({ "requestId": "W3", "url": "ws://chat.test/ws" }),
+        );
+        s.state().page_changed();
+        assert!(!s.state().has_websocket());
     }
 
     #[test]

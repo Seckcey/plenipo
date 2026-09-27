@@ -1,13 +1,14 @@
 //! The runtime supervisor: launches approved profiles and owns their process trees.
 
 use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncRead, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
@@ -17,6 +18,7 @@ use crate::dto::{
 };
 use crate::error::RuntimeError;
 use crate::output::{read_lines, OutputBuffer, RawLine};
+use crate::pipes::{ChildEnds, ExtraPipes};
 use crate::policy::{build_child_env, check_working_dir, validate_env_name, ExecutablePolicy};
 use crate::profile::{
     validate_profile_id, LaunchSpec, ProfileRegistry, MAX_OBSERVED_LINE_BYTES, MAX_RUNTIME_LIMIT,
@@ -180,6 +182,24 @@ impl Supervisor {
             .cloned()
     }
 
+    /// The process ID of the AI tool running `task_id` of agent session `session_id` now
+    /// (`None`: no such program runs, or its ID is not known yet). The capability broker
+    /// binds a step's tool ticket to this process and its children (ADR-034).
+    pub fn live_agent_pid(&self, session_id: &str, task_id: &str) -> Option<u32> {
+        let state = self.inner.lock();
+        state
+            .records
+            .iter()
+            .rev()
+            .find(|r| {
+                state.live.contains_key(&r.id)
+                    && r.agent
+                        .as_ref()
+                        .is_some_and(|a| a.session_id == session_id && a.task_id == task_id)
+            })
+            .and_then(|r| r.pid)
+    }
+
     pub fn output(&self, id: &str) -> Result<ExecutionOutput, RuntimeError> {
         let state = self.inner.lock();
         if !state.records.iter().any(|r| r.id == id) {
@@ -273,9 +293,13 @@ impl Supervisor {
         }
         inner.emit_lifecycle(record);
 
-        let mut command = build_command(&spec, &executable, &working_dir);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
+        let pipes = spec.extra_pipes.as_ref().and_then(ExtraPipes::take);
+        let Spawned {
+            mut child,
+            stdout,
+            stderr,
+        } = match spawn(&spec, &executable, &working_dir, pipes) {
+            Ok(spawned) => spawned,
             Err(e) => {
                 let record = inner.finish(
                     &id,
@@ -308,8 +332,6 @@ impl Supervisor {
                 }
             });
         }
-        let stdout = child.stdout().take();
-        let stderr = child.stderr().take();
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let (done_tx, done_rx) = watch::channel(false);
         let record = {
@@ -470,7 +492,73 @@ fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {
     {
         return invalid("line limit out of range".into());
     }
+    if spec.extra_pipes.is_some() && (spec.stdin.is_some() || spec.stdin_feed.is_some()) {
+        return invalid("a program given extra pipes gets no input on stdin".into());
+    }
     Ok(())
+}
+
+/// A child's output stream as the supervisor reads it: a pipe of the usual `Command`, or of a
+/// program started with extra pipes.
+type OutputReader = Box<dyn AsyncRead + Send + Unpin>;
+
+/// A started program: the child, and its stdout and stderr when they are read.
+struct Spawned {
+    child: Box<dyn ChildWrapper>,
+    stdout: Option<OutputReader>,
+    stderr: Option<OutputReader>,
+}
+
+/// Start the program, with its extra `pipes` as descriptors 3 and 4 when it has them.
+fn spawn(
+    spec: &LaunchSpec,
+    executable: &Path,
+    working_dir: &Path,
+    pipes: Option<ChildEnds>,
+) -> io::Result<Spawned> {
+    match pipes {
+        // Extra pipes need the C runtime's descriptor table, which only a direct start can fill
+        // in; the rest of the start is the same as `build_command`'s (see `pipes::windows`).
+        #[cfg(windows)]
+        Some(pipes) => {
+            let env = build_child_env(&spec.env);
+            let (child, stdout, stderr) =
+                crate::pipes::windows::spawn(executable, &spec.args, &env, working_dir, pipes)?;
+            let reader = |file| Box::new(tokio::fs::File::from_std(file)) as OutputReader;
+            Ok(Spawned {
+                child: Box::new(child),
+                stdout: Some(reader(stdout)),
+                stderr: Some(reader(stderr)),
+            })
+        }
+        pipes => spawn_command(spec, executable, working_dir, pipes),
+    }
+}
+
+/// The usual start; on Unix, extra `pipes` are moved onto descriptors 3 and 4 in the new
+/// process before it runs the program.
+fn spawn_command(
+    spec: &LaunchSpec,
+    executable: &Path,
+    working_dir: &Path,
+    pipes: Option<ChildEnds>,
+) -> io::Result<Spawned> {
+    let mut command = build_command(spec, executable, working_dir);
+    #[cfg(unix)]
+    if let Some(pipes) = &pipes {
+        crate::pipes::unix::inherit(command.command_mut(), pipes);
+    }
+    let mut child = command.spawn()?;
+    // The child holds its own copies of the pipes' ends now. Plenipo's close here, so that the
+    // child's exit shows as the end of the pipe.
+    drop(pipes);
+    let stdout = child.stdout().take().map(|s| Box::new(s) as OutputReader);
+    let stderr = child.stderr().take().map(|s| Box::new(s) as OutputReader);
+    Ok(Spawned {
+        child,
+        stdout,
+        stderr,
+    })
 }
 
 fn build_command(spec: &LaunchSpec, executable: &Path, working_dir: &Path) -> CommandWrap {
@@ -539,8 +627,8 @@ async fn supervise(
     inner: Arc<Inner>,
     run: Run,
     mut child: Box<dyn ChildWrapper>,
-    stdout: Option<tokio::process::ChildStdout>,
-    stderr: Option<tokio::process::ChildStderr>,
+    stdout: Option<OutputReader>,
+    stderr: Option<OutputReader>,
     cancel_rx: oneshot::Receiver<CancelReason>,
     done_tx: watch::Sender<bool>,
 ) {
