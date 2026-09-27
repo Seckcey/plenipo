@@ -47,6 +47,10 @@ import type {
   SecretInput,
   SensitiveKind,
   SensitiveRule,
+  ServerIdentity,
+  ServerInput,
+  ServersSnapshot,
+  ServerTest,
   SyntheticTaskAction,
   Task,
   TaskHandoffs,
@@ -500,17 +504,18 @@ export function getControlStatus(): Promise<ControlStatus> {
   return call("get_control_status");
 }
 
-/** The emergency stop: all browser and desktop control halts, until you allow it again. */
+/** The emergency stop: all browser, desktop, and server work halts, until you allow it again. */
 export function stopAllControl(): Promise<ControlStatus> {
   return call("stop_all_control");
 }
 
-/** Take over a worker's use of the browser or the mouse and keyboard; that worker stops. */
+/** Take over a worker's use of the browser or the mouse and keyboard, or disconnect it from its
+ * servers; that worker stops. */
 export function takeOverControl(sessionId: string): Promise<ControlStatus> {
   return call("take_over_control", { sessionId });
 }
 
-/** Let workers use the browser and the desktop again after a stop. */
+/** Let workers use the browser, the desktop, and servers again after a stop. */
 export function allowControl(): Promise<ControlStatus> {
   return call("allow_control");
 }
@@ -572,4 +577,33 @@ export function openBrowser(url?: string): Promise<BrowserStatus> {
 /** A kept screenshot, by its ID. */
 export function getScreenshot(artifactId: string): Promise<Screenshot> {
   return call("get_screenshot", { artifactId });
+}
+
+// ---- Servers (Phase 11) ------------------------------------------------------------------------
+
+/** Settings → Servers: the servers (never their keys or passwords), the roles, the kinds of
+ * commands, and where sign-ins are kept. */
+export function getServers(): Promise<ServersSnapshot> {
+  return call("get_servers");
+}
+
+/** Add a server (no `id`) or change one. A key, passphrase, or password is sent once, kept in the
+ * operating system's protected storage, and never returned. */
+export function saveServer(input: ServerInput): Promise<ServersSnapshot> {
+  return call("save_server", { input });
+}
+
+/** Remove a server and its sign-in; workers connected to it are disconnected. */
+export function removeServer(serverId: string): Promise<ServersSnapshot> {
+  return call("remove_server", { serverId });
+}
+
+/** Read a server's ID (its host key fingerprint) for you to check and pin; nothing signs in. */
+export function checkServerIdentity(host: string, port: number): Promise<ServerIdentity> {
+  return call("check_server_identity", { host, port });
+}
+
+/** Connect with the pinned server ID, sign in, and leave. */
+export function testServer(serverId: string): Promise<ServerTest> {
+  return call("test_server", { serverId });
 }

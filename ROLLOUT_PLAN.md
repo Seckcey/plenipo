@@ -1179,6 +1179,8 @@ Phase 11A runs before Phase 11 and before the postponed Phase 9: the Sales depar
 
 # Phase 11 — SSH, Remote Infrastructure, and Operations Capabilities
 
+**Status: delivered in v1.6.0** (checklist and acceptance report in `docs/phases/phase-11-*`). Decisions: ADR-025 (servers over SSH, through Guard), with its deviations: Linux and Unix servers only, a program and its arguments rather than shell lines, **Disconnect** in place of Take over for servers, and no owner terminal or file copying yet; and ADR-026 (SSH built into Plenipo, not Windows' ssh.exe). Servers start switched off (Settings → Switches, ADR-023), and are in the Free edition (ADR-021). Phase 11 was delivered ahead of Phase 11A, which this plan puts first: servers are Free, so there is nothing for the license to gate.
+
 ## Goal
 
 Support Plenipo-managed work on authorized remote hosts such as development servers and infrastructure.

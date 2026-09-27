@@ -88,6 +88,11 @@
     "allow-get-browser-status",
     "allow-set-browser-choice",
     "allow-open-browser",
-    "allow-get-screenshot"
+    "allow-get-screenshot",
+    "allow-get-servers",
+    "allow-save-server",
+    "allow-remove-server",
+    "allow-check-server-identity",
+    "allow-test-server"
   ]
 }

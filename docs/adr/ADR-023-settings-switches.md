@@ -6,6 +6,9 @@
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
 - **Amends:** ADR-020 (Plenipo's browser and computer use), sections 4, 5, and 6
+- **Extended by:** [ADR-025 (servers over SSH, through Guard)](ADR-025-servers-over-ssh.md): a
+  **Remote computers (SSH)** switch, off to start, that works like the screen, mouse, and
+  keyboard switch
 
 ## Context
 

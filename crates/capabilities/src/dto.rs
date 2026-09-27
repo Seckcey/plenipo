@@ -81,6 +81,13 @@ pub struct ApprovalView {
     /// A screenshot of the page as it was when it asked (an artifact ID; `get_screenshot`).
     #[ts(optional)]
     pub screenshot: Option<String>,
+    /// The server it concerns (Phase 11): its name, environment, and address.
+    #[ts(optional)]
+    pub server: Option<String>,
+    #[ts(optional)]
+    pub environment: Option<plenipo_guard::Environment>,
+    #[ts(optional)]
+    pub address: Option<String>,
 }
 
 /// Pending approvals (oldest first) and recent outcomes (newest first).
@@ -189,4 +196,105 @@ pub struct PermissionsSnapshot {
 pub struct Screenshot {
     pub mime: String,
     pub data_url: String,
+}
+
+// ---- Servers (Phase 11, ADR-025) ------------------------------------------------------------
+
+/// Which sign-in values Plenipo keeps for a server (never the values).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StoredSignIn {
+    pub key: bool,
+    pub passphrase: bool,
+    pub password: bool,
+}
+
+/// A server showed an identity other than the pinned one (and workers were stopped).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct IdentityChange {
+    pub algorithm: String,
+    pub fingerprint: String,
+    #[ts(type = "number")]
+    pub at: u64,
+}
+
+/// A server as Settings → Servers shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ServerView {
+    pub server: plenipo_guard::Server,
+    /// `deploy@web01.example.com:22`.
+    pub address: String,
+    pub stored: StoredSignIn,
+    /// The server showed a different identity after it was pinned.
+    #[ts(optional)]
+    pub identity_changed: Option<IdentityChange>,
+    /// Workers connected to it now.
+    pub connected: Vec<String>,
+    /// What keeps workers from using it, if anything.
+    #[ts(optional)]
+    pub problem: Option<String>,
+}
+
+/// A role, and whether its permission set lets it connect to servers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ServerRole {
+    pub id: String,
+    pub name: String,
+    /// Its permission set allows "Connect to servers".
+    pub can_connect: bool,
+}
+
+/// A kind of command, as Settings shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommandClassInfo {
+    pub class: plenipo_guard::CommandClass,
+    pub label: String,
+    pub examples: String,
+}
+
+/// Everything Settings → Servers shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ServersSnapshot {
+    pub servers: Vec<ServerView>,
+    pub roles: Vec<ServerRole>,
+    pub classes: Vec<CommandClassInfo>,
+    /// Where keys and passwords are kept ("Windows Credential Manager").
+    pub vault: VaultStatus,
+    pub notices: Vec<String>,
+    /// The owner's "Remote computers (SSH)" switch (Settings → Switches, ADR-023). Off: no
+    /// worker connects to any server; the owner can still add and test servers.
+    pub switched_on: bool,
+}
+
+/// A server's identity, read for the owner to check before pinning it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ServerIdentity {
+    pub host: String,
+    pub port: u16,
+    /// "ssh-ed25519".
+    pub algorithm: String,
+    /// "SHA256:…".
+    pub fingerprint: String,
+}
+
+/// The outcome of the owner's "Test the connection".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ServerTest {
+    pub ok: bool,
+    pub message: String,
 }

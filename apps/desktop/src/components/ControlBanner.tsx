@@ -1,10 +1,11 @@
 import type { Control } from "../control/useControl";
-import { sessionWords } from "../control/words";
+import { sessionWords, takeOverLabel } from "../control/words";
 
 /**
  * The sign on every page whenever a worker uses Plenipo's browser or the mouse and keyboard
- * (Phase 10): who, where, and what it did last, with Take over for each and Stop all. After a
- * stop, it says control is stopped until you allow it again.
+ * (Phase 10), or is connected to a server (Phase 11, production in red): who, where, and what
+ * it did last, with Take over (Disconnect, for servers) for each and Stop all. After a stop, it
+ * says work is stopped until you allow it again.
  */
 export function ControlBanner({ control }: { control: Control }) {
   const { status, pending, error } = control;
@@ -16,25 +17,30 @@ export function ControlBanner({ control }: { control: Control }) {
     <div
       className={`banner banner--control${active.length > 0 ? " banner--control-active" : ""}`}
       role="alert"
-      aria-label="Browser and desktop control"
+      aria-label="Browser, desktop, and server work"
     >
       <div className="control__sessions">
         {status.stopped && (
           <div className="control__session">
-            <strong>Browser and desktop control is stopped.</strong>
+            <strong>Browser, desktop, and server work is stopped.</strong>
             <div className="muted">
-              No worker can use the browser, the mouse, or the keyboard until you allow it again.
+              No worker can use the browser, the mouse, the keyboard, or a server until you allow it
+              again.
             </div>
           </div>
         )}
         {[...active, ...others].map((s) => {
           const words = sessionWords(s);
           return (
-            <div className="control__session" key={s.id}>
+            <div
+              className={`control__session${s.production ? " control__session--production" : ""}`}
+              key={s.id}
+            >
               <strong>
                 {s.state === "active" && <span className="control__dot" aria-hidden="true" />}
                 {words.title}
               </strong>
+              {s.production && <span className="env env--production">PRODUCTION</span>}
               {words.detail && <div className="muted control__detail">{words.detail}</div>}
               {s.state === "active" && (
                 <button
@@ -43,7 +49,7 @@ export function ControlBanner({ control }: { control: Control }) {
                   disabled={pending}
                   onClick={() => void control.takeOver(s.id)}
                 >
-                  Take over
+                  {takeOverLabel(s)}
                 </button>
               )}
               {s.state === "takenOver" && (

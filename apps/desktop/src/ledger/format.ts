@@ -108,6 +108,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (guard !== null) return guard;
   const control = describeControlEvent(e.eventType, p);
   if (control !== null) return control;
+  const server = describeServerEvent(e.eventType, p);
+  if (server !== null) return server;
   const learned = describeLearningEvent(e.eventType, p);
   if (learned !== null) return learned;
   if (e.eventType.startsWith("org.")) {
@@ -271,9 +273,11 @@ function describeLearningEvent(type: string, p: Record<string, unknown>): string
 const CONTROL_WHAT: Record<string, string> = {
   browser: "Plenipo's browser",
   desktop: "the mouse and keyboard",
+  server: "servers",
 };
 
-/** Phase 10: Plenipo's browser, the mouse and keyboard, and the owner's Stop and Take over. */
+/** Phase 10: Plenipo's browser, the mouse and keyboard, and the owner's Stop and Take over (and,
+ * Phase 11, servers). */
 function describeControlEvent(type: string, p: Record<string, unknown>): string | null {
   const worker = str(p.worker) ?? "A worker";
   const what = CONTROL_WHAT[str(p.kind) ?? ""] ?? "the browser or the desktop";
@@ -292,21 +296,118 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     case "control.ended":
       return `${worker} stopped using ${what}${why}`;
     case "control.taken_over":
-      return `You took over ${what} from ${worker}${why}`;
+      return p.kind === "server"
+        ? `You disconnected ${worker} from its servers${why}`
+        : `You took over ${what} from ${worker}${why}`;
     case "control.stopped": {
       const n = count(p.sessions);
       return n === 0
-        ? "You pressed Stop: browser and desktop control is stopped"
-        : `You pressed Stop: ${n} worker${n === 1 ? "" : "s"} stopped using the browser or the desktop`;
+        ? "You pressed Stop: browser, desktop, and server work is stopped"
+        : `You pressed Stop: ${n} worker${n === 1 ? "" : "s"} stopped using the browser, the desktop, or servers`;
     }
     case "control.allowed":
-      return "You allowed browser and desktop control again";
+      return "You allowed browser, desktop, and server work again";
     case "control.switched_off": {
       const n = count(p.sessions);
-      return `You switched ${what} off: ${n} worker${n === 1 ? "" : "s"} stopped`;
+      const off = p.kind === "server" ? "remote computers (SSH)" : what;
+      return `You switched ${off} off: ${n} worker${n === 1 ? "" : "s"} stopped`;
     }
   }
   return null;
+}
+
+const ENDING_WORDS: Record<string, string> = {
+  signal: "was ended by a signal on the server",
+  timedOut: "was stopped at its time limit",
+  connectionLost: "lost its connection while it ran (whether it finished is unknown)",
+  unknown: "ended without the server saying how",
+};
+
+/** Phase 11: servers — connections, server IDs, commands and their output, and settings. */
+function describeServerEvent(type: string, p: Record<string, unknown>): string | null {
+  const worker = str(p.worker) ?? "A worker";
+  const server = str(p.server) ?? str(p.name) ?? "a server";
+  const production = p.environment === "production" ? " (PRODUCTION)" : "";
+  switch (type) {
+    case "ssh.connected":
+      return `${worker} connected to ${server}${production}${
+        str(p.address) ? ` as ${str(p.address)}` : ""
+      }`;
+    case "ssh.connect_failed":
+      return `${worker} could not connect to ${server}: ${brief(p.reason, 200)}`;
+    case "ssh.host_key_changed":
+      return `Blocked: ${server}'s server ID changed — it showed ${str(p.seen) ?? "another ID"}, not the pinned ${
+        str(p.expected) ?? "one"
+      }. Nothing was sent to sign in.`;
+    case "ssh.command_started":
+      return `${worker} ran on ${server}${production}: ${str(p.command) ?? "a command"}${
+        str(p.cwd) ? ` (in ${str(p.cwd)})` : ""
+      }`;
+    case "ssh.output": {
+      const n = count(p.lines);
+      return `${p.stream === "err" ? "Error output" : "Output"} from ${server} (${n} line${
+        n === 1 ? "" : "s"
+      })`;
+    }
+    case "ssh.command_finished": {
+      const ending = str(p.ending) ?? "";
+      const code = typeof p.exitCode === "number" ? p.exitCode : null;
+      const how =
+        ending === "exited"
+          ? code === 0
+            ? "finished"
+            : `ended with exit code ${code ?? "?"}`
+          : ending === "stopped"
+            ? `was stopped${str(p.why) ? ` (${str(p.why)})` : ""}`
+            : ending === "refused"
+              ? `was not run${str(p.why) ? ` (${str(p.why)})` : ""}`
+              : (ENDING_WORDS[ending] ?? "ended");
+      const secs =
+        typeof p.seconds !== "number"
+          ? ""
+          : p.seconds < 1
+            ? " in under a second"
+            : ` after ${p.seconds} s`;
+      return `The command on ${server} ${how}${secs}`;
+    }
+    case "ssh.disconnected":
+      return `${worker} disconnected from ${server}${str(p.why) ? ` (${str(p.why)})` : ""}`;
+    case "ssh.forward_opened":
+      return `${worker} forwarded ${str(p.local) ?? "a local port"} to ${str(p.to) ?? "a port"} through ${server}${
+        str(p.reason) ? ` — ${brief(p.reason, 200)}` : ""
+      }`;
+    case "ssh.forward_closed":
+      return `Port forward to ${str(p.to) ?? "a port"} through ${server} closed`;
+    case "ssh.identity_checked":
+      return `You checked the server ID of ${str(p.host) ?? "a server"}${
+        typeof p.port === "number" ? `:${p.port}` : ""
+      }: ${str(p.fingerprint) ?? ""}`;
+    case "ssh.tested":
+      return p.ok === true
+        ? `You tested ${server}: connected and signed in`
+        : `You tested ${server}: ${brief(p.message, 200)}`;
+    case "guard.server_added":
+      return `Server added: ${server}${production}`;
+    case "guard.server_changed":
+      return p.pinned === true
+        ? `Server changed: ${server} — you pinned its server ID ${str(p.hostKey) ?? ""}`.trim()
+        : `Server changed: ${server}`;
+    case "guard.server_removed":
+      return `Server removed: ${server}`;
+    case "vault.server_sign_in_stored": {
+      const what = Array.isArray(p.stored) ? (p.stored as unknown[]).map(String).join(", ") : "";
+      return `Sign-in stored for ${server}${what ? `: ${what}` : ""} (the value is never shown)`;
+    }
+  }
+  return null;
+}
+
+/** A server's output lines in an event, to show under it (Phase 11). */
+export function eventOutput(e: LedgerEvent): { lines: string[]; error: boolean } | null {
+  if (e.eventType !== "ssh.output") return null;
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  const lines = Array.isArray(p.lines) ? (p.lines as unknown[]).map(String) : [];
+  return { lines, error: p.stream === "err" };
 }
 
 /** Phase 5: the organization's structure, its agents, and the workers it spawns. */

@@ -21,6 +21,13 @@ name = "plenipo-tool-relay"
 path = "tests/support/relay.rs"
 test = false
 
+[[bin]]
+# Test helper: a synthetic SSH server on 127.0.0.1 for the Phase 11 end-to-end test (the Rust
+# tests run the same server in-process). Never shipped.
+name = "plenipo-test-sshd"
+path = "tests/support/sshd_main.rs"
+test = false
+
 [dependencies]
 base64 = "0.22"
 dunce = "1"
@@ -33,6 +40,9 @@ plenipo-runtime = { path = "../runtime" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 png = "0.18"
+# SSH to the owner's servers (Phase 11, ADR-025). The `ring` crypto backend builds with the
+# Windows toolchain alone (no CMake or NASM).
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

@@ -17,4 +17,8 @@ detail?: string,
 /**
  * What it did last ("clicked \"Send message\"").
  */
-lastAction?: string, since: number, };
+lastAction?: string, since: number, 
+/**
+ * A server session includes a production server (Phase 11): shown in red.
+ */
+production: boolean, };

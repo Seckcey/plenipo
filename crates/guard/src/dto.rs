@@ -217,6 +217,9 @@ pub struct Switches {
     /// Keep a screenshot of every significant step in the Activity trail. Off: only approval
     /// cards keep a picture of the page.
     pub screenshots: bool,
+    /// Remote computers over SSH (Phase 11, ADR-025). Off (the default): no worker connects to
+    /// any server, whatever its permissions and the server's own settings.
+    pub servers: bool,
 }
 
 impl Default for Switches {
@@ -229,6 +232,7 @@ impl Default for Switches {
             sign_in_without_asking: false,
             captcha_to_owner: true,
             screenshots: true,
+            servers: false,
         }
     }
 }
@@ -314,6 +318,8 @@ pub enum Risk {
     Web,
     /// Sees or uses this computer's screen, mouse, and keyboard (Phase 10).
     Screen,
+    /// Runs commands on a server over SSH (Phase 11).
+    Server,
 }
 
 impl Risk {
@@ -326,6 +332,7 @@ impl Risk {
             Self::External => "Reaches outside this computer",
             Self::Web => "Uses a website",
             Self::Screen => "Uses your screen, mouse, or keyboard",
+            Self::Server => "Runs commands on a server",
         }
     }
 }

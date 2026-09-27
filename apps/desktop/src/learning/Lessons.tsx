@@ -44,15 +44,19 @@ function LessonCard({
       <header className="approval__header">
         <h3 className="approval__title">{lesson.worker} learned something</h3>
         {lesson.fromWeb && (
-          <span className="pill pill--warn" title="Its task used websites or your screen">
-            From a task that used websites
+          <span
+            className="pill pill--warn"
+            title="Its task used websites, your screen, or a server"
+          >
+            From a task that used websites or servers
           </span>
         )}
       </header>
       {lesson.fromWeb && (
         <p className="muted">
-          This task (or a worker it handed work to) read web pages or your screen, so check that the
-          lesson is really what the worker learned, not something a website told it to write.
+          This task (or a worker it handed work to) read web pages, your screen, or what a server
+          printed, so check that the lesson is really what the worker learned, not something a
+          website or server told it to write.
         </p>
       )}
       <label className="field">

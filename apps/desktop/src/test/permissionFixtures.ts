@@ -89,6 +89,7 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
         signInWithoutAsking: false,
         captchaToOwner: true,
         screenshots: true,
+        servers: false,
       },
       secrets: [
         {

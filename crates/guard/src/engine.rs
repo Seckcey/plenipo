@@ -12,6 +12,7 @@ use crate::dto::*;
 use crate::paths::blocked_by;
 use crate::registry::Capability;
 use crate::sensitive;
+use crate::servers::{self, ServerCheck, ServerVerdict};
 use crate::websites::{self, Site, SiteVerdict};
 
 /// Who is acting, as far as permissions go: the worker's role, and the project and department
@@ -198,6 +199,9 @@ pub fn switched_off(config: &GuardConfig, c: Capability) -> Option<&'static str>
         Capability::ComputerObserve | Capability::ComputerControl if !config.switches.desktop => {
             Some("the screen, mouse, and keyboard are switched off (Settings → Switches)")
         }
+        Capability::SshConnect if !config.switches.servers => {
+            Some("remote computers (SSH) are switched off (Settings → Switches)")
+        }
         _ => None,
     }
 }
@@ -228,6 +232,8 @@ pub struct Request<'a> {
     pub workspace: &'a Path,
     /// The website it opens or acts on (Phase 10), checked against the owner's website lists.
     pub site: Option<SiteCheck<'a>>,
+    /// The server it uses (Phase 11), checked against the owner's settings for that server.
+    pub server: Option<ServerCheck<'a>>,
 }
 
 /// A website an action opens or acts on.
@@ -319,7 +325,28 @@ pub fn evaluate(
             checks,
         );
     }
-    // Layer 4: the target.
+    // Layer 4: the target. A server (Phase 11): who may use it, its pinned identity, its kinds
+    // of commands, folders, and blocked files; production servers ask for every command.
+    let mut server_asks = None;
+    let mut server_sensitive = Vec::new();
+    if let Some(check) = &request.server {
+        match servers::check(&config.blocked_files, check) {
+            ServerVerdict::Deny { layer, reason } => {
+                return decision(
+                    Verdict::Deny,
+                    layer,
+                    format!("Blocked: {reason}."),
+                    risk,
+                    None,
+                    checks,
+                )
+            }
+            ServerVerdict::Go { ask, sensitive } => {
+                server_asks = ask;
+                server_sensitive = sensitive;
+            }
+        }
+    }
     if request.writes_git_dir {
         return decision(
             Verdict::Deny,
@@ -405,8 +432,15 @@ pub fn evaluate(
         }
     }
     // Layer 5: the action's risk.
+    // On a server, the kind the owner blocked wins; otherwise the most specific one.
+    let server_found = server_sensitive
+        .iter()
+        .copied()
+        .find(|(kind, _)| config.sensitive_rule(*kind) == SensitiveRule::Block)
+        .or_else(|| server_sensitive.first().copied());
     let found = request
         .inherent
+        .or(server_found)
         .or_else(|| {
             request
                 .command
@@ -454,6 +488,19 @@ pub fn evaluate(
         return decision(verdict, Layer::Risk, reason, risk, Some(kind), checks);
     }
     // Layer 6: the owner's explicit rules.
+    if let Some(why) = server_asks {
+        return decision(
+            Verdict::Ask,
+            Layer::Rule,
+            format!(
+                "{} needs your approval: {why}.",
+                capitalized(request.summary)
+            ),
+            risk,
+            None,
+            checks,
+        );
+    }
     if let Some(shown) = site_asks {
         return decision(
             Verdict::Ask,
@@ -577,6 +624,7 @@ mod tests {
             inherent: None,
             workspace: Path::new("/w"),
             site: None,
+            server: None,
         }
     }
 
@@ -949,6 +997,133 @@ mod tests {
             level_for(&c, &desk, Capability::ComputerObserve).level,
             Level::Allowed
         );
+    }
+
+    #[test]
+    fn servers_are_checked_with_their_settings() {
+        use crate::servers::*;
+        let mut c = config();
+        // Remote computers (SSH) start switched off (ADR-023).
+        assert!(!c.switches.servers);
+        c.set_switches(&Switches {
+            servers: true,
+            ..Switches::default()
+        });
+        c.assign_role("ops", Some("servers")).unwrap();
+        let s = Scope {
+            role_id: "ops".into(),
+            role_name: "Operations Engineer".into(),
+            ..Scope::default()
+        };
+        let (server, _) = c
+            .save_server(
+                &ServerInput {
+                    name: "Shop".into(),
+                    host: "shop.example.com".into(),
+                    user: "deploy".into(),
+                    environment: Environment::Production,
+                    roles: vec!["ops".into()],
+                    classes: default_classes(Environment::Production),
+                    host_key: Some(HostKeyInput {
+                        algorithm: "ssh-ed25519".into(),
+                        fingerprint: format!("SHA256:{}", "d".repeat(43)),
+                    }),
+                    ..ServerInput::default()
+                },
+                &["ops".to_owned()],
+                1,
+            )
+            .unwrap();
+        let run = |c: &GuardConfig, role: &Scope, line: &str| {
+            let mut w = line.split_whitespace();
+            let cmd = CommandLine {
+                program: w.next().unwrap().to_owned(),
+                args: w.map(str::to_owned).collect(),
+            };
+            let k = classify(&cmd);
+            let mut r = request(Capability::SshConnect, &[], None);
+            r.summary = "run it on Shop";
+            r.server = Some(ServerCheck {
+                server: &server,
+                role_id: &role.role_id,
+                role_name: &role.role_name,
+                what: ServerUse::Run {
+                    classified: &k,
+                    cwd: None,
+                },
+            });
+            eval(c, role, &r)
+        };
+        let d = run(&c, &s, "uptime");
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert!(d.reason.contains("production server"), "{}", d.reason);
+        let d = run(&c, &s, "rm -rf /tmp/x");
+        assert_eq!(d.verdict, Verdict::Deny);
+        // A role without the Servers set never gets as far as the server.
+        let d = run(&c, &scope("rev", None), "uptime");
+        assert_eq!((d.verdict, d.layer), (Verdict::Deny, Layer::Role));
+        // The owner's rule for running as administrator applies on servers too.
+        let mut c2 = c.clone();
+        c2.servers[0].classes.push(CommandClass::Admin);
+        c2.set_sensitive(SensitiveKind::Privilege, SensitiveRule::Block);
+        let server2 = c2.servers[0].clone();
+        let cmd = CommandLine::new("sudo", &["systemctl", "restart", "nginx"]);
+        let k = classify(&cmd);
+        let mut r = request(Capability::SshConnect, &[], None);
+        r.summary = "restart nginx";
+        r.server = Some(ServerCheck {
+            server: &server2,
+            role_id: "ops",
+            role_name: "Operations Engineer",
+            what: ServerUse::Run {
+                classified: &k,
+                cwd: None,
+            },
+        });
+        let d = eval(&c2, &s, &r);
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Deny, Some(SensitiveKind::Privilege))
+        );
+        // A change on a production server is also "deploying or changing live systems": it asks
+        // with that kind, and the owner's "Blocked" for it blocks every change on production
+        // servers, even one that is also another kind. Looking around still only asks.
+        let d = run(&c, &s, "systemctl restart nginx");
+        assert_eq!(
+            (d.verdict, d.layer, d.sensitive),
+            (Verdict::Ask, Layer::Risk, Some(SensitiveKind::Production))
+        );
+        assert!(
+            d.reason.contains("it changes a production server"),
+            "{}",
+            d.reason
+        );
+        let mut c3 = c2.clone();
+        c3.set_sensitive(SensitiveKind::Privilege, SensitiveRule::Ask);
+        c3.set_sensitive(SensitiveKind::Production, SensitiveRule::Block);
+        let d = run(&c3, &s, "systemctl restart nginx");
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Deny, Some(SensitiveKind::Production))
+        );
+        let d = eval(&c3, &s, &r);
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Deny, Some(SensitiveKind::Production)),
+            "sudo on production: the blocked kind wins over running as administrator"
+        );
+        let d = run(&c3, &s, "uptime");
+        assert_eq!((d.verdict, d.sensitive), (Verdict::Ask, None));
+        // Switched off: blocked for every role, whatever the server says.
+        c.set_switches(&Switches::default());
+        let d = run(&c, &s, "uptime");
+        assert_eq!((d.verdict, d.layer), (Verdict::Deny, Layer::Rule));
+        assert!(
+            d.reason.contains("remote computers (SSH) are switched off"),
+            "{}",
+            d.reason
+        );
+        assert_eq!(levels_for(&c, &s)[&Capability::SshConnect], Level::Blocked);
     }
 
     #[test]

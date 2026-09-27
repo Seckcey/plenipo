@@ -83,12 +83,19 @@ Full power, clearly bounded. That is the whole idea.
   needs you signed in, you sign in yourself.
 - **Gets better at your work.** Workers write down short lessons from what they did. You keep the
   good ones (or let a role learn on its own), and that role's later workers follow them.
+- **Works on your servers, carefully.** An Operations Engineer can check a server, read its logs,
+  restart a service, or deploy — only on the servers you add in **Settings → Servers**, and only
+  after you have checked and pinned each server's ID. Keys and passwords stay in the Windows
+  Credential Manager or your SSH agent. On a **production** server every command waits for you,
+  and deleting, wiping, or shutting down is off unless you turn it on. It starts switched off
+  (**Settings → Switches → Remote computers (SSH)**).
 - **Writes everything down.** Every task, who did it on which AI model, files changed, tests and
   whether they passed, the review and its open findings, the branch and pull request, and every
   approval — in a local record you own.
-- **Gives you the kill switch.** Whenever a worker is using the browser or the desktop, a sign on
-  the page says so, with **Take over** and **Stop all**. The Windows tray has the same Stop, and
-  **Settings → Switches** turns the browser or the screen, mouse, and keyboard off for every worker.
+- **Gives you the kill switch.** Whenever a worker is using the browser, the desktop, or a server,
+  a sign on the page says so, with **Take over** (or **Disconnect**) and **Stop all**. The Windows
+  tray has the same Stop, and **Settings → Switches** turns the browser, the screen, mouse, and
+  keyboard, or remote computers (SSH) off for every worker.
 
 ## How it works
 
@@ -143,7 +150,7 @@ Coming with the next release. If you are running Plenipo already,
 Nothing that keeps a worker in bounds is ever behind the paid tier. Full breakdown:
 [`docs/editions.md`](docs/editions.md).
 
-> Releases up to v1.5.0 have no limits at all — everything is unlocked while the split is being
+> Releases up to v1.6.0 have no limits at all — everything is unlocked while the split is being
 > built. When it ships, a Pro copy will check its subscription with 8 West about once a week,
 > sending only a license key id and a version number. A Free copy never checks in at all, and your
 > work never leaves your PC either way —
@@ -169,7 +176,33 @@ Prefer not to build it? [Download the latest Windows installer](https://github.c
 
 ## What's new
 
-Plenipo is built phase by phase. Current version: **v1.5.0**.
+Plenipo is built phase by phase. Current version: **v1.6.0**.
+
+<details>
+<summary><strong>v1.6.0 — Servers</strong> (Phase 11)</summary>
+
+Workers can now work on your servers over SSH — checking status and logs, restarting services,
+and deploying — only on the servers you add in **Settings → Servers**. Each server has a name, its
+address, how Plenipo signs in (a key or password kept in Windows Credential Manager, or your own
+SSH agent; workers never see them), its server ID, which you check and pin when you add it, and
+whether it is a test, staging, or **production** server (production is red everywhere).
+You choose which roles may use it, the kinds of commands it allows, and its folders.
+
+Plenipo checks each server's ID before it signs in; if it ever changes, the work is blocked and
+you are told. On production, every command waits for your approval, and deleting, wiping, or
+shutting down is off unless you turn it on. Workers never reach other computers from a server.
+A sign on every page shows who is connected to which server, with **Disconnect** and **Stop all**,
+and every command and its output are in the Activity trail. The new **Operations Engineer** role
+does this work.
+
+It starts off: turn on **Settings → Switches → Remote computers (SSH)** when you are ready.
+Lessons from a task that used a server always wait for you. Servers are in the Free edition.
+
+[Release notes](docs/releases/v1.6.0.md) · [ADR-025](docs/adr/ADR-025-servers-over-ssh.md)
+(servers over SSH, through Guard) · [ADR-026](docs/adr/ADR-026-ssh-built-in.md) (SSH built into
+Plenipo, not Windows' ssh.exe)
+
+</details>
 
 <details>
 <summary><strong>v1.5.0 — Kimi joins the AI tools</strong></summary>
@@ -347,12 +380,14 @@ crates/workforce/        Plenipo Workforce: organization engine (positions, team
 crates/router/           Plenipo Router: model registry, role model policies, explained
                          choice of AI tool and model, usage limits
 crates/guard/            Plenipo Guard: permission registry and sets, policy engine, folder
-                         confinement, command rules, sensitive actions, secret redaction
+                         confinement, command rules, sensitive actions, secret redaction,
+                         servers and the kinds of commands on them
 crates/capabilities/     Capability broker: grants, Plenipo's tool server and relay, file,
                          program, git, and GitHub tools, working copies (a branch per
                          objective), approvals, Vault (OS credential store), Plenipo's
-                         browser, screenshots, the screen, mouse, and keyboard, and the
-                         control center (sign, Stop, Take over)
+                         browser, screenshots, the screen, mouse, and keyboard, SSH to the
+                         owner's servers, and the control center (sign, Stop, Take over,
+                         Disconnect)
 packages/types/          TypeScript DTOs generated from Rust (do not hand-edit)
 tests/e2e/               End-to-end tests driving the real app via tauri-driver
 docs/architecture/       Architecture overview

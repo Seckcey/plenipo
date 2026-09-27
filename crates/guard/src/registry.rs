@@ -129,9 +129,11 @@ const REGISTRY: [Info; 16] = [
         capability: Capability::SshConnect,
         id: "ssh.connect",
         label: "Connect to servers",
-        description: "Run commands on servers you set up (SSH).",
-        tools: false,
-        arrives: Some("Phase 11"),
+        description: "Run commands over SSH on the servers you set up in Settings → Servers, \
+                      as each server allows. On production servers every command asks you \
+                      first.",
+        tools: true,
+        arrives: None,
     },
     Info {
         capability: Capability::BrowserNavigate,

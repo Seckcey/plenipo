@@ -86,6 +86,11 @@ const COMMANDS: &[&str] = &[
     "set_browser_choice",
     "open_browser",
     "get_screenshot",
+    "get_servers",
+    "save_server",
+    "remove_server",
+    "check_server_identity",
+    "test_server",
 ];
 
 fn main() {

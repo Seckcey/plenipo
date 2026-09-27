@@ -187,3 +187,21 @@ export type { Lesson } from "./generated/Lesson";
 export type { LessonState } from "./generated/LessonState";
 export type { LearningSettings } from "./generated/LearningSettings";
 export type { LearningSnapshot } from "./generated/LearningSnapshot";
+
+// Servers (Phase 11)
+export type { CommandClass } from "./generated/CommandClass";
+export type { CommandClassInfo } from "./generated/CommandClassInfo";
+export type { Environment } from "./generated/Environment";
+export type { HostKey } from "./generated/HostKey";
+export type { HostKeyInput } from "./generated/HostKeyInput";
+export type { IdentityChange } from "./generated/IdentityChange";
+export type { Server } from "./generated/Server";
+export type { ServerApproval } from "./generated/ServerApproval";
+export type { ServerIdentity } from "./generated/ServerIdentity";
+export type { ServerInput } from "./generated/ServerInput";
+export type { ServerRole } from "./generated/ServerRole";
+export type { ServerTest } from "./generated/ServerTest";
+export type { ServerView } from "./generated/ServerView";
+export type { ServersSnapshot } from "./generated/ServersSnapshot";
+export type { SignIn } from "./generated/SignIn";
+export type { StoredSignIn } from "./generated/StoredSignIn";

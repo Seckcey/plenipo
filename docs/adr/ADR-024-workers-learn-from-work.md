@@ -5,6 +5,8 @@
   and Pro editions (and ADR-022 was held for Kimi's file access, now ADR-027)
 - **Date:** 2026-09-27
 - **Phase:** 10 (follow-up, v1.4.0)
+- **Extended by:** [ADR-025 (servers over SSH, through Guard)](ADR-025-servers-over-ssh.md): a
+  lesson from a task that ran commands on a server also always waits for the owner
 
 ## Context
 

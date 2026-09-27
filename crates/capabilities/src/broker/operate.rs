@@ -298,13 +298,14 @@ impl Broker {
         let control = &self.inner.control;
         if control.stopped() {
             return Some(
-                "The owner stopped all browser and desktop control. Do not try again: say in your \
-                 answer what you were doing and what is left."
+                "The owner stopped all browser, desktop, and server work. Do not try again: say in \
+                 your answer what you were doing and what is left."
                     .into(),
             );
         }
         let kind = match tool.capability {
             Capability::BrowserNavigate | Capability::BrowserAutomate => ControlKind::Browser,
+            Capability::SshConnect => ControlKind::Server,
             _ => ControlKind::Desktop,
         };
         // A feature the owner switched off (ADR-023).
@@ -337,10 +338,13 @@ impl Broker {
                 ControlKind::Desktop => "The owner took back the mouse and keyboard: do not use \
                     them again. Say in your answer where you were and what is left."
                     .into(),
+                ControlKind::Server => "The owner disconnected you from the servers: do not use \
+                    them again. Say in your answer what you ran, where, and what is left."
+                    .into(),
             }),
             Some(ControlState::Stopped) => Some(
-                "The owner stopped your use of the browser and desktop. Say in your answer what \
-                 you were doing and what is left."
+                "The owner stopped your use of the browser, desktop, and servers. Say in your \
+                 answer what you were doing and what is left."
                     .into(),
             ),
             _ => None,
@@ -430,6 +434,8 @@ impl Broker {
             inherent_owned: None,
             site: None,
             screenshot: None,
+            server: None,
+            harmless: false,
             work: Work::Control(work),
         };
         let nav = Capability::BrowserNavigate;
@@ -1102,6 +1108,8 @@ impl Broker {
             screenshot: self
                 .keep_page(&tab, ctx.task_id, ctx.worker, "waiting for your approval")
                 .await,
+            server: None,
+            harmless: false,
             work: Work::Missing(String::new()),
         };
         let decision = Decision {
@@ -1247,6 +1255,8 @@ impl Broker {
             screenshot: self
                 .keep_page(tab, ctx.task_id, ctx.worker, "waiting for your approval")
                 .await,
+            server: None,
+            harmless: false,
             work: Work::Missing(String::new()),
         };
         let decision = Decision {
@@ -1902,6 +1912,7 @@ impl Broker {
                 let desktop = self.inner_desktop();
                 let _ = tokio::task::spawn_blocking(move || desktop.release_all()).await;
             }
+            ControlKind::Server => self.stop_servers(&s.grant_id, "you disconnected the worker"),
         }
         self.ledger().append_event(NewEvent {
             task_id: Some(s.task_id.clone()),
@@ -1956,6 +1967,9 @@ impl Broker {
                     let desktop = self.inner_desktop();
                     let _ = tokio::task::spawn_blocking(move || desktop.release_all()).await;
                 }
+                ControlKind::Server => {
+                    self.stop_servers(&s.grant_id, "you switched remote computers (SSH) off");
+                }
             }
         }
         if !stopped.is_empty() {
@@ -1997,6 +2011,7 @@ impl Broker {
                         w.ended.store(true, Ordering::SeqCst);
                     }
                 }
+                ControlKind::Server => self.stop_servers(&s.grant_id, "you pressed Stop all"),
             }
             if !grants.contains(&s.grant_id) {
                 grants.push(s.grant_id.clone());
@@ -2110,9 +2125,14 @@ impl Broker {
                 None => (None, None),
             }
         };
-        for kind in [ControlKind::Browser, ControlKind::Desktop] {
+        for kind in [
+            ControlKind::Browser,
+            ControlKind::Desktop,
+            ControlKind::Server,
+        ] {
             self.inner.control.stop(&session_id(kind, grant_id));
         }
+        self.stop_servers(grant_id, "the worker's permissions were revoked");
         if let Some(tab) = tab {
             self.spawn(async move { tab.release_to(Mode::Stopped).await });
         }
@@ -2147,7 +2167,11 @@ impl Broker {
                 self.spawn(async move { tab.close().await });
             }
         }
-        for kind in [ControlKind::Browser, ControlKind::Desktop] {
+        for kind in [
+            ControlKind::Browser,
+            ControlKind::Desktop,
+            ControlKind::Server,
+        ] {
             if let Some(s) = self.inner.control.end(&session_id(kind, grant_id)) {
                 let _ = self.ledger().append_event(NewEvent {
                     task_id: Some(task_id.into()),

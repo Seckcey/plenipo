@@ -3,4 +3,4 @@
 /**
  * What a worker is using.
  */
-export type ControlKind = "browser" | "desktop";
+export type ControlKind = "browser" | "desktop" | "server";
