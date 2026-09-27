@@ -1087,13 +1087,16 @@ async fn a_turn_reads_as_waiting_as_soon_as_its_wait_is_recorded() {
             .unwrap();
     turn_where(&h.rt, &started.session.id, 1, |t| t.waiting).await;
     // Read before the runtime released the step: the recorded wait already shows, never a
-    // running turn whose only step has finished.
-    let seen = hook
-        .seen
-        .lock()
-        .unwrap()
-        .clone()
-        .expect("a read from inside the hook");
+    // running turn whose only step has finished. This test can see the wait before the hook's
+    // own read has finished, so wait for that read.
+    let deadline = Instant::now() + WAIT;
+    let seen = loop {
+        if let Some(seen) = hook.seen.lock().unwrap().clone() {
+            break seen;
+        }
+        assert!(Instant::now() < deadline, "no read from inside the hook");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
     assert!(seen.waiting && !seen.running, "{seen:#?}");
     assert!(seen.steps.iter().all(|s| !s.running), "{seen:#?}");
 }
