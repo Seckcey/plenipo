@@ -1,0 +1,5 @@
+npm view @github/copilot-win32-x64@1.0.88 (tarball listing)
+-rwxr-xr-x 0/0       151248160 1985-10-26 08:15 package/copilot.exe
+-rw-r--r-- 0/0             663 1985-10-26 08:15 package/package.json
+-rw-r--r-- 0/0            2955 1985-10-26 08:15 package/LICENSE.md
+-rw-r--r-- 0/0             377 1985-10-26 08:15 package/README.md

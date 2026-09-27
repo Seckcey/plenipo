@@ -1,0 +1,9 @@
+Usage: copilot sessions <COMMAND>
+
+Manage saved sessions
+
+Commands:
+  import  Import a semantic session from JSONL
+
+Options:
+  -h, --help  Print help

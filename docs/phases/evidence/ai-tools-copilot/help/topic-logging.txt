@@ -1,0 +1,19 @@
+Log Levels:
+
+  none     No logging output
+  error    Only error messages
+  warning  Error and warning messages
+  info     Error, warning, and info messages
+  debug    All messages including debug
+  all      Same as debug
+  default  Error, warning, and info messages (same as info)
+
+Examples:
+  # Set logging to ./logs
+  $ copilot --log-dir ./logs
+
+  # Enable debug level logging
+  $ copilot --log-level debug
+
+Note: For OpenTelemetry diagnostic logging (OTEL_LOG_LEVEL), see `copilot help monitoring`.
+

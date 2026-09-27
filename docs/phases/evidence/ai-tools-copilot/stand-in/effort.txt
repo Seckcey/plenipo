@@ -1,0 +1,10 @@
+copilot --reasoning-effort <level>: what the CLI sent to the stand-in model server as reasoning_effort
+none -> exit 0, sent null
+minimal -> exit 0, sent "minimal"
+low -> exit 0, sent "low"
+medium -> exit 0, sent "medium"
+high -> exit 0, sent "high"
+xhigh -> exit 0, sent "xhigh"
+max -> exit 0, sent "max"
+bogus -> exit 1, sent (not run) error: invalid value 'bogus' for '--reasoning-effort <level>'
+(no --reasoning-effort) -> sent "medium" by default for gpt-5.4

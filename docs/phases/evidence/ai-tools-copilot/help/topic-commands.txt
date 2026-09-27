@@ -1,0 +1,88 @@
+Interactive Mode Commands:
+
+  Agent Environment:
+    /init    Initialize Copilot instructions for this repository
+    /agent   Browse and select agents: /agent [name]
+    /skills  Manage skills for enhanced capabilities
+    /mcp     Manage MCP server configuration
+    /plugin  Manage plugins and plugin marketplaces
+
+  Agents / Subagents:
+    /model      Select the AI model for this session (use 'auto' to let Copilot pick automatically). Use /config model to set the user default, '--repo'/'--local' to set the repo default, or 'plan'/'--plan' to set the plan-mode model.
+    /delegate   Send this session to GitHub and Copilot will create a PR; use --base to choose the PR target branch
+    /fleet      Enable fleet mode for parallel subagent execution
+    /autopilot  Toggle autopilot mode, or set an autopilot objective with an optional AI-credit limit (--max-ai-credits)
+    /tasks      View and manage tasks (subagents and shell commands)
+
+  Code:
+    /ide              Connect to an IDE workspace
+    /diff             Review the changes made in the current directory
+    /pr               Operate on pull requests for the current branch
+    /review           Run code review agent to analyze changes
+    /security-review  Analyze staged and unstaged changes for security vulnerabilities.
+    /rubber-duck      Get an independent critique of your current work from the rubber duck agent
+    /lsp              Manage language server configuration
+    /terminal-setup   Configure terminal for multiline input support (shift+enter)
+
+  Permissions:
+    /permissions          Switch between permission modes
+    /allow-all            Enable all permissions (tools, paths, and URLs)
+    /add-dir              Allow file access to a directory and load its .github skills and agents as trusted configuration
+    /list-dirs            Display allowed directories and exact session path grants
+    /cwd                  Change working directory or show current directory
+    /reset-allowed-tools  Reset session tool and exact-path approvals
+
+  Session:
+    /resume    Switch to a different session (optionally specify session ID, task ID, or name)
+    /rename    Rename the current session, or auto-generate a name from conversation
+    /fork      Fork the current session into a new session, optionally with a name. Use `/fork worktree` to fork into a new worktree based on the current branch.
+    /worktree  Create a new git worktree from your configured base ref and switch into it, leaving your uncommitted changes behind. Use `/new worktree` for an empty session or `/fork worktree` to preserve the current context. The deprecated `/worktree new` command still works for now.
+    /move      Move your uncommitted changes into a new git worktree and switch into it. Pass a branch name, a task to start, or nothing to auto-name.
+    /context   Show context window token usage and visualization
+    /usage     Display session usage metrics and statistics
+    /session   View and manage sessions. Use subcommands for details.
+    /compact   Summarize conversation history to reduce context window usage. Optionally provide focus instructions.
+    /share     Share session or research report to a markdown file, HTML file, GitHub gist, or a shareable GitHub link
+    /remote    Share this session: remote control from GitHub web and mobile, or directly with another CLI
+    /copy      Copy the last response to the clipboard
+    /rewind    Rewind the last turn and revert file changes
+
+  Help:
+    /help          Show help for interactive commands
+    /changelog     Display changelog for CLI versions. Add 'summarize' to get an AI summary.
+    /feedback      Provide feedback about the CLI
+    /diagnose      Analyze the current session log, optionally with a custom prompt
+    /theme         View or set color mode
+    /statusline    Configure status line items
+    /footer        Configure status line items
+    /update        Update the CLI to the latest version
+    /version       Display version information and check for updates
+    /experimental  Show available experimental features, or enable/disable experimental mode
+    /memory        Show memory status, or enable/disable memory across sessions
+    /clear         Abandon this session and start fresh
+    /instructions  View and toggle custom instruction files
+    /app           Prefer a visual workspace? Try out the GitHub Copilot desktop app
+
+  Other commands:
+    /ask                 Ask a quick side question without adding to conversation history
+    /chronicle           Session history tools and insights
+    /collect-debug-logs  Collect debug logs to a local .tgz file or secret GitHub gist
+    /computer            Show or toggle Computer Use
+    /env                 Show loaded environment details (instructions, MCP servers, skills, agents, hooks, plugins, LSPs, extensions)
+    /exit                Exit the CLI; use 'print' to print the session after exiting alt screen
+    /keep-alive          Manage keep-alive mode (prevents system sleep).
+    /limits              View or edit session limits; the AI Credit limit is a soft cap
+    /login               Log in to Copilot
+    /logout              Log out of an OAuth login session
+    /new                 Start a new conversation
+    /plan                Create an implementation plan before coding
+    /refine              Rewrite a rough, stream-of-consciousness prompt into a clear one for review (Ctrl+X / then /refine cleans up your current input)
+    /research            Run deep research investigation using GitHub search and web sources
+    /restart             Restart the CLI, restoring supported live sessions in this process
+    /search              Search the conversation timeline (experimental)
+    /settings            Open the settings UI, show, set, or unset a single value ('/settings unset <key>' removes it). Use '--repo'/'--local' to target repo settings.
+    /subagents           Configure default and per-agent subagent models
+    /user                Manage GitHub user list
+    /vim                 Toggle Vim mode for the input (hjkl/w/b/e/ge/0/^/$/gg/G motions, f/F/t/T/;/, char search, i/a/o insert, r/~/J/x/D/C edit, d/c/y operators, y/p/P yank & put, . repeat, u/ctrl+r undo & redo, counts, esc for normal mode)
+    /voice               Manage voice mode (dictation transcription via Foundry Local)
+
