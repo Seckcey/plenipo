@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::dto::{CommandRules, Level, PermissionSet};
 use crate::registry::Capability;
+use crate::websites::{OtherSites, WebsiteRules};
 
 fn set(id: &str, name: &str, description: &str, levels: &[(Capability, Level)]) -> PermissionSet {
     PermissionSet {
@@ -74,6 +75,56 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
         set(
             "writer",
             "Writer",
+            "Reads and changes files, reads git history, and commits. Runs nothing; pushing \
+             asks you first.",
+            &[
+                (FilesystemRead, Allowed),
+                (FilesystemWrite, Allowed),
+                (GitRead, Allowed),
+                (GitWrite, Allowed),
+            ],
+        ),
+        set(
+            "researcher",
+            "Researcher",
+            "Opens and reads web pages and takes screenshots on the websites your lists allow. \
+             Clicks and types nothing. No access to project files.",
+            &[(BrowserNavigate, Allowed)],
+        ),
+        set(
+            "web-assistant",
+            "Web assistant",
+            "Opens, reads, and uses web pages on the websites your lists allow: clicks, types, \
+             and chooses. Submitting forms, buying, signing in, and sending always ask you \
+             first. No access to project files.",
+            &[(BrowserNavigate, Allowed), (BrowserAutomate, Allowed)],
+        ),
+        set(
+            "computer-use",
+            "Computer use",
+            "Sees the screen and, as a last resort, uses the mouse and keyboard. Taking control \
+             always asks you first, with the worker's reason.",
+            &[(ComputerObserve, Allowed), (ComputerControl, Allowed)],
+        ),
+        set(
+            "no-access",
+            "No access",
+            "Conversation only: no files, programs, or git.",
+            &[],
+        ),
+    ]
+}
+
+/// Built-in sets as earlier versions of Plenipo made them (before GitHub tools, Phase 8; before
+/// the Writer set could commit and websites had tools, v1.1): a set the owner never changed is
+/// brought up to date; a changed one is left alone.
+pub fn earlier_sets() -> Vec<PermissionSet> {
+    use Capability::*;
+    use Level::*;
+    vec![
+        set(
+            "writer",
+            "Writer",
             "Reads and changes files and reads git history. Runs nothing.",
             &[
                 (FilesystemRead, Allowed),
@@ -87,21 +138,6 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
             "Visits websites (arrives in Phase 10). No access to project files.",
             &[(BrowserNavigate, Allowed)],
         ),
-        set(
-            "no-access",
-            "No access",
-            "Conversation only: no files, programs, or git.",
-            &[],
-        ),
-    ]
-}
-
-/// Built-in sets as an earlier version of Plenipo made them (before GitHub tools, Phase 8):
-/// a set the owner never changed is brought up to date; a changed one is left alone.
-pub fn earlier_sets() -> Vec<PermissionSet> {
-    use Capability::*;
-    use Level::*;
-    vec![
         set(
             "read-only",
             "Read only",
@@ -156,7 +192,26 @@ pub fn template_sets() -> &'static [(&'static str, &'static str)] {
         ("Documentation Writer", "writer"),
         ("Designer", "writer"),
         ("Researcher", "researcher"),
+        ("Web Assistant", "web-assistant"),
     ]
+}
+
+/// The websites workers start without: sites whose terms forbid automated use (the owner can
+/// remove one after checking its terms, ADR-020). Every other website asks the first time.
+pub fn default_websites() -> WebsiteRules {
+    WebsiteRules {
+        allowed: Vec::new(),
+        blocked: list(&[
+            "linkedin.com",
+            "facebook.com",
+            "instagram.com",
+            "x.com",
+            "twitter.com",
+            "tiktok.com",
+            "amazon.com",
+        ]),
+        others: OtherSites::Ask,
+    }
 }
 
 fn list(items: &[&str]) -> Vec<String> {
@@ -327,5 +382,7 @@ mod tests {
         for p in default_blocked_files() {
             assert_eq!(valid_pattern(&p).unwrap(), p);
         }
+        let w = default_websites();
+        assert_eq!(crate::websites::clean(&w).unwrap(), w);
     }
 }

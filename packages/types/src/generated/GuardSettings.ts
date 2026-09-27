@@ -7,8 +7,13 @@ import type { RolePermissions } from "./RolePermissions";
 import type { SecretInfo } from "./SecretInfo";
 import type { SensitiveInfo } from "./SensitiveInfo";
 import type { UnitLimit } from "./UnitLimit";
+import type { WebsiteRules } from "./WebsiteRules";
 
 /**
  * Guard's settings, as Settings → Permissions shows them.
  */
-export type GuardSettings = { capabilities: Array<CapabilityInfo>, sets: Array<PermissionSet>, roles: Array<RolePermissions>, departments: Array<UnitLimit>, projects: Array<UnitLimit>, commands: CommandRules, blockedFiles: Array<string>, sensitive: Array<SensitiveInfo>, options: GuardOptions, secrets: Array<SecretInfo>, };
+export type GuardSettings = { capabilities: Array<CapabilityInfo>, sets: Array<PermissionSet>, roles: Array<RolePermissions>, departments: Array<UnitLimit>, projects: Array<UnitLimit>, commands: CommandRules, blockedFiles: Array<string>, sensitive: Array<SensitiveInfo>, options: GuardOptions, secrets: Array<SecretInfo>, 
+/**
+ * Which websites workers may open in Plenipo's browser (Phase 10).
+ */
+websites: WebsiteRules, };

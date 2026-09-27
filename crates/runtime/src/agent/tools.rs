@@ -54,6 +54,12 @@ pub struct StepInfo<'a> {
 pub trait ToolProvider: Send + Sync + 'static {
     /// A step is about to start: its tools, if it gets any. Called on a blocking thread.
     fn open(&self, step: &StepInfo<'_>) -> Option<StepTools>;
+    /// A step that gets no tools: what its worker should know about that (for example, that it
+    /// cannot open files or use websites, and why), placed before its prompt like the tools
+    /// note. Called on a blocking thread, only when `open` gave nothing.
+    fn note_without_tools(&self, _step: &StepInfo<'_>) -> Option<String> {
+        None
+    }
     /// The step's program ended (or never started): end its grant. Called on a blocking thread
     /// before the step's result is recorded.
     fn close(&self, grant_id: &str);

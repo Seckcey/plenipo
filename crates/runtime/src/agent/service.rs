@@ -392,6 +392,27 @@ impl AgentRuntime {
         .flatten()
     }
 
+    /// What a step without tools should know about that, if anything.
+    async fn note_without_tools(
+        &self,
+        session: &AgentSession,
+        task_id: &str,
+        step: u32,
+    ) -> Option<String> {
+        let provider = self.tool_provider()?;
+        let (session, task_id) = (session.clone(), task_id.to_owned());
+        tokio::task::spawn_blocking(move || {
+            provider.note_without_tools(&StepInfo {
+                session: &session,
+                task_id: &task_id,
+                step,
+            })
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     /// End a step's grant (before its result is recorded).
     async fn close_tools(&self, grant_id: String) {
         if let Some(provider) = self.tool_provider() {
@@ -1405,7 +1426,10 @@ impl AgentRuntime {
                 request.tools = Some(t.server.clone());
                 with_note(&t.note, &prompt)
             }
-            None => prompt,
+            None => match self.note_without_tools(&session, &task_id, step).await {
+                Some(note) => with_note(&note, &prompt),
+                None => prompt,
+            },
         };
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));

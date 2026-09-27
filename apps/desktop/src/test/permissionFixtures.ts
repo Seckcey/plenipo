@@ -80,6 +80,7 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
         { kind: "dns", label: "Changing DNS", examples: "aws route53", rule: "block" },
       ],
       options: { approvalMinutes: 10 },
+      websites: { allowed: ["example.com"], blocked: ["linkedin.com"], others: "ask" },
       secrets: [
         {
           id: "secret-1",

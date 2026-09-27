@@ -12,6 +12,7 @@ use crate::dto::*;
 use crate::paths::blocked_by;
 use crate::registry::Capability;
 use crate::sensitive;
+use crate::websites::{self, Site, SiteVerdict};
 
 /// Who is acting, as far as permissions go: the worker's role, and the project and department
 /// its work belongs to.
@@ -199,6 +200,16 @@ pub struct Request<'a> {
     /// Sensitive on its own (e.g. pushing to a server).
     pub inherent: Option<(SensitiveKind, &'a str)>,
     pub workspace: &'a Path,
+    /// The website it opens or acts on (Phase 10), checked against the owner's website lists.
+    pub site: Option<SiteCheck<'a>>,
+}
+
+/// A website an action opens or acts on.
+#[derive(Debug, Clone, Copy)]
+pub struct SiteCheck<'a> {
+    pub site: &'a Site,
+    /// The owner already approved opening this website for this worker's step.
+    pub approved: bool,
 }
 
 /// The level the grant allowed when it was issued, and whether it still stands.
@@ -305,6 +316,51 @@ pub fn evaluate(
             );
         }
     }
+    // The website (Phase 10): blocked ones never open; local addresses only when allowed by name.
+    let mut site_asks = None;
+    if let Some(check) = request.site {
+        let shown = check.site.shown();
+        match websites::check(&config.websites, check.site) {
+            SiteVerdict::Blocked(rule) => {
+                return decision(
+                    Verdict::Deny,
+                    Layer::Rule,
+                    format!("Blocked: {shown} is on your blocked websites list (\"{rule}\")."),
+                    risk,
+                    None,
+                    checks,
+                )
+            }
+            SiteVerdict::Local => {
+                return decision(
+                    Verdict::Deny,
+                    Layer::Target,
+                    format!(
+                        "Blocked: {shown} is an address on this computer or your local network, \
+                         and those open only when your allowed websites list names them."
+                    ),
+                    risk,
+                    None,
+                    checks,
+                )
+            }
+            SiteVerdict::Other => {
+                return decision(
+                    Verdict::Deny,
+                    Layer::Rule,
+                    format!(
+                        "Blocked: {shown} is not on your allowed websites list, and you set other \
+                         websites to blocked."
+                    ),
+                    risk,
+                    None,
+                    checks,
+                )
+            }
+            SiteVerdict::Ask if !check.approved => site_asks = Some(shown),
+            SiteVerdict::Allowed(_) | SiteVerdict::Ask | SiteVerdict::Blank => {}
+        }
+    }
     if let Some(cmd) = request.command {
         if let Some(rule) = first_match(&config.commands.blocked, cmd) {
             return decision(
@@ -350,6 +406,20 @@ pub fn evaluate(
         return decision(verdict, Layer::Risk, reason, risk, Some(kind), checks);
     }
     // Layer 6: the owner's explicit rules.
+    if let Some(shown) = site_asks {
+        return decision(
+            Verdict::Ask,
+            Layer::Rule,
+            format!(
+                "{} needs your approval: {shown} is not on your allowed websites list (once you \
+                 approve, this worker may use it until its step ends).",
+                capitalized(request.summary)
+            ),
+            risk,
+            None,
+            checks,
+        );
+    }
     if let Some(cmd) = request.command {
         if let Some(rule) = first_match(&config.commands.ask, cmd) {
             return decision(
@@ -413,6 +483,7 @@ pub fn evaluate(
 mod tests {
     use super::*;
     use crate::dto::PermissionSetInput;
+    use crate::websites::{OtherSites, WebsiteRules};
 
     fn config() -> GuardConfig {
         let mut c = GuardConfig::with_defaults();
@@ -457,6 +528,7 @@ mod tests {
             script: None,
             inherent: None,
             workspace: Path::new("/w"),
+            site: None,
         }
     }
 
@@ -637,6 +709,88 @@ mod tests {
             Verdict::Ask,
             "developers ask for scripts"
         );
+    }
+
+    #[test]
+    fn websites_are_checked_against_the_lists() {
+        let mut c = config();
+        c.assign_role("web", Some("web-assistant")).unwrap();
+        let s = Scope {
+            role_id: "web".into(),
+            role_name: "Web Assistant".into(),
+            ..Scope::default()
+        };
+        let visit = |c: &GuardConfig, address: &str, approved: bool| {
+            let site = Site::parse(address).unwrap();
+            let mut r = request(Capability::BrowserNavigate, &[], None);
+            r.summary = "open the page";
+            r.site = Some(SiteCheck {
+                site: &site,
+                approved,
+            });
+            eval(c, &s, &r)
+        };
+        let blocked = visit(&c, "https://www.linkedin.com/feed", false);
+        assert_eq!(
+            (blocked.verdict, blocked.layer),
+            (Verdict::Deny, Layer::Rule)
+        );
+        assert!(
+            blocked.reason.contains("blocked websites list"),
+            "{}",
+            blocked.reason
+        );
+        let unknown = visit(&c, "https://example.org/", false);
+        assert_eq!(unknown.verdict, Verdict::Ask);
+        assert!(unknown.reason.contains("not on your allowed websites list"));
+        assert_eq!(
+            visit(&c, "https://example.org/", true).verdict,
+            Verdict::Allow,
+            "approved for this step"
+        );
+        let local = visit(&c, "http://192.168.1.1/", true);
+        assert_eq!((local.verdict, local.layer), (Verdict::Deny, Layer::Target));
+        c.set_websites(&WebsiteRules {
+            allowed: vec!["example.org".into(), "192.168.1.1".into()],
+            blocked: vec![],
+            others: OtherSites::Block,
+        })
+        .unwrap();
+        assert_eq!(
+            visit(&c, "https://www.example.org/", false).verdict,
+            Verdict::Allow
+        );
+        assert_eq!(
+            visit(&c, "http://192.168.1.1/", false).verdict,
+            Verdict::Allow
+        );
+        assert_eq!(
+            visit(&c, "https://other.example/", true).verdict,
+            Verdict::Deny,
+            "other websites blocked"
+        );
+        // A sensitive action on an allowed website still asks.
+        let site = Site::parse("https://example.org/checkout").unwrap();
+        let mut buy = request(Capability::BrowserAutomate, &[], None);
+        buy.summary = "click \"Place order\"";
+        buy.site = Some(SiteCheck {
+            site: &site,
+            approved: false,
+        });
+        buy.inherent = Some((SensitiveKind::Payment, "it looks like buying something"));
+        let d = eval(&c, &s, &buy);
+        assert_eq!(
+            (d.verdict, d.sensitive),
+            (Verdict::Ask, Some(SensitiveKind::Payment))
+        );
+        // The Researcher set may visit but not use websites.
+        c.assign_role("res", Some("researcher")).unwrap();
+        let r = Scope {
+            role_id: "res".into(),
+            role_name: "Researcher".into(),
+            ..Scope::default()
+        };
+        assert_eq!(eval(&c, &r, &buy).verdict, Verdict::Deny);
     }
 
     #[test]

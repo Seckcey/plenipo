@@ -1123,6 +1123,7 @@ impl Broker {
             script: prepared.script.as_deref(),
             inherent: prepared.inherent,
             workspace: &root,
+            site: None,
         };
         let decision = evaluate(
             &config,
@@ -1814,6 +1815,39 @@ impl ToolProvider for Broker {
     fn close(&self, grant_id: &str) {
         self.end_grant(grant_id);
     }
+
+    fn note_without_tools(&self, step: &StepInfo<'_>) -> Option<String> {
+        let scope = self
+            .inner
+            .guard
+            .scope_for(&step.session.metadata["workforce"])
+            .ok()??;
+        let config = self.inner.guard.config().ok()?;
+        let levels = levels_for(&config, &scope);
+        let permitted = levels
+            .iter()
+            .any(|(c, l)| *l != Level::Blocked && c.has_tools());
+        let why = if !permitted {
+            format!(
+                "the {} role has no permissions in the owner's settings",
+                scope.role_name
+            )
+        } else {
+            match &scope.project {
+                Some(p) if p.folder.is_none() => format!("the {} project has no folder", p.name),
+                Some(p) => format!(
+                    "Plenipo could not open the {} project's folder or its tools",
+                    p.name
+                ),
+                None => "this work belongs to no project, so there is no folder".into(),
+            }
+        };
+        Some(format!(
+            "You have no Plenipo tools in this task ({why}), so you cannot open or change files, \
+             run programs, use git, or use websites here. Work from what you are given; if your \
+             job needs more, say so in your answer and your lead or the owner can arrange it."
+        ))
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1888,6 +1922,17 @@ fn note_for(
     }
     if !allowed.is_empty() {
         lines.push(format!("You may: {}.", allowed.join("; ")));
+    }
+    let not: Vec<&str> = levels
+        .iter()
+        .filter(|(c, l)| **l == Level::Blocked && c.has_tools())
+        .map(|(c, _)| doing(*c))
+        .collect();
+    if !not.is_empty() {
+        lines.push(format!(
+            "Not in your permissions: {}. If your job needs one, say so in your answer.",
+            not.join("; ")
+        ));
     }
     lines.push(
         "Every use is checked and recorded. If a tool says an action was blocked or not \

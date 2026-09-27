@@ -1200,14 +1200,37 @@ impl Ledger {
     }
 
     /// Insert the templates that no role is named after yet, renaming a template's role seeded
-    /// under one of its former names instead; returns every role.
+    /// under one of its former names instead, and bring built-in roles seeded by an earlier
+    /// version up to date (their description and metadata, such as their working instructions,
+    /// ADR-019); returns every role.
     pub fn ensure_roles(&self, templates: &[RoleTemplate], actor: &str) -> Result<Vec<Role>> {
         self.write(|tx, out| {
             for t in templates {
-                let exists: Option<String> = tx
-                    .query_row("SELECT id FROM roles WHERE name = ?1", [t.name], |r| r.get(0))
+                let exists: Option<(String, String, String)> = tx
+                    .query_row(
+                        "SELECT id, description, metadata FROM roles WHERE name = ?1",
+                        [t.name],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
                     .optional()?;
-                if exists.is_some() {
+                if let Some((id, description, metadata)) = exists {
+                    let stored: Value = serde_json::from_str(&metadata).unwrap_or(Value::Null);
+                    // Only a role Plenipo seeded; one the owner made under the same name is theirs.
+                    if stored["template"] == true
+                        && (description != t.description || stored != t.metadata)
+                    {
+                        tx.execute(
+                            "UPDATE roles SET description = ?2, metadata = ?3 WHERE id = ?1",
+                            params![id, t.description, metadata_text(&t.metadata)?],
+                        )?;
+                        org_event(
+                            out,
+                            tx,
+                            actor,
+                            "role_updated",
+                            json!({ "id": id, "name": t.name, "template": true }),
+                        )?;
+                    }
                     continue;
                 }
                 let mut former = None;

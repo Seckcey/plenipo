@@ -22,7 +22,8 @@ use plenipo_runtime::{
 use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::{
     DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionInfo, PositionKind,
-    PositionStatus, ProjectInput, RoleInput, Staffing, Workforce, WorkforceError,
+    PositionStatus, ProjectInput, RoleInput, RoleJob, RoleUpdate, Staffing, Workforce,
+    WorkforceError,
 };
 
 const WAIT: Duration = Duration::from_secs(60);
@@ -427,6 +428,100 @@ fn assert_in_order(types: &[String], expected: &[&str]) {
 
 // ---- Plan tests -----------------------------------------------------------------------------
 
+/// A custom role's working instructions in the owner's own words (ADR-019): cleaned, shown in
+/// the organization, changeable, and used in its workers' instructions like a built-in role's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_custom_role_gets_its_owners_working_instructions() {
+    let h = harness().await;
+    let lines = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    let s = h
+        .workforce
+        .create_role(&RoleInput {
+            name: "Bookkeeper".into(),
+            description: "Keeps the books.".into(),
+            kind: PositionKind::Worker,
+            staffing: Staffing::OnDemand,
+            job: Some(RoleJob {
+                duties: lines(&["- enter the month's receipts\n* match them to the bank", ""]),
+                returns: lines(&["a list of what was entered"]),
+                limits: lines(&["never pay a bill"]),
+                ask_lead: lines(&["a receipt is unreadable"]),
+            }),
+        })
+        .unwrap();
+    let role = s.roles.iter().find(|r| r.name == "Bookkeeper").unwrap();
+    assert_eq!(
+        role.job.duties,
+        ["enter the month's receipts", "match them to the bank"],
+        "one item per line, list markers and blank lines removed"
+    );
+    assert_eq!(role.job.limits, ["never pay a bill"]);
+    // Built-in roles show their instructions too.
+    let dev = s
+        .roles
+        .iter()
+        .find(|r| r.name == "Senior Developer")
+        .unwrap();
+    assert!(!dev.job.duties.is_empty() && !dev.job.limits.is_empty());
+
+    let changed = h
+        .workforce
+        .update_role(
+            &role.id,
+            &RoleUpdate {
+                name: "Bookkeeper".into(),
+                description: "Keeps the books and files receipts.".into(),
+                job: RoleJob {
+                    duties: lines(&["file receipts by month"]),
+                    ..role.job.clone()
+                },
+            },
+        )
+        .unwrap();
+    let role = changed
+        .roles
+        .iter()
+        .find(|r| r.name == "Bookkeeper")
+        .unwrap();
+    assert_eq!(role.job.duties, ["file receipts by month"]);
+    assert_eq!(role.description, "Keeps the books and files receipts.");
+    // Built-in roles keep theirs; lines are limited.
+    assert!(refusal(h.workforce.update_role(
+        &h.role("Senior Developer"),
+        &RoleUpdate {
+            name: "Senior Developer".into(),
+            description: String::new(),
+            job: RoleJob::default(),
+        },
+    ))
+    .contains("built-in roles keep their instructions"));
+    let long = RoleJob {
+        duties: vec!["x".repeat(400)],
+        ..RoleJob::default()
+    };
+    assert!(refusal(h.workforce.update_role(
+        &role.id,
+        &RoleUpdate {
+            name: "Bookkeeper".into(),
+            description: String::new(),
+            job: long,
+        },
+    ))
+    .contains("at most 300 characters"));
+    let many = RoleJob {
+        limits: (0..13).map(|i| format!("rule {i}")).collect(),
+        ..RoleJob::default()
+    };
+    assert!(refusal(h.workforce.create_role(&RoleInput {
+        name: "Clerk".into(),
+        description: String::new(),
+        kind: PositionKind::Worker,
+        staffing: Staffing::OnDemand,
+        job: Some(many),
+    }))
+    .contains("at most 12 lines"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plan_create_department_role_manager_and_project_coordinator() {
     let h = harness().await;
@@ -438,6 +533,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
             description: "Runs releases.".into(),
             kind: PositionKind::Worker,
             staffing: Staffing::OnDemand,
+            job: None,
         })
         .unwrap();
     let role = s
@@ -453,6 +549,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         description: String::new(),
         kind: PositionKind::DepartmentManager,
         staffing: Staffing::OnDemand,
+        job: None,
     }))
     .contains("full-time"));
 
@@ -774,6 +871,7 @@ async fn plan_orphan_prevention() {
             description: "Leads implementation.".into(),
             kind: PositionKind::Worker,
             staffing: Staffing::Persistent,
+            job: None,
         })
         .unwrap();
     let tech_lead = h.hire("Tech Lead", "Tech Lead", &o.coordinator, "claude-code");
