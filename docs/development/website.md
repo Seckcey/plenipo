@@ -12,6 +12,14 @@ the proposed Free/Pro limits as planned. A merge containing a desktop version bu
 that an installer has been published. Verify GitHub Releases before changing the download URL,
 version, availability, or edition claims.
 
+The Pip branding update aligns the page with the published
+[v1.6.0 Windows release](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0)
+(published September 27, 2026, 10:10:51 UTC). Its tagged Kimi runtime and owner acceptance
+record establish the Kimi/Moonshot entry; Ollama cloud support remains in adjacent text.
+The development branch's v1.7.0 version is not an installer availability claim. Both download
+buttons, both visible version labels, structured data, and generated release metadata agree on
+v1.6.0. Existing screenshot captions continue to identify earlier app previews.
+
 The initial content is present in HTML without JavaScript. The title, description, canonical URL,
 Open Graph/Twitter metadata, SoftwareApplication structured data, `robots.txt`, sitemap, and
 favicon set use the public hostname. There are no fabricated ratings or reviews. Local storage

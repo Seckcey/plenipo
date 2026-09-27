@@ -1,0 +1,343 @@
+{
+  "name": "Plenipo + Pip Brand Kit",
+  "character": "Pip",
+  "version": "1.0",
+  "generatedWith": "Built-in image_gen.imagegen",
+  "productionFolders": [
+    "mascots",
+    "logos",
+    "favicons"
+  ],
+  "previewFolders": [
+    "previews"
+  ],
+  "note": "Production artwork is transparent. Preview boards and original source reference may be opaque. Mascot-bearing SVGs embed raster Pip.",
+  "files": [
+    {
+      "file": "favicons/plenipo-favicon-on-dark-16.png",
+      "bytes": 486,
+      "sha256": "1ec13749eeb7f54f13f46ad65a2d11b1bb35c6e72def1b071e5fbe2023902368",
+      "width": 16,
+      "height": 16,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-256.png",
+      "bytes": 6231,
+      "sha256": "e7660b71a87cff09946e8bdd0cc2b604384c638f27a24b000e838eb58d0232c2",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-32.png",
+      "bytes": 904,
+      "sha256": "1f334920dbac6807d5582e149d21106763d4024e9d05ca4a59699037743916d7",
+      "width": 32,
+      "height": 32,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark-48.png",
+      "bytes": 1191,
+      "sha256": "a6c1e28da3f66d6cbb6a18c99e4b6c32b4267110116db0ed724e81511aeeab0f",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark.ico",
+      "bytes": 2635,
+      "sha256": "1f113b5fd97bfca1fdbab8933e54fb9c43724da8405eb05be39f3460526b5080"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-dark.svg",
+      "bytes": 632,
+      "sha256": "d1e0612f6946a243d40266ce77afb27a728b5e8692b11698e644b931df921952"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-16.png",
+      "bytes": 539,
+      "sha256": "52c5c5f832a2beb5d8300ca22dcb8789f6f42187794b0287df9b8284e7b9cd71",
+      "width": 16,
+      "height": 16,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-256.png",
+      "bytes": 6636,
+      "sha256": "0fecbd250adc5023c8b31f28c5504bcb23f60ff72ec7aec2ac2ca04d18d8c041",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-32.png",
+      "bytes": 955,
+      "sha256": "72c97423e765289720702f5405d6018eb0d33f75b2ef32fc53ce0472550b0adb",
+      "width": 32,
+      "height": 32,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light-48.png",
+      "bytes": 1290,
+      "sha256": "904af2028d8ebb364460b46cdac6fb49cef069b2a85dadd6c7116bb02a976162",
+      "width": 48,
+      "height": 48,
+      "mode": "RGBA"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light.ico",
+      "bytes": 2838,
+      "sha256": "e9d721480a4759e686ef03b5d3e8b789e689024d34fe7305ca07183133af5f73"
+    },
+    {
+      "file": "favicons/plenipo-favicon-on-light.svg",
+      "bytes": 634,
+      "sha256": "ab1f63c96119117a7caf461de66e93ed90d30d62d147b045199f306d53d9e7e0"
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-dark.png",
+      "bytes": 336987,
+      "sha256": "0010f6dd7de0ddf5fb58af9610ebb5b558ae4f8abc7b81807abdb9fc4ab132e3",
+      "width": 3000,
+      "height": 1194,
+      "mode": "RGBA"
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-dark.svg",
+      "bytes": 1011076,
+      "sha256": "6c9ec553cdd605cd1acc209072f1c9e438a5f44e199f2b9917423282e59a48ee"
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-light.png",
+      "bytes": 341851,
+      "sha256": "c4442f2e6850db4aa67d0f9bc58e13cf0d783eeeea85e4eb8e6de8bdc97bd5c5",
+      "width": 3000,
+      "height": 1194,
+      "mode": "RGBA"
+    },
+    {
+      "file": "logos/plenipo-horizontal-on-light.svg",
+      "bytes": 1011078,
+      "sha256": "8782b1dbd3dfdde97581b67f5f86f1b03426d9979015619ec6cb62d16b205955"
+    },
+    {
+      "file": "logos/plenipo-square-on-dark.png",
+      "bytes": 544961,
+      "sha256": "9d267cb0bf3f8f88d7ac43c0dfb32116d08057ac6b2548d3ddfc04165f81ea8b",
+      "width": 2000,
+      "height": 2000,
+      "mode": "RGBA"
+    },
+    {
+      "file": "logos/plenipo-square-on-dark.svg",
+      "bytes": 1008325,
+      "sha256": "e3c9525182f4e56aa3ef191736ca27847004d2851976cb76649296b7346a04e4"
+    },
+    {
+      "file": "logos/plenipo-square-on-light.png",
+      "bytes": 546905,
+      "sha256": "5add03fddae5da91e8345cd8bea896b4ff7281af86b233cd8044aba194c5fe4b",
+      "width": 2000,
+      "height": 2000,
+      "mode": "RGBA"
+    },
+    {
+      "file": "logos/plenipo-square-on-light.svg",
+      "bytes": 1008327,
+      "sha256": "db2c96bae14faceb36fa63de41cee814f0926b942c06c5f1dfbfcf931c34266b"
+    },
+    {
+      "file": "mascots/pip-01-coding.png",
+      "bytes": 755689,
+      "sha256": "3d6a3b1ed4c5f700f0b83e4f0011f2b39a7a15630f29a123082db5689f98dec4",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-02-welcome.png",
+      "bytes": 779449,
+      "sha256": "590636154785cef15da981ab3b4085cb4b36836150b05ebb2fdf6cbba3587099",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-03-presenting.png",
+      "bytes": 708596,
+      "sha256": "dffa4a954c69068f7e4af873b337de1c2707f514c39be0d5212b7f4b54af93ea",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-04-thinking.png",
+      "bytes": 653325,
+      "sha256": "9484213cc67ecedb8eac0eead3200eea1cad6b8990b52dd871edfd71bf10e855",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-05-celebrating.png",
+      "bytes": 796112,
+      "sha256": "f068df9dc39078131796b6e235d5b1029868487fffc7287b974534020415e18e",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-06-quality-check.png",
+      "bytes": 826386,
+      "sha256": "0d2be48f40b9c4c6c56ec0bb3d70f5989c2e3f7bd48a92d5167e32f1b4d27b14",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-07-security.png",
+      "bytes": 869455,
+      "sha256": "13af1aa92fe3035c4ed846e9954c4578a53eb1672b4b41c218a2cc9fde877d2c",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-08-planning.png",
+      "bytes": 737052,
+      "sha256": "4bfe53580bead189fd5b4ecaf78274a7f487ce77869798ce24f311699d90fb39",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-09-analytics.png",
+      "bytes": 788096,
+      "sha256": "bde76b91a88706d5d83ad1332f7af24e5a55a82c952f9c81add4482e7ea5db98",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-10-teamwork.png",
+      "bytes": 732764,
+      "sha256": "305b1586d7b8d0f8ba025120fa0ed0540922165c8ab2881ee4721d38e714804c",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-11-launch.png",
+      "bytes": 908709,
+      "sha256": "e32fe81738ad7f39695124f60e12a41f8155b8f92ce17bd601ae81a4cfef67a5",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-12-maintenance.png",
+      "bytes": 850416,
+      "sha256": "12885e824d6bd5822113252acf8f25d35f326d28bbab8d306a3a09a445898dc1",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-13-learning.png",
+      "bytes": 867481,
+      "sha256": "36f34e89d733773a425d7bd474770726dc0b280a5dc30a35968cf3baadddafa3",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-14-support.png",
+      "bytes": 759573,
+      "sha256": "69528e25bd4b2268ada64b99f9f884dad41d5ac7830f17248866cfb8d2b12015",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "mascots/pip-15-recharging.png",
+      "bytes": 852634,
+      "sha256": "e1e0b23200dff9ca060fad9c961653d52e2fa6a9f4033745b7a2c3d4d65a11c9",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "previews/pip-all-15-on-dark.png",
+      "bytes": 1246005,
+      "sha256": "82c2aa8967adffe30ddc85b344174337e50a5a47fe681f99f8d6d1f3636a6021",
+      "width": 1920,
+      "height": 1500,
+      "mode": "RGBA"
+    },
+    {
+      "file": "previews/pip-all-15-on-light.png",
+      "bytes": 1225682,
+      "sha256": "780813dd640d3d88ea6cc77fd67d94a71166c942e0e92964c74001fd9628810d",
+      "width": 1920,
+      "height": 1500,
+      "mode": "RGBA"
+    },
+    {
+      "file": "previews/plenipo-favicon-sizes.png",
+      "bytes": 56836,
+      "sha256": "636f4a40327d899eafc9af16e4c4ee3b9faf02230aa25e2c9e79bdee4ea1fb40",
+      "width": 1440,
+      "height": 650,
+      "mode": "RGBA"
+    },
+    {
+      "file": "previews/plenipo-logo-family.png",
+      "bytes": 269975,
+      "sha256": "c46619496e7e35e75ac11ba7cdbdbb330aaf5e9a5c80a60ac73cdfa9225b52c5",
+      "width": 1800,
+      "height": 1420,
+      "mode": "RGBA"
+    },
+    {
+      "file": "README.md",
+      "bytes": 6531,
+      "sha256": "b0ab357edf35d4420e01401eeccc9e699919190cd3de217c4f6c7abfa2c5b01c"
+    },
+    {
+      "file": "source/approved-pip-reference.png",
+      "bytes": 880015,
+      "sha256": "b8e5631df3502c95b259f9c70842b4b1f03781dfa9ce35fd0c2aed6025f86077",
+      "width": 1987,
+      "height": 791,
+      "mode": "RGB"
+    },
+    {
+      "file": "source/approved-wordmark.svg",
+      "bytes": 3384,
+      "sha256": "381766294973cb1b2e5e88e66f4fd6131587468fba26b4cc50437abc862cb427"
+    },
+    {
+      "file": "source/build-kit.cjs",
+      "bytes": 7556,
+      "sha256": "e61583c21d529dffe855a2e53b6fa5366afe1ac6a671e9bceb593f71f1f7a724"
+    },
+    {
+      "file": "source/prompts.json",
+      "bytes": 31019,
+      "sha256": "c1c8065405ffb3a67624575f0cf348bb6e2514e09acde2e0926bc13ca12c6488"
+    },
+    {
+      "file": "source/validate-kit.py",
+      "bytes": 9240,
+      "sha256": "20ee54fc27ad803b29495bf7ab9cf4cb99850ccef8d8d7bf21a71e4ca7c32efc"
+    },
+    {
+      "file": "validation.json",
+      "bytes": 17575,
+      "sha256": "40f33cc4c243a464e7c5bc2054f568254eee86a02884652d2c2a597623d09914"
+    }
+  ]
+}
