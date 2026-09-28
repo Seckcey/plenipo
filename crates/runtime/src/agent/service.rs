@@ -26,10 +26,13 @@ use crate::agent::adapter::{
     cap, first_line, FileRequest, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
     TurnRequest, MAX_EVENT_TEXT,
 };
+use crate::agent::brief::{BriefInput, Outgoing};
 use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
-use crate::dto::{AgentAttribution, OutputLine, OutputStream};
+use crate::dto::{
+    AgentAttribution, BriefKind, BriefWhy, NoteKind, OutputLine, OutputStream, PromptSize,
+};
 use crate::error::RuntimeError;
 use crate::profile::{LaunchSpec, StdinFeed};
 use crate::supervisor::Supervisor;
@@ -118,8 +121,11 @@ pub struct TurnInput {
     /// Recorded as the turn's objective and shown to the owner.
     pub objective: String,
     /// Sent to the runtime on stdin; the objective itself when `None`. Lets Core add
-    /// instructions (e.g. Liaison's protocol) without changing what is recorded.
+    /// instructions without changing what is recorded. Counted as Plenipo's own text.
     pub prompt: Option<String>,
+    /// Liaison's message (ADR-044): its full and short forms, of which the runtime sends one.
+    /// Takes the place of `prompt`.
+    pub brief: Option<BriefInput>,
     pub task: TurnTask,
 }
 
@@ -129,6 +135,7 @@ impl TurnInput {
         Self {
             objective: objective.into(),
             prompt: None,
+            brief: None,
             task: TurnTask::New {
                 requested_by: OWNER.into(),
                 metadata: serde_json::Value::Null,
@@ -160,6 +167,9 @@ pub struct StepNote {
     pub reason: String,
     /// Extra data for the store (opaque to the runtime).
     pub data: serde_json::Value,
+    /// Bytes of the step's prompt Plenipo only passes along (the replies' text), for the step's
+    /// recorded size (ADR-044).
+    pub passed_bytes: usize,
 }
 
 /// A turn step's process ended (passed to the [`TurnHook`]).
@@ -1113,6 +1123,7 @@ impl AgentRuntime {
         };
         let actor = format!("agent:{}", session.runtime_id);
         let (sid, tid) = (session_id.to_owned(), task_id.to_owned());
+        let passed = note.passed_bytes;
         if let Err(e) = self
             .with_store(move |s| {
                 let turn = TurnRef {
@@ -1139,6 +1150,8 @@ impl AgentRuntime {
             .flatten()
             .map_or(session.turn_count, |t| t.number);
         let request = turn_request(&session, adapter.as_ref(), ready.billing_confirmed);
+        // A continuation never carries Liaison's instructions: only the replies.
+        let out = Outgoing::plain(prompt, passed, BriefKind::Replies);
         self.launch_step(
             session,
             adapter,
@@ -1148,7 +1161,7 @@ impl AgentRuntime {
                 task_id: task_id.to_owned(),
                 number,
                 step,
-                prompt,
+                out,
             },
             Some(done),
         )
@@ -1461,7 +1474,7 @@ impl AgentRuntime {
         if let Some(active) = self.lock().active.get_mut(&session.id) {
             active.task_id = Some(task_id.clone());
         }
-        let prompt = input.prompt.unwrap_or(input.objective);
+        let out = first_message(input, &request);
         let done = reservation.done.take();
         self.launch_step(
             session,
@@ -1472,7 +1485,7 @@ impl AgentRuntime {
                 task_id,
                 number,
                 step: 1,
-                prompt,
+                out,
             },
             done,
         )
@@ -1494,7 +1507,7 @@ impl AgentRuntime {
             task_id,
             number,
             step,
-            prompt,
+            out,
         } = launch;
         // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
         // tool can use them.
@@ -1506,18 +1519,23 @@ impl AgentRuntime {
             None
         };
         let grant = tools.as_ref().map(|t| t.grant_id.clone());
-        let prompt = match &tools {
+        let note = match &tools {
             Some(t) => {
                 request.tools = Some(t.server.clone());
-                with_note(&t.note, &prompt)
+                Some(t.note.clone())
             }
-            None => match self
-                .note_without_tools(&session, &task_id, step, adapter.label(), takes_tools)
-                .await
-            {
-                Some(note) => with_note(&note, &prompt),
-                None => prompt,
-            },
+            None => {
+                self.note_without_tools(&session, &task_id, step, adapter.label(), takes_tools)
+                    .await
+            }
+        };
+        // What goes out, and its size (ADR-044): sizes only, never the text.
+        let (prompt, size) = match &note {
+            Some(note) => (
+                with_note(note, &out.text),
+                out.size(Some(note), NoteKind::Full, Some(note)),
+            ),
+            None => (out.text.clone(), out.size(None, NoteKind::None, None)),
         };
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));
@@ -1572,6 +1590,7 @@ impl AgentRuntime {
                 model: session.model.clone(),
                 provider_session_id: provider_session,
                 usage: None,
+                prompt: Some(size),
             })),
             extra_pipes: None,
         };
@@ -1585,6 +1604,7 @@ impl AgentRuntime {
             stored: 0,
             grant,
             input: input.map(|(tx, _)| tx),
+            size,
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
@@ -1600,6 +1620,7 @@ impl AgentRuntime {
                     usage: None,
                     duration_ms: None,
                     ignored_lines: 0,
+                    prompt: None,
                 };
                 ctx.complete(result, done).await;
                 return self.session(&session_id).await;
@@ -1699,7 +1720,31 @@ struct StepLaunch {
     task_id: String,
     number: u32,
     step: u32,
-    prompt: String,
+    /// The message, before Plenipo's tools note.
+    out: Outgoing,
+}
+
+/// The first step's message: Liaison's brief, a prompt Core wrote, or the objective alone.
+fn first_message(input: TurnInput, request: &TurnRequest) -> Outgoing {
+    let new = matches!(request.session, ProviderSession::New { .. });
+    match (input.brief, input.prompt) {
+        (Some(brief), _) => {
+            let full_len = brief.full.len();
+            Outgoing {
+                text: brief.full,
+                passed: brief.passed_bytes,
+                kind: BriefKind::Full,
+                why: new.then_some(BriefWhy::First),
+                full_len,
+                full_passed: brief.passed_bytes,
+            }
+        }
+        (None, Some(prompt)) => Outgoing::plain(prompt, 0, BriefKind::Plain),
+        (None, None) => {
+            let passed = input.objective.len();
+            Outgoing::plain(input.objective, passed, BriefKind::Plain)
+        }
+    }
 }
 
 /// Holds a session's slot until the turn is launched (or the attempt fails).
@@ -1733,6 +1778,8 @@ struct TurnContext {
     /// Writes to the process's stdin while a task that talks runs (ADR-015); dropped to
     /// close it.
     input: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    /// The size of what the step was sent (ADR-044), recorded with its result.
+    size: PromptSize,
 }
 
 impl TurnContext {
@@ -1981,10 +2028,11 @@ impl TurnContext {
         if let Some(grant) = self.grant.take() {
             runtime.close_tools(grant).await;
         }
-        let result = match runtime.filter() {
+        let mut result = match runtime.filter() {
             Some(f) => filtered_result(&f, result),
             None => result,
         };
+        result.prompt = Some(self.size);
         if let Some(id) = &self.execution_id {
             let (pid, model, usage) = (
                 result.provider_session_id.clone(),
@@ -2121,6 +2169,7 @@ fn administrative(outcome: TurnOutcome, summary: &str, error: Option<String>) ->
         usage: None,
         duration_ms: None,
         ignored_lines: 0,
+        prompt: None,
     }
 }
 
@@ -2277,9 +2326,25 @@ pub fn validate_prompt(prompt: &str) -> Result<String, RuntimeError> {
     Ok(prompt.to_owned())
 }
 
+/// A brief's messages are prompts, and what they pass along is part of them.
+fn validate_brief(brief: BriefInput) -> Result<BriefInput, RuntimeError> {
+    validate_prompt(&brief.full)?;
+    if let Some(reminder) = &brief.reminder {
+        validate_prompt(reminder)?;
+    }
+    let reminder_len = brief.reminder.as_ref().map_or(0, String::len);
+    if brief.passed_bytes > brief.full.len() || brief.reminder_passed_bytes > reminder_len {
+        return Err(RuntimeError::InvalidInput(
+            "a brief cannot pass along more than it holds".into(),
+        ));
+    }
+    Ok(brief)
+}
+
 fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
     let objective = validate_objective(&input.objective)?;
     let prompt = input.prompt.as_deref().map(validate_prompt).transpose()?;
+    let brief = input.brief.map(validate_brief).transpose()?;
     let task = match input.task {
         TurnTask::New {
             requested_by,
@@ -2315,6 +2380,7 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
     Ok(TurnInput {
         objective,
         prompt,
+        brief,
         task,
     })
 }

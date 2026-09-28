@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::dto::TokenUsage;
+use crate::dto::{PromptSize, TokenUsage};
 
 /// Whether a runtime's CLI was found and runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -304,6 +304,11 @@ pub struct TurnResult {
     pub duration_ms: Option<u64>,
     /// Output lines that were not understood (malformed or unknown event types).
     pub ignored_lines: u32,
+    /// The size of what Plenipo sent with the step (ADR-044); none for a result recorded
+    /// without a step of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<PromptSize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

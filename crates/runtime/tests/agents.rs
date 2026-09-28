@@ -1242,6 +1242,7 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         let note = StepNote {
             reason: "replies arrived".into(),
             data: serde_json::json!({ "deliver": ["r-1"] }),
+            passed_bytes: 0,
         };
         h.rt.continue_turn(&id, &task, "here are the replies", note.clone())
             .await
@@ -1445,6 +1446,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
             TurnInput {
                 objective: "the recorded objective".into(),
                 prompt: Some("the prompt that is sent".into()),
+                brief: None,
                 task: TurnTask::New {
                     requested_by: "agent:tester".into(),
                     metadata: serde_json::json!({ "extra": 1 }),
@@ -1540,6 +1542,7 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
         TurnInput {
             objective: "review this".into(),
             prompt: Some("Please review this".into()),
+            brief: None,
             task: TurnTask::Existing {
                 task_id: "t-adopt".into(),
             },
@@ -1561,6 +1564,7 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
             TurnInput {
                 objective: "again".into(),
                 prompt: None,
+                brief: None,
                 task: TurnTask::Existing {
                     task_id: "t-adopt".into(),
                 },

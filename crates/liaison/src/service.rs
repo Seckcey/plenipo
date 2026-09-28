@@ -29,7 +29,7 @@ use tokio::sync::Notify;
 
 use crate::address::Address;
 use crate::context::{
-    self, ContextPacket, DeliveredReply, Destination, PacketArtifact, PacketCapabilities,
+    self, Brief, ContextPacket, DeliveredReply, Destination, PacketArtifact, PacketCapabilities,
     PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
 };
 use crate::directory::{is_full_time, Directory, Placement, Team};
@@ -396,7 +396,7 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, &self.destinations(), self.limits());
         runtime
             .start_session_with(
                 SessionStart {
@@ -413,7 +413,8 @@ impl Liaison {
                 },
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
@@ -449,15 +450,14 @@ impl Liaison {
         if !info.enabled {
             return runtime.resume_session(session_id, objective).await;
         }
-        // Each objective restates the instructions: the provider may have compacted the first
-        // turn away, and destinations may have changed since.
-        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, &self.destinations(), self.limits());
         runtime
             .resume_session_with(
                 session_id,
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
@@ -494,8 +494,8 @@ impl Liaison {
             runtime.refresh().await;
         }
         let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt =
-            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let brief =
+            context::root_brief(objective, identity.as_deref(), &destinations, self.limits());
         let mut metadata = match start.metadata {
             Value::Object(_) => start.metadata,
             _ => json!({}),
@@ -509,7 +509,8 @@ impl Liaison {
                 SessionStart { metadata, ..start },
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: task_metadata,
@@ -541,8 +542,8 @@ impl Liaison {
             ));
         }
         let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt =
-            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let brief =
+            context::root_brief(objective, identity.as_deref(), &destinations, self.limits());
         let mut task_metadata = root_metadata();
         task_metadata["workforce"] = workforce;
         runtime
@@ -550,7 +551,8 @@ impl Liaison {
                 session_id,
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: task_metadata,
@@ -1319,7 +1321,7 @@ impl Liaison {
         &self,
         request: &LiaisonMessage,
         child: &Task,
-        prompt: String,
+        brief: Brief,
     ) -> Result<()> {
         let Some(directory) = self.directory() else {
             self.fail_dispatch(
@@ -1355,7 +1357,8 @@ impl Liaison {
         };
         let input = TurnInput {
             objective: child.objective.clone(),
-            prompt: Some(prompt),
+            prompt: None,
+            brief: Some(brief.into_input()),
             task: TurnTask::Existing {
                 task_id: child.id.clone(),
             },
@@ -1396,9 +1399,9 @@ impl Liaison {
         // A member's worker addresses its own team; others address runtimes.
         let workforce = child.metadata["workforce"].clone();
         let (_, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt = context::child_prompt(&packet, &destinations, self.limits());
+        let brief = context::child_brief(&packet, &destinations, self.limits());
         if is_full_time(&workforce) {
-            return self.dispatch_member(request, child, prompt).await;
+            return self.dispatch_member(request, child, brief).await;
         }
         let parent_session = request.source.strip_prefix("session:").unwrap_or_default();
         let mut metadata = json!({ "liaison": {
@@ -1422,9 +1425,11 @@ impl Liaison {
             title: Some(child.objective.clone()),
             metadata,
         };
+        // A new conversation for every task: the full instructions always go out.
         let input = TurnInput {
             objective: child.objective.clone(),
-            prompt: Some(prompt),
+            prompt: None,
+            brief: Some(brief.into_input()),
             task: TurnTask::Existing {
                 task_id: child.id.clone(),
             },
@@ -1533,7 +1538,7 @@ impl Liaison {
         let (_, destinations) = self
             .audience_async(task.metadata["workforce"].clone())
             .await;
-        let prompt = context::replies_prompt(
+        let message = context::replies_message(
             &delivered,
             &replies[0].correlation_id,
             rounds_left,
@@ -1548,11 +1553,12 @@ impl Liaison {
                 if ids.len() == 1 { "y" } else { "ies" }
             ),
             data: json!({ "deliver": ids }),
+            passed_bytes: message.passed_bytes,
         };
         match self
             .inner
             .runtime
-            .continue_turn(session_id, &task.id, &prompt, note)
+            .continue_turn(session_id, &task.id, &message.text, note)
             .await
         {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),

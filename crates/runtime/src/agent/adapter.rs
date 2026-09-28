@@ -463,6 +463,8 @@ impl TurnState {
             usage: self.usage,
             duration_ms: self.provider_duration_ms.or(end.duration_ms),
             ignored_lines: self.malformed + self.unknown,
+            // Filled in by the session service, which knows what it sent.
+            prompt: None,
         }
     }
 

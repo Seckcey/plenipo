@@ -16,7 +16,8 @@
 //! - `auth` (optional, comma-separated flags): `subscription` (default), `api-key`,
 //!   `signed-out`, `cloud`, `unknown-status`, `stream-api-key` (status says subscription;
 //!   Claude's stream reports an API key), `no-key-source` (Claude's stream omits it);
-//! - `sessions/<id>.json`: prompts per session, so resume can be verified;
+//! - `sessions/<id>.json`: prompts per session, so resume can be verified, and the size of each
+//!   message as it came (`sizes`, in bytes, Plenipo's tools note included);
 //! - `last-args.json`, `last-env.txt`: what the last turn received.
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
@@ -178,10 +179,11 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .and_then(|i| args.get(i + 1).cloned())
 }
 
-fn read_prompt() -> String {
+/// The prompt from stdin, and its size as it came (bytes, Plenipo's tools note included).
+fn read_prompt() -> (String, usize) {
     let mut prompt = String::new();
     let _ = std::io::stdin().read_to_string(&mut prompt);
-    prompt.trim().to_owned()
+    (prompt.trim().to_owned(), prompt.len())
 }
 
 /// Record what this turn received so tests can check it.
@@ -208,8 +210,9 @@ fn first_prompt(id: &str) -> Option<String> {
     load_session(id)?["prompts"][0].as_str().map(str::to_owned)
 }
 
-/// Append the prompt; return (turn number, previous prompt).
-fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
+/// Append the prompt (the part that counts) and the size of the whole message as it came
+/// (`size` bytes); return (turn number, previous prompt).
+fn remember(id: &str, prompt: &str, size: usize) -> (usize, Option<String>) {
     let cwd = std::env::current_dir()
         .map(|d| d.display().to_string())
         .unwrap_or_default();
@@ -218,6 +221,10 @@ fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
     let previous = prompts.last().and_then(Value::as_str).map(str::to_owned);
     prompts.push(json!(prompt));
     let n = prompts.len();
+    match session["sizes"].as_array_mut() {
+        Some(sizes) => sizes.push(json!(size)),
+        None => session["sizes"] = json!([size]),
+    }
     let _ = std::fs::write(session_path(id), session.to_string());
     (n, previous)
 }
@@ -949,7 +956,7 @@ fn claude_turn(args: &[String]) -> i32 {
             return 1;
         }
     }
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     let cwd = std::env::current_dir()
         .map(|d| d.display().to_string())
         .unwrap_or_default();
@@ -990,7 +997,7 @@ fn claude_turn(args: &[String]) -> i32 {
         return 0;
     }
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     let key_source = if auth_has("stream-api-key") {
         "ANTHROPIC_API_KEY"
     } else {
@@ -1295,7 +1302,7 @@ fn codex_turn(args: &[String]) -> i32 {
         eprintln!("fake codex: expected --json and --sandbox read-only");
         return 2;
     }
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     let id = match args.iter().position(|a| a == "resume") {
         Some(i) => {
             let Some(id) = args.get(i + 1) else {
@@ -1328,7 +1335,7 @@ fn codex_turn(args: &[String]) -> i32 {
         return 0;
     }
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     out(&json!({ "type": "thread.started", "thread_id": id }));
     out(&json!({ "type": "turn.started" }));
     let failed = |message: &str| {
@@ -1631,11 +1638,8 @@ impl GrokAgent {
             acp_error(id, -32602, "Invalid params: unknown session");
             return true;
         };
-        let prompt = params["prompt"][0]["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+        let text = params["prompt"][0]["text"].as_str().unwrap_or("");
+        let (prompt, size) = (text.trim().to_owned(), text.len());
         let (noted, prompt) = strip_note(&prompt);
         let (mut mode, said) = view(&prompt);
         if let Mode::Worker { granted, .. } = &mut mode {
@@ -1647,7 +1651,7 @@ impl GrokAgent {
             return false;
         }
         let first = first_prompt(&session).unwrap_or_else(|| said.clone());
-        let (n, previous) = remember(&session, &said);
+        let (n, previous) = remember(&session, &said, size);
         if said.contains("[crash]") {
             grok_chunk(&session, "Starting");
             eprintln!("thread 'main' panicked at crates/fake/src/lib.rs:1:1: simulated crash");
@@ -2224,11 +2228,8 @@ impl KimiAgent {
             acp_error(id, -32602, "Invalid params: unknown session");
             return true;
         };
-        let prompt = params["prompt"][0]["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+        let text = params["prompt"][0]["text"].as_str().unwrap_or("");
+        let (prompt, size) = (text.trim().to_owned(), text.len());
         let (noted, prompt) = strip_note(&prompt);
         let (mut mode, said) = view(&prompt);
         if let Mode::Worker { granted, .. } = &mut mode {
@@ -2240,7 +2241,7 @@ impl KimiAgent {
             return false;
         }
         let first = first_prompt(&session).unwrap_or_else(|| said.clone());
-        let (n, previous) = remember(&session, &said);
+        let (n, previous) = remember(&session, &said, size);
         acp_update(
             &session,
             json!({ "sessionUpdate": "session_info_update", "title": first_line(&said) }),
@@ -2490,7 +2491,7 @@ fn ollama_turn(args: &[String]) -> i32 {
     let (Some(model), Some(id)) = (flag(args, "--model"), flag(args, "--session")) else {
         return error("No model or conversation ID was given");
     };
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     if args.iter().any(|a| a == "--resume") && load_session(&id).is_none() {
         return error("This conversation's history was not found; start a new conversation");
     }
@@ -2522,7 +2523,7 @@ fn ollama_turn(args: &[String]) -> i32 {
     }
     delay(&said);
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     let text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
