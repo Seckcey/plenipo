@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-ai-tool-versions"
+description = "Enables the check_ai_tool_versions command without any pre-configured scope."
+commands.allow = ["check_ai_tool_versions"]
+
+[[permission]]
+identifier = "deny-check-ai-tool-versions"
+description = "Denies the check_ai_tool_versions command without any pre-configured scope."
+commands.deny = ["check_ai_tool_versions"]

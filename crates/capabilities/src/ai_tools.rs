@@ -87,7 +87,7 @@ pub enum NewestFrom {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
-pub enum UpdateState {
+pub enum AiToolUpdateState {
     /// Nothing happening.
     Idle,
     /// Waiting for the tasks using the tool to finish.
@@ -110,7 +110,7 @@ pub enum UpdateState {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct AiToolUpdate {
-    pub state: UpdateState,
+    pub state: AiToolUpdateState,
     pub from: Option<String>,
     pub to: Option<String>,
     /// How many tasks are using the tool, while the update waits.
@@ -128,7 +128,7 @@ pub struct AiToolUpdate {
 impl AiToolUpdate {
     fn idle() -> Self {
         Self {
-            state: UpdateState::Idle,
+            state: AiToolUpdateState::Idle,
             from: None,
             to: None,
             tasks_using: 0,
@@ -142,7 +142,7 @@ impl AiToolUpdate {
     fn busy(&self) -> bool {
         matches!(
             self.state,
-            UpdateState::Waiting | UpdateState::Updating | UpdateState::Checking
+            AiToolUpdateState::Waiting | AiToolUpdateState::Updating | AiToolUpdateState::Checking
         )
     }
 }
@@ -1010,7 +1010,7 @@ impl AiTools {
             live.updates.insert(
                 runtime_id.to_owned(),
                 AiToolUpdate {
-                    state: UpdateState::Waiting,
+                    state: AiToolUpdateState::Waiting,
                     automatic: by == UpdateBy::Automatic,
                     at: Some(now()),
                     ..AiToolUpdate::idle()
@@ -1033,7 +1033,7 @@ impl AiTools {
         let waiting = live
             .updates
             .get(runtime_id)
-            .is_some_and(|u| u.state == UpdateState::Waiting);
+            .is_some_and(|u| u.state == AiToolUpdateState::Waiting);
         if !waiting {
             return Err(BrokerError::Invalid(
                 "Only an update that is still waiting can be cancelled".into(),
@@ -1082,7 +1082,7 @@ impl AiTools {
                     self.set_update(
                         runtime_id,
                         AiToolUpdate {
-                            state: UpdateState::Waiting,
+                            state: AiToolUpdateState::Waiting,
                             tasks_using: u32::try_from(tasks.len()).unwrap_or(u32::MAX),
                             at: Some(now()),
                             ..base.clone()
@@ -1107,7 +1107,7 @@ impl AiTools {
             self.set_update(
                 runtime_id,
                 AiToolUpdate {
-                    state: UpdateState::Failed,
+                    state: AiToolUpdateState::Failed,
                     message: Some(why),
                     old_still_works: Some(true),
                     at: Some(now()),
@@ -1120,7 +1120,7 @@ impl AiTools {
         self.set_update(
             runtime_id,
             AiToolUpdate {
-                state: UpdateState::Updating,
+                state: AiToolUpdateState::Updating,
                 from: from.clone(),
                 at: Some(now()),
                 ..base.clone()
@@ -1146,7 +1146,7 @@ impl AiTools {
         self.set_update(
             runtime_id,
             AiToolUpdate {
-                state: UpdateState::Checking,
+                state: AiToolUpdateState::Checking,
                 from: from.clone(),
                 at: Some(now()),
                 ..base.clone()
@@ -1155,7 +1155,7 @@ impl AiTools {
         let answers = self.answers(adapter.as_ref()).await;
         let to = answers.version.clone();
         let done =
-            |state: UpdateState, message: Option<String>, works: Option<bool>| AiToolUpdate {
+            |state: AiToolUpdateState, message: Option<String>, works: Option<bool>| AiToolUpdate {
                 state,
                 from: from.clone(),
                 to: to.clone(),
@@ -1177,7 +1177,7 @@ impl AiTools {
                     "ai_tool.updated",
                     json!({ "runtime": runtime_id, "from": from, "to": to }),
                 );
-                self.set_update(runtime_id, done(UpdateState::Updated, None, None));
+                self.set_update(runtime_id, done(AiToolUpdateState::Updated, None, None));
             } else if !command_ok {
                 let reason = failure.unwrap_or_default();
                 self.record(
@@ -1188,7 +1188,7 @@ impl AiTools {
                 );
                 self.set_update(
                     runtime_id,
-                    done(UpdateState::Failed, Some(reason), Some(true)),
+                    done(AiToolUpdateState::Failed, Some(reason), Some(true)),
                 );
             } else {
                 let newest = self
@@ -1204,13 +1204,13 @@ impl AiTools {
                     self.set_update(
                         runtime_id,
                         done(
-                            UpdateState::ByHand,
+                            AiToolUpdateState::ByHand,
                             adapter.update_by_hand().map(str::to_owned),
                             None,
                         ),
                     );
                 } else {
-                    self.set_update(runtime_id, done(UpdateState::UpToDate, None, None));
+                    self.set_update(runtime_id, done(AiToolUpdateState::UpToDate, None, None));
                 }
             }
             drop(hold);
@@ -1264,7 +1264,7 @@ impl AiTools {
                             runtime_id,
                             AiToolUpdate {
                                 to: again.version,
-                                ..done(UpdateState::Failed, Some(reason), Some(true))
+                                ..done(AiToolUpdateState::Failed, Some(reason), Some(true))
                             },
                         );
                         drop(hold);
@@ -1291,7 +1291,7 @@ impl AiTools {
         );
         self.set_update(
             runtime_id,
-            done(UpdateState::Failed, Some(reason), Some(false)),
+            done(AiToolUpdateState::Failed, Some(reason), Some(false)),
         );
         drop(hold);
     }

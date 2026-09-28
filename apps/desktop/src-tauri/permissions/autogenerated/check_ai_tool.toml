@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-ai-tool"
+description = "Enables the check_ai_tool command without any pre-configured scope."
+commands.allow = ["check_ai_tool"]
+
+[[permission]]
+identifier = "deny-check-ai-tool"
+description = "Denies the check_ai_tool command without any pre-configured scope."
+commands.deny = ["check_ai_tool"]

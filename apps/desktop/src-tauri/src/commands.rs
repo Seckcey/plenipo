@@ -354,7 +354,7 @@ pub async fn export_ledger(ledger: State<'_, Arc<Ledger>>) -> Result<ExportInfo,
 /// Longest objective accepted at the boundary (bytes); the runtime enforces 10,000 characters.
 const MAX_OBJECTIVE_BYTES: usize = 40_000;
 
-fn validate_runtime_id(id: &str) -> Result<(), CommandError> {
+pub(crate) fn validate_runtime_id(id: &str) -> Result<(), CommandError> {
     let ok = (1..=32).contains(&id.len())
         && id
             .chars()
@@ -1232,7 +1232,7 @@ pub(crate) fn guard_error(e: GuardError) -> CommandError {
     }
 }
 
-fn broker_error(e: BrokerError) -> CommandError {
+pub(crate) fn broker_error(e: BrokerError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -1732,9 +1732,14 @@ pub async fn set_terminal_shell(
 
 /// Open a terminal for you, on this PC or on a server from Settings → Servers. What it shows
 /// comes on `events`, as it happens; nothing you type or see is recorded.
+///
+/// An AI tool's place (Phase 19, ADR-058) opens a tab that runs that tool's own sign-in or
+/// sign-out program, from its fixed list, through the AI tools service: Guard decides first, and
+/// the tool is checked again when the program ends. You sign in; Plenipo never types into it.
 #[tauri::command]
 pub async fn open_terminal(
     broker: State<'_, Broker>,
+    ai_tools: State<'_, plenipo_capabilities::ai_tools::AiTools>,
     place: TerminalPlace,
     cols: u16,
     rows: u16,
@@ -1747,6 +1752,14 @@ pub async fn open_terminal(
         // The window may have closed; the terminal then ends with Plenipo.
         let _ = events.send(event);
     });
+    if let TerminalPlace::AiTool { runtime_id, action } = &place {
+        validate_runtime_id(runtime_id)?;
+        let ai_tools = ai_tools.inner().clone();
+        return ai_tools
+            .open_account(runtime_id, *action, cols, rows, sink)
+            .await
+            .map_err(broker_error);
+    }
     let broker = broker.inner().clone();
     broker
         .open_terminal(&place, cols, rows, sink)

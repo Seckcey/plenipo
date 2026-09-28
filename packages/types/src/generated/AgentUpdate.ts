@@ -2,9 +2,10 @@
 import type { AgentActivity } from "./AgentActivity";
 import type { AgentSession } from "./AgentSession";
 import type { AgentTurn } from "./AgentTurn";
+import type { PlanUpdate } from "./PlanUpdate";
 import type { RuntimesUpdate } from "./RuntimesUpdate";
 
 /**
  * Update streamed from the agent runtime to the UI.
  */
-export type AgentUpdate = { "kind": "activity" } & AgentActivity | { "kind": "turn" } & AgentTurn | { "kind": "session" } & AgentSession | { "kind": "runtimes" } & RuntimesUpdate;
+export type AgentUpdate = { "kind": "activity" } & AgentActivity | { "kind": "turn" } & AgentTurn | { "kind": "session" } & AgentSession | { "kind": "runtimes" } & RuntimesUpdate | { "kind": "plan" } & PlanUpdate;

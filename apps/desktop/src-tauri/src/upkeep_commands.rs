@@ -405,17 +405,28 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
         .await
         .unwrap_or((None, None, Vec::new()))
     };
+    // Each AI tool's newest version and update (Phase 19): versions and states only.
+    let page = app
+        .try_state::<plenipo_capabilities::ai_tools::AiTools>()
+        .map(|t| t.page());
     let tools: Vec<Value> = app
         .try_state::<AgentRuntime>()
         .map(|a| a.runtimes())
         .unwrap_or_default()
         .into_iter()
         .map(|r| {
+            let kept = page
+                .as_ref()
+                .and_then(|p| p.tools.iter().find(|t| t.runtime_id == r.id));
             json!({
                 "id": r.id,
                 "name": r.label,
                 "installed": r.installation.state,
                 "version": r.installation.version,
+                "checkedVersion": r.checked_version,
+                "newest": kept.and_then(|t| t.newest.clone()),
+                "update": kept.map(|t| t.update.state),
+                "givenNoTasks": kept.is_some_and(|t| t.out_of_service.is_some()),
                 "signIn": r.auth.state,
                 "ready": r.ready,
             })
@@ -439,6 +450,7 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
         "startAndClose": start_close::settings(app, &ledger),
         "updates": app.state::<Arc<Updates>>().status(),
         "aiTools": tools,
+        "aiToolsUpdateByThemselves": page.as_ref().map(|p| p.auto_update),
         "programsRunning": supervisor.as_ref().map(|s| s.active_count()),
         "notices": {
             "programs": supervisor.as_ref().map(|s| s.overview().notices),

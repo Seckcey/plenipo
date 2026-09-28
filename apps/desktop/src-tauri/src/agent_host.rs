@@ -23,6 +23,16 @@ struct TauriAgentSink<R: Runtime> {
 
 impl<R: Runtime> AgentSink for TauriAgentSink<R> {
     fn emit(&self, update: AgentUpdate) {
+        // An AI tool reported how much of the plan is used (Phase 19, ADR-060 §3): the AI tools
+        // page keeps it.
+        if let AgentUpdate::Plan(plan) = &update {
+            if let Some(tools) = self
+                .app
+                .try_state::<plenipo_capabilities::ai_tools::AiTools>()
+            {
+                tools.plan_reported(&plan.runtime_id, plan.report.clone());
+            }
+        }
         if let Err(e) = self.app.emit_to("main", AGENT_EVENT, &update) {
             log::warn!("failed to emit agent update: {e}");
         }

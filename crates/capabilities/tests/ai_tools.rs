@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use plenipo_capabilities::ai_tools::{AiTools, PaymentMethod, UpdateBy, UpdateState};
+use plenipo_capabilities::ai_tools::{AiToolUpdateState, AiTools, PaymentMethod, UpdateBy};
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, TerminalEvent, TerminalPlace};
 use plenipo_guard::{Guard, OutboundRules};
 use plenipo_ledger::{Ledger, DB_FILE_NAME};
@@ -478,7 +478,7 @@ async fn an_update_never_starts_while_a_task_is_using_the_tool_it_waits() {
     let session = h.busy("grok").await;
     let page = h.tools.update("grok", UpdateBy::Owner).unwrap();
     let grok = page.tools.iter().find(|t| t.runtime_id == "grok").unwrap();
-    assert_eq!(grok.update.state, UpdateState::Waiting);
+    assert_eq!(grok.update.state, AiToolUpdateState::Waiting);
     until("the update to say what it waits for", || {
         let page = h.tools.page();
         page.tools
@@ -490,7 +490,7 @@ async fn an_update_never_starts_while_a_task_is_using_the_tool_it_waits() {
     assert_eq!(h.read("update-log"), None, "it started while a task ran");
     h.free("grok", &session).await;
     let done = h.tools.settled("grok", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::Updated, "{done:?}");
+    assert_eq!(done.state, AiToolUpdateState::Updated, "{done:?}");
     assert_eq!(done.to.as_deref(), Some("1.0.100"));
     assert!(h.read("update-log").unwrap().contains("grok update"));
 
@@ -513,7 +513,7 @@ async fn a_failed_update_leaves_the_old_version_working_and_says_so() {
     h.write("update-grok", "fail");
     h.tools.update("grok", UpdateBy::Owner).unwrap();
     let done = h.tools.settled("grok", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::Failed);
+    assert_eq!(done.state, AiToolUpdateState::Failed);
     assert_eq!(done.old_still_works, Some(true));
     assert_eq!(done.to.as_deref(), Some("1.0.99"));
     assert!(done.message.unwrap().contains("download failed"));
@@ -533,7 +533,7 @@ async fn a_new_version_that_does_not_answer_is_put_back_or_given_no_tasks() {
     h.write("update-grok", "broken");
     h.tools.update("grok", UpdateBy::Owner).unwrap();
     let done = h.tools.settled("grok", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::Failed, "{done:?}");
+    assert_eq!(done.state, AiToolUpdateState::Failed, "{done:?}");
     assert_eq!(done.old_still_works, Some(true));
     assert!(h
         .read("update-log")
@@ -585,7 +585,7 @@ async fn after_an_update_the_version_sign_in_and_models_are_checked_again() {
     h.write("models-grok", "grok-5");
     h.tools.update("grok", UpdateBy::Owner).unwrap();
     let done = h.tools.settled("grok", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::Updated);
+    assert_eq!(done.state, AiToolUpdateState::Updated);
     let grok = h.info("grok");
     assert_eq!(grok.installation.version.as_deref(), Some("1.0.100"));
     assert_eq!(grok.auth.state, AuthState::Subscription);
@@ -609,7 +609,7 @@ async fn after_an_update_the_version_sign_in_and_models_are_checked_again() {
     h.tools.look_for_new_versions(UpdateBy::Owner).await;
     h.tools.update("codex", UpdateBy::Owner).unwrap();
     let done = h.tools.settled("codex", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::ByHand, "{done:?}");
+    assert_eq!(done.state, AiToolUpdateState::ByHand, "{done:?}");
     assert!(done
         .message
         .unwrap()
@@ -653,7 +653,7 @@ async fn new_versions_come_from_each_tools_own_check_or_its_makers_list() {
     h.write("newest-grok", "1.0.101");
     h.tools.look_for_new_versions(UpdateBy::Automatic).await;
     let done = h.tools.settled("grok", WAIT).await.unwrap();
-    assert_eq!(done.state, UpdateState::Updated);
+    assert_eq!(done.state, AiToolUpdateState::Updated);
     assert!(done.automatic);
 }
 

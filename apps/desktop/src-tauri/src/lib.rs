@@ -5,6 +5,8 @@
 //! `capabilities/default.json`; nothing else is exposed.
 
 pub mod agent_host;
+pub mod ai_tools_commands;
+pub mod ai_tools_host;
 pub mod backup_host;
 pub mod canvas_commands;
 pub mod commands;
@@ -101,7 +103,11 @@ pub fn work_going<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
         .try_state::<Arc<plenipo_ledger::Ledger>>()
         .and_then(|l| l.unfinished_tasks().ok())
         .map_or(0, |t| t.len());
-    active + terminals + tasks > 0
+    // An AI tool being updated, or waiting to be (Phase 19, ADR-059 §3).
+    let updates = app
+        .try_state::<plenipo_capabilities::ai_tools::AiTools>()
+        .map_or(0, |t| t.updates_going());
+    active + terminals + tasks + updates > 0
 }
 
 /// Where quitting is: running, stopping owned processes, or done and free to exit.
@@ -265,6 +271,12 @@ pub fn configure<R: Runtime>(
                 &agents,
             );
             guard_host::start(&broker);
+            // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models.
+            let ai_tools = ai_tools_host::create(&agents, &broker);
+            ai_tools_host::listen(&ledger, &ai_tools);
+            if options.persistence == Persistence::AppData {
+                ai_tools_host::start_daily(ai_tools.clone());
+            }
             // Pop-up notices (Phase 12): what needs the owner, from each committed event.
             app.manage(Arc::new(notices::start(
                 app.handle(),
@@ -323,6 +335,7 @@ pub fn configure<R: Runtime>(
             }
             app.manage(guard);
             app.manage(broker);
+            app.manage(ai_tools);
             app.manage(supervisor);
             app.manage(agents);
             app.manage(liaison);
@@ -447,6 +460,14 @@ pub fn configure<R: Runtime>(
             canvas_commands::unsubscribe_watch,
             canvas_commands::get_owner_profile,
             canvas_commands::set_owner_profile,
+            ai_tools_commands::get_ai_tools,
+            ai_tools_commands::check_ai_tool,
+            ai_tools_commands::check_ai_tool_versions,
+            ai_tools_commands::get_ai_tool_usage,
+            ai_tools_commands::update_ai_tool,
+            ai_tools_commands::cancel_ai_tool_update,
+            ai_tools_commands::set_ai_tools_auto_update,
+            ai_tools_commands::set_ai_tool_payment,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -766,6 +787,7 @@ mod ipc_boundary_tests {
         )));
         let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
         guard.seed_template_roles().unwrap();
+        app.manage(ai_tools_host::create(&agents, &broker));
         manage_upkeep(
             app.handle(),
             RunNote(None),
@@ -3864,6 +3886,196 @@ mod ipc_boundary_tests {
                 "{cmd} refused {args} with {said}, not {why}"
             );
         }
+    }
+
+    const PHASE_19: [&str; 8] = [
+        "get_ai_tools",
+        "check_ai_tool",
+        "check_ai_tool_versions",
+        "get_ai_tool_usage",
+        "update_ai_tool",
+        "cancel_ai_tool_update",
+        "set_ai_tools_auto_update",
+        "set_ai_tool_payment",
+    ];
+
+    /// Arguments that fit every Phase 19 command (each takes the ones it names).
+    fn phase_19_args() -> serde_json::Value {
+        serde_json::json!({
+            "runtimeId": "codex", "dayStarts": [0, 86_400_000], "on": false,
+            "method": "subscription",
+        })
+    }
+
+    #[test]
+    fn the_ai_tools_page_is_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let refused = |cmd: &str,
+                       answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                       from: &str| {
+            let err = answer.expect_err(from);
+            assert!(
+                err.to_string().contains("not allowed"),
+                "{cmd} from {from}: {err}"
+            );
+        };
+        for cmd in PHASE_19 {
+            let args = phase_19_args();
+            refused(
+                cmd,
+                invoke_json(&other, cmd, args.clone()),
+                "another window",
+            );
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+        // A sign-in tab opens through `open_terminal`, which stays the main window's alone.
+        let place = serde_json::json!({
+            "place": { "kind": "aiTool", "runtimeId": "codex", "action": "signIn" },
+            "cols": 80, "rows": 24, "events": "__CHANNEL__:9",
+        });
+        refused(
+            "open_terminal",
+            invoke_json(&other, "open_terminal", place.clone()),
+            "another window",
+        );
+        refused(
+            "open_terminal",
+            invoke_json(&sign, "open_terminal", place.clone()),
+            "the sign",
+        );
+        refused(
+            "open_terminal",
+            invoke_with(&main, "open_terminal", place.clone(), "https://example.com"),
+            "a web page",
+        );
+        // From the main window it is Guard and the tool's rules that answer (no AI tool is
+        // installed in these tests).
+        let err = invoke_json(&main, "open_terminal", place).unwrap_err();
+        assert!(
+            err["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("Codex is not installed")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_phase_19_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        let days: Vec<u64> = (0..62).map(|d| d * 86_400_000).collect();
+        for (cmd, args, why) in [
+            (
+                "check_ai_tool",
+                serde_json::json!({ "runtimeId": "../codex" }),
+                "invalid runtime id",
+            ),
+            (
+                "check_ai_tool",
+                serde_json::json!({ "runtimeId": "calc" }),
+                "Plenipo has no AI tool called \"calc\"",
+            ),
+            (
+                "get_ai_tool_usage",
+                serde_json::json!({ "runtimeId": "codex", "dayStarts": [5] }),
+                "1 to 60 days",
+            ),
+            (
+                "get_ai_tool_usage",
+                serde_json::json!({ "runtimeId": "codex", "dayStarts": days }),
+                "at most 60 days",
+            ),
+            (
+                "get_ai_tool_usage",
+                serde_json::json!({ "runtimeId": "codex", "dayStarts": [9, 3] }),
+                "follow one another",
+            ),
+            (
+                "update_ai_tool",
+                serde_json::json!({ "runtimeId": "ollama" }),
+                "updates itself",
+            ),
+            (
+                "update_ai_tool",
+                serde_json::json!({ "runtimeId": "codex", "command": "npm install" }),
+                "",
+            ),
+            (
+                "cancel_ai_tool_update",
+                serde_json::json!({ "runtimeId": "codex" }),
+                "Only an update that is still waiting",
+            ),
+            (
+                "set_ai_tool_payment",
+                serde_json::json!({ "runtimeId": "codex", "method": "paidKey" }),
+                "comes with spending caps",
+            ),
+            (
+                "set_ai_tool_payment",
+                serde_json::json!({ "runtimeId": "codex", "method": "free" }),
+                "unknown variant `free`",
+            ),
+        ] {
+            let answer = invoke_json(&main, cmd, args.clone());
+            if why.is_empty() {
+                // Extra arguments are ignored: nothing but the tool's ID reaches the command.
+                continue;
+            }
+            let err = answer.expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
+            );
+        }
+        // Places that name anything but a known AI tool and one of its two actions are refused
+        // before anything runs.
+        for place in [
+            serde_json::json!({ "kind": "aiTool", "runtimeId": "calc", "action": "signIn" }),
+            serde_json::json!({ "kind": "aiTool", "runtimeId": "codex", "action": "update" }),
+            serde_json::json!({ "kind": "aiTool", "runtimeId": "codex", "action": "signIn",
+                                "args": ["--with-api-key"] }),
+            serde_json::json!({ "kind": "aiTool", "runtimeId": "codex", "action": "signIn",
+                                "program": "C:/Windows/System32/cmd.exe" }),
+        ] {
+            let err = invoke_json(
+                &main,
+                "open_terminal",
+                serde_json::json!({ "place": place, "cols": 80, "rows": 24,
+                                    "events": "__CHANNEL__:9" }),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains("invalid args `place`"),
+                "{place}: {err}"
+            );
+        }
+        // The page itself, and the switch, from the main window.
+        let page: plenipo_capabilities::ai_tools::AiToolsPage = body(invoke(&main, "get_ai_tools"));
+        assert!(!page.auto_update);
+        assert_eq!(
+            page.tools.len(),
+            plenipo_runtime::agent::builtin_adapters().len()
+        );
+        let page: plenipo_capabilities::ai_tools::AiToolsPage = body(invoke_json(
+            &main,
+            "set_ai_tools_auto_update",
+            serde_json::json!({ "on": true }),
+        ));
+        assert!(page.auto_update);
     }
 
     #[test]
