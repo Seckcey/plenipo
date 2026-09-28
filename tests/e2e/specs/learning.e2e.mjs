@@ -11,14 +11,15 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
   openSettings,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -179,6 +180,7 @@ describe("v1.4 Switches and learning (real app, fake CLIs)", () => {
     const { browser } = app;
     await nav(browser, "Organization");
     await select(browser, "Shop Supervisor");
+    await detailsTab(browser, "Job");
     await waitForText(browser, DETAILS, "What it has learned");
     await waitForText(browser, DETAILS, "Check the supplier's current price list before ordering.");
     assert.equal(await switchState(browser, "Learn on its own"), "false");

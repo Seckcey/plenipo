@@ -252,6 +252,16 @@ export async function clickButton(browser, label) {
   await button.click();
 }
 
+/** Open a tab of the details panel (Phase 17): "Overview", "Job", "AI model", "Work", "Team",
+ * or "Manage". */
+export async function detailsTab(browser, name) {
+  const tab = await browser.$(
+    `//div[@role="tablist" and @aria-label="Details"]//button[@role="tab" and normalize-space()="${name}"]`,
+  );
+  await tab.waitForClickable({ timeout: 10_000 });
+  await tab.click();
+}
+
 /** Save a screenshot when PLENIPO_E2E_SCREENSHOTS names a directory (CI evidence). */
 export async function screenshot(browser, name) {
   const dir = process.env.PLENIPO_E2E_SCREENSHOTS;

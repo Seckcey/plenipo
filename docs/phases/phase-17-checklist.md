@@ -1,7 +1,8 @@
 # Phase 17 — Implementation Checklist
 
-**Status:** design approved by the owner (2026-09-28), with the owner's addition (ADR-045);
-building. To be delivered as **v1.10.0**. Built on v1.9.0 (Phase 13).
+**Status:** built (2026-09-28); design approved by the owner, with the owner's addition
+(ADR-045). Delivered as **v1.10.0**. Built on v1.9.0 (Phase 13). Acceptance report:
+[`phase-17-acceptance-report.md`](phase-17-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 17 — The Owner's Control Over Workers (second in the order of
 work, ADR-039), and the four records written for it:
@@ -183,9 +184,10 @@ Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
 
 `set_model_rule`, `set_role_learns`, `set_agent_learning`, `create_specialty`,
 `update_specialty`, `remove_specialty`, `archive_department`, `bring_back_position`,
-`bring_back_project`, `bring_back_department`, `delete_position_for_good`,
-`delete_project_for_good`, `delete_department_for_good`, `save_to_workforce`,
-`hire_from_workforce`, `delete_saved_agent`. Each is added to `build.rs` and
+`bring_back_project`, `bring_back_department`, `preview_delete_for_good` (what would go, with
+each agent's experience, for the confirmation), `delete_for_good` (an agent, a project, or a
+department, with the agents to save), `save_to_workforce`, `hire_from_workforce`, and
+`delete_saved_agent`: 15 in all. Each is added to `build.rs` and
 `capabilities/default.json` only (not the sign window's `indicator.json`), and an IPC test calls
 each from the main window and checks that another window, the sign window, and a web page are
 refused. `remove_department` is removed.
@@ -201,78 +203,80 @@ again, for "talent pool", "bench", "agent library").
 
 ## Deliverables (plan)
 
-- [ ] **Effort per agent** — with or without fixing its AI tool and model.
-- [ ] **Model and effort rules in layers** — organization → department → role → agent, the
+- [x] **Effort per agent** — with or without fixing its AI tool and model.
+- [x] **Model and effort rules in layers** — organization → department → role → agent, the
       closest wins; each layer sets an ordered list of models, the effort for each, and AI
       companies never to use.
-- [ ] **Learning in layers** — organization (today's switch), each role, each agent; each role's
+- [x] **Learning in layers** — organization (today's switch), each role, each agent; each role's
       "keep lessons without asking" stays.
-- [ ] **Specialties under each role** — built in (Senior Developer, Designer, Security Auditor,
+- [x] **Specialties under each role** — built in (Senior Developer, Designer, Security Auditor,
       Operations Engineer, Researcher, Documentation Writer) and the owner's own on any role.
-- [ ] **Archive, bring back, delete for good** — for agents, departments, and projects, from an
+      Deviation: Authorized penetration testing is not built in (20 built-in specialties, not
+      21); the owner can add it as their own (ADR-042, As built).
+- [x] **Archive, bring back, delete for good** — for agents, departments, and projects, from an
       Archived list in the organization's List view.
-- [ ] **The properties panel rebuilt** — tabs (Overview, Job, AI model, Work, Team, Manage); a
+- [x] **The properties panel rebuilt** — tabs (Overview, Job, AI model, Work, Team, Manage); a
       one-line "what this does" under every option; effort and permissions shown; can be widened.
 - [ ] **Prompts sized to the job** — measured and recorded per task; a short reminder on routine
       tasks; the full brief at the start, after a shortened memory, after a set number of
       objectives, and for a large job; handoffs pointing at saved records by ID, in a compact,
       labeled, plain-words format.
-- [ ] **Experience and the Workforce** (the owner's addition, ADR-045) — a score for how much
+- [x] **Experience and the Workforce** (the owner's addition, ADR-045) — a score for how much
       each agent has learned and done; a Workforce tab to save agents and hire them again;
       deleting for good offers to save the experienced ones.
 
 ## Technical implementation (plan)
 
-- [ ] The Router's precedence: fixed agent → agent's own settings → role → department →
+- [x] The Router's precedence: fixed agent → agent's own settings → role → department →
       organization → model default; the reason names the layer that decided.
-- [ ] Changing a position's model keeps today's warning that a new agent is hired; changing only
+- [x] Changing a position's model keeps today's warning that a new agent is hired; changing only
       effort does not hire a new agent.
-- [ ] Specialties are data, like roles; a position records role and optional specialty; lessons
+- [x] Specialties are data, like roles; a position records role and optional specialty; lessons
       stay per role.
-- [ ] Delete for good removes the item and its settings; the Ledger keeps a short record in its
+- [x] Delete for good removes the item and its settings; the Ledger keeps a short record in its
       place (ID, name, role, dates, "deleted by the owner"); refused while anything has
       unfinished work; recorded as its own event.
 - [ ] Prompt sizes: the byte count of Plenipo's own text on each task's record; the goal set after
       measuring — at least half off on routine tasks; no invented private language.
-- [ ] Screen text follows the word list; new words go into `docs/design/vocabulary.md`.
+- [x] Screen text follows the word list; new words go into `docs/design/vocabulary.md`.
 
 ## Tests (plan)
 
-- [ ] Each layer sets model and effort, and the closest wins; the routing reason names the layer.
-- [ ] An effort not accepted by the model is refused with a plain message.
-- [ ] Changing only effort does not hire a new agent.
-- [ ] Learning off at the organization stops all learning; off for one agent stops only that
+- [x] Each layer sets model and effort, and the closest wins; the routing reason names the layer.
+- [x] An effort not accepted by the model is refused with a plain message.
+- [x] Changing only effort does not hire a new agent.
+- [x] Learning off at the organization stops all learning; off for one agent stops only that
       agent; on for the agent inside a role that is off follows the closest layer.
-- [ ] A specialty's lines reach the worker's instructions; a position without one gets the role
+- [x] A specialty's lines reach the worker's instructions; a position without one gets the role
       alone.
-- [ ] Archive → bring back restores the agent; delete for good leaves a short record, and old
+- [x] Archive → bring back restores the agent; delete for good leaves a short record, and old
       activity still names it.
-- [ ] Delete for good is refused while there is unfinished work.
+- [x] Delete for good is refused while there is unfinished work.
 - [ ] Routine tasks carry the short reminder; the first task, a shortened memory, and a large job
       carry the full brief.
 - [ ] Each task's prompt size is recorded.
-- [ ] The properties panel's every option has its one-line explanation (snapshot against the word
+- [x] The properties panel's every option has its one-line explanation (snapshot against the word
       list).
-- [ ] (ADR-045) Experience counts kept lessons and finished tasks; deleting for good offers the
+- [x] (ADR-045) Experience counts kept lessons and finished tasks; deleting for good offers the
       agents above the average, saves the checked ones to the Workforce, and deletes the rest;
       hiring from the Workforce brings back its settings, experience, and lessons.
 - [ ] End-to-end tests in the real app, with screenshots for the acceptance report.
 
 ## Owner's rules for this phase
 
-- [ ] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
-- [ ] No secrets asked for in chat; nothing secret committed.
-- [ ] Anything touching files, programs, the network, the browser, or the screen goes through
+- [x] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
+- [x] No secrets asked for in chat; nothing secret committed.
+- [x] Anything touching files, programs, the network, the browser, or the screen goes through
       Guard and the capability broker (this phase adds no such path; deleting for good never
       touches the disk).
-- [ ] New desktop commands are the main window's alone; the sign window and web pages are refused
+- [x] New desktop commands are the main window's alone; the sign window and web pages are refused
       (IPC tests).
-- [ ] Delete for good is refused while anything has unfinished work, keeps a short record in the
+- [x] Delete for good is refused while anything has unfinished work, keeps a short record in the
       Ledger, and asks first.
-- [ ] Logs and diagnostics files never hold secrets or anything typed in the terminal (prompt
+- [x] Logs and diagnostics files never hold secrets or anything typed in the terminal (prompt
       sizes are numbers only).
-- [ ] No model names in commits or pull requests.
-- [ ] Version 1.10.0 everywhere, with the Phase 17 row in `docs/development/versioning.md`.
+- [x] No model names in commits or pull requests.
+- [x] Version 1.10.0 everywhere, with the Phase 17 row in `docs/development/versioning.md`.
 - [ ] Release notes (`docs/releases/v1.10.0.md`), the plan's Phase 17 status line and its state in
       the order of work, this checklist, and the acceptance report with screenshots in
       `evidence/phase-17/`, in Pacific time.

@@ -26,8 +26,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | Order | Phase | What | State |
 |---|---|---|---|
 | 1 | 13 | Windows service, installer, updates, and recovery | Delivered (v1.9.0) |
-| 2 | 17 | The owner's control over workers | Next |
-| 3 | 18 | The organization canvas, and watching workers write code as it happens | Planned |
+| 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
+| 3 | 18 | The organization canvas, and watching workers write code as it happens | Next |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Planned |
 | 5 | 16 | Every AI model worth having | Planned (ADR-036) |
 | 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, and 13 are delivered.
+Phases 0–8, 10, 11, 12A, 12, 13, and 17 are delivered.
 
 ---
 
@@ -1793,6 +1793,8 @@ Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. O
 ---
 
 # Phase 17 — The Owner's Control Over Workers
+
+**Status: delivered in v1.10.0** (checklist and acceptance report in `docs/phases/phase-17-*`). Decisions: ADR-041 (model, effort, and learning in layers, accepted, with the owner's choice that AI companies never to use add up across the layers), ADR-042 (specialties, accepted), ADR-043 (archive, bring back, and delete for good, accepted, with the owner's choice that deleting a project or department takes along what was archived with it), ADR-044 (prompts sized to the job, accepted), and ADR-045 (experience and the Workforce, the owner's addition, accepted as written, experienced agents checked by default). Deviation: Authorized penetration testing is not a built-in Security Auditor specialty; the owner can add it as their own. Deleting keeps a short record in the same Ledger row (Ledger layout 9) and never touches files. The acceptance walk-through with real AI tools on Windows is the owner's check.
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work. Its design
 is ADR-041 (model, effort, and learning in layers), ADR-042 (specialties), ADR-043 (archive, bring

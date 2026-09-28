@@ -17,14 +17,15 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
   openSettings,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -309,6 +310,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
     await submit(browser, 'form[aria-label="Hire"]');
     await waitForNode(browser, "Operations Engineer,");
     await select(browser, "Operations Engineer");
+    await detailsTab(browser, "Job");
     await waitForText(browser, DETAILS, "Looks after the servers you set up");
   });
 

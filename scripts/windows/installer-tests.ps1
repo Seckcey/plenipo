@@ -261,7 +261,9 @@ Step 'Rollback: back to 1.8.0, then forward again'
 Install $OldInstaller
 Check ((Installed-Version) -eq '1.8.0') 'the older installer goes back to 1.8.0'
 Start-Plenipo | Out-Null
-Check $true '1.8.0 opens the Ledger 1.9 used (1.9 does not change its layout)'
+# 1.10 changed the Ledger's layout (to 9, Phase 17): 1.8.0 reads up to layout 8, so it leaves the
+# newer Ledger untouched and runs on a temporary one; going forward again finds it as it was.
+Check $true '1.8.0 starts, leaving the newer Ledger untouched'
 Install $NewInstaller
 $r = Start-Plenipo
 Check ($r.version -eq $Version -and $r.persistent -eq $true) "forward again to $Version, same Ledger"

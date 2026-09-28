@@ -15,6 +15,7 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
@@ -274,6 +275,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await waitForText(browser, ".toasts", "is now Website Supervisor's security auditor");
 
     await select(browser, "QA Engineer");
+    await detailsTab(browser, "Team");
     const assign = 'form[aria-label="Assign oversight"]';
     await (await browser.$(`${assign} select`)).selectByVisibleText("QA evaluator");
     await (
@@ -330,7 +332,8 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     // History remains: the position remembers its former worker, and the work it did.
     await select(browser, "Senior Developer");
     await waitForText(browser, DETAILS, "1 retired");
-    // The tab reads "Recent (1)" once the work has loaded.
+    // The Work tab's list reads "Recent (1)" once the work has loaded.
+    await detailsTab(browser, "Work");
     const recent = await browser.$(
       '//button[@role="tab" and starts-with(normalize-space(), "Recent")]',
     );
@@ -400,7 +403,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     }
     // The supervisor keeps its agent and conversation.
     await select(browser, "Website Supervisor");
-    await waitForText(browser, DETAILS, "Continues its conversation.");
+    await waitForText(browser, DETAILS, "in the same conversation");
     await clickButton(browser, "List");
     await waitForText(browser, '[aria-label="Positions"]', "Website Supervisor");
     await screenshot(browser, "org-list-after-restart");

@@ -14,14 +14,15 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot,
-  waitUntil,
   openSettings,
+  screenshot,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -363,6 +364,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "Codex",
     );
     await select(browser, "Senior Developer");
+    await detailsTab(browser, "AI model");
     await waitForText(
       browser,
       DETAILS,

@@ -17,14 +17,15 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
   openSettings,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -294,7 +295,8 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
     await submit(browser, 'form[aria-label="Hire"]');
     await waitForNode(browser, "Web Assistant,");
     await select(browser, "Web Assistant");
-    // Its role's working instructions are in its details (ADR-019).
+    // Its role's working instructions are in its details' Job tab (ADR-019, Phase 17).
+    await detailsTab(browser, "Job");
     await waitUntil(() => exists(browser, `${DETAILS} .inspector__job`), "its instructions");
     await waitForText(browser, DETAILS, "Does tasks on websites you allow");
   });

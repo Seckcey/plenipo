@@ -1,6 +1,10 @@
 # ADR-042: Specialties under each role — built in, and your own
 
 - **Status:** Accepted (by the owner, 2026-09-28, as recommended)
+- **As built (v1.10.0):** as written, with one difference: Authorized penetration testing is not
+  a built-in specialty (§3, §8). You can add it yourself as one of your own specialties (§4), and
+  Guard still decides what that worker may do. See the
+  [Phase 17 acceptance report](../phases/phase-17-acceptance-report.md), deviations.
 - **Date:** 2026-09-28
 - **Phase:** 17
 - **Amends:** ADR-019 (every role knows its job: working instructions) — a specialty adds lines
@@ -51,7 +55,8 @@ permission set in Guard (ADR-013); a role's "capabilities" are a note.
    at every start, and you cannot edit or remove them, as with built-in roles:
    - **Senior Developer:** Front-end, Back-end, Database, UX/UI, Mobile, DevOps, Data
    - **Designer:** Brand, Web, Product
-   - **Security Auditor:** Code review, Compliance, Authorized penetration testing
+   - **Security Auditor:** Code review, Compliance, Authorized penetration testing (not built
+     in; see As built)
    - **Operations Engineer:** Windows servers, Linux servers, Networking, Microsoft 365
      administration
    - **Researcher:** Market, Technical
@@ -71,11 +76,12 @@ permission set in Guard (ADR-013); a role's "capabilities" are a note.
    suggestion ("Workers with this specialty usually need: Connect to servers"). Permissions still
    come only from the role's permission set in Guard, which you change in Settings →
    Permissions. A specialty cannot widen what a worker may do.
-8. **Authorized penetration testing is fenced by its own lines:** test only the systems the task
-   names, and only when the task says you or your client owns them and has authorized the test;
-   stop and ask when that is missing or unclear; nothing meant to overload or break a system;
-   never keep or share real data you reach; never work around Plenipo's permissions. Its
-   suggested permissions ask you before each program and each server.
+8. (Not built in; see As built.) **Authorized penetration testing is fenced by its own
+   lines:** test only the systems the task names, and only when the task says you or your client
+   owns them and has authorized the test; stop and ask when that is missing or unclear; nothing
+   meant to overload or break a system; never keep or share real data you reach; never work
+   around Plenipo's permissions. Its suggested permissions ask you before each program and each
+   server.
 9. **Hiring and changing.** The hire form offers the role's specialties (optional) and fills in
    the suggested title, which you can change. An agent's Job tab changes its specialty. Changing a
    specialty never hires a new agent: its next task gets the full instructions again (ADR-044).
