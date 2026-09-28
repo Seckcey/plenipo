@@ -24,7 +24,11 @@ Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/ai-tools.
   [and offered in the model menu](evidence/phase-19/ai-tools-new-model-menu.png)
 - **The switch:** [Update AI tools by themselves, in Settings → Switches](evidence/phase-19/ai-tools-switch-in-settings.png)
 
-Test totals: TOTALS.
+Test totals: **1,191 Rust** · **711 frontend** (304 design system + 407 app) · **50 end-to-end**
+tests run here against the release build (the new AI tools group, 7, and the six groups this
+phase changes: agents, routing, runtime, ledger, control, and design, 43). The whole end-to-end
+suite runs on GitHub, where the groups that need what this machine lacks (Chrome, `ssh-keygen`)
+also run.
 
 On screen the plan's words become plain ones ([word list](../design/vocabulary.md)): "login" and
 "logout" are **Sign in**, **Reconnect**, and **Sign out**, in a **sign-in tab**; "token usage" is
