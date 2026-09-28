@@ -1,11 +1,9 @@
 # Security hardening (2026-09-27 sweep) — Checklist
 
-**Status:** Group A (the four High findings) built, reviewed, and tested on Linux with a real
-Chromium; the Windows-only code paths are validated by CI's Windows job and by the owner's
-check below. Groups B and C follow in later pull requests.
+**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) is in progress on PR #74: batch 1 (B1–B6) built, reviewed, and tested; batches 2 (B7–B9) and 3 (B10–B11) follow. Group C follows in a later pull request.
 
 The sweep's findings live in the repository's private security advisories (GHSA-m2rr-m89h-jp56,
-GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A). This checklist
+GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B). This checklist
 records what was changed and how it was checked, in plain words, without the attack details.
 
 ## Group A: High
@@ -63,6 +61,46 @@ records what was changed and how it was checked, in plain words, without the att
       since what goes over the connection cannot be held
 - [x] Tests: a chat page that sends over a WebSocket, and a page that sends late after a click,
       against the synthetic website
+
+## Group B: Medium
+
+### Batch 1 (GHSA-2fq6-vq5f-685h)
+
+- [x] **B2 · The browser never saves files (ADR-037).** The browser is told at start to refuse
+      every download, before any tab exists; if it will not agree, Plenipo does not use it. The
+      worker is told when a page tried to save a file (the file's name is cleaned and cut short).
+- [x] **B1 · A page never gets a second tab (ADR-036).** A pop-up or a `target="_blank"` link is
+      stopped before it runs and closed; during the worker's action, an allowed address opens in
+      the worker's own tab through the same checks; a pop-up on the page's own, or while the owner
+      has the tab, is just closed. The worker is told either way.
+- [x] **B5 · File text, program output, GitHub text, and search results are fenced.** The same
+      nonce fence page text had now wraps what a worker reads from files and searches, what a
+      program prints, and GitHub issue and pull request bodies; the page's controls list too. An
+      AI tool's own file reads over ACP stay exact (they are what it edits from).
+- [x] **B4 · The git tools keep the blocked-files list.** `git_add` refuses a blocked file by
+      name; `git_diff` leaves blocked contents out and says how many files; `git_commit` refuses
+      with a blocked file staged; the `git_push` card names blocked files in the commits (renames
+      seen under both names).
+- [x] **B3 · Secrets reach only the programs they are for (ADR-038).** A secret goes only to a
+      program found on PATH outside the project; a run that would receive one asks first unless
+      the rule names the program and the secret; the card says "Will be given: …".
+- [x] **B6 · A cap on approvals.** Three waiting cards per grant, ten new cards a minute, four
+      tool calls at once per connection; a refused ask is told in plain words, makes no card and
+      no picture, and a Ledger event records it once a minute.
+- [x] Each fix reviewed by three independent readers; their remaining notes carried into five
+      follow-up commits before the push
+- [ ] CI's Windows job green on the pull request
+
+### Batch 2 (GHSA-phg2-6j94-84g9)
+
+- [ ] B7 · Computer use asks before every click and keystroke (ADR-039)
+- [ ] B8 · Lessons a role keeps on its own are notes, not orders (ADR-040)
+- [ ] B9 · Codex's own shell (ADR-042)
+
+### Batch 3 (GHSA-2hxf-v9c3-44q2)
+
+- [ ] B10 · GitHub Actions pinned by commit, Dependabot
+- [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-041)
 
 ## Checks
 
