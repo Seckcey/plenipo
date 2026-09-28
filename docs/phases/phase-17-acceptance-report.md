@@ -23,7 +23,7 @@ Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/control.e
   [a whole department archived](evidence/phase-17/control-archived-department.png)
 - **The Workforce:** [an agent saved, ready to hire again](evidence/phase-17/control-workforce.png)
 
-Test totals: **1,053 Rust** · **567 frontend** (304 design system + 263 app) · **76 end-to-end**
+Test totals: **1,056 Rust** · **567 frontend** (304 design system + 263 app) · **76 end-to-end**
 tests against the real release binary: 68 pass here, one is skipped, and the seven that need what
 this machine lacks (the browser group needs Chrome; the server and terminal groups need
 `ssh-keygen`) run on GitHub.
@@ -208,6 +208,13 @@ is fixed with a test, or recorded where it is a limit of the design.
 - On GitHub, the browser and servers end-to-end tests typed an objective while the details
   panel showed another tab (it keeps the tab last shown); every test now opens the Overview tab
   first.
+
+**After merging `main` again** ([PR #78](https://github.com/Seckcey/plenipo/pull/78): one desktop
+step at a time while you decide, a lesson checked as it will be stored, a lesson you decide
+dropping why it waited, and the steps that build Plenipo on GitHub pinned to exact code), only
+one line overlapped: the list of names the learning code takes from the Ledger. Phase 17 needed
+no other change: a lesson brought back from your Workforce is stored as kept, so it never
+carries why it waited. Every check above ran again on the merged code.
 
 During the build, the end-to-end run found the panel's tabs could not be clicked when they did
 not fit (they wrap now), and a hint placed inside a label broke older tests (labels keep their

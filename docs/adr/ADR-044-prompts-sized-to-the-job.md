@@ -5,8 +5,9 @@
   - **Permissions (§2.8):** when they change, the full permissions note goes out; the rest of the
     instructions stay a short reminder, since the note is where the permissions are. Each new
     objective has its own working copy and branch, so its note is new and goes out in full.
-  - **The saving (§6):** a new routine objective carries 74% less of Plenipo's own text (its
-    note goes in full); a step that delivers replies in the same objective, 48% less. See the
+  - **The saving (§6):** measured before and after, a new routine objective carries 73% less of
+    Plenipo's own text (its note goes in full); a step that delivers replies in the same
+    objective, 45% less. See the
     [Phase 17 acceptance report](../phases/phase-17-acceptance-report.md), §5.
   - **Kimi and Grok (§2.5, §4.13):** a drop in the context they report still brings back the full
     instructions, but they report it only after each answer, so a shortening in the middle of a
