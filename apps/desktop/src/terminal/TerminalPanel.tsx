@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LedgerEvent, ServersSnapshot, TerminalSettings } from "@plenipo/types";
 import {
   Button,
@@ -15,8 +15,9 @@ import {
   type ThemeName,
 } from "@plenipo/ui";
 
-import { getServers, getTerminalSettings } from "../api/commands";
+import { getLiveView, getServers, getTerminalSettings } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { CodeWatchView } from "./CodeWatchView";
 import { OwnerTerminal } from "./OwnerTerminal";
 import { PANEL_MIN, TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
@@ -24,6 +25,15 @@ import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
 
 const HERE = "this-pc";
+/** "Watch a worker" choices in the New menu (ADR-055 §1): `watch:<positionId>`. */
+const WATCH_PREFIX = "watch:";
+const NOBODY = "watch-nobody";
+
+/** An agent working now, for "Watch a worker". */
+interface Working {
+  positionId: string;
+  title: string;
+}
 
 /** Settings changes that change the New terminal list: servers, the switches, the shell. */
 function changesTheList(e: LedgerEvent): boolean {
@@ -34,7 +44,20 @@ function changesTheList(e: LedgerEvent): boolean {
   );
 }
 
-function tabLabel(tab: TerminalTab) {
+/** Events after which who is working may have changed. */
+function changesWhoWorks(e: LedgerEvent): boolean {
+  return e.eventType === "task.state_changed" || e.eventType.startsWith("guard.grant");
+}
+
+function tabLabel(tab: TerminalTab, writing: boolean) {
+  if (tab.kind === "code") {
+    return (
+      <>
+        Watch · {tab.title}
+        {writing && <StatusDot status="pending" label="being written" />}
+      </>
+    );
+  }
   if (tab.kind === "owner") {
     return (
       <>
@@ -57,6 +80,7 @@ function tabLabel(tab: TerminalTab) {
 }
 
 function closeLabel(tab: TerminalTab): string {
+  if (tab.kind === "code") return `Close Watch for ${tab.title}`;
   return tab.kind === "owner"
     ? `Close the terminal on ${tab.place.kind === "thisPc" ? "this PC" : tab.title}`
     : `Close ${watchTitle(tab.watch)}`;
@@ -72,7 +96,19 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const t = useTerminal();
   const [servers, setServers] = useState<ServersSnapshot | null>(null);
   const [settings, setSettings] = useState<TerminalSettings | null>(null);
+  const [working, setWorking] = useState<Working[]>([]);
   const [focusToken, setFocusToken] = useState(0);
+  // The Watch tabs for code where a worker is writing a change now (a mark on the tab).
+  const [writing, setWriting] = useState<ReadonlySet<string>>(() => new Set());
+  const onWriting = useCallback((id: string, now: boolean) => {
+    setWriting((all) => {
+      if (all.has(id) === now) return all;
+      const next = new Set(all);
+      if (now) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   // A tab chosen with the mouse puts the keyboard in its terminal; one chosen with the arrow
   // keys keeps it in the list of tabs.
   const pointer = useRef(false);
@@ -114,9 +150,22 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
       getTerminalSettings()
         .then((s) => live && setSettings(s))
         .catch(() => undefined);
+      // The agents working now, for "Watch a worker" (from the live view: nothing new is read).
+      getLiveView()
+        .then((v) => {
+          if (!live) return;
+          const seen = new Map<string, Working>();
+          for (const w of v.workers) {
+            if (w.positionId && !seen.has(w.positionId)) {
+              seen.set(w.positionId, { positionId: w.positionId, title: w.worker });
+            }
+          }
+          setWorking([...seen.values()].sort((a, b) => a.title.localeCompare(b.title)));
+        })
+        .catch(() => undefined);
     };
     void subscribeLedgerEvents((e) => {
-      if (!live || timer || !changesTheList(e)) return;
+      if (!live || timer || !(changesTheList(e) || changesWhoWorks(e))) return;
       timer = setTimeout(() => {
         timer = null;
         if (live) refresh();
@@ -138,6 +187,22 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
     };
   }, [open]);
 
+  const watchItems: MenuItem[] =
+    working.length === 0
+      ? [
+          {
+            id: NOBODY,
+            label: "Watch a worker (nobody is working now)",
+            icon: "file",
+            disabled: true,
+          },
+        ]
+      : working.map((w) => ({
+          id: `${WATCH_PREFIX}${w.positionId}`,
+          label: `Watch ${w.title}`,
+          icon: "file",
+          hint: "Read-only",
+        }));
   const items: MenuItem[] = [
     {
       id: HERE,
@@ -159,10 +224,16 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
         hint: v.server.environment === "production" ? "PRODUCTION" : undefined,
       };
     }),
+    ...watchItems,
   ];
 
   const pick = (id: string) => {
     setFocusToken((n) => n + 1);
+    if (id.startsWith(WATCH_PREFIX)) {
+      const w = working.find((x) => `${WATCH_PREFIX}${x.positionId}` === id);
+      if (w) t.openWatch(w.positionId, w.title);
+      return;
+    }
     if (id === HERE) {
       t.openHere();
       return;
@@ -208,7 +279,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                 idPrefix="terminal"
                 tabs={t.tabs.map((tab) => ({
                   value: tab.id,
-                  label: tabLabel(tab),
+                  label: tabLabel(tab, writing.has(tab.id)),
                   onClose: () => t.close(tab.id),
                   closeLabel: closeLabel(tab),
                 }))}
@@ -282,6 +353,8 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                     focusToken={focusToken}
                     onLeave={toTabs}
                   />
+                ) : tab.kind === "code" ? (
+                  <CodeWatchView tab={tab} onWriting={onWriting} />
                 ) : (
                   <WatchView tab={tab.watch} />
                 )}

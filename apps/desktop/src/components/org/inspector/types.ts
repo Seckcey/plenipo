@@ -51,5 +51,7 @@ export interface InspectorActions {
     archiveProject: (id: string) => Promise<OrgSnapshot>;
     bringBack: (kind: ArchivedKind, id: string) => Promise<OrgSnapshot>;
     saveToWorkforce: (id: string) => Promise<OrgSnapshot>;
+    /** Send a lent agent home (ADR-054 §6). */
+    sendHome: (id: string) => Promise<OrgSnapshot>;
   };
 }

@@ -19,6 +19,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     previewDeleteForGood: vi.fn(),
     deleteForGood: vi.fn(),
     saveToWorkforce: vi.fn(),
+    sendHome: vi.fn(),
     hireFromWorkforce: vi.fn(),
     deleteSavedAgent: vi.fn(),
   };

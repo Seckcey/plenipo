@@ -8,6 +8,11 @@
  * and 0 zoom and fit. Dragging a position node — or a role card from the hire palette — onto
  * another node drops it there. Drags use pointer events only: HTML5 drag-and-drop is unreliable
  * inside desktop webviews.
+ *
+ * Phase 18 (ADR-053): three ways to use the pointer (Select, Move the view, Arrange); dropping a
+ * tile on an empty spot places it (with its team; Alt: alone), on the trash can archives it; the
+ * selected agent's line ends are handles to drag onto another agent; the toolbar, lent lines,
+ * hand-offs moving along the lines (still with reduce motion), and each working tile's "where".
  */
 import {
   memo,
@@ -46,14 +51,40 @@ import {
   type Rect,
   type Size,
 } from "../../org/camera";
-import { OVERSIGHT_CHIP, OVERSIGHT_LABEL } from "../../org/format";
-import { nodeAt, type LayoutNode, type OrgLayout } from "../../org/layout";
-import { Glyph } from "./Glyph";
+import { OVERSIGHT_CHIP, OVERSIGHT_LABEL, OVERSIGHT_NOUN } from "../../org/format";
+import { nodeAt, type LayoutNode, type OrgLayout, type Point } from "../../org/layout";
+import type { HandoffMark, WhereLine } from "../../org/live";
 import type { DropState, NodeContext } from "../../org/nodes";
+import type { PointerMode } from "../../org/tour";
+import { CanvasControlsContext } from "./canvasContext";
+import { Glyph } from "./Glyph";
 import { OrgNode } from "./OrgNode";
 
+/** One end of a line, grabbed to rewire it (ADR-053 §7–§8). */
+export type LineEnd =
+  | { kind: "reports"; positionId: string }
+  | { kind: "oversight"; oversightId: string; end: "overseer" | "target" };
+
 export type DragPayload =
-  { kind: "position"; positionId: string } | { kind: "role"; roleId: string };
+  | { kind: "position"; positionId: string }
+  | { kind: "role"; roleId: string }
+  | { kind: "line"; line: LineEnd };
+
+/** A tile moved by hand: by how much, and whether its team comes along. */
+export interface ArrangeMove {
+  tileId: string;
+  dx: number;
+  dy: number;
+  alone: boolean;
+}
+
+/** What the live view shows on the canvas. */
+export interface CanvasLive {
+  /** Each working tile's "where" line, when Where is on. */
+  where: ReadonlyMap<string, WhereLine> | null;
+  handoffs: readonly HandoffMark[];
+  reducedMotion: boolean;
+}
 
 export interface CanvasHandle {
   /** Begin dragging something from outside the canvas (the hire palette). */
@@ -63,6 +94,19 @@ export interface CanvasHandle {
 
 /** Hit-test result for empty canvas. */
 export const EMPTY_CANVAS = "";
+/** Hit-test result for the trash can. */
+export const TRASH = "trash:";
+/** How far Alt + an arrow key moves the selected tile. */
+const NUDGE = 20;
+
+const WHERE_GLYPH: Record<string, string> = {
+  "where-cloud": "cloud",
+  "where-this-pc": "pc",
+  "where-server": "server",
+  "touch-folder": "folder",
+  "touch-website": "web",
+  "touch-screen": "screen",
+};
 
 const DEFAULT_SIZE: Size = { w: 960, h: 640 };
 const CAMERA_KEY = "plenipo.orgCamera";
@@ -75,8 +119,22 @@ interface Props {
   selectedId: string | null;
   /** Search matches; `null` when not searching. */
   matches: ReadonlySet<string> | null;
+  /** Leads shown only to keep a filter's matches in place (faded). */
+  faded?: ReadonlySet<string> | null;
   showOversight: boolean;
-  onToggleOversight: () => void;
+  mode?: PointerMode;
+  onMode?: (mode: PointerMode) => void;
+  /** A tile moved by hand (`null`: the move was cancelled); `final` when it was dropped. */
+  onArrange?: (move: ArrangeMove | null, final: boolean) => void;
+  /** A line end chosen without dragging (Enter, or a click): offer where it can go. */
+  onLineMenu?: (line: LineEnd, at: { x: number; y: number }) => void;
+  /** A lent agent's badge chosen: offer Send home. */
+  onLent?: (positionId: string, at: { x: number; y: number }) => void;
+  /** Watch a working agent write code (`null` when there is no terminal panel). */
+  onWatch?: ((positionId: string) => void) | null;
+  live?: CanvasLive | null;
+  /** The toolbar (it reads the zoom and the trash can's drop state from the canvas). */
+  toolbar?: ReactNode;
   onSelect: (id: string | null) => void;
   onToggle: (id: string) => void;
   /** Why `payload` cannot be dropped on node `target`; `null` when it can. */
@@ -99,17 +157,36 @@ type Gesture =
       x: number;
       y: number;
       nodeId: string | null;
+      /** A line end pressed (ADR-053 §7). */
+      line: LineEnd | null;
       button: number;
     }
   | { kind: "pan"; pointerId: number; x: number; y: number }
-  | { kind: "drag"; pointerId: number; payload: DragPayload; x0: number; y0: number; live: boolean }
+  | {
+      kind: "drag";
+      pointerId: number;
+      payload: DragPayload;
+      x0: number;
+      y0: number;
+      live: boolean;
+    }
+  | {
+      kind: "arrange";
+      pointerId: number;
+      tileId: string;
+      x0: number;
+      y0: number;
+      alone: boolean;
+      moved: ArrangeMove | null;
+      raf: number;
+    }
   | { kind: "pinch"; distance: number };
 
 interface DragView {
   payload: DragPayload;
   x: number;
   y: number;
-  /** Node ID under the pointer, EMPTY_CANVAS, or `null` outside the canvas. */
+  /** Node ID under the pointer, EMPTY_CANVAS, TRASH, or `null` outside the canvas. */
   over: string | null;
   refusal: string | null;
 }
@@ -147,8 +224,16 @@ export function TopologyCanvas({
   ctx,
   selectedId,
   matches,
+  faded = null,
   showOversight,
-  onToggleOversight,
+  mode = "select",
+  onMode,
+  onArrange,
+  onLineMenu,
+  onLent,
+  onWatch = null,
+  live: liveView = null,
+  toolbar,
   onSelect,
   onToggle,
   dropRefusal,
@@ -169,11 +254,25 @@ export function TopologyCanvas({
   );
   const [drag, setDrag] = useState<DragView | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /** The space bar is held: the pointer moves the view, whatever the mode. */
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const pointerMode: PointerMode = spaceHeld ? "pan" : mode;
 
   // Latest values for the event handlers (they are registered once).
-  const live = useRef({ camera, size, layout, dropRefusal, onDrop, onSelect, inset: insetRight });
+  const current = () => ({
+    camera,
+    size,
+    layout,
+    dropRefusal,
+    onDrop,
+    onSelect,
+    onArrange,
+    mode: pointerMode,
+    inset: insetRight,
+  });
+  const live = useRef(current());
   useLayoutEffect(() => {
-    live.current = { camera, size, layout, dropRefusal, onDrop, onSelect, inset: insetRight };
+    live.current = current();
   });
   const gesture = useRef<Gesture>({ kind: "idle" });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -342,11 +441,22 @@ export function TopologyCanvas({
 
   useEffect(() => () => stopFly(), [stopFly]);
 
-  /** What is under a client point: a node ID, EMPTY_CANVAS, or `null` outside the canvas. */
+  /** What is under a client point: a node ID, EMPTY_CANVAS, TRASH, or `null` outside the canvas. */
   const hitTest = useCallback(
     (clientX: number, clientY: number): string | null => {
       const el = viewportRef.current;
       if (!el) return null;
+      const trash = el.querySelector('[data-drop="trash"]')?.getBoundingClientRect();
+      if (
+        trash &&
+        trash.width > 0 &&
+        clientX >= trash.left &&
+        clientX <= trash.right &&
+        clientY >= trash.top &&
+        clientY <= trash.bottom
+      ) {
+        return TRASH;
+      }
       const r = el.getBoundingClientRect();
       const sized = r.width > 0 && r.height > 0;
       const view = measure();
@@ -465,7 +575,42 @@ export function TopologyCanvas({
           if (Math.hypot(e.clientX - g.x0, e.clientY - g.y0) <= DRAG_THRESHOLD) return;
           capture(e.pointerId);
           const node = g.nodeId ? l.byId.get(g.nodeId) : undefined;
-          if (g.button === 0 && node?.kind === "position" && node.position.active) {
+          const how = live.current.mode;
+          const placeable =
+            node !== undefined &&
+            node.kind !== "worker" &&
+            (node.kind !== "position" || node.position.active);
+          if (g.button === 0 && g.line) {
+            const payload: DragPayload = { kind: "line", line: g.line };
+            gesture.current = {
+              kind: "drag",
+              pointerId: g.pointerId,
+              payload,
+              x0: g.x0,
+              y0: g.y0,
+              live: true,
+            };
+            updateDrag(payload, e.clientX, e.clientY);
+          } else if (
+            g.button === 0 &&
+            node &&
+            placeable &&
+            live.current.onArrange &&
+            (how === "arrange" || (how === "select" && node.kind !== "position"))
+          ) {
+            // Arrange: the tile (and its team) follows the pointer; nothing else happens.
+            gesture.current = {
+              kind: "arrange",
+              pointerId: g.pointerId,
+              tileId: node.id,
+              x0: g.x0,
+              y0: g.y0,
+              alone: e.altKey,
+              moved: null,
+              raf: 0,
+            };
+            arrangeTo(e.clientX, e.clientY, e.altKey);
+          } else if (how === "select" && g.button === 0 && node?.kind === "position" && placeable) {
             const payload: DragPayload = { kind: "position", positionId: node.id };
             gesture.current = {
               kind: "drag",
@@ -498,9 +643,36 @@ export function TopologyCanvas({
           updateDrag(g.payload, e.clientX, e.clientY);
           return;
         }
+        case "arrange": {
+          if (e.pointerId !== g.pointerId) return;
+          arrangeTo(e.clientX, e.clientY, e.altKey);
+          return;
+        }
         case "idle":
           return;
       }
+    };
+    /** Where an arrange gesture has the tile now (in the world), shown on the next frame. */
+    const arrangeTo = (clientX: number, clientY: number, alt: boolean) => {
+      const g = gesture.current;
+      if (g.kind !== "arrange") return;
+      const z = live.current.camera.z;
+      g.alone = g.alone || alt;
+      g.moved = {
+        tileId: g.tileId,
+        dx: (clientX - g.x0) / z,
+        dy: (clientY - g.y0) / z,
+        alone: g.alone,
+      };
+      if (g.raf) return;
+      const show = () => {
+        const now = gesture.current;
+        if (now.kind !== "arrange") return;
+        now.raf = 0;
+        live.current.onArrange?.(now.moved, false);
+      };
+      if (typeof requestAnimationFrame === "function") g.raf = requestAnimationFrame(show);
+      else show();
     };
     const onEnd = (e: PointerEvent) => {
       pointers.current.delete(e.pointerId);
@@ -516,23 +688,50 @@ export function TopologyCanvas({
       gesture.current = { kind: "idle" };
       if (g.kind === "press") {
         // A click on the empty canvas clears the selection.
-        if (g.nodeId === null && g.button === 0 && e.type === "pointerup")
+        if (g.nodeId === null && !g.line && g.button === 0 && e.type === "pointerup")
           live.current.onSelect(null);
         return;
       }
       gestureEnded.current = performance.now();
+      if (g.kind === "arrange") {
+        if (g.raf) cancelAnimationFrame(g.raf);
+        const dropped = e.type === "pointerup" && g.moved;
+        live.current.onArrange?.(dropped ? g.moved : null, !!dropped);
+        return;
+      }
       if (g.kind === "drag" && g.live && e.type === "pointerup") {
         const over = hitTest(e.clientX, e.clientY);
-        if (over && live.current.dropRefusal(g.payload, over) === null) {
+        if (over === EMPTY_CANVAS && g.payload.kind === "position") {
+          // Select: an agent dropped on an empty spot is placed there.
+          const z = live.current.camera.z;
+          live.current.onArrange?.(
+            {
+              tileId: g.payload.positionId,
+              dx: (e.clientX - g.x0) / z,
+              dy: (e.clientY - g.y0) / z,
+              alone: e.altKey,
+            },
+            true,
+          );
+        } else if (
+          over &&
+          over !== EMPTY_CANVAS &&
+          live.current.dropRefusal(g.payload, over) === null
+        ) {
           live.current.onDrop(g.payload, over, { x: e.clientX, y: e.clientY });
         }
       }
       endDrag();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && gesture.current.kind === "drag") {
+      const g = gesture.current;
+      if (e.key === "Escape" && (g.kind === "drag" || g.kind === "arrange")) {
         e.preventDefault();
         gesture.current = { kind: "idle" };
+        if (g.kind === "arrange") {
+          if (g.raf) cancelAnimationFrame(g.raf);
+          live.current.onArrange?.(null, false);
+        }
         endDrag();
       }
     };
@@ -612,6 +811,7 @@ export function TopologyCanvas({
       return;
     }
     const node = target.closest<HTMLElement>("[data-node-id]");
+    const handle = target.closest<HTMLElement>("[data-line-end]");
     gesture.current = {
       kind: "press",
       pointerId: e.pointerId,
@@ -620,6 +820,7 @@ export function TopologyCanvas({
       x: e.clientX,
       y: e.clientY,
       nodeId: node?.dataset.nodeId ?? null,
+      line: handle ? lineOf(handle) : null,
       button: e.button,
     };
   };
@@ -627,6 +828,35 @@ export function TopologyCanvas({
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select")) return;
+    if (target.closest("[data-canvas-ui]") && e.key !== "Escape") return;
+    // Alt + arrow keys move the selected tile (the keyboard way to arrange).
+    const nudge: Record<string, [number, number]> = {
+      ArrowLeft: [-NUDGE, 0],
+      ArrowRight: [NUDGE, 0],
+      ArrowUp: [0, -NUDGE],
+      ArrowDown: [0, NUDGE],
+    };
+    const step = nudge[e.key];
+    if (e.altKey && step && selectedId && onArrange) {
+      e.preventDefault();
+      onArrange({ tileId: selectedId, dx: step[0], dy: step[1], alone: false }, true);
+      return;
+    }
+    if (!e.altKey && !e.ctrlKey && !e.metaKey && onMode) {
+      const key = e.key.toLowerCase();
+      const next: PointerMode | null =
+        key === "v" ? "select" : key === "h" ? "pan" : key === "a" ? "arrange" : null;
+      if (next) {
+        e.preventDefault();
+        onMode(next);
+        return;
+      }
+    }
+    if (e.key === " " && target === e.currentTarget) {
+      e.preventDefault();
+      if (!e.repeat) setSpaceHeld(true);
+      return;
+    }
     const view = measure();
     const { camera: c, layout: l } = live.current;
     const pan = (dx: number, dy: number) => {
@@ -678,16 +908,25 @@ export function TopologyCanvas({
     [reveal],
   );
 
+  /** A line end chosen without dragging it (not right after a gesture). */
+  const lineMenu = useCallback(
+    (line: LineEnd, at: { x: number; y: number }) => {
+      if (performance.now() - gestureEnded.current < 250) return;
+      onLineMenu?.(line, at);
+    },
+    [onLineMenu],
+  );
+
   const draggedId = drag?.payload.kind === "position" ? drag.payload.positionId : null;
   const dropTarget =
-    drag && drag.over && drag.over !== EMPTY_CANVAS
+    drag && drag.over && drag.over !== EMPTY_CANVAS && drag.over !== TRASH
       ? { id: drag.over, state: (drag.refusal === null ? "valid" : "invalid") as DropState }
       : null;
 
   return (
     <div
       ref={viewportRef}
-      className={`topology${drag ? " is-dragging" : ""}`}
+      className={`topology topology--${pointerMode}${drag ? " is-dragging" : ""}`}
       tabIndex={0}
       role="region"
       aria-label="Organization topology"
@@ -699,12 +938,18 @@ export function TopologyCanvas({
         if (node) zoomTo(node);
       }}
       onKeyDown={onKeyDown}
+      onKeyUp={(e) => {
+        if (e.key === " ") setSpaceHeld(false);
+      }}
+      onBlur={() => setSpaceHeld(false)}
       onContextMenu={(e) => e.preventDefault()}
     >
       <p id="topology-help" className="visually-hidden">
-        Tab through the positions; Enter opens one. Drag a position onto another to change who it
-        reports to or to assign it as a reviewer, QA evaluator, or security auditor. Plus and minus
-        zoom, zero fits everything, arrow keys pan.
+        Tab through the agents; Enter opens one. Drag an agent onto another to move it, lend it, or
+        make it that team&apos;s reviewer, QA evaluator, or security auditor; onto the trash can to
+        archive it; or onto an empty spot to place it. V selects, H moves the view, A arranges; Alt
+        and the arrow keys move the selected tile. Plus and minus zoom, zero fits everything, arrow
+        keys move the view.
       </p>
       <div className="topology__world" style={{ transform: worldTransform(camera, size) }}>
         <World
@@ -712,70 +957,35 @@ export function TopologyCanvas({
           ctx={ctx}
           selectedId={selectedId}
           matches={matches}
+          faded={faded}
           showOversight={showOversight}
           draggedId={draggedId}
           dropId={dropTarget?.id ?? null}
           dropState={dropTarget?.state ?? null}
           now={now}
+          live={liveView}
           onSelect={select}
           onFocusNode={onFocusNode}
           onToggle={onToggle}
+          onLineMenu={lineMenu}
+          onLent={onLent}
+          onWatch={onWatch}
         />
       </div>
       {children}
-      <div
-        className="topology__controls"
-        data-canvas-ui
-        role="toolbar"
-        aria-label="Canvas controls"
-        aria-orientation="vertical"
+      <CanvasControlsContext.Provider
+        value={{
+          zoom: {
+            level: camera.z,
+            zoomIn: () => zoomBy(ZOOM_STEP),
+            zoomOut: () => zoomBy(1 / ZOOM_STEP),
+            fit,
+          },
+          trash: drag?.over === TRASH ? (drag.refusal === null ? "valid" : "invalid") : null,
+        }}
       >
-        <button
-          type="button"
-          className="topology__control"
-          aria-label="Fit to screen"
-          title="Fit to screen (0)"
-          onClick={fit}
-        >
-          <Glyph name="fit" />
-        </button>
-        <button
-          type="button"
-          className="topology__control"
-          aria-label="Zoom in"
-          title="Zoom in (+)"
-          onClick={() => zoomBy(ZOOM_STEP)}
-        >
-          <Glyph name="plus" />
-        </button>
-        <button
-          type="button"
-          className="topology__control"
-          aria-label="Zoom out"
-          title="Zoom out (−)"
-          onClick={() => zoomBy(1 / ZOOM_STEP)}
-        >
-          <Glyph name="minus" />
-        </button>
-        <span className="topology__zoom" aria-label="Zoom level">
-          {Math.round(camera.z * 100)}%
-        </span>
-        <button
-          type="button"
-          className="topology__control"
-          aria-label="Show oversight links"
-          aria-pressed={showOversight}
-          title="Show oversight links"
-          onClick={onToggleOversight}
-        >
-          <Glyph name="link" />
-        </button>
-      </div>
-      <div className="topology__legend" data-canvas-ui aria-hidden="true">
-        <span className="topology__legend-item topology__legend-item--tree">Reports to</span>
-        <span className="topology__legend-item topology__legend-item--worker">Live worker</span>
-        <span className="topology__legend-item topology__legend-item--oversight">Oversight</span>
-      </div>
+        {toolbar}
+      </CanvasControlsContext.Provider>
       {layout.nodes.length > 2 && (
         <Minimap
           layout={layout}
@@ -798,29 +1008,46 @@ const World = memo(function World({
   ctx,
   selectedId,
   matches,
+  faded,
   showOversight,
   draggedId,
   dropId,
   dropState,
   now,
+  live,
   onSelect,
   onFocusNode,
   onToggle,
+  onLineMenu,
+  onLent,
+  onWatch,
 }: {
   layout: OrgLayout;
   ctx: NodeContext;
   selectedId: string | null;
   matches: ReadonlySet<string> | null;
+  faded: ReadonlySet<string> | null;
   showOversight: boolean;
   draggedId: string | null;
   dropId: string | null;
   dropState: DropState;
   now: number;
+  live: CanvasLive | null;
   onSelect: (id: string) => void;
   onFocusNode: (id: string) => void;
   onToggle: (id: string) => void;
+  onLineMenu: (line: LineEnd, at: { x: number; y: number }) => void;
+  onLent: ((positionId: string, at: { x: number; y: number }) => void) | undefined;
+  onWatch: ((positionId: string) => void) | null;
 }) {
   const oversight = showOversight ? layout.oversight : [];
+  const handoffs = live?.handoffs ?? [];
+  const still = live?.reducedMotion ?? false;
+  const handles = handlesFor(layout, ctx, selectedId, oversight);
+  const at = (e: { currentTarget: Element }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
   return (
     <>
       <svg className="topology__links" width="1" height="1" aria-hidden="true" focusable="false">
@@ -829,8 +1056,21 @@ const World = memo(function World({
             <path
               key={o.id}
               d={o.d}
+              data-symbol={`line-${o.role}`}
               className={`topo-oversight__path topo-oversight__path--${o.role}${
                 selectedId === o.overseerId || selectedId === o.targetId ? " is-highlighted" : ""
+              }`}
+            />
+          ))}
+        </g>
+        <g className="topo-lent">
+          {layout.lent.map((l) => (
+            <path
+              key={l.id}
+              d={l.d}
+              data-symbol="line-lent"
+              className={`topo-lent__path${
+                selectedId === l.positionId || selectedId === l.toLeadId ? " is-highlighted" : ""
               }`}
             />
           ))}
@@ -846,6 +1086,7 @@ const World = memo(function World({
             <path
               key={l.id}
               d={l.d}
+              data-symbol={l.style === "worker" ? "line-worker" : "line-reports"}
               className={`topo-link topo-link--${l.style}${l.active ? " is-active" : ""}`}
             />
           ))}
@@ -854,14 +1095,37 @@ const World = memo(function World({
           {layout.links
             .filter((l) => l.active)
             .map((l) => (
-              <path key={l.id} d={l.d} className="topo-link__flow" />
+              <path key={l.id} d={l.d} data-symbol="line-active" className="topo-link__flow" />
             ))}
+        </g>
+        <g className="topo-handoffs">
+          {handoffs.map((h) => (
+            <g
+              key={h.id}
+              className={`topo-handoff topo-handoff--${h.kind}`}
+              data-symbol="line-handoff"
+            >
+              <path d={h.d} className="topo-handoff__path" />
+              {still ? (
+                <path
+                  className="topo-handoff__arrow"
+                  d="M -7 -6 L 7 0 L -7 6 Z"
+                  transform={`translate(${h.mid.x} ${h.mid.y}) rotate(${h.angle})`}
+                />
+              ) : (
+                <path className="topo-handoff__arrow" d="M -7 -6 L 7 0 L -7 6 Z">
+                  <animateMotion dur="1.6s" repeatCount="indefinite" rotate="auto" path={h.d} />
+                </path>
+              )}
+            </g>
+          ))}
         </g>
       </svg>
       {layout.chips.map((c) => (
         <span
           key={c.id}
           className={`topo-chip topo-chip--${c.tone}`}
+          data-symbol={`chip-${c.tone}`}
           style={{ left: c.x, top: c.y }}
           title={c.label}
         >
@@ -872,10 +1136,33 @@ const World = memo(function World({
         <span
           key={`chip:${o.id}`}
           className={`topo-chip topo-chip--oversight topo-chip--${o.role}`}
+          data-symbol={`line-${o.role}`}
           style={{ left: o.x, top: o.y }}
           title={`${OVERSIGHT_LABEL[o.role]}: ${ctx.title(o.overseerId)} → ${ctx.title(o.targetId)}'s team`}
         >
           {OVERSIGHT_CHIP[o.role]}
+        </span>
+      ))}
+      {layout.lent.map((l) => (
+        <span
+          key={`chip:${l.id}`}
+          className="topo-chip topo-chip--lent"
+          data-symbol="line-lent"
+          style={{ left: l.x, top: l.y }}
+          title={`${ctx.title(l.positionId)} is lent to ${ctx.title(l.toLeadId)}'s team`}
+        >
+          Lent
+        </span>
+      ))}
+      {handoffs.map((h) => (
+        <span
+          key={`chip:${h.id}`}
+          className={`topo-chip topo-chip--handoff topo-chip--${h.kind}`}
+          data-symbol="line-handoff"
+          style={{ left: h.mid.x, top: h.mid.y }}
+          title={`${ctx.title(h.from)} → ${ctx.title(h.to)}`}
+        >
+          {h.kind === "asked" ? "Hand-off" : "Answer"}
         </span>
       ))}
       <div role="group" aria-label="Positions" className="topology__nodes">
@@ -885,7 +1172,7 @@ const World = memo(function World({
             node={n}
             ctx={ctx}
             selected={n.id === selectedId}
-            dimmed={matches !== null && !matches.has(n.id)}
+            dimmed={(matches !== null && !matches.has(n.id)) || (faded?.has(n.id) ?? false)}
             lifted={n.id === draggedId}
             drop={n.id === dropId ? dropState : null}
             now={now}
@@ -894,11 +1181,89 @@ const World = memo(function World({
           />
         ))}
       </div>
+      {live?.where &&
+        layout.nodes.map((n) => {
+          const w = live.where?.get(n.id);
+          if (!w) return null;
+          const parts = [w.thinksIn, w.runsOn, w.touching].filter((p) => p !== null);
+          return (
+            <div
+              key={`where:${n.id}`}
+              className="topo-where"
+              style={{ left: n.x, top: n.y + n.h + 6, width: n.w }}
+              title={parts.map((p) => p.words).join(" · ")}
+            >
+              {parts.map((p) => (
+                <span key={p.symbol} className="topo-where__part" data-symbol={p.symbol}>
+                  <Glyph name={WHERE_GLYPH[p.symbol] ?? "where"} size={12} />
+                  {p.words}
+                </span>
+              ))}
+            </div>
+          );
+        })}
+      {layout.nodes.map((n) => {
+        if (n.kind !== "position") return null;
+        const p = n.position;
+        const loan = p.loan;
+        const working = p.status === "working" || p.workers.some((w) => w.state === "running");
+        return (
+          <span key={`extras:${n.id}`}>
+            {loan && (
+              <button
+                type="button"
+                data-canvas-ui
+                data-symbol="badge-lent"
+                className="topo-badge topo-badge--lent topo-lent-badge"
+                style={{ left: n.x + n.w, top: n.y }}
+                aria-label={`${p.title} is lent to ${loan.to}'s team${
+                  loan.goingHome ? ", going home after this task" : ""
+                }. Choose to send it home.`}
+                title={`Lent to ${loan.to}'s team${loan.project ? ` (${loan.project})` : ""}${
+                  loan.until === "objective" ? " for one objective" : " until you send it home"
+                }${loan.goingHome ? " · going home after this task" : ""}`}
+                onClick={(e) => onLent?.(p.id, at(e))}
+              >
+                <Glyph name="lent" size={12} />
+                {loan.goingHome ? "Going home" : `Lent → ${loan.to}`}
+              </button>
+            )}
+            {onWatch && working && (
+              <button
+                type="button"
+                data-canvas-ui
+                className="topo-watch"
+                style={{ left: n.x + n.w, top: n.y + n.h }}
+                aria-label={`Watch ${p.title} write code`}
+                title={`Watch ${p.title} write code`}
+                onClick={() => onWatch(p.id)}
+              >
+                <Glyph name="watch" size={13} />
+                Watch
+              </button>
+            )}
+          </span>
+        );
+      })}
+      {handles.map((h) => (
+        <button
+          key={h.key}
+          type="button"
+          className={`topo-handle topo-handle--${h.kind}`}
+          data-symbol="handle"
+          data-line-end={JSON.stringify(h.line)}
+          style={{ left: h.at.x, top: h.at.y }}
+          aria-label={h.label}
+          title={h.label}
+          onClick={(e) => onLineMenu(h.line, at(e))}
+        />
+      ))}
       {layout.toggles.map((t) => (
         <button
           key={`toggle:${t.id}`}
           type="button"
           data-canvas-ui
+          data-symbol="toggle"
           className={`topo-toggle${t.collapsed ? " is-collapsed" : ""}`}
           style={{ left: t.x, top: t.y }}
           aria-expanded={!t.collapsed}
@@ -914,6 +1279,78 @@ const World = memo(function World({
     </>
   );
 });
+
+interface Handle {
+  key: string;
+  kind: "reports" | "overseer" | "target";
+  line: LineEnd;
+  at: Point;
+  label: string;
+}
+
+/** The selected agent's line ends (ADR-053 §7): buttons to drag, or to choose where they go. */
+function handlesFor(
+  layout: OrgLayout,
+  ctx: NodeContext,
+  selectedId: string | null,
+  oversight: OrgLayout["oversight"],
+): Handle[] {
+  const node = selectedId ? layout.byId.get(selectedId) : undefined;
+  if (!node || node.kind !== "position" || !node.position.active) return [];
+  const p = node.position;
+  const out: Handle[] = [];
+  const link = layout.links.find((l) => l.childId === p.id);
+  if (link?.from && !p.loan) {
+    const lead = p.reportsTo ? ctx.title(p.reportsTo) : "you";
+    out.push({
+      key: `handle:reports:${p.id}`,
+      kind: "reports",
+      line: { kind: "reports", positionId: p.id },
+      at: link.from,
+      label: `Line end: ${p.title} reports to ${lead}. Drag it onto another agent, or press Enter to choose.`,
+    });
+  }
+  for (const o of oversight) {
+    if (o.overseerId !== p.id && o.targetId !== p.id) continue;
+    const noun = OVERSIGHT_NOUN[o.role];
+    const overseer = ctx.title(o.overseerId);
+    const team = ctx.title(o.targetId);
+    out.push({
+      key: `handle:overseer:${o.id}`,
+      kind: "overseer",
+      line: { kind: "oversight", oversightId: o.id, end: "overseer" },
+      at: o.start,
+      label: `Line end: ${overseer}, the ${noun} for ${team}'s team. Drag it onto another on-call agent to hand the job over.`,
+    });
+    out.push({
+      key: `handle:target:${o.id}`,
+      kind: "target",
+      line: { kind: "oversight", oversightId: o.id, end: "target" },
+      at: o.end,
+      label: `Line end: ${team}'s team, checked by ${overseer} as its ${noun}. Drag it onto another lead to check that team instead.`,
+    });
+  }
+  return out;
+}
+
+/** The line end a handle stands for. */
+function lineOf(el: HTMLElement): LineEnd | null {
+  try {
+    const v = JSON.parse(el.dataset.lineEnd ?? "null") as LineEnd | null;
+    if (v && v.kind === "reports" && typeof v.positionId === "string") return v;
+    if (
+      v &&
+      v.kind === "oversight" &&
+      typeof v.oversightId === "string" &&
+      (v.end === "overseer" || v.end === "target")
+    ) {
+      return v;
+    }
+  } catch {
+    // Not a handle.
+  }
+  return null;
+}
 
 function nodeName(layout: OrgLayout, ctx: NodeContext, id: string): string {
   const n = layout.byId.get(id);

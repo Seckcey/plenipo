@@ -10,6 +10,7 @@ import { STAFFING_LABEL, STATUS_LABEL, ago, runtimeLabel, runtimeReady } from ".
 import { canTakeObjective, positionMap } from "../../../org/rules";
 import { rankName, roleLabel, titlesOf } from "../../../org/titles";
 import { EFFORT_LABEL } from "../../../routing/format";
+import { useOpenWatch } from "../../../terminal/useTerminal";
 import { PILL_TONE } from "../../tones";
 import { Glyph } from "../Glyph";
 import { Field, ItemLink, Option, Options, Refusal, Section, TaskRow } from "./parts";
@@ -66,6 +67,13 @@ export function OverviewTab({
   const role = snapshot.roles.find((r) => r.id === p.roleId);
   const t = titlesOf(snapshot);
   const sessionId = p.agent?.sessionId ?? null;
+  // Watch (Phase 18, ADR-055): what its workers change, in the terminal panel. Hidden where
+  // there is no terminal panel, and for an archived or vacant position.
+  const openWatch = useOpenWatch();
+  const watch =
+    openWatch && p.active && (p.agent || p.staffing !== "persistent")
+      ? () => openWatch(p.id, p.title)
+      : null;
 
   return (
     <>
@@ -155,8 +163,21 @@ export function OverviewTab({
         </Section>
       )}
 
-      {(actions.openPage || sessionId) && (
+      {(actions.openPage || sessionId || watch) && (
         <Options>
+          {watch && (
+            <Option
+              label="Watch"
+              icon="file"
+              ariaLabel={`Watch ${p.title}`}
+              hint={
+                p.status === "working"
+                  ? "See the code it writes as it writes it, in the terminal panel. Read-only."
+                  : "See the files it changed in its latest objective, in the terminal panel. Read-only."
+              }
+              onClick={watch}
+            />
+          )}
           {actions.openPage && (
             <Option
               label="Open its page"

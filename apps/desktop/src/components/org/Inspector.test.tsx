@@ -131,6 +131,7 @@ function actions(): InspectorActions {
       archiveProject: vi.fn(),
       bringBack: vi.fn(),
       saveToWorkforce: vi.fn(),
+      sendHome: vi.fn(),
     },
   };
 }

@@ -35,8 +35,10 @@ export function TeamTab({
   const t = titlesOf(snapshot);
   const supervisor = p.reportsTo ? byId.get(p.reportsTo) : null;
   const team = snapshot.positions.filter((x) => x.active && x.reportsTo === p.id);
+  const lentIn = snapshot.positions.filter((x) => x.active && x.loan?.toLeadId === p.id);
   return (
     <>
+      {p.loan && <LentSection p={p} actions={actions} onSelect={onSelect} />}
       <Section title="Reports to">
         <p>
           {supervisor ? (
@@ -57,10 +59,27 @@ export function TeamTab({
                 <li key={m.id}>
                   <ItemLink onClick={() => onSelect(m.id)}>{m.title}</ItemLink>{" "}
                   <StatusPill status={POSITION_STATUS[m.status]} label={STATUS_LABEL[m.status]} />
+                  {m.loan && <span className="muted"> · lent to {m.loan.to}&apos;s team</span>}
                 </li>
               ))}
             </ul>
           )}
+        </Section>
+      )}
+      {lentIn.length > 0 && (
+        <Section title={`Lent to its team (${lentIn.length})`}>
+          <ul className="inspector__list">
+            {lentIn.map((m) => (
+              <li key={m.id}>
+                <ItemLink onClick={() => onSelect(m.id)}>{m.title}</ItemLink>{" "}
+                <span className="muted">
+                  lent from {m.reportsTo ? (byId.get(m.reportsTo)?.title ?? "another") : "your"}
+                  &apos;s team
+                  {m.loan?.until === "objective" ? ", for one objective" : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
         </Section>
       )}
       {p.active && (
@@ -69,6 +88,51 @@ export function TeamTab({
       <DepartmentSection p={p} snapshot={snapshot} actions={actions} />
       <ProjectSection p={p} snapshot={snapshot} actions={actions} />
     </>
+  );
+}
+
+/** Where a lent agent helps now, and Send home (ADR-054 §5–§6). */
+function LentSection({
+  p,
+  actions,
+  onSelect,
+}: {
+  p: PositionInfo;
+  actions: InspectorActions;
+  onSelect: (id: string) => void;
+}) {
+  const { pending, error, go } = useRun(actions);
+  const loan = p.loan;
+  if (!loan) return null;
+  return (
+    <Section title="Lent to another team">
+      <p>
+        Helping <ItemLink onClick={() => onSelect(loan.toLeadId)}>{loan.to}</ItemLink>&apos;s team
+        {loan.project ? ` on ${loan.project}` : ""}
+        {loan.until === "objective"
+          ? loan.objectiveTaskId
+            ? ", until this objective is done."
+            : ", for its next objective."
+          : ", until you send it home."}{" "}
+        That team decides its permission limit, working copy, and AI tools while it helps.
+      </p>
+      {loan.goingHome ? (
+        <p className="muted">Going home after the task it is on.</p>
+      ) : (
+        <div className="option">
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={pending}
+            onClick={() => void go(() => actions.api.sendHome(p.id))}
+          >
+            Send home
+          </Button>
+          <span className="muted">If it is working, it finishes this task first.</span>
+        </div>
+      )}
+      <Refusal error={error} />
+    </Section>
   );
 }
 

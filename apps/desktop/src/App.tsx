@@ -50,6 +50,8 @@ import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
 import { rankName, titlesOf } from "./org/titles";
 import { useOrganizationNames } from "./org/useOrganizationNames";
+import { OwnerButton } from "./owner/OwnerButton";
+import { OwnerProvider } from "./owner/OwnerProvider";
 import { DepartmentPage } from "./pages/DepartmentPage";
 import { HomePage } from "./pages/HomePage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -163,7 +165,9 @@ export function App() {
     <RuntimeProvider>
       <AgentsProvider>
         <TerminalProvider>
-          <Shell core={core} />
+          <OwnerProvider>
+            <Shell core={core} />
+          </OwnerProvider>
         </TerminalProvider>
       </AgentsProvider>
     </RuntimeProvider>
@@ -304,6 +308,7 @@ function Shell({ core }: { core: CoreState }) {
                   v{info.version}
                 </span>
               )}
+              <OwnerButton />
               <TerminalButton />
               <ThemeToggle theme={theme} onChange={setTheme} />
               <NotificationBell

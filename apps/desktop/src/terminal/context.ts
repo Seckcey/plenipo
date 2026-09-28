@@ -19,6 +19,11 @@ export interface TerminalApi {
   /** A new terminal on this PC, or on a server from Settings → Servers. */
   openHere: () => void;
   openServer: (serverId: string, name: string, environment: Environment) => void;
+  /**
+   * Watch an agent write code (Phase 18, ADR-055): opens its Watch tab, or goes to the one
+   * already open, and shows the panel.
+   */
+  openWatch: (positionId: string, title: string) => void;
   close: (id: string) => void;
   /** Watch tabs that opened while the owner looked elsewhere. */
   unseen: number;
