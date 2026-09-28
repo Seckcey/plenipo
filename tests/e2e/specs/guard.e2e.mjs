@@ -16,10 +16,11 @@ import {
   launch,
   makeHome,
   nav,
-  screenshot,
-  waitUntil,
+  objectiveBox,
   openSettings,
+  screenshot,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -202,9 +203,8 @@ describe("Phase 7 Guard, capability broker, and approvals (real app, fake CLIs)"
     ].join(" ");
     await nav(browser, "Organization");
     await select(browser, "Website Supervisor");
-    const form = 'form[aria-label="Give an objective"]';
     await (
-      await browser.$(`${form} textarea`)
+      await objectiveBox(browser)
     ).setValue(`Ship it {{handoff:role:Senior Developer|${work}}}`);
     await clickButton(browser, "Give objective");
 

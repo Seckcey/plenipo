@@ -137,7 +137,10 @@ export function ProjectPage({
         lead={project.description || undefined}
         status={
           !project.active ? (
-            <StatusPill status="offline" label="Archived" />
+            <StatusPill
+              status="offline"
+              label={project.deleted ? "Deleted for good" : "Archived"}
+            />
           ) : lead ? (
             <StatusPill status={POSITION_STATUS[lead.status]} label={STATUS_LABEL[lead.status]} />
           ) : (

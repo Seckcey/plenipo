@@ -48,6 +48,10 @@ import type {
   RoleInput,
   RolePolicy,
   RoleUpdate,
+  RuleTarget,
+  ModelRule,
+  DeletionPreview,
+  SpecialtyInput,
   RoutingOptions,
   RoutingSnapshot,
   RuntimeOverview,
@@ -326,9 +330,9 @@ export function updateDepartment(
   return call<OrgSnapshot>("update_department", { departmentId, input });
 }
 
-/** Delete a department that has no projects (its head position is archived). */
-export function removeDepartment(departmentId: string): Promise<OrgSnapshot> {
-  return call<OrgSnapshot>("remove_department", { departmentId });
+/** Archive a department with everything in it (ADR-043), once nothing in it has unfinished work. */
+export function archiveDepartment(departmentId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("archive_department", { departmentId });
 }
 
 /** Create a project with its coordinator position. */
@@ -374,6 +378,80 @@ export function movePosition(positionId: string, reportsTo: string | null): Prom
 
 export function archivePosition(positionId: string): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("archive_position", { positionId });
+}
+
+// ---- Archive, bring back, delete for good, and the Workforce (Phase 17) -------------------
+
+/** What can be brought back or deleted for good. */
+export type ArchivedKind = "position" | "project" | "department";
+
+/** Bring an archived agent, project, or department back as it was (ADR-043). */
+export function bringBack(kind: ArchivedKind, id: string): Promise<OrgSnapshot> {
+  switch (kind) {
+    case "position":
+      return call<OrgSnapshot>("bring_back_position", { positionId: id });
+    case "project":
+      return call<OrgSnapshot>("bring_back_project", { projectId: id });
+    case "department":
+      return call<OrgSnapshot>("bring_back_department", { departmentId: id });
+  }
+}
+
+/** What deleting an archived item for good would take along, for the confirmation. */
+export function previewDeleteForGood(kind: ArchivedKind, id: string): Promise<DeletionPreview> {
+  return call<DeletionPreview>("preview_delete_for_good", { kind, id });
+}
+
+/**
+ * Delete an archived item for good, after you confirmed. The agents in `save` move to your
+ * Workforce instead (ADR-045). Refused while anything has unfinished work.
+ */
+export function deleteForGood(
+  kind: ArchivedKind,
+  id: string,
+  save: string[],
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("delete_for_good", { kind, id, save });
+}
+
+/** Save an archived agent to your Workforce. */
+export function saveToWorkforce(positionId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("save_to_workforce", { positionId });
+}
+
+/** Hire an agent from your Workforce into a team (`reportsTo` null: you). */
+export function hireFromWorkforce(
+  savedId: string,
+  reportsTo: string | null,
+  title?: string,
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("hire_from_workforce", {
+    savedId,
+    reportsTo,
+    title: title?.trim() ? title.trim() : null,
+  });
+}
+
+/** Delete an agent in your Workforce for good. */
+export function deleteSavedAgent(savedId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("delete_saved_agent", { savedId });
+}
+
+// ---- Specialties (Phase 17, ADR-042) --------------------------------------------------------
+
+/** Add one of your own specialties to a role. */
+export function createSpecialty(input: SpecialtyInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("create_specialty", { input });
+}
+
+/** Change one of your own specialties. */
+export function updateSpecialty(specialtyId: string, input: SpecialtyInput): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("update_specialty", { specialtyId, input });
+}
+
+/** Remove one of your own specialties (refused while an agent on the chart has it). */
+export function removeSpecialty(specialtyId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("remove_specialty", { specialtyId });
 }
 
 /** Assign an on-demand position to review, QA, or security-audit a team. */
@@ -448,6 +526,14 @@ export function removeModel(modelId: string): Promise<RoutingSnapshot> {
 
 export function setRolePolicy(roleId: string, policy: RolePolicy): Promise<RoutingSnapshot> {
   return call<RoutingSnapshot>("set_role_policy", { roleId, policy });
+}
+
+/**
+ * Set the organization's, a department's, or one agent's model and effort rule (ADR-041). An
+ * empty rule for a department or an agent removes it.
+ */
+export function setModelRule(target: RuleTarget, rule: ModelRule): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("set_model_rule", { target, rule });
 }
 
 export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnapshot> {
@@ -568,6 +654,19 @@ export function setLearning(enabled: boolean): Promise<LearningSnapshot> {
 /** Whether a role learns on its own (its lessons kept without asking). */
 export function setRoleLearning(roleId: string, auto: boolean): Promise<LearningSnapshot> {
   return call("set_role_learning", { roleId, auto });
+}
+
+/** Learning on or off for a role's agents (ADR-041). */
+export function setRoleLearns(roleId: string, learns: boolean): Promise<LearningSnapshot> {
+  return call("set_role_learns", { roleId, learns });
+}
+
+/** Learning on or off for one agent; `null`: it follows its role. */
+export function setAgentLearning(
+  positionId: string,
+  learns: boolean | null,
+): Promise<LearningSnapshot> {
+  return call("set_agent_learning", { positionId, learns });
 }
 
 /** Keep a waiting lesson (in your own words, when `text` is given) or discard it. */

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import type { PermissionsSnapshot, Switches } from "@plenipo/types";
 import { Switch } from "@plenipo/ui";
 
@@ -23,6 +23,7 @@ export function Toggle({
   disabled?: boolean;
   onChange: (on: boolean) => void;
 }) {
+  const hintId = useId();
   return (
     <div className="toggle">
       <Switch
@@ -31,12 +32,15 @@ export function Toggle({
         disabled={disabled}
         showState={false}
         onChange={onChange}
+        describedBy={hintId}
       />
       <div className="toggle__words">
         <span className="toggle__label">
           {label} <span className="toggle__state">{checked ? "On" : "Off"}</span>
         </span>
-        <span className="muted">{hint}</span>
+        <span id={hintId} className="muted">
+          {hint}
+        </span>
       </div>
     </div>
   );

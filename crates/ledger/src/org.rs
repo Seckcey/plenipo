@@ -74,10 +74,12 @@ pub(crate) fn dept_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Department> {
         metadata: parse_json(r.get(5)?),
         created_at: u64_of(r.get(6)?),
         head_position_id: r.get(7)?,
+        archived_at: crate::rows::opt_u64(r.get(8)?),
+        deleted_at: crate::rows::opt_u64(r.get(9)?),
     })
 }
-pub(crate) const DEPT_COLS: &str =
-    "id, name, description, manager_role_id, status, metadata, created_at, head_position_id";
+pub(crate) const DEPT_COLS: &str = "id, name, description, manager_role_id, status, metadata, \
+    created_at, head_position_id, archived_at, deleted_at";
 
 pub(crate) fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -94,11 +96,13 @@ pub(crate) fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         capability_profile: r.get(10)?,
         status: r.get(11)?,
         branch_per_objective: r.get::<_, i64>(12)? != 0,
+        archived_at: crate::rows::opt_u64(r.get(13)?),
+        deleted_at: crate::rows::opt_u64(r.get(14)?),
     })
 }
 pub(crate) const PROJECT_COLS: &str = "id, name, local_path, repository_url, department_id, \
     metadata, created_at, description, coordinator_position_id, allowed_runtimes, \
-    capability_profile, status, branch_per_objective";
+    capability_profile, status, branch_per_objective, archived_at, deleted_at";
 
 pub(crate) fn agent_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentInstance> {
     Ok(AgentInstance {
@@ -320,6 +324,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app changes a department with `update_department_details`, which refuses
+    /// archived and deleted ones.
+    #[cfg(test)]
     pub fn update_department(
         &self,
         id: &str,
@@ -344,6 +351,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app archives a department and deletes it for good (`archive.rs`), which
+    /// keeps a short record and refuses while anything has unfinished work.
+    #[cfg(test)]
     pub fn delete_department(&self, id: &str, actor: &str) -> Result<()> {
         self.write(|tx, out| {
             let n = tx
@@ -433,6 +443,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app archives a project and deletes it for good (`archive.rs`), which keeps
+    /// a short record and refuses while anything has unfinished work.
+    #[cfg(test)]
     pub fn delete_project(&self, id: &str, actor: &str) -> Result<()> {
         self.write(|tx, out| {
             let n = tx

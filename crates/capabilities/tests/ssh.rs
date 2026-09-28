@@ -102,6 +102,7 @@ fn lead(role_id: &str, title: &str) -> LeadInput {
         runtime_id: Some("claude-code".into()),
         model: None,
         vacant: None,
+        from_workforce: None,
     }
 }
 
@@ -312,6 +313,7 @@ async fn harness() -> H {
                 runtime_id: Some("claude-code".into()),
                 model: None,
                 vacant: None,
+                specialty_id: None,
             })
             .unwrap();
         assert!(s.positions.iter().any(|p| p.title == title));

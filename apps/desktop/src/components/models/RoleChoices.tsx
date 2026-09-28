@@ -13,16 +13,13 @@ import { setRolePolicy } from "../../api/commands";
 import {
   COST_PREFERENCE_LABEL,
   CROSS_COMPANY_LABEL,
-  EFFORT_LABEL,
   FEATURES,
   FEATURE_LABEL,
   choiceLabel,
-  companies,
-  effortLevels,
-  modelLabel,
 } from "../../routing/format";
 import { useChange, type Apply } from "../../routing/useChange";
 import { PILL_TONE } from "../tones";
+import { AnyEffort, ModelOrder, NeverCompanies } from "./RuleEditor";
 import { Refusal } from "./shared";
 
 /**
@@ -117,20 +114,8 @@ function PolicyEditor({
   const [cost, setCost] = useState<CostPreference>(p.cost);
   const [cross, setCross] = useState<CrossCompany>(p.crossCompany);
   const [efforts, setEfforts] = useState<Partial<Record<string, Effort>>>(p.efforts);
+  const [effort, setEffort] = useState<Effort | null>(p.effort);
   const { pending, error, run } = useChange(onApply);
-  const byId = new Map(snapshot.models.map((m) => [m.id, m]));
-  const label = (id: string) => {
-    const m = byId.get(id);
-    return m ? modelLabel(snapshot, m) : "A removed model";
-  };
-  const addable = snapshot.models.filter((m) => !models.includes(m.id));
-
-  const move = (i: number, by: number) => {
-    const next = [...models];
-    const [item] = next.splice(i, 1);
-    next.splice(i + by, 0, item as string);
-    setModels(next);
-  };
   const toggle = <T,>(list: T[], item: T, on: boolean) =>
     on ? [...list.filter((x) => x !== item), item] : list.filter((x) => x !== item);
 
@@ -146,6 +131,7 @@ function PolicyEditor({
         cost,
         crossCompany: cross,
         efforts,
+        effort,
       }),
     );
     if (ok) onDone();
@@ -157,82 +143,15 @@ function PolicyEditor({
       aria-label={`Model choices for ${view.roleName}`}
       onSubmit={(e) => void save(e)}
     >
-      <fieldset className="fieldset">
-        <legend>Models, in order</legend>
-        {models.length === 0 ? (
-          <p className="hint">
-            None listed: {view.roleName} uses any model in your list —{" "}
-            {COST_PREFERENCE_LABEL[cost].toLowerCase()}.
-          </p>
-        ) : (
-          <ol className="models__order">
-            {models.map((id, i) => (
-              <li key={id}>
-                <span className="models__rank">{i === 0 ? "First choice" : `Backup ${i}`}</span>
-                <span className="models__name">{label(id)}</span>
-                <EffortPicker
-                  snapshot={snapshot}
-                  modelId={id}
-                  name={label(id)}
-                  value={efforts[id]}
-                  onChange={(e) => {
-                    const next = { ...efforts };
-                    if (e) next[id] = e;
-                    else delete next[id];
-                    setEfforts(next);
-                  }}
-                />
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  aria-label={`Move ${label(id)} up`}
-                  disabled={i === 0}
-                  onClick={() => move(i, -1)}
-                >
-                  ↑
-                </Button>
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  aria-label={`Move ${label(id)} down`}
-                  disabled={i === models.length - 1}
-                  onClick={() => move(i, 1)}
-                >
-                  ↓
-                </Button>
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  aria-label={`Take ${label(id)} off the list`}
-                  onClick={() => setModels(models.filter((x) => x !== id))}
-                >
-                  Remove
-                </Button>
-              </li>
-            ))}
-          </ol>
-        )}
-        <label className="field">
-          <span>Add a model to the list</span>
-          {/* Remounted after every change, so it always shows its prompt again (a controlled
-              select kept at "" is not reset by the browser when its options change). */}
-          <select
-            key={models.join()}
-            value=""
-            disabled={addable.length === 0}
-            onChange={(e) => e.target.value && setModels([...models, e.target.value])}
-          >
-            <option value="">
-              {addable.length === 0 ? "Every model is listed" : "Choose a model…"}
-            </option>
-            {addable.map((m) => (
-              <option key={m.id} value={m.id}>
-                {modelLabel(snapshot, m)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </fieldset>
+      <ModelOrder
+        snapshot={snapshot}
+        models={models}
+        efforts={efforts}
+        onModels={setModels}
+        onEfforts={setEfforts}
+        empty={`None listed: ${view.roleName} uses any model in your list — ${COST_PREFERENCE_LABEL[cost].toLowerCase()}.`}
+      />
+      <AnyEffort snapshot={snapshot} value={effort} onChange={setEffort} />
 
       <fieldset className="fieldset">
         <legend>The model must be able to</legend>
@@ -285,19 +204,7 @@ function PolicyEditor({
           For reviewers: a model from a different AI company than the one whose work it checks.
         </small>
       </label>
-      <fieldset className="fieldset">
-        <legend>Never use these AI companies</legend>
-        {companies(snapshot).map((c) => (
-          <label key={c.id} className="check">
-            <input
-              type="checkbox"
-              checked={never.includes(c.id)}
-              onChange={(e) => setNever(toggle(never, c.id, e.target.checked))}
-            />
-            <span>{c.label}</span>
-          </label>
-        ))}
-      </fieldset>
+      <NeverCompanies snapshot={snapshot} value={never} onChange={setNever} />
       <Refusal error={error} />
       <div className="actions">
         <Button type="submit" variant="primary" size="sm" disabled={pending}>
@@ -308,40 +215,5 @@ function PolicyEditor({
         </Button>
       </div>
     </form>
-  );
-}
-
-/** A role's effort for one model: the model's own setting, or a level its AI tool accepts. */
-function EffortPicker({
-  snapshot,
-  modelId,
-  name,
-  value,
-  onChange,
-}: {
-  snapshot: RoutingSnapshot;
-  modelId: string;
-  name: string;
-  value: Effort | undefined;
-  onChange: (effort: Effort | undefined) => void;
-}) {
-  const model = snapshot.models.find((m) => m.id === modelId);
-  const levels = model ? effortLevels(snapshot, model.runtimeId, model.name) : [];
-  if (!model || levels.length === 0) return null;
-  const own = model.effort ? EFFORT_LABEL[model.effort].toLowerCase() : "the AI tool's default";
-  return (
-    <select
-      className="models__effort"
-      aria-label={`Effort for ${name}`}
-      value={value && levels.includes(value) ? value : ""}
-      onChange={(e) => onChange((e.target.value || undefined) as Effort | undefined)}
-    >
-      <option value="">Its effort ({own})</option>
-      {levels.map((l) => (
-        <option key={l} value={l}>
-          {EFFORT_LABEL[l]} effort
-        </option>
-      ))}
-    </select>
   );
 }

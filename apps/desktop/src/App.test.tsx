@@ -156,7 +156,14 @@ beforeEach(() => {
   api.getScopeEvents.mockResolvedValue([]);
   api.getTaskEvents.mockResolvedValue([]);
   api.getProjectRecord.mockResolvedValue({ pullRequests: [], artifacts: [], decisions: [] });
-  api.getLearning.mockResolvedValue({ enabled: true, autoRoles: [], waiting: [], kept: [] });
+  api.getLearning.mockResolvedValue({
+    enabled: true,
+    autoRoles: [],
+    offRoles: [],
+    agents: {},
+    waiting: [],
+    kept: [],
+  });
   api.getAppInfo.mockResolvedValue({
     name: "Plenipo",
     version: "0.1.0",

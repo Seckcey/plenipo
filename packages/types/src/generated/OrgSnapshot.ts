@@ -6,6 +6,7 @@ import type { PositionInfo } from "./PositionInfo";
 import type { ProjectInfo } from "./ProjectInfo";
 import type { RoleInfo } from "./RoleInfo";
 import type { RuntimeBrief } from "./RuntimeBrief";
+import type { SavedAgentInfo } from "./SavedAgentInfo";
 import type { TitleTheme } from "./TitleTheme";
 
 /**
@@ -17,6 +18,15 @@ export type OrgSnapshot = { name: string,
  */
 titles: TitleTheme, roles: Array<RoleInfo>, departments: Array<DepartmentInfo>, projects: Array<ProjectInfo>, 
 /**
- * Active positions first (in tree order), then archived ones.
+ * Active positions first (in tree order), then archived ones, then the short records of
+ * deleted ones (so older work still names them).
  */
-positions: Array<PositionInfo>, oversight: Array<OversightInfo>, stats: OrgStats, runtimes: Array<RuntimeBrief>, notices: Array<string>, generatedAt: number, };
+positions: Array<PositionInfo>, 
+/**
+ * The agents the owner saved to hire again (ADR-045), most recent first.
+ */
+workforce: Array<SavedAgentInfo>, 
+/**
+ * The organization's average experience, over agents that finished a task (ADR-045).
+ */
+averageExperience: number, oversight: Array<OversightInfo>, stats: OrgStats, runtimes: Array<RuntimeBrief>, notices: Array<string>, generatedAt: number, };

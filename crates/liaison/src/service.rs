@@ -19,9 +19,9 @@ use plenipo_ledger::{
     MessageState, NewEvent, NewHandoffRequest, NewReply, NewTask, OpenRequest, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState, SessionStart,
-    StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult,
-    TurnTask, OWNER,
+    text_hash, unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState,
+    SessionStart, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef,
+    TurnResult, TurnTask, OWNER,
 };
 use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
@@ -29,8 +29,8 @@ use tokio::sync::Notify;
 
 use crate::address::Address;
 use crate::context::{
-    self, ContextPacket, DeliveredReply, Destination, PacketArtifact, PacketCapabilities,
-    PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
+    self, ContextPacket, DeliveredReply, Destination, Given, Had, PacketArtifact,
+    PacketCapabilities, PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
 };
 use crate::directory::{is_full_time, Directory, Placement, Team};
 use crate::dto::*;
@@ -164,7 +164,26 @@ struct State {
     inflight: HashSet<String>,
     shutting_down: bool,
     notices: Vec<String>,
+    /// The saved records each full-time member's conversation already has, by session ID
+    /// (ADR-044 §4.13). Only those conversations are handed one task after another; every other
+    /// worker starts a new conversation for each task.
+    given: HashMap<String, Records>,
+    /// The saved records a step is being sent (task ID, text hash), by the step's task ID,
+    /// until the step ends: (session ID, records).
+    sending: HashMap<String, (String, Vec<(String, u64)>)>,
 }
+
+/// The saved records a conversation has: given to it, or its own results. They hold while the
+/// runtime's mark for the conversation stays the same; once the AI tool shortened its memory,
+/// or Plenipo started again, they are pasted again.
+#[derive(Debug, Default)]
+struct Records {
+    mark: Option<u64>,
+    tasks: Given,
+}
+
+/// Most saved records remembered per conversation; past it, they are pasted again.
+const MAX_RECORDS: usize = 256;
 
 struct Inner {
     ledger: Arc<Ledger>,
@@ -229,6 +248,15 @@ impl Snapshot {
             retire,
         })
     }
+}
+
+/// Whom a worker's messages are for: a member's identity and its one line about itself (none
+/// for the owner's own workers), and the workers it may hand work to.
+#[derive(Debug, Clone, Default)]
+struct Audience {
+    identity: Option<String>,
+    who: Option<String>,
+    destinations: Vec<Destination>,
 }
 
 /// A request Liaison accepted, with what the child needs.
@@ -296,19 +324,29 @@ impl Liaison {
         self.directory()?.team(workforce)
     }
 
-    /// A worker's identity and destinations: its team for a member, runtimes otherwise.
-    fn audience(&self, workforce: &Value) -> (Option<String>, Vec<Destination>) {
+    /// Whom a worker's messages are for: its team for a member, runtimes otherwise.
+    fn audience(&self, workforce: &Value) -> Audience {
         match self.team(workforce) {
-            Some(team) => (Some(team.identity), team.members),
-            None => (None, self.destinations()),
+            Some(team) => Audience {
+                identity: Some(team.identity),
+                who: team.reminder,
+                destinations: team.members,
+            },
+            None => Audience {
+                destinations: self.destinations(),
+                ..Audience::default()
+            },
         }
     }
 
-    async fn audience_async(&self, workforce: Value) -> (Option<String>, Vec<Destination>) {
+    async fn audience_async(&self, workforce: Value) -> Audience {
         let this = self.clone();
         tokio::task::spawn_blocking(move || this.audience(&workforce))
             .await
-            .unwrap_or_else(|_| (None, self.destinations()))
+            .unwrap_or_else(|_| Audience {
+                destinations: self.destinations(),
+                ..Audience::default()
+            })
     }
 
     fn notice(&self, notice: String) {
@@ -396,7 +434,7 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
         runtime
             .start_session_with(
                 SessionStart {
@@ -413,7 +451,8 @@ impl Liaison {
                 },
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
@@ -449,15 +488,14 @@ impl Liaison {
         if !info.enabled {
             return runtime.resume_session(session_id, objective).await;
         }
-        // Each objective restates the instructions: the provider may have compacted the first
-        // turn away, and destinations may have changed since.
-        let prompt = context::root_prompt(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
         runtime
             .resume_session_with(
                 session_id,
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: root_metadata(),
@@ -493,9 +531,14 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt =
-            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::root_brief(
+            objective,
+            audience.identity.as_deref(),
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
         let mut metadata = match start.metadata {
             Value::Object(_) => start.metadata,
             _ => json!({}),
@@ -509,7 +552,8 @@ impl Liaison {
                 SessionStart { metadata, ..start },
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: task_metadata,
@@ -540,9 +584,14 @@ impl Liaison {
                 "this session does not belong to that member".into(),
             ));
         }
-        let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt =
-            context::root_prompt(objective, identity.as_deref(), &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::root_brief(
+            objective,
+            audience.identity.as_deref(),
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
         let mut task_metadata = root_metadata();
         task_metadata["workforce"] = workforce;
         runtime
@@ -550,7 +599,8 @@ impl Liaison {
                 session_id,
                 TurnInput {
                     objective: objective.into(),
-                    prompt: Some(prompt),
+                    prompt: None,
+                    brief: Some(brief.into_input()),
                     task: TurnTask::New {
                         requested_by: OWNER.into(),
                         metadata: task_metadata,
@@ -561,9 +611,76 @@ impl Liaison {
             .await
     }
 
+    // ---- Saved records a conversation has (ADR-044 §4.13) --------------------------------
+
+    /// The saved records a full-time member's conversation `session` has now, keeping track of
+    /// them from now on: none after its AI tool shortened its memory or Plenipo started again
+    /// (the runtime's mark moved on), or when its AI tool does not say when it shortens its
+    /// memory (no mark).
+    fn given(&self, session: &str) -> Given {
+        let mark = self.inner.runtime.memory_mark(session);
+        let mut state = self.lock();
+        let records = state.given.entry(session.to_owned()).or_default();
+        if mark.is_some() && records.mark == mark {
+            records.tasks.clone()
+        } else {
+            Given::new()
+        }
+    }
+
+    /// A step of `task` is about to be sent to `session` with these saved records (task ID,
+    /// hash of the text sent).
+    fn sending(&self, task: &str, session: &str, records: Vec<(String, u64)>) {
+        self.lock()
+            .sending
+            .insert(task.to_owned(), (session.to_owned(), records));
+    }
+
+    /// A step ended. When it finished and the AI tool kept all of the conversation through it,
+    /// the records it was sent are the conversation's now, and so is the task's own result when
+    /// the task is done (`done`).
+    fn step_ended(&self, end: &TurnEnd, done: bool) {
+        let mut state = self.lock();
+        let sent = state.sending.remove(&end.task_id);
+        let (TurnOutcome::Completed, Some(mark)) = (end.result.outcome, end.memory_mark) else {
+            return;
+        };
+        // Kept for full-time members' conversations only (see `given`).
+        let Some(records) = state.given.get_mut(&end.session.id) else {
+            return;
+        };
+        if records.mark != Some(mark) {
+            records.mark = Some(mark);
+            records.tasks.clear();
+        }
+        if let Some((session, tasks)) = sent {
+            if session == end.session.id {
+                for (id, hash) in tasks {
+                    // Its own result stays its own; a record given again has its latest text.
+                    let had = records.tasks.entry(id).or_insert(Had::Given(hash));
+                    if *had != Had::Own {
+                        *had = Had::Given(hash);
+                    }
+                }
+            }
+        }
+        if done {
+            records.tasks.insert(end.task_id.clone(), Had::Own);
+        }
+        if records.tasks.len() > MAX_RECORDS {
+            records.tasks.clear();
+        }
+    }
+
     // ---- Turn ends ----------------------------------------------------------------------
 
     fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        let disposition = self.disposition(end);
+        self.step_ended(end, disposition == TurnDisposition::Finish);
+        disposition
+    }
+
+    fn disposition(&self, end: &TurnEnd) -> TurnDisposition {
         if !session_info(&end.session.metadata).enabled
             || end.result.outcome != TurnOutcome::Completed
         {
@@ -733,6 +850,18 @@ impl Liaison {
         Ok(Some(reason))
     }
 
+    /// Who did a task, as a reference to it names it: a member of the organization by its
+    /// position, any other worker by its AI tool.
+    fn worker_of(&self, l: &Ledger, task: &Task) -> String {
+        l.liaison_request_for_child(&task.id)
+            .ok()
+            .flatten()
+            .and_then(|r| r.destination.strip_prefix("role:").map(str::to_owned))
+            .unwrap_or_else(|| {
+                self.runtime_label(task.metadata["runtimeId"].as_str().unwrap_or("worker"))
+            })
+    }
+
     /// The runtimes that did the work a request is about: those of the same workflow's tasks
     /// it references, or else the requester's own (for cross-company review, Phase 6).
     fn reviewed_work(&self, d: &Directive, task: &Task, correlation: &str) -> Vec<String> {
@@ -856,12 +985,14 @@ impl Liaison {
                         cap_bytes(answer, config.answer_context_bytes)
                     },
                     task_id: None,
+                    by: None,
                 },
                 ContextRequest::Excerpt { title, text } => PacketReference {
                     kind: "excerpt".into(),
                     title: format!("Excerpt: {title}"),
                     text: text.clone(),
                     task_id: None,
+                    by: None,
                 },
                 ContextRequest::Task { task_id } => {
                     let found = l.task(task_id).map_err(|e| e.to_string())?;
@@ -886,6 +1017,7 @@ impl Liaison {
                             || "(No result yet.)".into(),
                             |t| cap_bytes(&t, config.task_context_bytes),
                         ),
+                        by: Some(self.worker_of(l, &found)),
                         task_id: Some(found.id),
                     }
                 }
@@ -1319,7 +1451,8 @@ impl Liaison {
         &self,
         request: &LiaisonMessage,
         child: &Task,
-        prompt: String,
+        packet: &ContextPacket,
+        audience: &Audience,
     ) -> Result<()> {
         let Some(directory) = self.directory() else {
             self.fail_dispatch(
@@ -1353,13 +1486,25 @@ impl Liaison {
             Err(LiaisonError::Ledger(LedgerError::InvalidInput(_))) => return Ok(()),
             Err(e) => return Err(e),
         };
+        // The member's conversation may already have some of the saved records the request
+        // passes: its short form names them instead of pasting them again (ADR-044 §4.13).
+        let given = self.given(&conversation.session_id);
+        let brief = context::child_brief(
+            packet,
+            audience.who.as_deref(),
+            Some(&given),
+            &audience.destinations,
+            self.limits(),
+        );
         let input = TurnInput {
             objective: child.objective.clone(),
-            prompt: Some(prompt),
+            prompt: None,
+            brief: Some(brief.into_input()),
             task: TurnTask::Existing {
                 task_id: child.id.clone(),
             },
         };
+        self.sending(&child.id, &conversation.session_id, task_records(packet));
         let runtime = &self.inner.runtime;
         let started = match member.start {
             Some(start) => runtime.start_session_with(start, input).await,
@@ -1369,6 +1514,9 @@ impl Liaison {
                     .await
             }
         };
+        if started.is_err() {
+            self.lock().sending.remove(&child.id);
+        }
         match started {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(RuntimeError::SessionBusy(_)) => self.note_member_busy(&child, request).await,
@@ -1395,11 +1543,20 @@ impl Liaison {
         };
         // A member's worker addresses its own team; others address runtimes.
         let workforce = child.metadata["workforce"].clone();
-        let (_, destinations) = self.audience_async(workforce.clone()).await;
-        let prompt = context::child_prompt(&packet, &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
         if is_full_time(&workforce) {
-            return self.dispatch_member(request, child, prompt).await;
+            return self
+                .dispatch_member(request, child, &packet, &audience)
+                .await;
         }
+        // A new conversation for every task: nothing is given to it yet.
+        let brief = context::child_brief(
+            &packet,
+            audience.who.as_deref(),
+            None,
+            &audience.destinations,
+            self.limits(),
+        );
         let parent_session = request.source.strip_prefix("session:").unwrap_or_default();
         let mut metadata = json!({ "liaison": {
             "enabled": true,
@@ -1422,9 +1579,11 @@ impl Liaison {
             title: Some(child.objective.clone()),
             metadata,
         };
+        // A new conversation for every task: the full instructions always go out.
         let input = TurnInput {
             objective: child.objective.clone(),
-            prompt: Some(prompt),
+            prompt: None,
+            brief: Some(brief.into_input()),
             task: TurnTask::Existing {
                 task_id: child.id.clone(),
             },
@@ -1514,6 +1673,7 @@ impl Liaison {
                         (false, Some(title)) => format!("{title} ({runtime})"),
                         (false, None) => runtime,
                     },
+                    task_id: reply.child_task_id.clone(),
                     request: request
                         .as_ref()
                         .and_then(|r| str_of(&r.envelope["objective"]))
@@ -1530,10 +1690,11 @@ impl Liaison {
             .config
             .max_rounds
             .saturating_sub(rounds.saturating_add(1));
-        let (_, destinations) = self
+        let destinations = self
             .audience_async(task.metadata["workforce"].clone())
-            .await;
-        let prompt = context::replies_prompt(
+            .await
+            .destinations;
+        let message = context::replies_message(
             &delivered,
             &replies[0].correlation_id,
             rounds_left,
@@ -1548,13 +1709,26 @@ impl Liaison {
                 if ids.len() == 1 { "y" } else { "ies" }
             ),
             data: json!({ "deliver": ids }),
+            passed_bytes: message.passed_bytes,
         };
-        match self
+        // The replies' results are the conversation's once it has them (ADR-044 §4.13).
+        let answered = delivered
+            .iter()
+            .filter_map(|r| {
+                let text = r.text.as_deref().filter(|t| !t.trim().is_empty());
+                Some((r.task_id.clone()?, text_hash(text.unwrap_or(&r.summary))))
+            })
+            .collect();
+        self.sending(&task.id, session_id, answered);
+        let continued = self
             .inner
             .runtime
-            .continue_turn(session_id, &task.id, &prompt, note)
-            .await
-        {
+            .continue_turn(session_id, &task.id, &message.text, note)
+            .await;
+        if continued.is_err() {
+            self.lock().sending.remove(&task.id);
+        }
+        match continued {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(RuntimeError::NotWaiting(why)) => {
                 // Nothing holds this task's session any more: end it rather than leave it
@@ -1600,7 +1774,9 @@ impl Liaison {
         let this = self.clone();
         tokio::spawn(async move {
             // A worker still finishing is retired by a later pass.
-            let _ = this.inner.runtime.close_session(&session_id).await;
+            if this.inner.runtime.close_session(&session_id).await.is_ok() {
+                this.lock().given.remove(&session_id);
+            }
             this.release(&key);
         });
     }
@@ -1802,6 +1978,15 @@ impl Liaison {
             notices: self.lock().notices.clone(),
         })
     }
+}
+
+/// The saved records a request's context passes: task ID and the hash of the text passed.
+fn task_records(packet: &ContextPacket) -> Vec<(String, u64)> {
+    packet
+        .references
+        .iter()
+        .filter_map(|r| Some((r.task_id.clone()?, text_hash(&r.text))))
+        .collect()
 }
 
 /// The destination's label as recorded when the request was accepted.

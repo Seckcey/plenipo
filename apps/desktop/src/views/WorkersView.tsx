@@ -11,11 +11,14 @@ import { Button, StatusPill, Tag } from "@plenipo/ui";
 import { toCommandError } from "../api/commands";
 import {
   describeActivity,
+  describePrompt,
   describeUsage,
   notReadyHint,
   OUTCOME_LABEL,
   outcomeTone,
   runtimeStatus,
+  turnPromptSizes,
+  turnUsage,
 } from "../agents/format";
 import {
   activityItems,
@@ -563,6 +566,9 @@ function TurnCard({
   const stepped = turn.steps.length > 1 || turn.waiting || sent.length > 0;
   const open = openHandoffs(handoffs);
   const received = handoffs?.received;
+  const prompt = describePrompt(turnPromptSizes(turn));
+  // Its tokens over the same steps as the size beside them.
+  const usage = turnUsage(turn);
   return (
     <li
       className="turn"
@@ -669,7 +675,8 @@ function TurnCard({
             <pre className="turn__error">{result.error}</pre>
           )}
           <div className="card__meta">
-            {result.usage && <>{describeUsage(result.usage)} · </>}
+            {usage && <>{describeUsage(usage)} · </>}
+            {prompt && <>{prompt} · </>}
             {result.durationMs !== null && <>{(result.durationMs / 1000).toFixed(1)}s · </>}
             {turn.endedAt !== null && <>finished {formatTime(turn.endedAt)}</>}
             {result.ignoredLines > 0 && <> · {result.ignoredLines} unrecognized line(s) ignored</>}

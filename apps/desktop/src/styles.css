@@ -665,7 +665,8 @@ body {
   margin-bottom: 10px;
 }
 
-.field > span {
+.field > span,
+.field__label {
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-sm);
 }
@@ -1204,7 +1205,7 @@ body {
   right: 0;
   bottom: 0;
   z-index: 6;
-  width: 360px;
+  width: var(--inspector-width, 360px);
   box-shadow: -18px 0 40px -18px var(--ui-shadow);
 }
 
@@ -1213,7 +1214,7 @@ body {
 }
 
 .org__body--list.has-inspector {
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) var(--inspector-width, 360px);
 }
 
 /* Hire palette */
@@ -2048,11 +2049,77 @@ body {
 /* Inspector */
 
 .inspector {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--ui-border);
   background: var(--ui-surface);
+}
+
+/* Its left edge widens or narrows it (Phase 17). */
+.inspector > .ui-resize--left {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  background: transparent;
+}
+
+.inspector > .ui-resize--left:hover,
+.inspector > .ui-resize--left:focus-visible {
+  background: var(--ui-accent);
+}
+
+/* The six tabs stay in view: at a narrow width they wrap onto a second line. */
+.inspector__tabs {
+  flex: none;
+  flex-wrap: wrap;
+  padding: 0 var(--ui-space-3);
+}
+
+.inspector__tabs .ui-tabs__tab {
+  padding: 0 var(--ui-space-3);
+}
+
+/* Every option in the panel: the control, and under it what it does. */
+.options {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.option {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+}
+
+.option__hint {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.inspector__objective .option {
+  margin-top: 6px;
+}
+
+.check-option {
+  margin: 0 0 10px;
+}
+
+/* A hint set after its field's label (so the control's name stays short). */
+.field__hint--after {
+  display: block;
+  margin: -6px 0 10px;
+}
+
+.check-option > .check {
+  margin-bottom: 2px;
+}
+
+.check-option > .check__hint {
+  margin-left: 22px;
 }
 
 .inspector__header {
@@ -3303,4 +3370,27 @@ body {
 .diagnostics-file {
   display: grid;
   gap: var(--ui-space-3);
+}
+
+/* ---- The owner's control over workers (Phase 17) --------------------------------------------- */
+
+.table__actions {
+  white-space: nowrap;
+}
+
+.table__actions .ui-button + .ui-button {
+  margin-left: 6px;
+}
+
+.archived .table,
+.workforce .table {
+  margin-top: 12px;
+}
+
+.delete-agents {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
 }

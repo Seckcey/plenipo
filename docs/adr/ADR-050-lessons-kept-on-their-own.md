@@ -1,6 +1,12 @@
 # ADR-050: Lessons a role keeps on its own are notes, not orders
 
 - **Status:** Accepted (by the owner, 2026-09-28)
+- **As built (v1.10.0, with Phase 17):** the fence's nonce (§3) comes from a keyed hash of the
+  lessons, its key drawn at random when Plenipo starts. No one who writes a lesson can know it,
+  and it changes with any lesson and at every start, so a line inside the fence still cannot
+  close it; while the lessons stay the same it stays the same, so a conversation's instructions
+  stay the same and a routine task gets the short reminder of ADR-044 (prompts sized to the
+  job). A fresh nonce on every build would send the full instructions with every task.
 - **Date:** 2026-09-28
 - **Phase:** 10 (follow-up)
 - **Amends:** [ADR-024 (workers learn from their work)](ADR-024-workers-learn-from-work.md),

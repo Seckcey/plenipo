@@ -41,17 +41,18 @@ The **minor** version increases by one each time a rollout phase is accepted, un
 
 After the MVP:
 
-| Release                                                            | Version |
-| ------------------------------------------------------------------ | ------- |
-| Grok joins the AI tools (ADR-015)                                  | `1.1.0` |
-| Ollama's cloud models join the AI tools (ADR-017)                  | `1.2.0` |
-| Phase 10 — Browser automation and computer use (Phase 9 postponed) | `1.3.0` |
-| Switches in Settings and workers learning (ADR-023, ADR-024)       | `1.4.0` |
-| Kimi joins the AI tools (ADR-027)                                  | `1.5.0` |
-| Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.6.0` |
-| Phase 12A — Visual design system (ADR-030)                         | `1.7.0` |
-| Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)   | `1.8.0` |
-| Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)     | `1.9.0` |
+| Release                                                            | Version  |
+| ------------------------------------------------------------------ | -------- |
+| Grok joins the AI tools (ADR-015)                                  | `1.1.0`  |
+| Ollama's cloud models join the AI tools (ADR-017)                  | `1.2.0`  |
+| Phase 10 — Browser automation and computer use (Phase 9 postponed) | `1.3.0`  |
+| Switches in Settings and workers learning (ADR-023, ADR-024)       | `1.4.0`  |
+| Kimi joins the AI tools (ADR-027)                                  | `1.5.0`  |
+| Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.6.0`  |
+| Phase 12A — Visual design system (ADR-030)                         | `1.7.0`  |
+| Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)   | `1.8.0`  |
+| Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)     | `1.9.0`  |
+| Phase 17 — The owner's control over workers (ADR-041 to ADR-045)   | `1.10.0` |
 
 ## Releasing
 

@@ -120,7 +120,7 @@ pub(crate) fn plan(
         });
     }
     // A new conversation: the owner's fixed choice, or what the role's policy picks now.
-    let decision = decide(planner, position, project, &[]);
+    let decision = decide(planner, view, position, project, &[]);
     let Some(choice) = decision.choice.clone() else {
         return Err(invalid(format!(
             "{} cannot start: {}",

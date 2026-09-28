@@ -1,8 +1,11 @@
 # ADR-045: Experience and the Workforce — keeping your best agents
 
-- **Status:** Accepted (by the owner, 2026-09-28, as written; experienced agents start out
+- **Status:** Accepted (by the owner, 2026-09-27, as written; experienced agents start out
   checked)
-- **Date:** 2026-09-28
+- **As built (v1.10.0):** as written. With ADR-050 (lessons a role keeps on its own are notes,
+  not orders), a saved agent also remembers which of its lessons the owner never reviewed; they
+  come back as never reviewed, and every lesson comes back for the project the agent joins.
+- **Date:** 2026-09-27
 - **Phase:** 17 (added by the owner while approving ADR-043)
 - **Amends:** ADR-043 (archive, bring back, and delete for good) — deleting for good first offers
   to save experienced agents; ADR-024 (workers learn from their work) — each agent's kept lessons
@@ -23,7 +26,7 @@ below.
 
 ## Context
 
-When approving ADR-043, the owner asked (2026-09-28): "When our agents start learning their jobs
+When approving ADR-043, the owner asked (2026-09-27): "When our agents start learning their jobs
 better, we need a way to score how much the agent has learned. For the agents with a lot of
 experience and learned knowledge, Plenipo needs to have a Workforce tab where we can save and
 store agents to. When deleting an agent or organization, if there are agents with higher than
@@ -89,7 +92,7 @@ Nothing scores an agent today, and nothing keeps an agent once it leaves the cha
 
 ### Where it is kept
 
-10. **Ledger layout 9** (the same change as ADR-042 and ADR-043) adds a `saved_agents` table:
+10. **Ledger layout 10** (the same change as ADR-042 and ADR-043) adds a `saved_agents` table:
     ID, title, role, specialty, settings, experience, lessons (copies), the position it came
     from, and when it was saved. It is included in backups and in exports.
 11. **The Workforce is yours, not one organization's.** Until Phase 21 adds more organizations, it

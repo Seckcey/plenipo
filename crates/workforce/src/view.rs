@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use plenipo_ledger::{
-    Department, OrgRecords, Oversight, Position, PositionState, Project, Role, RoleType,
+    Department, OrgRecords, Oversight, Position, PositionState, Project, Role, RoleType, Specialty,
 };
 
 /// A member of a lead's team: an on-demand position reporting to the lead, one assigned to
@@ -23,6 +23,7 @@ pub struct OrgView<'a> {
     roles: HashMap<&'a str, &'a Role>,
     heads: HashMap<&'a str, &'a Department>,
     coordinators: HashMap<&'a str, &'a Project>,
+    specialties: HashMap<&'a str, &'a Specialty>,
 }
 
 impl<'a> OrgView<'a> {
@@ -44,8 +45,21 @@ impl<'a> OrgView<'a> {
                 .iter()
                 .filter_map(|p| p.coordinator_position_id.as_deref().map(|c| (c, p)))
                 .collect(),
+            specialties: records
+                .specialties
+                .iter()
+                .map(|s| (s.id.as_str(), s))
+                .collect(),
             records,
         }
+    }
+
+    /// The position's specialty (ADR-042), while it is not removed.
+    pub fn specialty(&self, p: &Position) -> Option<&'a Specialty> {
+        p.specialty_id
+            .as_deref()
+            .and_then(|id| self.specialties.get(id).copied())
+            .filter(|s| s.removed_at.is_none())
     }
 
     pub fn position(&self, id: &str) -> Option<&'a Position> {

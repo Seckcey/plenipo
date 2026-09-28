@@ -31,6 +31,9 @@ export const role = (
   purpose: [],
   defaultCapabilities: [],
   job: { duties: [], returns: [], limits: [], askLead: [] },
+  specialties: [],
+  learns: true,
+  learnsOnItsOwn: false,
 });
 
 export const ROLES: RoleInfo[] = [
@@ -107,6 +110,14 @@ export const position = (
     history: { retired: 0, failed: 0, lastRetiredAt: null },
     createdAt: T0 - 7_200_000,
     archivedAt: null,
+    specialtyId: null,
+    specialty: null,
+    experience: { score: 0, keptLessons: 0, tasksDone: 0, experienced: false },
+    learning: { learns: true, from: "role", own: null },
+    ownRule: null,
+    archivedWith: null,
+    deleted: false,
+    inWorkforce: false,
     ...patch,
   };
 };
@@ -124,6 +135,8 @@ export const department = (
   headPositionId: head,
   projectIds,
   createdAt: T0 - 7_000_000,
+  archivedAt: null,
+  deleted: false,
 });
 
 export const project = (
@@ -145,6 +158,9 @@ export const project = (
   active: true,
   branchPerObjective: true,
   createdAt: T0 - 6_900_000,
+  archivedAt: null,
+  archivedWith: null,
+  deleted: false,
 });
 
 function stats(positions: PositionInfo[], departments: number, projects: number): OrgStats {
@@ -179,6 +195,8 @@ export function emptyOrganization(): OrgSnapshot {
     departments: [],
     projects: [],
     positions: [],
+    workforce: [],
+    averageExperience: 0,
     oversight: [],
     stats: stats([], 0, 0),
     runtimes: [
@@ -284,6 +302,8 @@ export function sampleOrganization(): OrgSnapshot {
       project("pr-camp", "Q4 Campaign", "d-mkt", "p-camp", ["claude-code"]),
     ],
     positions,
+    workforce: [],
+    averageExperience: 0,
     oversight,
     stats: stats(positions, 2, 2),
     runtimes: [

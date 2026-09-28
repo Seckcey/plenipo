@@ -7,12 +7,14 @@ import { useRouting } from "../../routing/useRouting";
 import { PILL_TONE } from "../tones";
 import { ModelList } from "./ModelList";
 import { RoleChoices } from "./RoleChoices";
+import { RuleSettings } from "./RuleSettings";
 import { useChange, type Apply } from "../../routing/useChange";
 import { Refusal } from "./shared";
 
 /**
- * Settings → AI models: which model each role's workers get (and why), the models to choose
- * from, the AI tools with their sign-in and usage limits, and what a usage limit does.
+ * Settings → AI models: the model and effort rules (the organization, departments, and agents),
+ * which model each role's workers get (and why), the models to choose from, the AI tools with
+ * their sign-in and usage limits, and what a usage limit does.
  */
 export function ModelSettings() {
   const routing = useRouting();
@@ -36,6 +38,7 @@ export function ModelSettings() {
           ))}
         </ul>
       )}
+      <RuleSettings snapshot={s} onApply={routing.apply} />
       <RoleChoices snapshot={s} onApply={routing.apply} />
       <ModelList snapshot={s} onApply={routing.apply} />
       <ToolList snapshot={s} onApply={routing.apply} />

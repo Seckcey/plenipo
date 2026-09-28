@@ -6,6 +6,14 @@ import type { Lesson } from "./Lesson";
  */
 export type LearningSnapshot = { enabled: boolean, autoRoles: Array<string>, 
 /**
+ * Roles with learning turned off.
+ */
+offRoles: Array<string>, 
+/**
+ * Agents set on or off, by position ID.
+ */
+agents: { [key in string]?: boolean }, 
+/**
  * Oldest first, so the owner answers them in order.
  */
 waiting: Array<Lesson>, 

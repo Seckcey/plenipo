@@ -6,7 +6,11 @@ import type {
   LimitBehavior,
   ModelFeature,
   ModelInfo,
+  ModelRule,
   RouteChoice,
+  RouteDecision,
+  RuleLayer,
+  RuleSource,
   RoutingSnapshot,
 } from "@plenipo/types";
 
@@ -157,4 +161,85 @@ export function companies(snapshot: RoutingSnapshot): { id: string; label: strin
     if (!out.some((c) => c.id === t.company)) out.push({ id: t.company, label: t.companyLabel });
   }
   return out;
+}
+
+// ---- Model and effort rules (Phase 17, ADR-041) ----------------------------------------------
+
+/** Every effort level, lowest first. */
+export const EFFORTS: Effort[] = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
+/** A rule that sets nothing. */
+export function emptyRule(): ModelRule {
+  return { models: [], efforts: {}, effort: null, neverCompanies: [] };
+}
+
+/** Sets nothing (so saving it for a department or an agent removes it). */
+export function isEmptyRule(rule: ModelRule): boolean {
+  return (
+    rule.models.length === 0 &&
+    Object.keys(rule.efforts).length === 0 &&
+    rule.effort === null &&
+    rule.neverCompanies.length === 0
+  );
+}
+
+/** The effort levels at least one AI tool takes, lowest first. */
+export function anyEffortLevels(snapshot: RoutingSnapshot): Effort[] {
+  const taken = new Set<Effort>();
+  for (const t of snapshot.tools) {
+    t.effortLevels.forEach((e) => taken.add(e));
+    t.knownModels.forEach((k) => k.effortLevels.forEach((e) => taken.add(e)));
+  }
+  return EFFORTS.filter((e) => taken.has(e));
+}
+
+/** Who decided, in the words the reasons use. */
+export const RULE_LAYER_LABEL: Record<RuleLayer, string> = {
+  fixed: "you fixed it for this agent",
+  agent: "its own rule",
+  role: "its role's rule",
+  department: "its department's rule",
+  organization: "the organization's rule",
+  model: "the model's own setting",
+};
+
+/** "Opus (Claude Code), then Codex (default model) · high effort · never OpenAI". */
+export function ruleSummary(snapshot: RoutingSnapshot, rule: ModelRule): string {
+  const byId = new Map(snapshot.models.map((m) => [m.id, m]));
+  const name = (id: string) => {
+    const m = byId.get(id);
+    return m ? modelLabel(snapshot, m) : "a removed model";
+  };
+  const parts: string[] = [];
+  if (rule.models.length > 0) parts.push(rule.models.map(name).join(", then "));
+  if (rule.effort) parts.push(`${EFFORT_LABEL[rule.effort].toLowerCase()} effort`);
+  for (const [id, effort] of Object.entries(rule.efforts)) {
+    if (effort) parts.push(`${EFFORT_LABEL[effort].toLowerCase()} effort for ${name(id)}`);
+  }
+  if (rule.neverCompanies.length > 0) {
+    const label = (id: string) => snapshot.tools.find((t) => t.company === id)?.companyLabel ?? id;
+    parts.push(`never ${rule.neverCompanies.map(label).join(" or ")}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Sets nothing";
+}
+
+/** Where a setting came from, as the reasons say it ("Senior Developer's rule"). */
+export function sourceWords(source: RuleSource): string {
+  switch (source.layer) {
+    case "agent":
+      return "this agent's own setting";
+    case "model":
+    case "fixed":
+      return "the model's own setting";
+    default:
+      return `${source.name}'s rule`;
+  }
+}
+
+/** "High effort, from Senior Developer's rule", or null when the AI tool's default applies. */
+export function effortLine(route: RouteDecision | null): string | null {
+  const effort = route?.choice?.effort;
+  if (!route || !effort) return null;
+  const from = route.effortFrom ? `, from ${sourceWords(route.effortFrom)}` : "";
+  return `${EFFORT_LABEL[effort]} effort${from}`;
 }

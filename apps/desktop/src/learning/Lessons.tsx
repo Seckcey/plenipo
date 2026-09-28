@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { LearningSnapshot, Lesson } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
 
@@ -123,6 +123,7 @@ export function RoleLessons({
   roleName: string;
 }) {
   const { pending, error, run } = useRun((s: LearningSnapshot) => learning.apply(s));
+  const removeHint = useId();
   const s = learning.snapshot;
   if (!s || !s.enabled) return null;
   const kept = s.kept.filter((l) => l.roleId === roleId);
@@ -132,21 +133,27 @@ export function RoleLessons({
       {kept.length === 0 ? (
         <p className="muted">Nothing yet. Lessons you keep for {roleName} show here.</p>
       ) : (
-        <ul className="inspector__list">
-          {kept.map((l) => (
-            <li key={l.id}>
-              {l.text}{" "}
-              <button
-                type="button"
-                className="link"
-                disabled={pending}
-                onClick={() => void run(() => removeLesson(l.id))}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="inspector__list">
+            {kept.map((l) => (
+              <li key={l.id}>
+                {l.text}{" "}
+                <button
+                  type="button"
+                  className="link"
+                  disabled={pending}
+                  aria-describedby={removeHint}
+                  onClick={() => void run(() => removeLesson(l.id))}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p id={removeHint} className="muted inspector__note">
+            Remove takes a lesson out of the instructions of {roleName}&apos;s later workers.
+          </p>
+        </>
       )}
       <Toggle
         label="Learn on its own"

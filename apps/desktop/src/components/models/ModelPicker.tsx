@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { RoutingSnapshot } from "@plenipo/types";
 
 import { modelGroups } from "../../routing/format";
@@ -19,6 +19,8 @@ export interface ModelPickerProps {
   /** Names shown but not offered, with why (for example already in your list). */
   unavailable?: (name: string) => string | null;
   disabled?: boolean;
+  /** One line under the menu: what choosing a model here does. */
+  hint?: ReactNode;
 }
 
 /**
@@ -39,7 +41,9 @@ function Picker({
   yours = true,
   unavailable = () => null,
   disabled = false,
+  hint,
 }: ModelPickerProps) {
+  const id = useId();
   const groups = modelGroups(routing, runtimeId, { yours });
   const listed = groups.some((g) => g.options.some((o) => o.name === value));
   const [typing, setTyping] = useState(false);
@@ -51,6 +55,7 @@ function Picker({
       <label className="field">
         <span>{label}</span>
         <select
+          aria-describedby={hint ? `${id}-hint` : undefined}
           value={custom ? TYPE_A_NAME : value}
           disabled={disabled}
           onChange={(e) => {
@@ -78,17 +83,24 @@ function Picker({
           <option value={TYPE_A_NAME}>Type another name…</option>
         </select>
       </label>
+      {/* After the label, so the menu's name stays "Model"; read out as its description. */}
+      {hint && (
+        <small id={`${id}-hint`} className="field__hint field__hint--after">
+          {hint}
+        </small>
+      )}
       {custom && (
         <label className="field">
           <span>Model name the AI tool accepts</span>
           <input
+            aria-describedby={`${id}-name-hint`}
             value={value}
             maxLength={64}
             disabled={disabled}
             placeholder="Blank: the AI tool's default"
             onChange={(e) => onChange(e.target.value)}
           />
-          <small className="field__hint">
+          <small id={`${id}-name-hint`} className="field__hint">
             Exactly as the AI tool&apos;s own model option takes it.
           </small>
         </label>
