@@ -309,6 +309,15 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
+**Documentation only** (every changed file is a `.md` file, or a picture under `docs/`):
+`pnpm docs:check` is enough. It checks the Markdown's formatting and that every link to a file in
+this repository points at a file that is there. On GitHub, CI's first job, **What changed**, sees
+a docs-only pull request and runs only **Docs (format, links)**; the Frontend, Rust, E2E, and
+Windows jobs are skipped, and a skipped job counts as passed. Any other file (code, tests,
+workflows, `package.json`, or the evidence files under `docs/phases/evidence/` that tests read)
+runs every job. CI runs on pull requests and on `main`; a push to a branch without a pull request
+runs nothing (start it by hand from the Actions tab if you need it).
+
 Launch smoke test (exits 0 when the shell renders and reaches Core, 1 on timeout):
 
 ```powershell

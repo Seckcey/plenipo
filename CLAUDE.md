@@ -19,3 +19,6 @@
   - `cargo clippy --workspace --all-targets --locked -- -D warnings`
   - `cargo test --workspace --locked`
   - `pnpm bindings`, then no diff in `packages/types/src/generated`
+- **Docs-only changes** (only `.md` files, or pictures under `docs/`): `pnpm docs:check` is
+  enough before pushing. On GitHub, only the quick **Docs** check runs (about a minute); the long
+  jobs skip themselves and count as passed. Anything else runs the full list above.
