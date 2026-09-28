@@ -1655,8 +1655,14 @@ impl Ledger {
                     &format!("a project named \"{}\" already exists", settings.name),
                 )
             })?;
-            let position =
-                insert_position(tx, out, &coordinator, Some(&head.id), Some(id.as_str()), actor)?;
+            let position = insert_position(
+                tx,
+                out,
+                &coordinator,
+                Some(&head.id),
+                Some(id.as_str()),
+                actor,
+            )?;
             tx.execute(
                 "UPDATE projects SET coordinator_position_id = ?2 WHERE id = ?1",
                 params![id, position.id],
@@ -3940,8 +3946,11 @@ mod tests {
         };
         l.add_lessons(&lesson("Kept on its own.", true), "plenipo")
             .unwrap();
-        let waiting = l.add_lessons(&lesson("Kept by you.", false), "plenipo").unwrap();
-        l.decide_lesson(&waiting[0].id, true, None, "owner").unwrap();
+        let waiting = l
+            .add_lessons(&lesson("Kept by you.", false), "plenipo")
+            .unwrap();
+        l.decide_lesson(&waiting[0].id, true, None, "owner")
+            .unwrap();
         l.archive_position(&dev.id, "owner").unwrap();
         let saved = l
             .save_to_workforce(

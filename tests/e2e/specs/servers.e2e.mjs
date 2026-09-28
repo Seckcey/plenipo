@@ -22,6 +22,7 @@ import {
   launch,
   makeHome,
   nav,
+  objectiveBox,
   openSettings,
   screenshot as save,
   waitForShell,
@@ -177,9 +178,8 @@ const onShop = (program, args = []) => tool("ssh_run", { server: "Shop", program
 async function delegate(browser, objective, work) {
   await nav(browser, "Organization");
   await select(browser, "Servers Supervisor");
-  const form = 'form[aria-label="Give an objective"]';
   await (
-    await browser.$(`${form} textarea`)
+    await objectiveBox(browser)
   ).setValue(`${objective} {{handoff:role:Operations Engineer|${work.join(" ")}}}`);
   await clickButton(browser, "Give objective");
 }

@@ -20,6 +20,7 @@ import {
   launch,
   makeHome,
   nav,
+  objectiveBox,
   openSettings,
   pictureShown,
   screenshot,
@@ -298,8 +299,7 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
   it("acceptance: a supervisor's objective puts workers under it, and they leave when done", async () => {
     const { browser } = app;
     await select(browser, "Website Supervisor");
-    const form = 'form[aria-label="Give an objective"]';
-    await (await browser.$(`${form} textarea`)).setValue(OBJECTIVE);
+    await (await objectiveBox(browser)).setValue(OBJECTIVE);
     await clickButton(browser, "Give objective");
 
     // One worker under each position it handed work to — queued for a moment, then working —

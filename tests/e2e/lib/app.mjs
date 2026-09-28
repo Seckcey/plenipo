@@ -262,6 +262,17 @@ export async function detailsTab(browser, name) {
   await tab.click();
 }
 
+/**
+ * The objective box of the selected agent. It is on the Overview tab of its details, and the
+ * details keep the tab last shown when another agent is selected, so this opens Overview first.
+ */
+export async function objectiveBox(browser) {
+  await detailsTab(browser, "Overview");
+  const box = await browser.$('form[aria-label="Give an objective"] textarea');
+  await box.waitForExist({ timeout: 10_000 });
+  return box;
+}
+
 /** Save a screenshot when PLENIPO_E2E_SCREENSHOTS names a directory (CI evidence). */
 export async function screenshot(browser, name) {
   const dir = process.env.PLENIPO_E2E_SCREENSHOTS;

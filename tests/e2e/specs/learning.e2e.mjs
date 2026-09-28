@@ -16,6 +16,7 @@ import {
   launch,
   makeHome,
   nav,
+  objectiveBox,
   openSettings,
   screenshot as save,
   waitForShell,
@@ -154,9 +155,7 @@ describe("v1.4 Switches and learning (real app, fake CLIs)", () => {
     await submit(browser, 'form[aria-label="New project"]');
     answer("Planned.\n```plenipo-lesson\n- Check the supplier's price list before ordering.\n```");
     await select(browser, "Shop Supervisor");
-    await (
-      await browser.$('form[aria-label="Give an objective"] textarea')
-    ).setValue("Plan this week's orders.");
+    await (await objectiveBox(browser)).setValue("Plan this week's orders.");
     await clickButton(browser, "Give objective");
     // The sidebar counts it, and the Approvals page shows it.
     await waitUntil(

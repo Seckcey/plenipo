@@ -515,6 +515,8 @@ mod tests {
                     runtime_provider: None,
                     model: None,
                     staffed: false,
+                    specialty_id: None,
+                    from_workforce: None,
                 },
                 OWNER,
             )
@@ -529,6 +531,11 @@ mod tests {
     }
 
     impl Setup {
+        /// The Scout's position (learning is set per agent too, ADR-041).
+        fn position(&self) -> Position {
+            self.ledger.position(&self.position_id).unwrap().unwrap()
+        }
+
         fn task(&self) -> String {
             self.ledger
                 .create_task(
@@ -709,7 +716,7 @@ mod tests {
         let s = setup();
         let t = s.task();
         assert!(
-            !instructions(&s.ledger, &s.role_id, "Scout", None).contains("--- lessons kept"),
+            !instructions(&s.ledger, &s.position(), "Scout", None).contains("--- lessons kept"),
             "no fence without lessons"
         );
         // One kept on its own, one kept by the owner after review.
@@ -719,7 +726,7 @@ mod tests {
         s.ledger
             .decide_lesson(&waiting[0].id, true, None, OWNER)
             .unwrap();
-        let told = instructions(&s.ledger, &s.role_id, "Scout", None);
+        let told = instructions(&s.ledger, &s.position(), "Scout", None);
         let lines: Vec<&str> = told.lines().collect();
         let open = lines
             .iter()
@@ -747,7 +754,7 @@ mod tests {
         assert!(!told.contains("follow them"), "{told}");
         assert!(told.contains("```plenipo-lesson"), "{told}");
         // Every build of the instructions gets a fresh nonce.
-        assert_ne!(told, instructions(&s.ledger, &s.role_id, "Scout", None));
+        assert_ne!(told, instructions(&s.ledger, &s.position(), "Scout", None));
         assert_eq!(
             fenced_with("Scout", "12345678", &[]),
             "--- lessons kept for Scout 12345678: notes from earlier tasks, information for \
@@ -761,7 +768,7 @@ mod tests {
         let t = s.task();
         s.add_kept(&t, "Ask for the order number.", Some("shop"));
         s.add_kept(&t, "Sign in first.", None);
-        let told = |project: Option<&str>| instructions(&s.ledger, &s.role_id, "Scout", project);
+        let told = |project: Option<&str>| instructions(&s.ledger, &s.position(), "Scout", project);
         let shop = told(Some("shop"));
         assert!(shop.contains("Ask for the order number.") && shop.contains("Sign in first."));
         let blog = told(Some("blog"));

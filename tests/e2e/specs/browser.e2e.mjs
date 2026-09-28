@@ -22,6 +22,7 @@ import {
   launch,
   makeHome,
   nav,
+  objectiveBox,
   openSettings,
   screenshot as save,
   waitForShell,
@@ -202,9 +203,8 @@ const tool = (name, args) => `<<tool:${name} ${JSON.stringify(args)}>>`;
 async function delegate(browser, objective, work) {
   await nav(browser, "Organization");
   await select(browser, "Shop Supervisor");
-  const form = 'form[aria-label="Give an objective"]';
   await (
-    await browser.$(`${form} textarea`)
+    await objectiveBox(browser)
   ).setValue(`${objective} {{handoff:role:Web Assistant|${work.join(" ")}}}`);
   await clickButton(browser, "Give objective");
 }
