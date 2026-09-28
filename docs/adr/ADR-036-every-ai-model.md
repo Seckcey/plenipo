@@ -1,7 +1,8 @@
 # ADR-036: Every AI model worth having — API keys with spending caps, models by maker and by app, and more than one route to a model
 
 - **Status:** Accepted (by the owner, 2026-09-27). Its place in the order of work moved up, after
-  Phase 19, by [ADR-039](ADR-039-owners-notes-order-of-work.md).
+  Phase 19, by [ADR-039](ADR-039-owners-notes-order-of-work.md), then after Phase 20 by
+  [ADR-061 (doing Connections before new AI models)](ADR-061-connections-before-new-ai-models.md).
 - **Date:** 2026-09-27
 - **Phase:** 16 (new, after Phase 15)
 

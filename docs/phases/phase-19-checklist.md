@@ -439,7 +439,8 @@ model", "deprecated").
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
-- [ ] Every GitHub check green, Windows included.
+- [x] Every GitHub check green, Windows included (CI run 36463823734, before the merge; ticked
+      on the Phase 20 branch).
 
 ## Left for the owner (on Windows)
 
