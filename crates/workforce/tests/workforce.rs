@@ -558,10 +558,11 @@ async fn workers_learn_lessons_the_owner_keeps() {
             std::thread::sleep(Duration::from_millis(25));
         }
     };
+    let project = Some(org.project.as_str());
     // The instructions ask for lessons, and there are none yet.
-    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
+    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor", project);
     assert!(told.contains("```plenipo-lesson"), "{told}");
-    assert!(!told.contains("have learned"));
+    assert!(!told.contains("--- lessons kept"));
 
     answer("Read the release notes before planning.");
     let task = h.objective(&org.coordinator, "Plan the release.").await;
@@ -572,16 +573,31 @@ async fn workers_learn_lessons_the_owner_keeps() {
     assert_eq!(waiting.text, "Read the release notes before planning.");
     assert_eq!(waiting.worker, "Cloudline Coordinator");
     assert!(!waiting.from_web);
+    assert_eq!(waiting.project_id, Some(org.project.clone()), "its project");
     assert!(
-        !learning::instructions(&h.ledger, &supervisor, "Supervisor")
+        waiting.held_reason.is_none(),
+        "the role asks: no reason to give"
+    );
+    assert!(
+        !learning::instructions(&h.ledger, &supervisor, "Supervisor", project)
             .contains("Read the release notes")
     );
-    // Kept in the owner's words, it is in the next workers' instructions.
+    // Kept in the owner's words, it is in the next workers' instructions on that project, in
+    // a fence that says who kept it (ADR-040), and nowhere else.
     h.workforce
         .decide_lesson(&waiting.id, true, Some("Read the release notes first."))
         .unwrap();
-    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
-    assert!(told.contains("- Read the release notes first."), "{told}");
+    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor", project);
+    assert!(
+        told.contains("\nkept by the owner: Read the release notes first.\n"),
+        "{told}"
+    );
+    assert!(told.contains("--- lessons kept for Supervisor "), "{told}");
+    assert!(
+        !learning::instructions(&h.ledger, &supervisor, "Supervisor", None)
+            .contains("Read the release notes"),
+        "a lesson from a project stays in it"
+    );
 
     // A role that learns on its own keeps them at once.
     h.workforce.set_role_learning(&supervisor, true).unwrap();
@@ -592,6 +608,10 @@ async fn workers_learn_lessons_the_owner_keeps() {
     h.finished(&task).await;
     until("the kept lesson", &|| lessons(LessonState::Kept).len() == 2);
     assert!(lessons(LessonState::Waiting).is_empty());
+    assert!(
+        learning::instructions(&h.ledger, &supervisor, "Supervisor", project)
+            .contains("\nkept on its own, not reviewed: Ask QA before the release.\n")
+    );
 
     // Switched off: no lessons recorded, none in the instructions.
     let snap = h.workforce.set_learning(false).unwrap();
@@ -601,7 +621,7 @@ async fn workers_learn_lessons_the_owner_keeps() {
     h.finished(&task).await;
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(lessons(LessonState::Kept).len(), 2);
-    assert!(learning::instructions(&h.ledger, &supervisor, "Supervisor").is_empty());
+    assert!(learning::instructions(&h.ledger, &supervisor, "Supervisor", project).is_empty());
     // Removing a kept lesson.
     h.workforce.set_learning(true).unwrap();
     let kept = h.workforce.learning().unwrap().kept;
