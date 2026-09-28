@@ -527,7 +527,12 @@ impl Workforce {
         let records = self.ledger().org_records()?;
         let view = OrgView::new(&records);
         let (position_id, department, project) = match seat {
-            Seat::Position(id) => (Some(id), view.department_of(id), view.project_of(id)),
+            // Where it works: a lent agent's department and project are the team it helps.
+            Seat::Position(id) => (
+                Some(id),
+                view.work_department_of(id),
+                view.work_project_of(id),
+            ),
             Seat::Under(Some(lead)) => (None, view.department_of(lead), view.project_of(lead)),
             Seat::Under(None) | Seat::NewDepartment => (None, None, None),
             Seat::NewProject(d) => (None, records.departments.iter().find(|x| x.id == d), None),

@@ -159,20 +159,26 @@ fn a_moved_tile_stays_where_it_was_put_after_a_restart_and_tidy_up_forgets_it() 
 }
 
 #[test]
-fn only_tiles_on_the_canvas_can_be_placed_and_only_on_it() {
+fn only_tiles_on_the_canvas_are_placed_and_only_on_it() {
     let w = world(Ledger::open_in_memory().unwrap());
-    assert!(err(w.l.place_tiles(&[place("no-such-tile", 0.0, 0.0)]))
-        .contains("not on the organization canvas"));
     assert!(err(w.l.place_tiles(&[place("owner", f64::NAN, 0.0)])).contains("on the canvas"));
     assert!(err(w.l.place_tiles(&[place("owner", 0.0, 200_000.0)])).contains("on the canvas"));
     let many: Vec<TilePlace> = (0..501).map(|_| place("owner", 0.0, 0.0)).collect();
     assert!(err(w.l.place_tiles(&many)).contains("at most 500"));
-    // All or nothing: one bad tile keeps the good ones from being saved.
+    // All or nothing: one spot off the canvas keeps the good ones from being saved.
     assert!(w
         .l
-        .place_tiles(&[place("owner", 1.0, 1.0), place("nope", 0.0, 0.0)])
+        .place_tiles(&[
+            place("owner", 1.0, 1.0),
+            place("organization", f64::INFINITY, 0.0)
+        ])
         .is_err());
     assert!(w.l.canvas_places().unwrap().is_empty());
+    // A tile no longer on the canvas (deleted for good since Tidy up) is skipped, so an Undo
+    // still brings back the rest.
+    w.l.place_tiles(&[place("no-such-tile", 0.0, 0.0), place("owner", 5.0, 5.0)])
+        .unwrap();
+    assert_eq!(w.l.canvas_places().unwrap(), vec![place("owner", 5.0, 5.0)]);
 }
 
 #[test]
@@ -191,8 +197,9 @@ fn a_tile_deleted_for_good_leaves_the_canvas() {
     let left = w.l.canvas_places().unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].tile_id, w.reviewer);
-    // A short record cannot be placed again.
-    assert!(w.l.place_tiles(&[place(&w.developer, 0.0, 0.0)]).is_err());
+    // A short record is not placed again (skipped, as for an Undo of Tidy up).
+    w.l.place_tiles(&[place(&w.developer, 0.0, 0.0)]).unwrap();
+    assert_eq!(w.l.canvas_places().unwrap().len(), 1);
 }
 
 #[test]

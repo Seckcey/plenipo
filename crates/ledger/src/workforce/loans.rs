@@ -117,7 +117,7 @@ pub(crate) fn objective_root(c: &Connection, task_id: &str) -> Result<String> {
 
 /// Why a lent `position` may not take the job of task `task_id`, handed over by `lead_id`'s
 /// team; `None` when it may. A loan for one objective joins the first objective that hands it a
-/// job (called in the transaction that records the worker, so it cannot race).
+/// job (called in the transaction that records the worker).
 pub(crate) fn join_loan(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
@@ -137,13 +137,10 @@ pub(crate) fn join_loan(
             position.title
         )));
     }
-    if loan.going_home {
-        return Err(invalid(format!(
-            "{} is going home after its current task; it takes no new work for {helps}'s team",
-            position.title
-        )));
-    }
-    if loan.until != LoanUntil::Objective {
+    // Going home: the directory refuses new work for it; a job that was placed just before
+    // Send home is kept (refusing here would drop every hand-off of the requester's turn), and
+    // the loan ends when its last task ends.
+    if loan.going_home || loan.until != LoanUntil::Objective {
         return Ok(());
     }
     let root = objective_root(tx, task_id)?;
@@ -207,12 +204,14 @@ pub(crate) fn follow_loans(
     }
     if let Some(position_id) = task.metadata["workforce"]["positionId"].as_str() {
         if let Some(loan) = active_loan(tx, position_id)? {
-            if loan.going_home && unfinished_work(tx, position_id)? == 0 {
-                let why = if loan
-                    .objective_task_id
-                    .as_deref()
-                    .is_some_and(|o| task_done(tx, o))
-                {
+            // Its objective may have ended before this task did (a job handed over while the
+            // objective was being stopped): it goes home once its own work is done, too.
+            let objective_done = loan
+                .objective_task_id
+                .as_deref()
+                .is_some_and(|o| task_done(tx, o));
+            if (loan.going_home || objective_done) && unfinished_work(tx, position_id)? == 0 {
+                let why = if objective_done {
                     "its objective is done"
                 } else {
                     "you sent it home"
@@ -781,6 +780,26 @@ mod tests {
             OWNER,
         ))
         .contains("Security Auditor"));
+        // Nor can the lent agent take a title of the team it helps, or an AI tool that team's
+        // project does not allow (hand-offs there would fail).
+        assert!(err(w.l.update_position(
+            &w.auditor,
+            &PositionPatch {
+                title: Some("Shop Developer".into()),
+                ..PositionPatch::default()
+            },
+            OWNER,
+        ))
+        .contains("Shop Developer"));
+        assert!(err(w.l.update_position(
+            &w.auditor,
+            &PositionPatch {
+                runtime: Some(Some(("codex".into(), Some("openai".into())))),
+                ..PositionPatch::default()
+            },
+            OWNER,
+        ))
+        .contains("codex"));
     }
 
     #[test]
@@ -804,11 +823,57 @@ mod tests {
         let going = w.l.send_home(&w.auditor, OWNER).unwrap();
         assert!(going.active && going.going_home);
         assert!(types(&w.l).contains(&"org.agent_going_home".to_owned()));
-        assert!(err(job(&w, &shop, &w.shop_lead, &w.shop)).contains("going home"));
+        // The directory offers it no new work; a job placed just before Send home is kept (the
+        // requester's other hand-offs are not dropped), and it goes home after its last task.
+        let late = job(&w, &shop, &w.shop_lead, &w.shop).unwrap();
         finish(&w.l, &running);
+        assert!(loan(&w.l, &w.auditor).active, "one task still to finish");
+        finish(&w.l, &late);
         let back = loan(&w.l, &w.auditor);
         assert!(!back.active);
         assert_eq!(back.end_reason.as_deref(), Some("you sent it home"));
+    }
+
+    #[test]
+    fn a_job_that_joins_an_objective_already_ended_still_brings_it_home() {
+        let w = world();
+        w.l.lend_position(&w.auditor, &w.shop_lead, LoanUntil::Objective, OWNER)
+            .unwrap();
+        // The objective is stopped while one of its steps is still running (Liaison stops a
+        // running step later); that step hands the lent agent a job in the meantime.
+        let shop = objective(&w.l, &w.shop_lead, &w.shop);
+        w.l.transition_task(&shop, TaskState::Running, "agent:claude-code", None)
+            .unwrap();
+        let step =
+            w.l.create_task(
+                NewTask {
+                    parent_task_id: Some(shop.clone()),
+                    requested_by: "liaison".into(),
+                    objective: "A step".into(),
+                    project_id: Some(w.shop.clone()),
+                    metadata: json!({ "workforce": { "positionId": w.shop_lead } }),
+                    ..NewTask::default()
+                },
+                OWNER,
+            )
+            .unwrap()
+            .id;
+        w.l.transition_task(&step, TaskState::Running, "agent:claude-code", None)
+            .unwrap();
+        w.l.transition_task(&shop, TaskState::Cancelled, OWNER, None)
+            .unwrap();
+        let late = job(&w, &step, &w.shop_lead, &w.shop).unwrap();
+        assert_eq!(
+            loan(&w.l, &w.auditor).objective_task_id.as_deref(),
+            Some(shop.as_str())
+        );
+        finish(&w.l, &late);
+        let back = loan(&w.l, &w.auditor);
+        assert!(
+            !back.active,
+            "it does not stay lent to an objective that is over"
+        );
+        assert_eq!(back.end_reason.as_deref(), Some("its objective is done"));
     }
 
     #[test]

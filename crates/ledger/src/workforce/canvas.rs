@@ -40,7 +40,10 @@ pub(super) fn forget(c: &Connection, tile_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn check(c: &Connection, place: &TilePlace) -> Result<()> {
+/// Whether `place` can be kept: a finite spot on the canvas (refused otherwise), for a tile that
+/// is still there (`false`: a position deleted for good since, which is skipped, so an Undo of
+/// Tidy up never fails for it).
+fn check(c: &Connection, place: &TilePlace) -> Result<bool> {
     if !place.x.is_finite()
         || !place.y.is_finite()
         || place.x.abs() > MAX_COORDINATE
@@ -49,19 +52,14 @@ fn check(c: &Connection, place: &TilePlace) -> Result<()> {
         return Err(invalid("a tile's place must be on the canvas"));
     }
     if place.tile_id == OWNER_TILE || place.tile_id == ORGANIZATION_TILE {
-        return Ok(());
+        return Ok(true);
     }
     // A position that is on the chart or archived (it may be brought back), not a short record.
-    let known: bool = c.query_row(
+    Ok(c.query_row(
         "SELECT EXISTS (SELECT 1 FROM positions WHERE id = ?1 AND deleted_at IS NULL)",
         [&place.tile_id],
         |r| r.get(0),
-    )?;
-    if known {
-        Ok(())
-    } else {
-        Err(invalid("that tile is not on the organization canvas"))
-    }
+    )?)
 }
 
 impl Ledger {
@@ -70,7 +68,8 @@ impl Ledger {
         self.read(every_place)
     }
 
-    /// Save where the owner put `places` (one drag can move a whole team), all or nothing.
+    /// Save where the owner put `places` (one drag can move a whole team), all or nothing; a tile
+    /// no longer on the canvas is skipped.
     pub fn place_tiles(&self, places: &[TilePlace]) -> Result<()> {
         if places.is_empty() {
             return Ok(());
@@ -83,7 +82,9 @@ impl Ledger {
         self.write(|tx, _out| {
             let at = now();
             for place in places {
-                check(tx, place)?;
+                if !check(tx, place)? {
+                    continue;
+                }
                 tx.execute(
                     "INSERT INTO canvas_places (tile_id, x, y, updated_at) VALUES (?1, ?2, ?3, ?4)
                      ON CONFLICT (tile_id) DO UPDATE SET x = excluded.x, y = excluded.y,

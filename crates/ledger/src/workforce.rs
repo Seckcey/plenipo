@@ -1994,6 +1994,10 @@ impl Ledger {
                     for o in org.oversight.iter().filter(|o| o.overseer_id == id) {
                         org.check_title(title, Some(&o.target_id), Some(id))?;
                     }
+                    // Lent: the team it helps finds it by title too (ADR-054 §3).
+                    if let Some(loan) = org.loan_of(id) {
+                        org.check_title(title, Some(&loan.to_lead_id), Some(id))?;
+                    }
                     changes.insert("title".into(), json!(title));
                 }
             }
@@ -2012,6 +2016,14 @@ impl Ledger {
             }
             if let Some(r) = &new_runtime {
                 Org::check_runtime(org.project_of(id), r.as_deref(), &position.title)?;
+                // Lent: the project it works in now must allow it too (ADR-054 §3, §5).
+                if let Some(loan) = org.loan_of(id) {
+                    Org::check_runtime(
+                        org.project_of(&loan.to_lead_id),
+                        r.as_deref(),
+                        &position.title,
+                    )?;
+                }
                 changes.insert("runtimeId".into(), json!(r));
                 changes.insert("automatic".into(), json!(r.is_none()));
             }

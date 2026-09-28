@@ -286,8 +286,22 @@ impl Directory for WorkforceDirectory {
             .lead_of(position_id)
             .ok_or_else(|| format!("{} has no team to hand work to", me.title))?;
         let team = view.team(&lead.id);
-        let member =
-            find(&view, &team, name).map_err(|e| away(&view, &lead.id, name).unwrap_or(e))?;
+        let member = find(&view, &team, name).map_err(|e| {
+            // Lent away is the reason only when nobody on the team answers to that name (else
+            // `find`'s own reason, such as two members with that role, is the useful one).
+            let wanted = name.trim().to_lowercase();
+            let someone = team.iter().any(|m| {
+                m.position.title.to_lowercase() == wanted
+                    || view
+                        .role(m.position)
+                        .is_some_and(|r| r.name.to_lowercase() == wanted)
+            });
+            if someone {
+                e
+            } else {
+                away(&view, &lead.id, name).unwrap_or(e)
+            }
+        })?;
         let target = member.position;
         if let Some(loan) = member.lent {
             // Lent for one objective: only that objective's work (ADR-054).
