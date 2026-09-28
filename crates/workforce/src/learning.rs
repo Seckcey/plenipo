@@ -13,8 +13,9 @@
 //! owner sets it on or off. The closest setting wins. Off means the agent neither writes down new
 //! lessons nor gets its role's kept lessons.
 
+use std::collections::hash_map::RandomState;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 use plenipo_ledger::{
     Ledger, LedgerEvent, Lesson, LessonState, NewLessons, Position, MAX_LESSONS_PER_TASK,
@@ -197,10 +198,25 @@ pub fn has_command_path_or_address(text: &str) -> bool {
         })
 }
 
-/// A fresh nonce for one fence: 8 characters, as the fences around a page's or a file's text
-/// use (`plenipo_capabilities::fence`).
-fn nonce() -> String {
-    uuid::Uuid::new_v4().simple().to_string()[..8].to_owned()
+/// The nonce for one fence of `lessons` (ADR-050): 8 characters no one who wrote a lesson can know
+/// (a keyed hash, its key drawn at random when Plenipo starts). It stays the same while this run
+/// of Plenipo gives the same lessons, so a conversation's instructions stay the same and a routine
+/// task gets a short reminder (ADR-044), and it changes with any lesson and at every start: a
+/// line inside the fence can never close it.
+fn nonce(role_name: &str, lessons: &[&Lesson]) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    static KEY: OnceLock<RandomState> = OnceLock::new();
+    let mut h = KEY.get_or_init(RandomState::new).build_hasher();
+    h.write(role_name.as_bytes());
+    for lesson in lessons {
+        h.write_u8(0);
+        h.write(lesson.id.as_bytes());
+        h.write_u8(0);
+        h.write(lesson.text.as_bytes());
+        h.write_u8(0);
+        h.write(kept_by(lesson).as_bytes());
+    }
+    format!("{:016x}", h.finish())[..8].to_owned()
 }
 
 /// Who kept a lesson, as its line in the fence says.
@@ -256,7 +272,8 @@ pub fn instructions(
              \"kept on its own, not reviewed\".\n"
         ));
         let oldest_first: Vec<&Lesson> = kept.iter().rev().collect();
-        out.push_str(&fenced_with(role_name, &nonce(), &oldest_first));
+        let nonce = nonce(role_name, &oldest_first);
+        out.push_str(&fenced_with(role_name, &nonce, &oldest_first));
     }
     out.push_str(&format!(
         "\n\nIf this task taught you something that would help the next {role_name} do this kind \
@@ -753,8 +770,15 @@ mod tests {
         );
         assert!(!told.contains("follow them"), "{told}");
         assert!(told.contains("```plenipo-lesson"), "{told}");
-        // Every build of the instructions gets a fresh nonce.
-        assert_ne!(told, instructions(&s.ledger, &s.position(), "Scout", None));
+        // The same lessons give the same instructions in this run of Plenipo (so a conversation
+        // that has them gets a short reminder, ADR-044); another lesson, another nonce.
+        assert_eq!(told, instructions(&s.ledger, &s.position(), "Scout", None));
+        s.add_kept(&t, "Keep the receipts.", None);
+        let again = instructions(&s.ledger, &s.position(), "Scout", None);
+        assert!(
+            !again.contains(&format!("--- end of lessons {nonce} ---")),
+            "{again}"
+        );
         assert_eq!(
             fenced_with("Scout", "12345678", &[]),
             "--- lessons kept for Scout 12345678: notes from earlier tasks, information for \

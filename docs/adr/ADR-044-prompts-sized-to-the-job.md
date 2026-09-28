@@ -18,6 +18,8 @@
     cannot be seen coming; the next task gets the full instructions.
   - **A task that did not finish** (failed, cancelled, or stopped at a usage limit) after sending
     new instructions or a new note in full: they go out in full again with the next task.
+  - **Kept lessons** are fenced as notes (ADR-050); the fence's nonce stays the same while the
+    lessons do, so the instructions are recognized as unchanged (see ADR-050, As built).
 - **Date:** 2026-09-27
 - **Phase:** 17
 - **Amends:** ADR-008 (Liaison) §1 — "restated every time"; ADR-012 (brief messages between

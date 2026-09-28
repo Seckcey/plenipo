@@ -193,6 +193,19 @@ is fixed with a test, or recorded where it is a limit of the design.
 - The measurement gave every objective the same permissions note (section 5).
 - The Workers page showed one step's tokens beside all steps' size; it adds up both the same way.
 
+**After merging the security fixes from `main`**
+
+- The Workforce copied an agent's kept lessons and brought them back as kept by you, for every
+  project, even ones its role had kept on its own that you never reviewed. They now come back as
+  they were kept, for the project the agent joins (ADR-045 and ADR-050, as built).
+- The fence around kept lessons got a new code every time the instructions were built, so every
+  task of a role with kept lessons would have carried the full instructions. The code now stays
+  the same while the lessons do, within a run of Plenipo, and is still unknown to anyone who
+  writes a lesson (ADR-050, as built).
+- On GitHub, the browser and servers end-to-end tests typed an objective while the details
+  panel showed another tab (it keeps the tab last shown); every test now opens the Overview tab
+  first.
+
 During the build, the end-to-end run found the panel's tabs could not be clicked when they did
 not fit (they wrap now), and a hint placed inside a label broke older tests (labels keep their
 words; hints follow them).

@@ -7,7 +7,7 @@ a full-time agent › Overview › Open its page — Its work, history, and perm
 a full-time agent › Job › Add your own specialty — Write a specialty of your own for the VP role.
 a full-time agent › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
 a full-time agent › Job › VP agents learn — On or off for every VP agent without a setting of its own.
-a full-time agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a full-time agent › Job › Learn on its own — On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review.
 a full-time agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
 a full-time agent › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
 a full-time agent › AI model › Model — The model this AI tool runs for this agent.
@@ -28,7 +28,7 @@ an on-call agent › Job › Add your own specialty — Write a specialty of you
 an on-call agent › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
 an on-call agent › Job › Senior Developer agents learn — On or off for every Senior Developer agent without a setting of its own.
 an on-call agent › Job › Remove — Remove takes a lesson out of the instructions of Senior Developer's later workers.
-an on-call agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+an on-call agent › Job › Learn on its own — On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review.
 an on-call agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
 an on-call agent › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
 an on-call agent › AI model › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
@@ -63,7 +63,7 @@ a manager › Overview › Open its page — Its work, history, and permissions 
 a manager › Job › Add your own specialty — Write a specialty of your own for the Manager role.
 a manager › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
 a manager › Job › Manager agents learn — On or off for every Manager agent without a setting of its own.
-a manager › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a manager › Job › Learn on its own — On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review.
 a manager › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
 a manager › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
 a manager › AI model › Model — The model this AI tool runs for this agent.
@@ -87,7 +87,7 @@ a supervisor › Overview › Open its page — Its work, history, and permissio
 a supervisor › Job › Add your own specialty — Write a specialty of your own for the Supervisor role.
 a supervisor › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
 a supervisor › Job › Supervisor agents learn — On or off for every Supervisor agent without a setting of its own.
-a supervisor › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a supervisor › Job › Learn on its own — On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review.
 a supervisor › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
 a supervisor › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
 a supervisor › AI model › Model — The model this AI tool runs for this agent.
@@ -107,7 +107,7 @@ a supervisor › Manage › Hire into team — Add a position to its team: a new
 a supervisor › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
 an archived agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
 an archived agent › Job › Researcher agents learn — On or off for every Researcher agent without a setting of its own.
-an archived agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+an archived agent › Job › Learn on its own — On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review.
 an archived agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
 an archived agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
 an archived agent › Manage › Bring back — Puts it back where it was, with all its settings. A full-time position gets a new agent.

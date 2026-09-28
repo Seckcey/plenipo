@@ -173,6 +173,8 @@ beforeEach(() => {
         createdAt: 0,
         decidedAt: 0,
         decidedBy: "owner",
+        projectId: null,
+        heldReason: null,
       },
     ],
   });
