@@ -1,6 +1,6 @@
 # Security hardening (2026-09-27 sweep) — Checklist
 
-**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) merged through PR #74 (B1–B6), PR #76 (B7–B9), and PR #78 (B10 and the part-2 follow-ups); B11 is in the last Group B pull request. Group C (the ten Low findings) is built, reviewed, and tested on PR #86; the owner merges it.
+**Status:** Done. All twenty-five findings are on `main`: Group A (the four High findings) through PR #69; Group B (the eleven Medium findings) through PR #74 (B1–B6), PR #76 (B7–B9), PR #78 (B10), and PR #84 (B11); Group C (the ten Low findings) through PR #86. What is left is the owner's: the Windows check below, and closing each advisory.
 
 The sweep's findings live in the repository's private security advisories (GHSA-m2rr-m89h-jp56,
 GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B; GHSA-c86x-xcxc-pgf6 for Group C). This checklist
@@ -211,16 +211,16 @@ Advisories**). Plenipo's GitHub connection here cannot change advisories, so the
 one once its fix is on `main` (open the draft advisory → **Close advisory**; or on the PC:
 `gh api -X PATCH repos/Seckcey/plenipo/security-advisories/<GHSA id> -f state=closed`).
 
-| Advisory            | Findings | Fixed by                                                     | Close it         |
-| ------------------- | -------- | ------------------------------------------------------------ | ---------------- |
-| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)                                              | now              |
-| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)                                              | now              |
-| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)                                              | now              |
-| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)                                              | now              |
-| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)                                              | now              |
-| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (merged)                                              | now              |
-| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #78 (B10, merged) and the last Group B pull request (B11) | after B11 merges |
-| GHSA-c86x-xcxc-pgf6 | C1–C10   | PR #86                                                       | after it merges  |
+| Advisory            | Findings | Fixed by                                   | Close it |
+| ------------------- | -------- | ------------------------------------------ | -------- |
+| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)                            | now      |
+| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)                            | now      |
+| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)                            | now      |
+| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)                            | now      |
+| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)                            | now      |
+| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (merged)                            | now      |
+| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #78 (B10) and PR #84 (B11), both merged | now      |
+| GHSA-c86x-xcxc-pgf6 | C1–C10   | PR #86 (merged)                            | now      |
 
 ## Checks
 

@@ -20,7 +20,7 @@
   limits); by
   [ADR-049 (computer use asks before every click and keystroke)](ADR-049-computer-use-asks-every-step.md):
   after taking control, every click, typing, and key press on the desktop asks the owner first,
-  with the screen and the worker's words on the card (section 7); and, if accepted, by
+  with the screen and the worker's words on the card (section 7); and by
   [ADR-057 (web addresses in the record keep the page and the names of its
   fields)](ADR-057-addresses-in-the-record.md): approval cards and Plenipo's records show an
   address's website, page, and field names, not the values after `?` (section 4)

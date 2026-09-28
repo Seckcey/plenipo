@@ -1,6 +1,6 @@
 # ADR-057: Web addresses in the record keep the page and the names of its fields
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 10 (follow-up; security hardening, Group C)
 - **Amends:** [ADR-020 (browser automation and computer use)](ADR-020-browser-and-computer-use.md),
