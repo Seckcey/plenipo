@@ -308,7 +308,8 @@ cancelled` (terminal states are final).
 Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
 and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP), and
 [ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
-and writes going through Plenipo).
+and writes going through Plenipo), and [ADR-042](../adr/ADR-042-codex-own-shell.md) (Codex works
+through Plenipo's tools).
 
 - **Contract.** `RuntimeAdapter` (`crates/runtime/src/agent/adapter.rs`) is provider-neutral:
   detection, sign-in check, capabilities, turn arguments (new or resumed provider session),
@@ -349,7 +350,9 @@ and writes going through Plenipo).
   check (`kimi provider list`) must show the subscription provider (`managed:kimi-code`,
   `source=oauth`), and Plenipo runs only its `kimi-code/…` models (model names may carry one
   provider prefix, `provider/model`).
-- **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex:
+- **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex: its
+  own command tool and picture reader switched off (`features.shell_tool=false` and
+  `features.view_image=false`, ADR-042): it reads files only through Plenipo's tools, inside its
   read-only sandbox. Grok: an agent profile with none of its own tools, no subagents, memory,
   web fetch, or Claude Code/Cursor settings. Kimi: its files through Guard, its shell refused,
   its `plan` mode for a worker without permissions. Each session has its own empty workspace. Organization workers with
