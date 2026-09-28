@@ -29,7 +29,7 @@ path = "tests/support/sshd_main.rs"
 test = false
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 dunce = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 log = "0.4"
