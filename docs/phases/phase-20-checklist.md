@@ -1,8 +1,7 @@
 # Phase 20 — Implementation Checklist
 
-**Status:** design written (2026-09-28), **waiting for the owner's approval**. Nothing is built
-yet. Builds on v1.12.0 (Phase 19); releases as **v1.13.0** (or 1.13.0, 1.13.1, and 1.13.2, one
-per part, if the owner splits the phase: choice 1).
+**Status:** design approved (2026-09-28); **part 20A being built**. Builds on v1.12.0 (Phase 19);
+releases in three parts: **20A** as v1.13.0, **20B** as v1.13.1, **20C** as v1.13.2 (ADR-067).
 
 Source: `ROLLOUT_PLAN.md`, Phase 20 — Connections: Microsoft 365, Slack, Google, and More (fifth
 in the order of work since ADR-061), and the records written for it:
@@ -14,12 +13,13 @@ in the order of work since ADR-061), and the records written for it:
 - [ADR-064 (how each connection is built: built into Plenipo, or the service's own MCP server)](../adr/ADR-064-how-each-connection-is-built.md)
 - [ADR-065 (the Microsoft 365 connection: 8 West's app, the fewest permissions, and what admins approve)](../adr/ADR-065-microsoft-365-connection.md)
 - [ADR-066 (add-on tools you set up: other MCP servers, as approved programs, off by default)](../adr/ADR-066-add-on-tools.md)
-- [ADR-067 (Phase 20 in three parts)](../adr/ADR-067-phase-20-in-three-parts.md) — only if the owner
-  splits the phase
+- [ADR-067 (Phase 20 in three parts)](../adr/ADR-067-phase-20-in-three-parts.md)
+- [ADR-068 (Connections and add-on tools are part of Pro)](../adr/ADR-068-connections-are-pro.md) —
+  the owner's direction while approving the design
 - [Registering Plenipo with Microsoft](phase-20-microsoft-app-registration.md) — click-by-click
   steps for 8 West, and a page for clients' admins
 
-**Numbers:** ADR-061 to ADR-067. `main` ends at ADR-060 (usage, "plan left", and new models,
+**Numbers:** ADR-061 to ADR-068. `main` ends at ADR-060 (usage, "plan left", and new models,
 accepted 2026-09-28), so the next free number is 061. **No new Ledger layout** (it stays at 11):
 connections are kept in Guard's settings, like servers, and their sign-ins in the Vault.
 
@@ -64,10 +64,33 @@ privacy page and a terms page on 8 West's website. Your clients' IT admins each 
 once. I can build and test everything before you finish those steps: the tests use stand-ins for
 the services.
 
-## Choices for you
+## Owner decisions (2026-09-28)
 
-Each choice has my recommendation first. Say "as recommended" to take them all, or name the ones
-you want different.
+**The design is approved, and ADR-062 to ADR-068 are accepted.** The owner merged the design (pull
+request #95) and answered the choices below: "The rest look good", with four changed:
+
+- **5. SharePoint:** "can we have the option for read only and full access?" — Yes. Every part of
+  every connection is **off**, **Read only**, or **Full access**, and Plenipo asks the service
+  only for the permissions of that level (ADR-062 §1, ADR-065 §2).
+- **6. Personal Microsoft accounts:** "Can we have both?" — Yes. **Connect a work or school
+  account** and **Connect a personal account**; a personal account offers Mail, Calendar, and
+  OneDrive (Microsoft has no Teams or SharePoint for them) (ADR-065 §1).
+- **8. Teams:** "I want the agents to have full control if the user allows them to have full
+  control" — Teams is **Read only** (chats, channels, and channel messages) or **Full access**
+  (adds sending in chats, starting chats, and posting in channels). Sending still asks unless the
+  owner's "send without asking" switch and list allow it (ADR-065 §2).
+- **9. Slack:** "I want the users to be able to add any slack they want" — any workspace, and
+  more than one, through 8 West's Slack app or the workspace's own (ADR-064 §3). Slack's terms
+  risk stays listed below.
+
+Then, before building: "Connecting tools is a Pro version feature though." Asked three questions,
+the owner chose each as recommended (ADR-068): Connections work for everyone until Phase 11A adds
+the license key; when Pro ends, Connections pause (nothing deleted, running tasks finish,
+**Disconnect** always works); add-on tools are Pro too. GitHub's tools stay Free.
+
+## Choices for you (as asked, 2026-09-28)
+
+The owner's answers are above; each choice below shows the recommendation as it was offered.
 
 1. **Split Phase 20 into three parts** (ADR-067, and the next section).
    - **Recommended:** three parts, each its own pull request and release: **20A** (the rules,
@@ -282,12 +305,15 @@ Written before building, from a map of the code at `0a53e1a` (`main`, v1.12.0).
   `connection.*` and `guard.*` events (`useLive`), like the Terminal settings.
 - **Each card:** the service's name and a state pill (**Not connected**, **Connected**, **Needs you
   to sign in again**, **Coming in a later update**); "Connected as frankie@8westit.com at 8 West
-  IT"; **Connect** / **Reconnect** / **Disconnect**; while signing in, "**Finish signing in in your
+  IT"; **Connect a work or school account** and **Connect a personal account** (Microsoft 365),
+  **Reconnect**, **Disconnect**; while signing in, "**Finish signing in in your
   browser**" with **Cancel**; when Microsoft says an admin must approve, that banner with **Copy
   the approval link for your admin**.
-- **What it can do:** each part with its switch and, under it, what workers can read and change in
-  plain words ("Read your mail and search it · Draft replies — sending asks you"). A part turned on
-  after connecting says **Reconnect to allow Teams**.
+- **What it can do:** each part **Off**, **Read only**, or **Full access** (a segmented control;
+  the owner's choices 5 and 8) and, under it, what workers can read and change in plain words
+  ("Read your mail and search it · Draft replies — sending asks you"). A part turned on, or raised
+  to Full access, after connecting says **Reconnect to allow Teams**. A personal account shows only
+  Mail, Calendar, and OneDrive.
 - **What Plenipo was allowed:** the permissions granted at sign-in, each in Microsoft's words with
   plain words beside it.
 - **Who may use it:** add a role or an agent (the pickers the Servers page uses), each **Read
@@ -296,6 +322,8 @@ Written before building, from a map of the code at `0a53e1a` (`main`, v1.12.0).
   from ADR-062's consequences above it and a line saying it is used only while the switch is on
   (with a link to Settings → Switches).
 - **Advanced** (Microsoft 365, choice 4): "Use your organization's own Microsoft app ID".
+- **Part of Pro** (ADR-068): no lock in Phase 20; Phase 11A adds it. **Disconnect** is never
+  locked.
 
 ### 2. Guard (`crates/guard`)
 
@@ -304,8 +332,8 @@ Written before building, from a map of the code at `0a53e1a` (`main`, v1.12.0).
   `crates/liaison/src/protocol.rs`, `doing()`, the Settings list). `mcp.invoke` gets tools in part
   20C (ADR-066).
 - **New `connections.rs`:** `Service` (Microsoft365, Slack, Google, HubSpot, Stripe, WordPress);
-  `Part` per service; `Connection { service, account, parts, granted, access, send_list, app_id,
-connected_at, state }` kept in `GuardConfig.connections`, read with `deny_unknown_fields`, and
+  `Part` per service, each `PartLevel` (Off, ReadOnly, FullAccess); `Connection { id, service,
+account_kind, account, parts, granted, access, send_list, app_id, connected_at, state }` kept in `GuardConfig.connections`, read with `deny_unknown_fields`, and
   checked: at most 200 lines in **Who may use it** and 200 in **Send without asking to**; a list
   entry is an address, an `@domain`, or a channel name; an app ID is a GUID; a role or agent must
   exist. Changes go through `Guard::update` with a `connection.changed` event.

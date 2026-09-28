@@ -1,8 +1,7 @@
 # ADR-062: Connections — one set of rules for every connection
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 - **Carries out:** ADR-039 (the owner's notes) §2.5, "Connections live in Plenipo, not in each AI
@@ -79,12 +78,15 @@ What the code has today (read at `0a53e1a`, `main`, v1.12.0):
 ### 1. What a connection is
 
 - **One account of one service,** signed in to for the owner: Microsoft 365, Slack, Google,
-  HubSpot, Stripe, WordPress and WooCommerce. One account per service in this phase; more than
-  one organization, each with its own connections, comes with Phase 21 (ADR-039 §2.10).
-- **Parts** the owner can turn on and off: Microsoft 365 has **Mail**, **Calendar**,
-  **OneDrive**, **SharePoint**, and **Teams**; Google has **Gmail**, **Calendar**, and **Drive**;
-  Slack is one part; and so on. A part that is off offers no tools and, where the service allows,
-  is not even asked for at sign-in (ADR-063 §3).
+  HubSpot, Stripe, WordPress and WooCommerce. One account per service, except **Slack**, where
+  the owner can add as many workspaces as they want (the owner's choice 9). More than one
+  organization, each with its own connections, comes with Phase 21 (ADR-039 §2.10).
+- **Parts**, each **off**, **Read only**, or **Full access** (the owner's choices 5 and 8):
+  Microsoft 365 has **Mail**, **Calendar**, **OneDrive**, **SharePoint**, and **Teams**; Google has
+  **Gmail**, **Calendar**, and **Drive**; and so on. A part that is off offers no tools; a part at
+  **Read only** offers only reading tools; writing, sending, and deleting tools need **Full
+  access**. Where the service allows, Plenipo asks at sign-in only for the permissions of the parts
+  that are on, at their level (ADR-063 §3).
 - **Built into Plenipo** (compiled in, reviewed, and tested like every other tool), or **an add-on
   tool you set up** (ADR-066). Which way each service is built, and why, is ADR-064.
 - **Kept in Guard's settings** (the `guard` setting in the Ledger, like servers): the service, the
@@ -130,7 +132,8 @@ A new section in Settings, after **Servers**, with one card per service:
 ### 4. Hidden without permission
 
 - A worker's tool list (`tools/list`) holds a connection's tools only when all of these hold: the
-  connection is connected and not waiting for a new sign-in; the part is on; and the worker's
+  connection is connected and not waiting for a new sign-in; the part is on (at **Full access**
+  for writing tools); and the worker's
   level for that connection is not **Blocked** (reading tools need `connections.read`, writing
   tools `connections.write`).
 - **A call to a tool that was not offered is refused** by name, before anything else
@@ -225,7 +228,13 @@ with no change to any AI tool's setup. Ollama gets them when its tools follow-up
 built, as the plan says. No AI tool's own connectors are used (ADR-039: "Rejected: only that tool
 could use them, Guard would not see the calls").
 
-### 10. What stays out
+### 10. Part of Pro
+
+Connections and add-on tools are Pro features ([ADR-068](ADR-068-connections-are-pro.md)). Every
+copy can use them until Phase 11A adds the license key and the lock; when Pro ends, they pause, and
+**Disconnect** always works.
+
+### 11. What stays out
 
 - Connections that run inside another company's agent platform.
 - Unofficial MCP servers by default.

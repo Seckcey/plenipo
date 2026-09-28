@@ -1,9 +1,7 @@
 # ADR-067: Phase 20 in three parts — Microsoft 365 first, then Slack and Google, then the rest
 
-- **Status:** Proposed (2026-09-28): the owner's choice (the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you), choice 1). If the owner
-  chooses one release instead, this record is marked **Rejected** and Phase 20 ships as one
-  v1.13.0.
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 

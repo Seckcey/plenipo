@@ -1,8 +1,7 @@
 # ADR-066: Add-on tools you set up — other MCP servers, as approved programs, off by default
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20 (in part 20C if the owner splits the phase; ADR-067)
 - **Carries out:** ROLLOUT_PLAN.md Phase 20, "**add-on tools the owner sets up** (the `mcp.invoke`

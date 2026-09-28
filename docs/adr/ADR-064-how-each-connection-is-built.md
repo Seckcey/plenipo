@@ -1,8 +1,7 @@
 # ADR-064: How each connection is built — into Plenipo, or the service's own MCP server
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 - **Carries out:** ROLLOUT_PLAN.md Phase 20, "Each is either built into Plenipo or the service's
@@ -76,22 +75,26 @@ Copilot license for every user and are in preview. Details, tools, and permissio
   `http://localhost`. Such an app gets **user tokens only** (no bot), which is what Plenipo needs:
   workers act as the person who connected. Refresh tokens of PKCE apps expire after **30 days**,
   so a Slack connection unused for a month needs the owner to sign in again.
-- **Whose Slack app** (choice 9):
-  - **Recommended: your own Slack app, in your own workspace.** Slack limits apps that are
-    distributed outside the Slack Marketplace to **1 request per minute and 15 messages** when
-    reading a channel's or thread's history (since 2025-05-29); apps a workspace builds for
-    itself keep 50+ requests per minute. Plenipo shows a ready-made app manifest to paste at
-    `api.slack.com/apps` (**Create New App** → **From a manifest**), with PKCE on and only the
-    user permissions below; the owner turns on PKCE and types the app's **client ID** (not a
-    secret) into the Slack card.
-  - **For clients' workspaces, a legal question first.** Slack's API terms count "a free App that
-    connects to a paid product" as commercial distribution, which needs the Marketplace or a
-    partner agreement, "even when you provide customers with a custom Application or Application
-    template", unless it was made "for use only by a single third party". Slack's Marketplace
-    lists apps that "do not include functionality in Slack" or "replicate Slack client
-    functionality" as unsuitable, and asks for 10 active workspaces. So 20B builds Slack for **the
-    owner's own workspace**; offering it to clients waits for a lawyer's reading of Slack's terms.
-  - Later, if Slack allows it: 8 West's own app in the Marketplace.
+- **Any workspace, and more than one** (the owner's choice 9): each person can connect any Slack
+  workspace they belong to, and add as many as they want; each is its own card, with its own
+  sign-in, parts, **Who may use it**, and "send without asking" list.
+- **Whose Slack app:**
+  - **8 West's Slack app** (its client ID built into Plenipo, like Microsoft's; not a secret):
+    **Connect** works for any workspace whose admin allows it. While 8 West's app is outside the
+    Slack Marketplace, Slack limits it to **1 request per minute and 15 messages** when reading a
+    channel's or thread's history (since 2025-05-29). Reading still works, slowly; the card says
+    so.
+  - **The workspace's own Slack app** (an **Advanced** field, like Microsoft's): Plenipo shows a
+    ready-made app description to paste at `api.slack.com/apps` (**Create New App** → **From a
+    manifest**), with PKCE on and only the user permissions below. Apps a workspace makes for
+    itself keep Slack's normal speed (50+ requests a minute). Its client ID is not a secret.
+  - **Slack's terms still need a lawyer** before Plenipo Pro is sold with Slack. Slack's API terms
+    count "a free App that connects to a paid product" as commercial distribution, which needs the
+    Marketplace or a partner agreement, "even when you provide customers with a custom Application
+    or Application template", unless it was made "for use only by a single third party". Slack's
+    Marketplace lists apps that "do not include functionality in Slack" or "replicate Slack client
+    functionality" as unsuitable, and asks for 10 active workspaces. The owner chose to let every
+    user add any workspace; the Phase 20 checklist keeps this risk in its list.
 - **Parts and permissions** (user scopes), each asked only when its part is on: **Channels**
   (`channels:read`, `channels:history`, `groups:read`, `groups:history`), **Direct messages**
   (`im:read`, `im:history`, `mpim:read`, `mpim:history`), **Search** (`search:read`), **Posting**

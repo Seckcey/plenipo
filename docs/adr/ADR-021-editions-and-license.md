@@ -5,6 +5,8 @@
   and the weekly license check), which replaces **decision 5** below. Pro is a subscription,
   so the key cannot be verified offline forever; decision 5's "the check is local" is no
   longer how Plenipo works. Every other decision here stands.
+- **Amended by:** [ADR-068 (Connections and add-on tools are part of Pro)](ADR-068-connections-are-pro.md):
+  the Pro side of the split gains Connections and add-on tools (Phase 20), locked by Phase 11A.
 - **Date:** 2026-09-27
 - **Phase:** 10 (recorded after the browser work, alongside opening the repository up)
 

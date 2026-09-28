@@ -1139,6 +1139,7 @@ Make the Free and Pro split real. Pro is a subscription: a signed key in the Vau
 - single enforcement point: `Entitlements::check(limit)` -> Allowed, or Blocked with a plain-words reason
 - Free limits enforced in Workforce: 1 department, 1 project, 3 workers on the job at once
 - business departments (Sales on HubSpot and those after it) gated to Pro at the setup flow
+- Connections and add-on tools gated to Pro (ADR-068): **Connect** and **Add a program** blocked on Free; no Connection or add-on tools offered to a worker on Free; when Pro ends they pause (nothing deleted, running tasks finish, new work gets none, **Disconnect** always works) and resume when Pro returns
 - plain-words message on every blocked path, naming what Pro adds
 - Ledger events for every license action and check-in result, with the key redacted
 - lapse behavior that never deletes, hides, or breaks existing departments, projects, or history
@@ -1175,6 +1176,7 @@ Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, 
 - Free: the whole Development flow completes on 1 department, 1 project, 3 workers
 - Pro: departments, projects, and workers all unlimited
 - business department setup blocked on Free, allowed on Pro
+- Connections and add-on tools (ADR-068): Connect blocked on Free, allowed on Pro; no Connection tools offered on Free; Pro ends mid-task: the running task keeps its tools and finishes, the next gets none; Disconnect works on Free and removes the sign-in from the Vault; Pro back: the same connections work again
 - key entered -> Pro applies without restarting the app; key removed -> Free, with nothing deleted
 - lapse with three departments: everything still listed, readable, and runnable; only new creation blocked
 - **no internet: Pro stays on through day 30 and drops on day 31**
@@ -2000,7 +2002,7 @@ Phase 12's terminal panel (built). Phase 16 fills in the payment switch.
 
 # Phase 20 — Connections: Microsoft 365, Slack, Google, and More
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen.
+**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen. **Connections and add-on tools are part of Pro** (ADR-068, 2026-09-28): every copy can use them until Phase 11A adds the license key and the lock.
 
 ## Goal
 

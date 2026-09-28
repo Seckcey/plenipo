@@ -28,12 +28,16 @@ Sources are at the end.
 2. In the left menu: **Entra ID** → **App registrations**.
 3. Click **+ New registration**.
 4. **Name:** `Plenipo` (people see this name when they sign in).
-5. **Supported account types:** choose **Multiple Entra ID tenants**. (Older name: "Accounts in any
-   organizational directory (Any Microsoft Entra ID tenant - Multitenant)".) **Do not** choose any
-   option that includes personal Microsoft accounts.
+5. **Supported account types:** choose **Any Entra ID Tenant + Personal Microsoft accounts**.
+   (Older name: "Accounts in any organizational directory (Any Microsoft Entra ID tenant -
+   Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)".) This lets both work or
+   school accounts and personal accounts (outlook.com, hotmail.com) connect.
 6. **Redirect URI:** in the first box choose **Public client/native (mobile & desktop)**. In the
    second box type exactly: `http://localhost`
 7. Click **Register**.
+   (If the app was first registered for organizations only and you are changing it to include
+   personal accounts: **Manifest** → set `"requestedAccessTokenVersion": 2` → **Save**, then change
+   the account types under **Authentication**. Microsoft requires it for personal accounts.)
 8. You are on the app's **Overview**. Copy the **Application (client) ID** (it looks like
    `12345678-abcd-…`). Keep it; you will give it to me.
 
@@ -55,26 +59,31 @@ Sources are at the end.
 1. In the app's menu: **API permissions**.
 2. Click **+ Add a permission** → **Microsoft Graph** → **Delegated permissions** ("the app acts as
    the signed-in person").
-3. Use the search box to find and tick each of these, then click **Add permissions**:
+3. Use the search box to find and tick each of these, then click **Add permissions**. Plenipo
+   asks for each one only when you turn its part on at that level ("Read only" or "Full access").
 
-   | Permission                | What it lets Plenipo do, as the signed-in person                      | Part       |
-   | ------------------------- | --------------------------------------------------------------------- | ---------- |
-   | `openid`                  | Sign the person in                                                    | always     |
-   | `profile`                 | See the person's name                                                 | always     |
-   | `offline_access`          | Stay signed in (a refresh token)                                      | always     |
-   | `User.Read`               | Read who signed in                                                    | always     |
-   | `Mail.ReadWrite`          | Read the person's mail, and save drafts (it cannot send)              | Mail       |
-   | `Mail.Send`               | Send mail as the person (every send asks you first, in Plenipo)       | Mail       |
-   | `Calendars.ReadWrite`     | Read the person's calendar, and add events                            | Calendar   |
-   | `Files.ReadWrite`         | Read and add files in the person's own OneDrive                       | OneDrive   |
-   | `Sites.Read.All`          | Read SharePoint sites and files the person can already see            | SharePoint |
-   | `Chat.ReadBasic`          | List the person's Teams chats                                         | Teams      |
-   | `Chat.Read`               | Read the person's Teams chat messages                                 | Teams      |
-   | `ChatMessage.Send`        | Send a message in the person's existing chats (asks you first)        | Teams      |
-   | `Team.ReadBasic.All`      | List the teams the person is in                                       | Teams      |
-   | `Channel.ReadBasic.All`   | List those teams' channels                                            | Teams      |
-   | `ChannelMessage.Send`     | Post in those channels (asks you first)                               | Teams      |
-   | `ChannelMessage.Read.All` | Read channel messages — optional, off in Plenipo until you turn it on | Teams      |
+   | Permission                | What it lets Plenipo do, as the signed-in person                | Part and level          |
+   | ------------------------- | --------------------------------------------------------------- | ----------------------- |
+   | `openid`                  | Sign the person in                                              | always                  |
+   | `profile`                 | See the person's name                                           | always                  |
+   | `offline_access`          | Stay signed in (a refresh token)                                | always                  |
+   | `User.Read`               | Read who signed in                                              | always                  |
+   | `Mail.Read`               | Read the person's mail                                          | Mail, Read only         |
+   | `Mail.ReadWrite`          | Read the person's mail, and save drafts (it cannot send)        | Mail, Full access       |
+   | `Mail.Send`               | Send mail as the person (every send asks you first, in Plenipo) | Mail, Full access       |
+   | `Calendars.Read`          | Read the person's calendar                                      | Calendar, Read only     |
+   | `Calendars.ReadWrite`     | Read the person's calendar, and add events                      | Calendar, Full access   |
+   | `Files.Read`              | Read the person's own OneDrive                                  | OneDrive, Read only     |
+   | `Files.ReadWrite`         | Read and add files in the person's own OneDrive                 | OneDrive, Full access   |
+   | `Sites.Read.All`          | Read SharePoint sites and files the person can already see      | SharePoint, Read only   |
+   | `Sites.ReadWrite.All`     | Add files in SharePoint sites the person can already edit       | SharePoint, Full access |
+   | `Chat.Read`               | Read the person's Teams chats                                   | Teams, Read only        |
+   | `Team.ReadBasic.All`      | List the teams the person is in                                 | Teams, Read only        |
+   | `Channel.ReadBasic.All`   | List those teams' channels                                      | Teams, Read only        |
+   | `ChannelMessage.Read.All` | Read messages in those channels (always needs an admin)         | Teams, Read only        |
+   | `ChatMessage.Send`        | Send a message in the person's chats (asks you first)           | Teams, Full access      |
+   | `Chat.Create`             | Start a new chat (asks you first)                               | Teams, Full access      |
+   | `ChannelMessage.Send`     | Post in those channels (asks you first)                         | Teams, Full access      |
 
    (`User.Read` is usually there already.)
 
@@ -128,7 +137,6 @@ signs in to Plenipo can see it. I put it in Plenipo's code. Nothing else is need
 - Do not create a client secret or a certificate.
 - Do not add application permissions.
 - Do not turn on **Allow public client flows**.
-- Do not allow personal Microsoft accounts.
 - Do not paste any password, secret, token, or recovery code anywhere but Microsoft's own pages.
 
 ## Safe to share, and secret
@@ -169,8 +177,8 @@ Administrator, or Application Administrator.
    organization** before **Accept**.
 
 **What you approve:** delegated permissions only (the list in step 3 above). No application
-permissions: Plenipo can never read a mailbox, file, or chat the signed-in person cannot.
-`ChannelMessage.Read.All` (reading Teams channel messages) is used only if the person turns it on.
+permissions: Plenipo can never read a mailbox, file, or chat the signed-in person cannot. Each
+person's Plenipo asks only for the parts and levels they turn on.
 
 **Limiting or removing it later:** **Entra admin center** → **Entra ID** → **Enterprise apps** →
 **Plenipo**:

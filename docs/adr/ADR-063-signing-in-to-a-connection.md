@@ -1,8 +1,7 @@
 # ADR-063: Signing in to a connection in your own browser; its token kept only in the Vault
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 - **Carries out:** ROLLOUT_PLAN.md Phase 20, "**Sign-in** to each service in the owner's browser;
