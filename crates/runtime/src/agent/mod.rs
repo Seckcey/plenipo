@@ -4,6 +4,7 @@
 
 pub mod acp;
 pub mod adapter;
+pub mod brief;
 pub mod claude_code;
 pub mod codex;
 pub mod discovery;
@@ -16,6 +17,7 @@ pub mod service;
 pub mod tools;
 
 pub use adapter::{FileRequest, ProviderSession, RuntimeAdapter, TurnParser, TurnRequest};
+pub use brief::{text_hash, BriefInput, LARGE_JOB_CHARS};
 pub use discovery::HostEnv;
 pub use dto::*;
 pub use memory_store::MemorySessionStore;

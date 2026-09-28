@@ -9,7 +9,8 @@
 //!   `{"error":"…"}`. Never the account's email or name.
 //! - `chat --model M --session ID [--resume] [--think LEVEL]`, the prompt on stdin:
 //!   `POST /api/chat` (streamed) → `session`, `thinking`, `text` (pieces of the answer),
-//!   `answer` (the whole answer), `done` (token counts), `notice`, or `error` lines.
+//!   `answer` (the whole answer), `done` (token counts), `notice` (with `leftOut` when earlier
+//!   messages were left out), or `error` lines.
 //!
 //! Ollama keeps no conversations, so the bridge keeps each one in the session's own folder
 //! (`.plenipo-ollama-<ID>.json`: the objectives and answers so far) and sends it with every
@@ -159,9 +160,11 @@ fn chat(port: u16, args: &[String], input: &mut dyn Read, out: &mut dyn Write) -
 
     let (sent, left_out) = fitting(&history, &prompt);
     if left_out > 0 {
+        // The model no longer sees the start of the conversation: `leftOut` tells Plenipo so
+        // (ADR-044 §2.5), and the text says it in plain words.
         emit(
             out,
-            &json!({ "type": "notice", "text": format!(
+            &json!({ "type": "notice", "leftOut": left_out, "text": format!(
                 "{left_out} earlier message(s) were left out: the conversation is longer than Plenipo sends at once."
             ) }),
         );
@@ -784,5 +787,31 @@ mod tests {
         assert!(sent[1]["content"].as_str().unwrap().starts_with('2'));
         assert_eq!(sent.last().unwrap()["content"], "now");
         assert_eq!(fitting(&history[..2], "now").1, 0);
+
+        // A task says so, in plain words and with the count Plenipo reads (ADR-044 §2.5).
+        let dir = tempfile::tempdir().unwrap();
+        save(&conversation_file(dir.path(), "long-1"), "m", &history).unwrap();
+        let (port, _rx) = service(200, STREAM, true);
+        let resume = [
+            "chat",
+            "--model",
+            "m",
+            "--session",
+            "long-1",
+            "--resume",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ];
+        let mut out = Vec::new();
+        assert_eq!(run(&args(&resume, port), &mut &b"now"[..], &mut out), 0);
+        let notice = lines(&out)
+            .into_iter()
+            .find(|l| l["type"] == "notice")
+            .unwrap();
+        assert_eq!(notice["leftOut"], 4);
+        assert!(notice["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("4 earlier message(s) were left out"));
     }
 }

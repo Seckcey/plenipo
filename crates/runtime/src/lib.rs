@@ -22,9 +22,9 @@ pub mod store;
 mod supervisor;
 
 pub use dto::{
-    AgentAttribution, ExecutionOutput, ExecutionRecord, ExecutionState, LaunchProfileInfo,
-    LifecycleEvent, OutputBatch, OutputLine, OutputStream, RuntimeEvent, RuntimeOverview,
-    TokenUsage,
+    AgentAttribution, BriefKind, BriefWhy, ExecutionOutput, ExecutionRecord, ExecutionState,
+    LaunchProfileInfo, LifecycleEvent, NoteKind, OutputBatch, OutputLine, OutputStream, PromptSize,
+    RuntimeEvent, RuntimeOverview, TokenUsage,
 };
 pub use error::RuntimeError;
 pub use pipes::{ExtraPipes, PipeEnds};

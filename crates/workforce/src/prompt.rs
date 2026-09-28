@@ -302,6 +302,24 @@ pub fn member_label(view: &OrgView<'_>, tool: Option<&str>, m: &TeamMember<'_>) 
     }
 }
 
+/// Who a full-time member is, in one line, for the short reminder that stands in for its full
+/// instructions once its conversation has them (ADR-044): "You are Website Supervisor, the
+/// Supervisor of the Website project in Acme."
+pub fn member_reminder(view: &OrgView<'_>, org: &str, me: &Position) -> String {
+    let mut s = format!("You are {}, the {}", me.title, role_name(view, me));
+    if let Some(p) = view.coordinates(&me.id) {
+        s.push_str(&format!(" of the {} project", p.name));
+    } else if let Some(d) = view.heads(&me.id) {
+        s.push_str(&format!(" of the {} department", d.name));
+    } else if let Some(p) = view.project_of(&me.id) {
+        s.push_str(&format!(" on the {} project", p.name));
+    } else if let Some(d) = view.department_of(&me.id) {
+        s.push_str(&format!(" of the {} department", d.name));
+    }
+    s.push_str(&format!(" in {org}."));
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

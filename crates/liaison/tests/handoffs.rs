@@ -1192,6 +1192,7 @@ impl Directory for TeamDirectory {
             .find(|p| p.id == position)?;
         Some(Team {
             identity: format!("You are {}, supervised by Plenipo.", me.title),
+            reminder: None,
             members: self
                 .members
                 .iter()

@@ -198,8 +198,8 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Workforce (agents you saved to hire again) / Save to my Workforce           | talent pool, bench, agent library                                      |
 | full instructions / short reminder (what a worker is sent with a task)      | full brief, system prompt, context re-injection                        |
 | shortened its memory (an AI tool left out older parts of a conversation)    | compaction, context compaction                                         |
-| prompt size (how much Plenipo sent, in bytes)                               | payload size, token overhead                                           |
 | tabs (of the details: Overview, Job, AI model, Work, Team, Manage)          | panes, property sheet                                                  |
+| Plenipo's own text (its size, with a task)                                  | prompt overhead, token overhead                                        |
 
 ## Where technical words may stay
 

@@ -26,10 +26,14 @@ use crate::agent::adapter::{
     cap, first_line, FileRequest, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
     TurnRequest, MAX_EVENT_TEXT,
 };
+use crate::agent::brief::{
+    note_in_full, text_hash, BriefInput, Conversation, Delivery, Standing, StepMessage,
+    NOTE_REMINDER,
+};
 use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
-use crate::dto::{AgentAttribution, OutputLine, OutputStream};
+use crate::dto::{AgentAttribution, BriefKind, NoteKind, OutputLine, OutputStream, PromptSize};
 use crate::error::RuntimeError;
 use crate::profile::{LaunchSpec, StdinFeed};
 use crate::supervisor::Supervisor;
@@ -118,8 +122,11 @@ pub struct TurnInput {
     /// Recorded as the turn's objective and shown to the owner.
     pub objective: String,
     /// Sent to the runtime on stdin; the objective itself when `None`. Lets Core add
-    /// instructions (e.g. Liaison's protocol) without changing what is recorded.
+    /// instructions without changing what is recorded. Counted as Plenipo's own text.
     pub prompt: Option<String>,
+    /// Liaison's message (ADR-044): its full and short forms, of which the runtime sends one.
+    /// Takes the place of `prompt`.
+    pub brief: Option<BriefInput>,
     pub task: TurnTask,
 }
 
@@ -129,6 +136,7 @@ impl TurnInput {
         Self {
             objective: objective.into(),
             prompt: None,
+            brief: None,
             task: TurnTask::New {
                 requested_by: OWNER.into(),
                 metadata: serde_json::Value::Null,
@@ -160,6 +168,9 @@ pub struct StepNote {
     pub reason: String,
     /// Extra data for the store (opaque to the runtime).
     pub data: serde_json::Value,
+    /// Bytes of the step's prompt Plenipo only passes along (the replies' text), for the step's
+    /// recorded size (ADR-044).
+    pub passed_bytes: usize,
 }
 
 /// A turn step's process ended (passed to the [`TurnHook`]).
@@ -170,6 +181,10 @@ pub struct TurnEnd {
     pub step: u32,
     pub execution_id: Option<String>,
     pub result: TurnResult,
+    /// The conversation's mark ([`AgentRuntime::memory_mark`]) when its AI tool kept all of it
+    /// through this step — so what the step was sent is still in it (ADR-044); `None` when the
+    /// AI tool shortened its memory meanwhile, or the conversation changed.
+    pub memory_mark: Option<u64>,
 }
 
 /// What happens to a turn whose step ended.
@@ -279,6 +294,18 @@ struct State {
     notices: Vec<String>,
     consumers: Vec<JoinHandle<()>>,
     shutting_down: bool,
+    /// What Plenipo sent each conversation and what its AI tool reported, by session ID
+    /// (ADR-044 §5). In memory only: after Plenipo starts again, every conversation starts over.
+    conversations: HashMap<String, Conversation>,
+    /// The last conversation mark given out ([`Conversation::mark`]).
+    marks: u64,
+}
+
+impl State {
+    fn next_mark(&mut self) -> u64 {
+        self.marks += 1;
+        self.marks
+    }
 }
 
 struct Inner {
@@ -1113,6 +1140,7 @@ impl AgentRuntime {
         };
         let actor = format!("agent:{}", session.runtime_id);
         let (sid, tid) = (session_id.to_owned(), task_id.to_owned());
+        let passed = note.passed_bytes;
         if let Err(e) = self
             .with_store(move |s| {
                 let turn = TurnRef {
@@ -1148,7 +1176,11 @@ impl AgentRuntime {
                 task_id: task_id.to_owned(),
                 number,
                 step,
-                prompt,
+                // A continuation never carries Liaison's instructions: only the replies.
+                message: StepMessage::Replies {
+                    text: prompt,
+                    passed,
+                },
             },
             Some(done),
         )
@@ -1359,6 +1391,7 @@ impl AgentRuntime {
         let saved = session.clone();
         self.with_store(move |s| s.save_session(&saved, SessionChange::Closed))
             .await?;
+        self.lock().conversations.remove(session_id);
         self.inner.sink.emit(AgentUpdate::Session(session.clone()));
         Ok(session)
     }
@@ -1461,7 +1494,7 @@ impl AgentRuntime {
         if let Some(active) = self.lock().active.get_mut(&session.id) {
             active.task_id = Some(task_id.clone());
         }
-        let prompt = input.prompt.unwrap_or(input.objective);
+        let message = first_message(input);
         let done = reservation.done.take();
         self.launch_step(
             session,
@@ -1472,7 +1505,7 @@ impl AgentRuntime {
                 task_id,
                 number,
                 step: 1,
-                prompt,
+                message,
             },
             done,
         )
@@ -1494,8 +1527,17 @@ impl AgentRuntime {
             task_id,
             number,
             step,
-            prompt,
+            message,
         } = launch;
+        // What goes out depends on what the conversation already has (ADR-044).
+        let (known, mark) =
+            self.conversation_at_launch(&session.id, &request, adapter.reports_memory_shortened());
+        let standing = match (&request.session, &known) {
+            (ProviderSession::New { .. }, _) => Standing::New,
+            (_, None) => Standing::Unknown,
+            (_, Some(c)) => Standing::Known(c),
+        };
+        let out = message.outgoing(standing);
         // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
         // tool can use them.
         let takes_tools = adapter.accepts_tools();
@@ -1506,19 +1548,34 @@ impl AgentRuntime {
             None
         };
         let grant = tools.as_ref().map(|t| t.grant_id.clone());
-        let prompt = match &tools {
+        let note = match &tools {
             Some(t) => {
                 request.tools = Some(t.server.clone());
-                with_note(&t.note, &prompt)
+                Some(t.note.clone())
             }
-            None => match self
-                .note_without_tools(&session, &task_id, step, adapter.label(), takes_tools)
-                .await
-            {
-                Some(note) => with_note(&note, &prompt),
-                None => prompt,
-            },
+            None => {
+                self.note_without_tools(&session, &task_id, step, adapter.label(), takes_tools)
+                    .await
+            }
         };
+        // The permissions note in full, or a short one that keeps the safety rules in view, and
+        // what goes out and its size (ADR-044): sizes only, never the text.
+        let note_hash = note.as_deref().map(text_hash);
+        let full_note = note
+            .as_deref()
+            .is_some_and(|n| note_in_full(standing, out.kind == BriefKind::Full, n));
+        let (prompt, size) = match &note {
+            Some(note) if full_note => (
+                with_note(note, &out.text),
+                out.size(Some(note), NoteKind::Full, Some(note)),
+            ),
+            Some(note) => (
+                with_note(NOTE_REMINDER, &out.text),
+                out.size(Some(NOTE_REMINDER), NoteKind::Reminder, Some(note)),
+            ),
+            None => (out.text.clone(), out.size(None, NoteKind::None, None)),
+        };
+        let delivery = out.delivery(note_hash.filter(|_| full_note));
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));
         let session_id = session.id.clone();
@@ -1533,6 +1590,8 @@ impl AgentRuntime {
             format!("{} · task {number} · step {step}", adapter.label())
         };
         let mut parser = adapter.parser(&request);
+        // What the AI tool last said about its context, to tell when it shrinks (ADR-044).
+        parser.set_context_used(known.as_ref().and_then(|c| c.context_used));
         // A task that talks (ADR-015) opens with the parser's own lines and keeps stdin open;
         // otherwise the prompt is the whole of stdin.
         let (stdin, input) = match parser.open(&prompt) {
@@ -1572,6 +1631,7 @@ impl AgentRuntime {
                 model: session.model.clone(),
                 provider_session_id: provider_session,
                 usage: None,
+                prompt: Some(size),
             })),
             extra_pipes: None,
         };
@@ -1585,6 +1645,10 @@ impl AgentRuntime {
             stored: 0,
             grant,
             input: input.map(|(tx, _)| tx),
+            size,
+            mark,
+            delivery,
+            context_used: None,
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
@@ -1600,6 +1664,7 @@ impl AgentRuntime {
                     usage: None,
                     duration_ms: None,
                     ignored_lines: 0,
+                    prompt: None,
                 };
                 ctx.complete(result, done).await;
                 return self.session(&session_id).await;
@@ -1622,6 +1687,122 @@ impl AgentRuntime {
             state.consumers.push(handle);
         }
         self.session(&session_id).await
+    }
+
+    // ---- What each conversation has (ADR-044) ----------------------------------------------
+
+    /// A number that stays the same while the AI tool of the session's conversation keeps all
+    /// of it, and changes when it shortens its memory or a new conversation starts (ADR-044).
+    /// Callers compare it to tell whether what they sent earlier is still in the conversation.
+    /// `None` when that cannot be told: nothing was sent to it since Plenipo started, or its AI
+    /// tool does not say when it shortens its memory.
+    pub fn memory_mark(&self, session_id: &str) -> Option<u64> {
+        self.lock()
+            .conversations
+            .get(session_id)
+            .filter(|c| c.heard())
+            .map(|c| c.mark)
+    }
+
+    /// What is known of the conversation a step is about to run in: nothing for a new provider
+    /// conversation, or one the runtime has sent nothing to since Plenipo started. Keeps track
+    /// of it from now on (`watched`: its AI tool says when it shortens its memory); returns the
+    /// conversation's mark as the step launches.
+    fn conversation_at_launch(
+        &self,
+        session_id: &str,
+        request: &TurnRequest,
+        watched: bool,
+    ) -> (Option<Conversation>, u64) {
+        let resumed = match &request.session {
+            ProviderSession::Resume { id } => Some(id.clone()),
+            ProviderSession::New { .. } => None,
+        };
+        let mut state = self.lock();
+        let known = state
+            .conversations
+            .get(session_id)
+            .filter(|c| resumed.is_some() && c.provider == resumed)
+            .cloned();
+        match known {
+            Some(c) => {
+                let mark = c.mark;
+                (Some(c), mark)
+            }
+            None => {
+                let mark = state.next_mark();
+                state.conversations.insert(
+                    session_id.to_owned(),
+                    Conversation {
+                        provider: resumed,
+                        mark,
+                        watched,
+                        ..Conversation::default()
+                    },
+                );
+                (None, mark)
+            }
+        }
+    }
+
+    /// The AI tool confirmed its conversation: another one than before starts over.
+    fn conversation_bound(&self, session_id: &str, provider: &str) {
+        let mut state = self.lock();
+        let (another, watched) = match state.conversations.get_mut(session_id) {
+            None => return,
+            Some(c) => match c.provider.as_deref() {
+                None => {
+                    c.provider = Some(provider.to_owned());
+                    (false, c.watched)
+                }
+                Some(p) => (p != provider, c.watched),
+            },
+        };
+        if another {
+            let mark = state.next_mark();
+            state.conversations.insert(
+                session_id.to_owned(),
+                Conversation {
+                    provider: Some(provider.to_owned()),
+                    mark,
+                    watched,
+                    ..Conversation::default()
+                },
+            );
+        }
+    }
+
+    /// The AI tool shortened its memory of the conversation: its next step gets the full
+    /// instructions and the full permissions note (ADR-044 §2.5).
+    fn memory_shortened(&self, session_id: &str) {
+        let mut state = self.lock();
+        let mark = state.next_mark();
+        if let Some(c) = state.conversations.get_mut(session_id) {
+            c.shortened = true;
+            c.note = None;
+            c.mark = mark;
+        }
+    }
+
+    /// A step that launched at `mark` ended; `delivered` is what the conversation now has, when
+    /// the step finished.
+    fn step_finished(
+        &self,
+        session_id: &str,
+        mark: u64,
+        delivered: Option<Delivery>,
+        context_used: Option<u64>,
+    ) {
+        let mut state = self.lock();
+        let Some(c) = state.conversations.get_mut(session_id) else {
+            return;
+        };
+        if context_used.is_some() {
+            c.context_used = context_used;
+        }
+        if let Some(sent) = delivered {
+            c.delivered(mark, &sent);
+        }
     }
 
     fn buffer(&self, activity: &AgentActivity) {
@@ -1699,7 +1880,21 @@ struct StepLaunch {
     task_id: String,
     number: u32,
     step: u32,
-    prompt: String,
+    /// The message, before Plenipo's tools note.
+    message: StepMessage,
+}
+
+/// The first step's message: Liaison's brief, a prompt Core wrote (counted as Plenipo's own
+/// text), or the objective alone.
+fn first_message(input: TurnInput) -> StepMessage {
+    match (input.brief, input.prompt) {
+        (Some(brief), _) => StepMessage::Brief(brief),
+        (None, Some(text)) => StepMessage::Plain { text, passed: 0 },
+        (None, None) => StepMessage::Plain {
+            passed: input.objective.len(),
+            text: input.objective,
+        },
+    }
 }
 
 /// Holds a session's slot until the turn is launched (or the attempt fails).
@@ -1733,6 +1928,15 @@ struct TurnContext {
     /// Writes to the process's stdin while a task that talks runs (ADR-015); dropped to
     /// close it.
     input: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    /// The size of what the step was sent (ADR-044), recorded with its result.
+    size: PromptSize,
+    /// The conversation's mark when the step launched: if it changed, the AI tool may have lost
+    /// part of what the step was sent.
+    mark: u64,
+    /// What the conversation keeps once the step is done (ADR-044).
+    delivery: Delivery,
+    /// How much of its context the AI tool reported in use by the end of the step.
+    context_used: Option<u64>,
 }
 
 impl TurnContext {
@@ -1832,6 +2036,7 @@ impl TurnContext {
         };
         self.input = None;
         let result = parser.finish(&end);
+        self.context_used = parser.context_used();
         self.complete(result, done).await;
     }
 
@@ -1898,6 +2103,7 @@ impl TurnContext {
                         || !self.session.provider_session_confirmed;
                     self.session.provider_session_id = Some(id.clone());
                     self.session.provider_session_confirmed = true;
+                    runtime.conversation_bound(&self.session.id, id);
                 }
                 if let Some(m) = model {
                     changed |= self.session.model.as_ref() != Some(m);
@@ -1934,6 +2140,8 @@ impl TurnContext {
                         .annotate(id, |a| a.usage = Some(usage));
                 }
             }
+            // The next step sends everything in full again (ADR-044 §2.5).
+            AgentEvent::MemoryShortened { .. } => runtime.memory_shortened(&self.session.id),
             _ => {}
         }
 
@@ -1981,10 +2189,19 @@ impl TurnContext {
         if let Some(grant) = self.grant.take() {
             runtime.close_tools(grant).await;
         }
-        let result = match runtime.filter() {
+        let mut result = match runtime.filter() {
             Some(f) => filtered_result(&f, result),
             None => result,
         };
+        result.prompt = Some(self.size);
+        // Only a finished step counts as delivered: a failed one may never have reached the AI
+        // tool, and the next one sends the same again.
+        runtime.step_finished(
+            &self.session.id,
+            self.mark,
+            (result.outcome == TurnOutcome::Completed).then_some(self.delivery),
+            self.context_used,
+        );
         if let Some(id) = &self.execution_id {
             let (pid, model, usage) = (
                 result.provider_session_id.clone(),
@@ -2006,12 +2223,16 @@ impl TurnContext {
         // The hook (if any) decides whether the turn finishes or waits to continue.
         let disposition = match runtime.hook() {
             Some(hook) => {
+                let memory_mark = runtime
+                    .memory_mark(&self.session.id)
+                    .filter(|m| *m == self.mark);
                 let end = TurnEnd {
                     session: self.session.clone(),
                     task_id: self.task_id.clone(),
                     step: self.step,
                     execution_id: self.execution_id.clone(),
                     result: result.clone(),
+                    memory_mark,
                 };
                 tokio::task::spawn_blocking(move || hook.turn_ended(&end))
                     .await
@@ -2097,6 +2318,9 @@ fn filtered(f: &TextFilter, event: AgentEvent) -> AgentEvent {
             level,
             text: f(&text),
         },
+        AgentEvent::MemoryShortened { detail } => {
+            AgentEvent::MemoryShortened { detail: f(&detail) }
+        }
         other => other,
     }
 }
@@ -2121,6 +2345,7 @@ fn administrative(outcome: TurnOutcome, summary: &str, error: Option<String>) ->
         usage: None,
         duration_ms: None,
         ignored_lines: 0,
+        prompt: None,
     }
 }
 
@@ -2133,6 +2358,9 @@ fn capped(event: AgentEvent) -> AgentEvent {
         AgentEvent::Notice { level, text } => AgentEvent::Notice {
             level,
             text: cap(&text, MAX_EVENT_TEXT),
+        },
+        AgentEvent::MemoryShortened { detail } => AgentEvent::MemoryShortened {
+            detail: cap(&detail, MAX_EVENT_TEXT),
         },
         other => other,
     }
@@ -2277,9 +2505,27 @@ pub fn validate_prompt(prompt: &str) -> Result<String, RuntimeError> {
     Ok(prompt.to_owned())
 }
 
+/// A brief's messages are prompts, and what they pass along is part of them.
+fn validate_brief(brief: BriefInput) -> Result<BriefInput, RuntimeError> {
+    validate_prompt(&brief.full)?;
+    let over = |passed: usize, text: &str| passed > text.len();
+    let mut too_much = over(brief.passed_bytes, &brief.full);
+    if let Some(reminder) = &brief.reminder {
+        validate_prompt(reminder)?;
+        too_much |= over(brief.reminder_passed_bytes, reminder);
+    }
+    if too_much {
+        return Err(RuntimeError::InvalidInput(
+            "a brief cannot pass along more than it holds".into(),
+        ));
+    }
+    Ok(brief)
+}
+
 fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
     let objective = validate_objective(&input.objective)?;
     let prompt = input.prompt.as_deref().map(validate_prompt).transpose()?;
+    let brief = input.brief.map(validate_brief).transpose()?;
     let task = match input.task {
         TurnTask::New {
             requested_by,
@@ -2315,6 +2561,7 @@ fn validate_input(input: TurnInput) -> Result<TurnInput, RuntimeError> {
     Ok(TurnInput {
         objective,
         prompt,
+        brief,
         task,
     })
 }
