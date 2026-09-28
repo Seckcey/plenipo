@@ -1,24 +1,81 @@
 name: CI
 
+# Pull requests, and main after a merge. (A push to a branch with a pull request used to start a
+# second copy of every job.)
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A new push to a pull request stops that pull request's older run. Runs on main all finish.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Documentation only (Markdown files, and pictures under docs/) needs only the Docs check: the
+  # long jobs below are skipped, and a skipped job counts as passed. Anything else, or a run by
+  # hand, runs everything.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+            *) base="" ;;
+          esac
+          if [ -z "$base" ] || ! files=$(git diff --name-only "$base" "$GITHUB_SHA" 2>/dev/null) \
+            || [ -z "$files" ]; then
+            echo "Could not tell what changed; running everything."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$files"
+          code=$(printf '%s\n' "$files" \
+            | grep -Eiv '\.md$|^docs/.*\.(png|jpe?g|gif|svg|webp)$' || true)
+          if [ -n "$code" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Documentation only: the Docs check is enough."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs:
+    name: Docs (format, links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:check
+
   frontend:
     name: Frontend (versions, format, lint, typecheck, test)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +93,8 @@ jobs:
 
   rust:
     name: Rust (fmt, clippy, test, bindings)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -61,6 +120,8 @@ jobs:
 
   e2e:
     name: E2E (real app via tauri-driver, Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -82,6 +143,15 @@ jobs:
           key: e2e
       - run: cargo install tauri-driver --locked
       - run: pnpm install --frozen-lockfile
+      # Phase 13 (ADR-038): this copy trusts a throwaway updater key and looks for updates only on
+      # this machine (127.0.0.1), so the update test can find a new version. Made here, never
+      # kept, never a release.
+      - name: A throwaway updater key for the update test
+        run: |
+          pnpm --filter @plenipo/desktop tauri signer generate --ci --password= -w "$RUNNER_TEMP/test-updater.key"
+          echo "PLENIPO_UPDATER_PUBLIC_KEY=$(cat "$RUNNER_TEMP/test-updater.key.pub")" >> "$GITHUB_ENV"
+          echo "PLENIPO_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json" >> "$GITHUB_ENV"
+          echo "PLENIPO_E2E_UPDATER_KEY=$RUNNER_TEMP/test-updater.key" >> "$GITHUB_ENV"
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
       - name: Build fake agent CLIs for Phase 3 tests
@@ -110,7 +180,9 @@ jobs:
           retention-days: 14
 
   windows:
-    name: Windows (test, build, installer, launch smoke)
+    name: Windows (test, build, installer, launch smoke, installer tests)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -125,6 +197,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: cargo test --workspace --locked
+      # Phase 13 (ADR-038): this run's copy trusts a throwaway updater key and looks for updates
+      # only on this machine (127.0.0.1), so the installer tests can install an update the way
+      # Plenipo does. The key is made here and never kept. Released copies are built by the
+      # Release workflow with 8 West's key and GitHub Releases instead.
+      - name: A throwaway updater key for the update test
+        shell: pwsh
+        run: |
+          pnpm --filter '@plenipo/desktop' tauri signer generate --ci --password= -w "$env:RUNNER_TEMP\test-updater.key"
+          if ($LASTEXITCODE -ne 0) { throw "the test updater key was not made" }
+          $public = (Get-Content "$env:RUNNER_TEMP\test-updater.key.pub" -Raw).Trim()
+          "PLENIPO_UPDATER_PUBLIC_KEY=$public" >> $env:GITHUB_ENV
+          "PLENIPO_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json" >> $env:GITHUB_ENV
       - name: Build release app and NSIS installer
         run: pnpm build
       - name: Launch smoke test (app must render the shell and report ready)
@@ -143,6 +227,42 @@ jobs:
           }
           Write-Host "Plenipo exited with code $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "Launch smoke test failed (exit $($p.ExitCode))" }
+      - name: The published 1.8.0 installer (to upgrade from)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v1.8.0 --repo "$GITHUB_REPOSITORY" --pattern '*-setup.exe' --dir "$RUNNER_TEMP/old"
+      # Install, run, crash, restart (simulated), upgrade from 1.8.0, go back and forward, update,
+      # uninstall, and list what is left behind (Phase 13). A real restart is the owner's check.
+      - name: Installer tests (install, upgrade, update, recovery, uninstall)
+        shell: pwsh
+        run: |
+          $new = (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName
+          $old = (Get-ChildItem "$env:RUNNER_TEMP/old/*-setup.exe" | Select-Object -First 1).FullName
+          $version = node -p "require('./package.json').version"
+          ./scripts/windows/installer-tests.ps1 -NewInstaller $new -OldInstaller $old -Version $version `
+            -UpdaterKey "$env:RUNNER_TEMP\test-updater.key" -UpdatesDir "$env:RUNNER_TEMP\updates"
+      # The logs and the last report are on another drive than the workspace: gather them first.
+      - name: Gather Plenipo's log files (when a test failed)
+        if: failure()
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE 'windows-logs'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $logs = Join-Path $env:LOCALAPPDATA 'com.eightwest.plenipo\logs'
+          if (Test-Path $logs) { Copy-Item "$logs\*" $out -Force }
+          $report = Join-Path $env:RUNNER_TEMP 'plenipo-report.json'
+          if (Test-Path $report) { Copy-Item $report $out -Force }
+      - name: Plenipo's log files (when a test failed)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plenipo-windows-logs
+          path: windows-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+      # This run's installer trusts this run's throwaway updater key (see above): for testing
+      # only, never a release.
       - uses: actions/upload-artifact@v7
         with:
           name: plenipo-windows-installer

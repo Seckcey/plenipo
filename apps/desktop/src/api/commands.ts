@@ -4,6 +4,12 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  DiagnosticsFile,
+  LedgerBackups,
+  RecoveryStatus,
+  StartAndClose,
+  StartAndCloseInput,
+  UpdateStatus,
   ActivityScope,
   ActivitySeries,
   ApprovalQueue,
@@ -737,4 +743,83 @@ export function sendTestNotice(): Promise<void> {
 /** Settings → Local paths: where Plenipo keeps its files on this computer (read only). */
 export function getLocalPaths(): Promise<LocalPath[]> {
   return call<LocalPath[]>("get_local_paths");
+}
+
+// ---- Keeping Plenipo dependable (Phase 13) ------------------------------------------------
+
+/** How the last run ended and what stopped, a window that was brought back, and settings
+ * Plenipo could not read. */
+export function getRecoveryStatus(): Promise<RecoveryStatus> {
+  return call<RecoveryStatus>("get_recovery_status");
+}
+
+/** Give a stopped objective to the same worker again (through the usual checks). */
+export function runAgain(taskId: string): Promise<RecoveryStatus> {
+  return call<RecoveryStatus>("run_again", { taskId });
+}
+
+/** Leave the stopped tasks stopped: the notice about the last run goes away. */
+export function dismissRecovery(id: string): Promise<RecoveryStatus> {
+  return call<RecoveryStatus>("dismiss_recovery", { id });
+}
+
+/** You read that the window was brought back. */
+export function dismissWindowRecovery(): Promise<RecoveryStatus> {
+  return call<RecoveryStatus>("dismiss_window_recovery");
+}
+
+/** The window's page is alive (every few seconds). */
+export function windowAlive(visible: boolean): Promise<void> {
+  return call<void>("window_alive", { visible });
+}
+
+/** Reset settings Plenipo could not read to their starting values (a backup is made first). */
+export function resetSettings(key: string): Promise<RecoveryStatus> {
+  return call<RecoveryStatus>("reset_settings", { key });
+}
+
+/** Settings → Start and close. */
+export function getStartAndClose(): Promise<StartAndClose> {
+  return call<StartAndClose>("get_start_and_close");
+}
+
+/** Change Settings → Start and close. */
+export function setStartAndClose(input: StartAndCloseInput): Promise<StartAndClose> {
+  return call<StartAndClose>("set_start_and_close", { input });
+}
+
+/** Every backup of the Ledger, newest first, and a restore waiting for the next start. */
+export function listLedgerBackups(): Promise<LedgerBackups> {
+  return call<LedgerBackups>("list_ledger_backups");
+}
+
+/** Restore the Ledger from a backup named in the list. Plenipo restarts to do it. */
+export function restoreLedgerBackup(name: string): Promise<LedgerBackups> {
+  return call<LedgerBackups>("restore_ledger_backup", { name });
+}
+
+/** Forget a restore that has not happened yet. */
+export function cancelLedgerRestore(): Promise<LedgerBackups> {
+  return call<LedgerBackups>("cancel_ledger_restore");
+}
+
+/** Save a diagnostics file (Core chooses where) to send when something went wrong. */
+export function saveDiagnosticsFile(): Promise<DiagnosticsFile> {
+  return call<DiagnosticsFile>("save_diagnostics_file");
+}
+
+/** Settings → Updates. */
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return call<UpdateStatus>("get_update_status");
+}
+
+/** Check GitHub now for a newer version. */
+export function checkForUpdates(): Promise<UpdateStatus> {
+  return call<UpdateStatus>("check_for_updates");
+}
+
+/** Install the newer version. `stopWork`: you agreed that running work stops. Plenipo quits
+ * and the installer opens the new version. */
+export function installUpdate(stopWork: boolean): Promise<UpdateStatus> {
+  return call<UpdateStatus>("install_update", { stopWork });
 }

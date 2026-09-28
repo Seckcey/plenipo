@@ -67,6 +67,9 @@ import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkersView } from "./views/WorkersView";
+import { RecoveryBanners } from "./upkeep/RecoveryBanners";
+import { UpdateMark } from "./upkeep/UpdateSettings";
+import { useWindowHeartbeat } from "./upkeep/useWindowHeartbeat";
 
 type CoreState =
   | { status: "loading" }
@@ -189,6 +192,8 @@ function Shell({ core }: { core: CoreState }) {
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
   const { measure: measureWork, panel: terminalPanel, size: terminalSize } = useTerminal();
+  // Plenipo brings the window back if its page stops answering (Phase 13).
+  useWindowHeartbeat();
 
   // Every view shares one scroll area: open each page at its top, not where the last one was.
   useLayoutEffect(() => {
@@ -293,6 +298,7 @@ function Shell({ core }: { core: CoreState }) {
           title={placeTitle(place, organization.snapshot)}
           end={
             <>
+              <UpdateMark go={go} />
               {info && (
                 <span className="shell__version" aria-label="Application version">
                   v{info.version}
@@ -336,6 +342,7 @@ function Shell({ core }: { core: CoreState }) {
         >
           <BannerSlot>
             <ControlBanner control={control} />
+            <RecoveryBanners go={go} />
             {ledgerNotices.length > 0 && !noticesDismissed && (
               <Banner
                 tone={severe ? "error" : "info"}

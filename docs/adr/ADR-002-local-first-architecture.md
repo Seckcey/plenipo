@@ -1,6 +1,7 @@
 # ADR-002: Local-first architecture
 
-- **Status:** Accepted (specified by ROLLOUT_PLAN.md)
+- **Status:** Accepted (specified by ROLLOUT_PLAN.md); the remote surface is now Plenipo's own web
+  interface, not CrewOS (ADR-040)
 - **Date:** 2026-09-25
 - **Phase:** 0
 

@@ -148,7 +148,7 @@ fn password_id(server: &str) -> String {
 }
 
 /// The Vault entries a server's sign-in uses.
-fn vault_ids(server: &str) -> [String; 3] {
+pub(crate) fn vault_ids(server: &str) -> [String; 3] {
     [key_id(server), passphrase_id(server), password_id(server)]
 }
 

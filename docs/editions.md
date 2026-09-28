@@ -26,6 +26,7 @@ business departments you can create.
 | Switches in Settings: what workers may use, and when they ask  | Yes            | Yes       |
 | Workers that learn from their work (lessons)                   | No             | Yes       |
 | Your servers over SSH, and the Operations Engineer role        | Yes            | Yes       |
+| Plenipo on your phone, with notices (planned, Phase 14)        | No             | Yes       |
 | Ledger, Activity trail, and screenshots of every step          | Yes            | Yes       |
 | Ranks, titles, and the rest of Personalization                 | Yes            | Yes       |
 | Full source code, and the right to change it for your own use  | Yes            | Yes       |
@@ -72,6 +73,13 @@ computer ([ADR-002](adr/ADR-002-local-first-architecture.md), local-first archit
 checks the contents of that request byte for byte, and you can read it in the source.
 
 **A Free copy never checks in at all.** If you have not paid, Plenipo never contacts 8 West.
+
+**Checking for a new version is separate, and the same for Free and Pro** (from v1.9.0,
+[ADR-038](adr/ADR-038-updates.md), updates). Every copy asks GitHub once a day whether a newer
+Plenipo is out, by reading a public file from Plenipo's GitHub Releases. It sends nothing about you
+or your work, and has nothing to do with a license. GitHub sees what any website sees (your
+internet address, and that a copy of Plenipo asked). Nothing is downloaded or installed until you
+choose **Install now**.
 
 **No internet is fine.** Pro keeps working for **30 days** between successful checks, so a flight,
 a dead router, or an 8 West outage never locks you out. If the check fails for any reason, Pro

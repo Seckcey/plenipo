@@ -176,7 +176,7 @@ pub fn watch(ledger: &Arc<Ledger>) {
             let event = event.clone();
             std::thread::spawn(move || {
                 if let Err(e) = record(&ledger, &event) {
-                    eprintln!("[plenipo] lessons could not be recorded: {e}");
+                    log::warn!("lessons could not be recorded: {e}");
                 }
             });
         }

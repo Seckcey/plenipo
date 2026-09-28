@@ -13,6 +13,7 @@ import { samplePermissions } from "../test/permissionFixtures";
 import { sampleServers } from "../test/serverFixtures";
 import { SettingsView } from "../views/SettingsView";
 import { SETTINGS_SECTION_KEY } from "./sections";
+import { sampleBackups, startAndClose, upToDate } from "../test/upkeepFixtures";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -33,6 +34,13 @@ vi.mock("../api/commands", async (importOriginal) => {
     setTerminalShell: vi.fn(),
     getLocalPaths: vi.fn(),
     getLedgerStatus: vi.fn(),
+    getStartAndClose: vi.fn(),
+    setStartAndClose: vi.fn(),
+    getUpdateStatus: vi.fn(),
+    checkForUpdates: vi.fn(),
+    installUpdate: vi.fn(),
+    listLedgerBackups: vi.fn(),
+    saveDiagnosticsFile: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -50,6 +58,7 @@ const notices: NoticeSettings = {
   problems: true,
   finished: true,
   lessons: true,
+  plenipo: true,
   onlyWhenAway: true,
 };
 
@@ -101,6 +110,15 @@ beforeEach(() => {
     return Promise.resolve(s);
   });
   api.sendTestNotice.mockResolvedValue(undefined);
+  let start = startAndClose();
+  api.getStartAndClose.mockImplementation(() => Promise.resolve(start));
+  api.setStartAndClose.mockImplementation((input) => {
+    start = { ...start, ...input };
+    return Promise.resolve(start);
+  });
+  api.getUpdateStatus.mockResolvedValue(upToDate());
+  api.checkForUpdates.mockResolvedValue(upToDate());
+  api.listLedgerBackups.mockResolvedValue(sampleBackups());
   let shell = terminal;
   api.getTerminalSettings.mockImplementation(() => Promise.resolve(shell));
   api.setTerminalShell.mockImplementation((choice) => {
@@ -133,9 +151,11 @@ describe("Settings in one place", () => {
       "Switches",
       "Notifications",
       "Terminal",
+      "Start and close",
       "Personalization",
       "Local paths",
       "Diagnostics",
+      "Updates",
       "About Plenipo",
     ]);
     expect(screen.getByRole("tab", { name: "AI tools" })).toHaveAttribute("aria-selected", "true");

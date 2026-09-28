@@ -282,16 +282,41 @@ Outputs:
 - Installer: `target\release\bundle\nsis\Plenipo_<version>_x64-setup.exe` (per-user install,
   no admin rights required)
 
-The installer is not code-signed yet (planned for Phase 13), so Windows SmartScreen may warn.
+A local build is not code-signed and cannot install updates: releases are signed as 8 West
+Ventures, LLC, and carry the updater key, only in the Release workflow
+([code signing](code-signing.md)). Windows SmartScreen may warn about a local installer.
+
+Windows installer tests (Phase 13; CI runs them on GitHub's Windows machine): install, run,
+crashes and restarts (simulated), upgrade from 1.8.0, back to 1.8.0 and forward, an update the
+way Plenipo installs one, uninstall, and what is left behind. They uninstall Plenipo and delete
+its data, so run them only on a test computer or virtual machine:
+
+```powershell
+pwsh scripts/windows/installer-tests.ps1 -NewInstaller <new setup.exe> -OldInstaller <Plenipo_1.8.0_x64-setup.exe> `
+  -Version 1.9.0 -UpdaterKey <throwaway key file> -UpdatesDir <empty folder>
+```
+
+The new installer must be built with `PLENIPO_UPDATER_PUBLIC_KEY` (the throwaway key's public
+half) and `PLENIPO_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json`; see the Windows job in
+`.github/workflows/ci.yml`.
 
 ## 7. Verify everything locally (same as CI)
 
 ```powershell
 pnpm check
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
+
+**Documentation only** (every changed file is a `.md` file, or a picture under `docs/`):
+`pnpm docs:check` is enough. It checks the Markdown's formatting and that every link to a file in
+this repository points at a file that is there. On GitHub, CI's first job, **What changed**, sees
+a docs-only pull request and runs only **Docs (format, links)**; the Frontend, Rust, E2E, and
+Windows jobs are skipped, and a skipped job counts as passed. Any other file (code, tests,
+workflows, `package.json`, or the evidence files under `docs/phases/evidence/` that tests read)
+runs every job. CI runs on pull requests and on `main`; a push to a branch without a pull request
+runs nothing (start it by hand from the Actions tab if you need it).
 
 Launch smoke test (exits 0 when the shell renders and reaches Core, 1 on timeout):
 

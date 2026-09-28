@@ -104,6 +104,33 @@ impl Guard {
         &self.inner.ledger
     }
 
+    /// Plenipo's own request to the internet (Phase 13, ADR-038): allowed only to its purpose's
+    /// addresses (see [`crate::outbound`]). A refusal is recorded in the Ledger as
+    /// `guard.request_refused`, with the host and the reason (never the rest of the address).
+    pub fn check_outbound(
+        &self,
+        rules: &crate::outbound::OutboundRules,
+        purpose: crate::outbound::Purpose,
+        address: &str,
+    ) -> std::result::Result<crate::websites::Site, String> {
+        rules.check(purpose, address).inspect_err(|why| {
+            let host = crate::websites::Site::parse(address)
+                .map(|s| s.shown())
+                .unwrap_or_else(|_| "an address that is not a website".into());
+            let event = plenipo_ledger::NewEvent {
+                source: PLENIPO.into(),
+                event_type: "guard.request_refused".into(),
+                payload: serde_json::json!({
+                    "purpose": purpose.label(),
+                    "host": host,
+                    "reason": why,
+                }),
+                ..plenipo_ledger::NewEvent::default()
+            };
+            let _ = self.ledger().append_event(event);
+        })
+    }
+
     /// The stored configuration.
     pub fn config(&self) -> Result<GuardConfig> {
         let value = self.ledger().setting(SETTING)?.unwrap_or(Value::Null);

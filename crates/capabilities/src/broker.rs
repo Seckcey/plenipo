@@ -49,7 +49,7 @@ use crate::worktrees::{self, Git};
 
 mod git_tools;
 mod operate;
-mod servers;
+pub(crate) mod servers;
 mod terminals;
 
 use git_tools::{GitLook, Stopped};

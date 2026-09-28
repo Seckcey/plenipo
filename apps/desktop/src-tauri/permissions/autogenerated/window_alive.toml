@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-window-alive"
+description = "Enables the window_alive command without any pre-configured scope."
+commands.allow = ["window_alive"]
+
+[[permission]]
+identifier = "deny-window-alive"
+description = "Denies the window_alive command without any pre-configured scope."
+commands.deny = ["window_alive"]

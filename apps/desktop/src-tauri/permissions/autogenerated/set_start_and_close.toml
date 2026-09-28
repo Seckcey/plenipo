@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-start-and-close"
+description = "Enables the set_start_and_close command without any pre-configured scope."
+commands.allow = ["set_start_and_close"]
+
+[[permission]]
+identifier = "deny-set-start-and-close"
+description = "Denies the set_start_and_close command without any pre-configured scope."
+commands.deny = ["set_start_and_close"]

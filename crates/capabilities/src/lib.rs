@@ -26,6 +26,7 @@ mod server;
 pub mod ssh;
 pub mod terminal;
 pub mod tools;
+pub mod updates;
 pub mod vault;
 pub mod worktrees;
 
