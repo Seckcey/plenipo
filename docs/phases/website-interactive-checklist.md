@@ -19,7 +19,7 @@ The owner requested the working interactive sample on entry after reviewing prod
 
 - [x] Start loading on page entry without requiring click, scroll, or idle activation.
 - [x] Preserve focus, static return, failure/retry, and duplicate-load protection.
-- [ ] Verify fresh desktop/phone navigation, fallback, and initial-load cost.
+- [x] Verify fresh desktop/phone navigation, fallback, and initial-load cost.
 - [ ] Merge and release the correction while retaining v1.6.0 installer metadata and rollback.
 
 Build guidance lives in [website operations](../development/website.md); measured results and

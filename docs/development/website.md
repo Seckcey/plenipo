@@ -59,7 +59,8 @@ target; the owner's explicit React Flow choice replaces that architecture. Measu
 HTTP transfer sizes and interaction behavior as recorded in [acceptance](website-validation.md).
 The corrected source requests demo JS/CSS on page entry; only the currently needed Pip pose loads.
 Earlier click-activation measurements describe the initial implementation, not initial-page cost
-after this correction. The new navigation measurements belong in the correction's acceptance record.
+after this correction. See the [automatic-entry acceptance record](../phases/website-autostart-acceptance.md)
+for fresh-navigation measurements and fallback checks.
 
 ## Content and search
 
