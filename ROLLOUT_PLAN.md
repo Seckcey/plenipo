@@ -19,9 +19,9 @@
 
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
-## Order of work (owner's direction, 2026-09-28, ADR-039)
+## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061)
 
-Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**.
+Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models).
 
 | Order | Phase | What | State |
 |---|---|---|---|
@@ -29,8 +29,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
-| 5 | 16 | Every AI model worth having | Next (ADR-036) |
-| 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
+| 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Next (ADR-061) |
+| 6 | 16 | Every AI model worth having | Planned (ADR-036); after Phase 20 (ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
@@ -1701,7 +1701,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**.
 
 ## Goal
 
@@ -2000,7 +2000,7 @@ Phase 12's terminal panel (built). Phase 16 fills in the payment switch.
 
 # Phase 20 — Connections: Microsoft 365, Slack, Google, and More
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Sixth in the order of work. Called **plugins** in the owner's notes; **Connections** on screen.
+**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen.
 
 ## Goal
 

@@ -3,6 +3,8 @@
 - **Status:** Accepted (by the owner, 2026-09-28). Amended by ADR-040: Phase 14 is a web interface
   built from scratch for a phone's browser, with no phone app, and CrewOS leaves the plan (§2.9
   and the Phase 14 line below are replaced).
+  Amended by [ADR-061 (doing Connections before new AI models)](ADR-061-connections-before-new-ai-models.md):
+  Phase 20 comes before Phase 16 in the order of work (§1).
 - **Date:** 2026-09-28
 - **Phase:** plan change, after Phase 13 (v1.9.0, pull request #70)
 - **Number:** ADR-037 and ADR-038 are taken by Phase 13's pull request, so this is ADR-039.
