@@ -171,6 +171,11 @@ impl RuntimeAdapter for ClaudeCode {
         Some(vec!["install".into(), version.into()])
     }
 
+    /// Documented: Claude Code's `rate_limit_event`; Codex's app server.
+    fn reports_plan_left(&self) -> bool {
+        true
+    }
+
     fn update_by_hand(&self) -> Option<&'static str> {
         Some(
             "Claude Code installed with WinGet updates with WinGet: open a terminal and type \

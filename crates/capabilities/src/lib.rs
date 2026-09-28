@@ -8,6 +8,7 @@
 //! in the Ledger, and answered with secrets hidden. A call Guard says to ask about waits for
 //! the owner's approval.
 
+pub mod ai_tools;
 pub mod broker;
 pub mod browser;
 pub mod control;

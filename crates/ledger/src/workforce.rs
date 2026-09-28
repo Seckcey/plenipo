@@ -1352,6 +1352,21 @@ impl Ledger {
         })
     }
 
+    /// Keep what Plenipo last learned for itself under `key` — not a choice of the owner's, so
+    /// no event (the AI tools' newest versions, their model lists, and their plan reports,
+    /// Phase 19; each meaningful change records its own event).
+    pub fn keep_setting(&self, key: &str, value: &Value) -> Result<()> {
+        let key = clean_line("the setting key", key, 64)?;
+        self.write(|tx, _out| {
+            tx.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![key, value.to_string(), now()],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Set `fields` in the object stored under `key`, keeping its other fields; returns the
     /// whole object. One transaction, so two changes to different fields never undo each other.
     pub fn merge_setting(&self, key: &str, fields: &Value, actor: &str) -> Result<Value> {
@@ -2404,6 +2419,42 @@ impl Ledger {
                         error: r.get(3)?,
                         summary: r.get(4)?,
                         at: u64_of(r.get(5)?),
+                    })
+                },
+            )
+        })
+    }
+
+    /// Each step `runtime` ran from `from` (ms) up to `to`, with the token counts saved for it
+    /// (Phase 19, ADR-060 §1: usage is added up from these, never from anything else). Oldest
+    /// first, at most 20,000 steps.
+    pub fn token_steps(&self, runtime: &str, from: u64, to: u64) -> Result<Vec<TokenStep>> {
+        fn count(v: Option<i64>) -> Option<u64> {
+            v.and_then(|n| u64::try_from(n).ok())
+        }
+        self.read(|c| {
+            all(
+                c,
+                "SELECT started_at, NULLIF(model, ''), task_id,
+                        json_extract(usage_metadata, '$.usage.inputTokens'),
+                        json_extract(usage_metadata, '$.usage.cachedInputTokens'),
+                        json_extract(usage_metadata, '$.usage.outputTokens')
+                 FROM executions
+                 WHERE runtime = ?1 AND started_at >= ?2 AND started_at < ?3
+                 ORDER BY started_at LIMIT 20000",
+                rusqlite::params![
+                    runtime,
+                    i64::try_from(from).unwrap_or(i64::MAX),
+                    i64::try_from(to).unwrap_or(i64::MAX)
+                ],
+                |r| {
+                    Ok(TokenStep {
+                        started_at: u64_of(r.get(0)?),
+                        model: r.get(1)?,
+                        task_id: r.get(2)?,
+                        read: count(r.get(3)?),
+                        reused: count(r.get(4)?),
+                        written: count(r.get(5)?),
                     })
                 },
             )
@@ -3739,6 +3790,65 @@ mod tests {
             .is_err());
         assert_eq!(l.setting("counter").unwrap().unwrap()["total"], 5);
         assert_eq!(l.recent_events(10).unwrap().len(), before);
+    }
+
+    #[test]
+    fn token_steps_are_the_counts_saved_with_each_step() {
+        let l = ledger();
+        let run = |id: &str, runtime: &str, model: Option<&str>, at: u64, usage: Value| {
+            l.upsert_execution(
+                &ExecutionRow {
+                    id: id.into(),
+                    task_id: None,
+                    runtime: runtime.into(),
+                    provider: None,
+                    model: model.map(str::to_owned),
+                    session_id: None,
+                    process_id: None,
+                    profile_id: None,
+                    label: "turn".into(),
+                    executable: None,
+                    args: vec![],
+                    working_dir: None,
+                    state: "succeeded".into(),
+                    exit_code: Some(0),
+                    detail: None,
+                    started_at: at,
+                    ended_at: Some(at + 1),
+                    usage_metadata: usage,
+                },
+                "test",
+            )
+            .unwrap();
+        };
+        let counts = json!({ "usage": { "inputTokens": 20, "cachedInputTokens": 8,
+                                         "outputTokens": 9 } });
+        run("a", "codex", Some("gpt-x"), 1_000, counts.clone());
+        run("b", "codex", None, 1_500, json!({ "usage": null }));
+        run("c", "claude-code", Some("opus"), 1_600, counts.clone());
+        run("d", "codex", Some("gpt-x"), 9_000, counts);
+        let steps = l.token_steps("codex", 1_000, 9_000).unwrap();
+        assert_eq!(
+            steps,
+            vec![
+                TokenStep {
+                    started_at: 1_000,
+                    model: Some("gpt-x".into()),
+                    task_id: None,
+                    read: Some(20),
+                    reused: Some(8),
+                    written: Some(9),
+                },
+                TokenStep {
+                    started_at: 1_500,
+                    model: None,
+                    task_id: None,
+                    read: None,
+                    reused: None,
+                    written: None,
+                },
+            ]
+        );
     }
 
     #[test]

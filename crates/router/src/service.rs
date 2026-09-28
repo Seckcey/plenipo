@@ -437,6 +437,8 @@ impl Router {
                     available: not_ready.is_none() && t.limit.is_none(),
                     effort_levels: t.info.capabilities.effort_levels.clone(),
                     known_models: t.info.capabilities.known_models.clone(),
+                    new_models: ToolInfo::reported(&t.info).0,
+                    unlisted_models: ToolInfo::reported(&t.info).1,
                 }
             })
             .collect();

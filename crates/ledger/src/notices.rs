@@ -118,6 +118,9 @@ pub fn may_notify(event_type: &str) -> bool {
             | "lesson.added"
             | "plenipo.recovered"
             | "plenipo.update_available"
+            | "ai_tool.update_available"
+            | "ai_tool.updated"
+            | "ai_tool.update_failed"
     )
 }
 
@@ -213,6 +216,42 @@ impl Ledger {
                 ),
             )),
             "plenipo.recovered" => Some(recovered_notice(p)),
+            // Phase 19 (ADR-059 §2, §8): an AI tool's new version, once; and what an update did.
+            "ai_tool.update_available" if p["automatic"] != json!(true) => {
+                text(p, "newest").map(|v| {
+                    let name = tool(text(p, "runtime").unwrap_or_default());
+                    Notice::new(
+                        NoticeKind::Plenipo,
+                        format!("A new version of {name} is ready ({v})"),
+                        "Update it on the AI tools page when you are ready. Plenipo updates it \
+                         only when no task is using it.",
+                    )
+                })
+            }
+            "ai_tool.updated" => text(p, "to").map(|v| {
+                let name = tool(text(p, "runtime").unwrap_or_default());
+                Notice::new(
+                    NoticeKind::Plenipo,
+                    format!("{name} was updated to {v}"),
+                    "Plenipo checked its version, its sign-in, and its models again.",
+                )
+            }),
+            "ai_tool.update_failed" => {
+                let name = tool(text(p, "runtime").unwrap_or_default());
+                let body = match (p["oldStillWorks"].as_bool(), text(p, "from")) {
+                    (Some(true), Some(from)) => {
+                        format!("The old version ({from}) still works.")
+                    }
+                    _ => format!(
+                        "Plenipo is not giving {name} tasks for now. See the AI tools page."
+                    ),
+                };
+                Some(Notice::new(
+                    NoticeKind::Plenipo,
+                    format!("{name}'s update didn't finish"),
+                    body,
+                ))
+            }
             "plenipo.update_available" => text(p, "version").map(|v| {
                 Notice::new(
                     NoticeKind::Plenipo,
@@ -699,6 +738,66 @@ mod tests {
         assert_eq!(line(&long).chars().count(), MAX_LINE);
         assert_eq!(host("https://a.example:8443/x?y"), Some("a.example:8443"));
         assert_eq!(capitalized("git push"), "Git push");
+    }
+
+    #[test]
+    fn an_ai_tools_new_version_and_its_update_make_notices() {
+        let l = ledger();
+        let tool = |id: &str| {
+            if id == "grok" {
+                "Grok".to_owned()
+            } else {
+                id.to_owned()
+            }
+        };
+        let event = |kind: &str, payload: Value| {
+            l.append_event(crate::NewEvent {
+                source: "plenipo".into(),
+                event_type: kind.into(),
+                payload,
+                ..crate::NewEvent::default()
+            })
+            .unwrap()
+        };
+        let ready = event(
+            "ai_tool.update_available",
+            json!({ "runtime": "grok", "installed": "1.0.41", "newest": "1.0.43" }),
+        );
+        assert!(may_notify(&ready.event_type));
+        let n = l.notice_for(&ready, &tool).unwrap().unwrap();
+        assert_eq!(n.kind, NoticeKind::Plenipo);
+        assert_eq!(n.title, "A new version of Grok is ready (1.0.43)");
+        // With automatic updates on, the update itself says what happened.
+        let automatic = event(
+            "ai_tool.update_available",
+            json!({ "runtime": "grok", "newest": "1.0.43", "automatic": true }),
+        );
+        assert_eq!(l.notice_for(&automatic, &tool).unwrap(), None);
+        let updated = event(
+            "ai_tool.updated",
+            json!({ "runtime": "grok", "from": "1.0.41", "to": "1.0.43" }),
+        );
+        assert_eq!(
+            l.notice_for(&updated, &tool).unwrap().unwrap().title,
+            "Grok was updated to 1.0.43"
+        );
+        let failed = event(
+            "ai_tool.update_failed",
+            json!({ "runtime": "grok", "from": "1.0.41", "oldStillWorks": true }),
+        );
+        let n = l.notice_for(&failed, &tool).unwrap().unwrap();
+        assert_eq!(n.title, "Grok's update didn't finish");
+        assert_eq!(n.body, "The old version (1.0.41) still works.");
+        let stopped = event(
+            "ai_tool.update_failed",
+            json!({ "runtime": "grok", "from": "1.0.41", "oldStillWorks": false }),
+        );
+        assert!(l
+            .notice_for(&stopped, &tool)
+            .unwrap()
+            .unwrap()
+            .body
+            .contains("not giving Grok tasks"));
     }
 
     #[test]

@@ -717,6 +717,21 @@ pub struct TurnOutcomeRecord {
     pub at: u64,
 }
 
+/// One task step's saved token counts, for the AI tools page's usage (Phase 19, ADR-060 §1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenStep {
+    /// When the step started (ms).
+    pub started_at: u64,
+    /// The model the AI tool reported (or was asked to run); `None`: the tool's default.
+    pub model: Option<String>,
+    /// The task the step belongs to.
+    pub task_id: Option<String>,
+    /// Tokens read, of which reused, and written; `None` when the tool reported no counts.
+    pub read: Option<u64>,
+    pub reused: Option<u64>,
+    pub written: Option<u64>,
+}
+
 /// A model a runtime reported running (or was asked to run), from the executions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeenModel {

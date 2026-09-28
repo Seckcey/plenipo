@@ -229,6 +229,11 @@ impl RuntimeAdapter for Codex {
         vec![("CODEX_NON_INTERACTIVE".into(), "1".into())]
     }
 
+    /// Documented: Claude Code's `rate_limit_event`; Codex's app server.
+    fn reports_plan_left(&self) -> bool {
+        true
+    }
+
     fn update_by_hand(&self) -> Option<&'static str> {
         Some(
             "Codex installed with npm updates with npm: open a terminal and type \

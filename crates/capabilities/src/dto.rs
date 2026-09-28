@@ -330,8 +330,10 @@ pub struct ShellOption {
     pub path: Option<String>,
 }
 
-/// Where a terminal opens: this PC, or one of the owner's servers. Only a place: never a
-/// program, a path, or a command line (anything more is refused).
+/// Where a terminal opens: this PC, one of the owner's servers, or an AI tool's own sign-in or
+/// sign-out (Phase 19, ADR-058). Only a place: never a program, a path, or a command line
+/// (anything more is refused). An AI tool's place names the tool and the action; the command it
+/// runs comes from that tool's adapter, from a fixed list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(
     tag = "kind",
@@ -341,7 +343,13 @@ pub struct ShellOption {
 #[ts(export)]
 pub enum TerminalPlace {
     ThisPc,
-    Server { server_id: String },
+    Server {
+        server_id: String,
+    },
+    AiTool {
+        runtime_id: String,
+        action: plenipo_runtime::agent::AccountAction,
+    },
 }
 
 impl<'de> Deserialize<'de> for TerminalPlace {
@@ -351,13 +359,22 @@ impl<'de> Deserialize<'de> for TerminalPlace {
         struct Raw {
             kind: String,
             server_id: Option<String>,
+            runtime_id: Option<String>,
+            action: Option<plenipo_runtime::agent::AccountAction>,
         }
         let raw = Raw::deserialize(d)?;
-        match (raw.kind.as_str(), raw.server_id) {
-            ("thisPc", None) => Ok(Self::ThisPc),
-            ("server", Some(server_id)) => Ok(Self::Server { server_id }),
+        match (raw.kind.as_str(), raw.server_id, raw.runtime_id, raw.action) {
+            ("thisPc", None, None, None) => Ok(Self::ThisPc),
+            ("server", Some(server_id), None, None) => Ok(Self::Server { server_id }),
+            ("aiTool", None, Some(runtime_id), Some(action))
+                if plenipo_runtime::agent::builtin_adapters()
+                    .iter()
+                    .any(|a| a.id() == runtime_id) =>
+            {
+                Ok(Self::AiTool { runtime_id, action })
+            }
             _ => Err(serde::de::Error::custom(
-                "a terminal opens on this PC or on a server",
+                "a terminal opens on this PC, on a server, or for an AI tool's own sign-in",
             )),
         }
     }

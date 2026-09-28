@@ -287,6 +287,40 @@ pub struct ToolInfo {
     /// Models the AI tool itself offers (offered as choices, never assumed to be in the owner's
     /// list).
     pub known_models: Vec<KnownModel>,
+    /// Models the AI tool reported itself that Plenipo has not checked (ADR-060 §5): offered
+    /// too, marked "new — not checked yet".
+    pub new_models: Vec<KnownModel>,
+    /// Checked models the AI tool no longer lists (only when its list is complete): "not offered
+    /// by this version".
+    pub unlisted_models: Vec<String>,
+}
+
+impl ToolInfo {
+    /// The AI tool's new models and the checked ones it no longer lists, from what it reported.
+    pub fn reported(
+        info: &plenipo_runtime::agent::AgentRuntimeInfo,
+    ) -> (Vec<KnownModel>, Vec<String>) {
+        let known = &info.capabilities.known_models;
+        let Some(reported) = &info.reported_models else {
+            return (Vec::new(), Vec::new());
+        };
+        let new = reported
+            .models
+            .iter()
+            .filter(|m| !known.iter().any(|k| k.name == m.name))
+            .cloned()
+            .collect();
+        let unlisted = if reported.complete {
+            known
+                .iter()
+                .filter(|k| !reported.models.iter().any(|m| m.name == k.name))
+                .map(|k| k.name.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        (new, unlisted)
+    }
 }
 
 /// What happened to one model the router considered.
@@ -402,4 +436,79 @@ pub struct RoutingSnapshot {
     pub notices: Vec<String>,
     #[ts(type = "number")]
     pub generated_at: u64,
+}
+
+/// Phase 19: models an AI tool reports that Plenipo has not checked (ADR-060 §5).
+#[cfg(test)]
+mod reported_models_tests {
+    use super::*;
+    use plenipo_runtime::agent::{
+        AccountCommands, AgentRuntimeInfo, AuthStatus, InstallState, Installation, ReportedModels,
+        RuntimeCapabilities,
+    };
+
+    fn info(reported: Option<ReportedModels>) -> AgentRuntimeInfo {
+        AgentRuntimeInfo {
+            id: "grok".into(),
+            label: "Grok".into(),
+            provider: "xai".into(),
+            provider_label: "xAI".into(),
+            installation: Installation {
+                state: InstallState::Installed,
+                executable: None,
+                version: Some("1.0.41".into()),
+                detail: None,
+            },
+            auth: AuthStatus {
+                state: AuthState::Subscription,
+                method: None,
+                detail: None,
+            },
+            capabilities: RuntimeCapabilities {
+                streaming_text: true,
+                resume: true,
+                cancel: true,
+                structured_results: true,
+                billing_checked_per_turn: false,
+                tool_posture: String::new(),
+                effort_levels: vec![Effort::Low, Effort::High],
+                known_models: vec![
+                    KnownModel::new("grok-4.7", "Grok 4.7", &[Effort::Low]),
+                    KnownModel::new("grok-4.5", "Grok 4.5", &[Effort::Low]),
+                ],
+            },
+            install_hint: String::new(),
+            login_hint: String::new(),
+            ready: true,
+            checked_at: None,
+            checked_version: "1.0.41".into(),
+            account: AccountCommands::default(),
+            reported_models: reported,
+        }
+    }
+
+    #[test]
+    fn new_models_are_the_reported_ones_plenipo_has_not_checked() {
+        assert_eq!(ToolInfo::reported(&info(None)), (vec![], vec![]));
+        let reported = ReportedModels {
+            models: vec![
+                KnownModel::new("grok-4.7", "Grok 4.7", &[Effort::Low]),
+                KnownModel::new("grok-5", "Grok 5", &[Effort::High]),
+            ],
+            complete: true,
+            checked_at: 1,
+        };
+        let (new, unlisted) = ToolInfo::reported(&info(Some(reported.clone())));
+        assert_eq!(
+            new,
+            vec![KnownModel::new("grok-5", "Grok 5", &[Effort::High])]
+        );
+        assert_eq!(unlisted, vec!["grok-4.5".to_owned()]);
+        // A list of only some models (Ollama's, of this PC) never says one is gone.
+        let partial = ReportedModels {
+            complete: false,
+            ..reported
+        };
+        assert!(ToolInfo::reported(&info(Some(partial))).1.is_empty());
+    }
 }

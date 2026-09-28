@@ -333,6 +333,11 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn parse_plan(&self, _out: &ProbeOutput) -> Option<PlanReport> {
         None
     }
+    /// Whether the tool officially reports how much of the plan is used — in its task stream or
+    /// its check (ADR-060 §3). Without it, the card says the tool does not report it.
+    fn reports_plan_left(&self) -> bool {
+        false
+    }
 }
 
 /// Where Plenipo learns the newest version of an AI tool (ADR-059 §2).

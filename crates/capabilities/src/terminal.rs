@@ -88,6 +88,9 @@ pub struct ShellProgram {
     pub label: String,
     pub program: PathBuf,
     pub args: Vec<String>,
+    /// `None`: the shell gets Plenipo's own environment, as the owner's terminal always has.
+    /// `Some`: exactly these variables and nothing else (an AI tool's sign-in tab, ADR-058 §2).
+    pub env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
 }
 
 pub fn shell_label(shell: TerminalShell) -> &'static str {
@@ -186,6 +189,7 @@ pub fn shell_program(shell: TerminalShell) -> Result<ShellProgram, String> {
             label: shell_label(shell).into(),
             program,
             args,
+            env: None,
         })
     }
     #[cfg(not(windows))]
@@ -200,6 +204,7 @@ pub fn shell_program(shell: TerminalShell) -> Result<ShellProgram, String> {
             label: name,
             program,
             args: Vec::new(),
+            env: None,
         })
     }
 }
@@ -272,6 +277,12 @@ pub fn start_local(
     command.args(&shell.args);
     if let Some(dir) = cwd {
         command.cwd(dir);
+    }
+    if let Some(env) = &shell.env {
+        command.env_clear();
+        for (name, value) in env {
+            command.env(name, value);
+        }
     }
     // What the shell may expect of the screen part (xterm.js): colors, and 256 of them.
     command.env("TERM", "xterm-256color");

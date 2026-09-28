@@ -310,6 +310,9 @@ struct State {
     /// AI tools no new task may start on for now, and how many holds each has (ADR-058 §5,
     /// ADR-059 §4).
     holds: HashMap<String, u32>,
+    /// AI tools Plenipo gives no tasks, and why: an update left one that does not answer the way
+    /// Plenipo reads it (ADR-059 §6).
+    out_of_service: HashMap<String, String>,
 }
 
 impl State {
@@ -843,6 +846,10 @@ impl AgentRuntime {
         let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
+        if let Some(why) = self.lock().out_of_service.get(adapter.id()) {
+            info.ready = false;
+            info.installation.detail = Some(why.clone());
+        }
         let billing_confirmed = info.auth.state == AuthState::Subscription;
         let ready = info.ready.then_some(Ready {
             executable,
@@ -1128,6 +1135,22 @@ impl AgentRuntime {
         self.inner
             .sink
             .emit(AgentUpdate::Runtimes(RuntimesUpdate { runtimes }));
+    }
+
+    /// Give `runtime_id` no tasks, and say why (`Some`), or give it tasks again (`None`): an
+    /// update left it not answering the way Plenipo reads it (ADR-059 §6). Takes effect at its
+    /// next check.
+    pub fn set_out_of_service(&self, runtime_id: &str, why: Option<String>) {
+        let mut state = self.lock();
+        match why {
+            Some(why) => state.out_of_service.insert(runtime_id.to_owned(), why),
+            None => state.out_of_service.remove(runtime_id),
+        };
+    }
+
+    /// Why `runtime_id` is given no tasks, if it is not ([`Self::set_out_of_service`]).
+    pub fn out_of_service(&self, runtime_id: &str) -> Option<String> {
+        self.lock().out_of_service.get(runtime_id).cloned()
     }
 
     /// An AI tool reported how much of the plan is used, during a task (ADR-060 §3).
@@ -2786,6 +2809,11 @@ pub fn unavailable_outcome(info: &AgentRuntimeInfo) -> TurnOutcome {
 fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> String {
     let label = adapter.label();
     match info.installation.state {
+        // Installed, but given no tasks (ADR-059 §6): the only case with a detail.
+        InstallState::Installed if info.installation.detail.is_some() => {
+            let detail = info.installation.detail.clone().unwrap_or_default();
+            return format!("Plenipo is not giving {label} tasks for now: {detail}");
+        }
         InstallState::Installed => {}
         InstallState::Checking => return format!("{label} is still being checked."),
         _ => {
