@@ -24,7 +24,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use plenipo_capabilities::ai_tools::{AiToolUpdateState, AiTools, PaymentMethod, UpdateBy};
-use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, TerminalEvent, TerminalPlace};
+use plenipo_capabilities::{
+    Broker, BrokerConfig, MemorySecretStore, TerminalEvent, TerminalInfo, TerminalPlace,
+};
 use plenipo_guard::{Guard, OutboundRules};
 use plenipo_ledger::{Ledger, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -254,6 +256,38 @@ async fn until(what: &str, pred: impl Fn() -> bool) {
 }
 
 impl H {
+    /// Open an AI tool's sign-in or sign-out tab, with a screen that answers the terminal's
+    /// questions about the cursor, as the owner's screen (xterm.js) does: "top left". As it
+    /// starts, Windows' pseudo console asks where the cursor is (ESC [ 6 n) and shows nothing,
+    /// and runs nothing, until it hears back.
+    async fn open_tab(&self, id: &str, action: AccountAction, screen: &Shared) -> TerminalInfo {
+        let info = self
+            .tools
+            .open_account(id, action, 100, 30, sink(screen))
+            .await
+            .unwrap();
+        let (broker, tab, screen) = (self.broker.clone(), info.id.clone(), Arc::clone(screen));
+        tokio::spawn(async move {
+            let mut answered = 0;
+            loop {
+                let (asked, ended) = {
+                    let s = screen.lock().unwrap();
+                    let asked = s.bytes.windows(4).filter(|w| *w == b"\x1b[6n").count();
+                    (asked, s.ended.is_some())
+                };
+                if ended {
+                    break;
+                }
+                while answered < asked {
+                    let _ = broker.write_terminal(&tab, b"\x1b[1;1R");
+                    answered += 1;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
+        info
+    }
+
     fn info(&self, id: &str) -> plenipo_runtime::agent::AgentRuntimeInfo {
         self.rt.runtimes().into_iter().find(|r| r.id == id).unwrap()
     }
@@ -306,11 +340,7 @@ impl H {
 async fn sign_in_opens_a_tab_running_exactly_that_tools_login_command_and_nothing_else() {
     let h = harness("signed-out").await;
     let screen: Shared = Arc::default();
-    let info = h
-        .tools
-        .open_account("codex", AccountAction::SignIn, 100, 30, sink(&screen))
-        .await
-        .unwrap();
+    let info = h.open_tab("codex", AccountAction::SignIn, &screen).await;
     assert_eq!(info.title, "Sign in · Codex");
     assert_eq!(info.detail, "codex login");
     assert_eq!(
@@ -392,11 +422,7 @@ async fn after_the_tab_closes_the_card_checks_again_and_shows_the_new_sign_in() 
     let h = harness("signed-out").await;
     assert_eq!(h.info("grok").auth.state, AuthState::SignedOut);
     let screen: Shared = Arc::default();
-    let info = h
-        .tools
-        .open_account("grok", AccountAction::SignIn, 100, 30, sink(&screen))
-        .await
-        .unwrap();
+    let info = h.open_tab("grok", AccountAction::SignIn, &screen).await;
     until("the sign-in program", || {
         text(&screen).contains("Press Enter")
     })
@@ -424,10 +450,7 @@ async fn after_the_tab_closes_the_card_checks_again_and_shows_the_new_sign_in() 
 
     // Sign out, the same way: no key, the tab ends by itself.
     let screen: Shared = Arc::default();
-    h.tools
-        .open_account("grok", AccountAction::SignOut, 100, 30, sink(&screen))
-        .await
-        .unwrap();
+    h.open_tab("grok", AccountAction::SignOut, &screen).await;
     until("the sign-out tab to end", || {
         screen.lock().unwrap().ended.is_some()
     })
@@ -459,16 +482,8 @@ async fn sign_out_waits_while_a_task_is_using_the_tool() {
     assert_eq!(h.read("sign-in-started"), None);
     h.free("claude-code", &session).await;
     let screen: Shared = Arc::default();
-    h.tools
-        .open_account(
-            "claude-code",
-            AccountAction::SignOut,
-            100,
-            30,
-            sink(&screen),
-        )
-        .await
-        .unwrap();
+    h.open_tab("claude-code", AccountAction::SignOut, &screen)
+        .await;
     until("the sign-out", || screen.lock().unwrap().ended.is_some()).await;
 }
 
@@ -532,11 +547,7 @@ async fn an_update_and_a_sign_in_tab_take_turns_on_one_tool() {
     h.write("newest-grok", "1.0.100");
     // The sign-in tab is open: the update waits until it closes.
     let screen = Shared::default();
-    let info = h
-        .tools
-        .open_account("grok", AccountAction::SignIn, 100, 30, sink(&screen))
-        .await
-        .unwrap();
+    let info = h.open_tab("grok", AccountAction::SignIn, &screen).await;
     until("the sign-in program", || {
         text(&screen).contains("Press Enter")
     })
