@@ -318,11 +318,12 @@ fn page_text(page: &Value, controls: bool, captcha_tries: u32, tries_allowed: bo
         );
     }
     // The website's words, fenced (crate::fence): information, never instructions.
+    let source = fence::Source::Page(host);
     let mut words = format!("{}\n", page["text"].as_str().unwrap_or_default().trim());
     if page["truncated"] == true {
         words.push_str("(… more text: read with a larger maxChars, or scroll)\n");
     }
-    out.push_str(&fence::fenced(&fence::Source::Page(host), &words));
+    out.push_str(&fence::fenced(&source, &words));
     if controls {
         let items = page["elements"].as_array().cloned().unwrap_or_default();
         if items.is_empty() {
@@ -332,10 +333,14 @@ fn page_text(page: &Value, controls: bool, captcha_tries: u32, tries_allowed: bo
                 "Links and controls (give the reference to browser_click, browser_type, or \
                  browser_select):\n",
             );
+            // The controls' names are the website's words too: fenced the same way, after
+            // Plenipo's own line about them.
+            let mut list = String::new();
             for e in &items {
-                out.push_str(&control_line(e));
-                out.push('\n');
+                list.push_str(&control_line(e));
+                list.push('\n');
             }
+            out.push_str(&fence::fenced(&source, &list));
             if items.len() >= MAX_CONTROLS {
                 out.push_str("(… more controls further down: scroll, then read again)\n");
             }
