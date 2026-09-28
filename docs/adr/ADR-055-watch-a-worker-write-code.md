@@ -1,6 +1,7 @@
 # ADR-055: Watch — seeing a worker write code as it happens
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended; §13, a refused edit's record
+  keeping no text, after an explanation)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §2.12, "watch a worker write code, live"

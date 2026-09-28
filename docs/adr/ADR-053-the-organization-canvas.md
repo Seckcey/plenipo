@@ -1,6 +1,6 @@
 # ADR-053: The organization canvas — arrange, rewire, the trash can, and a live view
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §2.1 (the trash can and the Archived drawer) and

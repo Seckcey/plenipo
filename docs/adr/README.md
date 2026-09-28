@@ -67,7 +67,7 @@ architecture must be recorded here.
 | [050](ADR-050-lessons-kept-on-their-own.md)          | Lessons a role keeps on its own are notes, not orders (amends 024)                            | Accepted |
 | [051](ADR-051-codex-own-shell.md)                    | Codex works through Plenipo's tools: its own command tool is off (amends 007)                 | Accepted |
 | [052](ADR-052-release-signing-environment.md)        | Signing runs only for main and release tags, behind the owner's approval (amends 038)         | Accepted |
-| [053](ADR-053-the-organization-canvas.md)            | The organization canvas: arrange, rewire, the trash can, and a live view (amends 009)         | Proposed |
-| [054](ADR-054-move-or-lend.md)                       | Move or lend an agent to another team; a task's own team decides its limits (amends 009, 013) | Proposed |
-| [055](ADR-055-watch-a-worker-write-code.md)          | Watch: seeing a worker write code as it happens (amends 031)                                  | Proposed |
-| [056](ADR-056-the-owners-tile.md)                    | The owner's tile: your picture, status, mood, and message                                     | Proposed |
+| [053](ADR-053-the-organization-canvas.md)            | The organization canvas: arrange, rewire, the trash can, and a live view (amends 009)         | Accepted |
+| [054](ADR-054-move-or-lend.md)                       | Move or lend an agent to another team; a task's own team decides its limits (amends 009, 013) | Accepted |
+| [055](ADR-055-watch-a-worker-write-code.md)          | Watch: seeing a worker write code as it happens (amends 031)                                  | Accepted |
+| [056](ADR-056-the-owners-tile.md)                    | The owner's tile: your picture, status, mood, and message                                     | Accepted |

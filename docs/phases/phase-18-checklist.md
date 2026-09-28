@@ -1,7 +1,7 @@
 # Phase 18 — Implementation Checklist
 
-**Status:** design proposed (2026-09-28), waiting for the owner's approval. Nothing is built
-until the owner approves. To be delivered as **v1.11.0**. Builds on v1.10.0 (Phase 17).
+**Status:** design approved by the owner (2026-09-28); being built. To be delivered as
+**v1.11.0**. Builds on v1.10.0 (Phase 17).
 
 Source: `ROLLOUT_PLAN.md`, Phase 18 — The Organization Canvas (third in the order of work,
 ADR-039), and the four records written for it:
@@ -22,9 +22,14 @@ change **being written — not saved yet**.
 lend and move agents, archive with a drag, and see at a glance where work, data, and compute are.
 Let the owner watch a worker write code as it happens."
 
-## Owner decisions (to be made)
+## Owner decisions (2026-09-28)
 
-The records' recommendations, for the owner to accept or change:
+**The design is approved, and ADR-053 to ADR-056 are accepted, as recommended** ("The rest of
+everything sounds perfect"). One choice waited for an explanation: whether a refused edit's
+record keeps none of the refused text (item 6, last part; ADR-055 §13). After it, the owner
+answered "yes, that sounds fine": the record keeps the file, the size, and why, and no text.
+
+The recommendations the owner accepted:
 
 1. **Arranging** (ADR-053): a tile moves with its team (Alt moves one tile); dropping on an empty
    spot in Select places the tile; moving tiles is not listed in the Activity trail.

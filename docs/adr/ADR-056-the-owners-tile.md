@@ -1,6 +1,6 @@
 # ADR-056: The owner's tile — your picture, status, mood, and message
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §3 (Phase 18: "the owner's own tile (avatar,
