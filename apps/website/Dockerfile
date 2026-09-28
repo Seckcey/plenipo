@@ -1,7 +1,10 @@
 FROM node:22-alpine AS build
 WORKDIR /site
-COPY package.json index.html styles.css main.js ./
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY index.html styles.css main.js ./
 COPY scripts ./scripts
+COPY src ./src
 COPY public ./public
 ARG SOURCE_REVISION=development
 ENV SOURCE_REVISION=$SOURCE_REVISION

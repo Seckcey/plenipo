@@ -1,9 +1,55 @@
 # Plenipo marketing website
 
 The public product site is built from `apps/website` for <https://plenipo.8westit.com>.
-It is a static HTML, CSS, and JavaScript application with no production JavaScript dependencies,
-forms, account system, tracking scripts, or billing integration. Plenipo's desktop app and its
-release workflow are unchanged.
+It serves static HTML, CSS, and JavaScript. The homepage includes an optional, self-hosted
+React Flow sample. Repository website code adds no forms, accounts, tracking scripts, or billing
+integrations. The public edge may insert the owner's existing Cloudflare analytics script.
+Plenipo's desktop app and its release workflow are unchanged.
+
+## Interactive sample
+
+This implementation is available in the branch and isolated review preview. Production remains
+pending a separately authorized release; this document does not establish public deployment.
+
+The hero and download links render without JavaScript. A small loader in `main.js` starts the
+React/React Flow island only when the visitor chooses **Explore the interactive demo**. Its
+content-hashed JS and CSS are built with esbuild and served from the same origin. A readable
+HTML example remains available without JavaScript, after a load/render failure, and through
+**Return to the static example**. No desktop modules, commands, provider calls, storage, or
+customer data are used. The permanent disclosure identifies it as a sample with no real AI.
+
+`apps/website/src/sample.ts` owns the fictional team, conversations, and activity. `Demo.tsx`
+owns the map/list view, selected-person panel, story tabs, session switch, sample approval,
+light/dark preview, and Pip guidance. Dragging changes positions only. Reporting lines cannot
+be edited, and sample approval buttons cannot execute or publish anything. Decisions survive
+story changes until reset or reload; nothing is persisted. The diagram refits on canvas size
+changes so opening details keeps the team visible; a drag or pan does not trigger a refit.
+
+Phone/coarse-pointer visitors start in the list view and can select the map. Keyboard users can
+use the list, arrow/Home/End story tabs, and React Flow's focused-card controls. Page scrolling
+is not captured by wheel zoom. Pinch, zoom buttons, minimap, Fit View, and Reset remain available.
+There is no continuous animation or polling; reduced-motion CSS disables transitions. The
+dark toggle applies to the sample window only.
+
+The source imports React Flow's stylesheet before scoped demo CSS. Preserve the isolated
+palette and the explicit SVG background override: the marketing page's global SVG stroke
+otherwise darkens the dot pattern. Keep React Flow attribution visible.
+
+### Reproducible builds
+
+Workspace checks use the root `pnpm-lock.yaml`. The existing standalone Docker build context
+is only `apps/website`, so it uses that folder's `package-lock.json` and `npm ci`. Both locks
+are committed. Generate the npm lock in an empty temporary folder containing the website
+`package.json`, not beside pnpm's installed symlinks; otherwise npm records workspace links.
+Update both locks for dependency changes and validate both actual build contexts. The website
+workflow installs the standalone dependencies before its Node tests and Docker build.
+
+The build tests enforce local content-hashed demo assets, retained static disclosure, and gzip
+budgets of 180,000 bytes of JS and 12,000 bytes of CSS. These are build-compression limits, not
+network or speed guarantees. React Flow exceeds the earlier native-module proposal's 80 KB
+target; the owner's explicit React Flow choice replaces that architecture. Measure actual
+HTTP transfer sizes and interaction behavior as recorded in [acceptance](website-validation.md).
+No demo JS/CSS is requested before activation, and only the currently needed Pip pose loads.
 
 ## Content and search
 

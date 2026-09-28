@@ -132,79 +132,73 @@
               <svg viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" /></svg
             ></a>
-            <a class="button button-outline" href="#product">Explore the app</a>
+            <a class="button button-outline" href="#interactive-preview">Explore the app</a>
           </div>
           <p class="fine-print">Free to start. Your AI tools use your own sign-ins.</p>
         </div>
 
-        <div class="product-showcase container" data-tabs>
-          <div class="showcase-tabs" data-tablist aria-label="Product views">
-            <a id="view-organization" href="#panel-organization" data-tab>Organization</a>
-            <a id="view-tools" href="#panel-tools" data-tab>Model choices</a>
-            <a id="view-approvals" href="#panel-approvals" data-tab>Approvals</a>
-            <a id="view-activity" href="#panel-activity" data-tab>Activity</a>
+        <section
+          class="product-showcase container demo-showcase"
+          id="interactive-preview"
+          aria-label="Interactive Plenipo preview"
+        >
+          <div id="demo-fallback" class="demo-fallback">
+            <div class="demo-invitation">
+              <span class="demo-kicker">A SMALL TEAM. A BIG PICTURE.</span>
+              <h2>Take your team for a spin.</h2>
+              <p>
+                Meet a sample workforce. Move the cards, follow a conversation, and make the next
+                call.
+              </p>
+              <button
+                class="button"
+                id="start-demo"
+                hidden
+                data-demo-module="__DEMO_SCRIPT__"
+                data-demo-style="__DEMO_STYLE__"
+              >
+                Explore the interactive demo <span aria-hidden="true">↗</span>
+              </button>
+              <p id="demo-load-status" role="status">
+                Illustrated sample. No real AI runs, sign-in, or saved changes.
+              </p>
+            </div>
+            <div class="demo-static-team" aria-label="Example reporting structure">
+              <div><strong>Your organization</strong><span>You set the direction</span></div>
+              <span aria-hidden="true">→</span>
+              <div>
+                <strong>Development Manager</strong><span>Turns your goal into a plan</span>
+              </div>
+              <span aria-hidden="true">→</span>
+              <div><strong>Website Supervisor</strong><span>Brings the work together</span></div>
+            </div>
+            <div class="demo-static-workers">
+              <span>Senior Developer</span><span>Code Reviewer</span
+              ><span>Documentation Writer</span>
+            </div>
+            <details class="demo-static-details">
+              <summary>Read the sample without the interactive demo</summary>
+              <p>
+                You ask for a clear services page. Development Manager plans the work. Website
+                Supervisor coordinates a developer, reviewer, and writer. The team prepares a draft
+                and review notes, then brings the decision back to you.
+              </p>
+              <p>
+                <strong>Sample conversation:</strong> “Where are we with the website?” — “The page
+                draft is ready. The reviewer is checking the links and layout before we send it back
+                to you.”
+              </p>
+              <p>
+                This is an illustrated website example, not the desktop app. AI tools and approval
+                rules in the app depend on your setup.
+              </p>
+            </details>
           </div>
-          <figure id="panel-organization" class="showcase-panel" data-panel>
-            <div class="product-image">
-              <img
-                src="/media/organization.webp"
-                alt="Plenipo organization preview showing a sample AI workforce and its reporting structure"
-                width="1600"
-                height="1000"
-                fetchpriority="high"
-              />
-            </div>
-            <figcaption>
-              One view of your organization.
-              <span>App preview from an earlier release. Layout and features may vary.</span>
-            </figcaption>
-          </figure>
-          <figure id="panel-tools" class="showcase-panel" data-panel>
-            <div class="product-image">
-              <img
-                src="/media/models.webp"
-                alt="Plenipo AI model settings preview showing model choices for worker roles"
-                width="1600"
-                height="1000"
-                loading="lazy"
-              />
-            </div>
-            <figcaption>
-              Your AI tools. Your model choices.
-              <span>App preview from an earlier release. Layout and features may vary.</span>
-            </figcaption>
-          </figure>
-          <figure id="panel-approvals" class="showcase-panel" data-panel>
-            <div class="product-image">
-              <img
-                src="/media/approvals.webp"
-                alt="Plenipo approvals preview showing a sample request waiting for a person's decision"
-                width="1600"
-                height="1000"
-                loading="lazy"
-              />
-            </div>
-            <figcaption>
-              A clear decision before the next step.
-              <span>App preview from an earlier release. Layout and features may vary.</span>
-            </figcaption>
-          </figure>
-          <figure id="panel-activity" class="showcase-panel" data-panel>
-            <div class="product-image">
-              <img
-                src="/media/activity.webp"
-                alt="Plenipo activity preview showing the recorded steps of sample AI work"
-                width="1600"
-                height="1000"
-                loading="lazy"
-              />
-            </div>
-            <figcaption>
-              See what happened along the way.
-              <span>App preview from an earlier release. Layout and features may vary.</span>
-            </figcaption>
-          </figure>
-        </div>
+          <div id="demo-root" hidden></div>
+          <button id="stop-demo" class="demo-static-toggle" hidden>
+            Return to the static example
+          </button>
+        </section>
       </section>
 
       <section class="workflow section container" id="product" aria-labelledby="workflow-title">

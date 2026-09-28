@@ -83,3 +83,73 @@ const openLinkedQuestion = () => {
 };
 window.addEventListener("hashchange", openLinkedQuestion);
 openLinkedQuestion();
+
+// Load the larger React Flow island only after an explicit request. The static
+// example and the rest of the page work even when its scripts cannot load.
+const startDemo = document.getElementById("start-demo");
+const stopDemo = document.getElementById("stop-demo");
+const demoRoot = document.getElementById("demo-root");
+const fallback = document.getElementById("demo-fallback");
+const loadStatus = document.getElementById("demo-load-status");
+let unmountDemo;
+let demoStyle;
+let failedDemoLoads = 0;
+startDemo.hidden = false;
+const showFallback = (message) => {
+  demoRoot.hidden = true;
+  fallback.hidden = false;
+  stopDemo.hidden = true;
+  startDemo.disabled = false;
+  startDemo.textContent = "Explore the interactive demo";
+  loadStatus.textContent = message;
+};
+startDemo.addEventListener("click", async () => {
+  // Reserve the expanded scene during the click, before a slow bundle arrives.
+  fallback.parentElement.dataset.demoOpen = "true";
+  startDemo.disabled = true;
+  startDemo.textContent = "Opening the sample team…";
+  loadStatus.textContent = "Loading the interactive sample. No AI tools are being connected.";
+  try {
+    const styleReady = new Promise((resolve, reject) => {
+      if (demoStyle?.sheet) return resolve();
+      demoStyle?.remove();
+      demoStyle = document.createElement("link");
+      demoStyle.rel = "stylesheet";
+      demoStyle.href = startDemo.dataset.demoStyle;
+      demoStyle.onload = resolve;
+      demoStyle.onerror = reject;
+      document.head.append(demoStyle);
+    });
+    // Browsers remember a failed module import. A retry gets a fresh URL for the
+    // same local, content-hashed file instead of replaying that cached failure.
+    const moduleUrl = new URL(startDemo.dataset.demoModule, window.location.href);
+    if (failedDemoLoads) moduleUrl.searchParams.set("retry", String(failedDemoLoads));
+    const [{ mountDemo }] = await Promise.all([import(moduleUrl.href), styleReady]);
+    unmountDemo?.();
+    demoRoot.hidden = false;
+    unmountDemo = mountDemo(
+      demoRoot,
+      () => {
+        fallback.hidden = true;
+        stopDemo.hidden = false;
+        demoRoot.querySelector('[role="tab"]')?.focus({ preventScroll: true });
+      },
+      () =>
+        showFallback(
+          "The interactive example could not open. You can still read the sample below.",
+        ),
+    );
+  } catch {
+    failedDemoLoads += 1;
+    showFallback(
+      "The interactive example could not load. You can retry, or read the sample below.",
+    );
+  }
+});
+stopDemo.addEventListener("click", () => {
+  unmountDemo?.();
+  unmountDemo = undefined;
+  delete fallback.parentElement.dataset.demoOpen;
+  showFallback("Illustrated sample. No real AI runs, sign-in, or saved changes.");
+  startDemo.focus({ preventScroll: true });
+});

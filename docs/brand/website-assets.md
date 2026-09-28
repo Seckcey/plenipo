@@ -38,6 +38,19 @@ Its SIL Open Font License is retained at `apps/website/public/fonts/Inter-LICENS
 
 ## Product screenshots
 
+The interactive homepage sample uses five additional approved poses: presenting (03), thinking
+(04), celebrating (05), quality check (06), and support (14). Each 240 × 240 alpha WebP in
+`apps/website/public/brand/pip/` is a fit/contain, quality-85 export of its corresponding
+unchanged `assets/mascots/` PNG. Pip explains the current view and reacts to a sample approval;
+visitors can hide the tips. These are selected existing illustrations, not newly generated art.
+
+The eight private September 28 desktop references informed the light/dark cards, reporting
+lines, dotted canvas, and selected-person details. They are not published. Names, objectives,
+messages, decisions, and times in the interactive sample are authored fictional examples.
+The website combines diagram and conversation browsing for demonstration and does not claim
+to be a running desktop instance. Existing lower-page app screenshots retain their earlier
+release captions.
+
 These WebP files are format conversions of repository acceptance screenshots; their content was
 not redrawn or generated. They show prior versions and sample/test work, as the website caption
 states. They are product media, not interactive application controls.

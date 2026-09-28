@@ -23,6 +23,7 @@ jobs:
       - name: Verify static site
         working-directory: apps/website
         run: |
+          npm ci --no-audit --no-fund
           node --test scripts/*.test.mjs
           SOURCE_REVISION="$GITHUB_SHA" node scripts/build.mjs
       - name: Build and test the production container
