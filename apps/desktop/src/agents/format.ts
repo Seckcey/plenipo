@@ -136,6 +136,20 @@ const PROMPT_KIND: Record<PromptSize["brief"], string | null> = {
   plain: null,
 };
 
+/**
+ * A task's tokens, added up over its steps like its sizes (`describePrompt`): the final
+ * result's alone for older tasks, or when no step reported any.
+ */
+export function turnUsage(turn: AgentTurn): TokenUsage | null {
+  const reported = turn.steps.flatMap((s) => (s.result?.usage ? [s.result.usage] : []));
+  if (reported.length === 0) return turn.result?.usage ?? null;
+  return reported.reduce((sum, u) => ({
+    inputTokens: sum.inputTokens + u.inputTokens,
+    cachedInputTokens: sum.cachedInputTokens + u.cachedInputTokens,
+    outputTokens: sum.outputTokens + u.outputTokens,
+  }));
+}
+
 /** The sizes recorded for a task's steps, in order (the final result's alone for older tasks). */
 export function turnPromptSizes(turn: AgentTurn): PromptSize[] {
   const sizes = turn.steps.flatMap((s) => (s.result?.prompt ? [s.result.prompt] : []));

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { turn } from "../test/agentFixtures";
-import { describePrompt, turnPromptSizes, type PromptSize } from "./format";
+import {
+  describePrompt,
+  describeUsage,
+  turnPromptSizes,
+  turnUsage,
+  type PromptSize,
+} from "./format";
 
 const size = (patch: Partial<PromptSize> = {}): PromptSize => ({
   bytes: 900,
@@ -67,5 +73,41 @@ describe("Plenipo's own text with a task (ADR-044)", () => {
     const older = turn("t1", { result: result(size({ brief: "full" })) });
     expect(turnPromptSizes(older)).toEqual([size({ brief: "full" })]);
     expect(turnPromptSizes(turn("t1", { result: result() }))).toEqual([]);
+  });
+
+  it("adds up the tokens over the same steps as the sizes", () => {
+    const used = (inputTokens: number, outputTokens: number) => ({
+      ...result(size()),
+      usage: { inputTokens, cachedInputTokens: 0, outputTokens },
+    });
+    const replied = turn("t1", {
+      steps: [
+        {
+          number: 1,
+          executionId: "e1",
+          running: false,
+          result: used(100, 10),
+          startedAt: 1,
+          endedAt: 2,
+        },
+        {
+          number: 2,
+          executionId: "e2",
+          running: false,
+          result: used(50, 5),
+          startedAt: 3,
+          endedAt: 4,
+        },
+      ],
+      result: used(50, 5),
+    });
+    expect(describeUsage(turnUsage(replied)!)).toBe("150 in · 15 out");
+    // An older task: the result's own.
+    expect(turnUsage(turn("t1", { result: used(7, 3) }))).toEqual({
+      inputTokens: 7,
+      cachedInputTokens: 0,
+      outputTokens: 3,
+    });
+    expect(turnUsage(turn("t1", { result: result() }))).toBeNull();
   });
 });

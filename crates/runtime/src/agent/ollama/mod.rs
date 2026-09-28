@@ -160,6 +160,17 @@ impl RuntimeAdapter for Ollama {
         true
     }
 
+    /// The bridge keeps each conversation in the session's folder: whether it would leave
+    /// earlier messages out is known before the step goes out.
+    fn leaves_out(&self, request: &TurnRequest, prompt_bytes: usize) -> bool {
+        match &request.session {
+            ProviderSession::Resume { id } => {
+                bridge::would_leave_out(&request.working_dir, id, prompt_bytes)
+            }
+            ProviderSession::New { .. } => false,
+        }
+    }
+
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
         let model = request
             .model

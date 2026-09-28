@@ -1787,14 +1787,22 @@ async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instruction
         );
         briefed_turn(&h, &id, briefed("two", 7)).await;
         // What was sent so far is still in the conversation: its mark holds (ADR-044 §4.13).
+        // Records are named by ID only where the AI tool itself says when it shortens its
+        // memory: Grok and Kimi report the context in use only after each answer, which can miss
+        // a shortening in the middle of a step, so their records are pasted, as for Codex.
+        let names_records = matches!(runtime, "claude-code" | "ollama");
         let mark = h.rt.memory_mark(&id);
-        assert!(mark.is_some(), "{runtime}");
+        assert_eq!(mark.is_some(), names_records, "{runtime}");
         briefed_turn(&h, &id, briefed("three [compact]", 7)).await;
         let moved = h.rt.memory_mark(&id);
-        assert!(
-            moved.is_some() && moved != mark,
-            "{runtime}: {mark:?} {moved:?}"
-        );
+        if names_records {
+            assert!(
+                moved.is_some() && moved != mark,
+                "{runtime}: {mark:?} {moved:?}"
+            );
+        } else {
+            assert_eq!(moved, None, "{runtime}");
+        }
         let detail = h.rt.session(&id).await.unwrap();
         let shortened: Vec<AgentEvent> = h
             .store
@@ -1818,6 +1826,59 @@ async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instruction
         );
         assert_eq!(h.rt.memory_mark(&id), moved, "{runtime}");
     }
+}
+
+/// ADR-044 §2: a task that sent other instructions in full and then did not finish leaves them
+/// in doubt; the next task sends its instructions in full, even when they are the earlier ones.
+#[tokio::test]
+async fn instructions_a_failed_task_sent_go_out_in_full_again() {
+    let h = harness();
+    let id = briefed_session(&h, "claude-code", "one").await;
+    // Changed instructions go out in full, and the task stops at a usage limit.
+    let failed = briefed_turn(&h, &id, briefed("two [usage-limit]", 8)).await[0];
+    assert_eq!(
+        (failed.brief, failed.why),
+        (BriefKind::Full, Some(BriefWhy::Changed))
+    );
+    // Back to the first instructions: the AI tool may have either, so they go out in full.
+    let back = briefed_turn(&h, &id, briefed("three", 7)).await[0];
+    assert_eq!(
+        (back.brief, back.why),
+        (BriefKind::Full, Some(BriefWhy::Changed))
+    );
+    let after = briefed_turn(&h, &id, briefed("four", 7)).await[0];
+    assert_eq!(
+        (after.brief, after.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+}
+
+/// ADR-044 §2.5: when the Ollama bridge would have to leave the start of a conversation out of
+/// the next task, Plenipo knows before it sends it, and the task goes out with the full
+/// instructions instead of a reminder of what the model would no longer see.
+#[tokio::test]
+async fn an_ollama_conversation_too_long_to_send_whole_gets_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "ollama", "one").await;
+    let routine = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(routine.brief, BriefKind::Reminder);
+    // The conversation the bridge keeps grows past what it sends at once.
+    let session = h.rt.session(&id).await.unwrap().session;
+    let provider = session.provider_session_id.unwrap();
+    let history = serde_json::json!({ "model": "m", "messages": [
+        { "role": "user", "content": "x".repeat(450_000) },
+        { "role": "assistant", "content": "ok" },
+    ]});
+    std::fs::write(
+        Path::new(&session.working_dir).join(format!(".plenipo-ollama-{provider}.json")),
+        history.to_string(),
+    )
+    .unwrap();
+    let next = briefed_turn(&h, &id, briefed("three", 7)).await[0];
+    assert_eq!(
+        (next.brief, next.why),
+        (BriefKind::Full, Some(BriefWhy::MemoryShortened))
+    );
 }
 
 /// What the fake AI tool received in a provider conversation: each message (without Plenipo's

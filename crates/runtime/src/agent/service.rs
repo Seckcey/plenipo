@@ -1529,6 +1529,15 @@ impl AgentRuntime {
             step,
             message,
         } = launch;
+        // A conversation the AI tool would shorten to take this step loses its start, and the
+        // full instructions with it: the step goes out as after a shortened memory (ADR-044
+        // §2.5), with the full instructions and note, and saved records pasted.
+        if message
+            .shortest_brief_len()
+            .is_some_and(|len| adapter.leaves_out(&request, len))
+        {
+            self.memory_shortened(&session.id);
+        }
         // What goes out depends on what the conversation already has (ADR-044).
         let (known, mark) =
             self.conversation_at_launch(&session.id, &request, adapter.reports_memory_shortened());
@@ -1784,13 +1793,14 @@ impl AgentRuntime {
         }
     }
 
-    /// A step that launched at `mark` ended; `delivered` is what the conversation now has, when
-    /// the step finished.
+    /// A step that launched at `mark` ended, having sent `sent`: the conversation has it when
+    /// the step `finished`; otherwise what it sent in full is in doubt.
     fn step_finished(
         &self,
         session_id: &str,
         mark: u64,
-        delivered: Option<Delivery>,
+        sent: Delivery,
+        finished: bool,
         context_used: Option<u64>,
     ) {
         let mut state = self.lock();
@@ -1800,8 +1810,10 @@ impl AgentRuntime {
         if context_used.is_some() {
             c.context_used = context_used;
         }
-        if let Some(sent) = delivered {
+        if finished {
             c.delivered(mark, &sent);
+        } else {
+            c.not_delivered(mark, &sent);
         }
     }
 
@@ -2194,12 +2206,13 @@ impl TurnContext {
             None => result,
         };
         result.prompt = Some(self.size);
-        // Only a finished step counts as delivered: a failed one may never have reached the AI
-        // tool, and the next one sends the same again.
+        // Only a finished step counts as delivered: a failed one may or may not have reached
+        // the AI tool, so what it sent in full goes out in full again.
         runtime.step_finished(
             &self.session.id,
             self.mark,
-            (result.outcome == TurnOutcome::Completed).then_some(self.delivery),
+            self.delivery,
+            result.outcome == TurnOutcome::Completed,
             self.context_used,
         );
         if let Some(id) = &self.execution_id {

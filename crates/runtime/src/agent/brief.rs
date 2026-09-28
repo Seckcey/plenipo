@@ -96,13 +96,18 @@ pub(crate) struct Conversation {
     ///
     /// [`RuntimeAdapter::reports_memory_shortened`]: super::RuntimeAdapter::reports_memory_shortened
     pub watched: bool,
+    /// A step that sent other instructions in full did not finish: the AI tool may have either
+    /// version, so the next step sends its instructions in full.
+    pub unsure: bool,
 }
 
 impl Conversation {
-    /// Whether Plenipo would hear of the AI tool shortening its memory of this conversation:
-    /// its own notice, or a drop in the context it reports in use.
+    /// Whether Plenipo would hear of the AI tool shortening its memory of this conversation at
+    /// any moment: only when the AI tool says so itself. A drop in the context it reports in use
+    /// (Grok, Kimi) is seen only after each answer and can miss a shortening in the middle of a
+    /// step, so it brings back the full instructions but is not enough to name saved records.
     pub fn heard(&self) -> bool {
-        self.watched || self.context_used.is_some()
+        self.watched
     }
 }
 
@@ -118,12 +123,31 @@ impl Conversation {
                 self.brief = Some(hash);
                 self.since_full = 0;
                 self.shortened = false;
+                self.unsure = false;
             }
             Some(Sent::Reminder) => self.since_full = self.since_full.saturating_add(1),
             None => {}
         }
         if let Some(note) = sent.note {
             self.note = Some(note);
+        }
+    }
+
+    /// A step that launched at `mark` did not finish (it failed, was cancelled, or hit a usage
+    /// limit), yet the AI tool may have kept what it sent. Instructions or a permissions note it
+    /// sent in full that differ from what the conversation had go out in full next time, even
+    /// if the next step's are the older ones again.
+    pub fn not_delivered(&mut self, mark: u64, sent: &Delivery) {
+        if self.mark != mark {
+            return;
+        }
+        if let Some(Sent::Full(hash)) = sent.brief {
+            if self.brief != Some(hash) {
+                self.unsure = true;
+            }
+        }
+        if sent.note.is_some() && sent.note != self.note {
+            self.note = None;
         }
     }
 }
@@ -166,7 +190,7 @@ fn why_full(brief: &BriefInput, standing: Standing<'_>) -> Option<BriefWhy> {
     } else if known.brief.is_none() {
         // The first full instructions never arrived (that step did not finish).
         Some(BriefWhy::First)
-    } else if known.brief != Some(brief.hash) {
+    } else if known.unsure || known.brief != Some(brief.hash) {
         Some(BriefWhy::Changed)
     } else if brief.large {
         Some(BriefWhy::LargeJob)
@@ -185,6 +209,15 @@ fn why_full(brief: &BriefInput, standing: Standing<'_>) -> Option<BriefWhy> {
 }
 
 impl StepMessage {
+    /// For a turn's first step with Liaison's message, the shortest message it could send (the
+    /// reminder, or the full message when there is none); `None` for any other step.
+    pub fn shortest_brief_len(&self) -> Option<usize> {
+        match self {
+            Self::Brief(b) => Some(b.reminder.as_ref().map_or(b.full.len(), String::len)),
+            Self::Plain { .. } | Self::Replies { .. } => None,
+        }
+    }
+
     /// What goes out, and why.
     pub fn outgoing(self, standing: Standing<'_>) -> Outgoing {
         match self {
@@ -537,5 +570,57 @@ mod tests {
             },
         );
         assert_eq!((c.since_full, c.note), (1, Some(9)));
+    }
+
+    #[test]
+    fn a_step_that_did_not_finish_leaves_what_it_sent_in_doubt() {
+        use BriefKind::{Full, Reminder};
+        let mut c = known(7, 2);
+        c.note = Some(9);
+        // Other instructions and another note went out in full; the step then failed.
+        let other = Delivery {
+            brief: Some(Sent::Full(8)),
+            note: Some(10),
+        };
+        c.not_delivered(c.mark, &other);
+        // Back to the first instructions and note: both go out in full again.
+        assert_eq!(
+            sent(brief(7), Standing::Known(&c)),
+            (Full, BriefWhy::Changed)
+        );
+        assert!(note_in_full(Standing::Known(&c), false, &"n".repeat(400)));
+        // Once they arrive, reminders again.
+        c.delivered(
+            c.mark,
+            &Delivery {
+                brief: Some(Sent::Full(7)),
+                note: Some(text_hash(&"n".repeat(400))),
+            },
+        );
+        assert_eq!(
+            sent(brief(7), Standing::Known(&c)),
+            (Reminder, BriefWhy::Routine)
+        );
+        // The same instructions sent again, or a reminder, leave nothing in doubt.
+        let mut same = known(7, 2);
+        same.not_delivered(
+            same.mark,
+            &Delivery {
+                brief: Some(Sent::Full(7)),
+                note: None,
+            },
+        );
+        same.not_delivered(
+            same.mark,
+            &Delivery {
+                brief: Some(Sent::Reminder),
+                note: None,
+            },
+        );
+        assert!(!same.unsure);
+        // A step from before the AI tool shortened its memory changes nothing.
+        let mut moved = known(7, 2);
+        moved.not_delivered(moved.mark.wrapping_add(1), &other);
+        assert!(!moved.unsure);
     }
 }

@@ -259,6 +259,13 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn reports_memory_shortened(&self) -> bool {
         false
     }
+    /// Whether the AI tool would leave earlier messages of the conversation out of the next
+    /// step, with a prompt of `prompt_bytes` (the Ollama bridge sends a window of the
+    /// conversation). Known before the step goes out, it counts as a shortened memory then
+    /// (ADR-044 §2.5). By default, never.
+    fn leaves_out(&self, _request: &TurnRequest, _prompt_bytes: usize) -> bool {
+        false
+    }
 }
 
 /// Proxy and certificate settings every runtime may need on managed networks.

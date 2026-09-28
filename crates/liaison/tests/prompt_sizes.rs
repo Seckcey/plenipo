@@ -165,17 +165,34 @@ local services; managing running programs. If your job needs one, say so in your
 Every use is checked and recorded. If a tool says an action was blocked or not approved, do not \
 try another way around it: say in your answer what you needed and why.";
 
-/// Gives every step the Supervisor's permissions note (no tool server: the fake AI tool needs
-/// none here).
-struct Notes;
+/// Gives every step the Supervisor's permissions note as the broker writes it: the note names
+/// the objective's own working copy and branch, so each new objective (the task at the top of
+/// the chain) has a note of its own, and every step and task of one objective the same note
+/// (no tool server: the fake AI tool needs none here).
+struct Notes(Arc<Ledger>);
 
 impl ToolProvider for Notes {
     fn open(&self, _: &StepInfo<'_>) -> Option<StepTools> {
         None
     }
 
-    fn note_without_tools(&self, _: &StepInfo<'_>) -> Option<String> {
-        Some(NOTE.to_owned())
+    fn note_without_tools(&self, step: &StepInfo<'_>) -> Option<String> {
+        let mut objective = step.task_id.to_owned();
+        while let Some(parent) = self
+            .0
+            .task(&objective)
+            .ok()
+            .flatten()
+            .and_then(|t| t.parent_task_id)
+        {
+            objective = parent;
+        }
+        let short: String = objective
+            .chars()
+            .filter(char::is_ascii_hexdigit)
+            .take(8)
+            .collect();
+        Some(NOTE.replace("3f2a9c1e", &short))
     }
 
     fn close(&self, _: &str) {}
@@ -301,7 +318,7 @@ async fn harness_with(org: impl FnOnce(&Arc<Ledger>, &Liaison) -> Value) -> H {
         HostEnv::new(Some(bin.into_os_string()), Some(home), None),
     );
     rt.refresh().await;
-    rt.set_tools(Arc::new(Notes));
+    rt.set_tools(Arc::new(Notes(Arc::clone(&ledger))));
     let liaison = Liaison::new(
         Arc::clone(&ledger),
         rt.clone(),
@@ -718,37 +735,35 @@ async fn a_supervisors_conversation_is_measured_step_by_step() {
 
     let own = average(routine_sizes.iter().map(|s| s.own_bytes));
     let full = average(routine_sizes.iter().map(|s| s.full_own_bytes));
+    let reply = handed_sizes[1];
     println!(
-        "ADR-044 measurement: first objective {} bytes ({} of Plenipo's own); routine objectives \
-         average {own:.0} bytes of Plenipo's own text, {full:.0} with the full instructions \
-         ({:.0}% less); the step that delivered a reply {} of Plenipo's own ({} with the full \
-         note).",
+        "ADR-044 measurement: first objective {} bytes ({} of Plenipo's own); a new routine \
+         objective (its own working copy, so the full permissions note) averages {own:.0} bytes \
+         of Plenipo's own text, {full:.0} with the full instructions ({:.0}% less); the step that \
+         delivered a reply in the same objective {} of Plenipo's own, {} in full ({:.0}% less).",
         first_size.bytes,
         first_size.own_bytes,
         100.0 * (1.0 - own / full),
-        handed_sizes[1].own_bytes,
-        handed_sizes[1].full_own_bytes,
+        reply.own_bytes,
+        reply.full_own_bytes,
+        100.0 * (1.0 - f64::from(reply.own_bytes) / f64::from(reply.full_own_bytes)),
     );
     for size in &routine_sizes {
         assert!(size.own_bytes <= size.full_own_bytes);
         assert!(size.bytes > size.own_bytes, "the objective is passed along");
-        // A routine objective in a conversation that has the instructions: a short reminder,
-        // and the short permissions note.
+        // A routine objective in a conversation that has the instructions: a short reminder.
+        // Its permissions note names its own working copy, which is new, so it goes in full.
         assert_eq!(
             (size.brief, size.why, size.note),
-            (
-                BriefKind::Reminder,
-                Some(BriefWhy::Routine),
-                NoteKind::Reminder
-            )
+            (BriefKind::Reminder, Some(BriefWhy::Routine), NoteKind::Full)
         );
     }
     assert_eq!(first_size.why, Some(BriefWhy::First));
     // The goal (ADR-044 §6): routine tasks carry at least half less of Plenipo's own text.
     assert!(own * 2.0 <= full, "{own} vs {full}");
-    // The step that delivers a reply carries the short note too.
-    assert_eq!(handed_sizes[1].note, NoteKind::Reminder);
-    assert!(handed_sizes[1].own_bytes < handed_sizes[1].full_own_bytes);
+    // The step that delivers a reply, in the same objective, carries the short note.
+    assert_eq!(reply.note, NoteKind::Reminder);
+    assert!(reply.own_bytes < reply.full_own_bytes);
 }
 
 /// ADR-044 §2.7: a large job (4,000 characters or more) gets the full instructions, even in a
@@ -811,13 +826,10 @@ async fn a_task_handed_to_a_full_time_members_conversation_carries_a_short_remin
         (sizes[0].brief, sizes[0].why),
         (BriefKind::Full, Some(BriefWhy::First))
     );
+    // Another objective of the VP's: another working copy, so the full permissions note.
     assert_eq!(
         (sizes[1].brief, sizes[1].why, sizes[1].note),
-        (
-            BriefKind::Reminder,
-            Some(BriefWhy::Routine),
-            NoteKind::Reminder
-        )
+        (BriefKind::Reminder, Some(BriefWhy::Routine), NoteKind::Full)
     );
     assert!(
         sizes[1].own_bytes * 2 <= sizes[1].full_own_bytes,

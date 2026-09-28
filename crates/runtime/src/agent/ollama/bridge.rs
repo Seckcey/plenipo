@@ -275,12 +275,11 @@ fn save(file: &Path, model: &str, messages: &[Value]) -> std::io::Result<()> {
     std::fs::rename(&tmp, file)
 }
 
-/// The messages to send: the newest history that fits with the prompt, then the prompt; and how
-/// many earlier messages were left out.
-fn fitting(history: &[Value], prompt: &str) -> (Vec<Value>, usize) {
+/// How many of the oldest messages of `history` are left out to fit a prompt of `prompt_len`
+/// bytes: whole exchanges (the user's message and the answer) are kept, newest first.
+fn left_out(history: &[Value], prompt_len: usize) -> usize {
     let size = |m: &Value| m.get("content").and_then(Value::as_str).map_or(0, str::len);
-    let mut budget = MAX_HISTORY_CHARS.saturating_sub(prompt.len());
-    // Whole exchanges (the user's message and the answer), newest first.
+    let mut budget = MAX_HISTORY_CHARS.saturating_sub(prompt_len);
     let mut keep = history.len();
     while keep >= 2 {
         let pair = size(&history[keep - 2]) + size(&history[keep - 1]);
@@ -290,7 +289,21 @@ fn fitting(history: &[Value], prompt: &str) -> (Vec<Value>, usize) {
         budget -= pair;
         keep -= 2;
     }
-    let left_out = keep;
+    keep
+}
+
+/// Whether the next task of conversation `id`, whose history is kept in `dir` (the session's
+/// folder), would leave earlier messages out with a prompt of `prompt_len` bytes. Plenipo asks
+/// before it sends the task: its start, and the full instructions with it, would be lost, so the
+/// task goes out as after a shortened memory (ADR-044 §2.5).
+pub fn would_leave_out(dir: &Path, id: &str, prompt_len: usize) -> bool {
+    valid_id(id) && load(&conversation_file(dir, id)).is_some_and(|h| left_out(&h, prompt_len) > 0)
+}
+
+/// The messages to send: the newest history that fits with the prompt, then the prompt; and how
+/// many earlier messages were left out.
+fn fitting(history: &[Value], prompt: &str) -> (Vec<Value>, usize) {
+    let left_out = left_out(history, prompt.len());
     let mut messages = Vec::new();
     if left_out > 0 {
         messages.push(json!({
@@ -787,6 +800,20 @@ mod tests {
         assert!(sent[1]["content"].as_str().unwrap().starts_with('2'));
         assert_eq!(sent.last().unwrap()["content"], "now");
         assert_eq!(fitting(&history[..2], "now").1, 0);
+        // Plenipo can ask before it sends a task (ADR-044 §2.5).
+        let saved = tempfile::tempdir().unwrap();
+        save(&conversation_file(saved.path(), "long-0"), "m", &history).unwrap();
+        assert!(would_leave_out(saved.path(), "long-0", 3));
+        save(
+            &conversation_file(saved.path(), "short-0"),
+            "m",
+            &history[..2],
+        )
+        .unwrap();
+        assert!(!would_leave_out(saved.path(), "short-0", 3));
+        assert!(would_leave_out(saved.path(), "short-0", MAX_HISTORY_CHARS));
+        assert!(!would_leave_out(saved.path(), "missing", 3));
+        assert!(!would_leave_out(saved.path(), "../long-0", 3));
 
         // A task says so, in plain words and with the count Plenipo reads (ADR-044 §2.5).
         let dir = tempfile::tempdir().unwrap();
