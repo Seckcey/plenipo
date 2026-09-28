@@ -107,6 +107,9 @@ pub struct Parsed {
     /// Files the AI tool asked Plenipo to read or write for it (ADR-027). Plenipo carries each
     /// out through Guard and gives the answer to [`TurnParser::file_answered`].
     pub files: Vec<FileRequest>,
+    /// File changes the AI tool is still writing (Phase 18, ADR-055), for Watch. Handed to the
+    /// tool provider, which checks them before anything is shown; never stored.
+    pub previews: Vec<crate::agent::preview::WritePreview>,
 }
 
 /// One file the AI tool asked Plenipo to read or write (ADR-027), numbered by the parser.

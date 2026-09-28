@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-retarget-oversight"
+description = "Enables the retarget_oversight command without any pre-configured scope."
+commands.allow = ["retarget_oversight"]
+
+[[permission]]
+identifier = "deny-retarget-oversight"
+description = "Denies the retarget_oversight command without any pre-configured scope."
+commands.deny = ["retarget_oversight"]

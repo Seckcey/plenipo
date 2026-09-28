@@ -266,3 +266,27 @@ export type { StoppedTask } from "./generated/StoppedTask";
 export type { UpdateState } from "./generated/UpdateState";
 export type { UpdateStatus } from "./generated/UpdateStatus";
 export type { WindowRecovery } from "./generated/WindowRecovery";
+
+// The organization canvas (Phase 18: ADR-053 canvas, ADR-054 move or lend, ADR-055 Watch,
+// ADR-056 the owner's tile)
+export type { ChangeKind } from "./generated/ChangeKind";
+export type { LineMark } from "./generated/LineMark";
+export type { LiveHandoff } from "./generated/LiveHandoff";
+export type { LivePlace } from "./generated/LivePlace";
+export type { LiveView } from "./generated/LiveView";
+export type { LiveWorker } from "./generated/LiveWorker";
+export type { LoanInfo } from "./generated/LoanInfo";
+export type { LoanUntil } from "./generated/LoanUntil";
+export type { Mood } from "./generated/Mood";
+export type { OwnerProfile } from "./generated/OwnerProfile";
+export type { OwnerProfileInput } from "./generated/OwnerProfileInput";
+export type { OwnerStatus } from "./generated/OwnerStatus";
+export type { PictureChange } from "./generated/PictureChange";
+export type { TilePlace } from "./generated/TilePlace";
+export type { Touching } from "./generated/Touching";
+export type { WatchChange } from "./generated/WatchChange";
+export type { WatchFileView } from "./generated/WatchFileView";
+export type { WatchLine } from "./generated/WatchLine";
+export type { WatchState } from "./generated/WatchState";
+export type { WatchUpdate } from "./generated/WatchUpdate";
+export type { WatchView } from "./generated/WatchView";

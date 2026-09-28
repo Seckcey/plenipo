@@ -10,9 +10,12 @@ use plenipo_guard::redact::has_marker;
 use plenipo_guard::{Resolved, Workspace};
 
 use crate::fence;
+use crate::watch::{Before, Written};
 
 /// Largest file `read_file` opens.
 pub const MAX_READ_FILE: u64 = 10 * 1024 * 1024;
+/// Largest file Watch reads before `write_file` replaces it (Phase 18).
+pub const MAX_WATCH_READ: u64 = 1024 * 1024;
 /// Largest file `search_text` looks into.
 const MAX_SEARCH_FILE: u64 = 1024 * 1024;
 const MAX_ENTRIES: usize = 500;
@@ -275,6 +278,80 @@ fn rel_of(root: &Path, path: &Path) -> String {
                 .join("/")
         })
         .unwrap_or_default()
+}
+
+/// The file as it is, for Watch (Phase 18): its text, or why it is not shown. Only a file the
+/// worker is about to change, already allowed by Guard, is read.
+fn before_change(file: &Resolved) -> Before {
+    let Ok(meta) = fs::metadata(&file.abs) else {
+        return Before::Missing;
+    };
+    if !meta.is_file() {
+        return Before::Missing;
+    }
+    if meta.len() > MAX_WATCH_READ {
+        return Before::Unshown {
+            bytes: meta.len(),
+            binary: false,
+        };
+    }
+    match fs::read(&file.abs) {
+        Ok(bytes) if !is_binary(&bytes) => match String::from_utf8(bytes) {
+            Ok(text) => Before::Text(text),
+            Err(e) => Before::Unshown {
+                bytes: e.as_bytes().len() as u64,
+                binary: true,
+            },
+        },
+        Ok(bytes) => Before::Unshown {
+            bytes: bytes.len() as u64,
+            binary: true,
+        },
+        Err(_) => Before::Unshown {
+            bytes: meta.len(),
+            binary: false,
+        },
+    }
+}
+
+/// Create or replace `file`, and say what it was before (Watch, Phase 18).
+pub fn write_watched(file: &Resolved, content: &str) -> Result<(String, Written), String> {
+    refuse_marker(content)?;
+    if file.abs.is_dir() {
+        return Err(format!("{} is a folder", file.shown()));
+    }
+    let before = before_change(file);
+    let text = write(file, content)?;
+    Ok((
+        text,
+        Written {
+            before,
+            after: content.to_owned(),
+        },
+    ))
+}
+
+/// Edit `file`, and say what it was before and after (Watch, Phase 18).
+pub fn edit_watched(
+    file: &Resolved,
+    old: &str,
+    new: &str,
+    all: bool,
+) -> Result<(String, Written), String> {
+    let before = fs::read_to_string(&file.abs).unwrap_or_default();
+    let text = edit(file, old, new, all)?;
+    let after = if all {
+        before.replace(old, new)
+    } else {
+        before.replacen(old, new, 1)
+    };
+    Ok((
+        text,
+        Written {
+            before: Before::Text(before),
+            after,
+        },
+    ))
 }
 
 pub fn write(file: &Resolved, content: &str) -> Out {

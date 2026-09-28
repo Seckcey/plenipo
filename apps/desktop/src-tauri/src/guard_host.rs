@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use plenipo_capabilities::browser::BrowserConfig;
 use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::watch::WatchUpdate;
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, OsSecretStore, SecretStore};
 use plenipo_guard::Guard;
 use plenipo_ledger::Ledger;
@@ -18,6 +19,8 @@ use crate::runtime_host::Persistence;
 
 /// Tauri event name carrying [`ControlStatus`] to every window (Phase 10).
 pub const CONTROL_EVENT: &str = "plenipo://control";
+/// Tauri event name carrying Watch's updates (Phase 18) to the main window only.
+pub const WATCH_EVENT: &str = "plenipo://watch";
 
 /// Create Guard and the broker, and give the agent runtime its tools and secret filter.
 /// Never fails; problems become notices on the Permissions page.
@@ -85,6 +88,16 @@ pub fn create<R: Runtime>(
             crate::indicator::update(&app, &status);
         });
     }));
+    // Watch (Phase 18, ADR-055): the file changes a worker makes, to the main window only —
+    // never the sign window or a web page.
+    let handle = app.clone();
+    broker
+        .watch()
+        .set_listener(Arc::new(move |update: &WatchUpdate| {
+            if let Err(e) = handle.emit_to("main", WATCH_EVENT, update) {
+                log::warn!("failed to emit a Watch update: {e}");
+            }
+        }));
     (guard, broker)
 }
 

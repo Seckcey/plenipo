@@ -1242,7 +1242,7 @@ fn broker_error(e: BrokerError) -> CommandError {
 
 /// Run broker work (Ledger reads and writes, the operating system's secret store) off the main
 /// thread, then return the Permissions page as it is afterwards.
-async fn with_broker<T: Send + 'static>(
+pub(crate) async fn with_broker<T: Send + 'static>(
     broker: &Broker,
     f: impl FnOnce(&Broker) -> Result<T, BrokerError> + Send + 'static,
 ) -> Result<T, CommandError> {

@@ -13,6 +13,7 @@ pub mod grok;
 pub mod kimi;
 pub mod memory_store;
 pub mod ollama;
+pub mod preview;
 pub mod service;
 pub mod tools;
 
@@ -21,6 +22,7 @@ pub use brief::{text_hash, BriefInput, LARGE_JOB_CHARS};
 pub use discovery::HostEnv;
 pub use dto::*;
 pub use memory_store::MemorySessionStore;
+pub use preview::{WritePreview, WriteTool};
 pub use service::{
     unavailable_outcome, AgentConfig, AgentRuntime, AgentSink, Bridge, SessionChange, SessionStart,
     SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnRef, TurnTask,

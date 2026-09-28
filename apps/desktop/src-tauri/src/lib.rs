@@ -6,6 +6,7 @@
 
 pub mod agent_host;
 pub mod backup_host;
+pub mod canvas_commands;
 pub mod commands;
 pub mod diagnostics;
 pub mod guard_host;
@@ -424,6 +425,16 @@ pub fn configure<R: Runtime>(
             owner_commands::save_to_workforce,
             owner_commands::hire_from_workforce,
             owner_commands::delete_saved_agent,
+            canvas_commands::place_tiles,
+            canvas_commands::tidy_up,
+            canvas_commands::retarget_oversight,
+            canvas_commands::get_live_view,
+            canvas_commands::lend_agent,
+            canvas_commands::send_home,
+            canvas_commands::get_watch,
+            canvas_commands::get_watch_change,
+            canvas_commands::get_owner_profile,
+            canvas_commands::set_owner_profile,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -3675,5 +3686,363 @@ mod ipc_boundary_tests {
             .iter()
             .flat_map(|r| &r.specialties)
             .any(|x| x.name == "Payments"));
+    }
+
+    // ---- Phase 18: the canvas, lending, Watch, and the owner's tile ---------------------------
+
+    const PHASE_18: [&str; 10] = [
+        "place_tiles",
+        "tidy_up",
+        "retarget_oversight",
+        "get_live_view",
+        "lend_agent",
+        "send_home",
+        "get_watch",
+        "get_watch_change",
+        "get_owner_profile",
+        "set_owner_profile",
+    ];
+
+    /// Arguments that fit every Phase 18 command (each takes the ones it names).
+    fn phase_18_args() -> serde_json::Value {
+        serde_json::json!({
+            "places": [], "oversightId": SESSION, "overseerId": SESSION, "targetId": null,
+            "positionId": SESSION, "toLeadId": SESSION, "until": "objective",
+            "changeId": SESSION,
+            "input": { "status": "available", "mood": null, "message": "",
+                       "picture": { "kind": "keep" } },
+        })
+    }
+
+    #[test]
+    fn the_canvas_lending_watch_and_the_owners_tile_are_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in PHASE_18 {
+            let args = phase_18_args();
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+        // Watch's commands only read: none takes anything to write, so none can change a
+        // working copy (ADR-016, one writer per working copy).
+        for cmd in ["get_watch", "get_watch_change"] {
+            let err = invoke_json(
+                &main,
+                cmd,
+                serde_json::json!({ "positionId": SESSION, "changeId": SESSION,
+                                    "path": "src/app.rs", "content": "x" }),
+            );
+            if let Ok(body) = err {
+                let text = format!("{body:?}");
+                assert!(!text.contains("src/app.rs"), "{cmd} took a path: {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_phase_18_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        let many: Vec<serde_json::Value> = (0..501)
+            .map(|_| serde_json::json!({ "tileId": "owner", "x": 0, "y": 0 }))
+            .collect();
+        for (cmd, args, why) in [
+            (
+                "place_tiles",
+                serde_json::json!({ "places": [{ "tileId": "../x", "x": 1, "y": 2 }] }),
+                "invalid tile id",
+            ),
+            (
+                "place_tiles",
+                serde_json::json!({ "places": many }),
+                "at most 500",
+            ),
+            (
+                "place_tiles",
+                serde_json::json!({ "places": [{ "tileId": "owner", "x": 1e9, "y": 0 }] }),
+                "on the canvas",
+            ),
+            (
+                "place_tiles",
+                serde_json::json!({ "places": [{ "tileId": SESSION, "x": 0, "y": 0 }] }),
+                "not on the organization canvas",
+            ),
+            (
+                "retarget_oversight",
+                serde_json::json!({ "oversightId": SESSION, "overseerId": null, "targetId": null }),
+                "name the new overseer or the new team",
+            ),
+            (
+                "retarget_oversight",
+                serde_json::json!({ "oversightId": "..", "overseerId": SESSION }),
+                "invalid oversight assignment id",
+            ),
+            (
+                "lend_agent",
+                serde_json::json!({ "positionId": SESSION, "toLeadId": SESSION, "until": "forever" }),
+                "unknown variant `forever`",
+            ),
+            (
+                "lend_agent",
+                serde_json::json!({ "positionId": "a/b", "toLeadId": SESSION, "until": "returned" }),
+                "invalid position id",
+            ),
+            (
+                "send_home",
+                serde_json::json!({ "positionId": "" }),
+                "invalid position id",
+            ),
+            (
+                "get_watch",
+                serde_json::json!({ "positionId": "C:/Windows" }),
+                "invalid position id",
+            ),
+            (
+                "get_watch_change",
+                serde_json::json!({ "changeId": "../../etc/passwd" }),
+                "invalid change id",
+            ),
+            (
+                "set_owner_profile",
+                serde_json::json!({ "input": { "status": "invisible", "mood": null,
+                    "message": "", "picture": { "kind": "keep" } } }),
+                "unknown variant `invisible`",
+            ),
+            (
+                // No room for a path: the picture comes as a small PNG, never a file to open.
+                "set_owner_profile",
+                serde_json::json!({ "input": { "status": "busy", "mood": null, "message": "",
+                    "picture": { "kind": "keep" }, "path": "C:/Users/me/me.png" } }),
+                "unknown field `path`",
+            ),
+            (
+                "set_owner_profile",
+                serde_json::json!({ "input": { "status": "busy", "mood": "great",
+                    "message": "x".repeat(81), "picture": { "kind": "keep" } } }),
+                "at most 80 characters",
+            ),
+            (
+                "set_owner_profile",
+                serde_json::json!({ "input": { "status": "busy", "mood": null, "message": "",
+                    "picture": { "kind": "set", "png": "bm90IGEgcGljdHVyZQ==" } } }),
+                "PNG of at most 256",
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone())
+                .expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
+            );
+        }
+    }
+
+    #[test]
+    fn places_lending_and_the_owners_tile_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let lead = |role: &str, title: &str| {
+            serde_json::json!({
+                "roleId": role_id(&org, role), "title": title, "runtimeId": "claude-code"
+            })
+        };
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": lead("Manager", "Development Manager"),
+            }}),
+        ));
+        let dept = s.departments[0].id.clone();
+        let project = |name: &str| {
+            let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+                &main,
+                "create_project",
+                serde_json::json!({ "input": {
+                    "name": name, "description": "",
+                    "allowedRuntimes": ["claude-code"],
+                    "departmentId": dept,
+                    "coordinator": lead("Supervisor", &format!("{name} Supervisor")),
+                }}),
+            ));
+            s.positions
+                .iter()
+                .find(|p| p.title == format!("{name} Supervisor"))
+                .unwrap()
+                .id
+                .clone()
+        };
+        let website = project("Website");
+        let shop = project("Shop");
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "hire_position",
+            serde_json::json!({ "input": {
+                "roleId": role_id(&org, "Security Auditor"), "title": "Security Auditor",
+                "reportsTo": website, "runtimeId": "claude-code",
+            }}),
+        ));
+        let auditor = s
+            .positions
+            .iter()
+            .find(|p| p.title == "Security Auditor")
+            .unwrap()
+            .id
+            .clone();
+
+        // Tile places: saved, in the organization, and forgotten by Tidy up (returned for Undo).
+        let ledger = app.state::<Arc<plenipo_ledger::Ledger>>().inner().clone();
+        let events_before = ledger.recent_events(1000).unwrap().len();
+        let _: () = body(invoke_json(
+            &main,
+            "place_tiles",
+            serde_json::json!({ "places": [
+                { "tileId": "owner", "x": -20.5, "y": 10 },
+                { "tileId": auditor, "x": 900, "y": 300 },
+            ]}),
+        ));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        assert_eq!(s.places.len(), 2);
+        assert_eq!(
+            ledger.recent_events(1000).unwrap().len(),
+            events_before,
+            "placing tiles is not in the Activity trail"
+        );
+        let forgotten: Vec<plenipo_ledger::TilePlace> = body(invoke(&main, "tidy_up"));
+        assert_eq!(forgotten.len(), 2);
+        let s: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        assert!(s.places.is_empty());
+
+        // Lend the auditor to the Shop team for one objective, then send it home.
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "lend_agent",
+            serde_json::json!({ "positionId": auditor, "toLeadId": shop, "until": "objective" }),
+        ));
+        let lent = s.positions.iter().find(|p| p.id == auditor).unwrap();
+        let loan = lent.loan.as_ref().unwrap();
+        assert_eq!(loan.to, "Shop Supervisor");
+        assert_eq!(loan.project.as_deref(), Some("Shop"));
+        let err = invoke_json(
+            &main,
+            "archive_position",
+            serde_json::json!({ "positionId": auditor }),
+        )
+        .unwrap_err();
+        assert!(err["message"]
+            .as_str()
+            .unwrap()
+            .contains("send it home first"));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "send_home",
+            serde_json::json!({ "positionId": auditor }),
+        ));
+        assert!(s
+            .positions
+            .iter()
+            .find(|p| p.id == auditor)
+            .unwrap()
+            .loan
+            .is_none());
+        let types: Vec<String> = ledger
+            .recent_events(50)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        assert!(types.contains(&"org.agent_lent".to_owned()));
+        assert!(types.contains(&"org.agent_returned".to_owned()));
+
+        // The owner's tile.
+        let set: plenipo_workforce::OwnerProfile = body(invoke_json(
+            &main,
+            "set_owner_profile",
+            serde_json::json!({ "input": { "status": "doNotDisturb", "mood": "focused",
+                "message": "Deep work until 3", "picture": { "kind": "keep" } } }),
+        ));
+        assert_eq!(set.status, plenipo_workforce::OwnerStatus::DoNotDisturb);
+        let got: plenipo_workforce::OwnerProfile = body(invoke(&main, "get_owner_profile"));
+        assert_eq!(got, set);
+
+        // Watch and the live view answer, with nothing to show yet.
+        let view: plenipo_capabilities::watch::WatchView = body(invoke_json(
+            &main,
+            "get_watch",
+            serde_json::json!({ "positionId": auditor }),
+        ));
+        assert!(view.changes.is_empty());
+        let change: Option<plenipo_capabilities::watch::WatchFileView> = body(invoke_json(
+            &main,
+            "get_watch_change",
+            serde_json::json!({ "changeId": SESSION }),
+        ));
+        assert!(change.is_none());
+        let live: plenipo_capabilities::LiveView = body(invoke(&main, "get_live_view"));
+        assert!(live.workers.is_empty());
+    }
+
+    /// Watch's updates reach the main window only, never the sign window or another window.
+    #[test]
+    fn watch_updates_go_to_the_main_window_only() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tauri::Listener as _;
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let heard = |w: &tauri::WebviewWindow<MockRuntime>| {
+            let n = Arc::new(AtomicUsize::new(0));
+            let count = Arc::clone(&n);
+            w.listen(guard_host::WATCH_EVENT, move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+            });
+            n
+        };
+        let (at_main, at_other, at_sign) = (heard(&main), heard(&other), heard(&sign));
+        let broker = app.state::<plenipo_capabilities::Broker>().inner().clone();
+        let who = plenipo_capabilities::watch::Who {
+            task_id: SESSION.into(),
+            session_id: SESSION.into(),
+            position_id: None,
+            worker: "Senior Developer".into(),
+            objective_task_id: SESSION.into(),
+        };
+        broker
+            .watch()
+            .writing(&who, "call-1", "src/app.rs", "fn main() {}");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while at_main.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            at_main.load(Ordering::SeqCst),
+            1,
+            "the main window hears it"
+        );
+        assert_eq!(at_other.load(Ordering::SeqCst), 0);
+        assert_eq!(at_sign.load(Ordering::SeqCst), 0);
     }
 }

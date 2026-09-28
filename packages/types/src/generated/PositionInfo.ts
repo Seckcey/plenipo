@@ -3,6 +3,7 @@ import type { AgentInfo } from "./AgentInfo";
 import type { ArchivedWith } from "./ArchivedWith";
 import type { ExperienceInfo } from "./ExperienceInfo";
 import type { LearningInfo } from "./LearningInfo";
+import type { LoanInfo } from "./LoanInfo";
 import type { ModelRule } from "./ModelRule";
 import type { PositionHistory } from "./PositionHistory";
 import type { PositionKind } from "./PositionKind";
@@ -86,4 +87,8 @@ deleted: boolean,
 /**
  * Moved to the owner's Workforce (ADR-045).
  */
-inWorkforce: boolean, };
+inWorkforce: boolean, 
+/**
+ * Lent to another team now (ADR-054).
+ */
+loan: LoanInfo | null, };

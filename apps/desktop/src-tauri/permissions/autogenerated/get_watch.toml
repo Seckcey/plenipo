@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-watch"
+description = "Enables the get_watch command without any pre-configured scope."
+commands.allow = ["get_watch"]
+
+[[permission]]
+identifier = "deny-get-watch"
+description = "Denies the get_watch command without any pre-configured scope."
+commands.deny = ["get_watch"]

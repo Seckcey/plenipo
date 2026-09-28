@@ -20,6 +20,10 @@
 //!   message as it came (`sizes`, in bytes, Plenipo's tools note included);
 //! - `last-args.json`, `last-env.txt`: what the last turn received.
 //!
+//! `[stream-writes:MS]` (Claude Code; a script step's `"streamWrites": MS`) streams each
+//! Plenipo `write_file` or `edit_file` call's arguments in pieces MS milliseconds apart before
+//! making it, as the real CLI does while the model writes them (Phase 18, Watch).
+//!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
 //! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, and `[delay:MS]` (answer
 //! normally after MS milliseconds, at most 20 seconds). `[compact]` makes the AI tool shorten its
@@ -545,6 +549,8 @@ struct Step {
     usage_limit: bool,
     /// Also list Plenipo's tools (as `[tools-list]` does).
     list_tools: bool,
+    /// Stream file changes while writing them, pieces this many ms apart (`[stream-writes:MS]`).
+    stream_writes: Option<u64>,
 }
 
 impl Step {
@@ -565,6 +571,7 @@ impl Step {
             crash: v["crash"].as_bool().unwrap_or(false),
             usage_limit: v["usageLimit"].as_bool().unwrap_or(false),
             list_tools: v["listTools"].as_bool().unwrap_or(false),
+            stream_writes: v["streamWrites"].as_u64(),
         }
     }
 
@@ -582,6 +589,9 @@ impl Step {
         }
         if self.list_tools {
             m.push_str("[tools-list] ");
+        }
+        if let Some(ms) = self.stream_writes {
+            m.push_str(&format!("[stream-writes:{ms}] "));
         }
         m
     }
@@ -853,6 +863,17 @@ fn use_tools(
     calls: &[(String, Value)],
     list: bool,
 ) -> (Vec<String>, Vec<ToolOutcome>) {
+    use_tools_with(server, calls, list, &|_, _, _| {})
+}
+
+/// [`use_tools`], doing `before` just before each call (Claude Code streams a call's arguments
+/// while writing it, Phase 18).
+fn use_tools_with(
+    server: Option<&ToolServer>,
+    calls: &[(String, Value)],
+    list: bool,
+    before: &dyn Fn(usize, &str, &Value),
+) -> (Vec<String>, Vec<ToolOutcome>) {
     let Some(server) = server else {
         let failed = calls
             .iter()
@@ -892,7 +913,8 @@ fn use_tools(
         Vec::new()
     };
     let mut outcomes = Vec::new();
-    for (name, args) in calls {
+    for (i, (name, args)) in calls.iter().enumerate() {
+        before(i, name, args);
         let outcome = match mcp.request("tools/call", json!({ "name": name, "arguments": args })) {
             Ok(r) => {
                 let mut text = r["content"][0]["text"].as_str().unwrap_or("").to_owned();
@@ -1116,7 +1138,41 @@ fn claude_turn(args: &[String]) -> i32 {
         // Like the real CLI: only servers from --mcp-config, and only tools --allowedTools allows.
         let allowed = flag(args, "--allowedTools").as_deref() == Some("mcp__plenipo");
         let server = claude_server(args).filter(|_| allowed);
-        let (names, outcomes) = use_tools(server.as_ref(), &calls, list);
+        // `[stream-writes:MS]`: like the real CLI with `--include-partial-messages`, a Plenipo
+        // file change's arguments stream while the model writes them (Phase 18, ADR-055), in
+        // pieces MS milliseconds apart, before the call is made.
+        let pace = markers(&own, "stream-writes")
+            .first()
+            .and_then(|v| v.parse::<u64>().ok());
+        let stream = |i: usize, name: &str, args: &Value| {
+            let Some(ms) = pace else { return };
+            if name != "write_file" && name != "edit_file" {
+                return;
+            }
+            let index = i + 1;
+            out(&json!({
+                "type": "stream_event", "session_id": id,
+                "event": { "type": "content_block_start", "index": index,
+                           "content_block": { "type": "tool_use", "id": format!("toolu_{i}"),
+                                              "name": format!("mcp__plenipo__{name}"), "input": {} } }
+            }));
+            let json = args.to_string();
+            let chars: Vec<char> = json.chars().collect();
+            for piece in chars.chunks(chars.len().div_ceil(12).max(1)) {
+                out(&json!({
+                    "type": "stream_event", "session_id": id,
+                    "event": { "type": "content_block_delta", "index": index,
+                               "delta": { "type": "input_json_delta",
+                                          "partial_json": piece.iter().collect::<String>() } }
+                }));
+                std::thread::sleep(Duration::from_millis(ms.min(2_000)));
+            }
+            out(&json!({
+                "type": "stream_event", "session_id": id,
+                "event": { "type": "content_block_stop", "index": index }
+            }));
+        };
+        let (names, outcomes) = use_tools_with(server.as_ref(), &calls, list, &stream);
         for (i, (name, input, text, is_error)) in outcomes.iter().enumerate() {
             let tool_id = format!("toolu_{i}");
             out(&json!({

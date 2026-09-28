@@ -191,6 +191,24 @@ alone, like every command above; a refused change rejects with the reason.
 | `hire_from_workforce`     | `savedId`, `reportsTo?`, `title?`   | `OrgSnapshot`      | Hire a saved agent into a team again, with its settings, experience, and lessons                                                   |
 | `delete_saved_agent`      | `savedId`                           | `OrgSnapshot`      | Delete an agent in the Workforce for good                                                                                          |
 
+The organization canvas (Phase 18: ADR-053 to ADR-056). The main window's alone, like every
+command above. None touches files, programs, the network, the browser, or the screen: Watch only
+reads what the capability broker already carried out for workers, and nothing it offers writes
+to a working copy.
+
+| Command              | Input                                     | Returns          | Purpose                                                                                                               |
+| -------------------- | ----------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `place_tiles`        | `places` (`TilePlace[]`, at most 500)     | —                | Save where the owner put these tiles (a team moved at once); not in the Activity trail                                |
+| `tidy_up`            | —                                         | `TilePlace[]`    | Forget every place (the automatic layout comes back); returns them for Undo                                           |
+| `retarget_oversight` | `oversightId`, `overseerId?`, `targetId?` | `OrgSnapshot`    | Move one end of an oversight line: end the assignment and make its replacement in one step                            |
+| `get_live_view`      | —                                         | `LiveView`       | Who is working where now (a server, the screen, the browser, a program), what each touched last, and recent hand-offs |
+| `lend_agent`         | `positionId`, `toLeadId`, `until`         | `OrgSnapshot`    | Lend an on-call agent to another team's lead, for one objective or until sent home                                    |
+| `send_home`          | `positionId`                              | `OrgSnapshot`    | Send a lent agent home: now, or when the task it is on ends                                                           |
+| `get_watch`          | `positionId`                              | `WatchView`      | The files an agent's workers changed in its latest objective, each once, newest first                                 |
+| `get_watch_change`   | `changeId`                                | `WatchFileView?` | One change's file with its new and changed lines marked, or a summary                                                 |
+| `get_owner_profile`  | —                                         | `OwnerProfile`   | The owner's status, mood, message, and picture                                                                        |
+| `set_owner_profile`  | `input` (`OwnerProfileInput`)             | `OwnerProfile`   | Change them; the picture arrives as a small PNG shrunk by the window                                                  |
+
 Router commands (Phase 6). Every change returns the model settings as they are afterwards
 (`RoutingSnapshot`); a refused change rejects with the reason and changes nothing.
 
@@ -274,7 +292,9 @@ Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
 `{ kind: "lifecycle", record }`); `plenipo://ledger` carries each committed `LedgerEvent`;
 `plenipo://agents` carries `AgentUpdate` (`activity`, `turn`, `session`, or `runtimes`);
-`plenipo://control` carries `ControlStatus` (with a `revision`, so the UI ignores an older one).
+`plenipo://control` carries `ControlStatus` (with a `revision`, so the UI ignores an older one);
+`plenipo://watch` carries `WatchUpdate` (a file change being written, saved, or refused) to the
+main window only.
 The frontend subscribes only through `src/api/events.ts`.
 
 All commands return `Result<T, CommandError>`; the TS client converts rejections into
