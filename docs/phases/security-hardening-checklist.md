@@ -93,14 +93,14 @@ records what was changed and how it was checked, in plain words, without the att
 
 ### Batch 2 (GHSA-phg2-6j94-84g9)
 
-- [ ] B7 · Computer use asks before every click and keystroke (ADR-039)
-- [ ] B8 · Lessons a role keeps on its own are notes, not orders (ADR-040)
-- [ ] B9 · Codex's own shell (ADR-047)
+- [x] B7 · Computer use asks before every click and keystroke (ADR-049)
+- [ ] B8 · Lessons a role keeps on its own are notes, not orders (ADR-050)
+- [ ] B9 · Codex's own shell (ADR-052, if Codex has no switch)
 
 ### Batch 3 (GHSA-2hxf-v9c3-44q2)
 
 - [ ] B10 · GitHub Actions pinned by commit, Dependabot
-- [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-046)
+- [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-051)
 
 ## Checks
 

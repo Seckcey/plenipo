@@ -34,7 +34,7 @@ architecture must be recorded here.
 | [017](ADR-017-ollama-cloud-models.md)                | Ollama cloud models through its service                                                     | Accepted |
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md)      | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot                       | Accepted |
 | [019](ADR-019-role-working-instructions.md)          | Every role knows its job: working instructions for all roles                                | Accepted |
-| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035, 046, 047)      | Accepted |
+| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035, 046, 047, 049) | Accepted |
 | [021](ADR-021-editions-and-license.md)               | Free and Pro editions under the Elastic License 2.0                                         | Accepted |
 | [022](ADR-022-subscription-and-license-check.md)     | Subscription pricing and the weekly license check                                           | Accepted |
 | [023](ADR-023-settings-switches.md)                  | On/off switches in Settings                                                                 | Accepted |
@@ -63,3 +63,4 @@ architecture must be recorded here.
 | [046](ADR-046-new-tabs-open-in-the-workers-tab.md)   | New tabs open in the worker's own tab (amends 020)                                          | Accepted |
 | [047](ADR-047-browser-never-saves-files.md)          | Plenipo's browser does not save files (amends 020)                                          | Accepted |
 | [048](ADR-048-secrets-only-to-their-programs.md)     | Secrets reach only the programs they are for (amends 013)                                   | Accepted |
+| [049](ADR-049-computer-use-asks-every-step.md)       | Computer use asks before every click and keystroke (amends 020)                             | Accepted |
