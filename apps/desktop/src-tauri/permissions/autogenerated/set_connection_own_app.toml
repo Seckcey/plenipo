@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-connection-own-app"
+description = "Enables the set_connection_own_app command without any pre-configured scope."
+commands.allow = ["set_connection_own_app"]
+
+[[permission]]
+identifier = "deny-set-connection-own-app"
+description = "Denies the set_connection_own_app command without any pre-configured scope."
+commands.deny = ["set_connection_own_app"]

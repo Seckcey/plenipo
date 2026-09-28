@@ -83,6 +83,7 @@ mod tests {
 
     #[test]
     fn deleting_my_data_forgets_every_secret_plenipo_kept() {
+        // The owner's secrets, and a connection's sign-in (Phase 20).
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("ledger").join(DB_FILE_NAME);
         // Like Windows Credential Manager: long values are kept in pieces.
@@ -115,6 +116,21 @@ mod tests {
                 },
             )
             .unwrap();
+            // A connection's sign-in (Phase 20), long enough to be kept in pieces too.
+            guard
+                .connection_connected(
+                    "microsoft365",
+                    Some(plenipo_guard::AccountKind::Work),
+                    plenipo_guard::Account::default(),
+                    &[],
+                )
+                .unwrap();
+            vault::put(
+                &store,
+                &plenipo_capabilities::connections::vault_id("microsoft365"),
+                &"r".repeat(3_000),
+            )
+            .unwrap();
             let config = guard.config().unwrap();
             assert_eq!(config.secrets.len(), 2);
         }
@@ -137,7 +153,7 @@ mod tests {
             .unwrap();
         }
         assert!(Ledger::open(&db).is_err(), "a newer layout is refused");
-        assert_eq!(forget_secrets(dir.path(), &store).unwrap(), 2);
+        assert_eq!(forget_secrets(dir.path(), &store).unwrap(), 3);
         assert_eq!(store.stored(), 0, "nothing is left behind");
         // Again, or with no Ledger at all: nothing to do.
         assert_eq!(forget_secrets(dir.path(), &store).unwrap(), 0);

@@ -3,7 +3,8 @@
 //!
 //! - `about.json`: the version, Windows, the Ledger's health and its backups, how the last run
 //!   ended, the AI tools found (names, versions, ready or not), Plenipo's settings for starting
-//!   and closing, and the notices Plenipo raised;
+//!   and closing, the notices Plenipo raised, and each connection's state (Phase 20: its parts
+//!   and permissions, never who signed in or a sign-in);
 //! - `recent-events.json`: what happened when (event type, time, and where it came from), never
 //!   what an event said;
 //! - `logs/`: Plenipo's log files.
@@ -32,12 +33,14 @@ const README: &str = "Plenipo diagnostics
 This file helps someone understand a problem with Plenipo. It holds:
 
 - about.json: this version of Plenipo, Windows, the health of the Ledger and its backups, how
-  Plenipo last stopped, the AI tools it found, and the notices it showed.
+  Plenipo last stopped, the AI tools it found, the notices it showed, and whether each
+  connection is connected, with its parts and permissions.
 - recent-events.json: what happened and when (the kind of event only, never what it said).
 - logs: Plenipo's own log files.
 
 It does not hold your tasks, your workers' answers, what programs printed, anything you typed in
-the terminal, your Ledger, or your secrets. Secrets that look like keys or passwords, and the
+the terminal, your Ledger, your secrets, the accounts your connections signed in as, or their
+sign-ins. Secrets that look like keys or passwords, and the
 secrets you stored in Plenipo, are hidden by Plenipo in every file.
 ";
 
@@ -46,6 +49,31 @@ pub struct Contents {
     pub about: Value,
     pub events: Vec<LedgerEvent>,
     pub logs: Vec<PathBuf>,
+}
+
+/// Each connection, for `about.json` (Phase 20): its service, state, kind of account, parts,
+/// and the permissions it was granted, and how many are on its lists — never who signed in, the
+/// organization, the addresses on its list, its app, or a sign-in.
+pub fn connections(list: &[plenipo_guard::Connection]) -> Value {
+    Value::Array(
+        list.iter()
+            .map(|c| {
+                json!({
+                    "service": c.service.label(),
+                    "state": c.state,
+                    "accountKind": c.account_kind,
+                    "parts": c.service.parts().iter().map(|p| json!({
+                        "part": p.label(),
+                        "level": c.part(*p).words(),
+                    })).collect::<Vec<_>>(),
+                    "granted": c.granted,
+                    "whoMayUseIt": c.access.len(),
+                    "sendWithoutAskingTo": c.send_list.len(),
+                    "ownApp": c.own_app.is_some(),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// An event without what it said: its kind, time, and source.
@@ -191,6 +219,56 @@ mod tests {
             event_type: event_type.into(),
             payload,
             created_at: 1,
+        }
+    }
+
+    #[test]
+    fn connections_say_their_state_and_never_who_signed_in() {
+        use plenipo_guard::{
+            Account, AccountKind, Connection, ConnectionState, OwnApp, Part, PartLevel, Service,
+        };
+        let mut c = Connection::new("microsoft365", Service::Microsoft365);
+        c.state = ConnectionState::Connected;
+        c.account_kind = Some(AccountKind::Work);
+        c.account = Some(Account {
+            name: "Frankie Gonzalez".into(),
+            address: "frankie@8westit.com".into(),
+            organization: Some("8 West IT".into()),
+            tenant: Some("11111111-2222-3333-4444-555555555555".into()),
+        });
+        c.parts.insert(Part::Teams, PartLevel::FullAccess);
+        c.granted = vec!["Mail.Read".into(), "ChatMessage.Send".into()];
+        c.send_list = vec!["dana@clientco.com".into()];
+        c.own_app = Some(OwnApp {
+            app_id: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0".into(),
+            tenant: "clientco.com".into(),
+        });
+        let v = connections(&[c]);
+        assert_eq!(v[0]["service"], "Microsoft 365");
+        assert_eq!(v[0]["state"], "connected");
+        assert_eq!(v[0]["accountKind"], "work");
+        assert_eq!(
+            v[0]["parts"][0],
+            json!({ "part": "Mail", "level": "Read only" })
+        );
+        assert_eq!(
+            v[0]["parts"][4],
+            json!({ "part": "Teams", "level": "Full access" })
+        );
+        assert_eq!(v[0]["granted"], json!(["Mail.Read", "ChatMessage.Send"]));
+        assert_eq!(v[0]["sendWithoutAskingTo"], 1);
+        assert_eq!(v[0]["ownApp"], true);
+        let text = v.to_string();
+        for never in [
+            "Frankie",
+            "frankie@",
+            "8 West IT",
+            "11111111",
+            "dana@",
+            "clientco",
+            "0f1e2d3c",
+        ] {
+            assert!(!text.contains(never), "{never} is in {text}");
         }
     }
 

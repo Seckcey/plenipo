@@ -451,6 +451,10 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
         "updates": app.state::<Arc<Updates>>().status(),
         "aiTools": tools,
         "aiToolsUpdateByThemselves": page.as_ref().map(|p| p.auto_update),
+        "connections": app
+            .try_state::<Guard>()
+            .and_then(|g| g.connections().ok())
+            .map(|c| crate::diagnostics::connections(&c)),
         "programsRunning": supervisor.as_ref().map(|s| s.active_count()),
         "notices": {
             "programs": supervisor.as_ref().map(|s| s.overview().notices),
