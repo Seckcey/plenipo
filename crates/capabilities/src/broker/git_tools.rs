@@ -172,7 +172,13 @@ fn sending(
     let prefix = prefix(run)?;
     let from = push_from(run, remote, branch, base)?;
     let range = format!("{from}...{}", branch.unwrap_or("HEAD"));
-    let files = paths_z(&run(&["diff", "--name-only", "-z", &range])?);
+    let files = paths_z(&run(&[
+        "diff",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        &range,
+    ])?);
     Ok(blocked_among(blocked, &prefix, &files)
         .iter()
         .map(|p| in_folder(&prefix, p))
@@ -190,7 +196,7 @@ pub(super) fn look_at(
         GitLook::Add { paths } => would_stage(run, paths).map(Found::Staging),
         GitLook::Diff { staged, path } => {
             let prefix = prefix(run)?;
-            let mut args = vec!["diff", "--name-only", "-z"];
+            let mut args = vec!["diff", "--no-renames", "--name-only", "-z"];
             if *staged {
                 args.push("--cached");
             }
@@ -207,7 +213,13 @@ pub(super) fn look_at(
         }
         GitLook::Commit => {
             let prefix = prefix(run)?;
-            let files = paths_z(&run(&["diff", "--cached", "--name-only", "-z"])?);
+            let files = paths_z(&run(&[
+                "diff",
+                "--cached",
+                "--no-renames",
+                "--name-only",
+                "-z",
+            ])?);
             Ok(Found::Staged(
                 blocked_among(blocked, &prefix, &files)
                     .iter()
@@ -221,9 +233,10 @@ pub(super) fn look_at(
     }
 }
 
-/// A pathspec that leaves a file (named from the repository's top) out of a diff.
+/// A pathspec that leaves a file (named from the repository's top) out of a diff: that exact
+/// path, not a pattern (`literal`), so a look-alike name is not left out with it.
 fn leave_out(from_top: &str) -> String {
-    format!(":(top,exclude){from_top}")
+    format!(":(top,literal,exclude){from_top}")
 }
 
 /// One line for the worker: how many files a diff left out.
@@ -542,6 +555,53 @@ mod tests {
             Found::Showing(vec![])
         );
         assert_eq!(not_shown(1), "1 file(s) on the blocked list are not shown.");
+    }
+
+    /// A blocked file renamed (which git would list under its new name only) is seen under both
+    /// names: a diff leaves both out, and a commit names both.
+    #[test]
+    fn a_renamed_blocked_file_is_seen_under_both_names() {
+        let r = Repo::new();
+        r.write(".env.local", "SECRET=1\n");
+        r.git(&["add", ".env.local"]);
+        r.git(&["commit", "-q", "-m", "Add the secret"]);
+        r.git(&["mv", ".env.local", ".env.production"]);
+        r.write("a.txt", "changed\n");
+        r.git(&["add", "a.txt"]);
+        let run = r.at_top();
+        let staged = GitLook::Diff {
+            staged: true,
+            path: None,
+        };
+        let Found::Showing(out) = look_at(&run, &staged, &blocked(), None).unwrap() else {
+            panic!("not a diff");
+        };
+        assert_eq!(out, strings(&[".env.local", ".env.production"]));
+        let excludes: Vec<String> = out.iter().map(|p| leave_out(p)).collect();
+        let mut args = vec!["diff", "--cached", "--"];
+        args.extend(excludes.iter().map(String::as_str));
+        let shown = r.git(&args);
+        assert!(
+            shown.contains("a.txt") && shown.contains("+changed"),
+            "{shown}"
+        );
+        assert!(
+            !shown.contains("SECRET") && !shown.contains(".env"),
+            "{shown}"
+        );
+        assert_eq!(
+            look_at(&run, &GitLook::Commit, &blocked(), None).unwrap(),
+            Found::Staged(strings(&[".env.local", ".env.production"]))
+        );
+        // The exact path is left out, not a look-alike: `[` in a name is no pattern.
+        r.write("a.txt", "a\n");
+        r.git(&["add", "a.txt"]);
+        r.write("config.[k]ey", "K\n");
+        r.write("config.key", "K2\n");
+        r.git(&["add", "config.[k]ey", "config.key"]);
+        let shown = r.git(&["diff", "--cached", "--", &leave_out("config.[k]ey")]);
+        assert!(shown.contains("+K2"), "{shown}");
+        assert!(!shown.contains("+K\n"), "{shown}");
     }
 
     /// From a folder inside the repository, blocked files are matched as that folder sees them
