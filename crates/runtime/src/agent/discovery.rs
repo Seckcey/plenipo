@@ -237,6 +237,99 @@ pub async fn run_probe(
     }
 }
 
+/// Talk to an AI tool for a moment (ADR-060): write `lines` (JSON-RPC messages, one per line)
+/// to its standard input, read its answers until each request numbered in `answers` has one
+/// (or `timeout` passes), then close its input and let it end. Nothing else is written: the
+/// tool's own requests, if any, are never answered. Never fails: problems are described in
+/// the output, whose `stdout` holds the lines the tool wrote.
+pub async fn run_talk(
+    executable: &Path,
+    args: &[String],
+    env: &[(String, String)],
+    working_dir: &Path,
+    lines: &[String],
+    answers: &[u64],
+    timeout: Duration,
+) -> ProbeOutput {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+    let mut command =
+        crate::supervisor::wrapped_command(executable, args, env, working_dir, Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            return ProbeOutput {
+                spawn_error: Some(e.to_string()),
+                ..ProbeOutput::default()
+            }
+        }
+    };
+    let mut stdin = child.stdin().take();
+    let stdout = child.stdout().take();
+    let err = tokio::spawn(read_capped(child.stderr().take()));
+    let talk = async {
+        if let Some(input) = stdin.as_mut() {
+            for line in lines {
+                let sent = input.write_all(line.as_bytes()).await.is_ok()
+                    && input.write_all(b"\n").await.is_ok()
+                    && input.flush().await.is_ok();
+                if !sent {
+                    break;
+                }
+            }
+        }
+        let mut kept = String::new();
+        let mut waiting: Vec<u64> = answers.to_vec();
+        if let Some(stdout) = stdout {
+            let mut reader = BufReader::new(stdout).lines();
+            while !waiting.is_empty() {
+                let Ok(Some(line)) = reader.next_line().await else {
+                    break;
+                };
+                if kept.len() + line.len() < MAX_PROBE_OUTPUT {
+                    kept.push_str(&line);
+                    kept.push('\n');
+                }
+                let answered = serde_json::from_str::<serde_json::Value>(line.trim())
+                    .ok()
+                    .filter(|v| v.get("result").is_some() || v.get("error").is_some())
+                    .and_then(|v| v.get("id").and_then(serde_json::Value::as_u64));
+                if let Some(id) = answered {
+                    waiting.retain(|w| *w != id);
+                }
+            }
+        }
+        kept
+    };
+    let (stdout, timed_out) = match tokio::time::timeout(timeout, talk).await {
+        Ok(kept) => (kept, false),
+        Err(_) => (String::new(), true),
+    };
+    // Done: the way in closes, so the tool can end by itself; if it does not, it is ended.
+    drop(stdin);
+    let status = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+    let exit_code = match status {
+        Ok(Ok(s)) => s.code(),
+        _ => {
+            let _ = child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+            None
+        }
+    };
+    let stderr = tokio::time::timeout(Duration::from_secs(5), err)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
+    ProbeOutput {
+        exit_code,
+        stdout,
+        stderr,
+        timed_out,
+        spawn_error: None,
+    }
+}
+
 async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>) -> String {
     let Some(mut reader) = reader else {
         return String::new();

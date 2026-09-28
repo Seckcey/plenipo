@@ -22,15 +22,18 @@
 //! provider (`managed:kimi-code`, `source=oauth`). Plenipo runs only that provider's models
 //! (`kimi-code/…`), names one on every task, and passes no Kimi or Moonshot key variables.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use serde_json::{json, Value};
 
 use crate::agent::acp::{AcpTask, AcpTurn};
 use crate::agent::adapter::{
-    first_line, ProbeOutput, RuntimeAdapter, Stop, TurnParser, TurnRequest, NETWORK_ENV,
+    first_line, model_name, plain_name, talk_answer, ProbeOutput, RuntimeAdapter, StatusCheck,
+    Stop, TurnParser, TurnRequest, NETWORK_ENV,
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities, TurnOutcome,
+    AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities, TurnOutcome,
 };
 
 pub const ID: &str = "kimi";
@@ -152,6 +155,79 @@ impl RuntimeAdapter for Kimi {
         // Kimi finds its settings and sign-in in the user's profile folder; no variable of its
         // own is needed, and none that could carry a key is passed.
         NETWORK_ENV.to_vec()
+    }
+
+    /// Kimi Code's command reference: `kimi login` (a device code). It has no sign-out command,
+    /// so its card has no Sign out button (ADR-058 §1).
+    fn account_command(&self, action: AccountAction) -> Option<Vec<String>> {
+        match action {
+            AccountAction::SignIn => Some(vec!["login".into()]),
+            AccountAction::SignOut => None,
+        }
+    }
+
+    /// Kimi Code's command reference: `kimi upgrade --yes` checks for the newest version and
+    /// installs it without asking. No published list matches Kimi's program (npm said 2.1.1
+    /// while the owner's PC reported 0.34.0), so Update checks and installs in one step.
+    fn update_command(&self) -> Option<Vec<String>> {
+        Some(vec!["upgrade".into(), "--yes".into()])
+    }
+
+    /// Kimi lists its models when a conversation opens (ACP `session/new`, recorded on Kimi
+    /// 0.34.0). No prompt is sent, but Kimi keeps the empty conversation in its own history.
+    fn status_check(&self, dir: &Path) -> StatusCheck {
+        let initialize = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false },
+                                    "terminal": false } } });
+        let open = json!({ "jsonrpc": "2.0", "id": 2, "method": "session/new",
+                           "params": { "cwd": dir.display().to_string(), "mcpServers": [] } });
+        StatusCheck::Talk {
+            args: vec!["acp".into()],
+            lines: vec![initialize.to_string(), open.to_string()],
+            answers: vec![1, 2],
+        }
+    }
+
+    fn status_check_leaves_a_trace(&self) -> bool {
+        true
+    }
+
+    /// The `model` choice of `session/new`'s settings. Only the Kimi subscription's own models
+    /// (`kimi-code/…`) are kept: Plenipo runs no other.
+    fn parse_models(&self, out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+        let answer = talk_answer(out, 2)?;
+        let options = answer
+            .get("configOptions")?
+            .as_array()?
+            .iter()
+            .find(|o| o.get("id").and_then(Value::as_str) == Some("model"))?
+            .get("options")?
+            .as_array()?;
+        Some(
+            options
+                .iter()
+                .filter_map(|o| {
+                    let name = o
+                        .get("value")
+                        .and_then(Value::as_str)
+                        .and_then(model_name)?;
+                    if !name.starts_with("kimi-code/") {
+                        return None;
+                    }
+                    let label = o
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .and_then(|l| plain_name(l, 64))
+                        .unwrap_or_else(|| name.clone());
+                    Some(KnownModel {
+                        name,
+                        label,
+                        effort_levels: Vec::new(),
+                    })
+                })
+                .collect(),
+        )
     }
 
     fn turn_args(&self, _request: &TurnRequest) -> Vec<String> {
@@ -874,5 +950,69 @@ mod tests {
             .iter()
             .all(|m| m.name.starts_with(MODEL_PREFIX)));
         assert!(!caps.billing_checked_per_turn);
+    }
+}
+
+/// Phase 19: the AI tools page (ADR-058 to ADR-060).
+#[cfg(test)]
+mod ai_tools_page_tests {
+    use super::*;
+    use crate::agent::adapter::NewestVersion;
+
+    #[test]
+    fn signs_in_but_has_no_sign_out_command() {
+        assert_eq!(
+            Kimi.account_command(AccountAction::SignIn),
+            Some(vec!["login".to_owned()])
+        );
+        assert_eq!(Kimi.account_command(AccountAction::SignOut), None);
+    }
+
+    #[test]
+    fn updates_in_one_step_because_no_list_matches_its_program() {
+        assert_eq!(Kimi.newest_version(), NewestVersion::None);
+        assert_eq!(
+            Kimi.update_command(),
+            Some(vec!["upgrade".to_owned(), "--yes".to_owned()])
+        );
+        assert_eq!(Kimi.put_back_command("0.34.0"), None);
+    }
+
+    #[test]
+    fn its_models_come_from_opening_a_conversation_with_no_prompt() {
+        let StatusCheck::Talk {
+            args,
+            lines,
+            answers,
+        } = Kimi.status_check(Path::new("/checks"))
+        else {
+            panic!("Kimi talks ACP");
+        };
+        assert_eq!(args, ["acp"]);
+        assert_eq!(answers, [1, 2]);
+        assert!(lines[1].contains("\"session/new\"") && lines[1].contains("/checks"));
+        assert!(!lines.iter().any(|l| l.contains("session/prompt")));
+        assert!(Kimi.status_check_leaves_a_trace());
+        let recorded = ProbeOutput {
+            exit_code: Some(0),
+            stdout: include_str!("../../tests/fixtures/kimi-0.34.0/acp/process-1.agent.jsonl")
+                .into(),
+            ..ProbeOutput::default()
+        };
+        let names: Vec<String> = Kimi
+            .parse_models(&recorded)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "kimi-code/kimi-for-coding",
+                "kimi-code/kimi-for-coding-highspeed",
+                "kimi-code/k3",
+                "kimi-code/k3-256k"
+            ]
+        );
     }
 }

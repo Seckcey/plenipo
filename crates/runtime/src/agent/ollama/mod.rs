@@ -9,18 +9,18 @@
 
 pub mod bridge;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, Parsed, ProbeOutput, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser, TurnRequest,
-    TurnState, MAX_EVENT_TEXT,
+    cap, model_name, NewestVersion, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
+    PublishedList, RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT,
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
-    TurnResult,
+    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel,
+    RuntimeCapabilities, TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -169,6 +169,47 @@ impl RuntimeAdapter for Ollama {
             }
             ProviderSession::New { .. } => false,
         }
+    }
+
+    /// `ollama signin` and `ollama signout` (Ollama's help, and both recorded on the owner's PC),
+    /// run on the real `ollama` program, not Plenipo's bridge.
+    fn account_command(&self, action: AccountAction) -> Option<Vec<String>> {
+        Some(match action {
+            AccountAction::SignIn => vec!["signin".into()],
+            AccountAction::SignOut => vec!["signout".into()],
+        })
+    }
+
+    /// Ollama's own releases, on GitHub. Ollama has no update command: its tray app downloads a
+    /// new version and asks the owner to restart it (ADR-059 §7).
+    fn newest_version(&self) -> NewestVersion {
+        NewestVersion::Published(PublishedList::GitHub("ollama/ollama"))
+    }
+
+    /// The models on this PC, from the Ollama service (`GET /api/tags`, through the bridge).
+    fn status_check(&self, _dir: &Path) -> StatusCheck {
+        StatusCheck::Bridge(vec!["models".into()])
+    }
+
+    fn parse_models(&self, out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+        let last = out.stdout.lines().rev().find(|l| !l.trim().is_empty())?;
+        let answer: Value = serde_json::from_str(last.trim()).ok()?;
+        let list = answer.get("models")?.as_array()?;
+        Some(
+            list.iter()
+                .filter_map(|m| m.get("name").and_then(Value::as_str).and_then(model_name))
+                .map(|name| KnownModel {
+                    label: name.clone(),
+                    name,
+                    effort_levels: Vec::new(),
+                })
+                .collect(),
+        )
+    }
+
+    /// Ollama lists the models downloaded to this PC, not every model it offers.
+    fn reports_every_model(&self) -> bool {
+        false
     }
 
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {

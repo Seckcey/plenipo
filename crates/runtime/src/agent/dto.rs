@@ -185,6 +185,117 @@ pub struct AgentRuntimeInfo {
     pub ready: bool,
     #[ts(type = "number | null")]
     pub checked_at: Option<u64>,
+    /// The version of the AI tool this Plenipo was checked against (ADR-014 §6), shown beside
+    /// the installed one (ADR-059 §1).
+    pub checked_version: String,
+    /// The AI tool's own sign-in and sign-out commands (ADR-058).
+    pub account: AccountCommands,
+    /// The models the AI tool last reported itself, when it has a list (ADR-060 §5).
+    pub reported_models: Option<ReportedModels>,
+}
+
+// ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------
+
+/// Signing in to, or out of, an AI tool, in a terminal tab that runs the tool's own command
+/// (ADR-058). Reconnect is signing in again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum AccountAction {
+    SignIn,
+    SignOut,
+}
+
+impl AccountAction {
+    /// The word on the wire and in the record: `signIn`, `signOut`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SignIn => "signIn",
+            Self::SignOut => "signOut",
+        }
+    }
+
+    /// "Sign in" or "Sign out", as a tab's title starts.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::SignIn => "Sign in",
+            Self::SignOut => "Sign out",
+        }
+    }
+
+    /// "sign-in" or "sign-out", for sentences ("Codex's sign-in").
+    pub fn noun(self) -> &'static str {
+        match self {
+            Self::SignIn => "sign-in",
+            Self::SignOut => "sign-out",
+        }
+    }
+}
+
+/// An AI tool's own sign-in and sign-out commands, as the owner would type them (`codex
+/// login`), or `None` where the tool has none (Kimi has no sign-out command).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AccountCommands {
+    pub sign_in: Option<String>,
+    pub sign_out: Option<String>,
+}
+
+/// The models an AI tool reported itself (ADR-060 §5), and when it was asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReportedModels {
+    pub models: Vec<KnownModel>,
+    /// The list is every model the tool offers. False where it lists only some (Ollama lists
+    /// the models downloaded to this PC), so a checked model missing from it is not "no longer
+    /// offered".
+    pub complete: bool,
+    #[ts(type = "number")]
+    pub checked_at: u64,
+}
+
+/// One usage window an AI tool reported (ADR-060 §3): for example five hours, or a week.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanWindow {
+    /// How long the window is, in minutes, when the tool says (300: five hours).
+    #[ts(type = "number | null")]
+    pub minutes: Option<u64>,
+    /// How much of the window is used, 0 to 100, when the tool says. Plenipo never works it
+    /// out itself.
+    pub used_percent: Option<u8>,
+    /// When the window starts again (milliseconds since 1970), when the tool says.
+    #[ts(type = "number | null")]
+    pub resets_at: Option<u64>,
+}
+
+/// How much of the owner's plan an AI tool reported used, through an official command or
+/// protocol only (ADR-060 §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanReport {
+    pub windows: Vec<PlanWindow>,
+    /// The tool said its limit is reached.
+    pub limited: bool,
+    /// The tool warned that the limit is near.
+    pub warning: bool,
+    /// The plan's name, when the tool says ("plus"). Never an account name or email.
+    pub plan: Option<String>,
+    #[ts(type = "number")]
+    pub reported_at: u64,
+}
+
+/// An AI tool reported how much of the plan is used (ADR-060 §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanUpdate {
+    pub runtime_id: String,
+    pub report: PlanReport,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -449,6 +560,8 @@ pub enum AgentUpdate {
     Turn(AgentTurn),
     Session(AgentSession),
     Runtimes(RuntimesUpdate),
+    /// An AI tool reported how much of the plan is used, during a task (ADR-060 §3).
+    Plan(PlanUpdate),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

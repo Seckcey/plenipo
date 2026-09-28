@@ -740,6 +740,9 @@ mod tests {
             login_hint: String::new(),
             ready,
             checked_at: None,
+            checked_version: String::new(),
+            account: Default::default(),
+            reported_models: None,
         }
     }
 

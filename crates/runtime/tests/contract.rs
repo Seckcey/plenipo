@@ -537,3 +537,206 @@ async fn prompts_go_on_stdin_and_limits_and_sign_in_errors_are_normalized() {
         }
     }
 }
+
+// ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------------
+
+/// Flags that would sign in, or update, for pay-per-use billing or with a secret.
+fn billing_flag(arg: &str) -> bool {
+    let a = arg.to_ascii_lowercase();
+    a == "--console" || a.contains("api-key") || a.contains("apikey") || a.contains("token")
+}
+
+#[test]
+fn every_ai_tool_signs_in_with_its_own_command_and_never_for_api_billing() {
+    use plenipo_runtime::agent::AccountAction;
+    for a in builtin_adapters() {
+        let id = a.id();
+        let sign_in = a
+            .account_command(AccountAction::SignIn)
+            .unwrap_or_else(|| panic!("{id}: every AI tool signs in with its own command"));
+        assert!(!sign_in.is_empty(), "{id}");
+        for action in [AccountAction::SignIn, AccountAction::SignOut] {
+            for arg in a.account_command(action).unwrap_or_default() {
+                assert!(!billing_flag(&arg), "{id}: {arg:?} changes what is billed");
+                assert!(!secret_bearing(&arg), "{id}: {arg:?}");
+                assert!(
+                    !arg.contains(' ') && !arg.is_empty(),
+                    "{id}: one word per argument"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_update_is_the_tools_own_command_and_asks_nothing() {
+    use plenipo_runtime::agent::adapter::{NewestVersion, PublishedList};
+    for a in builtin_adapters() {
+        let id = a.id();
+        for arg in a
+            .update_command()
+            .unwrap_or_default()
+            .iter()
+            .chain(a.put_back_command("1.2.3").unwrap_or_default().iter())
+        {
+            assert!(!billing_flag(arg) && !secret_bearing(arg), "{id}: {arg:?}");
+            assert!(
+                !arg.contains("://") && !arg.contains(['|', ';', '&']),
+                "{id}: {arg:?}"
+            );
+        }
+        if let Some(put_back) = a.put_back_command("1.2.3") {
+            assert!(put_back.contains(&"1.2.3".to_owned()), "{id}");
+        }
+        match a.newest_version() {
+            NewestVersion::Published(list) => {
+                let address = list.address();
+                assert!(address.starts_with("https://"), "{id}: {address}");
+                assert!(
+                    matches!(list, PublishedList::Npm(_) | PublishedList::GitHub(_)),
+                    "{id}"
+                );
+            }
+            NewestVersion::Command(args) => {
+                assert!(args.iter().all(|a| !a.contains("://")), "{id}");
+            }
+            NewestVersion::None => {}
+        }
+        // A tool with no update command of its own has its newest version shown, never
+        // installed by Plenipo (Ollama, ADR-059 §7).
+        if a.update_command().is_none() {
+            assert!(a.put_back_command("1.2.3").is_none(), "{id}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn each_tools_own_check_lists_its_models_with_no_task() {
+    let fakes = Fakes::new("subscription");
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    fakes.rt.refresh().await;
+    for a in builtin_adapters() {
+        let id = a.id();
+        let name = format!("{}-new-model", a.executable_name());
+        let reported = if id == "kimi" {
+            format!("kimi-code/{name}")
+        } else {
+            name
+        };
+        std::fs::write(
+            state.join(format!("models-{}", a.executable_name())),
+            &reported,
+        )
+        .unwrap();
+        let answer = fakes.rt.status_check(id).await.unwrap();
+        if matches!(
+            a.status_check(Path::new("/")),
+            plenipo_runtime::agent::adapter::StatusCheck::None
+        ) {
+            assert!(!answer.checked && answer.models.is_none(), "{id}");
+            continue;
+        }
+        let models = answer.models.unwrap_or_else(|| panic!("{id}: no models"));
+        assert!(
+            models.iter().any(|m| m.name == reported),
+            "{id}: {models:?}"
+        );
+        let info = fakes
+            .rt
+            .runtimes()
+            .into_iter()
+            .find(|r| r.id == id)
+            .unwrap();
+        let kept = info.reported_models.unwrap();
+        assert!(kept.models.iter().any(|m| m.name == reported), "{id}");
+        assert_eq!(kept.complete, a.reports_every_model(), "{id}");
+        if id == "codex" {
+            let plan = answer.plan.expect("Codex reports its plan");
+            assert_eq!(plan.plan.as_deref(), Some("plus"));
+            assert_eq!(plan.windows.len(), 2);
+        }
+    }
+    // No task ran: no conversation, no prompt.
+    assert!(fakes.rt.overview().await.unwrap().sessions.is_empty());
+    let acp = std::fs::read_to_string(state.join("last-acp.json")).unwrap_or_default();
+    assert!(!acp.contains("session/prompt"), "{acp}");
+}
+
+#[tokio::test]
+async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
+    let fakes = Fakes::new("subscription");
+    fakes.rt.refresh().await;
+    // Held (a sign-in or an update): a task that would start waits, then runs.
+    let hold = fakes.rt.hold_if_free("codex").unwrap();
+    assert!(fakes.rt.held("codex"));
+    let rt = fakes.rt.clone();
+    let started = tokio::spawn(async move { rt.start_session("codex", "hello", None).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!started.is_finished(), "the task waits while Codex is held");
+    assert!(fakes.rt.tasks_using("codex").is_empty());
+    drop(hold);
+    let detail = tokio::time::timeout(WAIT, started)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.session.runtime_id, "codex");
+    assert!(!fakes.rt.held("codex"));
+
+    // A task using a tool: the tool is not held, and the task is named.
+    let rt = fakes.rt.clone();
+    let slow = tokio::spawn(async move { rt.start_session("claude-code", "[slow]", None).await });
+    let deadline = Instant::now() + WAIT;
+    while fakes.rt.tasks_using("claude-code").is_empty() {
+        assert!(Instant::now() < deadline, "the task never started");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let busy = fakes.rt.hold_if_free("claude-code").unwrap_err();
+    assert_eq!(busy.len(), 1);
+    assert!(!fakes.rt.held("claude-code"));
+    // Another AI tool is free.
+    assert!(fakes.rt.hold_if_free("grok").is_ok());
+    let id = slow.await.unwrap().unwrap().session.id;
+    fakes.rt.cancel_turn(&id).await.ok();
+}
+
+#[tokio::test]
+async fn a_tool_is_checked_again_on_its_own_after_a_sign_in() {
+    let fakes = Fakes::new("signed-out");
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    fakes.rt.refresh().await;
+    std::fs::write(state.join("auth"), "subscription").unwrap();
+    let (before, now) = fakes.rt.recheck("grok").await.unwrap();
+    assert_eq!(before.state, AuthState::SignedOut);
+    assert_eq!(now.auth.state, AuthState::Subscription);
+    assert!(now.ready);
+    // Only that tool was checked again.
+    let codex = fakes
+        .rt
+        .runtimes()
+        .into_iter()
+        .find(|r| r.id == "codex")
+        .unwrap();
+    assert_eq!(codex.auth.state, AuthState::SignedOut);
+    // The tool's own program, with its tasks' environment, for its sign-in tab.
+    let program = fakes.rt.tool_program("ollama").unwrap();
+    assert_eq!(
+        program.executable.file_stem().unwrap().to_string_lossy(),
+        "ollama",
+        "the real program, not Plenipo's bridge"
+    );
+    assert!(fakes.rt.tool_program("nope").is_err());
+}
+
+#[tokio::test]
+async fn grok_says_its_newest_version_itself() {
+    let fakes = Fakes::new("subscription");
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    fakes.rt.refresh().await;
+    std::fs::write(state.join("newest-grok"), "1.0.100").unwrap();
+    assert_eq!(
+        fakes.rt.newest_by_command("grok").await.unwrap().as_deref(),
+        Some("1.0.100")
+    );
+    assert_eq!(fakes.rt.newest_by_command("codex").await.unwrap(), None);
+}

@@ -13,13 +13,15 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, first_line, tool_summary, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
-    RuntimeAdapter, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
+    cap, first_line, model_name, plain_name, talk_answer, tool_summary, NewestVersion, Parsed,
+    ProbeOutput, ProcessEnd, ProviderSession, PublishedList, RuntimeAdapter, StatusCheck,
+    TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
 };
+use crate::agent::claude_code::epoch_ms;
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
-    TurnResult,
+    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, PlanReport,
+    PlanWindow, RuntimeCapabilities, TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -132,6 +134,18 @@ impl RuntimeAdapter for Codex {
                     .join("codex");
                 out.extend(vendored_binary(&package));
             }
+            // OpenAI's standalone installer for Windows (its install page), which `codex update`
+            // keeps up to date.
+            if let Some(local) = host.var("LOCALAPPDATA") {
+                out.push(
+                    PathBuf::from(local)
+                        .join("Programs")
+                        .join("OpenAI")
+                        .join("Codex")
+                        .join("bin")
+                        .join("codex.exe"),
+                );
+            }
         } else {
             if let Some(home) = &host.home {
                 out.push(home.join(".local").join("bin").join("codex"));
@@ -189,6 +203,73 @@ impl RuntimeAdapter for Codex {
             .collect()
     }
 
+    /// OpenAI's command reference: `codex login` (with no flags, the ChatGPT sign-in in the
+    /// browser) and `codex logout`. Never `--with-api-key` or `--with-access-token` (ADR-058).
+    fn account_command(&self, action: AccountAction) -> Option<Vec<String>> {
+        Some(match action {
+            AccountAction::SignIn => vec!["login".into()],
+            AccountAction::SignOut => vec!["logout".into()],
+        })
+    }
+
+    /// OpenAI publishes each Codex release on npm, one of its documented install and update
+    /// paths, with the number `codex --version` reports.
+    fn newest_version(&self) -> NewestVersion {
+        NewestVersion::Published(PublishedList::Npm("@openai/codex"))
+    }
+
+    /// OpenAI's command reference: `codex update`, "when the installed release supports
+    /// self-update".
+    fn update_command(&self) -> Option<Vec<String>> {
+        Some(vec!["update".into()])
+    }
+
+    /// OpenAI's installer settings: prompts take their default answer.
+    fn update_env(&self) -> Vec<(String, String)> {
+        vec![("CODEX_NON_INTERACTIVE".into(), "1".into())]
+    }
+
+    fn update_by_hand(&self) -> Option<&'static str> {
+        Some(
+            "Codex installed with npm updates with npm: open a terminal and type \
+             npm install -g @openai/codex",
+        )
+    }
+
+    /// Codex's app server (OpenAI's documented way for apps to read an account's limits and
+    /// models, ADR-060 §3): `initialize`, `account/read`, `account/rateLimits/read`, and
+    /// `model/list`, with no conversation and no task.
+    fn status_check(&self, _dir: &Path) -> StatusCheck {
+        let version = env!("CARGO_PKG_VERSION");
+        let lines = [
+            serde_json::json!({ "method": "initialize", "id": 1, "params": {
+                "clientInfo": { "name": "plenipo", "title": "Plenipo", "version": version } } }),
+            serde_json::json!({ "method": "initialized" }),
+            serde_json::json!({ "method": "account/read", "id": 2,
+                                "params": { "refreshToken": false } }),
+            serde_json::json!({ "method": "account/rateLimits/read", "id": 3 }),
+            serde_json::json!({ "method": "model/list", "id": 4,
+                                "params": { "limit": 100, "includeHidden": false } }),
+        ];
+        StatusCheck::Talk {
+            args: vec![
+                "-c".into(),
+                "check_for_update_on_startup=false".into(),
+                "app-server".into(),
+            ],
+            lines: lines.iter().map(ToString::to_string).collect(),
+            answers: vec![1, 2, 3, 4],
+        }
+    }
+
+    fn parse_models(&self, out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+        parse_models(out)
+    }
+
+    fn parse_plan(&self, out: &ProbeOutput) -> Option<PlanReport> {
+        parse_plan(out, crate::now_ms())
+    }
+
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
         let mut args: Vec<String> = [
             "exec",
@@ -207,6 +288,10 @@ impl RuntimeAdapter for Codex {
             "features.shell_tool=false",
             "-c",
             "features.view_image=false",
+            // ADR-059 §9: Codex does not look for its own updates during a task; Plenipo updates
+            // it between tasks (OpenAI's documented `check_for_update_on_startup`).
+            "-c",
+            "check_for_update_on_startup=false",
         ]
         .map(String::from)
         .to_vec();
@@ -276,6 +361,95 @@ fn toml_string(value: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// Codex's app server's `model/list` answer (`data`: each model's `model`, `displayName`, and
+/// `supportedReasoningEfforts`).
+fn parse_models(out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+    let list = talk_answer(out, 4)?;
+    let data = list.get("data")?.as_array()?;
+    Some(
+        data.iter()
+            .filter(|m| !m.get("hidden").and_then(Value::as_bool).unwrap_or(false))
+            .filter_map(|m| {
+                let name = m
+                    .get("model")
+                    .or_else(|| m.get("id"))
+                    .and_then(Value::as_str)
+                    .and_then(model_name)?;
+                let label = m
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .and_then(|l| plain_name(l, 64))
+                    .unwrap_or_else(|| name.clone());
+                let mut efforts: Vec<Effort> = m
+                    .get("supportedReasoningEfforts")
+                    .and_then(Value::as_array)
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|e| {
+                                e.get("reasoningEffort")
+                                    .or(Some(e))
+                                    .and_then(Value::as_str)
+                                    .and_then(Effort::parse)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                efforts.sort();
+                efforts.dedup();
+                Some(KnownModel {
+                    name,
+                    label,
+                    effort_levels: efforts,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Codex's app server's `account/rateLimits/read` answer: each window's share used, length, and
+/// reset time, as Codex reports them, and the plan's name from `account/read` (never the
+/// email it also carries).
+fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
+    let limits = talk_answer(out, 3)?;
+    let limits = limits.get("rateLimits")?;
+    let windows: Vec<PlanWindow> = ["primary", "secondary"]
+        .iter()
+        .filter_map(|key| limits.get(*key).filter(|w| w.is_object()))
+        .map(|w| PlanWindow {
+            minutes: w.get("windowDurationMins").and_then(Value::as_u64),
+            used_percent: w
+                .get("usedPercent")
+                .and_then(Value::as_f64)
+                .filter(|p| p.is_finite() && *p >= 0.0)
+                .map(|p| p.round().min(100.0) as u8),
+            resets_at: w.get("resetsAt").and_then(Value::as_f64).and_then(epoch_ms),
+        })
+        .collect();
+    let plan = talk_answer(out, 2)
+        .and_then(|a| {
+            a.pointer("/account/planType")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            limits
+                .get("planType")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .and_then(|p| plain_name(&p, 32));
+    let limited = limits
+        .get("rateLimitReachedType")
+        .is_some_and(|t| !t.is_null());
+    Some(PlanReport {
+        windows,
+        limited,
+        warning: false,
+        plan,
+        reported_at: now,
+    })
 }
 
 fn parse_auth(out: &ProbeOutput) -> AuthStatus {
@@ -639,7 +813,9 @@ mod tests {
                 "-c",
                 "features.shell_tool=false",
                 "-c",
-                "features.view_image=false"
+                "features.view_image=false",
+                "-c",
+                "check_for_update_on_startup=false"
             ]
         );
         let resume = Codex.turn_args(&TurnRequest {
@@ -662,6 +838,8 @@ mod tests {
                 "features.shell_tool=false",
                 "-c",
                 "features.view_image=false",
+                "-c",
+                "check_for_update_on_startup=false",
                 "--model",
                 "gpt-x",
                 "-c",
@@ -945,5 +1123,110 @@ mod tests {
                     .join("codex/codex")
             )
         );
+    }
+}
+
+/// Phase 19: the AI tools page (ADR-058 to ADR-060).
+#[cfg(test)]
+mod ai_tools_page_tests {
+    use super::*;
+    use crate::agent::adapter::StatusCheck;
+
+    /// What Codex's app server answers, as OpenAI's app server page shows it.
+    fn talk() -> ProbeOutput {
+        ProbeOutput {
+            exit_code: Some(0),
+            stdout: [
+                r#"{"id":1,"result":{"userAgent":"codex"}}"#,
+                r#"{"id":2,"result":{"account":{"type":"chatgpt","email":"owner@example.com","planType":"pro"},"requiresOpenaiAuth":true}}"#,
+                r#"{"method":"account/rateLimits/updated","params":{}}"#,
+                r#"{"id":3,"result":{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":25,"windowDurationMins":300,"resetsAt":1730947200},"secondary":null,"rateLimitReachedType":null}}}"#,
+                r#"{"id":4,"result":{"data":[{"id":"gpt-6-sol","model":"gpt-6-sol","displayName":"GPT-6 Sol","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"x"},{"reasoningEffort":"low"}],"isDefault":true},{"id":"gpt-hidden","model":"gpt-hidden","displayName":"Hidden","hidden":true},{"id":"bad name!","model":"bad name!","displayName":"Bad"}],"nextCursor":null}}"#,
+            ]
+            .join("\n"),
+            ..ProbeOutput::default()
+        }
+    }
+
+    #[test]
+    fn signs_in_and_out_and_updates_with_its_own_commands() {
+        assert_eq!(
+            Codex.account_command(AccountAction::SignIn),
+            Some(vec!["login".to_owned()])
+        );
+        assert_eq!(
+            Codex.account_command(AccountAction::SignOut),
+            Some(vec!["logout".to_owned()])
+        );
+        assert_eq!(Codex.update_command(), Some(vec!["update".to_owned()]));
+        assert_eq!(
+            Codex.update_env(),
+            vec![("CODEX_NON_INTERACTIVE".to_owned(), "1".to_owned())]
+        );
+        assert_eq!(Codex.put_back_command("0.157.1"), None);
+        assert!(Codex
+            .update_by_hand()
+            .unwrap()
+            .contains("npm install -g @openai/codex"));
+    }
+
+    #[test]
+    fn its_app_server_is_asked_for_the_plan_and_the_models_with_no_task() {
+        let StatusCheck::Talk {
+            args,
+            lines,
+            answers,
+        } = Codex.status_check(Path::new("/checks"))
+        else {
+            panic!("Codex talks to its app server");
+        };
+        assert_eq!(
+            args,
+            ["-c", "check_for_update_on_startup=false", "app-server"]
+        );
+        let methods: Vec<String> = lines
+            .iter()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap()["method"].to_string())
+            .collect();
+        assert_eq!(
+            methods,
+            [
+                "\"initialize\"",
+                "\"initialized\"",
+                "\"account/read\"",
+                "\"account/rateLimits/read\"",
+                "\"model/list\""
+            ]
+        );
+        assert!(!lines
+            .iter()
+            .any(|l| l.contains("thread/") || l.contains("turn/")));
+        assert_eq!(answers, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn reads_the_plan_and_the_models_it_reports_never_the_email() {
+        let plan = Codex.parse_plan(&talk()).unwrap();
+        assert_eq!(
+            plan.windows,
+            vec![PlanWindow {
+                minutes: Some(300),
+                used_percent: Some(25),
+                resets_at: Some(1_730_947_200_000),
+            }]
+        );
+        assert_eq!(plan.plan.as_deref(), Some("pro"));
+        assert!(!plan.limited);
+        assert!(!serde_json::to_string(&plan).unwrap().contains("owner@"));
+        let models = Codex.parse_models(&talk()).unwrap();
+        assert_eq!(
+            models,
+            vec![KnownModel::new(
+                "gpt-6-sol",
+                "GPT-6 Sol",
+                &[Effort::Low, Effort::Medium]
+            )]
+        );
+        assert_eq!(Codex.parse_models(&ProbeOutput::default()), None);
     }
 }
