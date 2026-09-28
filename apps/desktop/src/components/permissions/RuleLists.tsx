@@ -39,6 +39,8 @@ export function CommandLists({
       approved: lines(approved),
       ask: lines(ask),
       blocked: lines(blocked),
+      // Rules that name a program and its secrets (ADR-038) are kept as they are.
+      withSecrets: c.withSecrets,
     };
     void run(() => setCommandRules(rules));
   };
@@ -55,6 +57,12 @@ export function CommandLists({
         Approved programs run with your full account, and a project&apos;s own build and test
         scripts run as part of them. Approve script runners like <code>npm run</code> only for
         projects you trust.
+      </p>
+      <p className="muted">
+        A program that would be given one of your stored secrets asks you first, even when it is on
+        the approved list, and the approval card says which secrets. Only the installed program gets
+        a secret, never a file inside a project folder with the same name. A rule that names both
+        the program and the secret can let it run without asking; this screen cannot add one yet.
       </p>
       <form className="permissions__rules" aria-label="Command lists" onSubmit={submit}>
         <label className="field">

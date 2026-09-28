@@ -68,6 +68,10 @@ const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "make", "npx"];
 /// What the worker is told when a secret bound to a script runner was withheld.
 const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pnpm, yarn, make, \
                                 or npx, because they run the project's own scripts.)";
+/// What the worker is told when a stored secret is bound to the program's name, but the program
+/// is a file in the project folder rather than the installed one (ADR-038).
+const SECRETS_KEPT: &str = "(Plenipo gives a stored secret only to the installed program of that \
+                            name, so no stored secrets were given (the program is not from PATH).)";
 /// The notice where this computer offers no way to tell which program connects (ADR-034).
 const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
                                 a worker's tools, so a copied tool ticket cannot be refused.";
@@ -336,6 +340,8 @@ enum Work {
         /// For GitHub's `gh --json` tools, the repository: their output is text anyone wrote on
         /// GitHub, so the fence around it says the words are GitHub's, not the program's.
         github: Option<String>,
+        /// Where it came from: only a program from PATH gets stored secrets (ADR-038).
+        origin: Origin,
     },
     /// Plenipo's browser or the screen (Phase 10).
     Control(ControlWork),
@@ -381,40 +387,84 @@ enum Admission {
     Refused(Option<u32>),
 }
 
-/// The stored secrets one program gets.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct SecretsGiven {
-    /// Variables to set.
-    env: Vec<(String, String)>,
-    /// Names of the secrets given (told to the worker).
-    used: Vec<String>,
-    /// Names of the secrets the owner bound to this program that Plenipo withheld, because
-    /// the program runs the project's own scripts (ADR-034).
-    withheld: Vec<String>,
+/// Where a program a worker runs came from (ADR-038, secrets reach only the programs they are
+/// for).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// Found on PATH, or in Plenipo's own search folders: the installed program of that name.
+    Path,
+    /// A file inside the project folder (`./gradlew`): whatever the project holds.
+    Project,
 }
 
-/// The secrets the owner bound to `program` (its bare name), read with `read` (the Vault).
-fn secrets_for(
-    program: &str,
-    secrets: &[SecretInfo],
-    read: impl Fn(&str) -> Option<String>,
-) -> SecretsGiven {
+/// One stored secret a program gets: the variable to set, the Vault ID of the value, and the
+/// secret's name.
+#[derive(Debug, PartialEq, Eq)]
+struct Giving {
+    var: String,
+    id: String,
+    name: String,
+}
+
+/// The stored secrets one program gets, worked out before Guard decides (the approval card
+/// names them) and read from the Vault only when the program runs.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SecretsGiven {
+    give: Vec<Giving>,
+    /// Bound to this program, but withheld because it runs the project's own scripts
+    /// (ADR-034).
+    withheld: Vec<String>,
+    /// Bound to this program's name, but kept back because the program is not the installed
+    /// one from PATH (ADR-038).
+    kept: Vec<String>,
+}
+
+impl SecretsGiven {
+    /// The names of the secrets given.
+    fn names(&self) -> Vec<String> {
+        self.give.iter().map(|g| g.name.clone()).collect()
+    }
+}
+
+/// The secrets the owner bound to `program` (its bare name) when it came from `origin`: only
+/// the installed program from PATH gets them (ADR-038), and never a script runner (ADR-034).
+fn secrets_for(program: &str, origin: Origin, secrets: &[SecretInfo]) -> SecretsGiven {
     let mut given = SecretsGiven::default();
     let runner = SCRIPT_RUNNERS.contains(&program);
     for s in secrets
         .iter()
         .filter(|s| s.programs.iter().any(|p| p == program))
     {
+        if origin == Origin::Project {
+            given.kept.push(s.name.clone());
+            continue;
+        }
         if runner {
             given.withheld.push(s.name.clone());
             continue;
         }
-        if let (Some(var), Some(value)) = (&s.env_var, read(&s.id)) {
-            given.env.push((var.clone(), value));
-            given.used.push(s.name.clone());
+        if let Some(var) = &s.env_var {
+            given.give.push(Giving {
+                var: var.clone(),
+                id: s.id.clone(),
+                name: s.name.clone(),
+            });
         }
     }
     given
+}
+
+/// The bare name a program's secrets are bound by: its file name without the extension, in
+/// lower case (`C:\Program Files\GitHub CLI\gh.exe` → `gh`).
+fn program_stem(executable: &Path) -> String {
+    CommandLine {
+        program: executable
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        args: Vec::new(),
+    }
+    .program_name()
 }
 
 fn cap(text: &str, max: usize) -> String {
@@ -1484,6 +1534,24 @@ impl Broker {
                 }
             }
         }
+        // ADR-038 (secrets reach only the programs they are for): the stored secrets a program
+        // the worker named, or a script it wrote, would be given. Guard asks first unless one of
+        // the owner's rules names the program and each secret, and the approval card says which.
+        // Plenipo's own git and GitHub tools run git and gh with Plenipo's arguments under their
+        // own permissions, and are given a secret bound to them as before.
+        let planned: Vec<String> = match &prepared.work {
+            Work::Program {
+                executable, origin, ..
+            } if prepared.command.is_some() || prepared.script.is_some() => {
+                secrets_for(&program_stem(executable), *origin, &config.secrets).names()
+            }
+            _ => Vec::new(),
+        };
+        if !planned.is_empty() {
+            let line = format!("\nWill be given: {}", planned.join(", "));
+            let room = MAX_DETAIL.saturating_sub(line.len() + "…".len());
+            prepared.detail = cap(&prepared.detail, room) + &line;
+        }
         let current = level_for(&config, &scope, prepared.capability);
         let rels: Vec<String> = prepared.files.iter().map(|f| f.rel.clone()).collect();
         let root = workspace
@@ -1507,6 +1575,7 @@ impl Broker {
                 .inherent_owned
                 .as_ref()
                 .map(|(k, why)| (*k, why.as_str()))),
+            secrets: &planned,
             workspace: &root,
             site: prepared.site.as_ref().map(|site| SiteCheck {
                 site,
@@ -1983,9 +2052,11 @@ impl Broker {
                 timeout,
                 env,
                 github,
+                origin,
             } => {
                 self.run_program(
                     grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env, github,
+                    origin,
                 )
                 .await
             }
@@ -2009,6 +2080,7 @@ impl Broker {
                         timeout,
                         programs::git_env(),
                         None,
+                        Origin::Path,
                     )
                     .await;
                 let pushed = match pushed {
@@ -2032,6 +2104,7 @@ impl Broker {
                         timeout,
                         programs::gh_env(),
                         None,
+                        Origin::Path,
                     )
                     .await;
                 let run = create_run.or(push_run);
@@ -2064,25 +2137,23 @@ impl Broker {
         timeout: Duration,
         extra: Vec<(String, String)>,
         github: Option<String>,
+        origin: Origin,
     ) -> (std::result::Result<String, String>, Option<String>) {
         let mut env = programs::dev_env();
         env.extend(extra);
-        let program = CommandLine {
-            program: executable
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            args: Vec::new(),
-        }
-        .program_name();
+        let program = program_stem(&executable);
         let given = match self.inner.guard.config() {
-            Ok(config) => secrets_for(&program, &config.secrets, |id| {
-                vault::read(self.inner.store.as_ref(), id).ok().flatten()
-            }),
+            Ok(config) => secrets_for(&program, origin, &config.secrets),
             Err(_) => SecretsGiven::default(),
         };
-        env.extend(given.env);
-        let (secrets_used, withheld) = (given.used, given.withheld);
+        let mut secrets_used = Vec::new();
+        for g in &given.give {
+            if let Some(value) = vault::read(self.inner.store.as_ref(), &g.id).ok().flatten() {
+                env.push((g.var.clone(), value));
+                secrets_used.push(g.name.clone());
+            }
+        }
+        let withheld = given.withheld;
         let this = self.clone();
         let grant = grant_id.to_owned();
         let ran = programs::run(
@@ -2123,6 +2194,10 @@ impl Broker {
                 }
                 if !withheld.is_empty() {
                     text.push_str(SECRETS_WITHHELD);
+                    text.push('\n');
+                }
+                if !given.kept.is_empty() {
+                    text.push_str(SECRETS_KEPT);
                     text.push('\n');
                 }
                 // What the program printed, fenced as the program's (or GitHub's) words, never
@@ -2622,7 +2697,7 @@ fn program_path(
     program: &str,
     search: Option<&std::ffi::OsStr>,
     summary: &str,
-) -> std::result::Result<(std::result::Result<PathBuf, String>, String), Refused> {
+) -> std::result::Result<(std::result::Result<PathBuf, String>, String, Origin), Refused> {
     let refuse = |reason: String| Refused {
         layer: Layer::Target,
         reason,
@@ -2648,13 +2723,13 @@ fn program_path(
                 r.shown()
             )));
         }
-        return Ok((Ok(r.abs.clone()), format!("./{}", r.rel)));
+        return Ok((Ok(r.abs.clone()), format!("./{}", r.rel), Origin::Project));
     }
     let found = search
         .and_then(|p| programs::find_in(program, Some(p.to_os_string())))
         .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
-    Ok((found, program.to_owned()))
+    Ok((found, program.to_owned(), Origin::Path))
 }
 
 /// Read a call into what Guard checks and what Plenipo then does. In an objective's working
@@ -2810,7 +2885,7 @@ fn prepare(
                     summary: s,
                 });
             };
-            let (executable, key) = program_path(w, &program, at.search.as_deref(), &s)?;
+            let (executable, key, origin) = program_path(w, &program, at.search.as_deref(), &s)?;
             let cwd = cwd_of(&cwd, &s)?;
             let command = CommandLine {
                 program: key,
@@ -2825,6 +2900,7 @@ fn prepare(
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
                     github: None,
+                    origin,
                 },
                 Err(why) => Work::Missing(why),
             };
@@ -2858,6 +2934,7 @@ fn prepare(
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
                     github: None,
+                    origin: Origin::Path,
                 },
                 None => Work::Missing("PowerShell is not installed on this computer.".into()),
             };
@@ -2902,6 +2979,7 @@ fn prepare(
                     timeout: default_timeout,
                     env: programs::gh_env(),
                     github: Some(repo.to_owned()),
+                    origin: Origin::Path,
                 },
                 None => gh_missing(),
             };
@@ -3202,6 +3280,7 @@ fn prepare(
                     timeout: default_timeout,
                     env: programs::git_env(),
                     github: None,
+                    origin: Origin::Path,
                 },
                 None => Work::Missing("git is not installed (it was not found on PATH).".into()),
             };
@@ -3240,34 +3319,140 @@ mod tests {
             secret("Registry token", "NPM_TOKEN", &["npm"]),
             secret("Other", "OTHER", &["cargo"]),
         ];
-        let read = |id: &str| Some(format!("value-of-{id}"));
-        let gh = secrets_for("gh", &secrets, read);
+        let gh = secrets_for("gh", Origin::Path, &secrets);
         assert_eq!(
-            gh.env,
-            vec![("DEPLOY_KEY".to_owned(), "value-of-id-Deploy key".to_owned())]
+            gh.give,
+            vec![Giving {
+                var: "DEPLOY_KEY".into(),
+                id: "id-Deploy key".into(),
+                name: "Deploy key".into(),
+            }]
         );
-        assert_eq!(gh.used, vec!["Deploy key"]);
+        assert_eq!(gh.names(), vec!["Deploy key"]);
         assert!(gh.withheld.is_empty());
+        assert!(gh.kept.is_empty());
         for runner in ["npm", "pnpm", "yarn", "make", "npx"] {
-            let given = secrets_for(runner, &secrets, read);
-            assert!(given.env.is_empty(), "{runner}");
-            assert!(given.used.is_empty(), "{runner}");
+            let given = secrets_for(runner, Origin::Path, &secrets);
+            assert!(given.give.is_empty(), "{runner}");
         }
         assert_eq!(
-            secrets_for("npm", &secrets, read).withheld,
+            secrets_for("npm", Origin::Path, &secrets).withheld,
             vec!["Deploy key", "Registry token"]
         );
         assert_eq!(
-            secrets_for("make", &secrets, read).withheld,
+            secrets_for("make", Origin::Path, &secrets).withheld,
             vec!["Deploy key"]
         );
         // Nothing bound: nothing given, nothing withheld, nothing said.
-        assert_eq!(secrets_for("yarn", &secrets, read), SecretsGiven::default());
         assert_eq!(
-            secrets_for("cargo", &secrets, |_| None),
+            secrets_for("yarn", Origin::Path, &secrets),
+            SecretsGiven::default()
+        );
+        assert_eq!(
+            secrets_for("cargo", Origin::Path, &[]),
             SecretsGiven::default()
         );
         assert!(SECRETS_WITHHELD.contains("npm, pnpm, yarn, make, or npx"));
+    }
+
+    /// ADR-038: a stored secret goes only to the installed program of that name, found on
+    /// PATH; a file in the project folder named like it gets nothing, and the worker is told.
+    #[test]
+    fn stored_secrets_go_only_to_programs_from_path() {
+        let secrets = vec![
+            secret("Deploy key", "DEPLOY_KEY", &["gh", "npm"]),
+            secret("Other", "OTHER", &["cargo"]),
+        ];
+        let from_path = secrets_for("gh", Origin::Path, &secrets);
+        assert_eq!(from_path.names(), vec!["Deploy key"]);
+        assert!(from_path.kept.is_empty());
+        let from_project = secrets_for("gh", Origin::Project, &secrets);
+        assert!(from_project.give.is_empty());
+        assert!(from_project.withheld.is_empty());
+        assert_eq!(from_project.kept, vec!["Deploy key"]);
+        // A script runner's look-alike in the project: kept back for the same reason.
+        let npm = secrets_for("npm", Origin::Project, &secrets);
+        assert!(npm.give.is_empty());
+        assert_eq!(npm.kept, vec!["Deploy key"]);
+        assert!(npm.withheld.is_empty());
+        // Nothing bound to that name: nothing to say.
+        assert_eq!(
+            secrets_for("gradlew", Origin::Project, &secrets),
+            SecretsGiven::default()
+        );
+        assert!(
+            SECRETS_KEPT.contains("no stored secrets were given (the program is not from PATH)")
+        );
+        assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        assert_eq!(program_stem(Path::new("/usr/bin/gh")), "gh");
+        assert_eq!(program_stem(Path::new("./scripts/gh.sh")), "gh");
+    }
+
+    /// ADR-038: `prepare` says where a program came from: `./path` (or a path inside the
+    /// project) is the project's own file; a bare name is the installed program from PATH.
+    #[test]
+    fn a_program_in_the_project_folder_is_not_the_installed_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(project.join("scripts")).unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = |name: &str| {
+            if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_owned()
+            }
+        };
+        for path in [
+            project.join(exe("gh")),
+            project.join("scripts").join(exe("gh")),
+            bin.join(exe("gh")),
+        ] {
+            std::fs::write(&path, b"").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let ws = Workspace::open(&project.display().to_string()).unwrap();
+        let at = Where {
+            ws: Some(&ws),
+            branch: None,
+            base: None,
+            repo: None,
+            gh: None,
+            search: Some(bin.clone().into_os_string()),
+        };
+        let run = |program: &str| {
+            let tool = tools::find("run_command").unwrap();
+            let action = tools::parse(tool, &json!({ "program": program, "args": [] })).unwrap();
+            let Ok(p) = prepare(tool, action, &at, Duration::from_secs(30)) else {
+                panic!("{program} was refused");
+            };
+            let Work::Program {
+                executable, origin, ..
+            } = p.work
+            else {
+                panic!("{program} was not prepared as a program");
+            };
+            (executable, origin, p.command.unwrap().program)
+        };
+        let (executable, origin, key) = run(&format!("./{}", exe("gh")));
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, project.join(exe("gh")));
+        assert_eq!(key, format!("./{}", exe("gh")));
+        let (executable, origin, key) = run(&format!("scripts/{}", exe("gh")));
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, project.join("scripts").join(exe("gh")));
+        assert_eq!(key, format!("./scripts/{}", exe("gh")));
+        // The bare name is the installed program, even though the project has a file of that
+        // name.
+        let (executable, origin, key) = run("gh");
+        assert_eq!(origin, Origin::Path);
+        assert_eq!(executable, bin.join(exe("gh")));
+        assert_eq!(key, "gh");
     }
 
     /// The Activity trail shows what a program said, not the fence around it.

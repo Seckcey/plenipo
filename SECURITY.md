@@ -41,7 +41,10 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Sensitive actions — deploying, DNS, passwords, payments, publishing, running as administrator —
   stop and wait for the owner's approval.
 - Secrets live in the Windows Credential Manager. Workers never see them, and secrets are redacted
-  from the record.
+  from the record. A stored secret is given only to the installed program the owner named, found on
+  PATH — never to a file inside a project folder with the same name — and a program that would be
+  given one asks the owner first, with the secret's name on the approval card, unless the owner's
+  rule names both the program and the secret (ADR-038).
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used. Plenipo controls its browser over a private pipe between the two
   programs, not a network port, so no other program on your computer can connect to the browser

@@ -546,7 +546,10 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   all AI tool activity (`[hidden by Plenipo: …]`).
 - **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
   Plenipo stores only references and injects a value as an environment variable into the
-  programs the owner named.
+  programs the owner named. A secret goes only to the installed program of that name, found on
+  PATH — never to a file inside the project folder named like it — and a run that would be given
+  one asks the owner first, with "Will be given: <secret names>" on the card, unless a command
+  rule names both the program and the secret (ADR-038).
 
 ## 11. Development department (Phase 8)
 

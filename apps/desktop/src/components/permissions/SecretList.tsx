@@ -10,6 +10,57 @@ import { PILL_TONE } from "../tones";
 type Apply = (s: PermissionsSnapshot) => void;
 
 /**
+ * Programs that run whatever script they are handed. A secret given to one of them reaches every
+ * script a worker runs with it, so the owner is warned where the binding is listed and edited
+ * (ADR-038, secrets reach only the programs they are for).
+ */
+const INTERPRETERS = [
+  "node",
+  "python",
+  "python3",
+  "bash",
+  "sh",
+  "zsh",
+  "pwsh",
+  "powershell",
+  "cmd",
+  "deno",
+  "bun",
+];
+
+/** The program names typed into the form, in order, without blanks. */
+const programList = (text: string) =>
+  text
+    .split(/[,\s]+/)
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+
+/** One warning for each interpreter among `programs`. */
+function interpreterWarnings(programs: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of programs.map((p) => p.trim().toLowerCase())) {
+    if (INTERPRETERS.includes(p) && !seen.has(p)) {
+      seen.add(p);
+      out.push(`Every script run with ${p} would get this secret.`);
+    }
+  }
+  return out;
+}
+
+function Warnings({ programs }: { programs: string[] }) {
+  return (
+    <>
+      {interpreterWarnings(programs).map((w) => (
+        <p key={w} className="hint" role="note">
+          {w}
+        </p>
+      ))}
+    </>
+  );
+}
+
+/**
  * The Vault: secrets kept in the operating system's protected storage. Plenipo keeps only the
  * name and where a secret may be used; the value is typed once, stored there, and never shown
  * again — not to you, and never to a worker.
@@ -77,6 +128,7 @@ export function SecretList({
                   {s.envVar && s.programs.length > 0
                     ? `${s.programs.join(", ")} as ${s.envVar}`
                     : "No program (hidden in text only)"}
+                  <Warnings programs={s.programs} />
                 </td>
                 <td>
                   {vault.stored.includes(s.id) ? (
@@ -130,16 +182,12 @@ function SecretForm({
   const { pending, error, run } = useRun(onApply);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const list = programs
-      .split(/[,\s]+/)
-      .map((p) => p.trim())
-      .filter((p) => p !== "");
     void run(() =>
       saveSecret({
         ...(secret ? { id: secret.id } : {}),
         name: name.trim(),
         ...(envVar.trim() ? { envVar: envVar.trim() } : {}),
-        programs: list,
+        programs: programList(programs),
         ...(value ? { value } : {}),
       }),
     ).then((ok) => {
@@ -171,6 +219,7 @@ function SecretForm({
         <span>Give it to these programs (optional, for example gh)</span>
         <input value={programs} onChange={(e) => setPrograms(e.target.value)} />
       </label>
+      <Warnings programs={programList(programs)} />
       <label className="field">
         <span>As this environment variable (for example GH_TOKEN)</span>
         <input value={envVar} maxLength={64} onChange={(e) => setEnvVar(e.target.value)} />

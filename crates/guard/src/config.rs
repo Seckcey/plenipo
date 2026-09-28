@@ -336,10 +336,38 @@ impl GuardConfig {
             }
             Ok(out)
         };
+        // ADR-038: a rule that names a program and the stored secrets it may be given.
+        if rules.with_secrets.len() > MAX_RULES {
+            return Err(invalid(format!(
+                "at most {MAX_RULES} commands given stored secrets"
+            )));
+        }
+        let mut with_secrets: Vec<SecretRule> = Vec::new();
+        for r in &rules.with_secrets {
+            let rule = valid_rule(&r.rule).map_err(invalid)?;
+            let mut secrets: Vec<String> = Vec::new();
+            for name in r.secrets.iter().filter(|n| !n.trim().is_empty()) {
+                let name = line("a secret's name", name, 60)?;
+                if !secrets.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
+                    secrets.push(name);
+                }
+            }
+            if secrets.is_empty() {
+                return Err(invalid(format!(
+                    "\"{rule}\" names no stored secret; name the secret it may be given, or \
+                     put it on the approved list instead"
+                )));
+            }
+            let entry = SecretRule { rule, secrets };
+            if !with_secrets.contains(&entry) {
+                with_secrets.push(entry);
+            }
+        }
         self.commands = CommandRules {
             approved: clean("approved commands", &rules.approved)?,
             ask: clean("always-ask commands", &rules.ask)?,
             blocked: clean("blocked commands", &rules.blocked)?,
+            with_secrets,
         };
         Ok(())
     }
@@ -655,9 +683,56 @@ mod tests {
             approved: vec!["cargo  test *".into(), "cargo test *".into(), " ".into()],
             ask: vec![],
             blocked: vec!["rm *".into()],
+            with_secrets: vec![],
         })
         .unwrap();
         assert_eq!(c.commands.approved, ["cargo test *"]);
+        // ADR-038: a rule naming a program and its secrets is cleaned like the lists, and
+        // must name at least one secret.
+        c.set_commands(&CommandRules {
+            with_secrets: vec![
+                SecretRule {
+                    rule: " gh  pr * ".into(),
+                    secrets: vec![" GitHub token ".into(), "github TOKEN".into(), "".into()],
+                },
+                SecretRule {
+                    rule: "gh pr *".into(),
+                    secrets: vec!["GitHub token".into()],
+                },
+            ],
+            ..CommandRules::default()
+        })
+        .unwrap();
+        assert_eq!(
+            c.commands.with_secrets,
+            [SecretRule {
+                rule: "gh pr *".into(),
+                secrets: vec!["GitHub token".into()],
+            }]
+        );
+        for bad in [
+            SecretRule {
+                rule: "gh *".into(),
+                secrets: vec![],
+            },
+            SecretRule {
+                rule: "/usr/bin/gh *".into(),
+                secrets: vec!["GitHub token".into()],
+            },
+            SecretRule {
+                rule: "gh *".into(),
+                secrets: vec!["x".repeat(61)],
+            },
+        ] {
+            assert!(
+                c.set_commands(&CommandRules {
+                    with_secrets: vec![bad.clone()],
+                    ..CommandRules::default()
+                })
+                .is_err(),
+                "{bad:?}"
+            );
+        }
         assert!(c
             .set_commands(&CommandRules {
                 approved: vec!["/bin/rm *".into()],

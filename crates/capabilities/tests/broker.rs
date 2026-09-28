@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use plenipo_capabilities::{
     ApprovalStatus, Broker, BrokerConfig, MemorySecretStore, SecretStore as _,
 };
-use plenipo_guard::{Capability, Guard, GuardOptions, PermissionSetInput, SecretInput};
+use plenipo_guard::{Capability, Guard, GuardOptions, PermissionSetInput, SecretInput, SecretRule};
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -1104,7 +1104,13 @@ async fn plan_secret_redaction() {
         ),
     ];
     if cfg!(unix) {
-        h.set_commands(&["printenv *"]);
+        // ADR-038: the rule names the program and the secret, so it runs without asking.
+        let mut rules = h.guard.config().unwrap().commands;
+        rules.with_secrets.push(SecretRule {
+            rule: "printenv *".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        h.guard.set_commands(&rules).unwrap();
         work.push(tool(
             "run_command",
             serde_json::json!({ "program": "printenv", "args": ["PLENIPO_TEST_SECRET"] }),
@@ -1162,6 +1168,115 @@ async fn plan_secret_redaction() {
             .contains(VAULT_VALUE),
         "the file itself is untouched"
     );
+}
+
+/// ADR-038 (secrets reach only the programs they are for): a program that would be given a
+/// stored secret asks first, even when its command is approved, and the card names the secret;
+/// a rule naming both the program and the secret lets it run without asking; a file in the
+/// project folder named like the program gets nothing, and the worker is told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stored_secret_asks_first_unless_a_rule_names_program_and_secret() {
+    let h = harness().await;
+    h.broker
+        .save_secret(&SecretInput {
+            name: "Deploy key".into(),
+            env_var: Some("PLENIPO_TEST_SECRET".into()),
+            programs: vec!["git".into()],
+            value: Some(VAULT_VALUE.into()),
+            ..SecretInput::default()
+        })
+        .unwrap();
+    h.set_commands(&["git --version *"]);
+    let run = tool(
+        "run_command",
+        serde_json::json!({ "program": "git", "args": ["--version"] }),
+    );
+    // 1. Approved, but it would be given a secret: asks, and the card says which.
+    let task = h.objective(&handoff("Backend Developer", &run)).await;
+    let child = h.child(&task).await;
+    let card = h.pending().await;
+    assert_eq!(card.summary, "run git --version");
+    assert_eq!(card.detail, "git --version\nWill be given: Deploy key");
+    assert_eq!(
+        card.reason,
+        "Run git --version needs your approval: it would be given the stored secret Deploy key."
+    );
+    h.broker.resolve_approval(&card.id, true, "owner").unwrap();
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    h.finished(&task).await;
+    let text = h.text(&child.id);
+    let results = lines_of(&text, "Tool run_command");
+    assert_eq!(results.len(), 1, "{text}");
+    assert_eq!(
+        results[0], "Tool run_command: (Given the stored secret(s) Deploy key by Plenipo.)",
+        "{text}"
+    );
+    assert!(text.contains("    git version"), "{text}");
+    // 2. A rule naming the program and the secret: runs without asking.
+    let mut rules = h.guard.config().unwrap().commands;
+    rules.with_secrets.push(SecretRule {
+        rule: "git --version *".into(),
+        secrets: vec!["Deploy key".into()],
+    });
+    h.guard.set_commands(&rules).unwrap();
+    let task = h.objective(&handoff("Backend Developer", &run)).await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    h.finished(&task).await;
+    assert!(h.broker.approvals().unwrap().pending.is_empty());
+    let text = h.text(&child.id);
+    assert!(
+        text.contains("Tool run_command: (Given the stored secret(s) Deploy key by Plenipo.)"),
+        "{text}"
+    );
+    let used = h.events(&child.id, "capability.used");
+    assert_eq!(used.len(), 1, "{used:?}");
+    assert_eq!(
+        used[0]["detail"],
+        "git --version\nWill be given: Deploy key"
+    );
+    assert!(used[0]["approvalId"].is_null());
+    // 3. A file in the project folder named like the program is not the installed program:
+    // it gets no secret, needs no approval for one, and the worker is told.
+    if cfg!(unix) {
+        let script = h.folder.join("git.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho \"secret=${PLENIPO_TEST_SECRET:-none}\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        h.set_commands(&["./git.sh *"]);
+        let task = h
+            .objective(&handoff(
+                "Backend Developer",
+                &tool(
+                    "run_command",
+                    serde_json::json!({ "program": "./git.sh", "args": [] }),
+                ),
+            ))
+            .await;
+        let child = h.child(&task).await;
+        assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+        h.finished(&task).await;
+        assert!(h.broker.approvals().unwrap().pending.is_empty());
+        let text = h.text(&child.id);
+        assert!(
+            text.contains(
+                "Tool run_command: (Plenipo gives a stored secret only to the installed program \
+                 of that name, so no stored secrets were given (the program is not from PATH).)"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("    secret=none"), "{text}");
+        let used = h.events(&child.id, "capability.used");
+        assert_eq!(used[0]["detail"], "./git.sh");
+    }
+    assert!(!h.everything_recorded().contains(VAULT_VALUE));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
