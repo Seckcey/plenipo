@@ -4,7 +4,7 @@
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Phase**    | 18 — The Organization Canvas                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **Branch**   | `claude/phase-18` ([PR #88](https://github.com/Seckcey/plenipo/pull/88))                                                                                                                                                                                                                                                                                                                                                                            |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the canvas, organization, and control end-to-end tests against the release build (section 3). GitHub CI on PR #88: Rust, Frontend, Docs, Website, E2E on Linux (the whole end-to-end suite), and Windows (filled in from the final run).                                                                                                                    |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the canvas end-to-end tests against the release build (7 of 7; section 3). GitHub CI on PR #88: Rust, Frontend, Docs, Website, E2E on Linux (the whole end-to-end suite), and Windows (filled in from the final run).                                                                                                                                       |
 | **Date**     | 2026-09-28 (Pacific time)                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | **Result**   | Every acceptance criterion and every Phase 18 test in the plan pass; every deliverable is built. Version **1.11.0**. Decisions: ADR-053 to ADR-056, accepted by the owner as recommended, with the owner's choice that a refused change's record keeps no text; all built, with the differences each records as built. The walk-through with real AI tools on Windows is the owner's (section 8), and one question waits for the owner (section 6). |
 
@@ -14,7 +14,8 @@ Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/canvas.e2
   [a tile placed by hand](evidence/phase-18/canvas-placed.png) ·
   [after Tidy up](evidence/phase-18/canvas-tidy-up.png) ·
   [a line's ends](evidence/phase-18/canvas-line-ends.png)
-- **Move or lend:** [the Security Auditor lent to Marketing](evidence/phase-18/canvas-lent.png)
+- **Move or lend:** [the Security Auditor lent to Marketing](evidence/phase-18/canvas-lent.png) ·
+  [its Team tab](evidence/phase-18/canvas-lent-team-tab.png)
 - **The trash can:** [archived, with Undo](evidence/phase-18/canvas-trash-undo.png) ·
   [the Archived drawer](evidence/phase-18/canvas-archived-drawer.png)
 - **Filters and the legend:** [one department](evidence/phase-18/canvas-filters.png) ·
@@ -26,9 +27,8 @@ Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/canvas.e2
 - **Your tile:** [the panel](evidence/phase-18/canvas-owner-panel.png) ·
   [on the canvas](evidence/phase-18/canvas-owner-tile.png)
 
-Test totals: **1,113 Rust** · **672 frontend** (304 design system + 368 app) · **89
-end-to-end** tests against the real release binary. Here, the canvas (7), organization, and
-control groups pass against the release build; the whole suite runs on GitHub, where the groups
+Test totals: **1,113 Rust** · **673 frontend** (304 design system + 369 app) · **89
+end-to-end** tests against the real release binary. Here, the canvas group (7) passes against the release build; the whole suite runs on GitHub, where the groups
 that need what this machine lacks (the browser group needs Chrome; the server and terminal
 groups need `ssh-keygen`) also run.
 
@@ -88,7 +88,7 @@ throwaway home folder.
 | Watch: a streamed change shows as "being written", then "saved"; a change Guard refuses shows as "refused" and never as saved.          | broker `a_streamed_change_shows_being_written_then_saved_and_a_refused_one_never_saved` (only complete lines while being written; the secret never shown); hub `a_change_being_written_turns_saved_or_refused_and_never_both`; E2E.                                     |
 | Watch: the tab cannot write to the working copy; Stop stops the worker.                                                                 | IPC (Watch's commands take nothing to write); `CodeWatchView.test.tsx` "is read-only: there is nowhere to type", "Stop stops the task of the file shown"; E2E (nothing in the tab can be typed into).                                                                   |
 | Watch: a large or binary file shows a summary.                                                                                          | hub `a_large_or_non_text_file_shows_a_summary_not_its_contents`, `a_very_different_large_file_is_summed_up_quickly`; broker (a 300 KB file); `CodeWatchView.test.tsx`.                                                                                                  |
-| End-to-end tests in the real app, with screenshots in `evidence/phase-18/`.                                                             | `tests/e2e/specs/canvas.e2e.mjs` (7 tests, 16 screenshots above).                                                                                                                                                                                                       |
+| End-to-end tests in the real app, with screenshots in `evidence/phase-18/`.                                                             | `tests/e2e/specs/canvas.e2e.mjs` (7 tests, 17 screenshots above).                                                                                                                                                                                                       |
 
 ## 4. The owner's decisions and rules → evidence
 
@@ -211,7 +211,10 @@ All of these have tests in `OrganizationCanvas.test.tsx`, `layout.test.ts`, and
 - A slow save could be cancelled halfway.
 - Tab could leave the panel.
 - A huge picture was decoded at full size. It is now refused over 50 megapixels, and only the
-  middle square is decoded.
+  middle square is decoded. The first version of this fix measured the picture through a
+  `blob:` address, which the window's content policy refuses; the end-to-end test caught it,
+  and the picture is now measured from a `data:` address, which the policy allows (a test
+  checks it). The policy itself is unchanged.
 
 These have tests in `CodeWatchView.test.tsx`, `code.test.ts`, `owner.test.tsx`, and
 `picture.test.ts`.
