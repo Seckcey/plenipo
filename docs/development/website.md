@@ -8,8 +8,10 @@ Plenipo's desktop app and its release workflow are unchanged.
 
 ## Interactive sample
 
-This implementation is available in the branch and isolated review preview. Production remains
-pending a separately authorized release; this document does not establish public deployment.
+The interactive homepage is live from approved source `155ad42cd7830976400bad4535beda5297de6435`
+as of September 28, 2026. See the [release receipt](website-releases/2026-09-28-interactive.md)
+for actual source/image identity, public acceptance, and retained rollback. Its installer metadata
+remains v1.6.0. Later main-branch version templating is not included in that deployment.
 
 The hero and download links render without JavaScript. A small loader in `main.js` starts the
 React/React Flow island only when the visitor chooses **Explore the interactive demo**. Its
@@ -54,7 +56,9 @@ No demo JS/CSS is requested before activation, and only the currently needed Pip
 ## Content and search
 
 The page links to the published Windows installer, explains the current free release, and labels
-the proposed Free/Pro limits as planned. Nobody types the version into the page: both download
+the proposed Free/Pro limits as planned. Current main uses build-time version templating, while the
+deployed September 28 revision retains its earlier fixed v1.6.0 metadata. In the newer source,
+nobody types the version into the page: both download
 buttons, both version labels, the structured data, and `release.json` come from the version the
 build is given (the root `package.json`, or `PLENIPO_VERSION`). A merge containing a desktop
 version bump does not mean that an installer has been published, so a deploy passes the release
