@@ -4,7 +4,7 @@
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Phase**    | 17 — The Owner's Control Over Workers                                                                                                                                                                                                                                                                                                            |
 | **Branch**   | `claude/phase-17` ([PR #77](https://github.com/Seckcey/plenipo/pull/77))                                                                                                                                                                                                                                                                         |
-| **Verified** | {VERIFIED}                                                                                                                                                                                                                                                                                                                                       |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and `pnpm e2e` against the release build (section 3). GitHub CI (Rust, Frontend, E2E on Linux, and Windows, where the installer tests install, upgrade over 1.8.0, and uninstall the real installer) runs on the final commit; its results are on PR #77.    |
 | **Date**     | 2026-09-27 (Pacific time)                                                                                                                                                                                                                                                                                                                        |
 | **Result**   | All six acceptance criteria and every Phase 17 test in the plan pass; every deliverable is built. Version **1.10.0**. Decisions: ADR-041 to ADR-044, accepted by the owner, and ADR-045, the owner's addition; all built, with the differences each records as built. The walk-through with real AI tools on Windows is the owner's (section 8). |
 
@@ -23,7 +23,10 @@ Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/control.e
   [a whole department archived](evidence/phase-17/control-archived-department.png)
 - **The Workforce:** [an agent saved, ready to hire again](evidence/phase-17/control-workforce.png)
 
-Test totals: {TOTALS}
+Test totals: **1,053 Rust** · **567 frontend** (304 design system + 263 app) · **76 end-to-end**
+tests against the real release binary: 68 pass here, one is skipped, and the seven that need what
+this machine lacks (the browser group needs Chrome; the server and terminal groups need
+`ssh-keygen`) run on GitHub.
 
 On screen the plan's words become plain ones ([word list](../design/vocabulary.md)): a "layer"
 is a **rule** ("the Development department's rule"), a "position" is an **agent** on the chart,

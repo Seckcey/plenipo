@@ -267,7 +267,7 @@ again, for "talent pool", "bench", "agent library").
 - [x] (ADR-045) Experience counts kept lessons and finished tasks; deleting for good offers the
       agents above the average, saves the checked ones to the Workforce, and deletes the rest;
       hiring from the Workforce brings back its settings, experience, and lessons.
-- [ ] End-to-end tests in the real app, with screenshots for the acceptance report.
+- [x] End-to-end tests in the real app, with screenshots for the acceptance report.
 
 ## Owner's rules for this phase
 
@@ -284,12 +284,12 @@ again, for "talent pool", "bench", "agent library").
       sizes are numbers only).
 - [x] No model names in commits or pull requests.
 - [x] Version 1.10.0 everywhere, with the Phase 17 row in `docs/development/versioning.md`.
-- [ ] Release notes (`docs/releases/v1.10.0.md`), the plan's Phase 17 status line and its state in
+- [x] Release notes (`docs/releases/v1.10.0.md`), the plan's Phase 17 status line and its state in
       the order of work, this checklist, and the acceptance report with screenshots in
       `evidence/phase-17/`, in Pacific time.
 - [x] A review across several areas, with a second reviewer checking each finding, before the
       final push (five areas; acceptance report §7).
-- [ ] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
+- [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
