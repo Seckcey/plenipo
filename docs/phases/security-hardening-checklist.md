@@ -1,6 +1,6 @@
 # Security hardening (2026-09-27 sweep) — Checklist
 
-**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) is in progress on PR #74: batch 1 (B1–B6) built, reviewed, and tested; batches 2 (B7–B9) and 3 (B10–B11) follow. Group C follows in a later pull request.
+**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) merged through PR #74 (B1–B6), PR #76 (B7–B9), and PR #78 (B10 and the part-2 follow-ups); B11 is in the last Group B pull request. Group C follows in a later pull request.
 
 The sweep's findings live in the repository's private security advisories (GHSA-m2rr-m89h-jp56,
 GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B). This checklist
@@ -100,12 +100,15 @@ records what was changed and how it was checked, in plain words, without the att
 - [x] Each fix reviewed by three independent readers; their remaining notes carried into three
       follow-up commits (one desktop step at a time while the owner decides; decided lessons drop
       why they waited; the Codex record says what is true of `apply_patch`)
-- [ ] CI's Windows job green on the pull request (PR #76)
+- [x] CI's Windows job green on the pull request (PR #76, merged)
 
 ### Batch 3 (GHSA-2hxf-v9c3-44q2)
 
-- [ ] B10 · GitHub Actions pinned by commit, Dependabot
-- [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-052)
+- [x] B10 · GitHub Actions pinned by commit, Dependabot (PR #78, merged)
+- [x] B11 · Signing only from main and release tags, behind the owner's approval (ADR-052); the
+      owner's GitHub steps are in docs/development/code-signing.md
+- [x] Both fixes reviewed by three independent readers; their remaining notes carried in (ADR-038's
+      pointer, a dry run fails when no installer was built, Dependabot titles in the commit style)
 
 ## Advisories: closing out
 
@@ -114,16 +117,16 @@ Advisories**). Plenipo's GitHub connection here cannot change advisories, so the
 one once its fix is on `main` (open the draft advisory → **Close advisory**; or on the PC:
 `gh api -X PATCH repos/Seckcey/plenipo/security-advisories/<GHSA id> -f state=closed`).
 
-| Advisory            | Findings | Fixed by              | Close it        |
-| ------------------- | -------- | --------------------- | --------------- |
-| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)       | now             |
-| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)       | now             |
-| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)       | now             |
-| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)       | now             |
-| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)       | now             |
-| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (in progress)  | after it merges |
-| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #76 (in progress)  | after it merges |
-| GHSA-c86x-xcxc-pgf6 | C        | Group C (not started) | later           |
+| Advisory            | Findings | Fixed by                                                     | Close it         |
+| ------------------- | -------- | ------------------------------------------------------------ | ---------------- |
+| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)                                              | now              |
+| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)                                              | now              |
+| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)                                              | now              |
+| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)                                              | now              |
+| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)                                              | now              |
+| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (merged)                                              | now              |
+| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #78 (B10, merged) and the last Group B pull request (B11) | after B11 merges |
+| GHSA-c86x-xcxc-pgf6 | C        | Group C (not started)                                        | later            |
 
 ## Checks
 
@@ -132,7 +135,7 @@ one once its fix is on `main` (open the draft advisory → **Close advisory**; o
       `cargo test --workspace --locked` (Linux, bundled Chromium), `pnpm bindings` with no diff
 - [x] Each fix reviewed by three independent readers (security completeness; correctness and
       Windows; conventions and tests) before it was accepted
-- [ ] CI's Windows job green on the pull request (the Windows pipe start and TCP-table lookup run
+- [x] CI's Windows job green on the pull request (the Windows pipe start and TCP-table lookup run
       there against Edge or Chrome)
 
 ## Owner's check on Windows (about 10 minutes)
