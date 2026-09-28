@@ -249,11 +249,31 @@ pub fn enter(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
     click(f)
 }
 
+/// Most characters of a worker's words quoted on a card.
+const QUOTED_CHARS: usize = 200;
+
+/// A worker's own words, made fit to quote inside Plenipo's sentence on a card: a straight
+/// quote becomes an apostrophe, so the words cannot close the quote and go on as Plenipo's;
+/// runs of spaces and line breaks become one space; and at most [`QUOTED_CHARS`] characters
+/// are kept, with "…" after them.
+pub fn quotable(text: &str) -> String {
+    let words = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('"', "'");
+    if words.chars().count() <= QUOTED_CHARS {
+        return words;
+    }
+    let kept: String = words.chars().take(QUOTED_CHARS).collect();
+    format!("{}…", kept.trim_end())
+}
+
 /// Why an action whose stated purpose reads like signing in, buying, or sending is sensitive
 /// (the screen tools: Plenipo cannot see what a click on the desktop does, so it reads the
 /// worker's own words, and errs on the side of asking).
 pub fn purpose(text: &str) -> Option<(SensitiveKind, String)> {
-    let quoted = format!("\"{}\"", text.trim());
+    let quoted = format!("\"{}\"", quotable(text));
     if let Some(w) = any_word(text, PAYMENT) {
         return Some((
             SensitiveKind::Payment,
@@ -380,6 +400,28 @@ mod tests {
             SensitiveKind::SignIn
         );
         assert_eq!(purpose("open the File menu"), None);
+        // The worker's words are quoted as they are made quotable: no quote of their own.
+        let (_, why) = purpose("pay\" now (checked) \"").unwrap();
+        assert!(
+            why.starts_with("its purpose \"pay' now (checked) '\" looks like"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn a_workers_words_are_made_quotable() {
+        assert_eq!(quotable("  open the\n\tFile   menu "), "open the File menu");
+        assert_eq!(
+            quotable("continue\" (Plenipo checked this button) \""),
+            "continue' (Plenipo checked this button) '"
+        );
+        assert_eq!(quotable(""), "");
+        let long = "é".repeat(250);
+        assert_eq!(quotable(&long), format!("{}…", "é".repeat(200)));
+        assert_eq!(
+            quotable(&format!("{} tail", "a".repeat(199))),
+            format!("{}…", "a".repeat(199))
+        );
     }
 
     #[test]

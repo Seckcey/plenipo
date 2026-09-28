@@ -1944,7 +1944,7 @@ impl Broker {
                 "capability": tool.capability,
                 "summary": summary,
                 "detail": cap(detail, MAX_DETAIL),
-                "reason": decision.reason,
+                "reason": self.redact(&decision.reason),
                 "layer": decision.layer,
                 "checks": decision.checks,
                 // A server command's server, for the worker's watch tab (Phase 12).
@@ -1976,16 +1976,24 @@ impl Broker {
     ) -> std::result::Result<(String, ApprovalState), NotAsked> {
         // The grant's limits on asking (B6), checked and a place held in one step, so calls
         // made at the same time cannot slip past them together. A refused call gets no card;
-        // the refusal is recorded once a minute at most.
+        // the refusal is recorded once a minute at most. A desktop step's card holds the
+        // desktop while it waits (ADR-049, one step at a time while the owner decides): the
+        // hold is set with the place and let go on every way out of here.
+        let desktop = matches!(&prepared.work, Work::Control(w) if w.on_desktop());
         let at = Instant::now();
         let limited = {
             let mut s = self.state();
             s.grants.get_mut(grant_id).and_then(|g| {
                 let waiting = g.pending.len();
-                g.asks
+                let limited = g
+                    .asks
                     .reserve(at, waiting)
                     .err()
-                    .map(|why| (why, waiting + g.asks.opening, g.asks.record(at)))
+                    .map(|why| (why, waiting + g.asks.opening, g.asks.record(at)));
+                if desktop && limited.is_none() {
+                    g.desktop.deciding = true;
+                }
+                limited
             })
         };
         if let Some((why, waiting, record)) = limited {
@@ -2030,6 +2038,9 @@ impl Broker {
             if let Err(why) = self.connect_first(&who, &p.server).await {
                 if let Some(g) = self.state().grants.get_mut(grant_id) {
                     g.asks.placed(at, None);
+                    if desktop {
+                        g.desktop.deciding = false;
+                    }
                 }
                 return Err(NotAsked::Failed(format!("{why}. ({})", prepared.summary)));
             }
@@ -2040,7 +2051,7 @@ impl Broker {
         let payload = json!({
             "summary": self.redact(&prepared.summary),
             "detail": cap(detail, MAX_DETAIL),
-            "reason": decision.reason,
+            "reason": self.redact(&decision.reason),
             "risk": prepared.risk,
             "riskLabel": prepared.risk.words(),
             "sensitive": decision.sensitive,
@@ -2072,6 +2083,9 @@ impl Broker {
             Err(e) => {
                 if let Some(g) = self.state().grants.get_mut(grant_id) {
                     g.asks.placed(at, None);
+                    if desktop {
+                        g.desktop.deciding = false;
+                    }
                 }
                 return Err(NotAsked::Failed(format!(
                     "the approval could not be requested: {e}"
@@ -2120,6 +2134,9 @@ impl Broker {
         };
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.pending.remove(&approval.id);
+            if desktop {
+                g.desktop.deciding = false;
+            }
         }
         Ok((approval.id, state))
     }
