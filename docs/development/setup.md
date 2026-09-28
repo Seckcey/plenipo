@@ -150,9 +150,9 @@ Notes:
   - Kimi reports no token counts, so its tasks show none.
 - Workers you start in **Workers** cannot change anything: Claude Code and Grok run with none of
   their own tools (conversation only), Kimi in its read-only mode with every file refused, Codex
-  in its read-only sandbox, each conversation in its own empty folder
-  under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`. Organization
-  workers get Plenipo's own tools, within their permissions (below).
+  with its own commands switched off in its read-only sandbox, each conversation in its own
+  empty folder under `%LOCALAPPDATA%\com.eightwest.plenipo\runtime\agent-workspaces\`.
+  Organization workers get Plenipo's own tools, within their permissions (below).
 - Handoffs (Phase 4) need two AI tools Ready. In **Workers**, tick **Allow handoffs to other
   workers**, then give an objective that invites a second opinion — for example, on Codex:
   _"Write a function that parses ISO dates. Before you finish, ask claude-code to review it."_

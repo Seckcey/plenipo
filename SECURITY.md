@@ -33,6 +33,11 @@ without including any sensitive details. No response-time commitment is made whi
 Plenipo's security promises, in plain words — a way around any of these is a vulnerability:
 
 - A worker stays inside its project's folder. It cannot read or change files outside it.
+- The AI tools' own file access is off or goes through Plenipo: Claude Code runs with none of
+  its built-in tools, Codex's own commands and its picture reader are switched off (ADR-042),
+  Grok runs with a profile that has none of its own tools, and Kimi's file reads go through
+  Plenipo (ADR-027). A worker reads files, runs programs, and uses git only through Plenipo's
+  tools, each checked by Guard and recorded.
 - Files on your blocked list (`.env` files, keys, and the like) are never read or changed by a
   worker: not through the file tools, and not through the git tools either, which never stage,
   show, or commit one. A push that would send one is not refused, but its approval card names
