@@ -1909,11 +1909,94 @@ async fn the_owners_sign_survives_the_page_and_a_page_that_keeps_fighting_it_is_
     assert!(h.events(&task.id, "browser.tab_stopped").is_empty());
 }
 
+/// A web address in what Plenipo keeps for good (the approval card, `capability.used`, the
+/// control center's notes, a screenshot's record) keeps the website, the page, and the names of
+/// its fields (ADR-053): the values after `?` are left out, while the worker itself still reads
+/// the address.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn addresses_are_kept_without_what_follows_the_page() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    // A sign-in token Plenipo recognizes as a secret comes first: hiding it must not end the
+    // address early and leave the session key after it in the record.
+    let shop = h.url(
+        "shop",
+        "/shop?id_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.\
+         dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U&session=tok3n-4bc#pay",
+    );
+    let form = h.url("shop", "/form?ref=tok3n-4bc");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": shop })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": form })),
+            tool("browser_type", json!({ "ref": "e1", "text": "see https://docs.test/p?id=42" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let buy = h.pending().await;
+    // While the worker waits, the control center shows where it is.
+    let sessions = h.broker.control_status().sessions;
+    assert!(
+        sessions.iter().all(|s| !format!("{s:?}").contains("tok3n")),
+        "{sessions:?}"
+    );
+    for words in [&buy.summary, &buy.detail, &buy.reason] {
+        assert!(!words.contains("tok3n"), "{words}");
+    }
+    let url = buy.url.clone().unwrap_or_default();
+    // The browser reports the page without its `#` part; of the `?` part, only the field's
+    // name is kept.
+    assert!(url.ends_with("/shop?id_token=…&session=…"), "{url}");
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    h.finished(&root).await;
+    assert!(
+        h.text(&task.id).contains("session=tok3n-4bc"),
+        "the worker reads the full address"
+    );
+    // Plenipo's own records (the worker's answer is its own words, kept as it said them).
+    let ours = ["capability.", "approval.", "guard.", "control.", "browser."];
+    let kept: Vec<String> = h
+        .ledger
+        .events_for_task(&task.id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| ours.iter().any(|p| e.event_type.starts_with(p)))
+        .map(|e| format!("{}: {}", e.event_type, e.payload))
+        .chain(
+            h.ledger
+                .artifacts_for_task(&task.id)
+                .unwrap()
+                .into_iter()
+                .map(|a| a.metadata.to_string()),
+        )
+        .collect();
+    assert!(
+        kept.iter()
+            .any(|k| k.contains("/shop?id_token=…&session=…")),
+        "{kept:?}"
+    );
+    assert!(
+        kept.iter().all(|k| !k.contains("tok3n")),
+        "nothing kept has it: {kept:?}"
+    );
+    // What the worker typed is kept as typed: only the page's own address is cleaned.
+    assert!(
+        kept.iter()
+            .any(|k| k.contains("see https://docs.test/p?id=42") && k.contains("/form?ref=…")),
+        "{kept:?}"
+    );
+}
+
 // ---- More -------------------------------------------------------------------------------------
 
 /// Computer use is the last resort: no mouse or keyboard without taking control (the owner is
 /// asked, with the worker's reason, each time); Enter asks again; a secret is never typed; the
-/// Windows key is refused; coordinates are the screenshot's.
+/// Windows key and the shortcuts that close or switch programs are refused, and so is typed text
+/// with a hidden character; coordinates are the screenshot's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn computer_use_asks_first_and_never_types_secrets() {
     let h = harness(None).await;

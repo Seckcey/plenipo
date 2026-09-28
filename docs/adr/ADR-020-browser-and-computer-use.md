@@ -17,10 +17,13 @@
   goes there when the worker's action opened it, and the worker is told (sections 2 and 4); by
   [ADR-047 (Plenipo's browser does not save files)](ADR-047-browser-never-saves-files.md): every
   download is refused from the browser's start, and the worker is told (section 2 and the known
-  limits); and by
+  limits); by
   [ADR-049 (computer use asks before every click and keystroke)](ADR-049-computer-use-asks-every-step.md):
   after taking control, every click, typing, and key press on the desktop asks the owner first,
-  with the screen and the worker's words on the card (section 7)
+  with the screen and the worker's words on the card (section 7); and, if accepted, by
+  [ADR-053 (web addresses in the record keep the page and the names of its
+  fields)](ADR-053-addresses-in-the-record.md): approval cards and Plenipo's records show an
+  address's website, page, and field names, not the values after `?` (section 4)
 - **Date:** 2026-09-27
 - **Phase:** 10
 
@@ -113,7 +116,8 @@ per-step grants, an MCP tool server reached through Plenipo's relay, approvals, 
   tab goes there instead, checked like any page. The worker is told either way.
 - These sensitive kinds can be set to **Ask** or **Blocked**, never allowed without asking.
 - The approval card shows exactly what will happen, the page's address, and a **screenshot of
-  the page** as it is when the worker asks.
+  the page** as it is when the worker asks. (The address keeps its website, page, and the names
+  of its fields, not their values: [ADR-053](ADR-053-addresses-in-the-record.md).)
 
 ### 5. Passwords, secrets, CAPTCHAs
 

@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use plenipo_guard::engine::Scope;
+use plenipo_guard::websites::safe_address;
 use plenipo_guard::{
     Capability, Decision, Layer, Risk, SensitiveKind, SensitiveRule, Site, SiteVerdict, Verdict,
     Workspace,
@@ -272,10 +273,11 @@ fn desktop_step(
     )
 }
 
-/// A web address's website, as the lists name it.
+/// A web address's website, as the lists name it (an address that is not one, as Plenipo
+/// records it).
 fn host_of(url: &str) -> String {
     Site::parse(url).map_or_else(
-        |_| url.to_owned(),
+        |_| safe_address(url),
         |s| {
             if s.scheme == "about" {
                 "an empty page".into()
@@ -747,13 +749,25 @@ impl Broker {
         let auto = Capability::BrowserAutomate;
         Ok(match action {
             Action::BrowserOpen { url, timeout } => {
-                let summary = format!("open {}", cap(&url, 200));
-                let site = Site::parse(&url)
-                    .map_err(|e| refuse(Layer::Target, format!("{e}."), summary.clone()))?;
+                // An address that is not a website is refused, and recorded as Plenipo records
+                // any address (`safe_address`): the text filter finds only `scheme://` ones.
+                let shown = safe_address(&url);
+                let summary = format!("open {shown}");
+                // `Site::parse` quotes the address as `{:?}` of the trimmed text: the same text,
+                // cleaned, takes its place.
+                let site = Site::parse(&url).map_err(|e| {
+                    let quoted = format!("{:?}", url.trim());
+                    let reason = if e.contains(&quoted) {
+                        e.replace(&quoted, &format!("{shown:?}"))
+                    } else {
+                        format!("{shown:?} cannot be opened")
+                    };
+                    refuse(Layer::Target, format!("{reason}."), summary.clone())
+                })?;
                 let mut p = base(
                     nav,
-                    format!("open {}", cap(&site.url, 200)),
-                    site.url.clone(),
+                    format!("open {}", safe_address(&site.url)),
+                    safe_address(&site.url),
                     ControlWork::Open {
                         url: site.url.clone(),
                         timeout,
@@ -768,7 +782,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("read the page on {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Read { max_chars },
                 );
                 p.site = site;
@@ -779,7 +793,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("take a screenshot of the page on {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Screenshot,
                 );
                 p.site = Self::tab_site(&tab);
@@ -795,7 +809,7 @@ impl Broker {
                         if down { "down" } else { "up" },
                         host_of(&tab.url())
                     ),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Scroll { dy },
                 );
                 p.site = Self::tab_site(&tab);
@@ -806,7 +820,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("go back from {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Back,
                 );
                 p.site = Self::tab_site(&tab);
@@ -851,7 +865,7 @@ impl Broker {
                         "hand you a check that a person is using {} (a CAPTCHA)",
                         host_of(&tab.url())
                     ),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::PersonCheck,
                 );
                 p.site = Self::tab_site(&tab);
@@ -868,7 +882,7 @@ impl Broker {
                 let mut p = base(
                     auto,
                     format!("click {what} on {}", host_of(&tab.url())),
-                    format!("{what} ({reference}) on {}", tab.url()),
+                    format!("{what} ({reference}) on {}", safe_address(&tab.url())),
                     ControlWork::Click {
                         reference,
                         what: what.clone(),
@@ -926,7 +940,11 @@ impl Broker {
                         host_of(&tab.url()),
                         if submit { ", then send the form" } else { "" }
                     ),
-                    format!("{what} ({reference}) on {}: {}", tab.url(), cap(&text, 500)),
+                    format!(
+                        "{what} ({reference}) on {}: {}",
+                        safe_address(&tab.url()),
+                        cap(&text, 500)
+                    ),
                     ControlWork::Type {
                         reference,
                         facts: Box::new(facts.clone()),
@@ -989,7 +1007,11 @@ impl Broker {
                 let mut p = base(
                     auto,
                     format!("press {key} on {}", host_of(&tab.url())),
-                    format!("{key} in {} on {}", describe(&focused), tab.url()),
+                    format!(
+                        "{key} in {} on {}",
+                        describe(&focused),
+                        safe_address(&tab.url())
+                    ),
                     ControlWork::Press {
                         key: key.clone(),
                         focused: Box::new(focused.clone()),
@@ -1033,7 +1055,7 @@ impl Broker {
                         describe(&facts),
                         host_of(&tab.url())
                     ),
-                    format!("{option} ({reference}) on {}", tab.url()),
+                    format!("{option} ({reference}) on {}", safe_address(&tab.url())),
                     ControlWork::Select {
                         reference,
                         facts: Box::new(facts.clone()),
@@ -1358,7 +1380,7 @@ impl Broker {
                 "kind": "browser",
                 "worker": worker,
                 "action": what,
-                "url": tab.url(),
+                "url": safe_address(&tab.url()),
             }),
         )
     }
@@ -1572,7 +1594,7 @@ impl Broker {
         let host = host_of(&url);
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url.clone()),
+            Some(safe_address(&url)),
             Some("waiting for you to solve a person check".into()),
         );
         let prepared = Prepared {
@@ -1580,8 +1602,9 @@ impl Broker {
             risk: Risk::Web,
             summary: format!("hand you a check that a person is using {host} (a CAPTCHA)"),
             detail: format!(
-                "Plenipo's browser shows the page in front of other windows: {url}\nSolve the \
+                "Plenipo's browser shows the page in front of other windows: {}\nSolve the \
                  check yourself, then press Approve. {}",
+                safe_address(&url),
                 if tried > 0 {
                     format!("The worker tried it {tried} {times} and could not get past it.")
                 } else {
@@ -1619,7 +1642,6 @@ impl Broker {
             sensitive: None,
             checks: Vec::new(),
         };
-        let detail = self.redact(&prepared.detail);
         let minutes = self
             .inner
             .guard
@@ -1636,7 +1658,6 @@ impl Broker {
                 ctx.workspace,
                 ctx.tool,
                 &prepared,
-                &detail,
                 &decision,
                 minutes,
             )
@@ -1707,7 +1728,7 @@ impl Broker {
                 format!(
                     "{} {} ({})",
                     h.method,
-                    cap(&h.url, 200),
+                    safe_address(&h.url),
                     if h.kind == "Document" {
                         "a form"
                     } else {
@@ -1787,7 +1808,6 @@ impl Broker {
             sensitive: Some(SensitiveKind::Outbound),
             checks: Vec::new(),
         };
-        let detail = self.redact(&prepared.detail);
         let minutes = self
             .inner
             .guard
@@ -1804,7 +1824,6 @@ impl Broker {
                 ctx.workspace,
                 ctx.tool,
                 &prepared,
-                &detail,
                 &decision,
                 minutes,
             )
@@ -1924,7 +1943,7 @@ impl Broker {
         let url_now = tab.url();
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url_now.clone()),
+            Some(safe_address(&url_now)),
             Some(format!("opened {}", host_of(&url_now))),
         );
         let screenshot = self
@@ -2041,7 +2060,7 @@ impl Broker {
                         mime: screens::mime_of(&bytes).into(),
                         data: bytes.clone(),
                     });
-                    let id = self.keep(ctx.task_id, &bytes, json!({ "kind": "browser", "worker": ctx.worker, "action": "took a screenshot", "url": url }));
+                    let id = self.keep(ctx.task_id, &bytes, json!({ "kind": "browser", "worker": ctx.worker, "action": "took a screenshot", "url": safe_address(&url) }));
                     return ControlDone {
                         result: Ok(format!(
                             "A screenshot of \"{title}\" ({url}) is attached. In words:\n{words}"
@@ -2215,7 +2234,7 @@ impl Broker {
         let url = tab.url();
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url.clone()),
+            Some(safe_address(&url)),
             (!last.is_empty()).then_some(last.clone()),
         );
         let screenshot = if keep && tab.broken().is_none() {
@@ -2713,7 +2732,7 @@ impl Broker {
         self.ledger().append_event(NewEvent {
             source: "owner".into(),
             event_type: "browser.opened_by_owner".into(),
-            payload: json!({ "url": url }),
+            payload: json!({ "url": safe_address(&url) }),
             ..NewEvent::default()
         })?;
         Ok(())

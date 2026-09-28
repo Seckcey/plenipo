@@ -40,8 +40,9 @@ Plenipo's security promises, in plain words — a way around any of these is a v
   tools, each checked by Guard and recorded.
 - Files on your blocked list (`.env` files, keys, and the like) are never read or changed by a
   worker: not through the file tools, and not through the git tools either, which never stage,
-  show, or commit one. A push that would send one is not refused, but its approval card names
-  the file so you can decide.
+  show, or commit one. A folder listing leaves them out, and a worker cannot list what is inside
+  a blocked folder. A push that would send one is not refused, but its approval card names the
+  file so you can decide.
 - A worker cannot do anything its permission set does not allow.
 - Sensitive actions — deploying, DNS, passwords, payments, publishing, running as administrator —
   stop and wait for the owner's approval.
@@ -50,6 +51,12 @@ Plenipo's security promises, in plain words — a way around any of these is a v
   PATH — never to a file inside a project folder with the same name — and a program that would be
   given one asks the owner first, with the secret's name on the approval card, unless the owner's
   rule names both the program and the secret (ADR-048).
+- A web address in Plenipo's own records of the browser (approval cards, the record of each
+  browser tool a worker used or was refused, screenshot records) keeps its website, its page,
+  and the names of its fields only: the values after `?` (search terms, sign-in tokens, session
+  keys) show as `…`, and a user name or password in it is dropped (ADR-053). The worker still
+  reads the address, and what the AI tool itself says (its tool calls and its answer, in the
+  Activity trail) is kept as it said it, with secrets hidden.
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used. Plenipo controls its browser over a private pipe between the two
   programs, not a network port, so no other program on your computer can connect to the browser

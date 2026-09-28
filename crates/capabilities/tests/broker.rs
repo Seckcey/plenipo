@@ -711,6 +711,43 @@ async fn a_kimi_developer_changes_files_only_through_guard() {
     );
 }
 
+/// A folder listing keeps the blocked-files list: blocked entries (the project's `.env`) are left
+/// out, uncounted, and a blocked folder (named like a key file, blocked by the default `*.pem`
+/// rule) is refused like a blocked file, its contents never shown.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_folder_listing_leaves_blocked_files_out() {
+    let h = harness().await;
+    std::fs::create_dir_all(h.folder.join("site.pem")).unwrap();
+    std::fs::write(h.folder.join("site.pem").join("inside.txt"), "x").unwrap();
+    let work = [
+        tool("list_directory", serde_json::json!({ "path": "." })),
+        tool("list_directory", serde_json::json!({ "path": "site.pem" })),
+    ]
+    .join(" ");
+    let task = h.objective(&handoff("Backend Developer", &work)).await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    h.finished(&task).await;
+    let text = h.text(&child.id);
+    let lists = lines_of(&text, "Tool list_directory");
+    assert!(!lists[0].contains("failed"), "{text}");
+    assert!(text.contains("README.md"), "{text}");
+    assert!(
+        !text.contains(".env"),
+        "the blocked file is not listed: {text}"
+    );
+    assert!(
+        !text.contains("site.pem/"),
+        "nor the blocked folder: {text}"
+    );
+    assert!(
+        lists[1].contains("failed") && lists[1].contains("is a blocked file"),
+        "{text}"
+    );
+    assert!(!text.contains("inside.txt"), "{text}");
+    assert_eq!(h.events(&child.id, "guard.denied").len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn acceptance_a_development_worker_works_only_in_its_workspace() {
     let h = harness().await;

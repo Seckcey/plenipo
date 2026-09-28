@@ -336,8 +336,13 @@ through Plenipo's tools).
   secrets are hidden, and the use is recorded (`capability.used` with `fileRequest: true`) — and
   gives the answer back with `TurnParser::file_answered` while the task goes on. A worker without
   a grant has every file refused. Kimi's own shell is refused, its file changes are allowed once
-  only for a worker whose grant offers `write_file` (a change it reports done that never came to
-  Plenipo stops the task), and nothing is approved for a whole session. Its mode, model, and
+  only for a worker whose grant offers `write_file`, and nothing is approved for a whole session.
+  Each allowed change is remembered with the files it named (`locations`) until its write has
+  come through Plenipo and been carried out; a write clears one change, the oldest that named its
+  file (the same file, worked out against the task's folder), or, failing that, the oldest that
+  named none, never all of them. A change the tool reports done that never came through Plenipo
+  stops the task, even when another did come. At most 64 changes wait; the next one is refused,
+  never an older one forgotten. Its mode, model, and
   thinking level are set with `session/set_config_option` before the prompt and checked; a mode
   other than `default` or `plan` stops the task.
 - **Boundary.** The UI names a runtime ID, an objective, an optional (validated) model, and a
@@ -553,7 +558,15 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
 - **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
   `guard.approvals_limited`, or `approval.*`. Known secret values and common key and token
   formats are hidden in results, recorded text, and all AI tool activity
-  (`[hidden by Plenipo: …]`).
+  (`[hidden by Plenipo: …]`). A web address in Plenipo's own records and on its screens (approval cards; `capability.used`,
+  `guard.denied`, `guard.approvals_limited`, and `browser.opened_by_owner` events for the browser
+  tools; screenshot records; the control center's notes) is its website and page
+  (`plenipo_guard::websites::safe_address`, ADR-053): of what follows `?`, only the fields' names
+  (`?to=…&amount=…`); of what follows `#`, a mark (`#…`); no user name or password. Addresses are
+  cleaned before secrets are hidden. A program's command line or a file's text is kept as it is.
+  The worker still reads the page's address with its `?` part (the browser leaves a loaded
+  page's `#` part out), and the AI tool's own activity (`agent.*`) keeps what the tool said,
+  with secrets hidden.
 - **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
   Plenipo stores only references and injects a value as an environment variable into the
   programs the owner named. A secret goes only to the installed program of that name, found on
