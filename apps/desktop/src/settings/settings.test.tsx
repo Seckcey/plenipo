@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import { AgentsProvider } from "../agents/AgentsProvider";
 import { RuntimeProvider } from "../runtime/RuntimeProvider";
+import { runtime } from "../test/agentFixtures";
+import { aiPage, aiTool } from "../test/aiToolFixtures";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
+import { sampleRouting } from "../test/routingFixtures";
 import { a11yProblems } from "../test/a11y";
 import { samplePermissions } from "../test/permissionFixtures";
 import { sampleServers } from "../test/serverFixtures";
@@ -41,6 +44,8 @@ vi.mock("../api/commands", async (importOriginal) => {
     installUpdate: vi.fn(),
     listLedgerBackups: vi.fn(),
     saveDiagnosticsFile: vi.fn(),
+    getAiTools: vi.fn(),
+    setAiToolsAutoUpdate: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -99,6 +104,7 @@ beforeEach(() => {
     notices: [],
   });
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
+  api.getAiTools.mockResolvedValue(aiPage([aiTool("codex")]));
   api.getOrganization.mockResolvedValue(sampleOrganization());
   api.getPermissions.mockResolvedValue(samplePermissions());
   api.getLearning.mockResolvedValue({
@@ -245,6 +251,26 @@ describe("Settings in one place", () => {
     const projects = screen.getByRole("list", { name: "Projects" });
     await user.click(within(projects).getByRole("button", { name: /Q4 Campaign/ }));
     expect(go).toHaveBeenLastCalledWith({ view: "project", id: "pr-camp" });
+  });
+
+  it("opens each AI tool's card, and AI models links to the AI tools page (Phase 19)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex", false)],
+      sessions: [],
+      notices: [],
+    });
+    api.getRouting.mockResolvedValue(sampleRouting());
+    show("aiTools");
+    const user = userEvent.setup();
+    const tools = await screen.findByRole("list", { name: "AI tools" });
+    await user.click(within(tools).getByRole("button", { name: /^Codex/ }));
+    expect(go).toHaveBeenLastCalledWith({ view: "runtimes", id: "codex" });
+    await user.click(screen.getByRole("tab", { name: "AI models" }));
+    expect(
+      await screen.findByText("Usage limits, sign-in, and updates are on the AI tools page."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open the AI tools page" }));
+    expect(go).toHaveBeenLastCalledWith({ view: "runtimes", id: null });
   });
 
   it("says so when there is nothing to list yet", async () => {

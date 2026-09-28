@@ -1,10 +1,10 @@
 import type { LimitBehavior, RoutingSnapshot } from "@plenipo/types";
-import { Button, StatusPill } from "@plenipo/ui";
+import { Button } from "@plenipo/ui";
 
-import { clearUsageLimit, setRoutingOptions } from "../../api/commands";
-import { LIMIT_LABEL, until } from "../../routing/format";
+import { setRoutingOptions } from "../../api/commands";
+import { LIMIT_LABEL } from "../../routing/format";
 import { useRouting } from "../../routing/useRouting";
-import { PILL_TONE } from "../tones";
+import type { Go } from "../views";
 import { ModelList } from "./ModelList";
 import { RoleChoices } from "./RoleChoices";
 import { RuleSettings } from "./RuleSettings";
@@ -13,10 +13,10 @@ import { Refusal } from "./shared";
 
 /**
  * Settings → AI models: the model and effort rules (the organization, departments, and agents),
- * which model each role's workers get (and why), the models to choose from, the AI tools with
- * their sign-in and usage limits, and what a usage limit does.
+ * which model each role's workers get (and why), the models to choose from, a link to the AI
+ * tools page (their sign-in, usage limits, and updates), and what a usage limit does.
  */
-export function ModelSettings() {
+export function ModelSettings({ go }: { go: Go }) {
   const routing = useRouting();
   const s = routing.snapshot;
   if (!s) {
@@ -41,61 +41,26 @@ export function ModelSettings() {
       <RuleSettings snapshot={s} onApply={routing.apply} />
       <RoleChoices snapshot={s} onApply={routing.apply} />
       <ModelList snapshot={s} onApply={routing.apply} />
-      <ToolList snapshot={s} onApply={routing.apply} />
+      <ToolsLink snapshot={s} go={go} />
       <LimitChoice snapshot={s} onApply={routing.apply} />
     </div>
   );
 }
 
-function ToolList({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply: Apply }) {
-  const { pending, error, run } = useChange(onApply);
+/**
+ * The AI tools' usage limits, sign-in, and updates are on the AI tools page (Phase 19, ADR-060
+ * §2): a line and a link take the old table's place.
+ */
+function ToolsLink({ snapshot, go }: { snapshot: RoutingSnapshot; go: Go }) {
   return (
     <section aria-labelledby="tools-title">
       <h3 id="tools-title">AI tools</h3>
-      <table className="table">
-        <thead>
-          <tr>
-            <th scope="col">AI tool</th>
-            <th scope="col">Company</th>
-            <th scope="col">Can take work</th>
-            <th scope="col">Usage limit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {snapshot.tools.map((t) => (
-            <tr key={t.runtimeId}>
-              <th scope="row">{t.label}</th>
-              <td>{t.companyLabel}</td>
-              <td>
-                <StatusPill
-                  status={t.available ? PILL_TONE.ok : PILL_TONE.warn}
-                  label={t.available ? "Yes" : "Not now"}
-                />{" "}
-                <span className="table__sub">{t.status}</span>
-              </td>
-              <td>
-                {t.usageLimit ? (
-                  <>
-                    Reached {t.usageLimit.resetsAt ? "— resets" : "— tried again"}{" "}
-                    {until(t.usageLimit.until)}{" "}
-                    <Button
-                      variant="quiet"
-                      size="sm"
-                      disabled={pending}
-                      onClick={() => void run(() => clearUsageLimit(t.runtimeId))}
-                    >
-                      Try again now
-                    </Button>
-                  </>
-                ) : (
-                  "—"
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Refusal error={error} />
+      <p>Usage limits, sign-in, and updates are on the AI tools page.</p>
+      <div className="settings-section__actions">
+        <Button size="sm" onClick={() => go({ view: "runtimes", id: null })}>
+          Open the AI tools page
+        </Button>
+      </div>
       <p className="muted">
         <strong>Pay-per-use API billing: {snapshot.apiBilling ? "On" : "Off"}.</strong> Plenipo uses
         each AI tool&apos;s subscription sign-in and skips a tool signed in with an API key.

@@ -123,6 +123,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (learned !== null) return learned;
   const upkeep = describeUpkeepEvent(e.eventType, p);
   if (upkeep !== null) return upkeep;
+  const aiTool = describeAiToolEvent(e.eventType, p);
+  if (aiTool !== null) return aiTool;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -189,6 +191,62 @@ function describeUpkeepEvent(type: string, p: Record<string, unknown>): string |
       return "Your permission settings were reset to their starting values (after a backup)";
     case "routing.settings_reset":
       return "Your AI model settings were reset to their starting values (after a backup)";
+  }
+  return null;
+}
+
+/** An AI tool's sign-in, as the Activity trail says it (never an account). */
+const SIGNED_IN_WORDS: Record<string, string> = {
+  subscription: "signed in",
+  unverified: "signed in (billing not checked)",
+  apiKey: "signed in with an API key, which Plenipo doesn't use",
+  thirdPartyCloud: "signed in through another company's cloud, which Plenipo doesn't use",
+  signedOut: "signed out",
+  unknown: "sign-in unknown",
+  checking: "checking its sign-in",
+};
+
+/** "grok-5, grok-5-mini", from a list in an event. */
+function listed(v: unknown): string {
+  return Array.isArray(v) ? v.map(String).join(", ") : "";
+}
+
+/** Phase 19 (ADR-058 to ADR-060): signing in, new versions and updates, and new models. */
+function describeAiToolEvent(type: string, p: Record<string, unknown>): string | null {
+  const name = toolName(str(p.runtime)) ?? "An AI tool";
+  switch (type) {
+    case "ai_tool.sign_in_changed": {
+      const to = str(p.to) ?? "";
+      const words = SIGNED_IN_WORDS[to] ?? "its sign-in changed";
+      return `${name}: ${words}${to !== "signedOut" && str(p.method) ? ` (${str(p.method)})` : ""}`;
+    }
+    case "ai_tool.update_available":
+      return `A new version of ${name} is ready${str(p.newest) ? ` (${str(p.newest)})` : ""}`;
+    case "ai_tool.update_started":
+      return `Updating ${name}${str(p.from) ? ` (from ${str(p.from)})` : ""}${
+        p.by === "automatic" ? ", by itself" : ""
+      }`;
+    case "ai_tool.updated":
+      return `${name} was updated to ${str(p.to) ?? "a new version"}`;
+    case "ai_tool.update_failed":
+      return `${name}'s update didn't finish${str(p.reason) ? `: ${brief(p.reason, 240)}` : ""}${
+        p.oldStillWorks === true ? " (the old version still works)" : ""
+      }`;
+    case "ai_tool.update_by_hand":
+      return `${name} can't update itself here${str(p.message) ? `: ${brief(p.message, 240)}` : ""}`;
+    case "ai_tool.put_back":
+      return `Plenipo put back ${name}${str(p.version) ? ` ${str(p.version)}` : "'s old version"}`;
+    case "ai_tool.models_changed": {
+      const parts = [
+        listed(p.added) && `lists new models: ${listed(p.added)}`,
+        listed(p.removed) && `no longer lists: ${listed(p.removed)}`,
+      ].filter(Boolean);
+      return `${name} ${parts.length > 0 ? parts.join("; ") : "changed its list of models"}`;
+    }
+    case "ai_tools.auto_update_switched":
+      return `You turned ${p.on === true ? "on" : "off"} Update AI tools by themselves`;
+    case "guard.ai_tool_refused":
+      return `Blocked: ${str(p.reason) ?? `${name}: that was refused`}`;
   }
   return null;
 }
@@ -540,6 +598,18 @@ export function lasted(seconds: number): string {
  * what was typed or shown.
  */
 function describeTerminalEvent(type: string, p: Record<string, unknown>): string | null {
+  // An AI tool's sign-in or sign-out tab (Phase 19, ADR-058 §7): "You opened Codex's sign-in".
+  if (p.place === "aiTool") {
+    const what = `${toolName(str(p.runtimeId)) ?? "An AI tool"}'s ${
+      p.action === "signOut" ? "sign-out" : "sign-in"
+    }`;
+    switch (type) {
+      case "terminal.opened":
+        return `You opened ${what}`;
+      case "terminal.closed":
+        return `${what} closed${typeof p.seconds === "number" ? ` after ${lasted(p.seconds)}` : ""}`;
+    }
+  }
   const where = p.place === "thisPc" ? "this PC" : (str(p.title) ?? "a server");
   const production = p.environment === "production" ? " (PRODUCTION)" : "";
   switch (type) {

@@ -15,16 +15,19 @@
 //! names the credential) must show a Grok sign-in before a task runs. Grok does not report its
 //! credential during an ACP task, so an unrecognized sign-in is refused.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
 use crate::agent::acp::{AcpTask, AcpTurn};
 use crate::agent::adapter::{
-    first_line, ProbeOutput, RuntimeAdapter, TurnParser, TurnRequest, NETWORK_ENV,
+    find_version, first_line, model_name, plain_name, talk_answer, NewestVersion, ProbeOutput,
+    RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, NETWORK_ENV,
 };
 use crate::agent::discovery::HostEnv;
-use crate::agent::dto::{AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities};
+use crate::agent::dto::{
+    AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities,
+};
 
 pub const ID: &str = "grok";
 const LABEL: &str = "Grok";
@@ -193,6 +196,91 @@ impl RuntimeAdapter for Grok {
         .into_iter()
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .collect()
+    }
+
+    /// `grok login` and `grok logout` (Grok 1.0.41's own help, recorded).
+    fn account_command(&self, action: AccountAction) -> Option<Vec<String>> {
+        Some(match action {
+            AccountAction::SignIn => vec!["login".into()],
+            AccountAction::SignOut => vec!["logout".into()],
+        })
+    }
+
+    /// Grok's own check (recorded): `grok update --check --json`.
+    fn newest_version(&self) -> NewestVersion {
+        NewestVersion::Command(vec!["update".into(), "--check".into(), "--json".into()])
+    }
+
+    fn parse_newest(&self, out: &ProbeOutput) -> Option<String> {
+        let answer: Value = serde_json::from_str(out.stdout.trim()).ok()?;
+        answer
+            .get("latestVersion")
+            .and_then(Value::as_str)
+            .and_then(find_version)
+    }
+
+    fn update_command(&self) -> Option<Vec<String>> {
+        Some(vec!["update".into()])
+    }
+
+    /// `grok update --version <version>` installs that version.
+    fn put_back_command(&self, version: &str) -> Option<Vec<String>> {
+        Some(vec!["update".into(), "--version".into(), version.into()])
+    }
+
+    /// Grok's ACP `initialize` answer lists its models with each one's effort levels
+    /// (recorded), with no conversation: the same exchange also shows it answers the way
+    /// Plenipo reads it.
+    fn status_check(&self, _dir: &Path) -> StatusCheck {
+        let initialize = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false },
+                                    "terminal": false } } });
+        StatusCheck::Talk {
+            args: vec!["agent".into(), "--no-leader".into(), "stdio".into()],
+            lines: vec![initialize.to_string()],
+            answers: vec![1],
+        }
+    }
+
+    fn parse_models(&self, out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+        let answer = talk_answer(out, 1)?;
+        let models = answer
+            .pointer("/_meta/modelState/availableModels")?
+            .as_array()?;
+        Some(
+            models
+                .iter()
+                .filter_map(|m| {
+                    let name = m
+                        .get("modelId")
+                        .and_then(Value::as_str)
+                        .and_then(model_name)?;
+                    let label = m
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .and_then(|l| plain_name(l, 64))
+                        .unwrap_or_else(|| name.clone());
+                    let mut efforts: Vec<Effort> = m
+                        .pointer("/_meta/reasoningEfforts")
+                        .and_then(Value::as_array)
+                        .map(|list| {
+                            list.iter()
+                                .filter_map(|e| e.get("value").and_then(Value::as_str))
+                                .filter_map(Effort::parse)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    efforts.sort();
+                    efforts.dedup();
+                    Some(KnownModel {
+                        name,
+                        label,
+                        effort_levels: efforts,
+                    })
+                })
+                .collect(),
+        )
     }
 
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
@@ -516,5 +604,84 @@ mod tests {
             assert_eq!(ours, wanted, "{}", model.name);
         }
         assert!(!caps.billing_checked_per_turn);
+    }
+}
+
+/// Phase 19: the AI tools page (ADR-058 to ADR-060).
+#[cfg(test)]
+mod ai_tools_page_tests {
+    use super::*;
+
+    #[test]
+    fn signs_in_and_out_updates_and_goes_back_with_its_own_commands() {
+        assert_eq!(
+            Grok.account_command(AccountAction::SignIn),
+            Some(vec!["login".to_owned()])
+        );
+        assert_eq!(
+            Grok.account_command(AccountAction::SignOut),
+            Some(vec!["logout".to_owned()])
+        );
+        assert_eq!(Grok.update_command(), Some(vec!["update".to_owned()]));
+        assert_eq!(
+            Grok.put_back_command("1.0.41"),
+            Some(vec![
+                "update".to_owned(),
+                "--version".to_owned(),
+                "1.0.41".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn its_own_check_says_the_newest_version() {
+        assert_eq!(
+            Grok.newest_version(),
+            NewestVersion::Command(vec!["update".into(), "--check".into(), "--json".into()])
+        );
+        let recorded = ProbeOutput {
+            exit_code: Some(0),
+            stdout: include_str!(
+                "../../../../docs/phases/evidence/ai-tools-grok/update-check.jsonl"
+            )
+            .into(),
+            ..ProbeOutput::default()
+        };
+        assert_eq!(Grok.parse_newest(&recorded).as_deref(), Some("1.0.41"));
+        assert_eq!(Grok.parse_newest(&ProbeOutput::default()), None);
+    }
+
+    #[test]
+    fn its_models_and_their_effort_come_from_its_recorded_initialize_answer() {
+        let recorded = ProbeOutput {
+            exit_code: Some(0),
+            stdout: include_str!(
+                "../../../../docs/phases/evidence/ai-tools-grok/acp-signed-out.agent.jsonl"
+            )
+            .into(),
+            ..ProbeOutput::default()
+        };
+        let models = Grok.parse_models(&recorded).unwrap();
+        assert_eq!(
+            models,
+            vec![
+                KnownModel::new(
+                    "grok-4.6",
+                    "Grok 4.6",
+                    &[Effort::Low, Effort::Medium, Effort::High, Effort::XHigh]
+                ),
+                KnownModel::new(
+                    "grok-4.5",
+                    "Grok 4.5",
+                    &[Effort::Low, Effort::Medium, Effort::High]
+                ),
+            ]
+        );
+        let StatusCheck::Talk { args, lines, .. } = Grok.status_check(Path::new("/checks")) else {
+            panic!("Grok talks ACP");
+        };
+        assert_eq!(args, ["agent", "--no-leader", "stdio"]);
+        assert_eq!(lines.len(), 1, "initialize only: no conversation");
+        assert!(lines[0].contains("\"initialize\""));
     }
 }

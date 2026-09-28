@@ -7,6 +7,8 @@
 //!
 //! - `auth`: `POST /api/me` → `{"signedIn":true,"plan":"free"}`, `{"signedIn":false}`, or
 //!   `{"error":"…"}`. Never the account's email or name.
+//! - `models`: `GET /api/tags` (Ollama's documented list of the models on this PC) →
+//!   `{"models":[{"name":"gpt-oss:120b-cloud"},…]}`, or `{"error":"…"}` (Phase 19, ADR-060 §5).
 //! - `chat --model M --session ID [--resume] [--think LEVEL]`, the prompt on stdin:
 //!   `POST /api/chat` (streamed) → `session`, `thinking`, `text` (pieces of the answer),
 //!   `answer` (the whole answer), `done` (token counts), `notice` (with `leftOut` when earlier
@@ -56,6 +58,7 @@ pub fn run(args: &[String], input: &mut dyn Read, out: &mut dyn Write) -> i32 {
         .unwrap_or(DEFAULT_PORT);
     match args.first().map(String::as_str) {
         Some("auth") => auth(port, out),
+        Some("models") => models(port, out),
         Some("chat") => chat(port, args, input, out),
         _ => {
             emit(
@@ -93,6 +96,44 @@ fn auth(port: u16, out: &mut dyn Write) -> i32 {
         }
         Ok(response) if response.status == 401 => {
             emit(out, &json!({ "signedIn": false }));
+            0
+        }
+        Ok(mut response) => {
+            let detail = error_text(response.status, &response.body_text());
+            emit(out, &json!({ "error": detail }));
+            1
+        }
+        Err(e) => {
+            emit(out, &json!({ "error": e }));
+            1
+        }
+    }
+}
+
+// ---- The models on this PC (Phase 19, ADR-060 §5) ------------------------------------------------
+
+fn models(port: u16, out: &mut dyn Write) -> i32 {
+    match request(port, "GET", "/api/tags", b"", Some(PROBE_TIMEOUT)) {
+        Ok(mut response) if response.status == 200 => {
+            let body = response.body_text();
+            let Some(list) = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v.get("models").and_then(Value::as_array).cloned())
+            else {
+                emit(
+                    out,
+                    &json!({ "error": "Ollama's list of models was not understood" }),
+                );
+                return 1;
+            };
+            let names: Vec<Value> = list
+                .iter()
+                .filter_map(|m| m.get("name").or_else(|| m.get("model")))
+                .filter_map(Value::as_str)
+                .take(500)
+                .map(|name| json!({ "name": name }))
+                .collect();
+            emit(out, &json!({ "models": names }));
             0
         }
         Ok(mut response) => {
@@ -612,6 +653,31 @@ mod tests {
         let mut out = Vec::new();
         assert_eq!(run(&args(&["auth"], port), &mut &b""[..], &mut out), 0);
         assert_eq!(lines(&out), [json!({ "signedIn": false })]);
+    }
+
+    #[test]
+    fn the_models_on_this_pc_come_from_ollamas_list() {
+        let recorded = include_str!("../../../tests/fixtures/ollama-0.34.4/api/tags.jsonl");
+        let (port, rx) = service(200, recorded.trim(), false);
+        let mut out = Vec::new();
+        assert_eq!(run(&args(&["models"], port), &mut &b""[..], &mut out), 0);
+        let answer = &lines(&out)[0];
+        assert_eq!(answer["models"][0], json!({ "name": "gpt-oss:120b-cloud" }));
+        assert!(rx.recv().unwrap().starts_with("GET /api/tags HTTP/1.1\r\n"));
+        use crate::agent::adapter::RuntimeAdapter as _;
+        let parsed = crate::agent::ollama::Ollama
+            .parse_models(&crate::agent::adapter::ProbeOutput {
+                stdout: String::from_utf8_lossy(&out).into_owned(),
+                exit_code: Some(0),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(parsed[0].name, "gpt-oss:120b-cloud");
+
+        let (port, _rx) = service(500, "oops", false);
+        let mut out = Vec::new();
+        assert_eq!(run(&args(&["models"], port), &mut &b""[..], &mut out), 1);
+        assert!(lines(&out)[0].get("error").is_some());
     }
 
     #[test]

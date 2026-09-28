@@ -60,6 +60,7 @@ After the MVP:
 | Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)     | `1.9.0`  |
 | Phase 17 — The owner's control over workers (ADR-041 to ADR-045)   | `1.10.0` |
 | Phase 18 — The organization canvas (ADR-053 to ADR-056)            | `1.11.0` |
+| Phase 19 — The AI tools page (ADR-058 to ADR-060)                  | `1.12.0` |
 
 ## Releasing
 

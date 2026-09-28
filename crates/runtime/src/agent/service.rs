@@ -23,14 +23,14 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::adapter::{
-    cap, first_line, FileRequest, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
-    TurnRequest, MAX_EVENT_TEXT,
+    cap, first_line, talk_answer, FileRequest, NewestVersion, ProcessEnd, ProviderSession,
+    RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, MAX_EVENT_TEXT,
 };
 use crate::agent::brief::{
     note_in_full, text_hash, BriefInput, Conversation, Delivery, Standing, StepMessage,
     NOTE_REMINDER,
 };
-use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
+use crate::agent::discovery::{locate, run_probe, run_talk, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, BriefKind, NoteKind, OutputLine, OutputStream, PromptSize};
@@ -48,6 +48,9 @@ pub const STEP_SEQ: u64 = 1_000_000;
 pub const OWNER: &str = "owner";
 /// How long a task that talks (ADR-015) gets to stop itself when cancelled.
 const CANCEL_GRACE: Duration = Duration::from_secs(5);
+/// How long a task waits, at most, while its AI tool is held for a sign-in or an update
+/// (ADR-058 §5, ADR-059 §4); after that it goes on.
+pub const HOLD_WAIT: Duration = Duration::from_secs(10 * 60);
 
 /// Where sessions and turns are recorded. The desktop app backs this with the Ledger.
 /// Calls may block (they run on a blocking thread).
@@ -232,6 +235,8 @@ pub struct AgentConfig {
     /// Plenipo's bridge for AI tools reached through a service on this PC (ADR-017): the
     /// program and its first arguments. Without it, such AI tools are shown as not usable.
     pub bridge: Option<Bridge>,
+    /// How long a task waits, at most, while its AI tool is held ([`HOLD_WAIT`]).
+    pub hold_wait: Duration,
 }
 
 /// A program Plenipo runs in place of an AI tool's own (for the sign-in check and tasks),
@@ -255,6 +260,7 @@ impl AgentConfig {
             stored_activity_per_turn: 500,
             extra_env: Vec::new(),
             bridge: None,
+            hold_wait: HOLD_WAIT,
         }
     }
 }
@@ -273,6 +279,8 @@ enum Claim {
 
 struct Active {
     claim: Claim,
+    /// The AI tool a step runs on, once it passed its check ([`AgentRuntime::tasks_using`]).
+    runtime_id: Option<String>,
     task_id: Option<String>,
     execution_id: Option<String>,
     /// The step running (or, while waiting, the last one run).
@@ -281,6 +289,10 @@ struct Active {
     done: watch::Receiver<bool>,
     /// Asks a task that talks (ADR-015) to stop itself before its process is ended.
     interrupt: Option<mpsc::UnboundedSender<()>>,
+    /// The step waits for its AI tool, held by an update or a sign-in tab ([`HoldFor`]).
+    waiting_for_hold: bool,
+    /// The owner stopped it while it waited: it ends as cancelled, before it starts.
+    stop_waiting: bool,
 }
 
 #[derive(Default)]
@@ -299,6 +311,12 @@ struct State {
     conversations: HashMap<String, Conversation>,
     /// The last conversation mark given out ([`Conversation::mark`]).
     marks: u64,
+    /// AI tools no new task may start on for now, and how many holds of each kind each has
+    /// (ADR-058 §5, ADR-059 §4).
+    holds: HashMap<String, Holds>,
+    /// AI tools Plenipo gives no tasks, and why: an update left one that does not answer the way
+    /// Plenipo reads it (ADR-059 §6).
+    out_of_service: HashMap<String, String>,
 }
 
 impl State {
@@ -321,6 +339,8 @@ struct Inner {
     filter: RwLock<Option<TextFilter>>,
     host: HostEnv,
     state: Mutex<State>,
+    /// Woken when a hold on an AI tool ends.
+    holds_changed: tokio::sync::Notify,
 }
 
 /// Cheap to clone; clones share state.
@@ -378,6 +398,7 @@ impl AgentRuntime {
                     runtimes,
                     ..State::default()
                 }),
+                holds_changed: tokio::sync::Notify::new(),
             }),
         };
         this.recover();
@@ -641,7 +662,15 @@ impl AgentRuntime {
     // ---- Detection ----------------------------------------------------------------------
 
     pub fn runtimes(&self) -> Vec<AgentRuntimeInfo> {
-        self.lock().runtimes.clone()
+        let state = self.lock();
+        state
+            .runtimes
+            .iter()
+            .map(|r| AgentRuntimeInfo {
+                held: state.holds.get(&r.id).map(|h| h.reason()),
+                ..r.clone()
+            })
+            .collect()
     }
 
     /// Detect installation, version, and sign-in for every runtime (in parallel).
@@ -668,9 +697,13 @@ impl AgentRuntime {
         runtimes
     }
 
-    fn store_info(&self, info: AgentRuntimeInfo) {
+    fn store_info(&self, mut info: AgentRuntimeInfo) {
         let mut state = self.lock();
         if let Some(slot) = state.runtimes.iter_mut().find(|r| r.id == info.id) {
+            // What the AI tool last reported about its models outlives each check (ADR-060 §5).
+            if info.reported_models.is_none() {
+                info.reported_models = slot.reported_models.take();
+            }
             *slot = info;
         }
     }
@@ -825,6 +858,10 @@ impl AgentRuntime {
         let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
+        if let Some(why) = self.lock().out_of_service.get(adapter.id()) {
+            info.ready = false;
+            info.installation.detail = Some(why.clone());
+        }
         let billing_confirmed = info.auth.state == AuthState::Subscription;
         let ready = info.ready.then_some(Ready {
             executable,
@@ -844,8 +881,22 @@ impl AgentRuntime {
         }
     }
 
-    /// Fresh check right before a turn. Refuses with an explanation when not usable.
-    async fn preflight(&self, adapter: &dyn RuntimeAdapter) -> Result<Ready, NotReady> {
+    /// Fresh check right before a turn. Refuses with an explanation when not usable. While the
+    /// AI tool is held (a sign-in or an update), the turn waits first ([`Self::hold_if_free`]).
+    async fn preflight(
+        &self,
+        adapter: &dyn RuntimeAdapter,
+        session_id: &str,
+    ) -> Result<Ready, NotReady> {
+        if !self.wait_for_hold(adapter.id(), session_id).await {
+            return Err(NotReady {
+                error: RuntimeError::NotReady(format!(
+                    "Stopped while it waited for {} to be free.",
+                    adapter.label()
+                )),
+                outcome: TurnOutcome::Cancelled,
+            });
+        }
         let (info, ready) = self.detect(adapter, false).await;
         let changed = self
             .lock()
@@ -867,14 +918,318 @@ impl AgentRuntime {
         })
     }
 
+    // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) --------------------------------
+
+    /// The adapter for `runtime_id`, when this build has it.
+    pub fn adapter_for(&self, runtime_id: &str) -> Option<Arc<dyn RuntimeAdapter>> {
+        self.adapter(runtime_id)
+    }
+
+    /// The tasks using `runtime_id` now: a step passed its check and runs, or is about to
+    /// (ADR-058 §5, ADR-059 §3). A task waiting between steps does not count.
+    pub fn tasks_using(&self, runtime_id: &str) -> Vec<String> {
+        using(&self.lock(), runtime_id)
+    }
+
+    /// Hold `runtime_id` — no new task starts on it while the hold is kept — if it is free: no
+    /// task is using it, and it is not held already (one sign-in tab or update at a time, since
+    /// both run the tool's own program). A task that would start meanwhile waits: for a sign-in,
+    /// [`AgentConfig::hold_wait`] at most, then it goes on; for an update, until the hold is let
+    /// go ([`HoldFor`]).
+    pub fn hold_if_free(&self, runtime_id: &str, reason: HoldFor) -> Result<RuntimeHold, NotFree> {
+        let mut state = self.lock();
+        let tasks = using(&state, runtime_id);
+        if !tasks.is_empty() {
+            return Err(NotFree::Tasks(tasks));
+        }
+        if let Some(held) = state.holds.get(runtime_id) {
+            return Err(NotFree::Held(held.reason()));
+        }
+        let holds = state.holds.entry(runtime_id.to_owned()).or_default();
+        *holds.count(reason) += 1;
+        drop(state);
+        self.holds_shown();
+        Ok(RuntimeHold {
+            runtime: self.clone(),
+            runtime_id: runtime_id.to_owned(),
+            reason,
+        })
+    }
+
+    /// Tell the screen which AI tools are held now: a new task on one says it waits.
+    fn holds_shown(&self) {
+        self.inner.sink.emit(AgentUpdate::Runtimes(RuntimesUpdate {
+            runtimes: self.runtimes(),
+        }));
+    }
+
+    /// Whether `runtime_id` is held now.
+    pub fn held(&self, runtime_id: &str) -> bool {
+        self.lock().holds.contains_key(runtime_id)
+    }
+
+    fn release_hold(&self, runtime_id: &str, reason: HoldFor) {
+        {
+            let mut state = self.lock();
+            if let Some(holds) = state.holds.get_mut(runtime_id) {
+                let count = holds.count(reason);
+                *count = count.saturating_sub(1);
+                if *holds == Holds::default() {
+                    state.holds.remove(runtime_id);
+                }
+            }
+        }
+        self.inner.holds_changed.notify_waiters();
+        self.holds_shown();
+    }
+
+    /// Wait while `runtime_id` is held — while it updates, until the update and its checks are
+    /// done; while only a sign-in tab holds it, [`AgentConfig::hold_wait`] at most — then mark
+    /// the session's step as using it. `false`: the owner stopped the task while it waited.
+    async fn wait_for_hold(&self, runtime_id: &str, session_id: &str) -> bool {
+        let deadline = tokio::time::Instant::now() + self.inner.config.hold_wait;
+        loop {
+            let notified = self.inner.holds_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let updating = {
+                let mut state = self.lock();
+                let holds = state.holds.get(runtime_id).copied().unwrap_or_default();
+                let past = tokio::time::Instant::now() >= deadline;
+                let Some(active) = state.active.get_mut(session_id) else {
+                    return true;
+                };
+                if active.stop_waiting {
+                    active.waiting_for_hold = false;
+                    return false;
+                }
+                if holds.update == 0 && (holds.sign_in == 0 || past) {
+                    active.runtime_id = Some(runtime_id.to_owned());
+                    active.waiting_for_hold = false;
+                    return true;
+                }
+                active.waiting_for_hold = true;
+                holds.update > 0
+            };
+            if updating {
+                // Each step of an update has its own time limit, so the hold is let go.
+                notified.await;
+            } else {
+                let _ = tokio::time::timeout_at(deadline, notified).await;
+            }
+        }
+    }
+
+    /// Check one AI tool again — installation, version, and sign-in — as after its sign-in tab
+    /// closes (ADR-058 §4) or an update (ADR-059 §5). Returns the sign-in before, and the tool
+    /// now.
+    pub async fn recheck(&self, runtime_id: &str) -> Option<(AuthStatus, AgentRuntimeInfo)> {
+        let adapter = self.adapter(runtime_id)?;
+        let before = self
+            .runtimes()
+            .into_iter()
+            .find(|r| r.id == runtime_id)
+            .map(|r| r.auth)?;
+        let (info, _) = self.detect(adapter.as_ref(), true).await;
+        self.store_info(info);
+        let runtimes = self.runtimes();
+        let now = runtimes.iter().find(|r| r.id == runtime_id).cloned()?;
+        self.inner
+            .sink
+            .emit(AgentUpdate::Runtimes(RuntimesUpdate { runtimes }));
+        Some((before, now))
+    }
+
+    /// The AI tool's own program — found by its rules and allowed by the supervisor (ADR-005) —
+    /// with the environment its tasks get, for its sign-in tab, its update, and its checks. For
+    /// a bridged AI tool (Ollama), its real program, not Plenipo's bridge.
+    pub fn tool_program(&self, runtime_id: &str) -> Result<ToolProgram, String> {
+        let adapter = self
+            .adapter(runtime_id)
+            .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
+        let host = &self.inner.host;
+        let executable = match locate(adapter.as_ref(), host) {
+            Located::Found(path) => path,
+            Located::NotFound => {
+                return Err(format!("{} is not installed on this PC.", adapter.label()))
+            }
+            Located::Unsupported(_) => {
+                return Err(format!(
+                    "{} is installed in a form Plenipo does not run. Install the native build.",
+                    adapter.label()
+                ))
+            }
+        };
+        let executable = self
+            .inner
+            .supervisor
+            .allow_executable(&executable)
+            .map_err(|e| e.to_string())?;
+        let mut env = runtime_env(adapter.as_ref(), host);
+        env.extend(self.inner.config.extra_env.iter().cloned());
+        Ok(ToolProgram {
+            label: adapter.label().to_owned(),
+            executable,
+            env,
+            dir: self.probe_dir(),
+        })
+    }
+
+    /// The newest version, from the AI tool's own check ([`NewestVersion::Command`]); `None`
+    /// when it has none. Other sources are read by the caller (ADR-059 §2).
+    pub async fn newest_by_command(&self, runtime_id: &str) -> Result<Option<String>, String> {
+        let adapter = self
+            .adapter(runtime_id)
+            .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
+        let NewestVersion::Command(args) = adapter.newest_version() else {
+            return Ok(None);
+        };
+        let program = self.tool_program(runtime_id)?;
+        let out = run_probe(
+            &program.executable,
+            &args,
+            &program.env,
+            &program.dir,
+            self.inner.config.probe_timeout,
+        )
+        .await;
+        match adapter.parse_newest(&out) {
+            Some(version) => Ok(Some(version)),
+            None => Err(probe_failure("check for a new version", &out)),
+        }
+    }
+
+    /// The AI tool's short, task-free check (ADR-060): its own list of models, and for some
+    /// tools how much of the plan is used. A list it reported is kept with the tool
+    /// ([`AgentRuntimeInfo::reported_models`]).
+    pub async fn status_check(&self, runtime_id: &str) -> Result<StatusAnswer, String> {
+        let adapter = self
+            .adapter(runtime_id)
+            .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
+        let program = self.tool_program(runtime_id)?;
+        let timeout = self.inner.config.probe_timeout;
+        let check = adapter.status_check(&program.dir);
+        // A tool that talks answers its first request (`initialize`) the way Plenipo reads it
+        // even when it then says it needs a sign-in, or is slow to list its models.
+        let greeting = match &check {
+            StatusCheck::Talk { answers, .. } => answers.first().copied(),
+            _ => None,
+        };
+        let out = match check {
+            StatusCheck::None => return Ok(StatusAnswer::default()),
+            StatusCheck::Command(args) => {
+                run_probe(
+                    &program.executable,
+                    &args,
+                    &program.env,
+                    &program.dir,
+                    timeout,
+                )
+                .await
+            }
+            StatusCheck::Bridge(args) => {
+                let bridge = self.inner.config.bridge.as_ref().ok_or_else(|| {
+                    format!(
+                        "This version of Plenipo cannot reach {} (its helper is not set up).",
+                        adapter.label()
+                    )
+                })?;
+                let executable = self
+                    .inner
+                    .supervisor
+                    .allow_executable(&bridge.executable)
+                    .map_err(|e| e.to_string())?;
+                let args = [bridge.args.clone(), args].concat();
+                run_probe(&executable, &args, &program.env, &program.dir, timeout).await
+            }
+            StatusCheck::Talk {
+                args,
+                lines,
+                answers,
+            } => {
+                run_talk(
+                    &program.executable,
+                    &args,
+                    &program.env,
+                    &program.dir,
+                    &lines,
+                    &answers,
+                    timeout,
+                )
+                .await
+            }
+        };
+        let models = adapter.parse_models(&out);
+        let plan = adapter.parse_plan(&out);
+        let greeted = greeting.is_some_and(|id| talk_answer(&out, id).is_some());
+        if models.is_none() && plan.is_none() && !greeted {
+            return Err(probe_failure("check", &out));
+        }
+        if let Some(models) = &models {
+            self.set_reported_models(
+                runtime_id,
+                ReportedModels {
+                    models: models.clone(),
+                    complete: adapter.reports_every_model(),
+                    checked_at: crate::now_ms(),
+                },
+            );
+        }
+        Ok(StatusAnswer {
+            checked: true,
+            models,
+            plan,
+        })
+    }
+
+    /// Keep the models `runtime_id` reported (a check, or the list saved in the Ledger when
+    /// Plenipo starts), and tell the screen.
+    pub fn set_reported_models(&self, runtime_id: &str, models: ReportedModels) {
+        {
+            let mut state = self.lock();
+            let Some(slot) = state.runtimes.iter_mut().find(|r| r.id == runtime_id) else {
+                return;
+            };
+            slot.reported_models = Some(models);
+        }
+        self.inner.sink.emit(AgentUpdate::Runtimes(RuntimesUpdate {
+            runtimes: self.runtimes(),
+        }));
+    }
+
+    /// Give `runtime_id` no tasks, and say why (`Some`), or give it tasks again (`None`): an
+    /// update left it not answering the way Plenipo reads it (ADR-059 §6). Takes effect at its
+    /// next check.
+    pub fn set_out_of_service(&self, runtime_id: &str, why: Option<String>) {
+        let mut state = self.lock();
+        match why {
+            Some(why) => state.out_of_service.insert(runtime_id.to_owned(), why),
+            None => state.out_of_service.remove(runtime_id),
+        };
+    }
+
+    /// Why `runtime_id` is given no tasks, if it is not ([`Self::set_out_of_service`]).
+    pub fn out_of_service(&self, runtime_id: &str) -> Option<String> {
+        self.lock().out_of_service.get(runtime_id).cloned()
+    }
+
+    /// An AI tool reported how much of the plan is used, during a task (ADR-060 §3).
+    fn plan_reported(&self, runtime_id: &str, report: PlanReport) {
+        self.inner.sink.emit(AgentUpdate::Plan(PlanUpdate {
+            runtime_id: runtime_id.to_owned(),
+            report,
+        }));
+    }
+
     // ---- Sessions -----------------------------------------------------------------------
 
     pub async fn overview(&self) -> Result<AgentOverview, RuntimeError> {
         let sessions = self.with_store(|s| s.sessions(200)).await?;
         let sessions = sessions.into_iter().map(|s| self.with_active(s)).collect();
+        let runtimes = self.runtimes();
         let state = self.lock();
         Ok(AgentOverview {
-            runtimes: state.runtimes.clone(),
+            runtimes,
             sessions,
             notices: state.notices.clone(),
         })
@@ -957,7 +1312,7 @@ impl AgentRuntime {
             .unwrap_or_else(|| first_line(&input.objective, 80));
         let reservation = self.reserve(&session_id, Claim::Turn)?;
         let ready = self
-            .preflight(adapter.as_ref())
+            .preflight(adapter.as_ref(), &session_id)
             .await
             .map_err(|n| n.error)?;
 
@@ -1028,7 +1383,7 @@ impl AgentRuntime {
             ))
         })?;
         let ready = self
-            .preflight(adapter.as_ref())
+            .preflight(adapter.as_ref(), session_id)
             .await
             .map_err(|n| n.error)?;
         self.run_turn(session, adapter, ready, input, reservation)
@@ -1088,6 +1443,10 @@ impl AgentRuntime {
             let (tx, rx) = watch::channel(false);
             active.claim = Claim::Turn;
             active.execution_id = None;
+            // Not using its AI tool until its check passes (it may wait for a hold first).
+            active.runtime_id = None;
+            active.waiting_for_hold = false;
+            active.stop_waiting = false;
             active.step += 1;
             active.step_started_at = crate::now_ms();
             active.done = rx;
@@ -1123,7 +1482,7 @@ impl AgentRuntime {
             .await;
             return Err(e);
         };
-        let ready = match self.preflight(adapter.as_ref()).await {
+        let ready = match self.preflight(adapter.as_ref(), session_id).await {
             Ok(ready) => ready,
             Err(n) => {
                 self.end_waiting(
@@ -1278,6 +1637,8 @@ impl AgentRuntime {
                 Option<mpsc::UnboundedSender<()>>,
             ),
             Waiting(String),
+            /// Waiting for its AI tool (an update or a sign-in tab): it ends before it starts.
+            Held(watch::Receiver<bool>),
         }
         let target = {
             let mut state = self.lock();
@@ -1312,6 +1673,13 @@ impl AgentRuntime {
                         active.claim = Claim::Close;
                     }
                     Target::Waiting(task)
+                }
+                _ if active.waiting_for_hold && active.execution_id.is_none() => {
+                    let done = active.done.clone();
+                    if let Some(active) = state.active.get_mut(session_id) {
+                        active.stop_waiting = true;
+                    }
+                    Target::Held(done)
                 }
                 _ => {
                     let execution = active.execution_id.clone().ok_or_else(|| {
@@ -1353,6 +1721,11 @@ impl AgentRuntime {
                 }
             }
             Target::Waiting(task_id) => Some(task_id),
+            Target::Held(mut done) => {
+                self.inner.holds_changed.notify_waiters();
+                let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+                None
+            }
         };
         if let Some(task_id) = waiting {
             let id = session_id.to_owned();
@@ -1460,12 +1833,15 @@ impl AgentRuntime {
             session_id.to_owned(),
             Active {
                 claim,
+                runtime_id: None,
                 task_id: None,
                 execution_id: None,
                 step: 1,
                 step_started_at: crate::now_ms(),
                 done: done_rx,
                 interrupt: None,
+                waiting_for_hold: false,
+                stop_waiting: false,
             },
         );
         Ok(Reservation {
@@ -1909,6 +2285,99 @@ fn first_message(input: TurnInput) -> StepMessage {
     }
 }
 
+/// Why an AI tool could not be held ([`AgentRuntime::hold_if_free`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotFree {
+    /// These tasks are using it.
+    Tasks(Vec<String>),
+    /// It is held already: its sign-in tab is open, or it is updating.
+    Held(HoldFor),
+}
+
+/// How many holds of each kind one AI tool has.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Holds {
+    sign_in: u32,
+    update: u32,
+}
+
+impl Holds {
+    /// Why the tool is held: an update, when there is one.
+    fn reason(self) -> HoldFor {
+        if self.update > 0 {
+            HoldFor::Update
+        } else {
+            HoldFor::SignIn
+        }
+    }
+
+    fn count(&mut self, reason: HoldFor) -> &mut u32 {
+        match reason {
+            HoldFor::SignIn => &mut self.sign_in,
+            HoldFor::Update => &mut self.update,
+        }
+    }
+}
+
+/// While kept, no new task starts on one AI tool (ADR-058 §5, ADR-059 §4); dropping it lets
+/// waiting tasks go.
+pub struct RuntimeHold {
+    runtime: AgentRuntime,
+    runtime_id: String,
+    reason: HoldFor,
+}
+
+impl RuntimeHold {
+    pub fn runtime_id(&self) -> &str {
+        &self.runtime_id
+    }
+}
+
+impl std::fmt::Debug for RuntimeHold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeHold")
+            .field("runtime_id", &self.runtime_id)
+            .field("reason", &self.reason)
+            .finish()
+    }
+}
+
+impl Drop for RuntimeHold {
+    fn drop(&mut self) {
+        self.runtime.release_hold(&self.runtime_id, self.reason);
+    }
+}
+
+/// An AI tool's own program, found and allowed, with the environment its tasks get and
+/// Plenipo's empty check folder ([`AgentRuntime::tool_program`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolProgram {
+    /// "Codex".
+    pub label: String,
+    pub executable: PathBuf,
+    pub env: Vec<(String, String)>,
+    pub dir: PathBuf,
+}
+
+/// What an AI tool's short check said ([`AgentRuntime::status_check`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StatusAnswer {
+    /// The tool has a check, and it ran.
+    pub checked: bool,
+    pub models: Option<Vec<KnownModel>>,
+    pub plan: Option<PlanReport>,
+}
+
+/// The tasks whose step runs on `runtime_id` (a task not yet numbered shows as "").
+fn using(state: &State, runtime_id: &str) -> Vec<String> {
+    state
+        .active
+        .values()
+        .filter(|a| a.claim == Claim::Turn && a.runtime_id.as_deref() == Some(runtime_id))
+        .map(|a| a.task_id.clone().unwrap_or_default())
+        .collect()
+}
+
 /// Holds a session's slot until the turn is launched (or the attempt fails).
 struct Reservation {
     runtime: AgentRuntime,
@@ -2012,6 +2481,9 @@ impl TurnContext {
                 for preview in parsed.previews {
                     provider.preview_write(grant, preview);
                 }
+            }
+            if let Some(plan) = parsed.plan {
+                self.runtime.plan_reported(&self.session.runtime_id, plan);
             }
             for event in parsed.events {
                 self.event(event).await;
@@ -2407,7 +2879,23 @@ fn checking(adapter: &dyn RuntimeAdapter) -> AgentRuntimeInfo {
         login_hint: adapter.login_hint().into(),
         ready: false,
         checked_at: None,
+        checked_version: adapter.checked_version().into(),
+        account: AccountCommands {
+            sign_in: account_words(adapter, AccountAction::SignIn),
+            sign_out: account_words(adapter, AccountAction::SignOut),
+        },
+        reported_models: None,
+        held: None,
     }
+}
+
+/// The AI tool's own sign-in or sign-out command as the owner would type it (`codex login`).
+fn account_words(adapter: &dyn RuntimeAdapter, action: AccountAction) -> Option<String> {
+    adapter.account_command(action).map(|args| {
+        [vec![adapter.executable_name().to_owned()], args]
+            .concat()
+            .join(" ")
+    })
 }
 
 /// Sign-in states a turn may run with. A runtime that re-checks billing during every turn
@@ -2439,6 +2927,11 @@ pub fn unavailable_outcome(info: &AgentRuntimeInfo) -> TurnOutcome {
 fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> String {
     let label = adapter.label();
     match info.installation.state {
+        // Installed, but given no tasks (ADR-059 §6): the only case with a detail.
+        InstallState::Installed if info.installation.detail.is_some() => {
+            let detail = info.installation.detail.clone().unwrap_or_default();
+            return format!("Plenipo is not giving {label} tasks for now: {detail}");
+        }
         InstallState::Installed => {}
         InstallState::Checking => return format!("{label} is still being checked."),
         _ => {

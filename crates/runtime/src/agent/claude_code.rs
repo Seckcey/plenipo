@@ -11,13 +11,14 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, first_line, tool_summary, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
-    RuntimeAdapter, Stop, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, NETWORK_ENV,
+    cap, first_line, tool_summary, NewestVersion, Parsed, ProbeOutput, ProcessEnd, ProviderSession,
+    PublishedList, RuntimeAdapter, Stop, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT,
+    NETWORK_ENV,
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
-    TurnOutcome, TurnResult,
+    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, PlanReport,
+    PlanWindow, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
 use crate::agent::preview::{
     plenipo_write_tool, preview_of, PreviewPace, WriteTool, MAX_PREVIEW_JSON,
@@ -142,6 +143,44 @@ impl RuntimeAdapter for ClaudeCode {
     /// Its `compact_boundary` notice (ADR-044 §2.5).
     fn reports_memory_shortened(&self) -> bool {
         true
+    }
+
+    /// Anthropic's command-line reference: `claude auth login` and `claude auth logout`. Never
+    /// `--console`, which signs in for pay-per-use API billing (ADR-058).
+    fn account_command(&self, action: AccountAction) -> Option<Vec<String>> {
+        Some(match action {
+            AccountAction::SignIn => vec!["auth".into(), "login".into()],
+            AccountAction::SignOut => vec!["auth".into(), "logout".into()],
+        })
+    }
+
+    /// Anthropic publishes each Claude Code release on npm, with the number its native build
+    /// reports (2.1.283 on both, 2026-09-28).
+    fn newest_version(&self) -> NewestVersion {
+        NewestVersion::Published(PublishedList::Npm("@anthropic-ai/claude-code"))
+    }
+
+    /// Anthropic's setup page: `claude update`. `DISABLE_AUTOUPDATER` stops only the background
+    /// check, so it stays set.
+    fn update_command(&self) -> Option<Vec<String>> {
+        Some(vec!["update".into()])
+    }
+
+    /// `claude install <version>` installs that version of the native build again.
+    fn put_back_command(&self, version: &str) -> Option<Vec<String>> {
+        Some(vec!["install".into(), version.into()])
+    }
+
+    /// Documented: Claude Code's `rate_limit_event`; Codex's app server.
+    fn reports_plan_left(&self) -> bool {
+        true
+    }
+
+    fn update_by_hand(&self) -> Option<&'static str> {
+        Some(
+            "Claude Code installed with WinGet updates with WinGet: open a terminal and type \
+             winget upgrade Anthropic.ClaudeCode",
+        )
     }
 
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
@@ -554,6 +593,54 @@ impl Parser {
     }
 }
 
+/// Claude Code's `rate_limit_event`, documented as the Agent SDK's `SDKRateLimitEvent`: whether
+/// the plan's limit was reached or is near, the share of it used (`utilization`, 0 to 1), and
+/// when it resets (`resetsAt`, seconds). Only those documented fields are read; the share and the
+/// reset time are optional, and a missing one is left out, never worked out (ADR-060 §3).
+fn plan_report(v: &Value, now: u64) -> Option<PlanReport> {
+    let info = v.get("rate_limit_info")?;
+    let (limited, warning) = match info.get("status").and_then(Value::as_str)? {
+        "allowed" => (false, false),
+        "allowed_warning" => (false, true),
+        "rejected" => (true, false),
+        _ => return None,
+    };
+    let used_percent = info
+        .get("utilization")
+        .and_then(Value::as_f64)
+        .filter(|u| u.is_finite() && *u >= 0.0)
+        .map(|u| (u * 100.0).round().min(100.0) as u8);
+    let resets_at = info
+        .get("resetsAt")
+        .and_then(Value::as_f64)
+        .and_then(epoch_ms);
+    let windows = if used_percent.is_some() || resets_at.is_some() {
+        vec![PlanWindow {
+            minutes: None,
+            used_percent,
+            resets_at,
+        }]
+    } else {
+        Vec::new()
+    };
+    Some(PlanReport {
+        windows,
+        limited,
+        warning,
+        plan: None,
+        reported_at: now,
+    })
+}
+
+/// A time in seconds (or, if it is that large, milliseconds) since 1970, as milliseconds.
+pub(crate) fn epoch_ms(value: f64) -> Option<u64> {
+    if !value.is_finite() || value <= 0.0 {
+        return None;
+    }
+    let ms = if value < 1e12 { value * 1000.0 } else { value };
+    (ms < 1e15).then_some(ms as u64)
+}
+
 impl TurnParser for Parser {
     fn line(&mut self, text: &str, truncated: bool) -> Parsed {
         let Ok(v) = serde_json::from_str::<Value>(text) else {
@@ -585,6 +672,11 @@ impl TurnParser for Parser {
             Some("assistant") => self.assistant(&v),
             Some("user") => Self::user(&v),
             Some("result") => self.result(&v),
+            // How much of the plan is used (ADR-060 §3).
+            Some("rate_limit_event") => Parsed {
+                plan: plan_report(&v, crate::now_ms()),
+                ..Parsed::none()
+            },
             // Claude Code compacted the conversation: it keeps a summary of the earlier part
             // (ADR-044 §2.5).
             Some("system")
@@ -1054,5 +1146,102 @@ mod tests {
             names,
             ["DISABLE_AUTOUPDATER", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY"]
         );
+    }
+}
+
+/// Phase 19: the AI tools page (ADR-058 to ADR-060).
+#[cfg(test)]
+mod ai_tools_page_tests {
+    use super::*;
+    use crate::agent::adapter::NewestVersion;
+    use serde_json::json;
+
+    fn request() -> TurnRequest {
+        TurnRequest {
+            session: ProviderSession::New { preassigned: None },
+            model: None,
+            effort: None,
+            billing_confirmed: true,
+            tools: None,
+            working_dir: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn signs_in_and_out_and_updates_with_its_own_commands() {
+        assert_eq!(
+            ClaudeCode.account_command(AccountAction::SignIn),
+            Some(vec!["auth".to_owned(), "login".to_owned()])
+        );
+        assert_eq!(
+            ClaudeCode.account_command(AccountAction::SignOut),
+            Some(vec!["auth".to_owned(), "logout".to_owned()])
+        );
+        assert_eq!(ClaudeCode.update_command(), Some(vec!["update".to_owned()]));
+        assert_eq!(
+            ClaudeCode.put_back_command("2.1.283"),
+            Some(vec!["install".to_owned(), "2.1.283".to_owned()])
+        );
+        assert_eq!(
+            ClaudeCode.newest_version(),
+            NewestVersion::Published(PublishedList::Npm("@anthropic-ai/claude-code"))
+        );
+        assert!(ClaudeCode
+            .update_by_hand()
+            .unwrap()
+            .contains("winget upgrade"));
+        // Its updater stays off during tasks; `claude update` still works with it set.
+        assert!(ClaudeCode
+            .fixed_env()
+            .contains(&("DISABLE_AUTOUPDATER".into(), "1".into())));
+    }
+
+    #[test]
+    fn reads_the_plan_only_from_its_documented_rate_limit_event() {
+        let event = json!({ "type": "rate_limit_event", "uuid": "u", "session_id": "s",
+            "rate_limit_info": { "status": "allowed_warning", "resetsAt": 1_790_578_200u64,
+                                 "utilization": 0.914 } });
+        let report = plan_report(&event, 7).unwrap();
+        assert_eq!(
+            report.windows,
+            vec![PlanWindow {
+                minutes: None,
+                used_percent: Some(91),
+                resets_at: Some(1_790_578_200_000),
+            }]
+        );
+        assert!(report.warning && !report.limited);
+        assert_eq!(report.reported_at, 7);
+        // The share is optional: without it, only what was reported.
+        let reached = json!({ "type": "rate_limit_event",
+            "rate_limit_info": { "status": "rejected", "resetsAt": 1_790_578_200u64 } });
+        let report = plan_report(&reached, 1).unwrap();
+        assert!(report.limited);
+        assert_eq!(report.windows[0].used_percent, None);
+        // Nothing reported: no window, never a share worked out.
+        let bare =
+            json!({ "type": "rate_limit_event", "rate_limit_info": { "status": "allowed" } });
+        assert!(plan_report(&bare, 1).unwrap().windows.is_empty());
+        // Undocumented statuses and shapes are not read.
+        let odd = json!({ "type": "rate_limit_event", "rate_limit_info": { "status": "maybe" } });
+        assert_eq!(plan_report(&odd, 1), None);
+        assert_eq!(
+            plan_report(&json!({ "type": "rate_limit_event", "info": {} }), 1),
+            None
+        );
+    }
+
+    #[test]
+    fn the_plan_comes_through_the_stream_plenipo_already_reads() {
+        let mut parser = ClaudeCode.parser(&request());
+        let init = json!({ "type": "system", "subtype": "init", "session_id": "s",
+                           "apiKeySource": "none" });
+        let _ = parser.line(&init.to_string(), false);
+        let event = json!({ "type": "rate_limit_event", "uuid": "u", "session_id": "s",
+            "rate_limit_info": { "status": "allowed", "resetsAt": 1_790_578_200u64,
+                                 "utilization": 0.09 } });
+        let parsed = parser.line(&event.to_string(), false);
+        assert_eq!(parsed.plan.unwrap().windows[0].used_percent, Some(9));
+        assert!(parsed.events.is_empty() && parsed.stop.is_none());
     }
 }

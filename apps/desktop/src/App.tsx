@@ -230,8 +230,11 @@ function Shell({ core }: { core: CoreState }) {
       else if (next.view === "activity") selectTask(next.id);
       else if (next.view === "workers") selectSession(next.id);
     }
+    // A page, a Settings section, and an AI tool's card keep their ID in the place.
     const target: Place =
-      isPageKind(next.view) || next.view === "settings" ? next : { view: next.view, id: null };
+      isPageKind(next.view) || next.view === "settings" || next.view === "runtimes"
+        ? next
+        : { view: next.view, id: null };
     if (samePlace(target, place)) return;
     setTrail((t) => [...t, place].slice(-MAX_TRAIL));
     setPlace(target);
@@ -436,7 +439,7 @@ function Shell({ core }: { core: CoreState }) {
               selectedSessionId={selectedSession}
               onSelectSession={selectSession}
               onShowExecution={showExecution}
-              onOpenRuntimes={() => navigate("runtimes")}
+              onOpenRuntimes={(id) => go({ view: "runtimes", id: id ?? null })}
               onOpenPosition={openPosition}
               onOpenPage={go}
             />
@@ -444,7 +447,9 @@ function Shell({ core }: { core: CoreState }) {
           {view === "approvals" && (
             <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
           )}
-          {view === "runtimes" && <RuntimesView selectedId={selected} onSelect={select} />}
+          {view === "runtimes" && (
+            <RuntimesView selectedId={selected} onSelect={select} toolId={place.id} />
+          )}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />
           )}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-ai-tool-payment"
+description = "Enables the set_ai_tool_payment command without any pre-configured scope."
+commands.allow = ["set_ai_tool_payment"]
+
+[[permission]]
+identifier = "deny-set-ai-tool-payment"
+description = "Denies the set_ai_tool_payment command without any pre-configured scope."
+commands.deny = ["set_ai_tool_payment"]

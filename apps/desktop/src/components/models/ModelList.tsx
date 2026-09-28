@@ -178,7 +178,8 @@ function ModelDialog({
   const chooseName = (next: string) => {
     setName(next);
     if (labelEdited) return;
-    setLabel(tool?.knownModels.find((k) => k.name === next)?.label ?? next);
+    const offered = [...(tool?.knownModels ?? []), ...(tool?.newModels ?? [])];
+    setLabel(offered.find((k) => k.name === next)?.label ?? next);
   };
   // A model already in your list (other than this one) cannot be added again.
   const inYourList = (n: string) =>

@@ -545,3 +545,136 @@ describe("describeEvent (Phase 12 terminal)", () => {
     );
   });
 });
+
+describe("describeEvent (Phase 19 AI tools)", () => {
+  it("says who opened an AI tool's sign-in tab and how long it ran, never what was typed", () => {
+    const signIn = {
+      place: "aiTool",
+      runtimeId: "codex",
+      action: "signIn",
+      title: "Sign in · Codex",
+    };
+    expect(describeEvent(event("terminal.opened", signIn))).toBe("You opened Codex's sign-in");
+    expect(describeEvent(event("terminal.closed", { ...signIn, seconds: 40.2, exitCode: 0 }))).toBe(
+      "Codex's sign-in closed after 40 seconds",
+    );
+    expect(
+      describeEvent(
+        event("terminal.opened", { place: "aiTool", runtimeId: "claude-code", action: "signOut" }),
+      ),
+    ).toBe("You opened Claude Code's sign-out");
+    expect(
+      describeEvent(
+        event("terminal.closed", {
+          place: "aiTool",
+          runtimeId: "claude-code",
+          action: "signOut",
+          seconds: 3,
+        }),
+      ),
+    ).toBe("Claude Code's sign-out closed after 3 seconds");
+  });
+
+  it("says what changed about a sign-in, an update, and the models", () => {
+    expect(
+      describeEvent(
+        event("ai_tool.sign_in_changed", {
+          runtime: "codex",
+          from: "signedOut",
+          to: "subscription",
+          method: "ChatGPT sign-in",
+        }),
+      ),
+    ).toBe("Codex: signed in (ChatGPT sign-in)");
+    expect(
+      describeEvent(
+        event("ai_tool.sign_in_changed", {
+          runtime: "codex",
+          from: "subscription",
+          to: "signedOut",
+          method: null,
+        }),
+      ),
+    ).toBe("Codex: signed out");
+    expect(
+      describeEvent(
+        event("ai_tool.update_available", {
+          runtime: "grok",
+          installed: "1.0.41",
+          newest: "1.0.43",
+        }),
+      ),
+    ).toBe("A new version of Grok is ready (1.0.43)");
+    expect(
+      describeEvent(
+        event("ai_tool.update_started", { runtime: "grok", from: "1.0.41", by: "owner" }),
+      ),
+    ).toBe("Updating Grok (from 1.0.41)");
+    expect(
+      describeEvent(
+        event("ai_tool.update_started", { runtime: "grok", from: "1.0.41", by: "automatic" }),
+      ),
+    ).toBe("Updating Grok (from 1.0.41), by itself");
+    expect(
+      describeEvent(event("ai_tool.updated", { runtime: "grok", from: "1.0.41", to: "1.0.43" })),
+    ).toBe("Grok was updated to 1.0.43");
+    expect(
+      describeEvent(
+        event("ai_tool.update_failed", {
+          runtime: "grok",
+          from: "1.0.41",
+          reason: "the download stopped",
+          oldStillWorks: true,
+        }),
+      ),
+    ).toBe("Grok's update didn't finish: the download stopped (the old version still works)");
+    expect(
+      describeEvent(
+        event("ai_tool.update_failed", {
+          runtime: "codex",
+          from: "0.50.0",
+          reason: "Codex does not answer",
+          oldStillWorks: false,
+        }),
+      ),
+    ).toBe("Codex's update didn't finish: Codex does not answer");
+    expect(
+      describeEvent(
+        event("ai_tool.update_by_hand", {
+          runtime: "codex",
+          newest: "0.158.0",
+          message: "Codex installed with npm updates with npm.",
+          automatic: true,
+        }),
+      ),
+    ).toBe("Codex can't update itself here: Codex installed with npm updates with npm.");
+    expect(describeEvent(event("ai_tool.put_back", { runtime: "grok", version: "1.0.41" }))).toBe(
+      "Plenipo put back Grok 1.0.41",
+    );
+    expect(
+      describeEvent(
+        event("ai_tool.models_changed", { runtime: "grok", added: ["grok-5"], removed: [] }),
+      ),
+    ).toBe("Grok lists new models: grok-5");
+    expect(
+      describeEvent(
+        event("ai_tool.models_changed", { runtime: "grok", added: [], removed: ["grok-3"] }),
+      ),
+    ).toBe("Grok no longer lists: grok-3");
+    expect(describeEvent(event("ai_tools.auto_update_switched", { on: true }))).toBe(
+      "You turned on Update AI tools by themselves",
+    );
+    expect(describeEvent(event("ai_tools.auto_update_switched", { on: false }))).toBe(
+      "You turned off Update AI tools by themselves",
+    );
+    expect(
+      describeEvent(
+        event("guard.ai_tool_refused", {
+          runtime: "kimi",
+          action: "signOut",
+          reason: "Kimi has no sign-out command of its own.",
+        }),
+      ),
+    ).toBe("Blocked: Kimi has no sign-out command of its own.");
+  });
+});

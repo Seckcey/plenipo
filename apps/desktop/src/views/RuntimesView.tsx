@@ -13,9 +13,12 @@ import { useRuntime } from "../runtime/useRuntime";
 export function RuntimesView({
   selectedId,
   onSelect,
+  toolId = null,
 }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** The AI tool whose card to show (another page asked for it). */
+  toolId?: string | null;
 }) {
   const { state, start, cancel, loadOutput } = useRuntime();
   const [pending, setPending] = useState<string | null>(null);
@@ -45,9 +48,9 @@ export function RuntimesView({
     <section className="view" aria-labelledby="runtimes-title">
       <h1 id="runtimes-title">AI tools</h1>
       <p className="view__lead">
-        Plenipo runs only the AI tools it finds on this computer and a few approved programs of its
-        own, keeps each run separate, and shows its output here. Every run of an AI tool is listed
-        below with its raw output.
+        Each AI tool on this computer in one place: sign in, see how much it was used, keep it up to
+        date, and see its models. Below, the few approved programs Plenipo runs of its own, and
+        every run with its output.
       </p>
 
       {error && (
@@ -61,7 +64,7 @@ export function RuntimesView({
         </p>
       )}
 
-      <AgentRuntimeCards />
+      <AgentRuntimeCards focusId={toolId} />
 
       <h2>Approved programs</h2>
       <ul className="profiles">

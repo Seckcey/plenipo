@@ -101,6 +101,10 @@ pub fn not_ready(info: &AgentRuntimeInfo) -> Option<String> {
         InstallState::Unsupported | InstallState::Broken => {
             format!("{label} is installed in a way Plenipo cannot run")
         }
+        // Given no tasks after an update that left it not answering (ADR-059 §6).
+        InstallState::Installed if info.installation.detail.is_some() => {
+            format!("Plenipo is not giving {label} tasks for now")
+        }
         InstallState::Installed => match info.auth.state {
             AuthState::Checking => format!("{label} is still being checked"),
             AuthState::SignedOut => format!("{label} is not signed in"),
@@ -624,6 +628,10 @@ mod tests {
                 login_hint: String::new(),
                 ready: true,
                 checked_at: None,
+                checked_version: String::new(),
+                account: Default::default(),
+                reported_models: None,
+                held: None,
             },
             limit: None,
         }

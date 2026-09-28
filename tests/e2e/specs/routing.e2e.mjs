@@ -236,7 +236,11 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     ]) {
       assert.ok(models.includes(m), `${m} listed`);
     }
-    await waitForText(browser, '[aria-labelledby="tools-title"]', "Ready: signed in");
+    // The AI tools' sign-in and usage limits are on the AI tools page (Phase 19, ADR-060).
+    await nav(browser, "AI tools");
+    await waitForText(browser, '[aria-label="AI tools"]', "Ready");
+    await openSettings(browser, "AI models");
+    await waitForText(browser, ROLES, "Senior Developer");
     // Starting choices for built-in roles: the Designer needs a model that makes images.
     await waitUntil(
       async () => (await roleRow(browser, "Designer")).includes("None right now"),
@@ -456,10 +460,16 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       await roleRow(browser, "Senior Developer"),
       /Codex reached its usage limit, and Senior Developer waits for it/,
     );
-    await waitForText(browser, '[aria-labelledby="tools-title"]', "Try again now");
     await scrollTo(browser, "#role-choices-title");
     await screenshot(browser, "models-usage-limit");
-    await clickButton(browser, "Try again now");
+    // The usage limit and Try again now are on Codex's card (Phase 19, ADR-060).
+    await nav(browser, "AI tools");
+    const again = await browser.$(
+      '//li[@aria-label="Codex AI tool"]//button[normalize-space()="Try again now"]',
+    );
+    await again.waitForClickable({ timeout: 10_000 });
+    await again.click();
+    await openSettings(browser, "AI models");
     await waitUntil(
       async () =>
         (await roleRow(browser, "Senior Developer")).includes(

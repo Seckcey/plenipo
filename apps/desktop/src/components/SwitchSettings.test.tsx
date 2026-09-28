@@ -3,12 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
+import { aiPage, aiTool } from "../test/aiToolFixtures";
 import { samplePermissions } from "../test/permissionFixtures";
 import { SwitchSettings } from "./SwitchSettings";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
-  return { ...actual, getPermissions: vi.fn(), setSwitches: vi.fn() };
+  return {
+    ...actual,
+    getPermissions: vi.fn(),
+    setSwitches: vi.fn(),
+    getAiTools: vi.fn(),
+    setAiToolsAutoUpdate: vi.fn(),
+  };
 });
 vi.mock("../api/events", () => ({
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
@@ -18,6 +25,7 @@ const api = vi.mocked(commands);
 
 beforeEach(() => {
   api.getPermissions.mockResolvedValue(samplePermissions());
+  api.getAiTools.mockResolvedValue(aiPage([aiTool("grok")]));
 });
 
 afterEach(() => {
@@ -67,6 +75,23 @@ describe("Settings → Switches", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("turns on Update AI tools by themselves, the same setting as the AI tools page's (Phase 19)", async () => {
+    api.setAiToolsAutoUpdate.mockResolvedValue(aiPage([aiTool("grok")], { autoUpdate: true }));
+    render(<SwitchSettings />);
+    const auto = await screen.findByRole("switch", { name: "Update AI tools by themselves" });
+    // Off to start with: Plenipo asks first.
+    expect(auto).toHaveAttribute("aria-checked", "false");
+    expect(auto).toHaveAccessibleDescription(
+      "Off (the default): Plenipo tells you when a new version is ready and updates only when you press Update. On: it updates each AI tool by itself, only when no task is using it.",
+    );
+    await userEvent.setup().click(auto);
+    expect(api.setAiToolsAutoUpdate).toHaveBeenCalledWith(true);
+    expect(api.setSwitches).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("switch", { name: "Update AI tools by themselves" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("shows a refusal", async () => {

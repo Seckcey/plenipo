@@ -32,4 +32,14 @@ effortLevels: Array<Effort>,
  * Models the AI tool itself offers (offered as choices, never assumed to be in the owner's
  * list).
  */
-knownModels: Array<KnownModel>, };
+knownModels: Array<KnownModel>, 
+/**
+ * Models the AI tool reported itself that Plenipo has not checked (ADR-060 §5): offered
+ * too, marked "new — not checked yet".
+ */
+newModels: Array<KnownModel>, 
+/**
+ * Checked models the AI tool no longer lists (only when its list is complete): "not offered
+ * by this version".
+ */
+unlistedModels: Array<string>, };

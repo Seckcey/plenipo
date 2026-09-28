@@ -23,8 +23,9 @@ type Status =
 
 /**
  * One of the owner's terminals (ADR-031): xterm.js on screen, a shell on this PC or on a server
- * behind it. Typing goes to the shell as it is typed (a large paste in pieces); nothing is
- * recorded. Its colors come from the terminal tokens, and follow the theme.
+ * behind it, or an AI tool's own sign-in program (ADR-058). Typing goes to the program as it is
+ * typed (a large paste in pieces), and nothing else ever does; nothing is recorded. Its colors
+ * come from the terminal tokens, and follow the theme.
  */
 export function OwnerTerminal({
   tab,
@@ -33,6 +34,9 @@ export function OwnerTerminal({
   theme,
   focusToken,
   onLeave,
+  onOpened,
+  onEnded,
+  onFailed,
 }: {
   tab: OwnerTab;
   active: boolean;
@@ -43,6 +47,12 @@ export function OwnerTerminal({
   focusToken: number;
   /** F6 in the terminal: the keyboard goes back to the panel's tabs (Tab itself is the shell's). */
   onLeave?: (() => void) | undefined;
+  /** It opened (the first time, or again after Try again). */
+  onOpened?: (() => void) | undefined;
+  /** Its program ended (the tab stays, and says how). */
+  onEnded?: (() => void) | undefined;
+  /** It could not open, with Plenipo's reason. */
+  onFailed?: ((message: string) => void) | undefined;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -51,8 +61,14 @@ export function OwnerTerminal({
   const [status, setStatus] = useState<Status>({ kind: "opening" });
   const [attempt, setAttempt] = useState(0);
   const leave = useRef(onLeave);
+  const openedNow = useRef(onOpened);
+  const endedNow = useRef(onEnded);
+  const failedNow = useRef(onFailed);
   useLayoutEffect(() => {
     leave.current = onLeave;
+    openedNow.current = onOpened;
+    endedNow.current = onEnded;
+    failedNow.current = onFailed;
   });
 
   useEffect(() => {
@@ -141,6 +157,7 @@ export function OwnerTerminal({
         ended = true;
         xterm.write(`\r\n\x1b[2m[${endedLine(event.why, event.code)}]\x1b[0m\r\n`);
         setStatus({ kind: "ended", why: event.why });
+        endedNow.current?.();
       }
     })
       .then((info) => {
@@ -149,7 +166,10 @@ export function OwnerTerminal({
           return;
         }
         id = info.id;
-        if (!ended) setStatus({ kind: "open", info });
+        if (!ended) {
+          setStatus({ kind: "open", info });
+          openedNow.current?.();
+        }
         // The panel may have changed size while a server's terminal was connecting.
         if (!ended && (xterm.cols !== opened.cols || xterm.rows !== opened.rows)) {
           void resizeTerminal(info.id, xterm.cols, xterm.rows).catch(() => undefined);
@@ -158,7 +178,10 @@ export function OwnerTerminal({
         typedEarly = [];
       })
       .catch((reason: unknown) => {
-        if (!disposed) setStatus({ kind: "failed", message: toCommandError(reason).message });
+        if (disposed) return;
+        const message = toCommandError(reason).message;
+        setStatus({ kind: "failed", message });
+        failedNow.current?.(message);
       });
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refit);
     observer?.observe(el);
@@ -191,23 +214,30 @@ export function OwnerTerminal({
 
   // The keyboard goes into the terminal when it opens, when the panel is shown, and when the
   // panel asks (its tab clicked, a new terminal); a tab reached with the arrow keys leaves the
-  // keyboard in the list of tabs.
+  // keyboard in the list of tabs. A tab that opened by itself leaves the keyboard where it is
+  // until the panel asks.
   const activeNow = useRef(active);
   useLayoutEffect(() => {
     activeNow.current = active;
   });
+  const quietUntil = useRef(tab.quiet === true ? { visible, focusToken } : null);
   useEffect(() => {
+    const quiet = quietUntil.current;
+    if (quiet && quiet.visible === visible && quiet.focusToken === focusToken) return;
+    quietUntil.current = null;
     if (activeNow.current && visible) term.current?.focus();
   }, [visible, focusToken]);
 
   const where = tab.place.kind === "thisPc" ? "this PC" : tab.title;
+  // An AI tool's sign-in tab is named by what it runs: "Sign in · Codex".
+  const signIn = tab.place.kind === "aiTool";
   return (
     <div className="terminal-view">
       {status.kind === "failed" && (
         <ErrorState
           compact
           urgent
-          title={`The terminal on ${where} could not open`}
+          title={signIn ? `${tab.title} could not open` : `The terminal on ${where} could not open`}
           message={status.message}
           onRetry={() => {
             setStatus({ kind: "opening" });
@@ -218,7 +248,7 @@ export function OwnerTerminal({
       <div
         ref={box}
         className="terminal-view__screen"
-        aria-label={`Terminal on ${where}`}
+        aria-label={signIn ? tab.title : `Terminal on ${where}`}
         role="group"
         hidden={status.kind === "failed"}
       />

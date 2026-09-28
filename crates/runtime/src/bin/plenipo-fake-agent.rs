@@ -85,8 +85,29 @@
 //! itself to its "yolo" mode. Its `last-acp.json` also has `initialize` and `settings`.
 //!
 //! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
-//! bridge (`--plenipo-ollama auth` and `--plenipo-ollama chat …`) in the bridge's output
-//! format, so tests point `AgentConfig::bridge` at it. It has no tools.
+//! bridge (`--plenipo-ollama auth`, `models`, and `chat …`) in the bridge's output format, so
+//! tests point `AgentConfig::bridge` at it. It has no tools.
+//!
+//! The AI tools page (Phase 19, ADR-058 to ADR-060), for every persona:
+//! - **Sign in and out:** each persona's own command (`claude auth login`, `codex login`, `grok
+//!   login`, `kimi login`, `ollama signin`, and the sign-out ones but Kimi's) prints a code and
+//!   waits for a line typed in its terminal; every byte it receives is appended to
+//!   `sign-in-input`, so a test can show nothing was sent before a key was pressed. The line
+//!   signs it in (`auth` becomes `subscription`); signing out writes `signed-out`.
+//! - **Versions and updates:** `version-<persona>` replaces the version it reports;
+//!   `newest-<persona>` is the newest version its own check reports (Grok's `update --check
+//!   --json`). Its update command (`claude update`, `codex update`, `grok update`, `kimi upgrade
+//!   --yes`) moves it to the newest version, as `update-<persona>` says: `ok` (the default),
+//!   `fail` (an error, nothing changed), `broken` (the new version no longer reports its
+//!   version), `slow` (three seconds, then ok), or `by-hand` (it says it cannot update itself).
+//!   `claude install <v>` and `grok update --version <v>` put a version back (and mend
+//!   `broken`). `update-log` lists every update command run.
+//! - **Models:** `models-<persona>` (one name per line) adds models to the ones it reports:
+//!   Codex's app server (`codex -c … app-server`: `initialize`, `account/read`,
+//!   `account/rateLimits/read`, `model/list`), Grok's ACP `initialize`, Kimi's `session/new`, and
+//!   the Ollama bridge's `models`.
+//! - **Plan:** `[plan:N]` makes Claude Code report `N`% of its plan used, in its documented
+//!   `rate_limit_event`.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -172,6 +193,161 @@ fn auth_mode() -> &'static str {
         .into_iter()
         .find(|m| auth_has(m))
         .unwrap_or("subscription")
+}
+
+/// The version a persona reports: `version-<persona>` when set, otherwise its own.
+fn fake_version(persona: &str, own: &str) -> String {
+    std::fs::read_to_string(state_dir().join(format!("version-{persona}")))
+        .map(|v| v.trim().to_owned())
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| own.to_owned())
+}
+
+/// The newest version a persona's own check reports (`newest-<persona>`), else its own.
+fn fake_newest(persona: &str, own: &str) -> String {
+    std::fs::read_to_string(state_dir().join(format!("newest-{persona}")))
+        .map(|v| v.trim().to_owned())
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| fake_version(persona, own))
+}
+
+/// An update made broken: the persona no longer reports its version.
+fn fake_broken(persona: &str) -> bool {
+    state_dir().join(format!("broken-{persona}")).exists()
+}
+
+/// Models added to the ones a persona reports (`models-<persona>`, one per line).
+fn extra_models(persona: &str) -> Vec<String> {
+    std::fs::read_to_string(state_dir().join(format!("models-{persona}")))
+        .map(|s| {
+            s.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `--version`, unless an update broke it.
+fn print_version(persona: &str, line: &str) -> i32 {
+    if fake_broken(persona) {
+        eprintln!("fake {persona}: this version is broken");
+        return 1;
+    }
+    println!("{line}");
+    0
+}
+
+/// A sign-in program in the owner's terminal tab (ADR-058): it prints a code, then waits for a
+/// line; every byte it receives is appended to `sign-in-input`.
+fn fake_sign_in(persona: &str, args: &[String]) -> i32 {
+    record_invocation(args);
+    let dir = state_dir();
+    let _ = std::fs::write(dir.join("sign-in-started"), persona);
+    println!("Fake {persona} sign-in.");
+    println!("Open https://example.invalid/device and enter the code ABCD-1234.");
+    println!("Press Enter here when you have signed in.");
+    let _ = std::io::stdout().flush();
+    let mut stdin = std::io::stdin().lock();
+    let mut byte = [0u8; 1];
+    loop {
+        match stdin.read(&mut byte) {
+            Ok(0) | Err(_) => {
+                eprintln!("fake {persona}: the sign-in was not finished");
+                return 1;
+            }
+            Ok(_) => {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(dir.join("sign-in-input"))
+                {
+                    let _ = file.write_all(&byte);
+                }
+                if byte[0] == b'\n' || byte[0] == b'\r' {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = std::fs::write(dir.join("auth"), "subscription");
+    println!("Signed in.");
+    0
+}
+
+/// A sign-out program: the fake sign-in state becomes `signed-out`.
+fn fake_sign_out(persona: &str, args: &[String]) -> i32 {
+    record_invocation(args);
+    let _ = std::fs::write(state_dir().join("auth"), "signed-out");
+    println!("Fake {persona}: signed out.");
+    0
+}
+
+/// A persona's update command (ADR-059), as `update-<persona>` says.
+fn fake_update(persona: &str, own: &str, args: &[String]) -> i32 {
+    record_invocation(args);
+    let dir = state_dir();
+    if let Ok(mut log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("update-log"))
+    {
+        let _ = writeln!(log, "{persona} {}", args.join(" "));
+    }
+    let mode = std::fs::read_to_string(dir.join(format!("update-{persona}")))
+        .map(|m| m.trim().to_owned())
+        .unwrap_or_default();
+    let from = fake_version(persona, own);
+    let to = fake_newest(persona, own);
+    match mode.as_str() {
+        "fail" => {
+            eprintln!("fake {persona}: the download failed (no network)");
+            return 1;
+        }
+        "by-hand" => {
+            println!("{persona} was installed another way and cannot update itself.");
+            return 0;
+        }
+        "slow" => std::thread::sleep(Duration::from_secs(3)),
+        _ => {}
+    }
+    if from == to {
+        println!("{persona} is up to date ({from})");
+        return 0;
+    }
+    let _ = std::fs::write(dir.join(format!("version-{persona}")), &to);
+    if mode == "broken" {
+        let _ = std::fs::write(dir.join(format!("broken-{persona}")), "yes");
+    }
+    println!("Successfully updated from {from} to version {to}");
+    0
+}
+
+/// Put a version back (`claude install <v>`, `grok update --version <v>`), mending a broken one.
+fn fake_put_back(persona: &str, version: &str, args: &[String]) -> i32 {
+    record_invocation(args);
+    let dir = state_dir();
+    if let Ok(mut log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("update-log"))
+    {
+        let _ = writeln!(log, "{persona} {}", args.join(" "));
+    }
+    let _ = std::fs::write(dir.join(format!("version-{persona}")), version);
+    let _ = std::fs::remove_file(dir.join(format!("broken-{persona}")));
+    println!("Installed {persona} {version}");
+    0
+}
+
+/// The number after `marker` (for example `[plan:9]` → 9), when the text has it.
+fn marker_number(text: &str, marker: &str) -> Option<u64> {
+    let start = text.find(marker)? + marker.len();
+    let end = text[start..].find(']')? + start;
+    text[start..end].trim().parse().ok()
 }
 
 fn out(v: &Value) {
@@ -970,13 +1146,25 @@ fn tool_lines(names: &[String], list: bool, outcomes: &[ToolOutcome]) -> Vec<Str
 
 // ---- Claude Code ------------------------------------------------------------------------
 
+const CLAUDE_VERSION: &str = "2.1.999";
+
 fn claude(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("--version") {
-        println!("2.1.999 (Claude Code)");
-        return 0;
+        let v = fake_version("claude", CLAUDE_VERSION);
+        return print_version("claude", &format!("{v} (Claude Code)"));
     }
     if args.len() >= 2 && args[0] == "auth" && args[1] == "status" {
         return claude_auth();
+    }
+    match (
+        args.first().map(String::as_str),
+        args.get(1).map(String::as_str),
+    ) {
+        (Some("auth"), Some("login")) if args.len() == 2 => return fake_sign_in("claude", args),
+        (Some("auth"), Some("logout")) if args.len() == 2 => return fake_sign_out("claude", args),
+        (Some("update"), None) => return fake_update("claude", CLAUDE_VERSION, args),
+        (Some("install"), Some(v)) if args.len() == 2 => return fake_put_back("claude", v, args),
+        _ => {}
     }
     if args.iter().any(|a| a == "-p") {
         return claude_turn(args);
@@ -1118,7 +1306,20 @@ fn claude_turn(args: &[String]) -> i32 {
         return 0;
     }
     if own.contains("[unknown]") {
-        out(&json!({ "type": "rate_limit_event", "info": {} }));
+        out(&json!({ "type": "future_event", "info": {} }));
+    }
+    // How much of the plan is used, as Claude Code reports it (`SDKRateLimitEvent`).
+    if let Some(used) = marker_number(&own, "[plan:") {
+        let resets = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+            + 2 * 3600;
+        out(
+            &json!({ "type": "rate_limit_event", "uuid": "00000000-0000-4000-8000-000000000009",
+                     "session_id": id, "rate_limit_info": {
+                        "status": if used >= 100 { "rejected" } else if used >= 80 { "allowed_warning" } else { "allowed" },
+                        "resetsAt": resets, "utilization": used as f64 / 100.0 } }),
+        );
     }
     if own.contains("[compact]") {
         // Like the real CLI when a conversation grows long: it keeps a summary of it.
@@ -1367,19 +1568,101 @@ fn gh(args: &[String]) -> i32 {
 
 // ---- Codex --------------------------------------------------------------------------------
 
+const CODEX_VERSION: &str = "0.99.0";
+
 fn codex(args: &[String]) -> i32 {
+    if args.last().map(String::as_str) == Some("app-server") {
+        return codex_app_server(args);
+    }
     match args.first().map(String::as_str) {
         Some("--version") => {
-            println!("codex-cli 0.99.0");
-            0
+            let v = fake_version("codex", CODEX_VERSION);
+            print_version("codex", &format!("codex-cli {v}"))
         }
         Some("login") if args.get(1).map(String::as_str) == Some("status") => codex_auth(),
+        Some("login") if args.len() == 1 => fake_sign_in("codex", args),
+        Some("logout") if args.len() == 1 => fake_sign_out("codex", args),
+        Some("update") if args.len() == 1 => {
+            if std::env::var("CODEX_NON_INTERACTIVE").as_deref() != Ok("1") {
+                eprintln!("fake codex: an update from Plenipo must not ask questions");
+                return 3;
+            }
+            fake_update("codex", CODEX_VERSION, args)
+        }
         Some("exec") => codex_turn(args),
         _ => {
             eprintln!("fake codex: unsupported arguments {args:?}");
             2
         }
     }
+}
+
+/// Codex's app server over standard input and output (OpenAI's documented methods).
+fn codex_app_server(args: &[String]) -> i32 {
+    record_invocation(args);
+    use std::io::BufRead as _;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let answer = |id: &Value, result: Value| out(&json!({ "id": id, "result": result }));
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        let Ok(message) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(id) = message.get("id") else {
+            continue; // a notification (`initialized`)
+        };
+        match message["method"].as_str().unwrap_or_default() {
+            "initialize" => answer(id, json!({ "userAgent": "codex_cli_rs/fake" })),
+            "account/read" => {
+                if auth_mode() == "signed-out" {
+                    answer(id, json!({ "account": null, "requiresOpenaiAuth": true }));
+                } else {
+                    answer(
+                        id,
+                        json!({ "account": { "type": "chatgpt", "email": "owner@example.com",
+                                             "planType": "plus" },
+                                "requiresOpenaiAuth": true }),
+                    );
+                }
+            }
+            "account/rateLimits/read" => answer(
+                id,
+                json!({ "rateLimits": {
+                    "limitId": "codex", "limitName": null,
+                    "primary": { "usedPercent": 25, "windowDurationMins": 300,
+                                 "resetsAt": now + 2 * 3600 },
+                    "secondary": { "usedPercent": 40, "windowDurationMins": 10080,
+                                   "resetsAt": now + 3 * 86400 },
+                    "rateLimitReachedType": null } }),
+            ),
+            "model/list" => {
+                // `slow-model-list`: the list takes longer than Plenipo waits.
+                if state_dir().join("slow-model-list").exists() {
+                    std::thread::sleep(Duration::from_secs(30));
+                }
+                let mut data = vec![
+                    json!({ "id": "gpt-6-sol", "model": "gpt-6-sol", "displayName": "GPT-6-Sol",
+                            "hidden": false, "isDefault": true,
+                            "supportedReasoningEfforts": [
+                                { "reasoningEffort": "low" }, { "reasoningEffort": "medium" },
+                                { "reasoningEffort": "high" } ] }),
+                    json!({ "id": "gpt-5.5", "model": "gpt-5.5", "displayName": "GPT-5.5",
+                            "hidden": false, "isDefault": false,
+                            "supportedReasoningEfforts": [ { "reasoningEffort": "medium" } ] }),
+                ];
+                data.extend(extra_models("codex").into_iter().map(|m| {
+                    json!({ "id": m, "model": m, "displayName": m, "hidden": false,
+                            "supportedReasoningEfforts": [ { "reasoningEffort": "high" } ] })
+                }));
+                answer(id, json!({ "data": data, "nextCursor": null }));
+            }
+            other => out(&json!({ "id": id,
+                                  "error": { "code": -32601, "message": format!("unknown method {other}") } })),
+        }
+    }
+    0
 }
 
 fn codex_auth() -> i32 {
@@ -1526,12 +1809,31 @@ fn codex_turn(args: &[String]) -> i32 {
 
 // ---- Grok (ACP, ADR-015) ------------------------------------------------------------------
 
+const GROK_VERSION: &str = "1.0.99";
+
 fn grok(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         Some("--version" | "-v") => {
-            println!("grok 1.0.99 (fake0000beef)");
+            let v = fake_version("grok", GROK_VERSION);
+            print_version("grok", &format!("grok {v} (fake0000beef)"))
+        }
+        Some("login") if args.len() == 1 => fake_sign_in("grok", args),
+        Some("logout") if args.len() == 1 => fake_sign_out("grok", args),
+        Some("update") if args.get(1).map(String::as_str) == Some("--check") => {
+            let current = fake_version("grok", GROK_VERSION);
+            let latest = fake_newest("grok", GROK_VERSION);
+            out(&json!({ "currentVersion": current, "latestVersion": latest,
+                         "updateAvailable": current != latest, "installer": "internal",
+                         "channel": "stable", "autoUpdate": true, "error": null }));
             0
         }
+        Some("update") if args.get(1).map(String::as_str) == Some("--version") => {
+            match args.get(2) {
+                Some(v) if args.len() == 3 => fake_put_back("grok", v, args),
+                _ => 2,
+            }
+        }
+        Some("update") if args.len() == 1 => fake_update("grok", GROK_VERSION, args),
         Some("models") => grok_models(),
         Some("agent") if args.last().map(String::as_str) == Some("stdio") => grok_agent(args),
         _ => {
@@ -1539,6 +1841,27 @@ fn grok(args: &[String]) -> i32 {
             2
         }
     }
+}
+
+/// The models Grok's ACP `initialize` lists, each with its effort levels (as recorded).
+fn grok_available_models() -> Vec<Value> {
+    let efforts = |levels: &[&str]| {
+        json!({ "supportsReasoningEffort": true, "reasoningEfforts":
+            levels.iter().map(|l| json!({ "id": l, "value": l, "label": l })).collect::<Vec<_>>() })
+    };
+    let full = ["xhigh", "high", "medium", "low"];
+    let mut models = vec![
+        json!({ "modelId": "grok-4.7", "name": "Grok 4.7", "_meta": efforts(&full) }),
+        json!({ "modelId": "grok-4.7-build-fast", "name": "Grok 4.7 Fast", "_meta": efforts(&full) }),
+        json!({ "modelId": "grok-4.6", "name": "Grok 4.6", "_meta": efforts(&full) }),
+        json!({ "modelId": "grok-4.5", "name": "Grok 4.5", "_meta": efforts(&["high", "medium", "low"]) }),
+    ];
+    models.extend(
+        extra_models("grok").into_iter().map(
+            |m| json!({ "modelId": m, "name": m, "_meta": efforts(&["high", "medium", "low"]) }),
+        ),
+    );
+    models
 }
 
 /// `grok models`: the first line names the credential in use.
@@ -1913,14 +2236,10 @@ fn grok_agent(args: &[String]) -> i32 {
                         "auth": {}
                     },
                     "authMethods": [{ "id": "grok.com", "name": "Grok", "description": "Sign in with Grok" }],
-                    "_meta": { "agentVersion": "1.0.99", "modelState": {
+                    "_meta": { "agentVersion": fake_version("grok", GROK_VERSION), "modelState": {
                         "currentModelId": "grok-4.7",
-                        "availableModels": [
-                            { "modelId": "grok-4.7", "name": "Grok 4.7" },
-                            { "modelId": "grok-4.7-build-fast", "name": "Grok 4.7 Fast" },
-                            { "modelId": "grok-4.6", "name": "Grok 4.6" },
-                            { "modelId": "grok-4.5", "name": "Grok 4.5" }
-                        ] } }
+                        "availableModels": grok_available_models()
+                    } }
                 }),
             ),
             ("authenticate", Some(id)) => {
@@ -1963,11 +2282,17 @@ const KIMI_MODELS: &[(&str, &str, &[&str])] = &[
 ];
 const KIMI_MODES: &[&str] = &["default", "plan", "auto", "yolo"];
 
+const KIMI_VERSION: &str = "0.34.99";
+
 fn kimi(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
-            println!("0.34.99");
-            0
+            let v = fake_version("kimi", KIMI_VERSION);
+            print_version("kimi", &v)
+        }
+        Some("login") if args.len() == 1 => fake_sign_in("kimi", args),
+        Some("upgrade") if args.get(1).map(String::as_str) == Some("--yes") && args.len() == 2 => {
+            fake_update("kimi", KIMI_VERSION, args)
         }
         Some("provider") if args.get(1).map(String::as_str) == Some("list") => kimi_providers(),
         Some("acp") if args.len() == 1 => kimi_acp(args),
@@ -2064,6 +2389,7 @@ impl KimiAgent {
             { "type": "select", "id": "model", "name": "Model", "category": "model",
               "currentValue": self.model,
               "options": KIMI_MODELS.iter().map(|m| json!({ "value": m.0, "name": m.1 }))
+                  .chain(extra_models("kimi").into_iter().map(|m| json!({ "value": m, "name": m })))
                   .collect::<Vec<_>>() },
             { "type": "select", "id": "thinking", "name": "Thinking", "category": "thought_level",
               "currentValue": self.thinking,
@@ -2536,7 +2862,8 @@ fn kimi_acp(args: &[String]) -> i32 {
                         },
                         "authMethods": [{ "id": "login", "type": "terminal",
                                           "name": "Login with Kimi account", "args": ["--login"] }],
-                        "agentInfo": { "name": "Kimi Code CLI", "version": "0.34.99" }
+                        "agentInfo": { "name": "Kimi Code CLI",
+                                       "version": fake_version("kimi", KIMI_VERSION) }
                     }),
                 );
             }
@@ -2569,10 +2896,22 @@ fn ollama(args: &[String]) -> i32 {
         args.get(1).map(String::as_str),
     ) {
         (Some("--version"), _) => {
-            println!("ollama version is 0.34.4");
+            let v = fake_version("ollama", "0.34.4");
+            print_version("ollama", &format!("ollama version is {v}"))
+        }
+        (Some("signin"), None) => fake_sign_in("ollama", args),
+        (Some("signout"), None) => fake_sign_out("ollama", args),
+        (Some("--plenipo-ollama"), Some("auth")) => ollama_auth(),
+        (Some("--plenipo-ollama"), Some("models")) => {
+            let mut models = vec![json!({ "name": "gpt-oss:120b-cloud" })];
+            models.extend(
+                extra_models("ollama")
+                    .into_iter()
+                    .map(|m| json!({ "name": m })),
+            );
+            out(&json!({ "models": models }));
             0
         }
-        (Some("--plenipo-ollama"), Some("auth")) => ollama_auth(),
         (Some("--plenipo-ollama"), Some("chat")) => ollama_turn(&args[1..]),
         _ => {
             eprintln!("fake ollama: unsupported arguments {args:?}");

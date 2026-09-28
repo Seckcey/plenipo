@@ -12,6 +12,7 @@
 //! which servers workers may reach over SSH and what they may run there. Nothing here carries the
 //! action out: the capability broker (`plenipo-capabilities`) does, after asking Guard.
 
+pub mod ai_tools;
 pub mod commands;
 pub mod config;
 pub mod defaults;
@@ -27,6 +28,7 @@ pub mod servers;
 mod service;
 pub mod websites;
 
+pub use ai_tools::{AiToolAction, AiToolBusy, AiToolRequest};
 pub use commands::CommandLine;
 pub use config::GuardConfig;
 pub use dto::*;

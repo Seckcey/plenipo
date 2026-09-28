@@ -717,6 +717,11 @@ impl Broker {
         &self.inner.guard
     }
 
+    /// The supervisor every program Plenipo runs goes through (ADR-005).
+    pub(crate) fn supervisor(&self) -> &Supervisor {
+        &self.inner.supervisor
+    }
+
     fn state(&self) -> MutexGuard<'_, State> {
         lock(&self.inner.state)
     }

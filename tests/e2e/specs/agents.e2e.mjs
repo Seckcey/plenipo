@@ -111,11 +111,12 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
       "every AI tool ready",
     );
     const text = await textOf(browser, cards);
-    assert.match(text, /Claude Code[\s\S]*v2\.1\.999[\s\S]*Signed in \(subscription\)/);
-    assert.match(text, /Codex[\s\S]*v0\.99\.0[\s\S]*ChatGPT sign-in/);
-    assert.match(text, /Grok[\s\S]*xAI[\s\S]*v1\.0\.99[\s\S]*grok\.com sign-in/);
-    assert.match(text, /Kimi[\s\S]*Moonshot AI[\s\S]*v0\.34\.99[\s\S]*Kimi sign-in/);
-    assert.match(text, /Ollama[\s\S]*v0\.34\.4/);
+    // Each card shows the sign-in first, then the version (Phase 19).
+    assert.match(text, /Claude Code[\s\S]*Signed in \(subscription\)[\s\S]*Installed 2\.1\.999/);
+    assert.match(text, /Codex[\s\S]*ChatGPT sign-in[\s\S]*Installed 0\.99\.0/);
+    assert.match(text, /Grok[\s\S]*xAI[\s\S]*grok\.com sign-in[\s\S]*Installed 1\.0\.99/);
+    assert.match(text, /Kimi[\s\S]*Moonshot AI[\s\S]*Kimi sign-in[\s\S]*Installed 0\.34\.99/);
+    assert.match(text, /Ollama[\s\S]*Installed 0\.34\.4/);
     assert.doesNotMatch(text, /owner@example\.com/, "no account identifiers shown");
     await screenshot(browser, "agent-runtimes");
   });
@@ -246,7 +247,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     const { browser } = app;
     setAuth("signed-out");
     await nav(browser, "AI tools");
-    await clickButton(browser, "Re-check");
+    await clickButton(browser, "Check again");
     await waitForText(browser, '[aria-label="AI tools"]', "Not signed in");
     await nav(browser, "Workers");
     const radio = await browser.$('//label[.//span[normalize-space()="Codex"]]//input');

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
+import { runtime } from "./test/agentFixtures";
 import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 import { sampleWork } from "./test/projectFixtures";
@@ -59,6 +60,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     windowAlive: vi.fn(),
     getUpdateStatus: vi.fn(),
     getOwnerProfile: vi.fn(),
+    getAiTools: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -179,6 +181,12 @@ beforeEach(() => {
     arch: "x86_64",
   });
   api.frontendReady.mockResolvedValue(undefined);
+  api.getAiTools.mockResolvedValue({
+    tools: [],
+    autoUpdate: false,
+    lastLookedAt: null,
+    looking: false,
+  });
   api.getRuntimeOverview.mockResolvedValue(overview());
   api.getExecutionOutput.mockImplementation((executionId) =>
     Promise.resolve({ executionId, lines: [], dropped: 0, available: true }),
@@ -402,6 +410,19 @@ describe("AI tools page", () => {
     });
     expect((await screen.findAllByText("Succeeded")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  });
+
+  it("goes straight to an AI tool's card when the place names it (Phase 19)", async () => {
+    localStorage.setItem("plenipo.place", JSON.stringify({ view: "runtimes", id: "codex" }));
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code"), runtime("codex")],
+      sessions: [],
+      notices: [],
+    });
+    render(<App />);
+    const codex = await screen.findByRole("listitem", { name: "Codex AI tool" });
+    await waitFor(() => expect(codex).toHaveFocus());
+    expect(within(codex).getByRole("heading", { name: "Codex" })).toBeInTheDocument();
   });
 
   it("shows abnormal exits with their exit code", async () => {

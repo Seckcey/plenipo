@@ -39,10 +39,11 @@ and what you type in the terminal are never written to them (Phase 13).
 Read when the app is **built**, never at run time. The Release workflow sets them; copies built
 without them cannot install updates.
 
-| Variable                     | Set by                                                               | Purpose                                                                                                                 |
-| ---------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `PLENIPO_UPDATER_PUBLIC_KEY` | Release workflow (repository variable), CI's test jobs (a throwaway) | The updater key's public half. Plenipo installs only an update signed with its private half.                            |
-| `PLENIPO_UPDATE_ENDPOINT`    | CI's test jobs only                                                  | Where to look for updates. Unset: GitHub Releases. The tests use `http://127.0.0.1:8765/latest.json` (never a release). |
+| Variable                     | Set by                                                               | Purpose                                                                                                                                                       |
+| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLENIPO_UPDATER_PUBLIC_KEY` | Release workflow (repository variable), CI's test jobs (a throwaway) | The updater key's public half. Plenipo installs only an update signed with its private half.                                                                  |
+| `PLENIPO_UPDATE_ENDPOINT`    | CI's test jobs only                                                  | Where to look for updates. Unset: GitHub Releases. The tests use `http://127.0.0.1:8765/latest.json` (never a release).                                       |
+| `PLENIPO_AI_TOOL_RELEASES`   | CI's end-to-end build only                                           | Where the AI tools' release lists are read (Phase 19, ADR-059). Unset: npm and GitHub. The tests use a stand-in at `http://127.0.0.1:8766` (never a release). |
 
 Frontend build-time variables must use the `VITE_` prefix (only those and `TAURI_ENV_*` are
 exposed to the UI bundle). Never put a secret in a `VITE_` variable — it is compiled into the

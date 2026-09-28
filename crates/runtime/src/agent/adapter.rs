@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AgentEvent, AuthStatus, Effort, NoticeLevel, RuntimeCapabilities, TurnOutcome, TurnResult,
+    AccountAction, AgentEvent, AuthStatus, Effort, KnownModel, NoticeLevel, PlanReport,
+    RuntimeCapabilities, TurnOutcome, TurnResult,
 };
 use crate::agent::tools::{FileAccess, FileAnswer, ToolServer};
 use crate::dto::{ExecutionState, TokenUsage};
@@ -110,6 +111,8 @@ pub struct Parsed {
     /// File changes the AI tool is still writing (Phase 18, ADR-055), for Watch. Handed to the
     /// tool provider, which checks them before anything is shown; never stored.
     pub previews: Vec<crate::agent::preview::WritePreview>,
+    /// How much of the plan the AI tool reported used, in its own stream (ADR-060 §3).
+    pub plan: Option<PlanReport>,
 }
 
 /// One file the AI tool asked Plenipo to read or write (ADR-027), numbered by the parser.
@@ -269,6 +272,162 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn leaves_out(&self, _request: &TurnRequest, _prompt_bytes: usize) -> bool {
         false
     }
+
+    // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) --------------------------------
+
+    /// The tool's own command to sign in (Reconnect is the same) or out, run in a terminal tab
+    /// where the owner signs in themselves (ADR-058). Never a flag that changes what is billed
+    /// (`--console`, `--with-api-key`). `None`: the tool has no such command.
+    fn account_command(&self, _action: AccountAction) -> Option<Vec<String>> {
+        None
+    }
+    /// Where Plenipo learns the newest version of the tool (ADR-059 §2).
+    fn newest_version(&self) -> NewestVersion {
+        NewestVersion::None
+    }
+    /// The newest version, from the answer to [`NewestVersion::Command`].
+    fn parse_newest(&self, _out: &ProbeOutput) -> Option<String> {
+        None
+    }
+    /// The tool's own official update command (ADR-059 §3), run with standard input closed.
+    /// `None`: the tool has none (Ollama updates itself from its tray app, with the owner's
+    /// click).
+    fn update_command(&self) -> Option<Vec<String>> {
+        None
+    }
+    /// Variables the update command gets in addition, so it never stops to ask a question.
+    fn update_env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// The tool's own command that puts back an earlier version, when it has one (ADR-059 §6).
+    fn put_back_command(&self, _version: &str) -> Option<Vec<String>> {
+        None
+    }
+    /// When the tool cannot update itself because it was installed another way: the official
+    /// command for the owner to type, in a sentence (ADR-059 §10).
+    fn update_by_hand(&self) -> Option<&'static str> {
+        None
+    }
+    /// A short, task-free check that reads the tool's own list of models, and for some tools
+    /// how much of the plan is used (ADR-060 §3, §5). `dir` is Plenipo's empty check folder.
+    fn status_check(&self, _dir: &Path) -> StatusCheck {
+        StatusCheck::None
+    }
+    /// The check leaves something behind in the tool's own history (Kimi keeps an empty
+    /// conversation), so it runs only when the owner asks and after an update.
+    fn status_check_leaves_a_trace(&self) -> bool {
+        false
+    }
+    /// The models the tool reported, from the answer to [`Self::status_check`]. `None`: the
+    /// answer was not understood.
+    fn parse_models(&self, _out: &ProbeOutput) -> Option<Vec<KnownModel>> {
+        None
+    }
+    /// Whether [`Self::parse_models`] lists every model the tool offers (Ollama lists only the
+    /// models downloaded to this PC).
+    fn reports_every_model(&self) -> bool {
+        true
+    }
+    /// How much of the plan is used, from the answer to [`Self::status_check`], when the tool
+    /// reports it there (Codex's app server).
+    fn parse_plan(&self, _out: &ProbeOutput) -> Option<PlanReport> {
+        None
+    }
+    /// Whether the tool officially reports how much of the plan is used — in its task stream or
+    /// its check (ADR-060 §3). Without it, the card says the tool does not report it.
+    fn reports_plan_left(&self) -> bool {
+        false
+    }
+}
+
+/// Where Plenipo learns the newest version of an AI tool (ADR-059 §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NewestVersion {
+    /// No list matches the program: Update checks and installs in one step (Kimi).
+    None,
+    /// The tool's own check, with these arguments ([`RuntimeAdapter::parse_newest`]).
+    Command(Vec<String>),
+    /// The AI company's own published release list, read-only, through Guard's gate for
+    /// Plenipo's own requests.
+    Published(PublishedList),
+}
+
+/// A published release list Plenipo reads only a version number from (ADR-059 §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishedList {
+    /// The latest version of an npm package, for example `@openai/codex`.
+    Npm(&'static str),
+    /// The latest release of a GitHub repository, for example `ollama/ollama`.
+    GitHub(&'static str),
+}
+
+impl PublishedList {
+    /// The one address this list is read from.
+    pub fn address(self) -> String {
+        match self {
+            Self::Npm(package) => format!("https://registry.npmjs.org/{package}/latest"),
+            Self::GitHub(repo) => format!("https://api.github.com/repos/{repo}/releases/latest"),
+        }
+    }
+
+    /// The version in the list's answer: npm's `version`, GitHub's `tag_name` without its `v`.
+    pub fn parse(self, body: &str) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_str(body).ok()?;
+        let text = match self {
+            Self::Npm(_) => value.get("version")?.as_str()?,
+            Self::GitHub(_) => value.get("tag_name")?.as_str()?,
+        };
+        let version = find_version(text)?;
+        (version.len() <= 64).then_some(version)
+    }
+}
+
+/// The `result` of the answer numbered `id` in a [`StatusCheck::Talk`]'s output, when the tool
+/// answered it without an error.
+pub fn talk_answer(out: &ProbeOutput, id: u64) -> Option<serde_json::Value> {
+    out.stdout.lines().find_map(|line| {
+        let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+        (v.get("id").and_then(serde_json::Value::as_u64) == Some(id))
+            .then(|| v.get("result").cloned())
+            .flatten()
+    })
+}
+
+/// A short name the tool gave (a plan's name, a model's label), kept only when it is plain
+/// words: letters, digits, spaces, and `. _ - ( ) /`, at most `max` characters.
+pub fn plain_name(text: &str, max: usize) -> Option<String> {
+    let text = text.trim();
+    let plain = !text.is_empty()
+        && text.chars().count() <= max
+        && text
+            .chars()
+            .all(|c| c.is_alphanumeric() || " ._-()/:".contains(c));
+    plain.then(|| text.to_owned())
+}
+
+/// A model name as the tool's model option takes it: exactly the rule Plenipo checks typed
+/// names against (ADR-007 §3), so a model the tool reports can always be chosen.
+pub fn model_name(text: &str) -> Option<String> {
+    crate::agent::service::validate_model(text.trim()).ok()
+}
+
+/// A short, task-free check of an AI tool (ADR-060): no conversation with a model, no prompt,
+/// so no usage is spent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusCheck {
+    /// The tool has no list of its own (Claude Code): its models come with Plenipo's updates.
+    None,
+    /// Run the tool with these arguments.
+    Command(Vec<String>),
+    /// Run Plenipo's bridge with these arguments (Ollama, ADR-017).
+    Bridge(Vec<String>),
+    /// Talk to the tool over standard input and output (JSON-RPC, one message per line):
+    /// write `lines`, then wait for the answers to the requests numbered `answers`.
+    Talk {
+        args: Vec<String>,
+        lines: Vec<String>,
+        answers: Vec<u64>,
+    },
 }
 
 /// Proxy and certificate settings every runtime may need on managed networks.
@@ -727,5 +886,83 @@ mod tests {
         assert_eq!(tool_summary(&run), "git --version");
         let commit = serde_json::json!({ "message": "Fix the form\n\nDetails" });
         assert_eq!(tool_summary(&commit), "Fix the form  Details");
+    }
+}
+
+/// Phase 19: the published release lists (ADR-059 §2).
+#[cfg(test)]
+mod published_list_tests {
+    use super::*;
+
+    #[test]
+    fn a_reported_model_is_kept_only_when_it_can_be_chosen() {
+        for name in [
+            "grok-5",
+            "kimi-code/kimi-for-coding",
+            "llama3.2:3b",
+            "gpt-6[1m]",
+        ] {
+            assert_eq!(model_name(name).as_deref(), Some(name), "{name}");
+            assert!(
+                crate::agent::service::validate_model(name).is_ok(),
+                "{name}"
+            );
+        }
+        // Names Plenipo would refuse when chosen are never offered.
+        for name in [
+            "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M",
+            "C:/models/x",
+            "-rf",
+            "a b",
+            "",
+        ] {
+            assert_eq!(model_name(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn each_list_has_one_address_and_gives_only_a_version() {
+        let npm = PublishedList::Npm("@openai/codex");
+        assert_eq!(
+            npm.address(),
+            "https://registry.npmjs.org/@openai/codex/latest"
+        );
+        assert_eq!(
+            npm.parse(r#"{"name":"@openai/codex","version":"0.158.0"}"#)
+                .as_deref(),
+            Some("0.158.0")
+        );
+        let github = PublishedList::GitHub("ollama/ollama");
+        assert_eq!(
+            github.address(),
+            "https://api.github.com/repos/ollama/ollama/releases/latest"
+        );
+        assert_eq!(
+            github
+                .parse(r#"{"tag_name":"v0.34.5","name":"v0.34.5"}"#)
+                .as_deref(),
+            Some("0.34.5")
+        );
+        assert_eq!(npm.parse("not json"), None);
+        assert_eq!(npm.parse(r#"{"version":"latest"}"#), None);
+        assert_eq!(github.parse(r#"{"version":"1.2.3"}"#), None);
+    }
+
+    #[test]
+    fn names_from_a_tool_are_kept_only_in_plain_words() {
+        assert_eq!(plain_name("pro", 32).as_deref(), Some("pro"));
+        assert_eq!(
+            plain_name("GPT-6 Sol (preview)", 64).as_deref(),
+            Some("GPT-6 Sol (preview)")
+        );
+        assert_eq!(plain_name("<script>", 32), None);
+        assert_eq!(plain_name("", 32), None);
+        assert_eq!(model_name("kimi-code/k3").as_deref(), Some("kimi-code/k3"));
+        assert_eq!(
+            model_name("gpt-oss:120b-cloud").as_deref(),
+            Some("gpt-oss:120b-cloud")
+        );
+        assert_eq!(model_name("--help"), None);
+        assert_eq!(model_name("a b"), None);
     }
 }

@@ -10,6 +10,14 @@ export function useTerminal(): TerminalApi {
 }
 
 /**
+ * The terminal panel, or `null` where there is none (a page shown on its own, as in some tests):
+ * the AI tools page then shows how to sign in instead of its Sign in buttons.
+ */
+export function useTerminalIfAny(): TerminalApi | null {
+  return useContext(TerminalContext);
+}
+
+/**
  * Watch an agent write code: opens (or goes to) its Watch tab in the terminal panel. `null`
  * where there is no terminal panel (a page shown on its own, as in some tests): hide the Watch
  * button then.

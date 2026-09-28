@@ -182,24 +182,47 @@ async fn get(
     timeout: Duration,
     limit: usize,
 ) -> Result<Vec<u8>, UpdateError> {
+    get_for(
+        guard,
+        rules,
+        Purpose::Updates,
+        "GitHub",
+        address,
+        timeout,
+        limit,
+    )
+    .await
+}
+
+/// GET `address` for `purpose`, following redirects only where Guard allows, reading at most
+/// `limit` bytes. `who` names the site in plain words ("GitHub", "npm").
+pub(crate) async fn get_for(
+    guard: &Guard,
+    rules: &OutboundRules,
+    purpose: Purpose,
+    who: &str,
+    address: &str,
+    timeout: Duration,
+    limit: usize,
+) -> Result<Vec<u8>, UpdateError> {
     let client = client(timeout)?;
     let mut address = address.to_owned();
     for _ in 0..=MAX_REDIRECTS {
         guard
-            .check_outbound(rules, Purpose::Updates, &address)
+            .check_outbound(rules, purpose, &address)
             .map_err(UpdateError::Refused)?;
         let response = client
             .get(&address)
             .send()
             .await
-            .map_err(|e| UpdateError::Network(network_words(&e)))?;
+            .map_err(|e| UpdateError::Network(network_words(&e, who)))?;
         let status = response.status();
         if status.is_redirection() {
             let next = response
                 .headers()
                 .get(reqwest::header::LOCATION)
                 .and_then(|l| l.to_str().ok())
-                .ok_or_else(|| UpdateError::Network("GitHub sent Plenipo nowhere".into()))?;
+                .ok_or_else(|| UpdateError::Network(format!("{who} sent Plenipo nowhere")))?;
             let base =
                 reqwest::Url::parse(&address).map_err(|e| UpdateError::Network(e.to_string()))?;
             address = base
@@ -214,7 +237,7 @@ async fn get(
             ));
         }
         if !status.is_success() {
-            return Err(UpdateError::Network(format!("GitHub answered {status}")));
+            return Err(UpdateError::Network(format!("{who} answered {status}")));
         }
         if response.content_length().is_some_and(|n| n > limit as u64) {
             return Err(UpdateError::Network("the file is far too big".into()));
@@ -224,7 +247,7 @@ async fn get(
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|e| UpdateError::Network(network_words(&e)))?
+            .map_err(|e| UpdateError::Network(network_words(&e, who)))?
         {
             body.extend_from_slice(&chunk);
             if body.len() > limit {
@@ -233,16 +256,16 @@ async fn get(
         }
         return Ok(body);
     }
-    Err(UpdateError::Network(
-        "GitHub sent Plenipo round in circles".into(),
-    ))
+    Err(UpdateError::Network(format!(
+        "{who} sent Plenipo round in circles"
+    )))
 }
 
-fn network_words(e: &reqwest::Error) -> String {
+fn network_words(e: &reqwest::Error, who: &str) -> String {
     if e.is_timeout() {
-        "GitHub did not answer in time".into()
+        format!("{who} did not answer in time")
     } else if e.is_connect() {
-        "Plenipo could not reach GitHub (no internet, or it is blocked)".into()
+        format!("Plenipo could not reach {who} (no internet, or it is blocked)")
     } else {
         format!("the request did not work ({e})")
     }

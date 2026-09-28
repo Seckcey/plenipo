@@ -215,6 +215,19 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | new / changed lines, lines removed here                                        | diff, hunks, additions, deletions                                      |
 | Follow along / Pin this file                                                   | auto-scroll, lock, tail                                                |
 | Your picture / status (Available, Busy, Away, Do not disturb) / mood / message | avatar, presence, profile                                              |
+| Sign in / Reconnect / Sign out (an AI tool, from its card)                     | login, logout, re-auth, OAuth flow                                     |
+| sign-in tab ("Sign in · Codex": the AI tool's own sign-in program)             | login shell, auth terminal, device flow                                |
+| Usage / tokens (pieces of words) read, reused, written                         | token usage, input / cached / output tokens                            |
+| today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                    |
+| left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining allowance                     |
+| resets at 3:10 PM / 5-hour limit / weekly limit                                | reset timestamp, rate-limit window                                     |
+| How it is paid for: Subscription / Paid AI key (pay per use)                   | billing mode, BYOK, metered API                                        |
+| installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                             |
+| a new version / Update / Updating… / Updated to 1.0.43                         | upgrade, self-update, patch                                            |
+| The update didn't finish — your old version still works / put back             | update failed, rollback, downgrade                                     |
+| Update AI tools by themselves (the switch)                                     | auto-update, unattended upgrade                                        |
+| Plenipo is not giving Grok tasks for now                                       | disabled, quarantined, out of service                                  |
+| new — not checked yet / not offered by this version (a model)                  | discovered model, unverified model, deprecated                         |
 
 ## Where technical words may stay
 

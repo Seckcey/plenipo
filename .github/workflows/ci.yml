@@ -152,6 +152,10 @@ jobs:
           echo "PLENIPO_UPDATER_PUBLIC_KEY=$(cat "$RUNNER_TEMP/test-updater.key.pub")" >> "$GITHUB_ENV"
           echo "PLENIPO_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json" >> "$GITHUB_ENV"
           echo "PLENIPO_E2E_UPDATER_KEY=$RUNNER_TEMP/test-updater.key" >> "$GITHUB_ENV"
+      # Phase 19 (ADR-059): this copy reads the AI tools' release lists from a stand-in on this
+      # machine (127.0.0.1), so the AI tools test can offer a new version. Never a release.
+      - name: A stand-in for the AI tools' release lists
+        run: echo "PLENIPO_AI_TOOL_RELEASES=http://127.0.0.1:8766" >> "$GITHUB_ENV"
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
       - name: Build fake agent CLIs for Phase 3 tests

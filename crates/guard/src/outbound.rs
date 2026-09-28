@@ -1,5 +1,6 @@
-//! Plenipo's own requests to the internet (Phase 13, ADR-038, updates). Workers never use this:
-//! their websites go through Plenipo's browser and the owner's website lists.
+//! Plenipo's own requests to the internet (Phase 13, ADR-038, updates; Phase 19, ADR-059, the AI
+//! tools' newest versions). Workers never use this: their websites go through Plenipo's browser
+//! and the owner's website lists.
 //!
 //! Each request Plenipo makes for itself has a **purpose**, and a purpose allows only its own
 //! addresses, only over `https`, with no user name or password and no other port. Every hop of a
@@ -14,15 +15,28 @@ use crate::websites::Site;
 pub enum Purpose {
     /// Checking for, and downloading, a new version of Plenipo (GitHub Releases only).
     Updates,
+    /// Reading the newest version of an AI tool from its maker's published release list
+    /// (ADR-059 §2): only the addresses in [`AI_TOOL_RELEASE_LISTS`].
+    AiToolVersions,
 }
 
 impl Purpose {
     pub fn label(self) -> &'static str {
         match self {
             Self::Updates => "checking for updates",
+            Self::AiToolVersions => "checking the AI tools for new versions",
         }
     }
 }
+
+/// The only addresses Plenipo reads the AI tools' newest versions from (ADR-059 §2): Anthropic's
+/// and OpenAI's packages on npm, and Ollama's releases on GitHub. Each answers with a version
+/// number; nothing about the owner is sent.
+pub const AI_TOOL_RELEASE_LISTS: [&str; 3] = [
+    "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
+    "https://registry.npmjs.org/@openai/codex/latest",
+    "https://api.github.com/repos/ollama/ollama/releases/latest",
+];
 
 /// The GitHub repository whose releases Plenipo updates from.
 pub const RELEASES_PATH: &str = "/Seckcey/plenipo/releases/";
@@ -38,6 +52,10 @@ pub struct OutboundRules {
     /// An update test server on this computer (`127.0.0.1:<port>`), for copies of Plenipo
     /// built for the Windows installer tests only.
     pub test_server_port: Option<u16>,
+    /// A stand-in for the AI tools' release lists on this computer (`127.0.0.1:<port>`, the
+    /// list's host and path after it), for copies of Plenipo built for the end-to-end tests
+    /// only (never a setting, never an environment variable).
+    pub ai_tool_test_port: Option<u16>,
 }
 
 impl OutboundRules {
@@ -51,7 +69,21 @@ impl OutboundRules {
         });
         Self {
             test_server_port: port,
+            ai_tool_test_port: None,
         }
+    }
+
+    /// The same rules, with a stand-in for the AI tools' release lists at `base`
+    /// (`http://127.0.0.1:<port>`), when this copy of Plenipo was built to use one.
+    pub fn with_ai_tool_releases(mut self, base: Option<&str>) -> Self {
+        self.ai_tool_test_port = base.and_then(|b| {
+            Site::parse(b).ok().and_then(|s| {
+                (s.scheme == "http" && s.host == "127.0.0.1")
+                    .then_some(s.port)
+                    .flatten()
+            })
+        });
+        self
     }
 
     /// Check one address for `purpose`. The error says why, in plain words.
@@ -64,6 +96,9 @@ impl OutboundRules {
                 purpose.label()
             ))
         };
+        if purpose == Purpose::AiToolVersions {
+            return self.check_release_list(&site, refuse);
+        }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
                 return Ok(site);
@@ -88,6 +123,50 @@ impl OutboundRules {
                     refuse("updates come only from Plenipo's releases on GitHub")
                 }
             }
+            Purpose::AiToolVersions => unreachable!("checked above"),
+        }
+    }
+
+    /// One of the AI tools' release lists, exactly (ADR-059 §2), or its stand-in on this
+    /// computer in a copy built for the tests.
+    fn check_release_list(
+        &self,
+        site: &Site,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        let exact = |host: &str, path: &str| {
+            AI_TOOL_RELEASE_LISTS.iter().any(|list| {
+                url::Url::parse(list).is_ok_and(|l| l.host_str() == Some(host) && l.path() == path)
+            })
+        };
+        let plain = url.query().is_none() && url.fragment().is_none() && url.username().is_empty();
+        if let Some(port) = self.ai_tool_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                // `http://127.0.0.1:<port>/<host><path>`.
+                let rest = url.path().trim_start_matches('/');
+                let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+                if plain && exact(host, path) {
+                    return Ok(site.clone());
+                }
+                return refuse("the test stand-in serves only the AI tools' release lists");
+            }
+        }
+        if site.scheme != "https" {
+            return refuse("only https is allowed");
+        }
+        if site.port.is_some() {
+            return refuse("only the usual https port is allowed");
+        }
+        if plain && exact(&site.host, url.path()) {
+            Ok(site.clone())
+        } else {
+            refuse(
+                "only the AI tools' own release lists are read (Anthropic's and OpenAI's on npm, \
+                 Ollama's on GitHub)",
+            )
         }
     }
 }
@@ -165,6 +244,54 @@ mod tests {
         // Anything but 127.0.0.1 over http never makes a test server.
         assert_eq!(
             OutboundRules::for_endpoint("http://evil.example:8765/latest.json").test_server_port,
+            None
+        );
+    }
+
+    #[test]
+    fn the_ai_tools_newest_versions_come_only_from_their_own_release_lists() {
+        let rules = OutboundRules::default();
+        for ok in AI_TOOL_RELEASE_LISTS {
+            assert!(rules.check(Purpose::AiToolVersions, ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://registry.npmjs.org/@openai/codex/latest",
+            "https://registry.npmjs.org/@openai/codex",
+            "https://registry.npmjs.org/@openai/codex/latest?x=1",
+            "https://registry.npmjs.org/evil-package/latest",
+            "https://registry.npmjs.org:444/@openai/codex/latest",
+            "https://api.github.com/repos/ollama/ollama/releases",
+            "https://api.github.com/repos/someone/ollama/releases/latest",
+            "https://chatgpt.com/backend-api/wham/usage",
+            "https://api.anthropic.com/api/oauth/usage",
+            "https://github.com/Seckcey/plenipo/releases/latest/download/latest.json",
+            "http://127.0.0.1:8766/registry.npmjs.org/@openai/codex/latest",
+        ] {
+            assert!(rules.check(Purpose::AiToolVersions, bad).is_err(), "{bad}");
+        }
+        // Plenipo's own update addresses are not AI tool lists, and the other way round.
+        assert!(rules
+            .check(Purpose::Updates, AI_TOOL_RELEASE_LISTS[0])
+            .is_err());
+        // A copy built for the tests: that stand-in on this computer, for the same lists only.
+        let test = OutboundRules::default().with_ai_tool_releases(Some("http://127.0.0.1:8766"));
+        assert!(test
+            .check(
+                Purpose::AiToolVersions,
+                "http://127.0.0.1:8766/registry.npmjs.org/@openai/codex/latest"
+            )
+            .is_ok());
+        for bad in [
+            "http://127.0.0.1:8766/evil.example/x",
+            "http://127.0.0.1:8767/registry.npmjs.org/@openai/codex/latest",
+            "http://127.0.0.1:8766/registry.npmjs.org/@openai/codex/latest?q=1",
+        ] {
+            assert!(test.check(Purpose::AiToolVersions, bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            OutboundRules::default()
+                .with_ai_tool_releases(Some("http://evil.example:8766"))
+                .ai_tool_test_port,
             None
         );
     }

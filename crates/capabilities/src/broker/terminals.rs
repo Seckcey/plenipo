@@ -12,6 +12,10 @@
 //!   closed: where, when, and for how long (`terminal.opened`, `terminal.closed`).
 //! - **Stop all** stops workers. It does not close the owner's terminals: they are kept apart
 //!   from every worker's grant and control session.
+//! - **An AI tool's sign-in tab** (Phase 19, ADR-058) runs that tool's own sign-in or sign-out
+//!   program, built by Plenipo's AI tools service from the tool's fixed list, directly (no
+//!   shell) and with only the environment the tool's tasks get. It opens only through that
+//!   service ([`crate::ai_tools`]), never from a place alone.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -75,8 +79,22 @@ fn place_word(place: &TerminalPlace) -> &'static str {
     match place {
         TerminalPlace::ThisPc => "thisPc",
         TerminalPlace::Server { .. } => "server",
+        TerminalPlace::AiTool { .. } => "aiTool",
     }
 }
+
+/// An AI tool's sign-in tab's tool and action, for its records.
+fn ai_tool_fields(place: &TerminalPlace) -> serde_json::Value {
+    match place {
+        TerminalPlace::AiTool { runtime_id, action } => {
+            json!({ "runtimeId": runtime_id, "action": action.as_str() })
+        }
+        _ => json!({}),
+    }
+}
+
+/// What the AI tools service does when a sign-in tab's program ends (ADR-058 §4).
+pub type AfterEnd = Box<dyn FnOnce(&Ending) + Send>;
 
 impl Broker {
     fn terminals(&self) -> &Terminals {
@@ -160,6 +178,12 @@ impl Broker {
                 self.open_on_server(id, server_id, size, output, sink)
                     .await?
             }
+            // Only the AI tools service opens these, with the tool's own program.
+            TerminalPlace::AiTool { .. } => {
+                return Err(BrokerError::Invalid(
+                    "An AI tool's sign-in opens from its card on the AI tools page".into(),
+                ))
+            }
         };
         // While it opened, the page that asked for it went (a reload, or Plenipo quitting), or
         // Remote computers (SSH) was switched off: it closes at once.
@@ -178,6 +202,66 @@ impl Broker {
             )));
         }
         Ok(info)
+    }
+
+    /// Open a terminal that runs an AI tool's own sign-in or sign-out program (ADR-058):
+    /// `program` comes from the tool's adapter, from a fixed list, and runs directly with its
+    /// own environment. Only Plenipo's AI tools service calls this. `after_end` runs once the
+    /// program has ended and its closing is recorded.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open_program_terminal(
+        &self,
+        place: TerminalPlace,
+        title: String,
+        detail: String,
+        program: &terminal::ShellProgram,
+        cols: u16,
+        rows: u16,
+        sink: TerminalSink,
+        after_end: AfterEnd,
+    ) -> Result<TerminalInfo> {
+        self.refuse_while_a_worker_has_the_screen()?;
+        if self.inner.config.terminal_refuses_administrator {
+            terminal::refuse_elevated().map_err(BrokerError::Invalid)?;
+        }
+        let _slot = self.reserve_terminal()?;
+        let size = Size::clamped(cols, rows);
+        let output: terminal::Output = {
+            let sink = Arc::clone(&sink);
+            Arc::new(move |bytes: &[u8]| {
+                sink(TerminalEvent::Output {
+                    data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                });
+            })
+        };
+        let info = TerminalInfo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title,
+            place,
+            detail,
+            environment: None,
+            opened_at: plenipo_ledger::now_ms(),
+        };
+        let open = self.keep_terminal(info.clone());
+        let recorded = self.ended_hook(&open, sink);
+        let ended: terminal::Ended = Box::new(move |ending: Ending| {
+            let copy = ending.clone();
+            recorded(ending);
+            after_end(&copy);
+        });
+        let home = terminal::home_folder();
+        match terminal::start_local(program, home.as_deref(), size, output, ended) {
+            Ok(shell) => {
+                self.record_opened(&info, ai_tool_fields(&info.place));
+                self.hold_shell(&open, Shell::Local(shell));
+                Ok(info)
+            }
+            Err(why) => {
+                open.ended.store(true, Ordering::SeqCst);
+                lock(&self.terminals().open).remove(&info.id);
+                Err(BrokerError::Invalid(why))
+            }
+        }
     }
 
     /// Record the terminal as open and keep it; `start` starts its shell. If the shell ended
@@ -204,24 +288,26 @@ impl Broker {
                 return;
             }
             let seconds = open.started.elapsed().as_secs_f64();
-            this.event(
-                None,
-                OWNER,
-                "terminal.closed",
-                json!({
-                    "terminalId": open.info.id,
-                    "place": place_word(&open.info.place),
-                    "title": open.info.title,
-                    "serverId": match &open.info.place {
-                        TerminalPlace::Server { server_id } => Some(server_id.clone()),
-                        TerminalPlace::ThisPc => None,
-                    },
-                    "environment": open.info.environment,
-                    "seconds": (seconds * 10.0).round() / 10.0,
-                    "why": ending.why,
-                    "exitCode": ending.code,
-                }),
-            );
+            let mut payload = json!({
+                "terminalId": open.info.id,
+                "place": place_word(&open.info.place),
+                "title": open.info.title,
+                "serverId": match &open.info.place {
+                    TerminalPlace::Server { server_id } => Some(server_id.clone()),
+                    TerminalPlace::ThisPc | TerminalPlace::AiTool { .. } => None,
+                },
+                "environment": open.info.environment,
+                "seconds": (seconds * 10.0).round() / 10.0,
+                "why": ending.why,
+                "exitCode": ending.code,
+            });
+            if let (Some(p), Some(extra)) = (
+                payload.as_object_mut(),
+                ai_tool_fields(&open.info.place).as_object(),
+            ) {
+                p.extend(extra.clone());
+            }
+            this.event(None, OWNER, "terminal.closed", payload);
             lock(&this.terminals().open).remove(&open.info.id);
             sink(TerminalEvent::Ended {
                 why: ending.why,

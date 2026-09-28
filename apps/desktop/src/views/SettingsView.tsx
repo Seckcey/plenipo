@@ -100,7 +100,7 @@ export function SettingsView({
           </h2>
           <p className="view__lead">{meta.lead}</p>
           {current === "aiTools" && <AiToolsSettings go={go} />}
-          {current === "aiModels" && <ModelSettings />}
+          {current === "aiModels" && <ModelSettings go={go} />}
           {current === "permissions" && <PermissionSettings />}
           {current === "organization" && <OrganizationSettings go={go} />}
           {current === "servers" && <ServerSettings />}
