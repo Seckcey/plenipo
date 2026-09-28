@@ -4,6 +4,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { gzipSync } from "node:zlib";
 import { buildWebsite, websiteRoot } from "./build.mjs";
 
 test("production build includes every local asset and valid internal destination", async () => {
@@ -11,6 +12,16 @@ test("production build includes every local asset and valid internal destination
   try {
     await buildWebsite(output);
     const html = await readFile(join(output, "index.html"), "utf8");
+    // Enforce a bounded, locally served island that is not loaded by initial HTML.
+    for (const type of ["module", "style"]) {
+      const url = html.match(new RegExp(`data-demo-${type}="([^"]+)"`))?.[1];
+      assert.ok(url?.startsWith("/demo/demo-"));
+      const bytes = await readFile(join(output, url.slice(1)));
+      assert.ok(gzipSync(bytes).length < (type === "module" ? 180_000 : 12_000));
+      assert.ok(!html.includes(`src="${url}"`) && !html.includes(`href="${url}"`));
+    }
+    assert.match(html, /No real AI runs/);
+    assert.match(html, /Read the sample without the interactive demo/);
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
     assert.equal(new Set(ids).size, ids.length, "HTML IDs must be unique");
     for (const [, url] of html.matchAll(/(?:href|src)="([^"]+)"/g)) {

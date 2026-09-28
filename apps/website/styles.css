@@ -6,6 +6,132 @@
   src: url("/fonts/InterVariable.woff2") format("woff2");
 }
 
+.demo-showcase[data-demo-open] {
+  min-height: 1060px;
+}
+@media (max-width: 700px) {
+  .demo-showcase[data-demo-open] {
+    min-height: 1200px;
+  }
+}
+.demo-fallback {
+  border: 1px solid #d5ddeb;
+  border-radius: 14px;
+  background: #f5f8fd;
+  overflow: hidden;
+  padding: 44px 36px 24px;
+  text-align: center;
+}
+.demo-kicker {
+  display: block;
+  color: #5d6575;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin-bottom: 12px;
+}
+.demo-invitation h2 {
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 550;
+  letter-spacing: -0.04em;
+}
+.demo-invitation > p {
+  margin: 12px auto 22px;
+  max-width: 530px;
+  color: #5d6575;
+  font-size: 14px;
+}
+.demo-invitation #demo-load-status {
+  font-size: 11px;
+  margin: 14px auto 30px;
+}
+.demo-static-team {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+}
+.demo-static-team > div {
+  border: 1px solid #d5ddeb;
+  border-radius: 10px;
+  background: white;
+  padding: 20px;
+  text-align: left;
+  min-width: 200px;
+  box-shadow: 0 5px 14px #12223d08;
+}
+.demo-static-team strong {
+  display: block;
+  font-size: 13px;
+  color: #172238;
+}
+.demo-static-team span {
+  display: block;
+  color: #59677d;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.demo-static-team > span {
+  color: #0068f9;
+  font-size: 20px;
+}
+.demo-static-workers {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0 30px;
+}
+.demo-static-workers span {
+  background: white;
+  color: #59677d;
+  font-size: 11px;
+  padding: 8px 14px;
+  border: 1px solid #d5ddeb;
+  border-radius: 6px;
+}
+.demo-static-details {
+  max-width: 740px;
+  margin: auto;
+  font-size: 12px;
+  color: #59677d;
+}
+.demo-static-details summary {
+  padding: 12px;
+}
+.demo-static-details p {
+  text-align: left;
+  margin: 12px 0;
+}
+.demo-static-toggle {
+  display: block;
+  border: 0;
+  background: none;
+  margin: 12px auto 0;
+  color: #5d6575;
+  font-size: 11px;
+  padding: 10px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 800px) {
+  .demo-fallback {
+    padding: 26px 18px 16px;
+  }
+  .demo-static-team {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .demo-static-team > div {
+    width: min(300px, 100%);
+  }
+  .demo-static-team > span {
+    transform: rotate(90deg);
+  }
+  .demo-static-workers {
+    flex-wrap: wrap;
+  }
+}
+
 :root {
   color-scheme: light;
   --white: #fff;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 export const websiteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -12,6 +13,26 @@ export async function buildWebsite(output = resolve(websiteRoot, "dist")) {
   await mkdir(output, { recursive: true });
   await cp(resolve(websiteRoot, "public"), output, { recursive: true });
   let html = await readFile(resolve(websiteRoot, "index.html"), "utf8");
+  const bundle = await build({
+    entryPoints: [resolve(websiteRoot, "src/mount.tsx")],
+    outdir: resolve(output, "demo"),
+    entryNames: "demo-[hash]",
+    bundle: true,
+    minify: true,
+    format: "esm",
+    target: ["es2022"],
+    jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+    metafile: true,
+    logLevel: "silent",
+  });
+  const bundleFiles = Object.keys(bundle.metafile.outputs);
+  const script = bundleFiles.find((file) => file.endsWith(".js"));
+  const style = bundleFiles.find((file) => file.endsWith(".css"));
+  if (!script || !style) throw new Error("Interactive demo bundle is incomplete");
+  html = html
+    .replace("__DEMO_SCRIPT__", `/demo/${script.split(/[\\/]/).pop()}`)
+    .replace("__DEMO_STYLE__", `/demo/${style.split(/[\\/]/).pop()}`);
   for (const file of ["styles.css", "main.js"]) {
     const content = await readFile(resolve(websiteRoot, file));
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
