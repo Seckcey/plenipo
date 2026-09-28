@@ -15,7 +15,7 @@ use crate::dto::{
 };
 use crate::error::{LedgerError, Result};
 use crate::rows::{self, json as parse_json, parse_enum, u64_of, TASK_COLUMNS};
-use crate::{events, tasks, Ledger};
+use crate::{events, tasks, HandoffTrail, Ledger};
 
 const MESSAGE_COLUMNS: &str = "id, correlation_id, kind, in_reply_to, task_id, child_task_id, \
     source, destination, state, dedupe_key, envelope, created_at, updated_at";
@@ -830,6 +830,43 @@ impl Ledger {
     }
 
     // ---- Queries ------------------------------------------------------------------------
+
+    /// Hand-offs that changed since `since` (ms), newest first, with the positions at both ends
+    /// (Phase 18, the canvas's live view): a request goes from the asking task's member to the
+    /// child's; a reply goes back.
+    pub fn recent_handoffs(&self, since: u64, limit: u32) -> Result<Vec<HandoffTrail>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT m.id, m.kind, m.state, m.updated_at,
+                        json_extract(t.metadata, '$.workforce.positionId'),
+                        json_extract(ch.metadata, '$.workforce.positionId')
+                 FROM liaison_messages m
+                 JOIN tasks t ON t.id = m.task_id
+                 LEFT JOIN tasks ch ON ch.id = m.child_task_id
+                 WHERE m.updated_at >= ?1
+                 ORDER BY m.updated_at DESC, m.id LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![since as i64, limit.clamp(1, 500)], |r| {
+                let kind: String = r.get(1)?;
+                let asker: Option<String> = r.get(4)?;
+                let child: Option<String> = r.get(5)?;
+                let (from, to) = if kind == "reply" {
+                    (child, asker)
+                } else {
+                    (asker, child)
+                };
+                Ok(HandoffTrail {
+                    id: r.get(0)?,
+                    kind,
+                    from_position_id: from,
+                    to_position_id: to,
+                    state: r.get(2)?,
+                    at: crate::rows::u64_of(r.get(3)?),
+                })
+            })?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })
+    }
 
     pub fn liaison_message(&self, id: &str) -> Result<Option<LiaisonMessage>> {
         self.read(|c| get(c, id))

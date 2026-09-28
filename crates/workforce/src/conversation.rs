@@ -72,10 +72,12 @@ pub(crate) fn plan(
     })?;
     let project = view.project_of(&position.id);
     let project_id = project.map(|p| p.id.clone());
+    // Each task carries its team's project and department, which Guard reads (ADR-054 §9).
     let mut workforce = json!({
         "positionId": position.id,
         "agentId": agent.id,
         "projectId": project_id,
+        "departmentId": view.department_of(&position.id).map(|d| d.id.clone()),
     });
     let not_allowed = |runtime_id: &str| {
         invalid(format!(

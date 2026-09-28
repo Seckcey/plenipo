@@ -428,3 +428,85 @@ pub struct TaskRecord {
     pub record: plenipo_ledger::WorkRecord,
     pub approvals: Vec<ApprovalView>,
 }
+
+// ---- The canvas's live view (Phase 18, ADR-053 §17–§19) -------------------------------------
+
+/// Where a worker's work runs now, besides its AI company's cloud (where every model Plenipo
+/// uses today does its thinking).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum LivePlace {
+    /// This PC: `what` is "a program", "Plenipo's browser", or "the screen".
+    ThisPc { what: String },
+    /// One of the owner's servers, by name (production servers are marked).
+    Server { name: String, production: bool },
+}
+
+/// What a worker touched last in its task, from Guard's own record of its calls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Touching {
+    /// A folder inside its working copy ("src/pages"; "" is the project folder itself).
+    Folder {
+        #[ts(optional)]
+        project: Option<String>,
+        folder: String,
+    },
+    Server {
+        name: String,
+        production: bool,
+    },
+    Website {
+        host: String,
+    },
+    /// The screen, mouse, and keyboard of this PC.
+    Screen,
+}
+
+/// A worker in a step now, and where its work is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LiveWorker {
+    pub grant_id: String,
+    pub task_id: String,
+    #[ts(optional)]
+    pub position_id: Option<String>,
+    pub worker: String,
+    /// Its AI tool.
+    pub runtime_id: String,
+    #[ts(optional)]
+    pub runs_on: Option<LivePlace>,
+    #[ts(optional)]
+    pub touching: Option<Touching>,
+}
+
+/// A hand-off moving between two members, for the canvas.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LiveHandoff {
+    pub id: String,
+    /// `asked` (a request) or `answered` (its reply going back).
+    pub kind: String,
+    #[ts(optional)]
+    pub from_position_id: Option<String>,
+    #[ts(optional)]
+    pub to_position_id: Option<String>,
+    #[ts(type = "number")]
+    pub at: u64,
+}
+
+/// The canvas's live view: who is working where, and hand-offs in the last minutes. Read from
+/// what Plenipo already records; it invents nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LiveView {
+    pub workers: Vec<LiveWorker>,
+    pub handoffs: Vec<LiveHandoff>,
+    #[ts(type = "number")]
+    pub at: u64,
+}

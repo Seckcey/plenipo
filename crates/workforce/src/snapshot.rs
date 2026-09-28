@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use plenipo_ledger::{
     AgentInstance, OrgRecords, OversightKind, Position, PositionState, RoleType, RuntimeSession,
-    SavedAgent, Specialty, Task, TaskState,
+    SavedAgent, Specialty, Task, TaskState, TilePlace,
 };
 use plenipo_router::Planner;
 use serde_json::Value;
@@ -31,6 +31,8 @@ pub(crate) struct Inputs<'a> {
     pub name: String,
     pub titles: TitleTheme,
     pub notices: Vec<String>,
+    /// The tiles the owner placed by hand (ADR-053).
+    pub places: &'a [TilePlace],
     pub now: u64,
 }
 
@@ -262,6 +264,8 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
         let role = view.role(p);
         let persistent = role.is_some_and(|r| r.persistent);
         let project = view.project_of(&p.id);
+        // Where it works now: the team it is lent to, or its own (ADR-054).
+        let work = view.work_project_of(&p.id);
         let own: Vec<&Task> = by_position.get(p.id.as_str()).cloned().unwrap_or_default();
         let agent = if persistent {
             records
@@ -305,7 +309,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
         let c = counts(&own);
         let active = p.state == PositionState::Active;
         // Where its next worker (or a new agent) would go.
-        let route = active.then(|| decide(planner, &view, p, project, &[]));
+        let route = active.then(|| decide(planner, &view, p, work, &[]));
         // A full-time agent keeps the AI tool of the conversation it has.
         let conversation = agent
             .filter(|a| session_of(a).is_some())
@@ -324,9 +328,9 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 .map_or_else(|| id.to_owned(), |t| t.info.label.clone())
         };
         let detail = match (&runtime_id, &route) {
-            (Some(r), _) if !allowed(project, r) => Some(format!(
+            (Some(r), _) if !allowed(work, r) => Some(format!(
                 "{} does not allow {}",
-                project.map_or("The project", |x| x.name.as_str()),
+                work.map_or("The project", |x| x.name.as_str()),
                 tool_label(r)
             )),
             // A fixed AI tool whose AI company a rule never uses cannot start a new
@@ -435,6 +439,17 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             archived_with: archived_with(&p.metadata["archive"]["with"]),
             deleted: p.is_deleted(),
             in_workforce: p.metadata["deleted"]["movedTo"] == "workforce",
+            loan: view.loan(&p.id).map(|l| LoanInfo {
+                to_lead_id: l.to_lead_id.clone(),
+                to: titles
+                    .get(l.to_lead_id.as_str())
+                    .map_or_else(|| "another team".into(), |t| (*t).to_owned()),
+                project: view.project_of(&l.to_lead_id).map(|x| x.name.clone()),
+                until: l.until,
+                objective_task_id: l.objective_task_id.clone(),
+                going_home: l.going_home,
+                since: l.started_at,
+            }),
         }
     };
 
@@ -610,9 +625,11 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 id: t.info.id.clone(),
                 label: t.info.label.clone(),
                 ready: t.info.ready,
+                company: t.info.provider_label.clone(),
             })
             .collect(),
         notices: inputs.notices.clone(),
+        places: inputs.places.to_vec(),
         generated_at: inputs.now,
     }
 }
@@ -910,6 +927,7 @@ mod tests {
             name: "8 West".into(),
             titles: TitleTheme::Army,
             notices: vec![],
+            places: &[],
             now: 1,
         })
     }

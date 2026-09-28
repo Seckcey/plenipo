@@ -1505,3 +1505,19 @@ pub struct Loan {
     pub ended_at: Option<u64>,
     pub end_reason: Option<String>,
 }
+
+/// A hand-off between two organization members, for the canvas's live view (Phase 18): a request
+/// from the asking member to the one that took it, or the answer going back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffTrail {
+    pub id: String,
+    /// `request` or `reply`.
+    pub kind: String,
+    /// The position that sends it, and the one it goes to (when they are organization members).
+    pub from_position_id: Option<String>,
+    pub to_position_id: Option<String>,
+    pub state: String,
+    /// When it last changed.
+    pub at: u64,
+}

@@ -4,7 +4,8 @@
 use std::collections::{HashMap, HashSet};
 
 use plenipo_ledger::{
-    Department, OrgRecords, Oversight, Position, PositionState, Project, Role, RoleType, Specialty,
+    Department, Loan, OrgRecords, Oversight, Position, PositionState, Project, Role, RoleType,
+    Specialty,
 };
 
 /// A member of a lead's team: an on-demand position reporting to the lead, one assigned to
@@ -15,6 +16,8 @@ pub struct TeamMember<'a> {
     pub position: &'a Position,
     /// Set when the member serves the team through an oversight assignment.
     pub oversight: Option<&'a Oversight>,
+    /// Set when the member is lent to the team (ADR-054).
+    pub lent: Option<&'a Loan>,
 }
 
 pub struct OrgView<'a> {
@@ -24,6 +27,8 @@ pub struct OrgView<'a> {
     heads: HashMap<&'a str, &'a Department>,
     coordinators: HashMap<&'a str, &'a Project>,
     specialties: HashMap<&'a str, &'a Specialty>,
+    /// Loans in effect, by the lent position.
+    loans: HashMap<&'a str, &'a Loan>,
 }
 
 impl<'a> OrgView<'a> {
@@ -50,8 +55,19 @@ impl<'a> OrgView<'a> {
                 .iter()
                 .map(|s| (s.id.as_str(), s))
                 .collect(),
+            loans: records
+                .loans
+                .iter()
+                .filter(|l| l.active)
+                .map(|l| (l.position_id.as_str(), l))
+                .collect(),
             records,
         }
+    }
+
+    /// The loan in effect for `id`, when it is lent to another team (ADR-054).
+    pub fn loan(&self, id: &str) -> Option<&'a Loan> {
+        self.loans.get(id).copied()
     }
 
     /// The position's specialty (ADR-042), while it is not removed.
@@ -140,13 +156,33 @@ impl<'a> OrgView<'a> {
         out
     }
 
-    /// The lead whose team `id` works in: itself when persistent, otherwise its supervisor.
+    /// The lead whose team `id` works in: itself when persistent, the lead of the team it is
+    /// lent to (ADR-054), otherwise its supervisor.
     pub fn lead_of(&self, id: &str) -> Option<&'a Position> {
         let p = self.position(id)?;
         if self.persistent(p) {
             Some(p)
+        } else if let Some(loan) = self.loan(id) {
+            self.active(&loan.to_lead_id)
         } else {
             p.reports_to.as_deref().and_then(|s| self.active(s))
+        }
+    }
+
+    /// The department `id` works in (ADR-041 §5): the department of the team it is lent to, or
+    /// its own (ADR-054).
+    pub fn work_department_of(&self, id: &str) -> Option<&'a Department> {
+        match self.loan(id) {
+            Some(loan) => self.department_of(&loan.to_lead_id),
+            None => self.department_of(id),
+        }
+    }
+
+    /// The project `id` works on: the project of the team it is lent to, or its own.
+    pub fn work_project_of(&self, id: &str) -> Option<&'a Project> {
+        match self.loan(id) {
+            Some(loan) => self.project_of(&loan.to_lead_id),
+            None => self.project_of(id),
         }
     }
 
@@ -154,14 +190,19 @@ impl<'a> OrgView<'a> {
     /// oversee it, then its active full-time reports (ADR-016). Work only goes down the
     /// reporting lines or to on-demand members, and reporting lines never loop, so no two
     /// members can end up waiting on each other.
+    ///
+    /// An agent lent away works for the team it is lent to until it comes back, so it is left
+    /// out of its home team and of the teams it oversees, and listed on the team it helps
+    /// (ADR-054).
     pub fn team(&self, lead: &str) -> Vec<TeamMember<'a>> {
         let mut out: Vec<TeamMember<'a>> = self
             .reports(Some(lead))
             .into_iter()
-            .filter(|p| !self.persistent(p))
+            .filter(|p| !self.persistent(p) && self.loan(&p.id).is_none())
             .map(|position| TeamMember {
                 position,
                 oversight: None,
+                lent: None,
             })
             .collect();
         for o in self
@@ -171,10 +212,30 @@ impl<'a> OrgView<'a> {
             .filter(|o| o.active && o.target_id == lead)
         {
             if let Some(position) = self.active(&o.overseer_id) {
-                if !self.persistent(position) && !out.iter().any(|m| m.position.id == position.id) {
+                if !self.persistent(position)
+                    && self.loan(&position.id).is_none()
+                    && !out.iter().any(|m| m.position.id == position.id)
+                {
                     out.push(TeamMember {
                         position,
                         oversight: Some(o),
+                        lent: None,
+                    });
+                }
+            }
+        }
+        for loan in self
+            .records
+            .loans
+            .iter()
+            .filter(|l| l.active && l.to_lead_id == lead)
+        {
+            if let Some(position) = self.active(&loan.position_id) {
+                if !out.iter().any(|m| m.position.id == position.id) {
+                    out.push(TeamMember {
+                        position,
+                        oversight: None,
+                        lent: Some(loan),
                     });
                 }
             }
@@ -186,6 +247,7 @@ impl<'a> OrgView<'a> {
                 .map(|position| TeamMember {
                     position,
                     oversight: None,
+                    lent: None,
                 }),
         );
         out

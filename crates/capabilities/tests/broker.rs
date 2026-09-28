@@ -2137,3 +2137,81 @@ async fn too_many_requests_for_approval_in_a_minute_are_refused() {
     ToolProvider::close(&h.broker, &grant);
     assert_eq!(h.events(&task, "guard.grant_closed")[0]["asked"], 10);
 }
+
+/// Phase 18 (ADR-053 §17–§19): the canvas's live view reads Guard's own record — what each
+/// worker in a step touched last (a folder in its working copy; nothing it was refused) — and
+/// Liaison's hand-offs, from the member that asked to the one that took it and back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_live_view_shows_what_a_worker_touches_and_the_handoffs() {
+    use plenipo_capabilities::Touching;
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness().await;
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+
+    // The answer went back from the developer to the supervisor.
+    let live = h.broker.live_view();
+    assert!(
+        live.handoffs.iter().any(|x| x.kind == "answered"
+            && x.from_position_id.as_deref() == Some(h.developer.as_str())
+            && x.to_position_id.as_deref() == Some(h.supervisor.as_str())),
+        "{:#?}",
+        live.handoffs
+    );
+
+    let (task_id, grant) = h.direct_grant(&h.developer).await;
+    let worker = |grant: &str| {
+        h.broker
+            .live_view()
+            .workers
+            .into_iter()
+            .find(|w| w.grant_id == grant)
+            .expect("the worker in its step")
+    };
+    let now = worker(&grant);
+    assert_eq!(now.task_id, task_id);
+    assert_eq!(now.position_id.as_deref(), Some(h.developer.as_str()));
+    assert_eq!(now.runs_on, None, "only its AI company's cloud");
+    assert_eq!(now.touching, None, "nothing touched yet");
+
+    let wrote = h
+        .broker
+        .call(
+            &grant,
+            "write_file",
+            serde_json::json!({ "path": "src/pages/new.txt", "content": "hello\n" }),
+        )
+        .await;
+    assert!(!wrote.is_error, "{}", wrote.text);
+    assert_eq!(
+        worker(&grant).touching,
+        Some(Touching::Folder {
+            project: Some("Website".into()),
+            folder: "src/pages".into()
+        })
+    );
+    // A call Guard refuses touches nothing.
+    let refused = h
+        .broker
+        .call(&grant, "read_file", serde_json::json!({ "path": ".env" }))
+        .await;
+    assert!(refused.is_error);
+    assert_eq!(
+        worker(&grant).touching,
+        Some(Touching::Folder {
+            project: Some("Website".into()),
+            folder: "src/pages".into()
+        })
+    );
+    ToolProvider::close(&h.broker, &grant);
+    assert!(h
+        .broker
+        .live_view()
+        .workers
+        .iter()
+        .all(|w| w.grant_id != grant));
+}

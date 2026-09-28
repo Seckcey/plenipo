@@ -15,7 +15,10 @@ path = "tests/support/fake_agent.rs"
 test = false
 
 [dependencies]
+# The owner's picture (Phase 18, ADR-056): received as PNG in base64, checked before it is kept.
+base64 = "0.22"
 log = "0.4"
+png = "0.18"
 plenipo-ledger = { path = "../ledger" }
 plenipo-liaison = { path = "../liaison" }
 plenipo-router = { path = "../router" }

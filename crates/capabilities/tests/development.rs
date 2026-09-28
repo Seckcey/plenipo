@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore};
 use plenipo_guard::Guard;
-use plenipo_ledger::{Ledger, Task, TaskState, WorkspaceState, DB_FILE_NAME};
+use plenipo_ledger::{Ledger, LoanUntil, Task, TaskState, WorkspaceState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_router::Router;
@@ -23,7 +23,8 @@ use plenipo_runtime::{
 };
 use plenipo_workforce::outcome::{ReportApprovalState, ReportTask, ReviewVerdict};
 use plenipo_workforce::{
-    DevelopmentInput, HireInput, ObjectiveReport, OrgSnapshot, ProjectInput, Workforce,
+    DevelopmentInput, HireInput, LeadInput, ObjectiveReport, OrgSnapshot, PositionKind,
+    ProjectInput, RoleInput, Staffing, Workforce,
 };
 use serde_json::{json, Value};
 
@@ -1654,4 +1655,255 @@ fn fence_nonce(open: &str, kind: &str, source: &str, whose: &str) -> String {
     );
     assert_eq!(nonce.len(), 8, "{open:?}");
     nonce.to_owned()
+}
+
+// ---- Phase 18: lending, and a task's own team (ADR-054) ---------------------------------------
+
+/// A second project in the Development department, Shop, whose permission limit is Read only,
+/// with its Shop Supervisor; returns (the supervisor, the project).
+fn shop(h: &H) -> (String, String) {
+    let org = h.workforce.snapshot().unwrap();
+    let role = |name: &str| {
+        org.roles
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("no role {name}"))
+            .id
+            .clone()
+    };
+    let folder = h.dir.path().join("shop");
+    std::fs::create_dir_all(&folder).unwrap();
+    let org = h
+        .workforce
+        .create_project(&ProjectInput {
+            name: "Shop".into(),
+            description: "The web shop".into(),
+            repository_url: None,
+            local_path: Some(folder.display().to_string()),
+            allowed_runtimes: vec!["claude-code".into(), "codex".into()],
+            capability_profile: Some("read-only".into()),
+            branch_per_objective: Some(false),
+            department_id: Some(org.departments[0].id.clone()),
+            coordinator: Some(LeadInput {
+                role_id: role("Supervisor"),
+                title: "Shop Supervisor".into(),
+                runtime_id: Some("claude-code".into()),
+                model: None,
+                vacant: None,
+                from_workforce: None,
+            }),
+        })
+        .unwrap();
+    let supervisor = org
+        .positions
+        .iter()
+        .find(|p| p.title == "Shop Supervisor")
+        .unwrap()
+        .id
+        .clone();
+    let project = org.projects.iter().find(|p| p.name == "Shop").unwrap();
+    (supervisor, project.id.clone())
+}
+
+fn position_id(h: &H, title: &str) -> String {
+    h.workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == title && p.active)
+        .unwrap_or_else(|| panic!("no position {title}"))
+        .id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lent_auditor_works_one_objective_under_the_other_projects_limit_then_goes_home() {
+    let h = harness().await;
+    let (shop_lead, shop_project) = shop(&h);
+    let org = h.workforce.snapshot().unwrap();
+    let auditor_role = org
+        .roles
+        .iter()
+        .find(|r| r.name == "Security Auditor")
+        .unwrap()
+        .id
+        .clone();
+    // At home it could change files (the Developer set), so only the Shop limit stops it.
+    h.broker
+        .guard()
+        .assign_role(&auditor_role, Some("developer"))
+        .unwrap();
+    h.workforce
+        .hire(&HireInput {
+            role_id: auditor_role,
+            title: "Security Auditor".into(),
+            reports_to: Some(h.team.supervisor.clone()),
+            runtime_id: None,
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap();
+    let auditor = position_id(&h, "Security Auditor");
+    let org = h
+        .workforce
+        .lend_agent(&auditor, &shop_lead, LoanUntil::Objective)
+        .unwrap();
+    let lent = org.positions.iter().find(|p| p.id == auditor).unwrap();
+    let loan = lent.loan.as_ref().expect("lent");
+    assert_eq!(loan.to, "Shop Supervisor");
+    assert_eq!(loan.project.as_deref(), Some("Shop"));
+
+    h.script(&json!({
+        "Shop Supervisor": [
+            { "say": "Asking our lent auditor.",
+              "handoffs": [to("Security Auditor", "Check the shop.")] },
+            { "say": "Checked." }
+        ],
+        "Security Auditor": [
+            { "say": "Checked the shop.",
+              "tools": [
+                  tool("list_files", json!({ "path": "." })),
+                  tool("write_file", json!({ "path": "audit.txt", "content": "ok\n" })),
+              ],
+              "review": { "verdict": "approve", "findings": [] } }
+        ]
+    }));
+    let root = h.objective(&shop_lead, "Audit the shop").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+
+    // It worked for the Shop team: under Shop's permission limit (Read only), in Shop's folder.
+    let job = &h.tasks_of(&root, "Security Auditor")[0];
+    assert_eq!(
+        job.metadata["workforce"]["projectId"],
+        shop_project.as_str()
+    );
+    assert_eq!(job.metadata["workforce"]["leadId"], shop_lead.as_str());
+    let opened = &h.events(&job.id, "guard.grant_opened")[0];
+    assert_eq!(opened["project"], "Shop");
+    assert!(
+        opened["permissions"].get("filesystem.write").is_none()
+            && opened["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|t| t != "write_file"),
+        "the Shop project's Read only limit, not the Website project's: {opened:#}"
+    );
+    assert!(
+        !h.dir.path().join("shop").join("audit.txt").exists(),
+        "nothing was written under Read only"
+    );
+
+    // The objective is done, so it went home by itself; both are in the Ledger.
+    let back = h.ledger.loans_of(&auditor, 1).unwrap().remove(0);
+    assert!(!back.active);
+    assert_eq!(back.end_reason.as_deref(), Some("its objective is done"));
+    assert_eq!(back.objective_task_id.as_deref(), Some(root.as_str()));
+    let types: Vec<String> = h
+        .ledger
+        .recent_events(500)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    for t in [
+        "org.agent_lent",
+        "org.agent_joined_objective",
+        "org.agent_returned",
+    ] {
+        assert!(types.iter().any(|x| x == t), "{t} recorded");
+    }
+    let home = h.workforce.snapshot().unwrap();
+    let auditor_now = home.positions.iter().find(|p| p.id == auditor).unwrap();
+    assert!(auditor_now.loan.is_none());
+    assert_eq!(
+        auditor_now.reports_to.as_deref(),
+        Some(h.team.supervisor.as_str())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moved_full_time_agent_works_under_its_new_projects_limit_from_its_next_objective() {
+    let h = harness().await;
+    let (shop_lead, _) = shop(&h);
+    // A full-time agent of the owner's own role, on the Website team.
+    let org = h
+        .workforce
+        .create_role(&RoleInput {
+            name: "Staff Engineer".into(),
+            description: "Keeps the site running".into(),
+            kind: PositionKind::Worker,
+            staffing: Staffing::Persistent,
+            job: None,
+        })
+        .unwrap();
+    let staff_role = org
+        .roles
+        .iter()
+        .find(|r| r.name == "Staff Engineer")
+        .unwrap()
+        .id
+        .clone();
+    h.broker
+        .guard()
+        .assign_role(&staff_role, Some("developer"))
+        .unwrap();
+    h.workforce
+        .hire(&HireInput {
+            role_id: staff_role,
+            title: "Staff Engineer".into(),
+            reports_to: Some(h.team.supervisor.clone()),
+            runtime_id: Some("claude-code".into()),
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap();
+    let staff = position_id(&h, "Staff Engineer");
+    h.script(&json!({
+        "Staff Engineer": [
+            { "say": "Noted at home.",
+              "tools": [tool("write_file", json!({ "path": "notes.txt", "content": "home\n" }))] },
+            { "say": "Noted at the shop.",
+              "tools": [tool("write_file", json!({ "path": "notes.txt", "content": "shop\n" }))] }
+        ]
+    }));
+    let first = h.objective(&staff, "Write a note").await;
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    let opened = &h.events(&first, "guard.grant_opened")[0];
+    assert_eq!(opened["project"], "Website");
+    assert!(
+        opened["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "write_file"),
+        "at home it may change files: {opened:#}"
+    );
+    let session = h.task(&first).metadata["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // Moved to the Shop team: the same conversation, under the Shop project's limit.
+    h.workforce.move_position(&staff, Some(&shop_lead)).unwrap();
+    let second = h.objective(&staff, "Write another note").await;
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    assert_eq!(
+        h.task(&second).metadata["sessionId"].as_str(),
+        Some(session.as_str()),
+        "moving keeps its conversation"
+    );
+    let opened = &h.events(&second, "guard.grant_opened")[0];
+    assert_eq!(opened["project"], "Shop", "{opened:#}");
+    assert!(
+        opened["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t != "write_file"),
+        "Read only: {opened:#}"
+    );
+    assert!(!h.dir.path().join("shop").join("notes.txt").exists());
 }

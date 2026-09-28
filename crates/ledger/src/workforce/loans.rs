@@ -275,6 +275,11 @@ impl Org {
 }
 
 impl Ledger {
+    /// The objective task `task_id` belongs to: the task at the top of its chain.
+    pub fn objective_of(&self, task_id: &str) -> Result<String> {
+        self.read(|c| objective_root(c, task_id))
+    }
+
     /// Loans in effect now.
     pub fn loans(&self) -> Result<Vec<Loan>> {
         self.read(active_loans)

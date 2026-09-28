@@ -48,6 +48,7 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod git_tools;
+pub mod live;
 mod operate;
 pub(crate) mod servers;
 mod terminals;
@@ -369,6 +370,8 @@ struct State {
     /// Approval ID → the grant whose call waits for it, so the grant's count of waiting
     /// requests moves with the owner's answer (B6).
     askers: HashMap<String, String>,
+    /// Task ID → what its worker touched last, and when (the canvas's live view, Phase 18).
+    touched: HashMap<String, (crate::dto::Touching, u64)>,
 }
 
 struct Inner {
@@ -777,8 +780,23 @@ impl Broker {
 
     // ---- Grants -----------------------------------------------------------------------------
 
+    /// The organization record of the work a step does: its task's, which names the team the
+    /// task belongs to now (a moved or lent agent's, ADR-054 §9); else its conversation's.
+    fn workforce_of(&self, step: &StepInfo<'_>) -> Value {
+        let session = &step.session.metadata["workforce"];
+        let task = self
+            .ledger()
+            .task(step.task_id)
+            .ok()
+            .flatten()
+            .map(|t| t.metadata["workforce"].clone())
+            .filter(|w| w["positionId"].is_string() && w["positionId"] == session["positionId"]);
+        task.unwrap_or_else(|| session.clone())
+    }
+
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
-        let workforce = &step.session.metadata["workforce"];
+        let workforce = self.workforce_of(step);
+        let workforce = &workforce;
         let Some(scope) = self.inner.guard.scope_for(workforce)? else {
             return Ok(None);
         };
@@ -1823,6 +1841,8 @@ impl Broker {
         let mut images = Vec::new();
         let mut evidence = (None, None);
         let mut server_facts = Value::Null;
+        // What it touches, for the canvas's live view (Phase 18).
+        let touches = live::touched_by(&prepared, scope.project.as_ref().map(|p| p.name.as_str()));
         let (outcome, execution) = match prepared.work {
             Work::Ssh(work) => {
                 let who = Caller {
@@ -1877,6 +1897,9 @@ impl Broker {
         }
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.used += 1;
+        }
+        if let (true, Some(t)) = (ok, touches) {
+            self.note_touched(&task_id, t);
         }
         // A pull request opened is recorded with its link (Phase 8).
         let pull_request = (ok && tool.name == "github_pr_create")
@@ -2658,7 +2681,7 @@ impl ToolProvider for Broker {
         let scope = self
             .inner
             .guard
-            .scope_for(&step.session.metadata["workforce"])
+            .scope_for(&self.workforce_of(step))
             .ok()??;
         let config = self.inner.guard.config().ok()?;
         let levels = levels_for(&config, &scope);

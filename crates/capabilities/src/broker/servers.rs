@@ -100,6 +100,19 @@ pub(super) struct SshUse {
     running: AtomicUsize,
 }
 
+impl SshUse {
+    /// The servers this step is connected to now: name, and whether it is a production server
+    /// (for the canvas's live view, Phase 18).
+    pub(super) fn connected(&self) -> Vec<(String, bool)> {
+        self.shown
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .map(|(name, env)| (name.clone(), *env == Environment::Production))
+            .collect()
+    }
+}
+
 impl Default for SshUse {
     fn default() -> Self {
         Self {

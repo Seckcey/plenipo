@@ -165,7 +165,10 @@ pub fn start<R: Runtime>(
                     })
                     .filter(|n| settings.wants(n.kind))
                     .collect();
-                if notices.is_empty() || (settings.only_when_away && in_front()) {
+                // Do not disturb (ADR-056): Windows' pop-ups wait; the bell still counts.
+                let quiet = plenipo_workforce::owner::profile(&ledger)
+                    .is_ok_and(|p| p.status == plenipo_workforce::OwnerStatus::DoNotDisturb);
+                if notices.is_empty() || quiet || (settings.only_when_away && in_front()) {
                     continue;
                 }
                 if let Some(notice) = gate.pass(notices, plenipo_ledger::now_ms()) {
@@ -270,6 +273,52 @@ mod tests {
         // Nothing else is on its way.
         std::thread::sleep(Duration::from_millis(400));
         assert_eq!(notices.kept().len(), 2);
+    }
+
+    #[test]
+    fn do_not_disturb_holds_the_pop_ups() {
+        use plenipo_workforce::{OwnerProfileInput, OwnerStatus, PictureChange};
+        let app = tauri::test::mock_app();
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let notices = start(
+            app.handle(),
+            Arc::clone(&ledger),
+            None,
+            Output::Kept,
+            Duration::from_millis(100),
+        );
+        let status = |status| {
+            plenipo_workforce::owner::set_profile(
+                &ledger,
+                &OwnerProfileInput {
+                    status,
+                    mood: None,
+                    message: String::new(),
+                    picture: PictureChange::Keep,
+                },
+            )
+            .unwrap();
+        };
+        let learned = || {
+            ledger
+                .append_event(NewEvent {
+                    source: "agent:codex".into(),
+                    event_type: "lesson.added".into(),
+                    payload: json!({ "worker": "Backend Developer", "text": "Pull first.", "state": "waiting" }),
+                    ..NewEvent::default()
+                })
+                .unwrap();
+        };
+        status(OwnerStatus::DoNotDisturb);
+        learned();
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            notices.kept().is_empty(),
+            "held while you are not to be disturbed"
+        );
+        status(OwnerStatus::Busy);
+        learned();
+        assert_eq!(kept_after(&notices, 1).len(), 1, "busy still shows them");
     }
 
     #[test]
