@@ -1,6 +1,6 @@
 # ADR-059: Plenipo keeps the AI tools up to date, between tasks
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-28, with every choice as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 19
 - **Carries out:** ADR-039 (the owner's notes) §2.7, "Plenipo updates the AI tools"

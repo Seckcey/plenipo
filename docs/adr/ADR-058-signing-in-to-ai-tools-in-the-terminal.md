@@ -1,6 +1,6 @@
 # ADR-058: Signing in to an AI tool in a terminal tab
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-28, with every choice as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 19
 - **Carries out:** ADR-039 (the owner's notes) §2.6, "signing in to an AI tool from Plenipo"

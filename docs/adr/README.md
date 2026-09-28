@@ -72,6 +72,6 @@ architecture must be recorded here.
 | [055](ADR-055-watch-a-worker-write-code.md)              | Watch: seeing a worker write code as it happens (amends 031)                                  | Accepted |
 | [056](ADR-056-the-owners-tile.md)                        | The owner's tile: your picture, status, mood, and message                                     | Accepted |
 | [057](ADR-057-addresses-in-the-record.md)                | Web addresses in the record keep the page and the names of its fields (amends 020)            | Accepted |
-| [058](ADR-058-signing-in-to-ai-tools-in-the-terminal.md) | Signing in to an AI tool in a terminal tab (amends 031)                                       | Proposed |
-| [059](ADR-059-plenipo-updates-the-ai-tools.md)           | Plenipo keeps the AI tools up to date, between tasks (amends 007, 023)                        | Proposed |
-| [060](ADR-060-usage-plan-left-and-new-models.md)         | Usage, "plan left", and new models, only from what the AI tools report (amends 007, 014)      | Proposed |
+| [058](ADR-058-signing-in-to-ai-tools-in-the-terminal.md) | Signing in to an AI tool in a terminal tab (amends 031)                                       | Accepted |
+| [059](ADR-059-plenipo-updates-the-ai-tools.md)           | Plenipo keeps the AI tools up to date, between tasks (amends 007, 023)                        | Accepted |
+| [060](ADR-060-usage-plan-left-and-new-models.md)         | Usage, "plan left", and new models, only from what the AI tools report (amends 007, 014)      | Accepted |

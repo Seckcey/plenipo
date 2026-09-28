@@ -1,6 +1,6 @@
 # ADR-060: Usage, "plan left", and new models — only from what the AI tools officially report
 
-- **Status:** Proposed
+- **Status:** Accepted (by the owner, 2026-09-28, with every choice as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 19
 - **Carries out:** ADR-039 (the owner's notes) §2.7 (models after an update) and §2.8 ("usage

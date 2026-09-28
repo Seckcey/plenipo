@@ -1,7 +1,7 @@
 # Phase 19 — Implementation Checklist
 
-**Status:** design, waiting for the owner's approval. Nothing is built yet. Builds on v1.11.0
-(Phase 18); releases as **v1.12.0**.
+**Status:** design approved by the owner (2026-09-28); being built. Builds on v1.11.0 (Phase 18);
+releases as **v1.12.0**.
 
 Source: `ROLLOUT_PLAN.md`, Phase 19 — The AI Tools Page: Sign-in, Usage, and Updates (fourth in
 the order of work, ADR-039), and the three records written for it:
@@ -43,6 +43,15 @@ The AI tools page becomes the one place for each AI tool. Each tool gets a card 
   them.
 
 Usage limits leave Settings → AI models; Settings links to the page instead.
+
+## Owner decisions (2026-09-28)
+
+**The design is approved, and ADR-058 to ADR-060 are accepted, with all eleven choices as
+recommended.** Asked what each recommendation was, the owner answered "That all sounds
+reasonable". Earlier the owner asked that new records start at ADR-058 ("when you start adding
+ADRs, start with ADR 058"), which they do.
+
+The recommendations the owner accepted are marked **Recommended** below.
 
 ## Choices for you
 
