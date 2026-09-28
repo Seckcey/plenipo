@@ -150,9 +150,22 @@ describe("Workers view", () => {
     expect(within(log).getByText("Hello!")).toBeInTheDocument();
 
     send({ kind: "activity", ...activity("t1", 4, { type: "message", text: "Hello!" }) });
+    // What Plenipo sent with the task, by size only (ADR-044).
+    const prompt = {
+      bytes: 900,
+      ownBytes: 410,
+      brief: "reminder",
+      why: "routine",
+      fullOwnBytes: 6600,
+      note: "reminder",
+    } as const;
     send({
       kind: "turn",
-      ...turn("t1", { running: false, result: completed("Hello!"), endedAt: 5 }),
+      ...turn("t1", {
+        running: false,
+        result: { ...completed("Hello!"), prompt },
+        endedAt: 5,
+      }),
     });
     send({
       kind: "session",
@@ -166,6 +179,9 @@ describe("Workers view", () => {
     const result = await screen.findByLabelText("Task 1 result");
     expect(within(result).getByText("Hello!")).toBeInTheDocument();
     expect(within(result).getByText(/1,200 in \(200 cached\) · 34 out/)).toBeInTheDocument();
+    expect(
+      within(result).getByText(/34 out · Plenipo's own text: 0\.4 KB \(a short reminder\) · /),
+    ).toBeInTheDocument();
     expect(within(turns).getByText("Completed")).toBeInTheDocument();
     expect(screen.getByText("Claude Code conversation p-1")).toBeInTheDocument();
 
