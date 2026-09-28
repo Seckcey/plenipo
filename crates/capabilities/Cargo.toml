@@ -55,7 +55,7 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-threa
 # Tests only: a second DevTools connection to Plenipo's browser over a loopback WebSocket, as
 # the owner's own hand (Phase 10). The app talks to its browser over a pipe; no TLS.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
-ts-rs = "11"
+ts-rs = "12"
 uuid = { version = "1", features = ["v4"] }
 # The owner's terminal on this PC (Phase 12, ADR-031): ConPTY on Windows, a pseudo terminal
 # elsewhere.

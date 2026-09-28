@@ -14,7 +14,7 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-ts-rs = "11"
+ts-rs = "12"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
