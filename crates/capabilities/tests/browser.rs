@@ -1184,7 +1184,7 @@ async fn a_page_cannot_save_files_in_plenipos_browser() {
     // The worker hears of each file the page tried to save, and why it was not saved.
     for name in ["report.txt", "notes.txt"] {
         assert!(
-            text.contains(&format!("The page tried to save a file ({name}).")),
+            text.contains(&format!("The page tried to save a file named \"{name}\".")),
             "{text}"
         );
     }

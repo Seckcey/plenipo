@@ -143,6 +143,14 @@ fn name_of(path: &Path) -> String {
     }
 }
 
+/// The browser's own words in its answer to a command, without the command's name (which the
+/// owner would not know; [`Cdp::call`] puts it before an error and after a wait that ran out).
+fn browser_words(answer: &str, method: &str) -> String {
+    answer
+        .replace(&format!("{method}: "), "")
+        .replace(&format!(" ({method})"), "")
+}
+
 /// Edge and Chrome on this computer, Edge first: each program found, and which choice it is.
 fn installed() -> Vec<(BrowserChoice, PathBuf)> {
     let mut candidates: Vec<(BrowserChoice, PathBuf)> = Vec::new();
@@ -598,7 +606,9 @@ impl Browser {
         {
             let _ = sup.cancel(&record.id).await;
             return Err(LaunchError::Failed(format!(
-                "{name} could not be set to never save files ({e}), so Plenipo did not use it"
+                "{name} would not agree to never save files (it said: {}), so Plenipo did not \
+                 use it",
+                browser_words(&e, "Browser.setDownloadBehavior")
             )));
         }
         // A page never gets a second tab (ADR-036): the browser is told to attach to every new
@@ -622,8 +632,9 @@ impl Browser {
         {
             let _ = sup.cancel(&record.id).await;
             return Err(LaunchError::Failed(format!(
-                "{name} could not be set to keep pages from opening new tabs ({e}), so Plenipo \
-                 did not use it"
+                "{name} would not agree to keep pages from opening new tabs (it said: {}), so \
+                 Plenipo did not use it",
+                browser_words(&e, "Target.setAutoAttach")
             )));
         }
         // Of the browser's own events, two matter: a download it refused, which the tab whose
@@ -727,6 +738,21 @@ mod tests {
                 "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
             )),
             "Chromium"
+        );
+        // The browser's answer, in the owner's message without the command's name.
+        assert_eq!(
+            browser_words(
+                "Browser.setDownloadBehavior: not supported",
+                "Browser.setDownloadBehavior"
+            ),
+            "not supported"
+        );
+        assert_eq!(
+            browser_words(
+                "the browser did not answer within 20 seconds (Browser.setDownloadBehavior)",
+                "Browser.setDownloadBehavior"
+            ),
+            "the browser did not answer within 20 seconds"
         );
         let dir = tempfile::tempdir().unwrap();
         let config = BrowserConfig {
@@ -1029,10 +1055,13 @@ mod tests {
             fake_browser("answer_commands 2\nexec sleep 60", Duration::from_secs(5));
         let error = browser.connection().await.err().expect("it is not used");
         assert!(
-            error.contains("could not be set to never save files"),
+            error.contains("would not agree to never save files (it said: not supported)"),
             "{error}"
         );
-        assert!(error.contains("not supported"), "{error}");
+        assert!(
+            !error.contains("Browser."),
+            "no command names for the owner: {error}"
+        );
         assert!(error.ends_with("so Plenipo did not use it"), "{error}");
         assert_eq!(starts(&dir), 1);
         assert!(
@@ -1057,10 +1086,15 @@ mod tests {
             fake_browser("answer_commands 3\nexec sleep 60", Duration::from_secs(5));
         let error = browser.connection().await.err().expect("it is not used");
         assert!(
-            error.contains("could not be set to keep pages from opening new tabs"),
+            error.contains(
+                "would not agree to keep pages from opening new tabs (it said: not supported)"
+            ),
             "{error}"
         );
-        assert!(error.contains("not supported"), "{error}");
+        assert!(
+            !error.contains("Target."),
+            "no command names for the owner: {error}"
+        );
         assert!(error.ends_with("so Plenipo did not use it"), "{error}");
         assert_eq!(starts(&dir), 1);
         assert!(

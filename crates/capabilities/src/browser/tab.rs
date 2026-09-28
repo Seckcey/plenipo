@@ -56,6 +56,9 @@ const BINDING: &str = "plenipoControl";
 const OPENING_WAIT: Duration = Duration::from_millis(500);
 /// How long an ask for a new tab that never became one is remembered.
 const OPENING_KEPT: Duration = Duration::from_secs(5);
+/// Most asks for new tabs kept at once: a page can ask in a loop (the browser's own pop-up rules
+/// stop those, and they never become tabs), and the oldest asks go first.
+const OPENING_MOST: usize = 16;
 /// A new tab the page's script can reach is closed once it has made no request for this long
 /// after it was let run (ADR-036, [`close_new_tab`]), and at the latest after `NEW_TAB_LONGEST`.
 const NEW_TAB_QUIET: Duration = Duration::from_millis(150);
@@ -197,6 +200,9 @@ struct State {
     /// New tabs the page asked the browser for (`Page.windowOpen`), oldest first, until the
     /// browser attaches to each (ADR-036): the paused new tab has no address of its own yet.
     opening: Vec<Opening>,
+    /// New tabs the page opened whose address this tab is on its way to instead (ADR-036): the
+    /// action that is running waits for that page as for one it opened itself.
+    opening_here: u32,
     policy: SitePolicy,
     mode: Mode,
     worker: String,
@@ -250,17 +256,23 @@ impl Shared {
     }
 
     /// The page asked the browser for a new tab (`Page.windowOpen`): keep its address for when
-    /// the browser attaches to that tab (ADR-036).
+    /// the browser attaches to that tab (ADR-036). Asks that never became a tab (the browser's
+    /// own pop-up rules stopped one, say) are forgotten after a while, and only so many are kept.
     fn opening(&self, url: &str) {
-        self.state().opening.push(Opening {
+        let mut s = self.state();
+        s.opening.retain(|o| o.at.elapsed() < OPENING_KEPT);
+        if s.opening.len() >= OPENING_MOST {
+            s.opening.remove(0);
+        }
+        s.opening.push(Opening {
             url: url.to_owned(),
             at: Instant::now(),
         });
     }
 
-    /// The address of the oldest new tab the page asked for and the browser has not attached to
-    /// yet, waiting up to `wait` for the ask to arrive. Asks that never became a tab (the
-    /// browser's own pop-up rules stopped one, say) are forgotten after a while.
+    /// The address of the newest new tab the page asked for and the browser has not attached to
+    /// yet, waiting up to `wait` for the ask to arrive. Older asks go with it: the browser opens
+    /// one new tab per click, so they never became tabs.
     async fn take_opening(&self, wait: Duration) -> Option<String> {
         let deadline = Instant::now() + wait;
         loop {
@@ -268,8 +280,9 @@ impl Shared {
             {
                 let mut s = self.state();
                 s.opening.retain(|o| o.at.elapsed() < OPENING_KEPT);
-                if !s.opening.is_empty() {
-                    return Some(s.opening.remove(0).url);
+                if let Some(newest) = s.opening.pop() {
+                    s.opening.clear();
+                    return Some(newest.url);
                 }
             }
             if Instant::now() >= deadline {
@@ -277,6 +290,68 @@ impl Shared {
             }
             let _ = tokio::time::timeout_at(deadline, notified).await;
         }
+    }
+
+    async fn wait(&self, deadline: Instant, done: impl Fn(&State) -> bool) -> bool {
+        loop {
+            let notified = self.changed.notified();
+            {
+                let s = self.state();
+                if done(&s) || s.crashed || s.gone {
+                    return done(&s);
+                }
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            let _ = tokio::time::timeout_at(deadline, notified).await;
+        }
+    }
+
+    /// Send the tab to `url` (already allowed) and wait for the page to load: how `browser_open`
+    /// goes, and how the tab goes where a new tab its page opened was going (ADR-036). `true`
+    /// when the page took too long (its loading was stopped).
+    async fn navigate(&self, cdp: &Cdp, url: &str, timeout: Duration) -> Result<bool, String> {
+        let before = self.state().loads;
+        let deadline = Instant::now() + timeout;
+        let answer = cdp
+            .call(
+                Some(&self.session),
+                "Page.navigate",
+                json!({ "url": url }),
+                timeout,
+            )
+            .await;
+        let stop = || {
+            cdp.call(
+                Some(&self.session),
+                "Page.stopLoading",
+                json!({}),
+                self.limits.command,
+            )
+        };
+        let answer = match answer {
+            Ok(a) => a,
+            Err(e) if e.contains("did not answer") => {
+                let _ = stop().await;
+                return Ok(true);
+            }
+            Err(e) => return Err(e),
+        };
+        if let Some(error) = answer["errorText"].as_str().filter(|e| !e.is_empty()) {
+            let notes = std::mem::take(&mut self.state().notes);
+            return Err(if notes.is_empty() {
+                format!("the page did not open ({error})")
+            } else {
+                notes.join(" ")
+            });
+        }
+        let timed_out =
+            answer.get("loaderId").is_some() && !self.wait(deadline, |s| s.loads > before).await;
+        if timed_out {
+            let _ = stop().await;
+        }
+        Ok(timed_out)
     }
 }
 
@@ -757,61 +832,10 @@ impl Tab {
 
     // ---- Opening pages ---------------------------------------------------------------------
 
-    async fn wait(&self, deadline: Instant, done: impl Fn(&State) -> bool) -> bool {
-        loop {
-            let notified = self.shared.changed.notified();
-            {
-                let s = self.state();
-                if done(&s) || s.crashed || s.gone {
-                    return done(&s);
-                }
-            }
-            if Instant::now() >= deadline {
-                return false;
-            }
-            let _ = tokio::time::timeout_at(deadline, notified).await;
-        }
-    }
-
     /// Open `url` in the tab (already allowed), waiting for it to load.
     pub async fn navigate(&self, url: &str, timeout: Duration) -> Result<Opened, String> {
         let _busy = self.busy.lock().await;
-        let before = self.state().loads;
-        let deadline = Instant::now() + timeout;
-        let answer = self
-            .cdp
-            .call(
-                Some(&self.session),
-                "Page.navigate",
-                json!({ "url": url }),
-                timeout,
-            )
-            .await;
-        let answer = match answer {
-            Ok(a) => a,
-            Err(e) if e.contains("did not answer") => {
-                let _ = self.call("Page.stopLoading", json!({})).await;
-                return Ok(Opened {
-                    url: url.to_owned(),
-                    timed_out: true,
-                    ..Opened::default()
-                });
-            }
-            Err(e) => return Err(e),
-        };
-        if let Some(error) = answer["errorText"].as_str().filter(|e| !e.is_empty()) {
-            let notes = self.take_notes();
-            return Err(if notes.is_empty() {
-                format!("the page did not open ({error})")
-            } else {
-                notes.join(" ")
-            });
-        }
-        let timed_out =
-            answer.get("loaderId").is_some() && !self.wait(deadline, |s| s.loads > before).await;
-        if timed_out {
-            let _ = self.call("Page.stopLoading", json!({})).await;
-        }
+        let timed_out = self.shared.navigate(&self.cdp, url, timeout).await?;
         let (url, title) = self.where_now().await;
         Ok(Opened {
             url,
@@ -834,6 +858,7 @@ impl Tab {
             .await?;
         let deadline = Instant::now() + timeout;
         let timed_out = !self
+            .shared
             .wait(deadline, |s| s.navigations > before && !s.loading)
             .await;
         let (url, title) = self.where_now().await;
@@ -879,8 +904,11 @@ impl Tab {
             let notified = self.shared.changed.notified();
             let (held, navigating, done) = {
                 let s = self.state();
-                // A page opened and not loaded yet (or one still loading).
-                let navigating = s.loading || (s.navigations > navigations && s.loads == loads);
+                // A page opened and not loaded yet (or one still loading), or the tab on its way
+                // to where a new tab the page opened was going (ADR-036).
+                let navigating = s.loading
+                    || (s.navigations > navigations && s.loads == loads)
+                    || s.opening_here > 0;
                 (
                     !s.held.is_empty(),
                     navigating,
@@ -1118,9 +1146,10 @@ impl Tabs {
     /// The browser attached to a new target, paused before any of it runs
     /// (`Target.attachedToTarget`, ADR-036). A new tab a worker's page opened never runs as a
     /// tab: it is closed, the worker is told, and when the worker's action opened it and its
-    /// address passes the website check, the worker's own tab goes there instead. Everything
-    /// else is let run: Plenipo's own new tabs (no opener), tabs of the owner's own, and new
-    /// tabs of a tab the owner has (taken over, stopped, or handed a CAPTCHA).
+    /// address passes the website check, the worker's own tab goes there instead. That holds
+    /// while the tab is handed to the owner for a check, or stopped, too: the page still runs
+    /// then, and the tab is still the worker's step. Everything else is let run: Plenipo's own
+    /// new tabs (no opener), tabs of the owner's own, and new tabs of a tab the owner took over.
     pub async fn target_attached(&self, cdp: &Cdp, params: &Value) {
         let info = &params["targetInfo"];
         let session = params["sessionId"].as_str().unwrap_or_default();
@@ -1130,42 +1159,68 @@ impl Tabs {
             (Some("page"), Some(opener)) => self.find(opener),
             _ => None,
         };
-        let Some(tab) = tab.filter(|t| t.state().mode == Mode::Worker) else {
+        let Some(tab) = tab.filter(|t| t.state().mode != Mode::Owner) else {
             release(cdp, session).await;
             return;
         };
-        // The paused new tab has no address of its own yet; the page's session told it a moment
-        // earlier (`Page.windowOpen`).
-        let url = tab.take_opening(OPENING_WAIT).await;
+        // The paused new tab has, as a rule, no address of its own yet; the page's session told
+        // it a moment earlier (`Page.windowOpen`). When the browser does name one, that is it.
+        let named = info["url"]
+            .as_str()
+            .filter(|u| !u.is_empty() && !u.starts_with("about:"))
+            .map(str::to_owned);
+        let url = match named {
+            Some(url) => Some(url),
+            None => tab.take_opening(OPENING_WAIT).await,
+        };
         match new_tab_decision(&tab, url.as_deref()) {
             NewTab::Run => release(cdp, session).await,
             NewTab::Close => close_new_tab(cdp, target, session, reaches_opener(info)).await,
             NewTab::OpenHere(url) => {
+                // The action that is running waits for the page, as for one the click opened
+                // itself; the page goes the way a page the worker opens goes: through the tab's
+                // network gate, waiting for it to load.
+                tab.state().opening_here += 1;
                 close_new_tab(cdp, target, session, reaches_opener(info)).await;
-                // The same way a page the worker opens goes: through the tab's network gate,
-                // and watched by the action that is running.
-                let _ = cdp
-                    .call(
-                        Some(&tab.session),
-                        "Page.navigate",
-                        json!({ "url": url }),
-                        tab.limits.navigation,
-                    )
-                    .await;
+                let _ = tab.navigate(cdp, &url, tab.limits.navigation).await;
+                {
+                    let mut s = tab.state();
+                    s.opening_here = s.opening_here.saturating_sub(1);
+                }
+                tab.changed.notify_waiters();
             }
         }
     }
 }
 
-/// What the worker hears when its page tried to save a file (ADR-037).
+/// What the worker hears when its page tried to save a file (ADR-037). The file's name is the
+/// page's own words, so it is cleaned and quoted, to keep it apart from Plenipo's.
 fn download_note(filename: &str) -> String {
-    if filename.is_empty() {
+    let name = page_words(filename);
+    if name.is_empty() {
         "The page tried to save a file. Plenipo's browser does not save files.".into()
     } else {
         format!(
-            "The page tried to save a file ({filename}). Plenipo's browser does not save files."
+            "The page tried to save a file named \"{name}\". Plenipo's browser does not save \
+             files."
         )
     }
+}
+
+/// Most characters of a page's own words shown in a sentence of Plenipo's.
+const PAGE_WORDS_MOST: usize = 80;
+
+/// Words a page chose (a file's name), fit for a sentence of Plenipo's: no control characters
+/// or line breaks, and at most `PAGE_WORDS_MOST` characters, the last one `…` when cut.
+fn page_words(words: &str) -> String {
+    let clean: String = words.chars().filter(|c| !c.is_control()).collect();
+    let clean = clean.trim();
+    if clean.chars().count() <= PAGE_WORDS_MOST {
+        return clean.to_owned();
+    }
+    let mut cut: String = clean.chars().take(PAGE_WORDS_MOST - 1).collect();
+    cut.push('…');
+    cut
 }
 
 fn sign_call(mode: Mode, worker: &str) -> String {
@@ -1437,7 +1492,7 @@ fn site_refused(policy: &SitePolicy, site: &Site, main: bool) -> Option<String> 
 /// What Plenipo does with a new tab a worker's page opened (ADR-036).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NewTab {
-    /// The owner has the tab: the new tab runs.
+    /// The owner took the tab over: the new tab runs.
     Run,
     /// Close it; the worker is told.
     Close,
@@ -1450,10 +1505,14 @@ enum NewTab {
 /// what the worker should hear with its next result (ADR-036).
 fn new_tab_decision(shared: &Shared, url: Option<&str>) -> NewTab {
     let s = shared.state();
-    if s.mode != Mode::Worker {
+    if s.mode == Mode::Owner {
         return NewTab::Run;
     }
-    if !s.acting {
+    // Not the worker's action: a pop-up on the page's own (from a timer), or one opened while
+    // the tab is handed to the owner for a check, or stopped (the owner's click gives the page's
+    // script the go-ahead it needs for one; nothing the owner needs is lost, since a check lives
+    // in its own frame).
+    if !s.acting || s.mode != Mode::Worker {
         drop(s);
         shared.note("The page tried to open a new tab on its own; Plenipo closed it.".into());
         return NewTab::Close;
@@ -1506,60 +1565,76 @@ async fn release(cdp: &Cdp, session: &str) {
 /// (`window.open`) is different: the browser holds that script until the new tab runs or is
 /// closed, and closing it while paused leaves the page unable to take clicks. So the new tab is
 /// first told to hold every request, then let run, and closed once it has been quiet for a
-/// moment, with each request it tried refused meanwhile (a request still held when a tab closes
-/// would be let go; checked on Chromium 141).
+/// moment, with each request it tried refused meanwhile, up to the moment the browser says it is
+/// closed (a request still held when a tab closes would be let go; checked on Chromium 141).
 async fn close_new_tab(cdp: &Cdp, target: &str, session: &str, reaches_opener: bool) {
     let t = Duration::from_secs(10);
-    if reaches_opener && !session.is_empty() {
-        let mut events = cdp.listen(session);
-        let armed = cdp
+    let close = cdp.call(None, "Target.closeTarget", json!({ "targetId": target }), t);
+    if !reaches_opener || session.is_empty() {
+        let _ = close.await;
+        return;
+    }
+    let mut events = cdp.listen(session);
+    let refuse = |request_id: Value| {
+        cdp.call(
+            Some(session),
+            "Fetch.failRequest",
+            json!({ "requestId": request_id, "errorReason": "BlockedByClient" }),
+            t,
+        )
+    };
+    let armed = cdp
+        .call(
+            Some(session),
+            "Fetch.enable",
+            json!({ "patterns": [{ "urlPattern": "*", "requestStage": "Request" }] }),
+            t,
+        )
+        .await
+        .is_ok();
+    if armed {
+        let _ = cdp
             .call(
                 Some(session),
-                "Fetch.enable",
-                json!({ "patterns": [{ "urlPattern": "*", "requestStage": "Request" }] }),
-                t,
+                "Runtime.runIfWaitingForDebugger",
+                json!({}),
+                Duration::from_secs(2),
             )
-            .await
-            .is_ok();
-        if armed {
-            let _ = cdp
-                .call(
-                    Some(session),
-                    "Runtime.runIfWaitingForDebugger",
-                    json!({}),
-                    Duration::from_secs(2),
-                )
-                .await;
-            let longest = Instant::now() + NEW_TAB_LONGEST;
-            loop {
-                tokio::select! {
-                    event = events.recv() => match event {
-                        Some(e) if e.method == "Fetch.requestPaused" => {
-                            let _ = cdp
-                                .call(
-                                    Some(session),
-                                    "Fetch.failRequest",
-                                    json!({ "requestId": e.params["requestId"],
-                                            "errorReason": "BlockedByClient" }),
-                                    t,
-                                )
-                                .await;
-                        }
-                        Some(_) => {}
-                        None => break,
-                    },
-                    () = tokio::time::sleep(NEW_TAB_QUIET) => break,
-                }
-                if Instant::now() >= longest {
-                    break;
-                }
+            .await;
+        let longest = Instant::now() + NEW_TAB_LONGEST;
+        loop {
+            tokio::select! {
+                event = events.recv() => match event {
+                    Some(e) if e.method == "Fetch.requestPaused" => {
+                        let _ = refuse(e.params["requestId"].clone()).await;
+                    }
+                    Some(_) => {}
+                    None => break,
+                },
+                () = tokio::time::sleep(NEW_TAB_QUIET) => break,
+            }
+            if Instant::now() >= longest {
+                break;
             }
         }
-        cdp.forget(session);
     }
-    let _ = cdp
-        .call(None, "Target.closeTarget", json!({ "targetId": target }), t)
-        .await;
+    // A request the new tab starts while it is being closed is refused too, until the browser
+    // says the tab is closed (or gone).
+    let mut close = std::pin::pin!(close);
+    loop {
+        tokio::select! {
+            _ = &mut close => break,
+            event = events.recv() => match event {
+                Some(e) if e.method == "Fetch.requestPaused" => {
+                    let _ = refuse(e.params["requestId"].clone()).await;
+                }
+                Some(e) if e.method == "Inspector.detached" => break,
+                Some(_) => {}
+                None => break,
+            },
+        }
+    }
+    cdp.forget(session);
 }
 
 #[cfg(test)]
@@ -1660,15 +1735,9 @@ mod tests {
             assert_eq!(new_tab_decision(&s, odd), NewTab::Close, "{odd:?}");
         }
         assert_eq!(notes(&s), ["The link opened a new tab; Plenipo closed it."]);
-        // The owner has the tab: the new tab runs, and nobody is told.
-        for mode in [Mode::Owner, Mode::Stopped, Mode::Handed] {
-            s.state().mode = mode;
-            assert_eq!(
-                new_tab_decision(&s, Some("http://shop.test/")),
-                NewTab::Run,
-                "{mode:?}"
-            );
-        }
+        // The owner took the tab over: the new tab runs, and nobody is told.
+        s.state().mode = Mode::Owner;
+        assert_eq!(new_tab_decision(&s, Some("http://shop.test/")), NewTab::Run);
         assert!(s.state().notes.is_empty());
         // The browser says whether the page can reach the new tab; taken as so when it does not.
         assert!(!reaches_opener(&json!({ "canAccessOpener": false })));
@@ -1676,9 +1745,38 @@ mod tests {
         assert!(reaches_opener(&json!({})));
     }
 
+    /// ADR-036: a tab handed to the owner for a check, or stopped, is still the worker's step,
+    /// and its page still runs (the owner's click gives its script the go-ahead for a new tab).
+    /// A new tab it opens then is closed like one opened on the page's own, whatever the address
+    /// and even if an action was still running, and the worker hears so.
+    #[test]
+    fn a_new_tab_opened_while_the_owner_has_the_check_is_closed() {
+        let s = shared(WebsiteRules {
+            allowed: vec!["shop.test".into()],
+            ..WebsiteRules::default()
+        });
+        for mode in [Mode::Handed, Mode::Stopped] {
+            s.state().mode = mode;
+            for acting in [false, true] {
+                s.state().acting = acting;
+                assert_eq!(
+                    new_tab_decision(&s, Some("http://shop.test/second")),
+                    NewTab::Close,
+                    "{mode:?}, acting {acting}"
+                );
+                assert_eq!(
+                    notes(&s),
+                    ["The page tried to open a new tab on its own; Plenipo closed it."],
+                    "{mode:?}, acting {acting}"
+                );
+            }
+        }
+    }
+
     /// ADR-036: the address of a new tab comes from the page's own ask (`Page.windowOpen`), kept
-    /// until the browser attaches to the tab, oldest first; an ask that never became a tab is
-    /// forgotten after a while.
+    /// until the browser attaches to the tab, the newest ask first (the browser opens one new tab
+    /// per click, so older asks are stale and go); an ask that never became a tab is forgotten
+    /// after a while, and only so many are kept.
     #[tokio::test]
     async fn the_address_of_a_new_tab_comes_from_the_pages_ask() {
         let s = Arc::new(shared(WebsiteRules::default()));
@@ -1687,12 +1785,21 @@ mod tests {
         s.opening("http://shop.test/b");
         assert_eq!(
             s.take_opening(Duration::ZERO).await.as_deref(),
-            Some("http://shop.test/a")
+            Some("http://shop.test/b"),
+            "the newest ask"
         );
         assert_eq!(
-            s.take_opening(Duration::ZERO).await.as_deref(),
-            Some("http://shop.test/b")
+            s.take_opening(Duration::ZERO).await,
+            None,
+            "the older ask went with it"
         );
+        // A page asking in a loop fills the list only so far; the oldest asks go first.
+        for i in 0..(OPENING_MOST + 4) {
+            s.opening(&format!("http://shop.test/loop{i}"));
+        }
+        assert_eq!(s.state().opening.len(), OPENING_MOST);
+        assert_eq!(s.state().opening[0].url, "http://shop.test/loop4");
+        s.state().opening.clear();
         // An ask that arrives while waiting is taken.
         let waiter = {
             let s = Arc::clone(&s);
@@ -1703,11 +1810,17 @@ mod tests {
         s.changed.notify_waiters();
         assert_eq!(waiter.await.unwrap().as_deref(), Some("http://shop.test/c"));
         if let Some(at) = Instant::now().checked_sub(OPENING_KEPT + Duration::from_secs(1)) {
-            s.state().opening.push(Opening {
+            let old = Opening {
                 url: "http://shop.test/old".into(),
                 at,
-            });
+            };
+            s.state().opening.push(old.clone());
             assert_eq!(s.take_opening(Duration::ZERO).await, None, "stale asks go");
+            // A new ask drops stale ones as it comes, too.
+            s.state().opening.push(old);
+            s.opening("http://shop.test/new");
+            assert_eq!(s.state().opening.len(), 1, "{:?}", s.state().opening);
+            assert_eq!(s.state().opening[0].url, "http://shop.test/new");
         }
     }
 
@@ -1945,7 +2058,10 @@ mod tests {
         assert!(a.state().notes.is_empty());
         assert_eq!(
             b.state().notes,
-            ["The page tried to save a file (x.exe). Plenipo's browser does not save files."]
+            [
+                "The page tried to save a file named \"x.exe\". Plenipo's browser does not save \
+              files."
+            ]
         );
         assert!(tabs.download_refused(&json!({ "frameId": "MAIN", "guid": "g2" })));
         assert_eq!(
@@ -1965,6 +2081,35 @@ mod tests {
             2,
             "the gone tab was dropped from the list"
         );
+    }
+
+    /// ADR-037: the file's name is the page's own words. It is quoted, cleaned of control
+    /// characters and line breaks, and cut short, so it cannot pass for Plenipo's words.
+    #[test]
+    fn a_pages_file_name_is_quoted_cleaned_and_cut_short() {
+        assert_eq!(
+            download_note("report.txt"),
+            "The page tried to save a file named \"report.txt\". Plenipo's browser does not save \
+             files."
+        );
+        assert_eq!(
+            download_note("a\nb\r\n\tc\u{7f}.txt"),
+            "The page tried to save a file named \"abc.txt\". Plenipo's browser does not save \
+             files."
+        );
+        assert_eq!(
+            download_note("  \n "),
+            "The page tried to save a file. Plenipo's browser does not save files."
+        );
+        let long = "x".repeat(200);
+        let note = download_note(&long);
+        let shown = format!("{}…", "x".repeat(PAGE_WORDS_MOST - 1));
+        assert!(note.contains(&format!("named \"{shown}\".")), "{note}");
+        assert_eq!(
+            page_words(&"y".repeat(PAGE_WORDS_MOST)).chars().count(),
+            PAGE_WORDS_MOST
+        );
+        assert_eq!(page_words("plain name.pdf"), "plain name.pdf");
     }
 
     #[test]
