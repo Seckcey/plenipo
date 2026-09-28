@@ -349,6 +349,9 @@ struct State {
     tickets: HashMap<String, String>,
     /// Approval ID → the tool call waiting for it.
     waiters: HashMap<String, oneshot::Sender<ApprovalState>>,
+    /// Approval ID → the grant whose call waits for it, so the grant's count of waiting
+    /// requests moves with the owner's answer (B6).
+    askers: HashMap<String, String>,
 }
 
 struct Inner {
@@ -399,8 +402,6 @@ struct Prepared {
     inherent_owned: Option<(SensitiveKind, String)>,
     /// The website it opens or acts on (Phase 10).
     site: Option<plenipo_guard::Site>,
-    /// A screenshot for the approval card (Phase 10).
-    screenshot: Option<String>,
     /// The server it uses, for Guard (Phase 11).
     server: Option<ServerPrep>,
     /// It only reads Plenipo's own settings or gives something up (listing servers,
@@ -1374,7 +1375,18 @@ impl Broker {
             .ledger()
             .settle_approval(approval_id, state, by, Some(note))
             .ok();
-        let waiter = self.state().waiters.remove(approval_id);
+        let waiter = {
+            let mut s = self.state();
+            let waiter = s.waiters.remove(approval_id);
+            // The grant's count of waiting requests moves with the answer, not with the woken
+            // call (B6): the next ask sees the place free at once.
+            if let Some(grant) = s.askers.remove(approval_id) {
+                if let Some(g) = s.grants.get_mut(&grant) {
+                    g.pending.remove(approval_id);
+                }
+            }
+            waiter
+        };
         if let Some(tx) = waiter {
             let actual = settled.as_ref().map_or(state, |a| a.state);
             let _ = tx.send(actual);
@@ -1734,27 +1746,6 @@ impl Broker {
             }
             Verdict::Ask => {
                 let minutes = config.options.approval_minutes;
-                if control && prepared.site.is_some() {
-                    // The card shows the page as it is now (Phase 10).
-                    prepared.screenshot = self.approval_shot(grant_id, &task_id, &worker).await;
-                }
-                // A server's identity is checked before the owner is asked (Phase 11): never an
-                // approval for a command that cannot safely run.
-                if let Some(p) = &prepared.server {
-                    let who = Caller {
-                        grant_id,
-                        task_id: &task_id,
-                        worker: &worker,
-                        role_id: &scope.role_id,
-                        role_name: &scope.role_name,
-                    };
-                    if let Err(why) = self.connect_first(&who, &p.server).await {
-                        return CallResult::error(format!(
-                            "Not done: {why}. ({})",
-                            prepared.summary
-                        ));
-                    }
-                }
                 match self
                     .ask(
                         grant_id,
@@ -1997,6 +1988,30 @@ impl Broker {
             }
             return Err(NotAsked::Limited(words));
         }
+        // Work for the card only once a place is held, so a refused call costs nothing more
+        // than its refusal. The card shows the page as it is now (Phase 10), and a server's
+        // identity is checked before the owner is asked (Phase 11): never an approval for a
+        // command that cannot safely run.
+        let screenshot = if prepared.site.is_some() && tools::is_control(tool) {
+            self.approval_shot(grant_id, task_id, worker).await
+        } else {
+            None
+        };
+        if let Some(p) = &prepared.server {
+            let who = Caller {
+                grant_id,
+                task_id,
+                worker,
+                role_id: &scope.role_id,
+                role_name: &scope.role_name,
+            };
+            if let Err(why) = self.connect_first(&who, &p.server).await {
+                if let Some(g) = self.state().grants.get_mut(grant_id) {
+                    g.asks.placed();
+                }
+                return Err(NotAsked::Failed(format!("{why}. ({})", prepared.summary)));
+            }
+        }
         let now = plenipo_ledger::now_ms();
         let wait = self.inner.config.approval_minute * minutes;
         let expires_at = now + wait.as_millis() as u64;
@@ -2018,7 +2033,7 @@ impl Broker {
             "grantId": grant_id,
             "sessionId": self.state().grants.get(grant_id).map(|g| g.session_id.clone()),
             "url": prepared.site.as_ref().map(|s| s.url.clone()),
-            "screenshot": prepared.screenshot,
+            "screenshot": screenshot,
             "server": prepared.server.as_ref().map(|p| p.server.name.clone()),
             "environment": prepared.server.as_ref().map(|p| p.server.environment),
             "address": prepared.server.as_ref().map(|p| p.server.address()),
@@ -2044,6 +2059,7 @@ impl Broker {
         {
             let mut s = self.state();
             s.waiters.insert(approval.id.clone(), tx);
+            s.askers.insert(approval.id.clone(), grant_id.to_owned());
             if let Some(g) = s.grants.get_mut(grant_id) {
                 g.asked += 1;
                 g.asks.placed();
@@ -2914,7 +2930,6 @@ fn prepare(
             inherent: None,
             inherent_owned: None,
             site: None,
-            screenshot: None,
             server: None,
             harmless: false,
             git: None,

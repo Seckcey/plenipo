@@ -149,10 +149,17 @@ where
                 continue;
             }
         };
-        // A message takes a place before its task starts, so requests are worked on in the
-        // order they arrived: the next one waits here until one of those running is done.
-        let Ok(place) = Arc::clone(&places).acquire_owned().await else {
-            break;
+        // A tool call takes a place before its task starts, so calls are worked on in the
+        // order they arrived: the next one waits here until one of those running is done. The
+        // rest (a ping, the tools list, a notification) takes no place and is answered at once,
+        // so a call waiting for the owner never makes the connection look hung.
+        let place = if is_call(&message) {
+            match Arc::clone(&places).acquire_owned().await {
+                Ok(place) => Some(place),
+                Err(_) => break,
+            }
+        } else {
+            None
         };
         let (answer, tx) = (answer.clone(), tx.clone());
         tokio::spawn(async move {
@@ -176,6 +183,14 @@ where
     }
 }
 
+/// Whether a message is a tool call (or a batch with one in it): what takes a place.
+fn is_call(message: &Value) -> bool {
+    match message {
+        Value::Array(batch) => batch.iter().any(is_call),
+        m => m["method"] == "tools/call",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -192,8 +207,9 @@ mod tests {
         }
     }
 
-    /// B6: eight requests sent at once are all answered, at most four are worked on at a time,
-    /// and the fifth starts only when one of the first four is done, in the order they arrived.
+    /// B6: eight tool calls sent at once are all answered, at most four are worked on at a
+    /// time, and the fifth starts only when one of the first four is done, in the order they
+    /// arrived. A ping among them takes no place: it is answered while the four run.
     #[tokio::test]
     async fn at_most_four_requests_are_worked_on_at_once_and_all_are_answered() {
         let started = Arc::new(AtomicUsize::new(0));
@@ -220,6 +236,9 @@ mod tests {
                     Arc::clone(&gate),
                 );
                 async move {
+                    if m["method"] == "ping" {
+                        return Some(json!({ "id": m["id"] }));
+                    }
                     started.fetch_add(1, Ordering::SeqCst);
                     order.lock().unwrap().push(m["id"].as_u64().unwrap());
                     let now = running.fetch_add(1, Ordering::SeqCst) + 1;
@@ -230,15 +249,26 @@ mod tests {
                 }
             }
         };
-        let input: String = (1..=8).map(|i| format!("{{\"id\":{i}}}\n")).collect();
+        let call = |i: u64| format!("{{\"id\":{i},\"method\":\"tools/call\"}}\n");
+        let input: String = (1..=4)
+            .map(call)
+            .chain(["{\"id\":9,\"method\":\"ping\"}\n".to_owned()])
+            .chain((5..=8).map(call))
+            .collect();
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let server = tokio::spawn(async move {
             let mut reader = BufReader::new(input.as_bytes());
             serve(&mut reader, &tx, answer).await;
         });
-        // Four are worked on; the fifth waits for a place, so nothing more starts and nothing
-        // is answered yet.
+        // Four are worked on; the ping is answered meanwhile; the fifth waits for a place, so
+        // nothing more starts and no call is answered yet.
         until("four started", || started.load(Ordering::SeqCst) == 4).await;
+        let ping = rx.recv().await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&ping).unwrap()["id"],
+            9,
+            "{ping}"
+        );
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
@@ -252,7 +282,7 @@ mod tests {
         assert!(rx.try_recv().is_err());
         // The rest are let through: every request is answered, and the stream ends.
         gate.add_permits(7);
-        let mut answers = vec![first];
+        let mut answers = vec![ping, first];
         for _ in 0..7 {
             answers.push(rx.recv().await.unwrap());
         }
@@ -267,7 +297,15 @@ mod tests {
             })
             .collect();
         ids.sort_unstable();
-        assert_eq!(ids, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(ids, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        // Only a tool call, or a batch with one in it, takes a place.
+        assert!(is_call(&json!({ "id": 1, "method": "tools/call" })));
+        assert!(!is_call(&json!({ "id": 2, "method": "tools/list" })));
+        assert!(!is_call(&json!({ "method": "notifications/initialized" })));
+        assert!(is_call(
+            &json!([{ "method": "ping" }, { "method": "tools/call" }])
+        ));
+        assert!(!is_call(&json!([{ "method": "ping" }])));
         let mut starts = order.lock().unwrap().clone();
         assert_eq!(starts[..4].iter().copied().max(), Some(4), "{starts:?}");
         starts.sort_unstable();

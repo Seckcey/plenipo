@@ -493,6 +493,50 @@ impl H {
             .collect()
     }
 
+    /// Tools for the test's own calls, as the worker `title` (whose conversation a first task
+    /// must have brought up): the task the calls belong to, and the grant.
+    async fn direct_grant(&self, title: &str) -> (String, String) {
+        use plenipo_runtime::agent::{StepInfo, ToolProvider};
+        let overview = self.rt.overview().await.unwrap();
+        let session = overview
+            .sessions
+            .iter()
+            .find(|s| {
+                s.metadata["workforce"]["positionId"]
+                    .as_str()
+                    .and_then(|p| self.ledger.position(p).ok().flatten())
+                    .is_some_and(|p| p.title == title)
+            })
+            .expect("the worker's conversation");
+        let task = self
+            .ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "calls made by the test".into(),
+                    priority: 2,
+                    ..plenipo_ledger::NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        self.ledger
+            .transition_task(&task.id, TaskState::Running, "w", None)
+            .unwrap();
+        let tools = ToolProvider::open(
+            &self.broker,
+            &StepInfo {
+                session,
+                task_id: &task.id,
+                step: 1,
+                ai_tool: "Claude Code",
+                takes_tools: true,
+            },
+        )
+        .expect("the worker gets tools");
+        (task.id, tools.grant_id)
+    }
+
     /// The next approval a worker waits on.
     async fn pending(&self) -> ApprovalView {
         let deadline = Instant::now() + WAIT;
@@ -2274,4 +2318,116 @@ async fn lessons_from_websites_always_wait_for_the_owner() {
     assert!(lesson.from_web);
     assert_eq!(lesson.task_id.as_deref(), Some(task.id.as_str()));
     assert!(h.workforce.learning().unwrap().kept.is_empty());
+}
+
+/// What a worker hears when three of its requests already wait for the owner (B6).
+const THREE_WAITING: &str = "Plenipo is waiting for the owner's answer to 3 earlier requests. \
+                             Wait for those before asking again.";
+
+/// B6: a browser call refused by the grant's limits on asking (three requests already wait for
+/// the owner) gets no card, and no picture is kept for one. The worker hears the limit's words,
+/// not that the owner said no: for a page it wants to open, for a check it wants to hand to the
+/// owner, and for data a page's script sends after its click (which is stopped).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_browser_ask_refused_by_the_limits_says_so_and_keeps_no_picture() {
+    use plenipo_runtime::agent::ToolProvider;
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    // A first task brings the worker's conversation up; then the test makes the calls itself.
+    let captcha = h.url("shop", "/captcha");
+    h.run(
+        "Web Assistant",
+        json!([{ "tools": [tool("browser_open", json!({ "url": captcha }))], "say": "Done." }]),
+    )
+    .await;
+    let (task, grant) = h.direct_grant("Web Assistant").await;
+    let opened = h
+        .broker
+        .call(&grant, "browser_open", json!({ "url": captcha }))
+        .await;
+    assert!(!opened.is_error, "{}", opened.text);
+    // Three pages on neither list: each asks the owner, with a picture of the page, and waits.
+    let three: Vec<_> = (0..3)
+        .map(|i| {
+            let (broker, grant) = (h.broker.clone(), grant.clone());
+            let url = h.url("other", &format!("/{i}"));
+            tokio::spawn(async move {
+                broker
+                    .call(&grant, "browser_open", json!({ "url": url }))
+                    .await
+            })
+        })
+        .collect();
+    h.until("three requests wait", |h| {
+        h.broker.approvals().unwrap().pending.len() == 3
+    })
+    .await;
+    // The pictures kept for approval cards (a step's own pictures are another matter).
+    let pictures = |h: &H| {
+        h.ledger
+            .artifacts_for_task(&task)
+            .unwrap()
+            .into_iter()
+            .filter(|a| a.metadata["action"] == "waiting for your approval")
+            .count()
+    };
+    let before = pictures(&h);
+    assert_eq!(before, 3, "each card has its picture");
+    // A fourth page: refused with the limit's words, and no picture for a card never made.
+    let fourth = h
+        .broker
+        .call(
+            &grant,
+            "browser_open",
+            json!({ "url": h.url("other", "/more") }),
+        )
+        .await;
+    assert!(fourth.is_error, "{}", fourth.text);
+    assert_eq!(fourth.text, THREE_WAITING);
+    // Handing the page's check to the owner: the same words, not "the owner did not solve it".
+    let check = h
+        .broker
+        .call(&grant, "browser_person_check", json!({}))
+        .await;
+    assert!(check.is_error, "{}", check.text);
+    assert_eq!(check.text, THREE_WAITING);
+    // Data the page's script sends after a click: held, then stopped with the same words, not
+    // "the owner did not approve".
+    let chat = h.url("shop", "/script-send");
+    let opened = h
+        .broker
+        .call(&grant, "browser_open", json!({ "url": chat }))
+        .await;
+    assert!(!opened.is_error, "{}", opened.text);
+    let clicked = h
+        .broker
+        .call(&grant, "browser_click", json!({ "ref": "e1" }))
+        .await;
+    assert!(!clicked.is_error, "{}", clicked.text);
+    assert!(
+        clicked.text.contains("Clicked the button \"Go\""),
+        "{}",
+        clicked.text
+    );
+    assert!(clicked.text.contains(THREE_WAITING), "{}", clicked.text);
+    assert!(
+        !clicked.text.contains("did not approve"),
+        "{}",
+        clicked.text
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert_eq!(
+        pictures(&h),
+        before,
+        "no picture for a card that was never made"
+    );
+    assert_eq!(h.broker.approvals().unwrap().pending.len(), 3);
+    assert_eq!(h.events(&task, "approval.requested").len(), 3);
+    // The step ends: the three cards expire, and each call comes back with its answer.
+    ToolProvider::close(&h.broker, &grant);
+    for call in three {
+        let r = call.await.unwrap();
+        assert!(r.is_error, "{}", r.text);
+    }
+    assert!(h.broker.approvals().unwrap().pending.is_empty());
 }

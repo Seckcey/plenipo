@@ -545,9 +545,10 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   waiting their turn in arrival order.
 - **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
   calls; a settings change applies to the next call.
-- **Logging and redaction.** Every call is `capability.used`, `guard.denied`, or `approval.*`.
-  Known secret values and common key and token formats are hidden in results, recorded text, and
-  all AI tool activity (`[hidden by Plenipo: …]`).
+- **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
+  `guard.approvals_limited`, or `approval.*`. Known secret values and common key and token
+  formats are hidden in results, recorded text, and all AI tool activity
+  (`[hidden by Plenipo: …]`).
 - **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
   Plenipo stores only references and injects a value as an environment variable into the
   programs the owner named. A secret goes only to the installed program of that name, found on

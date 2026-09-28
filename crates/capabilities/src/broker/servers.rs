@@ -341,7 +341,6 @@ impl Broker {
             inherent: None,
             inherent_owned: None,
             site: None,
-            screenshot: None,
             server: None,
             harmless: false,
             git: None,

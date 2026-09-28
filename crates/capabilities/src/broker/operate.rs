@@ -32,7 +32,7 @@ use plenipo_guard::{
 use plenipo_ledger::{ApprovalState, NewEvent};
 use serde_json::{json, Value};
 
-use super::{cap, lock, Broker, Image, Inner, Prepared, Refused, Work, GUARD};
+use super::{cap, lock, Broker, Image, Inner, NotAsked, Prepared, Refused, Work, GUARD};
 use crate::browser::classify::{self, ElementFacts};
 use crate::browser::tab::{
     Held, Mode, Signal, SitePolicy, Tab, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
@@ -537,7 +537,6 @@ impl Broker {
             inherent: None,
             inherent_owned: None,
             site: None,
-            screenshot: None,
             server: None,
             harmless: false,
             git: None,
@@ -1323,9 +1322,6 @@ impl Broker {
             inherent: None,
             inherent_owned: None,
             site: Site::parse(&url).ok(),
-            screenshot: self
-                .keep_page(&tab, ctx.task_id, ctx.worker, "waiting for your approval")
-                .await,
             server: None,
             harmless: false,
             git: None,
@@ -1372,6 +1368,17 @@ impl Broker {
                 minutes,
             )
             .await;
+        // Never asked (one of the grant's limits on asking, B6): the worker has the tab back and
+        // hears the limit's words. The owner was not in the loop, so the worker's tries stand.
+        if let Err(NotAsked::Limited(words)) = &answer {
+            tab.take_back().await;
+            return ControlDone {
+                result: Err(words.clone()),
+                images: Vec::new(),
+                screenshot: None,
+                url: Some(tab.url()),
+            };
+        }
         let solved = matches!(answer, Ok((_, ApprovalState::Approved)));
         // Back to the worker, unless the owner took over or stopped it meanwhile. The owner was
         // just in the loop: the worker's tries start over (ADR-029).
@@ -1479,9 +1486,6 @@ impl Broker {
             inherent: None,
             inherent_owned: None,
             site: Site::parse(&tab.url()).ok(),
-            screenshot: self
-                .keep_page(tab, ctx.task_id, ctx.worker, "waiting for your approval")
-                .await,
             server: None,
             harmless: false,
             git: None,
@@ -1530,6 +1534,12 @@ impl Broker {
                     "The owner approved: the page sent it to {}.",
                     sites.join(", ")
                 ))
+            }
+            // Never asked (one of the grant's limits on asking, B6): the worker hears the
+            // limit's words, not that the owner said no.
+            Err(NotAsked::Limited(words)) => {
+                tab.release(&held, false).await;
+                Some(words)
             }
             _ => {
                 tab.release(&held, false).await;
