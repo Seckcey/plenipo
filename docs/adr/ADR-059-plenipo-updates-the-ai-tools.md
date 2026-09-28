@@ -223,3 +223,37 @@ opens a terminal on this PC where **you** type it. Plenipo does not run npm or W
   daily check, and automatic updates need one.
 - **Read Kimi's version from npm.** Refused: npm's numbers (2.1.1) do not match the program on
   your PC (0.34.0), so Plenipo could say "new version" when there is none.
+
+## As built (v1.12.0)
+
+Built as written, with these details:
+
+- **Where each tool's newest version comes from:** Grok's own `grok update --check --json` (its
+  `latestVersion`); npm's list for Claude Code and Codex; GitHub's for Ollama; none for Kimi
+  (its **Update** runs `kimi upgrade --yes`, which installs only when there is a newer one). The
+  lists are read through Guard's gate with the new purpose **AI tool versions**, which allows
+  exactly the three addresses above, only `https`, with no query, and at most 512 KB. Copies
+  built for the tests can read a stand-in on this computer instead
+  (`PLENIPO_AI_TOOL_RELEASES`, set when Plenipo is built; the released app has none).
+- **The update commands:** `claude update`, `codex update` (with `CODEX_NON_INTERACTIVE=1`),
+  `grok update`, and `kimi upgrade --yes`; Ollama has none. The put-back commands are
+  `claude install <version>` and `grok update --version <version>`. Each runs through
+  `programs::run` as an approved program, so it shows in **Runs**, with a 10-minute time limit.
+- **Waiting** checks every 2 seconds whether the tool is free, for at most a day; **Cancel**
+  stops it. Closing Plenipo while an update waits or runs asks first.
+- **A task that would start during an update** waits until the update and its checks are done,
+  however long that takes; each step has its own time limit, so the wait ends. (A sign-in tab
+  holds tasks for at most ten minutes, ADR-058.)
+- **The first look** is 4 minutes after Plenipo starts, then Plenipo looks each hour whether a
+  day has passed since the last look (kept in the Ledger).
+- **"Up to date" or by hand:** when the update command succeeds but the version does not change
+  while a newer one is known, the card shows the tool's own command to type (Claude Code with
+  WinGet, Codex with npm) and **Open a terminal**.
+- **Given no tasks:** when a new version does not answer and there is no put-back command, the
+  AI tool is marked "not given tasks for now" (kept in the Ledger); every place that picks an
+  AI tool says so, and **Check again** gives it tasks again once it answers.
+- **Notices:** `ai_tool.update_available` (once per version), `ai_tool.updated`, and
+  `ai_tool.update_failed` come as Windows notices of the **Plenipo** kind; a new version is not
+  announced when the switch is on, since Plenipo updates it by itself.
+- **Codex's own update check is off** in its tasks and checks
+  (`-c check_for_update_on_startup=false`).

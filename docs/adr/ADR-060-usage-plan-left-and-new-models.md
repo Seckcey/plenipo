@@ -168,3 +168,29 @@ What each AI tool officially reports (sources in the Phase 19 checklist):
 - **`codex debug models` for Codex's models.** A debugging command; the app server's
   `model/list` is the documented one.
 - **Hide the paid-key switch until Phase 16.** The plan asks for it to be shown.
+
+## As built (v1.12.0)
+
+Built as written, with these details:
+
+- **Usage** is one read-only Ledger query (`token_steps`) over the steps saved with each task;
+  the window sends the local day starts (Monday of last week, or 14 days ago, whichever is
+  earlier, through tomorrow) and adds them up by model. The command accepts 1 to 60 days.
+- **Claude Code's plan left** comes from `rate_limit_event` in its task stream: only the
+  documented fields `status`, `resetsAt`, and `utilization` are read. It is kept
+  in the Ledger's settings, not the Activity trail.
+- **Codex's check** starts `codex -c check_for_update_on_startup=false app-server` for one short
+  exchange (`initialize`, `account/read`, `account/rateLimits/read`, `model/list`) with a
+  20-second limit. From `account/read`, only the kind of sign-in and the plan's name are kept.
+  After a Codex task it runs at most once every five minutes.
+- **Grok's models** come from its ACP `initialize` answer (`_meta.modelState.availableModels`,
+  with each model's effort levels); `grok models` was not needed. **Kimi's** come from
+  `session/new` in Plenipo's empty check folder. **Ollama's** come from `/api/tags` through
+  Plenipo's Ollama helper (`plenipo --plenipo-ollama models`), which reports only the models
+  pulled on this PC, so an Ollama model is never marked "not offered by this version".
+- **When models are asked for:** 4 minutes after Plenipo starts (skipping Kimi), with each
+  daily look, after each update, and on **Check again**. A change is recorded once as
+  `ai_tool.models_changed`.
+- **The payment switch:** `set_ai_tool_payment` accepts `subscription` only; `paidKey` is refused
+  with "Paying per use with a paid AI key comes with spending caps in a later version of
+  Plenipo. Until then, each AI tool uses your subscription."

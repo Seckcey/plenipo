@@ -185,3 +185,32 @@ billing), `codex login --with-api-key`, and `--with-access-token`.
   §2.8); the tool's own status command is enough.
 - **Use ACP's "sign in with a terminal" method** (Kimi's `initialize` offers `--login`). It is
   the same program; the documented `kimi login` is clearer.
+
+## As built (v1.12.0)
+
+Built as written. The tab runs the AI tool's own program directly, with no shell, in your home
+folder, with the same cleared environment as the tool's tasks plus `TERM` and `COLORTERM` (and,
+on Linux, what opens the browser). The fixed list is the adapters' `account_command()`:
+`claude auth login` / `claude auth logout`, `codex login` / `codex logout`, `grok login` /
+`grok logout`, `kimi login` (no sign-out), and `ollama signin` / `ollama signout`. A plain
+**New terminal** can never open one: the terminal's own command refuses the place, and only the
+card's command starts it.
+
+Guard checks every request (`Guard::check_ai_tool_action`) and records a refusal as
+`guard.ai_tool_refused`, with the reason in words ("1 task is using Codex. Plenipo waits until it
+finishes."; "Kimi has no sign-out command of its own."). The broker then applies the terminal's
+own rules: no worker may be using the screen, never as administrator, and the usual limit on
+open tabs.
+
+**Waiting for a task** is done by the page: Sign out and Reconnect show "Waiting: 1 task is using
+Codex" with **Cancel**, and open the tab when the tool is free. Guard refuses the request while a
+task still uses the tool, so a request that arrives too early is never carried out.
+
+**The hold on new tasks** starts when the program starts and ends once the tool has been checked
+again after it ends. A task waits for it for at most ten minutes, then goes ahead: a sign-in tab
+left open must not stop your work for good.
+
+The Activity trail says "You opened Codex's sign-in" and "Codex's sign-in closed after 40 s";
+`ai_tool.sign_in_changed` keeps the old and new state and the kind of sign-in, never an account.
+The fake AI tool records every byte its sign-in program receives, and the end-to-end test checks
+that only the owner's own key reached it.
