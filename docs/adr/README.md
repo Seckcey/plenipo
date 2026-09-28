@@ -53,3 +53,4 @@ architecture must be recorded here.
 | [036](ADR-036-every-ai-model.md)                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes         | Accepted |
 | [037](ADR-037-background-work.md)                    | Background work: Plenipo lives in the tray, and the window comes and goes                   | Accepted |
 | [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so                  | Accepted |
+| [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan                 | Accepted |

@@ -13,6 +13,8 @@
 
 **Added as Phase 16, last, at the owner's direction (2026-09-27):** every AI model worth having — paid AI keys with spending caps, a maker on every model so cross-company review is correct, and more than one route to the same model (ADR-036). It comes after Phase 15 and changes no earlier phase.
 
+**Changed after Phase 13 (v1.9.0), at the owner's direction (2026-09-27):** Phase 14 is Plenipo's own web interface, built from scratch, for using Plenipo from a phone's browser or another device; the work stays on the PC and Guard still decides (ADR-040).
+
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
 ---
@@ -52,7 +54,7 @@ Plenipo is not merely another chat client. It is the control plane for an organi
    Sensitive or destructive operations require policy-based approval. Agents do not grant themselves additional authority.
 
 9. **Local-first, remote-capable later**  
-   Desktop Plenipo owns execution. CrewOS may later provide remote visibility and approved remote control, but the browser app must not become the privileged local runtime.
+   Desktop Plenipo owns execution. Plenipo's own web interface (Phase 14) lets the owner see and steer it from a phone, but the browser must not become the privileged local runtime.
 
 10. **No phase advances on optimism**  
     Each phase has explicit acceptance criteria. Complete and verify the current phase before beginning the next.
@@ -88,7 +90,7 @@ Plenipo should evolve into these logical components:
 - **Plenipo Guard** — permissions, approvals, policy enforcement
 - **Plenipo Ledger** — durable tasks, messages, events, executions, audit history
 - **Plenipo Vault** — credential references and protected secrets
-- **Plenipo Integrations** — GitHub, HubSpot (the CRM of the future Sales department), CrewOS, and future business systems
+- **Plenipo Integrations** — GitHub, HubSpot (the CRM of the future Sales department), and future business systems
 
 ### 2.3 Initial organizational model
 
@@ -1511,60 +1513,69 @@ Core product behavior stable.
 
 ---
 
-# Phase 14 — CrewOS Remote Visibility and Approved Remote Control
+# Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch
+
+**Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides.
 
 ## Goal
 
-Allow remote visibility and bounded command submission without moving privileged execution into the browser.
+Let the owner see and steer Plenipo from a phone or another device, while the work, the permissions, and the records stay on the owner's PC.
 
 ## Deliverables
 
-- secure desktop-to-CrewOS channel
-- device identity
-- authenticated remote status
-- task summaries
-- approval notifications
-- remote objective submission
-- explicit local policy controlling remote actions
-- offline behavior
+- a web interface built from scratch, made for a phone's screen first, using the design system (ADR-030) and the plain words in `docs/design/vocabulary.md`
+- a way for a phone to reach Plenipo on the PC, chosen with the owner at the start of the phase (its own ADR): the same Wi-Fi only, a private network the owner already uses (for example Tailscale), or a relay that 8 West runs
+- pairing a device: the PC shows a one-time code (or QR code); each paired device has a name, shows in Settings, and can be removed
+- signing in: every request is signed in, sessions end on their own, and removing a device ends its sessions at once
+- what is going on: Home's status (what is working, what is waiting, what is stuck), departments and projects, and each task's summary
+- approvals: see what waits for the owner and approve or refuse it; the phase's ADR decides whether some approvals (for example PRODUCTION) are answered only on the PC
+- sending an objective to a manager, as the owner would on the PC
+- notices while the web interface is open; whether a phone is notified while the page is closed is decided in the phase's ADR (it needs an outside push service)
+- a switch on the PC, off to begin with: Settings → Switches → use Plenipo from another device; turning it off cuts every device off at once
+- when the PC cannot be reached, the web interface says so in plain words and changes nothing
+- every request from another device goes through Guard and is recorded in the Ledger with the device that sent it
 
 ## Architecture
 
-CrewOS is a remote presentation/control surface.
+The web interface is a presentation and control surface. Plenipo on the owner's PC remains the execution authority (ADR-002).
 
-Plenipo Desktop remains the execution authority on the local machine.
+A request from another device flows:
 
-A remote request should flow:
+web interface -> signed-in Plenipo connection on the PC -> Guard -> organization/router -> AI tool on the PC
 
-CrewOS -> authenticated Plenipo endpoint -> Guard -> organization/router -> local runtime
+The connection offers a short, fixed list of requests (the deliverables above). It does not reuse the desktop window's commands, which stay the main window's alone.
 
-Never expose an unrestricted local shell through CrewOS.
+Never expose a shell, the terminal, files, the screen, the browser, secrets, or Settings through the web interface.
 
 ## Tests
 
-- authenticated connection
-- invalid device
-- revoked session
-- remote objective creation
-- remote approval
-- desktop offline
-- replay protection
-- connection loss
-- local user disables remote control
+- pairing a device, and a wrong or expired pairing code
+- signed-in connection
+- unknown device
+- removed device and ended session
+- replay protection (a copied request is refused)
+- too many wrong tries (the connection slows down, then refuses)
+- sending an objective from another device
+- answering an approval from another device
+- PC offline, and connection lost part way through
+- the owner turns the switch off on the PC while a device is connected
+- the web interface cannot reach a shell, the terminal, files, the screen, the browser, secrets, or Settings
+- the web interface on a phone-sized screen, in both themes, from the keyboard, with no errors
 
 ## Acceptance Criteria
 
-The user can remotely view high-level Plenipo state and submit an approved objective while local Guard policies remain authoritative.
+From a phone, the owner can see what Plenipo is doing, answer an approval, and send an objective, while Guard on the PC decides each request and the Ledger records it. Turning the switch off on the PC cuts every device off at once.
 
 ## Dependencies
 
-Installed desktop product stable.
+Phase 13 (Plenipo installed, living in the tray, and able to start with Windows).
 
 ## Out of Scope
 
-- unrestricted remote desktop
-- public unauthenticated endpoints
-- replacing the local UI
+- remote desktop, the screen, the terminal, files, or a shell from another device
+- public endpoints that anyone can reach without signing in
+- replacing the desktop window
+- a phone app (iPhone or Android): the web interface works in any phone's browser
 
 ---
 
@@ -1853,7 +1864,7 @@ That MVP must allow:
 13. Pause for explicit approval on sensitive operations.
 14. Return a synthesized result to the user.
 
-Do not delay this MVP to implement Sales, CrewOS, advanced browser control, or additional providers.
+Do not delay this MVP to implement Sales, remote access, advanced browser control, or additional providers.
 
 ---
 

@@ -890,7 +890,7 @@ adapters), **Ledger**, **Liaison**, **Workforce**, **Router**, **Capabilities**,
 | Capabilities | Filesystem ✅, shell ✅, Git ✅, working copies ✅, browser ✅, computer use ✅, SSH ✅ | Phase 7+    |
 | Guard        | Permissions, approvals, policy enforcement ✅                                           | Phase 7     |
 | Vault        | Credential references (OS-protected storage) ✅                                         | Phase 7     |
-| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018), CrewOS                                  | Phase 8+    |
+| Integrations | GitHub ✅, HubSpot (Sales, postponed: ADR-018)                                          | Phase 8+    |
 
 ## 16. Invariants every phase must keep
 
