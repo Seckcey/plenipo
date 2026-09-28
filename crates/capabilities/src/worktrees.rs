@@ -53,8 +53,10 @@ impl Git {
         })
     }
 
-    /// Run git in `dir`; its output, or a one-line reason.
-    fn run(&self, dir: &Path, args: &[&str]) -> Result<String, String> {
+    /// Run git in `dir`; its output, or a one-line reason. The broker's git tools use it too,
+    /// to look at a repository (what a `git add` would stage, what is staged, what a diff or
+    /// a push covers) before Guard decides.
+    pub(crate) fn run(&self, dir: &Path, args: &[&str]) -> Result<String, String> {
         let mut command = Command::new(&self.executable);
         command
             .arg("-C")

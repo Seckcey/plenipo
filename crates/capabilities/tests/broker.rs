@@ -442,6 +442,22 @@ fn lines_of(text: &str, prefix: &str) -> Vec<String> {
         .collect()
 }
 
+/// Run git for the test's own setup and checks; its output.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
 // ---- Plan tests -----------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1618,4 +1634,195 @@ async fn what_files_and_programs_say_reaches_the_worker_fenced() {
         .and_then(|e| e["result"].as_str())
         .unwrap_or_default();
     assert!(recorded.starts_with("git version"), "{recorded}");
+}
+
+/// Every result of `tool` in a worker's answer, each as its lines (the first, then the indented
+/// rest with the indent removed).
+fn results_of(text: &str, tool: &str) -> Vec<Vec<String>> {
+    let mut out: Vec<Vec<String>> = Vec::new();
+    let mut open = false;
+    for line in text.lines() {
+        if line.starts_with(&format!("Tool {tool}")) {
+            out.push(vec![line.to_owned()]);
+            open = true;
+        } else if open && line.starts_with("    ") {
+            out.last_mut().unwrap().push(line.trim().to_owned());
+        } else {
+            open = false;
+        }
+    }
+    out
+}
+
+/// The blocked-files list holds for the git tools too. A blocked file (`.env.local`, by the
+/// default rule `.env.*`) is refused by `git add`, whether named or found under `.`; a diff,
+/// staged or not, leaves its contents out and says how many files it left out; a commit with it
+/// staged is refused and nothing is unstaged for the worker; and the push's approval card
+/// names it among the commits' files, while the push itself still waits for the owner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn git_tools_keep_blocked_files_out_of_gits_hands() {
+    let h = harness().await;
+    // The project works in its folder itself (no working copy per objective): a repository on
+    // `main` with a remote server (a bare repository next to it). `.env.local` is its only
+    // blocked file: added by a commit not yet pushed, then changed again, half staged.
+    h.workforce
+        .update_project(
+            &h.project,
+            &ProjectInput {
+                name: "Website".into(),
+                description: String::new(),
+                repository_url: None,
+                local_path: Some(h.folder.display().to_string()),
+                allowed_runtimes: vec![
+                    "claude-code".into(),
+                    "codex".into(),
+                    "grok".into(),
+                    "kimi".into(),
+                ],
+                capability_profile: None,
+                branch_per_objective: Some(false),
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    std::fs::remove_file(h.folder.join(".env")).unwrap();
+    let f = h.folder.as_path();
+    git(f, &["init", "-q", "-b", "main"]);
+    git(f, &["config", "user.name", "Plenipo Test"]);
+    git(f, &["config", "user.email", "test@example.com"]);
+    git(f, &["add", "-A"]);
+    git(f, &["commit", "-q", "-m", "Start"]);
+    git(h.dir.path(), &["init", "-q", "--bare", "origin.git"]);
+    let origin = h.dir.path().join("origin.git").display().to_string();
+    git(f, &["remote", "add", "origin", &origin]);
+    git(f, &["push", "-q", "-u", "origin", "main"]);
+    std::fs::write(f.join(".env.local"), "SECRET=one\n").unwrap();
+    git(f, &["add", ".env.local"]);
+    git(f, &["commit", "-q", "-m", "Add the secret"]);
+    std::fs::write(f.join(".env.local"), "SECRET=one\nSTAGED=two\n").unwrap();
+    std::fs::write(f.join("src").join("app.txt"), "version = 2\n").unwrap();
+    git(f, &["add", ".env.local", "src/app.txt"]);
+    std::fs::write(
+        f.join(".env.local"),
+        "SECRET=one\nSTAGED=two\nUNSTAGED=three\n",
+    )
+    .unwrap();
+    std::fs::write(
+        f.join("README.md"),
+        "# Website\nThe company website.\nNew line.\n",
+    )
+    .unwrap();
+    let staged_before = git(f, &["diff", "--cached", "--name-only"]);
+    assert_eq!(staged_before, ".env.local\nsrc/app.txt");
+
+    let work = [
+        tool("git_add", serde_json::json!({ "paths": [".env.local"] })),
+        tool("git_add", serde_json::json!({ "paths": ["."] })),
+        tool("git_diff", serde_json::json!({ "staged": true })),
+        tool("git_diff", serde_json::json!({})),
+        tool(
+            "git_commit",
+            serde_json::json!({ "message": "Save everything" }),
+        ),
+        tool("git_push", serde_json::json!({})),
+    ]
+    .join(" ");
+    let task = h.objective(&handoff("Backend Developer", &work)).await;
+    let child = h.child(&task).await;
+    // The push waits for the owner, and its card names the blocked file the commits change.
+    let approval = h.pending().await;
+    assert_eq!(approval.summary, "git push origin");
+    assert!(
+        approval
+            .detail
+            .contains("These commits change files on your blocked list: .env.local."),
+        "{}",
+        approval.detail
+    );
+    assert!(
+        approval.detail.starts_with("git push origin\n"),
+        "{}",
+        approval.detail
+    );
+    h.broker
+        .resolve_approval(&approval.id, false, "owner")
+        .unwrap();
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    let text = h.text(&child.id);
+    // The file's contents never reached the worker.
+    for secret in ["SECRET=one", "STAGED=two", "UNSTAGED=three"] {
+        assert!(!text.contains(secret), "{secret} in {text}");
+    }
+    // Named, or found under `.`: refused by the blocked-files rule, in its words.
+    let adds = lines_of(&text, "Tool git_add failed:");
+    assert_eq!(adds.len(), 2, "{text}");
+    for add in &adds {
+        assert!(
+            add.contains("Blocked: .env.local is a blocked file (your rule \".env.*\")."),
+            "{text}"
+        );
+    }
+    assert!(adds[0].contains("(git add .env.local)"), "{text}");
+    assert!(adds[1].contains("(git add .)"), "{text}");
+    // The diffs show the other files' changes, and say one file was left out.
+    let diffs = results_of(&text, "git_diff");
+    assert_eq!(diffs.len(), 2, "{text}");
+    let staged = diffs[0].join("\n");
+    assert!(staged.contains("+version = 2"), "{staged}");
+    assert!(!staged.contains(".env.local"), "{staged}");
+    assert_eq!(
+        diffs[0].last().map(String::as_str),
+        Some("1 file(s) on the blocked list are not shown."),
+        "{staged}"
+    );
+    let unstaged = diffs[1].join("\n");
+    assert!(unstaged.contains("+New line."), "{unstaged}");
+    assert!(!unstaged.contains(".env.local"), "{unstaged}");
+    assert_eq!(
+        diffs[1].last().map(String::as_str),
+        Some("1 file(s) on the blocked list are not shown."),
+        "{unstaged}"
+    );
+    // The commit is refused while the blocked file is staged, and stays staged.
+    let commits = lines_of(&text, "Tool git_commit failed:");
+    assert_eq!(commits.len(), 1, "{text}");
+    assert!(
+        commits[0].contains("Blocked: A blocked file is staged: .env.local. Unstage it first."),
+        "{text}"
+    );
+    assert_eq!(git(f, &["diff", "--cached", "--name-only"]), staged_before);
+    assert_eq!(git(f, &["log", "--format=%s", "-n", "1"]), "Add the secret");
+    // The push was the owner's to decide, and was not approved.
+    let pushes = lines_of(&text, "Tool git_push failed:");
+    assert_eq!(pushes.len(), 1, "{text}");
+    assert!(
+        pushes[0].contains("Not done: the owner did not approve it (git push origin)"),
+        "{text}"
+    );
+    assert_eq!(
+        git(
+            h.dir.path().join("origin.git").as_path(),
+            &["log", "--format=%s", "-n", "1", "main"]
+        ),
+        "Start"
+    );
+    // Recorded: three refusals by the blocked-files rule, none by the role.
+    let denied = h.events(&child.id, "guard.denied");
+    assert_eq!(denied.len(), 3, "{denied:#?}");
+    for d in &denied {
+        assert_eq!(d["layer"], "rule", "{d}");
+    }
+    let summaries: Vec<&str> = denied
+        .iter()
+        .filter_map(|d| d["summary"].as_str())
+        .collect();
+    assert_eq!(
+        summaries,
+        [
+            "git add .env.local",
+            "git add .",
+            "git commit (Save everything)"
+        ]
+    );
 }

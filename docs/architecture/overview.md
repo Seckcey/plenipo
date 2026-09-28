@@ -567,9 +567,14 @@ the result)](../adr/ADR-016-development-department.md).
   the broker makes a `git worktree` on `plenipo/<objective>-<id>` in `<app data>/working-copies`
   and confines every worker of that objective to it. One writer at a time: a second writer of
   the same objective gets `<branch>-2`, made from the first. In a working copy the git tools may
-  not switch or create branches, and push only the objective's branch. After each step that used
-  it, its commits and changed files are recorded (`workspace.updated`). Plenipo's own git runs
-  without hooks, prompts, or inherited environment, with a time limit.
+  not switch or create branches, and push only the objective's branch. The git tools keep the
+  owner's blocked-files list too (`broker/git_tools.rs`): before Guard decides, Plenipo's own
+  git looks at what `git add` would stage (a blocked file is refused, named or found under a
+  folder), a diff leaves blocked files out and says how many, a commit with a blocked file
+  staged is refused, and the `git push` card names blocked files in the commits it would send.
+  After each step that used it, its commits and changed files are recorded
+  (`workspace.updated`). Plenipo's own git runs without hooks, prompts, or inherited
+  environment, with a time limit.
 - **GitHub tools** (`crates/capabilities/src/github.rs`, `tools.rs`): pull request list, view,
   and checks, issue view (github.read), and a draft pull request for the objective's branch
   (github.write; it pushes first, and always asks the owner). They run GitHub's `gh` on the

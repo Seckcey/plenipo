@@ -47,10 +47,12 @@ use crate::tools::{self, Action, ToolDef, TOOLS};
 use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
+mod git_tools;
 mod operate;
 mod servers;
 mod terminals;
 
+use git_tools::{GitLook, Stopped};
 use operate::{CallContext, ControlWork, DesktopUse};
 use servers::{Caller, ServerPrep, SshUse, SshWork};
 pub use terminals::{TerminalSink, MAX_TERMINALS, PREFERENCES};
@@ -301,6 +303,12 @@ struct Prepared {
     /// It only reads Plenipo's own settings or gives something up (listing servers,
     /// disconnecting): never asks, though the permission must not be blocked.
     harmless: bool,
+    /// For a git tool: what Plenipo's own git looks at before Guard decides (the files a
+    /// `git add` would stage, the files staged, the files a diff or a push covers), so the
+    /// blocked-files list holds for git too (`git_tools`).
+    git: Option<GitLook>,
+    /// A line of Plenipo's own to end the result with (how many files a diff left out).
+    note: Option<String>,
     work: Work,
 }
 
@@ -1439,6 +1447,43 @@ impl Broker {
                 );
             }
         };
+        // A git tool: what git would stage, show, record, or send is checked against the
+        // blocked-files list first, by Plenipo's own git (`git_tools`).
+        if let Some(look) = prepared.git.take() {
+            let looked = self
+                .look_at_git(
+                    &mut prepared,
+                    look,
+                    workspace.as_ref(),
+                    at.base,
+                    &config.blocked_files,
+                )
+                .await;
+            match looked {
+                Ok(()) => {}
+                Err(Stopped::Refused(r)) => {
+                    let decision = Decision {
+                        verdict: Verdict::Deny,
+                        reason: format!("Blocked: {}", r.reason),
+                        layer: r.layer,
+                        risk: tool.risk,
+                        sensitive: None,
+                        checks: Vec::new(),
+                    };
+                    let detail = self.redact(&prepared.detail);
+                    return self.deny(
+                        grant_id, &task_id, &worker, tool, &r.summary, &detail, &decision, None,
+                    );
+                }
+                Err(Stopped::Unchecked(why)) => {
+                    return CallResult::error(format!(
+                        "Not done: {why} ({}). Try again; if it keeps failing, say so in your \
+                         answer.",
+                        prepared.summary
+                    ));
+                }
+            }
+        }
         let current = level_for(&config, &scope, prepared.capability);
         let rels: Vec<String> = prepared.files.iter().map(|f| f.rel.clone()).collect();
         let root = workspace
@@ -1632,7 +1677,14 @@ impl Broker {
             Ok(text) => (text, true),
             Err(text) => (text, false),
         };
-        let text = self.redact(&text);
+        let mut text = self.redact(&text);
+        // Plenipo's own closing line (how many files a diff left out), outside any fence.
+        if let (true, Some(note)) = (ok, prepared.note.take()) {
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(&note);
+        }
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.used += 1;
         }
@@ -2632,6 +2684,8 @@ fn prepare(
             screenshot: None,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work,
         }
     };
@@ -2984,6 +3038,11 @@ fn prepare(
                         SensitiveKind::Outbound,
                         "it publishes the branch and opens a pull request on GitHub",
                     ));
+                    // It pushes the branch: the card names blocked files in its commits.
+                    p.git = Some(GitLook::Push {
+                        remote: "origin".into(),
+                        branch: Some(branch.to_owned()),
+                    });
                     p
                 }
                 _ => unreachable!("only GitHub actions come here"),
@@ -2999,11 +3058,13 @@ fn prepare(
                 });
             };
             let git = programs::find_on_path("git");
-            let rel = |p: &str| -> std::result::Result<String, Refused> {
-                let r = resolve(ws, p, &s)?;
-                Ok(if r.rel.is_empty() { ".".into() } else { r.rel })
-            };
+            let rel = |p: &str| -> std::result::Result<Resolved, Refused> { resolve(ws, p, &s) };
             let mut inherent = None;
+            // The files named go to Guard as the file tools' do, and Plenipo's own git looks at
+            // what git would then stage, show, record, or send (`git_tools`), so a file on the
+            // blocked list stays out of git's hands too.
+            let mut files = Vec::new();
+            let mut look = None;
             let (summary, op): (String, Vec<String>) = match git_action {
                 Action::GitStatus => (
                     "git status".into(),
@@ -3014,12 +3075,19 @@ fn prepare(
                     if staged {
                         op.push("--cached".into());
                     }
+                    let mut of = None;
                     if let Some(p) = path {
-                        op.extend(["--".into(), rel(&p)?]);
+                        // A diff shows contents: a blocked path is refused like a read.
+                        let r = rel(&p)?;
+                        of = Some(r.shown().to_owned());
+                        op.extend(["--".into(), r.shown().to_owned()]);
+                        files.push(r);
                     }
+                    look = Some(GitLook::Diff { staged, path: of });
                     ("git diff".into(), op)
                 }
                 Action::GitLog { count, path } => {
+                    // One line per commit, never a patch: names, not contents.
                     let mut op = vec![
                         "log".to_owned(),
                         "--oneline".into(),
@@ -3028,24 +3096,32 @@ fn prepare(
                         count.to_string(),
                     ];
                     if let Some(p) = path {
-                        op.extend(["--".into(), rel(&p)?]);
+                        op.extend(["--".into(), rel(&p)?.shown().to_owned()]);
                     }
                     ("git log".into(), op)
                 }
                 Action::GitAdd { paths } => {
                     let mut op = vec!["add".to_owned(), "--".into()];
                     for p in &paths {
-                        op.push(rel(p)?);
+                        let r = rel(p)?;
+                        op.push(r.shown().to_owned());
+                        files.push(r);
                     }
+                    look = Some(GitLook::Add {
+                        paths: op[2..].to_vec(),
+                    });
                     (format!("git add {}", op[2..].join(" ")), op)
                 }
-                Action::GitCommit { message } => (
-                    format!(
-                        "git commit ({})",
-                        cap(message.lines().next().unwrap_or(""), 80)
-                    ),
-                    vec!["commit".into(), "-m".into(), message],
-                ),
+                Action::GitCommit { message } => {
+                    look = Some(GitLook::Commit);
+                    (
+                        format!(
+                            "git commit ({})",
+                            cap(message.lines().next().unwrap_or(""), 80)
+                        ),
+                        vec!["commit".into(), "-m".into(), message],
+                    )
+                }
                 Action::GitBranch { name, create } => {
                     if let Some(own) = branch {
                         return Err(Refused {
@@ -3075,7 +3151,7 @@ fn prepare(
                     branch: asked,
                 } => {
                     inherent = Some((SensitiveKind::Outbound, "it sends commits to a server"));
-                    let op = match (branch, &asked) {
+                    let (op, pushed) = match (branch, &asked) {
                         // In a working copy, only the objective's own branch is pushed.
                         (Some(own), Some(b)) if b != own && b != "HEAD" => {
                             return Err(Refused {
@@ -3087,15 +3163,26 @@ fn prepare(
                                 summary: format!("git push {remote} {b}"),
                             });
                         }
-                        (Some(own), _) => vec![
-                            "push".to_owned(),
-                            "-u".into(),
-                            remote.clone(),
-                            own.to_owned(),
-                        ],
-                        (None, Some(b)) => vec!["push".to_owned(), remote.clone(), b.clone()],
-                        (None, None) => vec!["push".to_owned(), remote.clone()],
+                        (Some(own), _) => (
+                            vec![
+                                "push".to_owned(),
+                                "-u".into(),
+                                remote.clone(),
+                                own.to_owned(),
+                            ],
+                            Some(own.to_owned()),
+                        ),
+                        (None, Some(b)) => (
+                            vec!["push".to_owned(), remote.clone(), b.clone()],
+                            Some(b.clone()),
+                        ),
+                        (None, None) => (vec!["push".to_owned(), remote.clone()], None),
                     };
+                    // The approval card names blocked files in the commits it would send.
+                    look = Some(GitLook::Push {
+                        remote: remote.clone(),
+                        branch: pushed,
+                    });
                     let shown: Vec<&str> = op[1..]
                         .iter()
                         .map(String::as_str)
@@ -3121,10 +3208,11 @@ fn prepare(
             let mut p = base(
                 summary.clone(),
                 format!("git {}", op.join(" ")),
-                vec![],
+                files,
                 work,
             );
             p.inherent = inherent;
+            p.git = look;
             p
         }
     })

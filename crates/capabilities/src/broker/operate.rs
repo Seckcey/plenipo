@@ -535,6 +535,8 @@ impl Broker {
             screenshot: None,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work: Work::Control(work),
         };
         let nav = Capability::BrowserNavigate;
@@ -1321,6 +1323,8 @@ impl Broker {
                 .await,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work: Work::Missing(String::new()),
         };
         let decision = Decision {
@@ -1475,6 +1479,8 @@ impl Broker {
                 .await,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work: Work::Missing(String::new()),
         };
         let decision = Decision {

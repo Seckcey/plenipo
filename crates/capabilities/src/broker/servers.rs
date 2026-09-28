@@ -344,6 +344,8 @@ impl Broker {
             screenshot: None,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work: Work::Ssh(work),
         };
         let find = |name: &str, summary: &str| -> std::result::Result<Server, Refused> {

@@ -33,6 +33,10 @@ without including any sensitive details. No response-time commitment is made whi
 Plenipo's security promises, in plain words — a way around any of these is a vulnerability:
 
 - A worker stays inside its project's folder. It cannot read or change files outside it.
+- Files on your blocked list (`.env` files, keys, and the like) are never read, changed, or sent
+  by a worker: not through the file tools, and not through the git tools either. Staging one,
+  showing its changes, or committing it is refused, and the approval card for a push names any
+  blocked file in the commits it would send.
 - A worker cannot do anything its permission set does not allow.
 - Sensitive actions — deploying, DNS, passwords, payments, publishing, running as administrator —
   stop and wait for the owner's approval.
