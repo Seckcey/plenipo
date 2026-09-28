@@ -34,6 +34,18 @@ describe("describeEvent (Phase 3 agent events)", () => {
     expect(
       describeEvent(event("agent.result", { outcome: "usageLimited", summary: "Try later" })),
     ).toBe("Result: Usage limit reached — Try later");
+    // ADR-044: an AI tool that shortened its memory says so in plain words.
+    expect(
+      describeEvent(
+        event("agent.memory_shortened", {
+          detail:
+            "Kimi shortened its memory of this conversation: it holds less of it than before.",
+        }),
+      ),
+    ).toBe("Kimi shortened its memory of this conversation: it holds less of it than before.");
+    expect(describeEvent(event("agent.memory_shortened", {}))).toBe(
+      "The AI tool shortened its memory of this conversation",
+    );
     expect(describeEvent(event("session.opened", { runtime: "codex" }))).toBe(
       "Worker conversation opened on codex",
     );

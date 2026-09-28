@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, Bridge, Effort, HostEnv, InstallState, MemorySessionStore,
-    SessionStart, SessionState, SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook,
-    TurnInput, TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
+    AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HostEnv, InstallState,
+    MemorySessionStore, SessionStart, SessionState, SessionStore, StepNote, TurnDisposition,
+    TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
 };
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, ExecutionState, MetadataStore, ProfileRegistry, RuntimeError,
-    RuntimeEvent, Supervisor, SupervisorConfig,
+    BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore,
+    ProfileRegistry, PromptSize, RuntimeError, RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
 const RUNTIMES: [&str; 4] = ["claude-code", "codex", "grok", "kimi"];
@@ -1715,4 +1715,93 @@ async fn kimi_runs_only_the_subscription_models() {
     );
     // Refused before any conversation was opened.
     assert!(h.last_acp().get("method").is_none());
+}
+
+// ---- Prompts sized to the job (ADR-044) --------------------------------------------------------
+
+/// Liaison's message for `objective`: the full instructions (`hash` names them), and a short
+/// reminder instead of them.
+fn briefed(objective: &str, hash: u64) -> TurnInput {
+    let full = format!("[instructions]\nWho you are, your job, your team.\n[end]\n\n{objective}");
+    let reminder = format!("[instructions]\nThey still apply.\n[end]\n\n{objective}");
+    TurnInput {
+        objective: objective.into(),
+        prompt: None,
+        brief: Some(BriefInput {
+            full,
+            reminder: Some(reminder),
+            passed_bytes: objective.len(),
+            reminder_passed_bytes: objective.len(),
+            hash,
+            large: false,
+        }),
+        task: TurnTask::New {
+            requested_by: "owner".into(),
+            metadata: serde_json::Value::Null,
+            project_id: None,
+        },
+    }
+}
+
+/// Give a session its next briefed objective and wait for it; returns its step sizes.
+async fn briefed_turn(h: &H, id: &str, input: TurnInput) -> Vec<PromptSize> {
+    let turns = h.rt.session(id).await.unwrap().turns.len();
+    h.rt.resume_session_with(id, input).await.unwrap();
+    let detail = settled(&h.rt, id, turns + 1).await;
+    detail.turns[turns]
+        .steps
+        .iter()
+        .map(|s| s.result.as_ref().unwrap().prompt.expect("a size"))
+        .collect()
+}
+
+/// ADR-044 §2.5: every AI tool that says it shortened its memory is heard — Claude Code's
+/// "compacted" notice, a drop in the context Grok and Kimi report in use, the Ollama bridge
+/// leaving earlier messages out — and the next task gets the full instructions again.
+#[tokio::test]
+async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instructions() {
+    for runtime in ["claude-code", "grok", "kimi", "ollama"] {
+        let h = harness();
+        let started =
+            h.rt.start_session_with(
+                SessionStart {
+                    runtime_id: runtime.into(),
+                    ..SessionStart::default()
+                },
+                briefed("one", 7),
+            )
+            .await
+            .unwrap();
+        let id = started.session.id.clone();
+        let detail = settled(&h.rt, &id, 1).await;
+        let first = detail.turns[0].steps[0]
+            .result
+            .clone()
+            .unwrap()
+            .prompt
+            .unwrap();
+        assert_eq!(
+            (first.brief, first.why),
+            (BriefKind::Full, Some(BriefWhy::First))
+        );
+        briefed_turn(&h, &id, briefed("two", 7)).await;
+        briefed_turn(&h, &id, briefed("three [compact]", 7)).await;
+        let detail = h.rt.session(&id).await.unwrap();
+        let shortened: Vec<AgentEvent> = h
+            .store
+            .activity(&detail.turns[2].task_id)
+            .into_iter()
+            .filter(|e| matches!(e, AgentEvent::MemoryShortened { .. }))
+            .collect();
+        assert_eq!(shortened.len(), 1, "{runtime}: {shortened:?}");
+        let next = briefed_turn(&h, &id, briefed("four", 7)).await;
+        assert_eq!(
+            (next[0].brief, next[0].why),
+            (BriefKind::Full, Some(BriefWhy::MemoryShortened)),
+            "{runtime}"
+        );
+        // Once sent, the full instructions are what the conversation has again.
+        let after = briefed_turn(&h, &id, briefed("five", 7)).await;
+        assert_ne!(after[0].why, Some(BriefWhy::MemoryShortened), "{runtime}");
+    }
 }

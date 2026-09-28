@@ -506,6 +506,17 @@ impl TurnParser for Parser {
             Some("assistant") => self.assistant(&v),
             Some("user") => Self::user(&v),
             Some("result") => self.result(&v),
+            // Claude Code compacted the conversation: it keeps a summary of the earlier part
+            // (ADR-044 §2.5).
+            Some("system")
+                if v.get("subtype").and_then(Value::as_str) == Some("compact_boundary") =>
+            {
+                Parsed::one(AgentEvent::MemoryShortened {
+                    detail: "Claude Code shortened its memory of this conversation: it keeps a \
+                             summary of the earlier part."
+                        .into(),
+                })
+            }
             Some("system") => Parsed::none(),
             _ => {
                 self.state.unknown += 1;
@@ -751,6 +762,29 @@ mod tests {
         assert_eq!(r.model.as_deref(), Some("model-x"));
         assert_eq!(r.duration_ms, Some(42));
         assert_eq!(r.ignored_lines, 1, "unknown event counted, not fatal");
+    }
+
+    /// ADR-044 §2.5: Claude Code's "compacted" notice tells Plenipo it shortened its memory.
+    #[test]
+    fn a_compacted_conversation_is_reported() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"system","subtype":"init","apiKeySource":"none",
+                       "session_id":"11111111-1111-4111-8111-111111111111"}),
+                json!({"type":"system","subtype":"compact_boundary",
+                       "session_id":"11111111-1111-4111-8111-111111111111",
+                       "compact_metadata":{"trigger":"auto","pre_tokens":155000}}),
+                json!({"type":"system","subtype":"status"}),
+            ],
+        );
+        assert!(matches!(
+            &events[1..],
+            [AgentEvent::MemoryShortened { detail }] if detail.contains("shortened its memory")
+        ));
+        let r = p.finish(&end(ExecutionState::Succeeded, Some(0)));
+        assert_eq!(r.ignored_lines, 0, "understood, not ignored");
     }
 
     #[test]

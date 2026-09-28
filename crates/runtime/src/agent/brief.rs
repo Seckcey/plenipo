@@ -3,6 +3,10 @@
 //! Plenipo measures every step's prompt — the whole of it, and its own text (everything except
 //! what it only passes along: the objective from the owner or a lead, context from another
 //! worker, replies) — and records the sizes with the step. Sizes only: the text is never kept.
+//!
+//! What the runtime knows of each conversation — whether its AI tool shortened its memory, how
+//! much context it last reported in use — is kept in memory only ([`Conversation`]): after
+//! Plenipo starts again, every conversation starts over.
 
 use crate::agent::tools::{NOTE_END, NOTE_START};
 use crate::dto::{BriefKind, BriefWhy, NoteKind, PromptSize};
@@ -39,6 +43,68 @@ pub fn text_hash(text: &str) -> u64 {
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     text.bytes()
         .fold(OFFSET, |h, b| (h ^ u64::from(b)).wrapping_mul(PRIME))
+}
+
+/// What a step is given to send, before the runtime chooses what goes out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StepMessage {
+    /// A turn's first step with Liaison's message.
+    Brief(BriefInput),
+    /// A turn's first step with the objective alone, or a prompt Core wrote.
+    Plain { text: String, passed: usize },
+    /// A continuation: the replies to the worker's requests.
+    Replies { text: String, passed: usize },
+}
+
+/// What the runtime knows of one conversation (ADR-044 §5), in memory only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Conversation {
+    /// The provider conversation these facts are about (`None` until the AI tool confirms it).
+    pub provider: Option<String>,
+    /// The AI tool shortened its memory since the full instructions last went out.
+    pub shortened: bool,
+    /// Changes whenever the AI tool may have lost part of the conversation: a new provider
+    /// conversation, a shortened memory.
+    pub mark: u64,
+    /// How much of its context the AI tool last reported in use (ACP), to tell when it drops.
+    pub context_used: Option<u64>,
+}
+
+/// Where a step stands with its conversation when it launches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Standing<'a> {
+    /// A new provider conversation.
+    New,
+    /// A conversation the runtime has sent nothing to since Plenipo started.
+    Unknown,
+    Known(&'a Conversation),
+}
+
+impl StepMessage {
+    /// What goes out, and why: the full instructions every time for now.
+    pub fn outgoing(self, standing: Standing<'_>) -> Outgoing {
+        match self {
+            Self::Brief(brief) => {
+                let why = match standing {
+                    Standing::New => Some(BriefWhy::First),
+                    Standing::Unknown => Some(BriefWhy::AfterRestart),
+                    Standing::Known(c) if c.shortened => Some(BriefWhy::MemoryShortened),
+                    Standing::Known(_) => None,
+                };
+                let full_len = brief.full.len();
+                Outgoing {
+                    text: brief.full,
+                    passed: brief.passed_bytes,
+                    kind: BriefKind::Full,
+                    why,
+                    full_len,
+                    full_passed: brief.passed_bytes,
+                }
+            }
+            Self::Plain { text, passed } => Outgoing::plain(text, passed, BriefKind::Plain),
+            Self::Replies { text, passed } => Outgoing::plain(text, passed, BriefKind::Replies),
+        }
+    }
 }
 
 /// Bytes the tools note adds in front of a message ([`crate::agent::tools::with_note`]).

@@ -162,5 +162,7 @@ export function describeActivity(e: AgentEvent): {
       };
     case "usage":
       return { label: "Usage", text: describeUsage(e.usage) };
+    case "memoryShortened":
+      return { label: "Memory", text: e.detail };
   }
 }

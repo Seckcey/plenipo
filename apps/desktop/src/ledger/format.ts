@@ -629,6 +629,8 @@ function describeAgentEvent(type: string, p: Record<string, unknown>): string | 
       return `Tool result${p.isError === true ? " (error)" : ""}: ${brief(p.summary)}`;
     case "agent.notice":
       return `Notice: ${brief(p.text)}`;
+    case "agent.memory_shortened":
+      return brief(p.detail) || "The AI tool shortened its memory of this conversation";
     case "agent.result": {
       const outcome = str(p.outcome);
       const label =

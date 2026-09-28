@@ -22,7 +22,10 @@
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
 //! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, and `[delay:MS]` (answer
-//! normally after MS milliseconds, at most 20 seconds).
+//! normally after MS milliseconds, at most 20 seconds). `[compact]` makes the AI tool shorten its
+//! memory of the conversation the way it says so (ADR-044): Claude Code's `compact_boundary`
+//! notice, a drop in the context Grok and Kimi report in use (`usage_update`, which otherwise
+//! grows each turn), and the Ollama bridge's notice that earlier messages were left out.
 //!
 //! Plenipo Liaison messages (ADR-008) are understood too; markers then count only in the
 //! objective, never in the context or replies around it. Handoff markers make the answer end
@@ -1050,7 +1053,13 @@ fn claude_turn(args: &[String]) -> i32 {
     }
     if own.contains("[unknown]") {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
-        out(&json!({ "type": "system", "subtype": "compact_boundary" }));
+    }
+    if own.contains("[compact]") {
+        // Like the real CLI when a conversation grows long: it keeps a summary of it.
+        out(
+            &json!({ "type": "system", "subtype": "compact_boundary", "session_id": id,
+                     "compact_metadata": { "trigger": "auto", "pre_tokens": 155_000 } }),
+        );
     }
     delay(&own);
     let calls = match &scripted {
@@ -1763,6 +1772,7 @@ impl GrokAgent {
             json!({ "stopReason": "end_turn", "_meta": { "usage": {
             "inputTokens": 30, "cachedReadTokens": 12, "outputTokens": 9 } } }),
         );
+        acp_update(&session, context_in_use(n, &said));
         true
     }
 }
@@ -2360,12 +2370,20 @@ impl KimiAgent {
         }
         // Like the real CLI: no token usage in the answer, the context size after it.
         acp_result(id, json!({ "stopReason": "end_turn" }));
-        acp_update(
-            &session,
-            json!({ "sessionUpdate": "usage_update", "used": 21733, "size": 1_048_576 }),
-        );
+        acp_update(&session, context_in_use(n, &said));
         true
     }
+}
+
+/// How much of its context an ACP tool says is in use after its `n`th prompt: it grows with the
+/// conversation, and drops when the objective says `[compact]` (the tool shortened its memory).
+fn context_in_use(n: usize, said: &str) -> Value {
+    let used = if said.contains("[compact]") {
+        3_000
+    } else {
+        19_733 + 2_000 * n
+    };
+    json!({ "sessionUpdate": "usage_update", "used": used, "size": 1_048_576 })
 }
 
 /// The first line of `text`, for a conversation title.
@@ -2520,6 +2538,13 @@ fn ollama_turn(args: &[String]) -> i32 {
     }
     if said.contains("[unknown]") {
         out(&json!({ "type": "something-new" }));
+    }
+    if said.contains("[compact]") {
+        // Like the bridge when a conversation is longer than it sends at once.
+        out(
+            &json!({ "type": "notice", "leftOut": 4, "text": "4 earlier message(s) were left \
+                     out: the conversation is longer than Plenipo sends at once." }),
+        );
     }
     delay(&said);
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());

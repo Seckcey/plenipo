@@ -307,6 +307,13 @@ impl TurnParser for Parser {
                 }
                 parsed
             }
+            // Plenipo's bridge left earlier messages out: the model's memory of the conversation
+            // is shorter (ADR-044 §2.5).
+            Some("notice") if v.get("leftOut").and_then(Value::as_u64).unwrap_or(0) > 0 => {
+                Parsed::one(AgentEvent::MemoryShortened {
+                    detail: cap(str_of(&v, "text"), MAX_EVENT_TEXT),
+                })
+            }
             Some("notice") => Parsed::one(AgentEvent::Notice {
                 level: NoticeLevel::Info,
                 text: cap(str_of(&v, "text"), MAX_EVENT_TEXT),
@@ -483,6 +490,34 @@ mod tests {
         assert_eq!(r.text.as_deref(), Some("hello there"));
         assert_eq!(r.provider_session_id.as_deref(), Some("c-1"));
         assert_eq!(r.duration_ms, Some(1200));
+    }
+
+    /// ADR-044 §2.5: when the bridge leaves earlier messages out, the model's memory of the
+    /// conversation is shorter; other notices stay notices.
+    #[test]
+    fn messages_left_out_mean_a_shortened_memory() {
+        let mut p = Ollama.parser(&TurnRequest::default());
+        let text = "3 earlier message(s) were left out: the conversation is longer than Plenipo \
+                    sends at once.";
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"notice","leftOut":3,"text":text}),
+                json!({"type":"notice","text":"The conversation could not be saved."}),
+            ],
+        );
+        assert_eq!(
+            events,
+            [
+                AgentEvent::MemoryShortened {
+                    detail: text.into()
+                },
+                AgentEvent::Notice {
+                    level: NoticeLevel::Info,
+                    text: "The conversation could not be saved.".into()
+                },
+            ]
+        );
     }
 
     #[test]

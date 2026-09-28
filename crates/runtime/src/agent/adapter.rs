@@ -165,6 +165,16 @@ pub trait TurnParser: Send {
     fn stderr(&mut self, text: &str);
     /// The process ended: produce the normalized result.
     fn finish(&mut self, end: &ProcessEnd) -> TurnResult;
+    /// How much of the conversation's context the AI tool last reported in use, for an AI tool
+    /// that reports it (ACP's `usage_update`, ADR-044). The runtime keeps it for the
+    /// conversation's next step. Default: not reported.
+    fn context_used(&self) -> Option<u64> {
+        None
+    }
+    /// What the conversation's previous step reported ([`Self::context_used`]), so that a drop
+    /// to less than half — the AI tool shortened its memory — shows up as
+    /// [`AgentEvent::MemoryShortened`].
+    fn set_context_used(&mut self, _previous: Option<u64>) {}
 }
 
 /// A provider runtime. Implementations hold no per-turn state; they only describe how to

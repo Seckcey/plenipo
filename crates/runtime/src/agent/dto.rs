@@ -237,6 +237,12 @@ pub enum AgentEvent {
     Usage {
         usage: TokenUsage,
     },
+    /// The AI tool shortened its memory of the conversation (it compacted it, or left earlier
+    /// messages out), so the next task gets the full instructions again (ADR-044 §2.5).
+    /// `detail` says so in plain words.
+    MemoryShortened {
+        detail: String,
+    },
 }
 
 impl AgentEvent {
@@ -248,6 +254,7 @@ impl AgentEvent {
             Self::ToolUse { .. } => Some("agent.tool_use"),
             Self::ToolResult { .. } => Some("agent.tool_result"),
             Self::Notice { .. } => Some("agent.notice"),
+            Self::MemoryShortened { .. } => Some("agent.memory_shortened"),
             Self::TextDelta { .. } | Self::Reasoning { .. } | Self::Usage { .. } => None,
         }
     }
@@ -479,6 +486,15 @@ mod tests {
             serde_json::to_value(TurnOutcome::BillingNotAllowed).unwrap(),
             json!("billingNotAllowed")
         );
+        let event = AgentEvent::MemoryShortened {
+            detail: "Claude Code shortened its memory of this conversation.".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            json!({ "type": "memoryShortened",
+                    "detail": "Claude Code shortened its memory of this conversation." })
+        );
+        assert_eq!(event.ledger_type(), Some("agent.memory_shortened"));
     }
 
     #[test]
