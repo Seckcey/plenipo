@@ -159,7 +159,15 @@ jobs:
           version=$(node -p "require('./package.json').version")
           installer=(target/release/bundle/nsis/*-setup.exe)
           test -f "${installer[0]}"
-          pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
+          # A key pasted with a space or line break fails to decode: the key is base64, so every
+          # space and line break is dropped; the password loses only a line break at its end.
+          key=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '[:space:]')
+          password=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r\n')
+          if [ "$key" != "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::Repository secret TAURI_SIGNING_PRIVATE_KEY has spaces or line breaks; they were dropped for this run. Save it again without them (docs/development/code-signing.md)."
+          fi
+          TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
+            pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
             "$GITHUB_WORKSPACE/${installer[0]}"
       - name: The updater signature is Plenipo's, for this version, and latest.json is written
         shell: bash

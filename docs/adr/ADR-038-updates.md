@@ -132,32 +132,40 @@ In order, stopping at the first problem and leaving the old version untouched:
 ### 6. What the owner does once (the updater key)
 
 The updater key is separate from the Azure signing. The owner makes it on their own PC, and adds
-it to GitHub themselves. It is never pasted into a chat and never committed.
+it to GitHub themselves. It is never pasted into a chat and never committed. The steps, with
+where to click, are in [code signing → the updater key](../development/code-signing.md#updates-the-updater-key-phase-13-adr-038):
 
-1. In PowerShell, in the `plenipo` folder (after `pnpm install`):
+1. Make the key in PowerShell (it asks for a password twice; make a strong one and save it in
+   your password manager). With Node.js installed, from any folder:
 
    ```powershell
-   pnpm --filter @plenipo/desktop tauri signer generate -w "$env:USERPROFILE\.tauri\plenipo-updater.key"
+   npx --yes @tauri-apps/cli@2.11.5 signer generate -w "$env:USERPROFILE\.tauri\plenipo-updater.key"
    ```
 
-   It asks for a password (make a strong one and keep it in your password manager). It makes
-   two files: `plenipo-updater.key` (the **private** key, secret) and `plenipo-updater.key.pub`
-   (the **public** key, not secret).
+   (Or, in the `plenipo` folder after `pnpm install`:
+   `pnpm --filter @plenipo/desktop tauri signer generate -w "$env:USERPROFILE\.tauri\plenipo-updater.key"`.)
+   It makes `plenipo-updater.key` (the **private** key, secret) and `plenipo-updater.key.pub`
+   (the **public** key, not secret) in `C:\Users\<you>\.tauri\`.
 
-2. On GitHub: **Seckcey/plenipo → Settings → Secrets and variables → Actions**:
+2. On GitHub, **Seckcey/plenipo → Settings → Secrets and variables → Actions**:
    - **Secrets** tab → **New repository secret**, twice:
-     - `TAURI_SIGNING_PRIVATE_KEY`: everything in `plenipo-updater.key` (open it in Notepad,
-       select all, copy).
+     - `TAURI_SIGNING_PRIVATE_KEY`: the private key's text (copy it without showing it:
+       `(Get-Content "$env:USERPROFILE\.tauri\plenipo-updater.key" -Raw).Trim() | Set-Clipboard`,
+       then paste).
      - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password from step 1.
    - **Variables** tab → **New repository variable**:
-     - `PLENIPO_UPDATER_PUBLIC_KEY`: everything in `plenipo-updater.key.pub`.
+     - `PLENIPO_UPDATER_PUBLIC_KEY`: the public key's text
+       (`(Get-Content "$env:USERPROFILE\.tauri\plenipo-updater.key.pub" -Raw).Trim() | Set-Clipboard`).
 
 3. Keep a backup of `plenipo-updater.key` and its password somewhere safe (for example your
    password manager). **If the key is lost**, copies already installed will refuse updates
    signed with a new key, and everyone must install the next version by hand once.
 
+4. Check it: **Actions → Release → Run workflow**, tick **Dry run**. It signs and checks the
+   updater signature, and publishes nothing.
+
 The Release workflow refuses to publish a release when any of the three is missing, and says
-which.
+which. Spaces or line breaks pasted around the private key are dropped (with a warning).
 
 ## Consequences
 
