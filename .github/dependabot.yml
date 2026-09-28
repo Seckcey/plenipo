@@ -1,18 +1,23 @@
 # Dependabot keeps this repository's pins current without moving tags: the workflows name each
 # GitHub Action by the exact commit it runs (a tag can be moved to other code; a commit cannot),
 # and once a week Dependabot opens a pull request for any newer release of an action, an npm
-# package, or a Rust crate, for the owner to review and merge. Minor and patch updates of packages
-# come as one pull request per kind, so there are fewer to read.
+# package, or a Rust crate, for the owner to review and merge. Minor and patch updates of packages (small version
+# steps that keep things compatible) come as one pull request per kind, so there are fewer to
+# read; each pull request's title starts the way this repository's commits do.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "ci"
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore"
     groups:
       minor-and-patch:
         patterns: ["*"]
@@ -21,6 +26,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore"
     groups:
       minor-and-patch:
         patterns: ["*"]

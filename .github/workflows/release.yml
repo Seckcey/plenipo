@@ -179,6 +179,7 @@ jobs:
           name: plenipo-unsigned-installer-dry-run
           path: target/release/bundle/nsis/*-setup.exe
           retention-days: 7
+          if-no-files-found: error
       # ADR-038: the finished installer (already signed as 8 West above) gets the updater
       # signature, over its final bytes and naming this version, with Tauri's signing tool.
       - name: Sign the installer with the updater key, for this version
