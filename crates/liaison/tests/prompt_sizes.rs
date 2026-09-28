@@ -751,6 +751,33 @@ async fn a_supervisors_conversation_is_measured_step_by_step() {
     assert!(handed_sizes[1].own_bytes < handed_sizes[1].full_own_bytes);
 }
 
+/// ADR-044 §2.7: a large job (4,000 characters or more) gets the full instructions, even in a
+/// conversation that has them; the next routine objective gets the short reminder again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_large_job_gets_the_full_instructions() {
+    let h = harness().await;
+    let (session, _) = h.objective(None, "Fix the login page.").await;
+    let long = format!(
+        "Rewrite the Help page from these notes:\n{}",
+        "The Sign in button sends people to their dashboard. ".repeat(80)
+    );
+    assert!(long.chars().count() >= 4_000);
+    let (_, large) = h.objective(Some(&session), &long).await;
+    let size = h.step_sizes(&large)[0];
+    assert_eq!(
+        (size.brief, size.why),
+        (BriefKind::Full, Some(BriefWhy::LargeJob))
+    );
+    let (_, next) = h
+        .objective(Some(&session), "Change the footer's year to 2026.")
+        .await;
+    let size = h.step_sizes(&next)[0];
+    assert_eq!(
+        (size.brief, size.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+}
+
 /// ADR-044 §3.9: a task handed to a full-time member whose conversation already has its
 /// instructions carries a short reminder; its first one carries the full instructions.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
