@@ -194,9 +194,11 @@ impl Ledger {
             } else {
                 (LessonState::Discarded, "lesson.discarded")
             };
+            // It no longer waits, so why it waited goes with it (`held_reason` is only ever on
+            // a waiting lesson).
             tx.execute(
                 "UPDATE lessons SET state = ?2, text = COALESCE(?3, text), decided_at = ?4, \
-                 decided_by = ?5 WHERE id = ?1",
+                 decided_by = ?5, held_reason = NULL WHERE id = ?1",
                 params![
                     id,
                     state.as_str(),
@@ -669,5 +671,17 @@ mod tests {
         assert!(l.lessons(LessonState::Waiting, Some(&r), 20).unwrap()[0]
             .held_reason
             .is_some());
+        // Once the owner keeps it, it no longer waits, and the reason it waited goes with it.
+        let kept = l.decide_lesson(&held[0].id, true, None, "owner").unwrap();
+        assert_eq!(kept.state, LessonState::Kept);
+        assert_eq!(kept.held_reason, None);
+        let event = l
+            .events_for_task(&t)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|e| e.event_type == "lesson.kept")
+            .unwrap();
+        assert!(event.payload["heldReason"].is_null(), "{}", event.payload);
     }
 }
