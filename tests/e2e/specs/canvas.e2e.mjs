@@ -291,6 +291,13 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await app.close();
     app = await start();
     browser = app.browser;
+    // The test stopped Plenipo on purpose; the notice about it is dismissed.
+    await waitUntil(() => exists(browser, ".banner--recovery button"), "the notice", 20_000).catch(
+      () => undefined,
+    );
+    if (await exists(browser, ".banner--recovery button")) {
+      await (await browser.$(".banner--recovery button")).click();
+    }
     await nav(browser, "Organization");
     await waitForNode(browser, "Security Auditor,");
     assert.deepEqual(await spotOf(browser, "Security Auditor"), placed);
@@ -326,23 +333,30 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await fit(browser);
     await screenshot(browser, "lent");
 
+    // Its Team tab says where it helps, and until when.
+    await select(browser, "Security Auditor");
+    await detailsTab(browser, "Team");
+    await waitForText(browser, DETAILS, "Lent to another team");
+    await waitForText(browser, DETAILS, "for its next objective");
+    await screenshot(browser, "lent-team-tab");
+
     // The Campaign Supervisor hands it work; when that objective is done, it goes home.
     await select(browser, "Campaign Supervisor");
     await (
       await objectiveBox(browser)
-    ).setValue("Check the campaign pages [handoff:role:Security Auditor+delay:3000]");
+    ).setValue("Check the campaign pages [handoff:role:Security Auditor+delay:8000]");
     await clickButton(browser, "Give objective");
-    await select(browser, "Security Auditor");
-    await detailsTab(browser, "Team");
-    await waitForText(browser, DETAILS, "Lent to another team");
-    await waitForText(browser, DETAILS, "Campaign Supervisor");
-    await screenshot(browser, "lent-team-tab");
+    await waitForNode(browser, "Security Auditor, Working", 60_000);
     await waitUntil(
       async () => !(await exists(browser, badge)),
       "the auditor to come home when the objective is done",
-      90_000,
+      120_000,
     );
-    await waitForText(browser, `${DETAILS}`, "Development Manager");
+    await closeDetails(browser);
+    await select(browser, "Security Auditor");
+    await detailsTab(browser, "Team");
+    await waitForText(browser, DETAILS, "Development Manager");
+    assert.ok(!(await textOf(browser, DETAILS)).includes("Lent to another team"));
   });
 
   it("rewires a line by its end, and archives with the trash can (Undo, and the drawer)", async () => {
@@ -428,7 +442,7 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     const { browser } = app;
     const page = Array.from({ length: 24 }, (_, i) => `<p>Line ${i + 1} of the home page</p>`);
     const work = [
-      "[stream-writes:1200]",
+      "[stream-writes:2000]",
       tool("write_file", {
         path: "src/pages/home.html",
         content: `<main>\n${page.join("\n")}\n</main>\n`,
@@ -454,7 +468,7 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await clickButton(browser, "Watch Senior Developer write code");
     const tab = ".code-watch";
     await waitForText(browser, tab, "being written — not saved yet", 30_000);
-    await screenshot(browser, "watch-writing");
+    await save(browser, "canvas-watch-writing");
     await waitForText(browser, tab, "Line 24 of the home page", 60_000);
     await waitUntil(
       async () =>

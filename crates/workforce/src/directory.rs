@@ -298,7 +298,8 @@ impl Directory for WorkforceDirectory {
                     .map_err(|e| e.to_string())?;
                 if objective != joined {
                     return Err(format!(
-                        "{} is lent to your team for another objective and goes home when that                          one is done; do this part yourself",
+                        "{} is lent to your team for another objective and goes home when that one is \
+                         done; do this part yourself",
                         target.title
                     ));
                 }
