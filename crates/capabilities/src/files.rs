@@ -55,11 +55,22 @@ fn refuse_marker(text: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn list(dir: &Resolved) -> Out {
+/// A folder's entries for a worker. Entries on the owner's blocked-files list (`blocked`, the
+/// same patterns Guard checks every file against) are left out and not counted: a worker never
+/// learns that a blocked file is there, let alone its name or size. The folder itself is checked
+/// by Guard before this runs (it is the call's file, so a blocked folder is refused).
+pub fn list(dir: &Resolved, blocked: &[String]) -> Out {
     let meta = fs::metadata(&dir.abs).map_err(|e| io(dir.shown(), &e))?;
     if !meta.is_dir() {
         return Err(format!("{} is a file, not a folder", dir.shown()));
     }
+    let inside = |name: &str| {
+        if dir.rel.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{}/{name}", dir.rel)
+        }
+    };
     let mut entries: Vec<(bool, String, u64)> = fs::read_dir(&dir.abs)
         .map_err(|e| io(dir.shown(), &e))?
         .filter_map(Result::ok)
@@ -72,6 +83,7 @@ pub fn list(dir: &Resolved) -> Out {
                 m.map_or(0, |m| m.len()),
             )
         })
+        .filter(|(_, name, _)| blocked_by(blocked, &inside(name)).is_none())
         .collect();
     entries.sort_by(|a, b| {
         b.0.cmp(&a.0)
@@ -478,7 +490,7 @@ mod tests {
     #[test]
     fn list_read_and_search() {
         let (_d, ws) = setup();
-        let out = list(&ws.resolve(".").unwrap()).unwrap();
+        let out = list(&ws.resolve(".").unwrap(), &[]).unwrap();
         assert!(out.contains("src/") && out.contains(".env"), "{out}");
         let out = read(&ws.resolve("src/main.rs").unwrap(), 2, 1).unwrap();
         assert!(
@@ -677,5 +689,39 @@ mod tests {
         assert!(!search(&ws, &ws.resolve("src").unwrap(), "zzz", false, &[])
             .unwrap()
             .contains("---"));
+    }
+
+    /// A folder listing leaves blocked entries out, uncounted, by the same patterns Guard
+    /// checks files against: a name anywhere on the path, or a folder from the top.
+    #[test]
+    fn a_listing_hides_blocked_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        std::fs::create_dir_all(root.join("secrets")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join(".env"), "KEY=1").unwrap();
+        std::fs::write(root.join("id_rsa"), "key").unwrap();
+        std::fs::write(root.join("README.md"), "hi").unwrap();
+        std::fs::write(root.join("secrets").join("token.txt"), "t").unwrap();
+        std::fs::write(root.join("src").join("main.rs"), "fn main() {}").unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        let blocked = vec![
+            ".env".to_owned(),
+            "id_rsa*".to_owned(),
+            "secrets/".to_owned(),
+        ];
+        let out = list(&ws.resolve(".").unwrap(), &blocked).unwrap();
+        assert!(out.starts_with(". (2 entries)\n"), "{out}");
+        assert!(out.contains("README.md") && out.contains("src/"), "{out}");
+        for hidden in [".env", "id_rsa", "secrets"] {
+            assert!(!out.contains(hidden), "{hidden} is hidden: {out}");
+        }
+        // Inside a folder, the same patterns hold for the whole path.
+        std::fs::write(root.join("src").join("id_rsa.pub"), "pub").unwrap();
+        let out = list(&ws.resolve("src").unwrap(), &blocked).unwrap();
+        assert!(out.contains("main.rs") && !out.contains("id_rsa"), "{out}");
+        // With nothing blocked, everything shows.
+        let out = list(&ws.resolve(".").unwrap(), &[]).unwrap();
+        assert!(out.contains(".env") && out.contains("secrets/"), "{out}");
     }
 }

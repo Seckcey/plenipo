@@ -80,8 +80,14 @@ operations itself. This is enforced by:
    from Rust only: its own commands are granted to no window.
 3. **Single IPC client.** `apps/desktop/src/api/commands.ts` is the only module allowed to
    call `invoke` (ESLint `no-restricted-imports`).
-4. **Content Security Policy.** `tauri.conf.json` restricts scripts to `'self'` and network
-   connections to Tauri IPC.
+4. **Content Security Policy.** `tauri.conf.json` restricts scripts to `'self'`, `style-src` to
+   `'self'`, and network connections to Tauri IPC. Inline styles are allowed by name for one
+   reason: the terminal (xterm.js) makes its own `<style>` elements (`style-src-elem`) and sets
+   `style` attributes for true colors and contrast fixes (`style-src-attr`). The app's own code
+   needs neither (React sets styles through the style object). `scripts/csp.test.mjs` (run by
+   `pnpm lint`) pins the policy, checks the app's own code for inline styles, `<style>`
+   elements, and raw HTML, and fails when xterm.js stops needing inline styles, so they can be
+   dropped then.
 5. **Input validation in Rust.** Commands validate their arguments and return a typed
    `CommandError`; they never panic on bad input.
 
@@ -376,8 +382,13 @@ through Plenipo's tools).
   secrets are hidden, and the use is recorded (`capability.used` with `fileRequest: true`) — and
   gives the answer back with `TurnParser::file_answered` while the task goes on. A worker without
   a grant has every file refused. Kimi's own shell is refused, its file changes are allowed once
-  only for a worker whose grant offers `write_file` (a change it reports done that never came to
-  Plenipo stops the task), and nothing is approved for a whole session. Its mode, model, and
+  only for a worker whose grant offers `write_file`, and nothing is approved for a whole session.
+  Each allowed change is remembered with the files it named (`locations`) until its write has
+  come through Plenipo and been carried out; a write clears one change, the oldest that named its
+  file (the same file, worked out against the task's folder), or, failing that, the oldest that
+  named none, never all of them. A change the tool reports done that never came through Plenipo
+  stops the task, even when another did come. At most 64 changes wait; the next one is refused,
+  never an older one forgotten. Its mode, model, and
   thinking level are set with `session/set_config_option` before the prompt and checked; a mode
   other than `default` or `plan` stops the task.
 - **Boundary.** The UI names a runtime ID, an objective, an optional (validated) model, and a
@@ -593,7 +604,15 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
 - **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
   `guard.approvals_limited`, or `approval.*`. Known secret values and common key and token
   formats are hidden in results, recorded text, and all AI tool activity
-  (`[hidden by Plenipo: …]`).
+  (`[hidden by Plenipo: …]`). A web address in Plenipo's own records and on its screens (approval cards; `capability.used`,
+  `guard.denied`, `guard.approvals_limited`, and `browser.opened_by_owner` events for the browser
+  tools; screenshot records; the control center's notes) is its website and page
+  (`plenipo_guard::websites::safe_address`, ADR-057): of what follows `?`, only the fields' names
+  (`?to=…&amount=…`); of what follows `#`, a mark (`#…`); no user name or password. Addresses are
+  cleaned before secrets are hidden. A program's command line or a file's text is kept as it is.
+  The worker still reads the page's address with its `?` part (the browser leaves a loaded
+  page's `#` part out), and the AI tool's own activity (`agent.*`) keeps what the tool said,
+  with secrets hidden.
 - **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
   Plenipo stores only references and injects a value as an environment variable into the
   programs the owner named. A secret goes only to the installed program of that name, found on
@@ -686,6 +705,17 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   that always asks (a purpose that reads like paying, signing in, or sending is the headline;
   any other is quoted), and the card's picture is the screen as it is now with a click's point
   marked (`approval_shot`, `screens::mark`); `screen_view` and `screen_scroll` do not ask.
+- **Read again before acting.** Every `browser_click`, `browser_type`, `browser_press`, and
+  `browser_select` reads its control twice: when the call is prepared (those facts are on the
+  card) and again just before the action (`same_control`, `same_focus`, `classify::changed`).
+  If what the control is changed meanwhile — its kind, its words, where its link goes, whether
+  it sends a form, the form it belongs to (where it sends, its buttons, a password in it),
+  whether it takes a password or typing, whether it is part of a CAPTCHA — nothing is done, and
+  the worker is told what changed and to read the page again. Where it is, whether it shows, and
+  whether something covers it are checked again on their own. A call for a tab that is in the
+  owner's hands (a check being solved), taken over, or stopped is refused before and after the
+  card (`tab_not_workers`): calls come in side by side, and the tab's mode decides, not the
+  order they came in.
 - **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
   `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
   `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
@@ -707,8 +737,16 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   from the tab's own `Page.windowOpen`; during a worker's action the worker's tab navigates there
   after the gate's website check (`site_refused`), and the worker is told with its next result.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
-  CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
-  the website's.
+  CAPTCHA more than 3 times (ADR-029). On the desktop, a worker presses only ordinary keys (not
+  F1 or F12), and Ctrl, Shift, or Alt with letters, digits, and the moving keys (`desktop.rs`
+  `allowed`, an allow-list): never the Windows key, the shortcuts that close or switch programs
+  (Alt+F4, Ctrl+W, Ctrl+F4, Ctrl+Q, Alt+Tab, Ctrl+Alt+Tab, Alt+Esc), the system's own screens
+  (Ctrl+Esc, Ctrl+Shift+Esc, Ctrl+Alt+Delete, Alt+Space), a browser's developer tools, or a
+  letter from another alphabet (it goes by the keyboard's layout). Each step is still approved
+  (ADR-049); the list is a second wall. Typed text holds only visible characters, tabs, and line
+  breaks (`desktop::refuse_hidden_characters`: no control characters, no zero-width or
+  right-to-left marks), its line breaks made one kind, at most 500 characters a step, so the
+  card shows all of it. Page text reaches the worker marked as the website's.
 - **Screenshots** (`screens.rs`): after every significant action and before every approval,
   kept in `<app data>/screenshots/<task>/` as a Ledger `screenshot` artifact with its SHA-256,
   linked from `capability.used` and approvals, given to the worker as an MCP image with a
@@ -720,14 +758,29 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   the indicator window in order, with a revision. Stop halts every session, releases held input,
   revokes those grants, and refuses new control until `allow_control`. Take over (a button, the
   owner's own click or key in the page, or moving the mouse on the desktop) stops that worker and
-  refuses its waiting approvals; the tab stays open for the owner.
+  refuses its waiting approvals; the tab stays open for the owner. Plenipo also stops a worker's
+  use of the browser on its own (`stop_browser_use`, `Grant.stop_reason`): when a page keeps
+  fighting the sign, and when the gate will not go back on after a hand-off. The control session
+  stops as after Stop, waiting approvals are refused, the tab is released, the Ledger records
+  `browser.tab_stopped` with the reason, and the worker's next browser call says why.
 - **Signs.** A banner on every page and the footer (`ControlBanner.tsx`), the tray menu line and
   **Stop all browser, desktop, and server work** (`tray.rs`), the indicator window above all others
   while the desktop is controlled (`indicator.rs`, `IndicatorView.tsx`), and in the browser a
-  colored frame and label inside the page (in a closed shadow root) with **Take over**.
+  colored frame and label inside the page (in a closed shadow root) with **Take over**. The
+  in-page sign is the owner's, not the page's: `page.js` gives its host styles no page rule can
+  override (`SIGN_STYLE`, each `!important`) and shows it as a manual popover in the browser's
+  top layer, above every z-index and untouched by the page's DOM order or a style on its root;
+  every 400 ms it is kept last under the root and above any dialog or popover the page opened
+  later, and given the opposite of a `zoom` on the page's root, which reaches even the top layer
+  (`signTick`, never counted against the page). It watches the host (a `MutationObserver`
+  and the popover's `toggle`) and puts the sign back when the page removes, restyles, hides, or
+  closes it (`signRestore`); the helper's own writes are not counted. A page that does so more
+  than five times is reported once (`Signal::SignFought`) and the helper stops restoring;
+  Plenipo then stops that worker's use of the browser (`stop_for_sign`, `browser.tab_stopped`).
+  Hiding the sign for a screenshot happens inside the shadow root, where the page cannot see it.
 - **Events:** `browser.started`, `browser.tab_lost`, `browser.opened_by_owner`,
   `control.started`, `control.taken_over`, `control.stopped`, `control.allowed`,
-  `control.ended`, `guard.websites_changed`, `guard.browser_chosen`.
+  `control.ended`, `browser.tab_stopped`, `guard.websites_changed`, `guard.browser_chosen`.
 - **Role instructions** (`crates/workforce/src/templates.rs`, `prompt.rs`): each role's job,
   returns, limits, and when to ask its lead, plus what its permissions allow and do not; custom
   roles take the same in the owner's words (`update_role`).
@@ -761,7 +814,13 @@ Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-setting
   refused. The sign is drawn only in the top page, never inside a frame. Then, or at once when
   the worker prefers, `browser_person_check` asks the owner to solve it: the tab goes to mode
   `handed` (purple sign; the owner's clicks are not a take over), comes to the front, and
-  interception stops until the owner answers (`Tab::take_back`).
+  interception stops until the owner answers. `Tab::take_back` then turns the gate back on while
+  the owner still has the tab (requests pass while it is theirs) and only then gives it to the
+  worker (`after_gate`); a gate the browser will not turn back on stops the tab instead
+  (`TakenBack::Stopped`, fail closed), and the worker is told why (`stop_for_gate`,
+  `browser.tab_stopped`). A tab the owner took over or stopped meanwhile stays theirs, and a
+  second hand-off meanwhile has a take-back of its own (`State.hands`). While a tab is handed,
+  every other browser call for it is refused (`tab_not_workers`).
 - **Screenshots off** (`keep()`): steps keep no picture; approval pictures are always kept.
 - **Lessons** (`crates/ledger/src/lessons.rs`, migration 7 `lessons`; `crates/workforce/src/learning.rs`):
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300
@@ -915,7 +974,12 @@ Decision records: [ADR-037](../adr/ADR-037-background-work.md) (background work)
   tool) or **Leave stopped**. Nothing runs again by itself.
 - **Backups and restore** (Ledger `backups.rs`): kinds told apart by file names (made by you,
   daily, before a new version, before an update, before a layout change, before a restore), each
-  kept to its own number. A daily backup after 10 minutes and then each day, waiting for idle
+  kept to its own number. On Unix the app's data folder (at start) and the Ledger's folder (at
+  every open) are the owner's alone (`0700`), and so, a second wall, are the database, its
+  backups, exports, and a restored copy (`0600`: `crates/ledger/src/owner_only.rs`); a folder
+  that cannot be made so gives a notice, and the Ledger opens anyway. A backup or export into a
+  folder someone chose leaves that folder as it is. On Windows the account's app-data folder is
+  private already, and files have no mode bits, so nothing is set. A daily backup after 10 minutes and then each day, waiting for idle
   (up to two days); one before a new version first uses the Ledger (`backup_host.rs`). A restore
   is a request next to the Ledger, applied at the next start before the Ledger opens; the Ledger
   as it was is kept (`before-restore-*`), and a backup that is damaged or from a newer Plenipo is

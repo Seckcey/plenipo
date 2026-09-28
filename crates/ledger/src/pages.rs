@@ -30,7 +30,8 @@ pub const MAX_PAGE_EVENTS: u32 = 200;
 const HISTORY_STRETCH: i64 = 20_000;
 
 /// Decisions: approvals answered or expired, refusals, handoffs refused, lessons kept or
-/// discarded, the owner's stops and take-overs, and why each worker got its AI tool.
+/// discarded, the owner's stops and take-overs and Plenipo's own stops of a browser tab, and
+/// why each worker got its AI tool.
 pub const DECISIONS: &[&str] = &[
     "approval.resolved",
     "approval.expired",
@@ -40,6 +41,7 @@ pub const DECISIONS: &[&str] = &[
     "lesson.discarded",
     "control.taken_over",
     "control.stopped",
+    "browser.tab_stopped",
     "ssh.command_stop_requested",
     "org.worker_spawned",
 ];

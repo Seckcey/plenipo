@@ -97,7 +97,8 @@ pub enum Mode {
     Worker,
     /// The owner took control; the worker stopped.
     Owner,
-    /// The owner stopped all control.
+    /// The owner stopped all control, or Plenipo stopped the tab itself (a page that kept
+    /// fighting the sign, or a gate that would not go back on).
     Stopped,
     /// The owner is solving a check that a person is using the site (a CAPTCHA, ADR-023); the
     /// worker waits and gets the tab back when the owner says it is done.
@@ -115,6 +116,35 @@ impl Mode {
     }
 }
 
+/// What became of a tab handed to the owner for a check once their turn ended
+/// ([`Tab::take_back`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TakenBack {
+    /// The worker has the tab again, with every request checked.
+    Worker,
+    /// The owner took over or stopped the tab meanwhile, or it was never handed: it stays as
+    /// it is, in this mode.
+    Kept(Mode),
+    /// The tab is gone (closed, or its page or the browser crashed): the reason.
+    Gone(&'static str),
+    /// The checks on the page's requests could not be turned back on, so the tab was stopped
+    /// rather than given to the worker unchecked (the reason, for the worker).
+    Stopped(String),
+}
+
+/// The tab's mode once the gate (the checks on the page's requests) was asked to go back on
+/// for the worker (`gate_on` says whether it did). The worker gets the tab only from the owner's hands
+/// (`Handed`) and only with the gate on; a gate that would not go on stops the tab, never
+/// giving the worker a tab whose requests are unchecked; a tab the owner took over or stopped
+/// meanwhile stays as it is.
+fn after_gate(mode: Mode, gate_on: bool) -> Mode {
+    match (mode, gate_on) {
+        (Mode::Handed, true) => Mode::Worker,
+        (Mode::Handed, false) => Mode::Stopped,
+        (other, _) => other,
+    }
+}
+
 /// Something the page asked the owner's side to do (from the sign or the owner's own input).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
@@ -122,6 +152,9 @@ pub enum Signal {
     TakeOver,
     /// The owner clicked or typed in the page while the worker had it.
     OwnerInput,
+    /// The page kept removing or hiding the owner's sign (the page helper put it back each
+    /// time, then stopped putting it back).
+    SignFought,
 }
 
 /// Where a tab reports signals: its target ID and the signal.
@@ -205,6 +238,9 @@ struct State {
     opening_here: u32,
     policy: SitePolicy,
     mode: Mode,
+    /// How many times the tab was handed away (`release_to`): a take-back is for one hand-off,
+    /// and stands down when another came meanwhile.
+    hands: u64,
     worker: String,
     /// The registered script that draws the sign on each new page.
     sign_script: Option<String>,
@@ -515,18 +551,53 @@ impl Tab {
     }
 
     /// The owner solved the check (or refused to): the worker has the tab again, with every
-    /// request checked. Nothing changes when the owner took over or stopped in the meantime.
-    pub async fn take_back(&self) {
-        {
-            let mut s = self.state();
-            if s.mode != Mode::Handed {
-                return;
-            }
-            s.mode = Mode::Worker;
+    /// request checked. The gate goes on first, while the owner still has the tab (requests
+    /// pass while it is theirs, [`check_request`]), so the worker never has the tab with the
+    /// gate off; a gate that will not go on stops the tab instead ([`after_gate`]). Nothing
+    /// changes when the owner took over or stopped in the meantime.
+    pub async fn take_back(&self) -> TakenBack {
+        let (mode, hand) = {
+            let s = self.state();
+            (s.mode, s.hands)
+        };
+        if mode != Mode::Handed {
+            return TakenBack::Kept(mode);
         }
+        if let Some(why) = self.broken() {
+            return TakenBack::Gone(why);
+        }
+        let gate = self.watch_requests().await;
+        let (next, ours) = {
+            let mut s = self.state();
+            // Another hand-off meanwhile (a second check) has a take-back of its own.
+            let ours = s.hands == hand && s.mode == Mode::Handed;
+            let next = if ours {
+                after_gate(s.mode, gate.is_ok())
+            } else {
+                s.mode
+            };
+            s.mode = next;
+            (next, ours)
+        };
         self.shared.changed.notify_waiters();
-        let _ = self.watch_requests().await;
+        let outcome = match next {
+            Mode::Worker => TakenBack::Worker,
+            Mode::Stopped if ours => TakenBack::Stopped(format!(
+                "Plenipo could not turn its checks on the page's requests back on ({}), so your \
+                 tab was stopped",
+                gate.as_ref().err().map_or("", String::as_str)
+            )),
+            kept => {
+                // The owner took over or stopped the tab meanwhile, or handed it again: it is
+                // theirs, unchecked.
+                if gate.is_ok() {
+                    let _ = self.call("Fetch.disable", json!({})).await;
+                }
+                TakenBack::Kept(kept)
+            }
+        };
         let _ = self.show_sign().await;
+        outcome
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -747,6 +818,7 @@ impl Tab {
     pub async fn release_to(&self, mode: Mode) {
         let held = {
             let mut s = self.state();
+            s.hands += 1;
             if s.mode != Mode::Worker {
                 s.mode = mode;
                 Vec::new()
@@ -1324,13 +1396,20 @@ async fn event_loop(
                 let signal = match kind.as_deref() {
                     Some("takeOver") => Some(Signal::TakeOver),
                     Some("input") => Some(Signal::OwnerInput),
+                    Some("signFought") => Some(Signal::SignFought),
                     _ => None,
                 };
-                // While Plenipo acts, a click or key in the page is its own, wherever it lands
-                // (the helper in a frame inside the page cannot tell, ADR-032).
+                // The owner takes over only from a worker. While Plenipo acts, a click or key
+                // in the page is its own, wherever it lands (the helper in a frame inside the
+                // page cannot tell, ADR-032). A page fighting the sign counts whoever has the
+                // tab (the broker stops the worker's use of it when there is one to stop).
                 let counts = |signal: &Signal| {
                     let s = shared.state();
-                    s.mode == Mode::Worker && !(s.acting && *signal == Signal::OwnerInput)
+                    match signal {
+                        Signal::OwnerInput => s.mode == Mode::Worker && !s.acting,
+                        Signal::TakeOver => s.mode == Mode::Worker,
+                        Signal::SignFought => true,
+                    }
                 };
                 if let Some(signal) = signal.filter(counts) {
                     signals(&target, signal);
@@ -1666,6 +1745,19 @@ mod tests {
 
     fn notes(s: &Shared) -> Vec<String> {
         std::mem::take(&mut s.state().notes)
+    }
+
+    /// The worker gets a handed tab back only with the gate on; a gate that will not go on
+    /// stops the tab (fail closed), and a tab the owner took over or stopped meanwhile stays
+    /// theirs, whatever the gate did.
+    #[test]
+    fn a_handed_tab_goes_back_to_the_worker_only_with_the_gate_on() {
+        assert_eq!(after_gate(Mode::Handed, true), Mode::Worker);
+        assert_eq!(after_gate(Mode::Handed, false), Mode::Stopped);
+        for mode in [Mode::Owner, Mode::Stopped, Mode::Worker] {
+            assert_eq!(after_gate(mode, true), mode);
+            assert_eq!(after_gate(mode, false), mode);
+        }
     }
 
     /// ADR-046: a new tab a worker's page opened never runs as one. During the worker's action

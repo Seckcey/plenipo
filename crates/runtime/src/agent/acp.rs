@@ -34,8 +34,8 @@
 //! call allowed by its title is noted in the task's activity. The adapter can also require
 //! modes: a mode outside them stops the task.
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -59,6 +59,9 @@ const PROMPT: u64 = 3;
 const SETTING: u64 = 10;
 /// Most tool calls remembered by ID (a permission request may not repeat the call's kind).
 const MAX_CALLS: usize = 256;
+/// Most of the tool's own allowed file changes waiting for their write to come to Plenipo. One
+/// more is refused (never an older one forgotten), so every allowed change is still checked.
+const MAX_UNWRITTEN: usize = 64;
 /// Plenipo's tool that writes files: only a worker whose grant offers it may let the AI tool
 /// change files (ADR-027).
 const WRITE_TOOL: &str = "write_file";
@@ -116,6 +119,8 @@ enum Phase {
 struct Call {
     title: Option<String>,
     kind: Option<String>,
+    /// The files the call names (`locations`), as the tool reported them with the call.
+    paths: Vec<String>,
 }
 
 /// How a permission request was found to be for Plenipo's tool server.
@@ -145,11 +150,16 @@ pub struct AcpTurn {
     mode: Option<String>,
     /// Tool calls announced in this task, by ID.
     calls: HashMap<String, Call>,
-    /// File requests waiting for Plenipo's answer: number → (JSON-RPC ID, is a write).
-    files: HashMap<u64, (Value, bool)>,
+    /// File requests waiting for Plenipo's answer: number → (JSON-RPC ID, the path when it is
+    /// a write).
+    files: HashMap<u64, (Value, Option<String>)>,
     next_file: u64,
-    /// The tool's own file changes Plenipo allowed whose write has not come to Plenipo yet.
-    unwritten: HashSet<String>,
+    /// The tool's own file changes Plenipo allowed whose write has not come through Plenipo yet:
+    /// the call's ID and the files it named (`locations`), oldest first, at most
+    /// [`MAX_UNWRITTEN`]. A write Plenipo carried out clears the one change it is for
+    /// ([`AcpTurn::written`]), never every change at once, so a second change that never comes
+    /// is still caught.
+    unwritten: Vec<(String, Vec<String>)>,
     /// The worker's activity already says its files are closed.
     files_refused_noted: bool,
     /// How much of its context the tool last reported in use (`usage_update`), in this
@@ -176,7 +186,7 @@ impl AcpTurn {
             calls: HashMap::new(),
             files: HashMap::new(),
             next_file: 0,
-            unwritten: HashSet::new(),
+            unwritten: Vec::new(),
             files_refused_noted: false,
             context_used: None,
             pace: PreviewPace::default(),
@@ -509,6 +519,24 @@ impl AcpTurn {
             .is_some_and(|t| t.tools.iter().any(|n| n == WRITE_TOOL))
     }
 
+    /// A write for `path` came through Plenipo: it clears the oldest allowed change that named
+    /// that file, or, failing that, the oldest that named no file. Never more than one.
+    fn written(&mut self, path: &str) {
+        let dir = &self.task.working_dir;
+        let at = self
+            .unwritten
+            .iter()
+            .position(|(_, paths)| paths.iter().any(|p| same_file(dir, p, path)))
+            .or_else(|| {
+                self.unwritten
+                    .iter()
+                    .position(|(_, paths)| paths.is_empty())
+            });
+        if let Some(at) = at {
+            self.unwritten.remove(at);
+        }
+    }
+
     fn permission(&mut self, id: &Value, params: &Value) -> Parsed {
         let call = params.get("toolCall").unwrap_or(&Value::Null);
         let call_id = call
@@ -552,12 +580,24 @@ impl AcpTurn {
                  allowed)."
             ))
         } else if own_edit {
-            (!self.can_write()).then(|| {
-                format!(
+            if !self.can_write() {
+                Some(format!(
                     "{label} asked to change a file ({what}); Plenipo refused it: this worker has \
                      no permission to change files."
-                )
-            })
+                ))
+            } else if call_id.is_none() {
+                Some(format!(
+                    "{label} asked to change a file ({what}) without naming the call; Plenipo \
+                     refused it."
+                ))
+            } else if self.unwritten.len() >= MAX_UNWRITTEN {
+                Some(format!(
+                    "{label} asked to change a file ({what}); Plenipo refused it: {MAX_UNWRITTEN} \
+                     changes it allowed have not come to Plenipo yet."
+                ))
+            } else {
+                None
+            }
         } else {
             Some(format!(
                 "{label} asked to use {what}; Plenipo refused it (only Plenipo's own tools and \
@@ -579,8 +619,18 @@ impl AcpTurn {
                 .and_then(|o| o.get("optionId").cloned())
         });
         if let (true, None, Some(_), Some(call_id)) = (own_edit, &refusal, &choice, call_id) {
-            // The change itself must now come to Plenipo as `fs/write_text_file`.
-            self.unwritten.insert(call_id);
+            // The change itself must now come to Plenipo as `fs/write_text_file`, for one of
+            // the files the call names (or, when it names none, for any file).
+            let mut paths = call_paths(call);
+            if paths.is_empty() {
+                // Kimi names the files with the call, not in the permission request.
+                paths = self
+                    .calls
+                    .get(&call_id)
+                    .map(|c| c.paths.clone())
+                    .unwrap_or_default();
+            }
+            self.unwritten.push((call_id, paths));
         }
         let outcome = match choice {
             Some(option) => json!({ "outcome": "selected", "optionId": option }),
@@ -657,8 +707,8 @@ impl AcpTurn {
             return parsed;
         }
         let access = if write {
-            // The tool's allowed changes are now coming to Plenipo.
-            self.unwritten.clear();
+            // The allowed change this write is for is cleared once Plenipo carried it out
+            // (`file_answered`).
             FileAccess::Write {
                 path: path.to_owned(),
                 content: content.unwrap_or_default().to_owned(),
@@ -677,7 +727,8 @@ impl AcpTurn {
             }
         };
         self.next_file += 1;
-        self.files.insert(self.next_file, (id.clone(), write));
+        self.files
+            .insert(self.next_file, (id.clone(), write.then(|| path.to_owned())));
         Parsed {
             files: vec![FileRequest {
                 id: self.next_file,
@@ -743,6 +794,7 @@ impl AcpTurn {
                         Call {
                             title: text("title"),
                             kind: text("kind"),
+                            paths: call_paths(update),
                         },
                     );
                 }
@@ -825,9 +877,13 @@ impl AcpTurn {
 
     fn call_updated(&mut self, update: &Value) -> Parsed {
         let id = update.get("toolCallId").and_then(Value::as_str);
-        if let (Some(id), Some(kind)) = (id, update.get("kind").and_then(Value::as_str)) {
-            if let Some(call) = self.calls.get_mut(id) {
+        if let Some(call) = id.and_then(|id| self.calls.get_mut(id)) {
+            if let Some(kind) = update.get("kind").and_then(Value::as_str) {
                 call.kind = Some(kind.to_owned());
+            }
+            let paths = call_paths(update);
+            if !paths.is_empty() {
+                call.paths = paths;
             }
         }
         let status = update.get("status").and_then(Value::as_str);
@@ -854,7 +910,10 @@ impl AcpTurn {
             is_error: status == Some("failed"),
             summary: first_line(text, 200),
         };
-        let unwritten = id.is_some_and(|i| self.unwritten.remove(i));
+        let unwritten = id.is_some_and(|i| {
+            let at = self.unwritten.iter().position(|(call, _)| call == i);
+            at.map(|at| self.unwritten.remove(at)).is_some()
+        });
         if unwritten && status == Some("completed") {
             // An allowed change that never came to Plenipo: it happened outside Guard.
             let reason = format!(
@@ -943,11 +1002,17 @@ impl TurnParser for AcpTurn {
     }
 
     fn file_answered(&mut self, id: u64, answer: FileAnswer) -> Parsed {
-        let Some((request, write)) = self.files.remove(&id) else {
+        let Some((request, written)) = self.files.remove(&id) else {
             return Parsed::none();
         };
+        if let (Ok(_), Some(path)) = (&answer, &written) {
+            // The change came through Plenipo (Guard allowed it, and it was written).
+            self.written(path);
+        }
         let line = match answer {
-            Ok(_) if write => json!({ "jsonrpc": "2.0", "id": request, "result": {} }).to_string(),
+            Ok(_) if written.is_some() => {
+                json!({ "jsonrpc": "2.0", "id": request, "result": {} }).to_string()
+            }
             Ok(content) => {
                 json!({ "jsonrpc": "2.0", "id": request, "result": { "content": content } })
                     .to_string()
@@ -1056,6 +1121,50 @@ fn strip_server_prefix<'a>(name: &'a str, server: &str) -> Option<&'a str> {
 /// the tools the server offers.
 fn names_server_tool(name: &str, server: &ToolServer) -> bool {
     strip_server_prefix(name, &server.name).is_some() || server.tools.iter().any(|t| t == name)
+}
+
+/// The files a tool call names (`locations`, set by the AI tool itself), as paths.
+fn call_paths(call: &Value) -> Vec<String> {
+    call.get("locations")
+        .and_then(Value::as_array)
+        .map(|l| {
+            l.iter()
+                .filter_map(|x| x.get("path").and_then(Value::as_str))
+                .filter(|p| !p.trim().is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `a` and `b` name the same file: each taken from `dir` when it is relative, `.` and `..`
+/// worked out, `\\` read as `/`, and letter case ignored on Windows. Nothing else counts as
+/// the same (no matching by the end of a path).
+fn same_file(dir: &Path, a: &str, b: &str) -> bool {
+    let full = |p: &str| {
+        let p = p.trim().replace('\\', "/");
+        let joined = if Path::new(&p).is_absolute() || p.starts_with('/') {
+            PathBuf::from(p)
+        } else {
+            dir.join(p)
+        };
+        let mut parts: Vec<String> = Vec::new();
+        for c in joined.to_string_lossy().replace('\\', "/").split('/') {
+            match c {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                c => parts.push(if cfg!(windows) {
+                    c.to_lowercase()
+                } else {
+                    c.to_owned()
+                }),
+            }
+        }
+        parts
+    };
+    full(a) == full(b)
 }
 
 /// The tool of the server named `server` a permission request is for, from the tool name the
@@ -1576,6 +1685,100 @@ mod tests {
             "{:?}",
             p.events
         );
+    }
+
+    /// An allowed change of the tool's own must come through Plenipo as a write for the file it
+    /// named, carried out. A write clears only that change: a second allowed change that never
+    /// comes is still caught when the tool reports it done, and the task stops. Only the same
+    /// file counts (a file of the same name elsewhere does not), a refused write clears
+    /// nothing, and when too many changes wait, the next one is refused rather than an older
+    /// one forgotten.
+    #[test]
+    fn each_allowed_change_must_come_through_plenipo_on_its_own() {
+        let edit = |id: &str, path: &str| {
+            json!({ "toolCallId": id, "title": "Edit", "kind": "edit",
+                    "locations": [{ "path": path }], "rawInput": { "path": path } })
+        };
+        let ask = |t: &mut AcpTurn, call: Value| {
+            let p = t.line(
+                &json!({ "jsonrpc": "2.0", "id": 77, "method": "session/request_permission",
+                         "params": { "sessionId": "s-1", "toolCall": call, "options": options() } })
+                .to_string(),
+                false,
+            );
+            chosen(&p)
+        };
+        // The write comes to Plenipo, which answers with how it went.
+        let write = |t: &mut AcpTurn, path: &str, answer: FileAnswer| {
+            let p = t.line(
+                &json!({ "jsonrpc": "2.0", "id": "w", "method": "fs/write_text_file",
+                         "params": { "sessionId": "s-1", "path": path, "content": "x" } })
+                .to_string(),
+                false,
+            );
+            let id = p.files[0].id;
+            t.file_answered(id, answer);
+        };
+        let done = |id: &str| {
+            notify(
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id,
+                           "title": "Edit", "status": "completed" }),
+            )
+        };
+        let mut t = prompting_on(kimi_task());
+        assert_eq!(ask(&mut t, edit("c1", "/work/conversation/a.txt")), "yes");
+        assert_eq!(ask(&mut t, edit("c2", "/work/conversation/b.txt")), "yes");
+        // The first comes through (a path relative to the folder is the same file).
+        write(&mut t, "a.txt", Ok(String::new()));
+        assert!(t.line(&done("c1"), false).stop.is_none());
+        // The second never comes: the task stops when the tool says it is done.
+        let stop = t.line(&done("c2"), false).stop.expect("the task stops");
+        assert_eq!(stop.outcome, TurnOutcome::Failed);
+        assert!(
+            stop.reason.contains("did not go through Plenipo"),
+            "{}",
+            stop.reason
+        );
+
+        // A file of the same name in another folder, and a write Plenipo refused, clear nothing.
+        let mut t = prompting_on(kimi_task());
+        assert_eq!(
+            ask(&mut t, edit("c3", "/work/conversation/sub/a.txt")),
+            "yes"
+        );
+        write(&mut t, "a.txt", Ok(String::new()));
+        write(
+            &mut t,
+            "sub/a.txt",
+            Err("Blocked: a.txt is a blocked file".into()),
+        );
+        assert!(t.line(&done("c3"), false).stop.is_some());
+
+        // A change that named no file is cleared by a write for any file; a write for a file no
+        // change named clears one that named none, never a named one.
+        let mut t = prompting_on(kimi_task());
+        assert_eq!(ask(&mut t, edit("c4", "/work/conversation/d.txt")), "yes");
+        assert_eq!(
+            ask(
+                &mut t,
+                json!({ "toolCallId": "c5", "title": "Edit", "kind": "edit" })
+            ),
+            "yes"
+        );
+        write(&mut t, "/work/conversation/z.txt", Ok(String::new()));
+        assert!(t.line(&done("c5"), false).stop.is_none());
+        assert!(t.line(&done("c4"), false).stop.is_some());
+
+        // Too many changes waiting: the next is refused, and the oldest is still checked.
+        let mut t = prompting_on(kimi_task());
+        for i in 0..MAX_UNWRITTEN {
+            assert_eq!(
+                ask(&mut t, edit(&format!("m{i}"), &format!("f{i}.txt"))),
+                "yes"
+            );
+        }
+        assert_eq!(ask(&mut t, edit("over", "over.txt")), "no");
+        assert!(t.line(&done("m0"), false).stop.is_some());
     }
 
     #[test]

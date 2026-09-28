@@ -17,6 +17,7 @@ mod maintenance;
 pub mod migrate;
 pub mod notices;
 mod org;
+pub mod owner_only;
 pub mod pages;
 mod records;
 mod rows;
@@ -80,11 +81,23 @@ impl Ledger {
     /// next to the original and a new ledger is started; a notice explains what happened.
     /// A database whose schema is newer than this build is refused with
     /// [`LedgerError::NewerSchema`] and left untouched.
+    ///
+    /// On Unix, the Ledger's folder is made readable by the owner's account only (`owner_only`),
+    /// also when an older version left it open; when that cannot be done, a notice says so and
+    /// the Ledger opens anyway.
     pub fn open_with(path: &Path, migrations: &[Migration]) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let mut notices = Vec::new();
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+            if let Err(e) = owner_only::folder(parent) {
+                notices.push(format!(
+                    "Plenipo could not make the Ledger's folder ({}) readable by your account \
+                     only ({e}), so other accounts on this computer may be able to read your \
+                     activity history.",
+                    parent.display()
+                ));
+            }
+        }
         let existed = path.exists();
         let conn = match open_checked(path) {
             Ok(conn) => conn,
@@ -100,11 +113,17 @@ impl Ledger {
             }
             Err(reason) => return Err(LedgerError::InvalidInput(reason)),
         };
+        // The database and its side files, before WAL mode makes new ones (SQLite gives them the
+        // database file's own mode). A second wall inside the private folder: best effort.
+        let _ = owner_only::file(path);
+        for suffix in ["-wal", "-shm"] {
+            let _ = owner_only::file(&backups::side_file(path, suffix));
+        }
         configure(&conn, true)?;
         let backup_dir = backups_dir(path);
         let report = migrate::migrate(&conn, migrations, |from| {
             let info =
-                maintenance::snapshot(&conn, &backup_dir, &format!("pre-migration-v{from}"))?;
+                maintenance::snapshot(&conn, &backup_dir, &format!("pre-migration-v{from}"), true)?;
             // The owner sees this once, after an update: plain words (docs/design/vocabulary.md).
             // The layout version stays in the backup's file name, not in the sentence.
             notices.push(format!(

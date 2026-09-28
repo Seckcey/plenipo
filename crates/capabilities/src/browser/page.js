@@ -13,8 +13,23 @@
   let next = 1;
   // Until when Plenipo's own input is expected (it lapses by itself).
   let actingUntil = 0;
-  let overlay = null; // { host, root, state }
+  let overlay = null; // { host, root, state, watcher, ticker }
   let wanted = { state: "off", worker: "" };
+  // The sign is the owner's, not the page's. Its host keeps these styles (each `!important`,
+  // so no rule of the page's can override them) and sits in the browser's top layer (a manual
+  // popover: above every z-index, and neither a page's DOM order nor a style on its root can
+  // move or cover it). A page that removes, restyles, or closes the host gets it put back;
+  // one that keeps doing so is reported to Plenipo, which stops the tab ("signFought").
+  const SIGN_STYLE =
+    "all: initial !important; position: fixed !important; inset: 0 !important; " +
+    "z-index: 2147483647 !important; display: block !important; visibility: visible !important; " +
+    "opacity: 1 !important; pointer-events: none !important;";
+  // Restores before the helper gives up and reports: the sixth restore is the report.
+  const SIGN_RESTORES_ALLOWED = 5;
+  const SIGN_TICK_MS = 400;
+  let signRestores = 0;
+  let signGivenUp = false;
+  let signRestoring = false; // the helper's own writes to the host are not the page's
   // The helper runs in every frame of the page. Only the top page draws the sign: it covers the
   // frames too, and a sign inside a small frame (a CAPTCHA's widget) would cover its controls
   // (ADR-032).
@@ -322,13 +337,123 @@
     // control), "handed" (the owner is solving a check that a person is using the site),
     // "stopped", or "off".
     sign(state, worker) {
+      if (state !== wanted.state) {
+        // A new turn with the sign: the page's earlier fights are past.
+        signRestores = 0;
+        signGivenUp = false;
+      }
       wanted = { state, worker: String(worker || "") };
       draw();
     },
-    // Hidden while Plenipo takes a screenshot, so it never covers the page.
+    // Hidden while Plenipo takes a screenshot, so it never covers the page. The hiding happens
+    // inside the closed shadow root, where the page cannot see it happen.
     signHidden(hidden) {
-      if (overlay) overlay.host.style.display = hidden ? "none" : "";
+      if (!overlay) return;
+      for (const part of overlay.root.querySelectorAll(".frame, .pill")) {
+        part.style.display = hidden ? "none" : "";
+      }
     },
+  };
+
+  const hasPopover = (host) => typeof host.showPopover === "function";
+  // The sign as the owner should see it: its host in place under the page's root, with the
+  // styles and the popover Plenipo gave it, shown. No rule of the page's can change those, so
+  // a difference means the page changed the host itself.
+  const signIntact = () => {
+    if (!overlay) return true;
+    const host = overlay.host;
+    if (!host.isConnected || host.parentNode !== document.documentElement) return false;
+    const style = getComputedStyle(host);
+    if (
+      style.display !== "block" ||
+      style.visibility !== "visible" ||
+      Number(style.opacity) < 1 ||
+      style.position !== "fixed" ||
+      style.zIndex !== "2147483647"
+    ) {
+      return false;
+    }
+    return !hasPopover(host) || host.matches(":popover-open");
+  };
+  // A `zoom` on the page's root reaches even the top layer: the sign takes the opposite zoom, so
+  // it keeps its size (an ordinary page style, never counted against the page).
+  const signUnzoom = (host) => {
+    const root = document.documentElement;
+    const rootZoom = (root && root.currentCSSZoom) || 1;
+    const want = rootZoom > 0 ? String(1 / rootZoom) : "1";
+    if (host.style.getPropertyValue("zoom") !== want) {
+      host.style.setProperty("zoom", want, "important");
+    }
+  };
+  // The host as Plenipo made it: its styles, no other attributes, under the page's root (the
+  // root of the moment: a page may replace it), and shown as a popover.
+  const signDress = (host) => {
+    host.style.cssText = SIGN_STYLE;
+    signUnzoom(host);
+    for (const name of host.getAttributeNames()) {
+      if (name !== "style" && name !== "popover") host.removeAttribute(name);
+    }
+    if (hasPopover(host)) host.setAttribute("popover", "manual");
+    if (host.parentNode !== document.documentElement) {
+      document.documentElement.appendChild(host);
+      overlay.watcher.observe(document.documentElement, { childList: true });
+    }
+    if (hasPopover(host) && !host.matches(":popover-open")) {
+      try {
+        host.showPopover();
+      } catch {
+        // Not shown (the page's root is being replaced, say): the next tick tries again.
+      }
+    }
+  };
+  // The helper's own writes to the host, which the watcher must not take for the page's.
+  const asOurs = (write) => {
+    signRestoring = true;
+    try {
+      write();
+    } finally {
+      signRestoring = false;
+      if (overlay) overlay.watcher.takeRecords();
+    }
+  };
+  // Put the sign back as it should be, and count it. Too many and Plenipo is told once, and the
+  // fight ends here (Plenipo stops the tab): a page that answers every restore at once would
+  // otherwise keep this page busy for good.
+  const signRestore = () => {
+    if (!overlay || wanted.state === "off" || signGivenUp) return;
+    signRestores += 1;
+    if (signRestores > SIGN_RESTORES_ALLOWED) {
+      signGivenUp = true;
+      report("signFought");
+      return;
+    }
+    asOurs(() => signDress(overlay.host));
+  };
+  const signCheck = () => {
+    if (!signRestoring && !signIntact()) signRestore();
+  };
+  // Every little while: keep the host last under the page's root and above whatever else is
+  // in the top layer (a dialog or popover the page opened later), without counting either as
+  // a fight; then check it.
+  const signTick = () => {
+    if (!overlay || signGivenUp) return;
+    const host = overlay.host;
+    asOurs(() => {
+      signUnzoom(host);
+      if (host.isConnected && host.nextSibling) document.documentElement.appendChild(host);
+      if (hasPopover(host) && host.matches(":popover-open")) {
+        const above = document.querySelector(":modal, :fullscreen, :popover-open");
+        if (above && above !== host) {
+          try {
+            host.hidePopover();
+            host.showPopover();
+          } catch {
+            // Left as it is until the next tick.
+          }
+        }
+      }
+    });
+    signCheck();
   };
 
   const draw = () => {
@@ -338,17 +463,27 @@
       return;
     }
     if (wanted.state === "off") {
-      if (overlay) overlay.host.remove();
+      if (overlay) {
+        overlay.watcher.disconnect();
+        clearInterval(overlay.ticker);
+        overlay.host.remove();
+      }
       overlay = null;
       return;
     }
-    if (!overlay || !overlay.host.isConnected) {
+    if (!overlay) {
       const host = document.createElement("plenipo-sign");
-      host.style.cssText =
-        "all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;";
       const root = host.attachShadow({ mode: "closed" });
-      document.documentElement.appendChild(host);
-      overlay = { host, root, state: "" };
+      // A removed, moved, or restyled host is seen at once; a popover the page closed too.
+      const watcher = new MutationObserver(signCheck);
+      watcher.observe(host, { attributes: true });
+      host.addEventListener("toggle", (e) => {
+        if (e.newState === "closed") signCheck();
+      });
+      overlay = { host, root, state: "", watcher, ticker: setInterval(signTick, SIGN_TICK_MS) };
+      asOurs(() => signDress(host));
+    } else if (!signIntact()) {
+      signRestore();
     }
     if (overlay.state === wanted.state + wanted.worker) return;
     overlay.state = wanted.state + wanted.worker;
@@ -358,7 +493,7 @@
     const words = {
       active: `${wanted.worker || "A worker"} is using this browser for Plenipo`,
       owner: `You have control. ${wanted.worker || "The worker"} stopped.`,
-      stopped: "Stopped by you in Plenipo.",
+      stopped: "Stopped in Plenipo.",
       handed: `Please solve this check yourself, then press Approve in Plenipo. ${
         wanted.worker || "The worker"
       } waits.`,

@@ -364,6 +364,59 @@ fn route(
             Some(format!("http://blocked.test:{port}/")),
             String::new(),
         ),
+        // A form whose script re-aims it at another website a moment after the page loads
+        // (while the owner decides on the click, say): the button the owner saw is not the one
+        // there when the click would happen.
+        ("GET", "/swap") => ok(page(
+            "Swap",
+            "<form id=f method=post action=\"/send\"><input name=name value=me>\
+             <button type=submit>Send message</button></form>\
+             <script>setTimeout(() => { document.getElementById('f').action = \
+             'http://other.test/send'; }, 700)</script>",
+        )),
+        // A plain field that becomes a password field a moment after the page loads.
+        ("GET", "/turncoat") => ok(page(
+            "Becomes a password",
+            "<form method=post action=\"/send\"><label>Note <input id=n name=note></label>\
+             <button type=submit>Send message</button></form>\
+             <script>setTimeout(() => { document.getElementById('n').type = 'password'; \
+             }, 700)</script>",
+        )),
+        // A page that hides the owner's sign once (it should be put back); one that removes it
+        // again and again (it should be stopped); and one whose own dialog, top-most widget, and
+        // zoom on its root are simply there (an ordinary page: nothing to stop, and the sign
+        // keeps its size).
+        ("GET", "/sign-hide-once") => ok(page(
+            "Hide once",
+            "<p id=out>Waiting</p><script>setTimeout(() => { const s = \
+             document.querySelector('plenipo-sign'); const out = document.getElementById('out'); \
+             if (!s) { out.textContent = 'No sign'; return; } \
+             s.style.setProperty('display', 'none', 'important'); \
+             const hidden = getComputedStyle(s).display; \
+             setTimeout(() => { const t = document.querySelector('plenipo-sign'); \
+             out.textContent = 'Hidden: ' + hidden + ', later: ' + \
+             (t ? getComputedStyle(t).display : 'gone'); }, 600); }, 300)</script>",
+        )),
+        ("GET", "/sign-fight") => ok(page(
+            "Removes the sign",
+            "<p>Fighting the sign.</p><script>const gone = () => { for (const s of \
+             document.querySelectorAll('plenipo-sign')) s.remove(); }; \
+             new MutationObserver(gone).observe(document.documentElement, { childList: true }); \
+             setInterval(gone, 40); gone();</script>",
+        )),
+        ("GET", "/sign-under-dialog") => ok(page(
+            "Dialog in front",
+            "<style>html { zoom: 0.5 } body { zoom: 2 }</style>\
+             <dialog id=d><p>Cookies?</p><button type=button id=ok>OK</button></dialog>\
+             <div id=widget style=\"position:fixed;right:0;bottom:0;width:200px;height:120px;\
+             z-index:2147483647;background:#ddd\">Chat with us</div>\
+             <p id=out>Waiting</p><script>document.getElementById('d').showModal(); \
+             setTimeout(() => { const s = document.querySelector('plenipo-sign'); \
+             document.getElementById('out').textContent = 'Sign: ' + (s && s.isConnected && \
+             getComputedStyle(s).display === 'block' ? 'shown' : 'gone') + ', dialog: ' + \
+             (document.getElementById('d').open ? 'open' : 'closed') + ', size: ' + \
+             (s && Math.abs(s.currentCSSZoom - 1) < 0.01 ? 'full' : 'shrunk'); }, 900)</script>",
+        )),
         ("GET", "/secret-field") => ok(page(
             "Account",
             "<form method=post action=\"/save\"><label>API key \

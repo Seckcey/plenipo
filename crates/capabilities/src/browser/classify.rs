@@ -249,6 +249,65 @@ pub fn enter(f: &ElementFacts) -> Option<(SensitiveKind, String)> {
     click(f)
 }
 
+/// How a control is different now (`after`) from when the worker's call was read (`before`),
+/// if it is: what it is, not where it is. A page can change a control while the owner decides
+/// (a form aimed somewhere else, a plain field turned into a password field), so an action goes
+/// ahead only on the control the owner saw; anything else is refused and the worker reads the
+/// page again. Where the control is, whether it shows, and whether something covers it are
+/// checked again on their own.
+pub fn changed(before: &ElementFacts, after: &ElementFacts) -> Option<String> {
+    if !after.found {
+        return Some("it is no longer on the page".into());
+    }
+    let mut what = Vec::new();
+    if before.tag != after.tag || before.r#type != after.r#type || before.role != after.role {
+        what.push("what kind of control it is");
+    }
+    if before.name != after.name {
+        what.push("its words");
+    }
+    if before.href != after.href {
+        what.push("where its link goes");
+    }
+    if before.submit != after.submit {
+        what.push("whether it sends a form");
+    }
+    if before.secret != after.secret || before.password != after.password {
+        what.push("whether it takes a password, a one-time code, or a card number");
+    }
+    if before.editable != after.editable {
+        what.push("whether it takes typing");
+    }
+    if before.captcha != after.captcha {
+        what.push("whether it is part of a CAPTCHA");
+    }
+    fn form(f: &ElementFacts) -> Option<(bool, &str, &str, &[String])> {
+        f.form.as_ref().map(|x| {
+            (
+                x.has_password,
+                x.method.as_str(),
+                x.action.as_str(),
+                x.buttons.as_slice(),
+            )
+        })
+    }
+    if form(before) != form(after) {
+        what.push("the form it belongs to, or where that form sends");
+    }
+    (!what.is_empty()).then(|| what.join("; "))
+}
+
+/// How the control with the keyboard focus is different now, if it is: the same as
+/// [`changed`], and a focus that appeared, or went, counts too.
+pub fn focus_changed(before: &ElementFacts, after: &ElementFacts) -> Option<String> {
+    match (before.found, after.found) {
+        (false, false) => None,
+        (false, true) => Some("a control has the keyboard focus now, and none had it".into()),
+        (true, false) => Some("no control has the keyboard focus now".into()),
+        (true, true) => changed(before, after),
+    }
+}
+
 /// Most characters of a worker's words quoted on a card.
 const QUOTED_CHARS: usize = 200;
 
@@ -298,6 +357,110 @@ pub fn purpose(text: &str) -> Option<(SensitiveKind, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A control an action goes ahead on is the one the owner saw: a change to what it is (its
+    /// kind, words, link, form, or whether it takes a password) is named; a change to where it
+    /// is, or to its state, is not.
+    #[test]
+    fn a_control_that_changed_since_it_was_read_is_named() {
+        let button = ElementFacts {
+            found: true,
+            tag: "button".into(),
+            r#type: "submit".into(),
+            name: "Send message".into(),
+            submit: true,
+            visible: true,
+            clear: true,
+            form: Some(FormFacts {
+                method: "post".into(),
+                action: "https://shop.test/send".into(),
+                ..FormFacts::default()
+            }),
+            x: 10.0,
+            y: 20.0,
+            ..ElementFacts::default()
+        };
+        assert_eq!(changed(&button, &button), None);
+        // Moved, scrolled, covered, or disabled: not a change to what it is.
+        let moved = ElementFacts {
+            x: 300.0,
+            y: 900.0,
+            clear: false,
+            disabled: true,
+            visible: false,
+            ..button.clone()
+        };
+        assert_eq!(changed(&button, &moved), None);
+        // Its form now sends somewhere else.
+        let mut retargeted = button.clone();
+        retargeted.form.as_mut().unwrap().action = "https://other.test/steal".into();
+        assert_eq!(
+            changed(&button, &retargeted).as_deref(),
+            Some("the form it belongs to, or where that form sends")
+        );
+        // Its form's buttons say something else now (they decide what submitting looks like).
+        let mut relabeled = button.clone();
+        relabeled.form.as_mut().unwrap().buttons = vec!["Pay now".into()];
+        assert!(changed(&button, &relabeled).is_some());
+        // Gone.
+        assert_eq!(
+            changed(&button, &ElementFacts::default()).as_deref(),
+            Some("it is no longer on the page")
+        );
+        // A field that became a password field, and took new words.
+        let field = ElementFacts {
+            found: true,
+            tag: "input".into(),
+            r#type: "text".into(),
+            name: "Note".into(),
+            editable: true,
+            visible: true,
+            clear: true,
+            ..ElementFacts::default()
+        };
+        let secret = ElementFacts {
+            r#type: "password".into(),
+            name: "Password".into(),
+            secret: true,
+            password: true,
+            ..field.clone()
+        };
+        let why = changed(&field, &secret).unwrap();
+        assert!(why.contains("what kind of control it is"), "{why}");
+        assert!(why.contains("its words"), "{why}");
+        assert!(
+            why.contains("a password, a one-time code, or a card number"),
+            "{why}"
+        );
+        // A link that goes somewhere else; a control that joined a CAPTCHA.
+        let link = ElementFacts {
+            found: true,
+            tag: "a".into(),
+            href: "https://shop.test/a".into(),
+            ..ElementFacts::default()
+        };
+        let other = ElementFacts {
+            href: "https://shop.test/b".into(),
+            captcha: true,
+            ..link.clone()
+        };
+        assert_eq!(
+            changed(&link, &other).as_deref(),
+            Some("where its link goes; whether it is part of a CAPTCHA")
+        );
+
+        // The keyboard focus: the same rules, and a focus that came or went counts.
+        let none = ElementFacts::default();
+        assert_eq!(focus_changed(&none, &none), None);
+        assert_eq!(focus_changed(&field, &field), None);
+        assert!(focus_changed(&none, &field)
+            .unwrap()
+            .contains("none had it"));
+        assert!(focus_changed(&field, &none)
+            .unwrap()
+            .contains("no control has"));
+        assert!(focus_changed(&field, &secret).is_some());
+    }
 
     fn button(name: &str) -> ElementFacts {
         ElementFacts {

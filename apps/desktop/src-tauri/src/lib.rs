@@ -176,6 +176,13 @@ pub fn configure<R: Runtime>(
                 Persistence::AppData => app.path().app_local_data_dir().ok(),
                 Persistence::InMemory => None,
             };
+            // The data folder holds the Ledger, screenshots, logs, and diagnostics: on Unix it
+            // is readable by the owner's account only (on Windows it is already, through its
+            // access control list). Made so before anything is written in it.
+            let private = data.as_ref().map(|data| {
+                std::fs::create_dir_all(data)
+                    .and_then(|()| plenipo_ledger::owner_only::folder(data))
+            });
             // Phase 13: the log files first, so everything after is in them.
             if let Some(data) = &data {
                 logs::install(&data.join("logs"));
@@ -185,6 +192,9 @@ pub fn configure<R: Runtime>(
                 std::env::consts::OS,
                 std::env::consts::ARCH
             );
+            if let Some(Err(e)) = private {
+                log::warn!("The data folder could not be made readable by this account only: {e}");
+            }
             // How the last run ended (read before this run's note replaces it).
             let (previous, keeper) = match &data {
                 Some(data) => {

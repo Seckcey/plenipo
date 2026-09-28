@@ -52,8 +52,120 @@ impl KeyPart {
     }
 }
 
-/// Read a key combination such as `enter`, `ctrl+s`, or `alt+tab`: modifiers first, then one
-/// key. The Windows (or Command) key is refused: it opens system menus and shortcuts.
+/// The key combinations a worker may press: ordinary keys (not F1, which opens a browser with
+/// help, or F12, a browser's developer tools), and Ctrl, Shift, or Alt with letters, digits,
+/// and the moving keys. Every other combination is refused before any card: the owner approves
+/// each step from a picture of the screen (ADR-049), and what a shortcut does is not in the
+/// picture. Refused are, among others, those that close or switch programs (Alt+F4, Ctrl+W,
+/// Ctrl+F4, Ctrl+Q, Alt+Tab, Ctrl+Alt+Tab, Alt+Esc), open the system's own screens (Ctrl+Esc,
+/// Ctrl+Shift+Esc, Ctrl+Alt+Delete, Alt+Space), open a browser's developer tools (F12,
+/// Ctrl+Shift+I, J, or C), or delete for good (Shift+Delete). An allow-list, so a shortcut
+/// nobody thought of is refused too. It is a second wall only: a worker can still reach the
+/// same places in several approved steps.
+fn allowed(parts: &[KeyPart]) -> bool {
+    use KeyPart::{Alt, Backspace, Ctrl, Delete, Down, End, Enter, Home, Left, PageDown, PageUp};
+    use KeyPart::{Char, Right, Shift, Space, Tab, Up, F};
+    let Some((key, mods)) = parts.split_last() else {
+        return false;
+    };
+    let moving = matches!(
+        key,
+        Up | Down | Left | Right | Home | End | PageUp | PageDown
+    );
+    match (
+        mods.contains(&Ctrl),
+        mods.contains(&Alt),
+        mods.contains(&Shift),
+    ) {
+        (false, false, false) => !matches!(key, F(1) | F(12)),
+        (false, false, true) => {
+            moving || matches!(key, Tab | Enter | Space | Backspace | F(10) | Char(_))
+        }
+        (true, false, false) => {
+            moving
+                || matches!(key, Tab | Enter | Space | Backspace | Delete)
+                || matches!(key, Char(c) if !matches!(c, 'w' | 'q' | '`'))
+        }
+        (true, false, true) => {
+            moving
+                || matches!(key, Tab)
+                || matches!(key, Char(c) if c.is_ascii_alphabetic()
+                    && !matches!(c, 'w' | 'q' | 'i' | 'j' | 'c'))
+        }
+        (false, true, false) => {
+            matches!(key, Up | Down | Left | Right)
+                || matches!(key, Char(c) if c.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
+}
+
+/// A key combination as a person writes it: "Ctrl+Shift+W", "Alt+F4".
+fn shown(parts: &[KeyPart]) -> String {
+    parts
+        .iter()
+        .map(|p| match p {
+            KeyPart::Ctrl => "Ctrl".into(),
+            KeyPart::Alt => "Alt".into(),
+            KeyPart::Shift => "Shift".into(),
+            KeyPart::Enter => "Enter".into(),
+            KeyPart::Tab => "Tab".into(),
+            KeyPart::Escape => "Esc".into(),
+            KeyPart::Backspace => "Backspace".into(),
+            KeyPart::Delete => "Delete".into(),
+            KeyPart::Up => "Up".into(),
+            KeyPart::Down => "Down".into(),
+            KeyPart::Left => "Left".into(),
+            KeyPart::Right => "Right".into(),
+            KeyPart::Home => "Home".into(),
+            KeyPart::End => "End".into(),
+            KeyPart::PageUp => "PageUp".into(),
+            KeyPart::PageDown => "PageDown".into(),
+            KeyPart::Space => "Space".into(),
+            KeyPart::F(n) => format!("F{n}"),
+            KeyPart::Char(c) => c.to_ascii_uppercase().to_string(),
+        })
+        .collect::<Vec<String>>()
+        .join("+")
+}
+
+/// Refuse text a worker would type on the screen that holds a character the owner cannot see on
+/// the approval card: a control character other than tab and line breaks (it acts like a key
+/// press: Ctrl+C stops a program in a terminal), or an invisible one (zero-width characters,
+/// the marks that turn text right to left, tag characters, line and paragraph separators),
+/// which can make the card show other text than what is typed.
+pub fn refuse_hidden_characters(text: &str) -> Result<(), String> {
+    let hidden = |c: char| {
+        (c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+            || matches!(c,
+                '\u{00AD}' | '\u{061C}' | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+                | '\u{E0000}'..='\u{E007F}')
+    };
+    match text.chars().find(|&c| hidden(c)) {
+        Some(c) => Err(format!(
+            "the text has a hidden character (U+{:04X}) that acts like a key press or does not \
+             show on the owner's card; only visible text, tabs, and line breaks can be typed",
+            c as u32
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Text to type with its line breaks as one kind (`\n`): a Windows line break (`\r\n`) or a
+/// lone `\r` would otherwise press Enter more than once.
+pub fn one_kind_of_line_break(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// Read a key combination such as `enter`, `ctrl+s`, or `alt+f`: modifiers first, then one key,
+/// each modifier once, and a letter or sign from the ASCII keys only (another letter goes by the
+/// keyboard's layout, and could be a shortcut there). The Windows (or Command) key is refused,
+/// and so is every combination [`allowed`] does not list.
 pub fn parse_keys(text: &str) -> Result<Vec<KeyPart>, String> {
     let mut parts = Vec::new();
     for raw in text.split('+').map(str::trim) {
@@ -93,7 +205,9 @@ pub fn parse_keys(text: &str) -> Result<Vec<KeyPart>, String> {
             _ => {
                 let mut chars = raw.chars();
                 match (chars.next(), chars.next()) {
-                    (Some(c), None) if !c.is_control() => KeyPart::Char(c.to_ascii_lowercase()),
+                    (Some(c), None) if c.is_ascii_graphic() => {
+                        KeyPart::Char(c.to_ascii_lowercase())
+                    }
                     _ => {
                         return Err(format!(
                             "{raw:?} is not a key (use names like enter, tab, ctrl+s)"
@@ -110,6 +224,17 @@ pub fn parse_keys(text: &str) -> Result<Vec<KeyPart>, String> {
     }
     if parts.len() > 4 {
         return Err("at most three modifiers and one key".into());
+    }
+    if (1..mods.len()).any(|i| mods[i..].contains(&mods[i - 1])) {
+        return Err("give each modifier once, like ctrl+shift+s".into());
+    }
+    if !allowed(&parts) {
+        return Err(format!(
+            "{} is not available to workers: they may press ordinary keys, and Ctrl, Shift, or \
+             Alt with letters, digits, and the moving keys, but not the shortcuts that close or \
+             switch programs, open the system's own screens, or open a browser's developer tools",
+            shown(&parts)
+        ));
     }
     Ok(parts)
 }
@@ -457,8 +582,8 @@ mod tests {
             [KeyPart::Ctrl, KeyPart::Char('s')]
         );
         assert_eq!(
-            parse_keys("ctrl + shift + f5").unwrap(),
-            [KeyPart::Ctrl, KeyPart::Shift, KeyPart::F(5)]
+            parse_keys("shift + f10").unwrap(),
+            [KeyPart::Shift, KeyPart::F(10)]
         );
         for bad in [
             "win+r",
@@ -469,9 +594,119 @@ mod tests {
             "hello",
             "",
             "ctrl+alt+shift+ctrl+x",
+            "ctrl+ctrl+s",
+            // A letter from another alphabet goes by the keyboard's layout: Ctrl+W on a Russian
+            // one.
+            "ctrl+ц",
         ] {
             assert!(parse_keys(bad).is_err(), "{bad}");
         }
+    }
+
+    /// Workers may press ordinary keys, and Ctrl, Shift, or Alt with letters, digits, and the
+    /// moving keys. The shortcuts that close or switch programs, open the system's own screens,
+    /// or open a browser's developer tools are refused, however they are written, and so is
+    /// every combination the list does not name.
+    #[test]
+    fn only_ordinary_keys_and_shortcuts_are_available() {
+        for fine in [
+            "f4",
+            "f5",
+            "tab",
+            "shift+tab",
+            "esc",
+            "enter",
+            "ctrl+s",
+            "ctrl+c",
+            "ctrl+v",
+            "ctrl+z",
+            "ctrl+t",
+            "ctrl+j",
+            "ctrl+shift+s",
+            "ctrl+shift+t",
+            "ctrl+tab",
+            "ctrl+shift+tab",
+            "ctrl+delete",
+            "ctrl+backspace",
+            "ctrl+left",
+            "ctrl+home",
+            "shift+end",
+            "shift+f10",
+            "alt+f",
+            "alt+2",
+            "alt+left",
+            "space",
+            "delete",
+        ] {
+            assert!(parse_keys(fine).is_ok(), "{fine}");
+        }
+        for (combo, shown) in [
+            ("alt+f4", "Alt+F4"),
+            ("ALT + F4", "Alt+F4"),
+            ("shift+alt+f4", "Shift+Alt+F4"),
+            ("ctrl+f4", "Ctrl+F4"),
+            ("ctrl+w", "Ctrl+W"),
+            ("ctrl+shift+w", "Ctrl+Shift+W"),
+            ("ctrl+q", "Ctrl+Q"),
+            ("alt+tab", "Alt+Tab"),
+            ("shift+alt+tab", "Shift+Alt+Tab"),
+            ("ctrl+alt+tab", "Ctrl+Alt+Tab"),
+            ("alt+esc", "Alt+Esc"),
+            ("alt+shift+esc", "Alt+Shift+Esc"),
+            ("ctrl+esc", "Ctrl+Esc"),
+            ("ctrl+shift+esc", "Ctrl+Shift+Esc"),
+            ("shift+control+escape", "Shift+Ctrl+Esc"),
+            ("ctrl+alt+del", "Ctrl+Alt+Delete"),
+            ("alt+space", "Alt+Space"),
+            ("alt+enter", "Alt+Enter"),
+            ("f1", "F1"),
+            ("f12", "F12"),
+            ("ctrl+shift+i", "Ctrl+Shift+I"),
+            ("ctrl+shift+j", "Ctrl+Shift+J"),
+            ("ctrl+shift+c", "Ctrl+Shift+C"),
+            ("ctrl+shift+delete", "Ctrl+Shift+Delete"),
+            ("shift+delete", "Shift+Delete"),
+        ] {
+            let err = parse_keys(combo).unwrap_err();
+            assert!(
+                err.starts_with(&format!("{shown} is not available to workers")),
+                "{combo}: {err}"
+            );
+        }
+    }
+
+    /// Typed text is visible text, tabs, and line breaks; a hidden character is refused, and
+    /// line breaks are made one kind.
+    #[test]
+    fn typed_text_has_no_hidden_characters() {
+        for fine in [
+            "hello",
+            "two\nlines",
+            "tab\tstop",
+            "windows\r\nline",
+            "café ✓",
+            "",
+        ] {
+            assert!(refuse_hidden_characters(fine).is_ok(), "{fine:?}");
+        }
+        for bad in [
+            "esc\u{1b}",
+            "back\u{8}space",
+            "\u{7f}",
+            "nul\0",
+            "\u{9b}",
+            "zero\u{200B}width",
+            "turn\u{202E}around",
+            "tag\u{E0041}",
+            "line\u{2028}sep",
+        ] {
+            let err = refuse_hidden_characters(bad).unwrap_err();
+            assert!(err.contains("hidden character (U+"), "{bad:?}: {err}");
+        }
+        assert!(refuse_hidden_characters("\u{1b}")
+            .unwrap_err()
+            .contains("U+001B"));
+        assert_eq!(one_kind_of_line_break("a\r\nb\rc\nd"), "a\nb\nc\nd");
     }
 
     #[test]

@@ -23,6 +23,9 @@ const found = {
 
 // tauri.conf.json must defer to apps/desktop/package.json rather than hard-code a version.
 const tauriVersion = JSON.parse(read("apps/desktop/src-tauri/tauri.conf.json")).version;
+// The website's page carries a mark its build fills in from the root version, never a version
+// typed by hand (apps/website/scripts/build.mjs).
+const websiteHtml = read("apps/website/index.html");
 
 const errors = [];
 if (!semver.test(expected)) errors.push(`root version "${expected}" is not valid SemVer`);
@@ -31,6 +34,12 @@ for (const [file, version] of Object.entries(found)) {
 }
 if (tauriVersion !== "../package.json") {
   errors.push(`tauri.conf.json version must be "../package.json", found "${tauriVersion}"`);
+}
+const typedVersion = /releases\/download\/v\d|data-version>v\d|"softwareVersion":\s*"\d|Plenipo_\d/;
+if (!websiteHtml.includes("__PLENIPO_VERSION__") || typedVersion.test(websiteHtml)) {
+  errors.push(
+    "apps/website/index.html must carry __PLENIPO_VERSION__, not a version typed by hand",
+  );
 }
 
 if (errors.length) {

@@ -15,7 +15,10 @@
 //!   into), from any click, Enter, or Space (asked before the action; ADR-035).
 //! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
 //!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
-//!   check's checkbox and hears how each try went, ADR-032); the Windows key.
+//!   check's checkbox and hears how each try went, ADR-032). On the desktop, never the Windows
+//!   key or a combination [`crate::desktop`] does not allow (only ordinary keys, and Ctrl,
+//!   Shift, or Alt with letters, digits, and the moving keys), and never typed text with a
+//!   hidden character.
 //! - **Computer use is the last resort:** a worker must ask to take control, with its reason,
 //!   and the owner is asked each time; after that, every click, typing, and key press asks the
 //!   owner again, with the screen on the card (ADR-049). The owner moving the mouse takes
@@ -27,6 +30,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use plenipo_guard::engine::Scope;
+use plenipo_guard::websites::safe_address;
 use plenipo_guard::{
     Capability, Decision, Layer, Risk, SensitiveKind, SensitiveRule, Site, SiteVerdict, Verdict,
     Workspace,
@@ -37,7 +41,7 @@ use serde_json::{json, Value};
 use super::{cap, lock, Broker, Image, Inner, NotAsked, Prepared, Refused, Work, GUARD};
 use crate::browser::classify::{self, ElementFacts};
 use crate::browser::tab::{
-    Held, Mode, Signal, SitePolicy, Tab, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
+    Held, Mode, Signal, SitePolicy, Tab, TakenBack, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
 };
 use crate::browser::Start;
 use crate::control::{session_id, ControlKind, ControlState, ControlStatus};
@@ -52,7 +56,9 @@ const MAX_CONTROLS: usize = 150;
 /// How far the mouse may drift before Plenipo takes it as the owner's hand (screen pixels).
 const OWNER_MOVE_PIXELS: i32 = 6;
 
-/// The browser or screen work of one call, once allowed.
+/// The browser or screen work of one call, once allowed. A control's facts are as they were
+/// when the call was read; it is read again by its reference just before the action, and the
+/// action goes ahead only on the same control (`page_act`, [`classify::changed`]).
 pub(super) enum ControlWork {
     Open {
         url: String,
@@ -69,22 +75,27 @@ pub(super) enum ControlWork {
     /// Hand a check that a person is using the site (a CAPTCHA) to the owner (ADR-023).
     PersonCheck,
     Click {
+        reference: String,
         facts: Box<ElementFacts>,
         what: String,
     },
     Type {
         reference: String,
+        facts: Box<ElementFacts>,
         text: String,
         enter: bool,
         what: String,
     },
     Press {
         key: String,
+        /// The control that had the keyboard focus when the call was read.
+        focused: Box<ElementFacts>,
         /// The key submits an answer to the page's CAPTCHA: one try (ADR-029).
         captcha: bool,
     },
     Select {
         reference: String,
+        facts: Box<ElementFacts>,
         option: String,
     },
     ScreenView,
@@ -217,6 +228,22 @@ fn describe(f: &ElementFacts) -> String {
     }
 }
 
+/// Why a control cannot be clicked as it is, if it cannot: turned off, not showing, or covered.
+fn click_blocked(f: &ElementFacts) -> Option<String> {
+    let what = describe(f);
+    if f.disabled {
+        Some(format!("{what} is turned off on the page."))
+    } else if !f.visible {
+        Some(format!("{what} is not visible on the page."))
+    } else if !f.clear {
+        Some(format!(
+            "something on the page covers {what} (a banner or a dialog): close it first."
+        ))
+    } else {
+        None
+    }
+}
+
 /// Why a click or key press on a page with a live connection is sensitive (ADR-035): the
 /// network gate cannot see what the page sends through a WebSocket, so the owner is asked
 /// before the action, whatever the control looks like.
@@ -249,10 +276,11 @@ fn desktop_step(
     )
 }
 
-/// A web address's website, as the lists name it.
+/// A web address's website, as the lists name it (an address that is not one, as Plenipo
+/// records it).
 fn host_of(url: &str) -> String {
     Site::parse(url).map_or_else(
-        |_| url.to_owned(),
+        |_| safe_address(url),
         |s| {
             if s.scheme == "about" {
                 "an empty page".into()
@@ -459,11 +487,132 @@ impl Broker {
                     .into(),
             }),
             Some(ControlState::Stopped) => Some(
-                "The owner stopped your use of the browser, desktop, and servers. Say in your \
-                 answer what you were doing and what is left."
-                    .into(),
+                self.stop_reason(grant_id)
+                    .filter(|_| kind == ControlKind::Browser)
+                    .unwrap_or_else(|| {
+                        "The owner stopped your use of the browser, desktop, and servers. Say \
+                         in your answer what you were doing and what is left."
+                            .into()
+                    }),
             ),
             _ => None,
+        }
+    }
+
+    /// Why Plenipo itself stopped a grant's use of the browser, in the worker's words, if it
+    /// did.
+    fn stop_reason(&self, grant_id: &str) -> Option<String> {
+        self.state()
+            .grants
+            .get(grant_id)
+            .and_then(|g| g.stop_reason.clone())
+    }
+
+    /// Why a browser call cannot go ahead while the tab is not the worker's, if it is not.
+    fn tab_not_workers(mode: Mode) -> Option<&'static str> {
+        match mode {
+            Mode::Worker => None,
+            Mode::Handed => Some(
+                "your tab is with the owner right now (a check that a person is using the site \
+                 is being solved): wait for browser_person_check's answer, then read the page \
+                 again.",
+            ),
+            Mode::Owner => Some(
+                "the owner took over your tab: do not use the browser again. Say in your answer \
+                 where you were and what is left.",
+            ),
+            Mode::Stopped => Some(
+                "your tab was stopped: do not use the browser again. Say in your answer what \
+                 you were doing and what is left.",
+            ),
+        }
+    }
+
+    /// The page kept removing or hiding the owner's sign that a worker is using the browser
+    /// (the page helper put it back each time, then stopped): the worker's use of the browser
+    /// stops, as when the owner presses Stop for it, and the Ledger says why.
+    async fn stop_for_sign(&self, grant_id: &str) {
+        let why = "the page kept removing Plenipo's sign that a worker is using the browser";
+        self.stop_browser_use(
+            grant_id,
+            why,
+            &Self::stopped_words(&format!("{why}, so Plenipo stopped your use of it")),
+        )
+        .await;
+    }
+
+    /// The gate would not go back on after the owner's turn with a check ([`Tab::take_back`]):
+    /// the worker's use of the browser stops, with the reason for the worker, or `None` when
+    /// the tab is fine.
+    async fn stop_for_gate(&self, grant_id: &str, back: &TakenBack) -> Option<String> {
+        let TakenBack::Stopped(why) = back else {
+            return None;
+        };
+        let words = Self::stopped_words(why);
+        self.stop_browser_use(grant_id, why, &words).await;
+        Some(words)
+    }
+
+    /// What a worker hears once Plenipo stopped its use of the browser for `why`.
+    fn stopped_words(why: &str) -> String {
+        let mut words = why.to_owned();
+        if let Some(first) = words.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        format!(
+            "{words}. Do not use the browser again: say in your answer what you were doing and \
+             what is left."
+        )
+    }
+
+    /// Plenipo stops a grant's use of the browser on its own: the control session stops (as
+    /// when the owner presses Stop for that worker), the worker's next call hears `words`, what
+    /// the grant waits for the owner's approval on is refused, its tab is stopped, and the
+    /// Ledger records `why`. Nothing happens when the session is not active (the owner took
+    /// over or stopped it already).
+    async fn stop_browser_use(&self, grant_id: &str, why: &str, words: &str) {
+        let Some(session) = self
+            .inner
+            .control
+            .stop(&session_id(ControlKind::Browser, grant_id))
+        else {
+            return;
+        };
+        let tab = {
+            let mut s = self.state();
+            s.grants.get_mut(grant_id).and_then(|g| {
+                g.stop_reason = Some(words.to_owned());
+                g.tab.clone()
+            })
+        };
+        self.refuse_pending(
+            grant_id,
+            GUARD,
+            &format!("Plenipo stopped the worker's use of the browser: {why}."),
+        );
+        if let Some(tab) = tab {
+            tab.release_to(Mode::Stopped).await;
+        }
+        let _ = self.ledger().append_event(NewEvent {
+            task_id: Some(session.task_id.clone()),
+            source: GUARD.into(),
+            event_type: "browser.tab_stopped".into(),
+            payload: json!({ "grantId": grant_id, "worker": session.worker, "why": why }),
+            ..NewEvent::default()
+        });
+    }
+
+    /// Refuse every approval a grant waits on, with `note` as the answer: the worker stops, or
+    /// lost what it was waiting for.
+    pub(super) fn refuse_pending(&self, grant_id: &str, by: &str, note: &str) {
+        let pending: Vec<String> = self
+            .state()
+            .grants
+            .get(grant_id)
+            .map(|g| g.pending.iter().cloned().collect())
+            .unwrap_or_default();
+        for approval in &pending {
+            self.settle(approval, ApprovalState::Rejected, by, note);
         }
     }
 
@@ -487,6 +636,11 @@ impl Broker {
                 format!("your tab is gone ({why}): open the page again with browser_open."),
                 summary,
             ));
+        }
+        // Calls come in side by side (a few at a time): a tab in the owner's hands, or stopped,
+        // takes no action, however far another call got.
+        if let Some(why) = Self::tab_not_workers(tab.mode()) {
+            return Err(refuse(Layer::Target, why, summary));
         }
         Ok(tab)
     }
@@ -598,13 +752,25 @@ impl Broker {
         let auto = Capability::BrowserAutomate;
         Ok(match action {
             Action::BrowserOpen { url, timeout } => {
-                let summary = format!("open {}", cap(&url, 200));
-                let site = Site::parse(&url)
-                    .map_err(|e| refuse(Layer::Target, format!("{e}."), summary.clone()))?;
+                // An address that is not a website is refused, and recorded as Plenipo records
+                // any address (`safe_address`): the text filter finds only `scheme://` ones.
+                let shown = safe_address(&url);
+                let summary = format!("open {shown}");
+                // `Site::parse` quotes the address as `{:?}` of the trimmed text: the same text,
+                // cleaned, takes its place.
+                let site = Site::parse(&url).map_err(|e| {
+                    let quoted = format!("{:?}", url.trim());
+                    let reason = if e.contains(&quoted) {
+                        e.replace(&quoted, &format!("{shown:?}"))
+                    } else {
+                        format!("{shown:?} cannot be opened")
+                    };
+                    refuse(Layer::Target, format!("{reason}."), summary.clone())
+                })?;
                 let mut p = base(
                     nav,
-                    format!("open {}", cap(&site.url, 200)),
-                    site.url.clone(),
+                    format!("open {}", safe_address(&site.url)),
+                    safe_address(&site.url),
                     ControlWork::Open {
                         url: site.url.clone(),
                         timeout,
@@ -619,7 +785,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("read the page on {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Read { max_chars },
                 );
                 p.site = site;
@@ -630,7 +796,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("take a screenshot of the page on {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Screenshot,
                 );
                 p.site = Self::tab_site(&tab);
@@ -646,7 +812,7 @@ impl Broker {
                         if down { "down" } else { "up" },
                         host_of(&tab.url())
                     ),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Scroll { dy },
                 );
                 p.site = Self::tab_site(&tab);
@@ -657,7 +823,7 @@ impl Broker {
                 let mut p = base(
                     nav,
                     format!("go back from {}", host_of(&tab.url())),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::Back,
                 );
                 p.site = Self::tab_site(&tab);
@@ -702,7 +868,7 @@ impl Broker {
                         "hand you a check that a person is using {} (a CAPTCHA)",
                         host_of(&tab.url())
                     ),
-                    tab.url(),
+                    safe_address(&tab.url()),
                     ControlWork::PersonCheck,
                 );
                 p.site = Self::tab_site(&tab);
@@ -712,38 +878,16 @@ impl Broker {
                 let s = format!("click {reference}");
                 let tab = self.open_tab(grant_id, &s)?;
                 let facts = self.control_facts(&tab, &reference, &s).await?;
-                if !facts.visible || facts.disabled {
-                    return Err(refuse(
-                        Layer::Target,
-                        format!(
-                            "{} is {} on the page.",
-                            describe(&facts),
-                            if facts.disabled {
-                                "turned off"
-                            } else {
-                                "not visible"
-                            }
-                        ),
-                        s,
-                    ));
-                }
-                if !facts.clear {
-                    return Err(refuse(
-                        Layer::Target,
-                        format!(
-                            "something on the page covers {} (a banner or a dialog): close it \
-                             first.",
-                            describe(&facts)
-                        ),
-                        s,
-                    ));
+                if let Some(why) = click_blocked(&facts) {
+                    return Err(refuse(Layer::Target, why, s));
                 }
                 let what = describe(&facts);
                 let mut p = base(
                     auto,
                     format!("click {what} on {}", host_of(&tab.url())),
-                    format!("{what} ({reference}) on {}", tab.url()),
+                    format!("{what} ({reference}) on {}", safe_address(&tab.url())),
                     ControlWork::Click {
+                        reference,
                         what: what.clone(),
                         facts: Box::new(facts.clone()),
                     },
@@ -799,9 +943,14 @@ impl Broker {
                         host_of(&tab.url()),
                         if submit { ", then send the form" } else { "" }
                     ),
-                    format!("{what} ({reference}) on {}: {}", tab.url(), cap(&text, 500)),
+                    format!(
+                        "{what} ({reference}) on {}: {}",
+                        safe_address(&tab.url()),
+                        cap(&text, 500)
+                    ),
                     ControlWork::Type {
                         reference,
+                        facts: Box::new(facts.clone()),
                         text,
                         enter: submit,
                         what,
@@ -814,7 +963,13 @@ impl Broker {
             Action::BrowserPress { key } => {
                 let s = format!("press {key}");
                 let tab = self.open_tab(grant_id, &s)?;
-                let focused = tab.focused().await.unwrap_or_default();
+                let focused = tab.focused().await.map_err(|e| {
+                    refuse(
+                        Layer::Target,
+                        format!("the page could not be read ({e})."),
+                        s.clone(),
+                    )
+                })?;
                 if focused.captcha {
                     if focused.solved {
                         return Err(refuse(
@@ -855,9 +1010,14 @@ impl Broker {
                 let mut p = base(
                     auto,
                     format!("press {key} on {}", host_of(&tab.url())),
-                    format!("{key} in {} on {}", describe(&focused), tab.url()),
+                    format!(
+                        "{key} in {} on {}",
+                        describe(&focused),
+                        safe_address(&tab.url())
+                    ),
                     ControlWork::Press {
                         key: key.clone(),
+                        focused: Box::new(focused.clone()),
                         captcha,
                     },
                 );
@@ -898,8 +1058,12 @@ impl Broker {
                         describe(&facts),
                         host_of(&tab.url())
                     ),
-                    format!("{option} ({reference}) on {}", tab.url()),
-                    ControlWork::Select { reference, option },
+                    format!("{option} ({reference}) on {}", safe_address(&tab.url())),
+                    ControlWork::Select {
+                        reference,
+                        facts: Box::new(facts.clone()),
+                        option,
+                    },
                 );
                 p.site = Self::tab_site(&tab);
                 p
@@ -1219,7 +1383,7 @@ impl Broker {
                 "kind": "browser",
                 "worker": worker,
                 "action": what,
-                "url": tab.url(),
+                "url": safe_address(&tab.url()),
             }),
         )
     }
@@ -1296,6 +1460,10 @@ impl Broker {
                 let why = match signal {
                     Signal::TakeOver => "you pressed Take over on the page",
                     Signal::OwnerInput => "you clicked or typed in the page",
+                    Signal::SignFought => {
+                        broker.stop_for_sign(&grant).await;
+                        return;
+                    }
                 };
                 let _ = broker
                     .take_over(&session_id(ControlKind::Browser, &grant), why)
@@ -1429,7 +1597,7 @@ impl Broker {
         let host = host_of(&url);
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url.clone()),
+            Some(safe_address(&url)),
             Some("waiting for you to solve a person check".into()),
         );
         let prepared = Prepared {
@@ -1437,8 +1605,9 @@ impl Broker {
             risk: Risk::Web,
             summary: format!("hand you a check that a person is using {host} (a CAPTCHA)"),
             detail: format!(
-                "Plenipo's browser shows the page in front of other windows: {url}\nSolve the \
+                "Plenipo's browser shows the page in front of other windows: {}\nSolve the \
                  check yourself, then press Approve. {}",
+                safe_address(&url),
                 if tried > 0 {
                     format!("The worker tried it {tried} {times} and could not get past it.")
                 } else {
@@ -1476,7 +1645,6 @@ impl Broker {
             sensitive: None,
             checks: Vec::new(),
         };
-        let detail = self.redact(&prepared.detail);
         let minutes = self
             .inner
             .guard
@@ -1493,7 +1661,6 @@ impl Broker {
                 ctx.workspace,
                 ctx.tool,
                 &prepared,
-                &detail,
                 &decision,
                 minutes,
             )
@@ -1501,9 +1668,13 @@ impl Broker {
         // Never asked (one of the grant's limits on asking, B6): the worker has the tab back and
         // hears the limit's words. The owner was not in the loop, so the worker's tries stand.
         if let Err(NotAsked::Limited(words)) = &answer {
-            tab.take_back().await;
+            let back = tab.take_back().await;
+            let result = match self.stop_for_gate(ctx.grant_id, &back).await {
+                Some(stopped) => Err(stopped),
+                None => Err(words.clone()),
+            };
             return ControlDone {
-                result: Err(words.clone()),
+                result,
                 images: Vec::new(),
                 screenshot: None,
                 url: Some(tab.url()),
@@ -1512,18 +1683,23 @@ impl Broker {
         let solved = matches!(answer, Ok((_, ApprovalState::Approved)));
         // Back to the worker, unless the owner took over or stopped it meanwhile. The owner was
         // just in the loop: the worker's tries start over (ADR-029).
-        tab.take_back().await;
+        let back = tab.take_back().await;
         tab.clear_captcha_attempts();
-        let result = if solved && tab.mode() == Mode::Worker {
-            Ok(format!(
-                "The owner solved the check on {host}. Read the page again with browser_read and \
-                 continue."
-            ))
-        } else {
-            Err(format!(
-                "The owner did not solve the check on {host}. Stop here, and say in your answer \
-                 that this page needs a person."
-            ))
+        let result = match self.stop_for_gate(ctx.grant_id, &back).await {
+            Some(stopped) => Err(stopped),
+            None => match back {
+                TakenBack::Worker if solved => Ok(format!(
+                    "The owner solved the check on {host}. Read the page again with browser_read \
+                     and continue."
+                )),
+                TakenBack::Gone(why) => Err(format!(
+                    "Your tab is gone ({why}): open the page again with browser_open."
+                )),
+                _ => Err(format!(
+                    "The owner did not solve the check on {host}. Stop here, and say in your \
+                     answer that this page needs a person."
+                )),
+            },
         };
         let url_now = tab.url();
         ControlDone {
@@ -1555,7 +1731,7 @@ impl Broker {
                 format!(
                     "{} {} ({})",
                     h.method,
-                    cap(&h.url, 200),
+                    safe_address(&h.url),
                     if h.kind == "Document" {
                         "a form"
                     } else {
@@ -1635,7 +1811,6 @@ impl Broker {
             sensitive: Some(SensitiveKind::Outbound),
             checks: Vec::new(),
         };
-        let detail = self.redact(&prepared.detail);
         let minutes = self
             .inner
             .guard
@@ -1652,7 +1827,6 @@ impl Broker {
                 ctx.workspace,
                 ctx.tool,
                 &prepared,
-                &detail,
                 &decision,
                 minutes,
             )
@@ -1720,6 +1894,12 @@ impl Broker {
                 }
             }
         };
+        if let Some(why) = Self::tab_not_workers(tab.mode()) {
+            return ControlDone {
+                result: Err(format!("Not done: {why}")),
+                ..ControlDone::default()
+            };
+        }
         if let Ok(c) = self.inner.guard.config() {
             tab.set_rules(c.websites);
         }
@@ -1766,7 +1946,7 @@ impl Broker {
         let url_now = tab.url();
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url_now.clone()),
+            Some(safe_address(&url_now)),
             Some(format!("opened {}", host_of(&url_now))),
         );
         let screenshot = self
@@ -1780,6 +1960,51 @@ impl Broker {
         }
     }
 
+    /// The control a call acts on, read again by its reference just before the action, and
+    /// checked to be the one the call was read from (and the owner saw on the card): a page can
+    /// change a control while the owner decides. The facts as they are now (the control may have
+    /// moved; the click goes where it is), or why nothing is done.
+    async fn same_control(
+        &self,
+        tab: &Tab,
+        reference: &str,
+        before: &ElementFacts,
+        what: &str,
+    ) -> std::result::Result<ElementFacts, String> {
+        let now = tab
+            .facts(reference)
+            .await
+            .map_err(|e| format!("the page could not be read again ({e}); nothing was done."))?;
+        match classify::changed(before, &now) {
+            Some(changed) => Err(format!(
+                "{what} changed since the page was read ({changed}); nothing was done. Read the \
+                 page again with browser_read, and call again if it is still what you need."
+            )),
+            None => Ok(now),
+        }
+    }
+
+    /// The control with the keyboard focus, read again just before a key press and checked to
+    /// be the one the call was read from.
+    async fn same_focus(
+        &self,
+        tab: &Tab,
+        before: &ElementFacts,
+    ) -> std::result::Result<(), String> {
+        let now = tab
+            .focused()
+            .await
+            .map_err(|e| format!("the page could not be read again ({e}); nothing was done."))?;
+        match classify::focus_changed(before, &now) {
+            Some(changed) => Err(format!(
+                "the keyboard focus changed since the page was read ({changed}); nothing was \
+                 done. Read the page again with browser_read, and call again if it is still \
+                 what you need."
+            )),
+            None => Ok(()),
+        }
+    }
+
     async fn page_act(&self, ctx: &CallContext<'_>, work: ControlWork) -> ControlDone {
         let Some(tab) = self.grant_tab(ctx.grant_id) else {
             return ControlDone {
@@ -1787,6 +2012,14 @@ impl Broker {
                 ..ControlDone::default()
             };
         };
+        // Checked when the call was read too; the tab may have changed hands while the owner
+        // decided (`open_tab`).
+        if let Some(why) = Self::tab_not_workers(tab.mode()) {
+            return ControlDone {
+                result: Err(format!("Not done: {why}")),
+                ..ControlDone::default()
+            };
+        }
         if let Ok(c) = self.inner.guard.config() {
             tab.set_rules(c.websites);
         }
@@ -1830,7 +2063,7 @@ impl Broker {
                         mime: screens::mime_of(&bytes).into(),
                         data: bytes.clone(),
                     });
-                    let id = self.keep(ctx.task_id, &bytes, json!({ "kind": "browser", "worker": ctx.worker, "action": "took a screenshot", "url": url }));
+                    let id = self.keep(ctx.task_id, &bytes, json!({ "kind": "browser", "worker": ctx.worker, "action": "took a screenshot", "url": safe_address(&url) }));
                     return ControlDone {
                         result: Ok(format!(
                             "A screenshot of \"{title}\" ({url}) is attached. In words:\n{words}"
@@ -1863,8 +2096,19 @@ impl Broker {
                     true,
                 )
             }
-            ControlWork::Click { facts, what } => {
-                let r = match tab.click(&facts).await {
+            ControlWork::Click {
+                reference,
+                facts,
+                what,
+            } => {
+                let clicked = match self.same_control(&tab, &reference, &facts, &what).await {
+                    Ok(now) => match click_blocked(&now) {
+                        Some(why) => Err(format!("{why} Nothing was done.")),
+                        None => tab.click(&now).await,
+                    },
+                    Err(e) => Err(e),
+                };
+                let r = match clicked {
                     Ok(settled) => {
                         let held = self
                             .decide_held(ctx, &tab, settled.held, &format!("clicking {what}"))
@@ -1884,11 +2128,18 @@ impl Broker {
             }
             ControlWork::Type {
                 reference,
+                facts,
                 text,
                 enter,
                 what,
             } => {
-                let r = match tab.type_text(&reference, &text, enter).await {
+                // A field that became a password field, or stopped taking typing, is a changed
+                // control (`classify::changed`): refused there.
+                let typed = match self.same_control(&tab, &reference, &facts, &what).await {
+                    Ok(_) => tab.type_text(&reference, &text, enter).await,
+                    Err(e) => Err(e),
+                };
+                let r = match typed {
                     Ok(settled) => {
                         let held = self
                             .decide_held(ctx, &tab, settled.held, &format!("typing into {what}"))
@@ -1906,8 +2157,16 @@ impl Broker {
                 };
                 (r, format!("typed into {what}"), true)
             }
-            ControlWork::Press { key, captcha } => {
-                let r = match tab.press(&key).await {
+            ControlWork::Press {
+                key,
+                focused,
+                captcha,
+            } => {
+                let pressed = match self.same_focus(&tab, &focused).await {
+                    Ok(()) => tab.press(&key).await,
+                    Err(e) => Err(e),
+                };
+                let r = match pressed {
                     Ok(settled) => {
                         let held = self
                             .decide_held(ctx, &tab, settled.held, &format!("pressing {key}"))
@@ -1925,8 +2184,25 @@ impl Broker {
                 };
                 (r, format!("pressed {key}"), true)
             }
-            ControlWork::Select { reference, option } => {
-                let r = match tab.choose(&reference, &option).await {
+            ControlWork::Select {
+                reference,
+                facts,
+                option,
+            } => {
+                let what = describe(&facts);
+                let chosen = match self.same_control(&tab, &reference, &facts, &what).await {
+                    Ok(now) if now.disabled || !now.visible => Err(format!(
+                        "{what} is {} on the page now. Nothing was done.",
+                        if now.disabled {
+                            "turned off"
+                        } else {
+                            "not visible"
+                        }
+                    )),
+                    Ok(_) => tab.choose(&reference, &option).await,
+                    Err(e) => Err(e),
+                };
+                let r = match chosen {
                     Ok((answer, settled)) => {
                         let held = self
                             .decide_held(ctx, &tab, settled.held, &format!("choosing \"{option}\""))
@@ -1961,7 +2237,7 @@ impl Broker {
         let url = tab.url();
         self.inner.control.note(
             &session_id(ControlKind::Browser, ctx.grant_id),
-            Some(url.clone()),
+            Some(safe_address(&url)),
             (!last.is_empty()).then_some(last.clone()),
         );
         let screenshot = if keep && tab.broken().is_none() {
@@ -2279,20 +2555,11 @@ impl Broker {
             .take_over(session)
             .ok_or_else(|| BrokerError::Invalid("that worker is not using it now".into()))?;
         // The worker stops: what it is waiting for your approval on is refused.
-        let pending: Vec<String> = self
-            .state()
-            .grants
-            .get(&s.grant_id)
-            .map(|g| g.pending.iter().cloned().collect())
-            .unwrap_or_default();
-        for approval in &pending {
-            self.settle(
-                approval,
-                ApprovalState::Rejected,
-                "owner",
-                "You took over, so the worker stopped.",
-            );
-        }
+        self.refuse_pending(
+            &s.grant_id,
+            "owner",
+            "You took over, so the worker stopped.",
+        );
         match s.kind {
             ControlKind::Browser => {
                 if let Some(tab) = self.grant_tab(&s.grant_id) {
@@ -2338,20 +2605,11 @@ impl Broker {
         }
         let stopped = self.inner.control.stop_kind(kind);
         for s in &stopped {
-            let pending: Vec<String> = self
-                .state()
-                .grants
-                .get(&s.grant_id)
-                .map(|g| g.pending.iter().cloned().collect())
-                .unwrap_or_default();
-            for approval in &pending {
-                self.settle(
-                    approval,
-                    ApprovalState::Rejected,
-                    "owner",
-                    "You switched this off in Settings, so the worker stopped.",
-                );
-            }
+            self.refuse_pending(
+                &s.grant_id,
+                "owner",
+                "You switched this off in Settings, so the worker stopped.",
+            );
             match s.kind {
                 ControlKind::Browser => {
                     if let Some(tab) = self.grant_tab(&s.grant_id) {
@@ -2477,7 +2735,7 @@ impl Broker {
         self.ledger().append_event(NewEvent {
             source: "owner".into(),
             event_type: "browser.opened_by_owner".into(),
-            payload: json!({ "url": url }),
+            payload: json!({ "url": safe_address(&url) }),
             ..NewEvent::default()
         })?;
         Ok(())

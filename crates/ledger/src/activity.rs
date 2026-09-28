@@ -32,7 +32,7 @@ const PROBLEM: &str = "(e.event_type LIKE '%failed'
      OR e.event_type LIKE '%refused'
      OR e.event_type IN ('guard.denied', 'execution.timed_out', 'execution.interrupted',
                          'ssh.host_key_changed', 'approval.expired', 'browser.tab_lost',
-                         'diagnostic.failure')
+                         'browser.tab_stopped', 'diagnostic.failure')
      OR (e.event_type = 'task.state_changed'
          AND json_extract(e.payload, '$.to') = 'failed'))";
 
@@ -427,6 +427,7 @@ pub(crate) mod tests {
             ("execution.failed", json!({})),
             ("execution.interrupted", json!({})),
             ("browser.tab_lost", json!({})),
+            ("browser.tab_stopped", json!({})),
             ("liaison.dispatch_failed", json!({})),
             ("task.transition_rejected", json!({})),
             ("liaison.reply_refused", json!({})),
@@ -469,8 +470,8 @@ pub(crate) mod tests {
         assert_eq!(
             s.buckets[1],
             ActivityBucket {
-                events: 15,
-                problems: 11,
+                events: 16,
+                problems: 12,
                 waiting: 1
             }
         );

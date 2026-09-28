@@ -185,7 +185,7 @@ project conventions, and licensing terms.
 | `pnpm check`                                            | Versions, format, lint, typecheck, frontend tests            |
 | `pnpm test`                                             | Frontend unit tests (Vitest)                                 |
 | `pnpm typecheck`                                        | TypeScript typecheck for all packages                        |
-| `pnpm lint`                                             | ESLint                                                       |
+| `pnpm lint`                                             | ESLint, the color and page-policy checks, and doc links      |
 | `pnpm format`                                           | Prettier (write)                                             |
 | `pnpm bindings`                                         | Regenerate TypeScript DTOs from Rust (`packages/types`)      |
 | `pnpm e2e`                                              | End-to-end tests against the release build (see setup guide) |

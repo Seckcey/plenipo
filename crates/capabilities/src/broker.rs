@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use plenipo_guard::engine::{doing, Request, Scope};
 use plenipo_guard::redact::Redactor;
+use plenipo_guard::websites::{safe_address, safe_addresses};
 use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
     Level, PathRefusal, Resolved, Risk, SecretInfo, SensitiveKind, ServerCheck, ServerUse,
@@ -309,6 +310,9 @@ struct Grant {
     desktop: DesktopUse,
     /// Its use of the owner's servers (Phase 11).
     ssh: Arc<SshUse>,
+    /// Why Plenipo itself stopped its use of the browser (the page fought the owner's sign, or
+    /// the gate would not go back on), for the worker's next refused call.
+    stop_reason: Option<String>,
 }
 
 impl Grant {
@@ -745,6 +749,23 @@ impl Broker {
         self.redactor().redact(text).into_owned()
     }
 
+    /// The first line of a `tool` call's result as Plenipo keeps it for good (`capability.used`):
+    /// secrets hidden, and, for a browser tool, every web address in it cleaned first
+    /// ([`safe_address`]: its website, page, and field names, ADR-057), so a hidden secret never
+    /// ends an address early. A browser call's summary and detail are built with its addresses
+    /// already cleaned (`prepare_control`), so what a worker would type stays exact on the card;
+    /// a program's command line or a file's text is kept as it is.
+    fn recorded_result(&self, tool: &ToolDef, text: &str) -> String {
+        if matches!(
+            tool.capability,
+            Capability::BrowserNavigate | Capability::BrowserAutomate
+        ) {
+            self.redact(&safe_addresses(text))
+        } else {
+            self.redact(text)
+        }
+    }
+
     /// Rebuild the redactor from the secrets in the Vault.
     pub fn refresh_redactor(&self) {
         let secrets = self
@@ -1008,6 +1029,7 @@ impl Broker {
             approved_sites: HashSet::new(),
             desktop: DesktopUse::default(),
             ssh: Arc::default(),
+            stop_reason: None,
         };
         {
             let mut s = self.state();
@@ -1697,9 +1719,15 @@ impl Broker {
                         sensitive: None,
                         checks: Vec::new(),
                     };
-                    let detail = self.redact(&prepared.detail);
                     return self.deny(
-                        grant_id, &task_id, &worker, tool, &r.summary, &detail, &decision, None,
+                        grant_id,
+                        &task_id,
+                        &worker,
+                        tool,
+                        &r.summary,
+                        &prepared.detail,
+                        &decision,
+                        None,
                     );
                 }
                 Err(Stopped::Unchecked(why)) => {
@@ -1786,7 +1814,6 @@ impl Broker {
             decision.verdict = Verdict::Allow;
             decision.reason = "Allowed: it only lists the servers or disconnects.".into();
         }
-        let detail = self.redact(&prepared.detail);
         let mut approval_id = None;
         match decision.verdict {
             Verdict::Deny => {
@@ -1798,7 +1825,7 @@ impl Broker {
                         r.shown(),
                         new.chars().count()
                     ),
-                    _ => detail.clone(),
+                    _ => prepared.detail.clone(),
                 };
                 if let Some(path) = &watched {
                     self.watch_refused(watcher.as_ref(), path, &decision.reason);
@@ -1829,7 +1856,6 @@ impl Broker {
                         workspace.as_ref(),
                         tool,
                         &prepared,
-                        &detail,
                         &decision,
                         minutes,
                     )
@@ -1991,6 +2017,8 @@ impl Broker {
             Ok(text) => (text, true),
             Err(text) => (text, false),
         };
+        // The record's first line, cleaned before secrets are hidden (`recorded`).
+        let result_line = first_line(&self.recorded_result(tool, &text));
         let mut text = self.redact(&text);
         // Plenipo's own closing line (how many files a diff left out), outside any fence.
         if let (true, Some(note)) = (ok, prepared.note.take()) {
@@ -2021,14 +2049,14 @@ impl Broker {
                 "tool": tool.name,
                 "capability": prepared.capability,
                 "summary": self.redact(&prepared.summary),
-                "detail": cap(&detail, MAX_DETAIL),
+                "detail": cap(&self.redact(&prepared.detail), MAX_DETAIL),
                 "ok": ok,
-                "result": first_line(&text),
+                "result": result_line,
                 "approvalId": approval_id,
                 "executionId": execution,
                 "pullRequest": pull_request,
                 "screenshot": evidence.0,
-                "url": evidence.1,
+                "url": evidence.1.as_deref().map(safe_address),
                 "server": server_facts,
                 "fileRequest": file_request,
                 // A saved file change: its file and line counts, never its text (ADR-055).
@@ -2072,7 +2100,7 @@ impl Broker {
                 "tool": tool.name,
                 "capability": tool.capability,
                 "summary": summary,
-                "detail": cap(detail, MAX_DETAIL),
+                "detail": cap(&self.redact(detail), MAX_DETAIL),
                 "reason": self.redact(&decision.reason),
                 "layer": decision.layer,
                 "checks": decision.checks,
@@ -2099,7 +2127,6 @@ impl Broker {
         workspace: Option<&Workspace>,
         tool: &ToolDef,
         prepared: &Prepared,
-        detail: &str,
         decision: &Decision,
         minutes: u32,
     ) -> std::result::Result<(String, ApprovalState), NotAsked> {
@@ -2179,7 +2206,7 @@ impl Broker {
         let expires_at = now + wait.as_millis() as u64;
         let payload = json!({
             "summary": self.redact(&prepared.summary),
-            "detail": cap(detail, MAX_DETAIL),
+            "detail": cap(&self.redact(&prepared.detail), MAX_DETAIL),
             "reason": self.redact(&decision.reason),
             "risk": prepared.risk,
             "riskLabel": prepared.risk.words(),
@@ -2194,7 +2221,7 @@ impl Broker {
             "folder": workspace.map(|w| w.root().display().to_string()),
             "grantId": grant_id,
             "sessionId": self.state().grants.get(grant_id).map(|g| g.session_id.clone()),
-            "url": prepared.site.as_ref().map(|s| s.url.clone()),
+            "url": prepared.site.as_ref().map(|s| safe_address(&s.url)),
             "screenshot": screenshot,
             "server": prepared.server.as_ref().map(|p| p.server.name.clone()),
             "environment": prepared.server.as_ref().map(|p| p.server.environment),
@@ -2341,7 +2368,24 @@ impl Broker {
                 .unwrap_or_else(|e| Err(format!("the work stopped unexpectedly: {e}")))
         };
         match work {
-            Work::List(p) => (blocking(Box::new(move || files::list(&p))).await, None),
+            Work::List(p) => {
+                // Without the blocked-files list, nothing is listed (never everything).
+                let blocked = match self.inner.guard.config() {
+                    Ok(c) => c.blocked_files,
+                    Err(e) => {
+                        return (
+                            Err(format!(
+                                "Plenipo could not read its permission settings: {e}"
+                            )),
+                            None,
+                        )
+                    }
+                };
+                (
+                    blocking(Box::new(move || files::list(&p, &blocked))).await,
+                    None,
+                )
+            }
             Work::Read(p, o, l) => (
                 blocking(Box::new(move || files::read(&p, o, l))).await,
                 None,
@@ -2351,12 +2395,18 @@ impl Broker {
                 None,
             ),
             Work::Search(p, q, c) => {
-                let blocked = self
-                    .inner
-                    .guard
-                    .config()
-                    .map(|c| c.blocked_files)
-                    .unwrap_or_default();
+                // Without the blocked-files list, nothing is searched (never everything).
+                let blocked = match self.inner.guard.config() {
+                    Ok(c) => c.blocked_files,
+                    Err(e) => {
+                        return (
+                            Err(format!(
+                                "Plenipo could not read its permission settings: {e}"
+                            )),
+                            None,
+                        )
+                    }
+                };
                 let Some(ws) = workspace.cloned() else {
                     return (Err("no project folder".into()), None);
                 };
@@ -3134,10 +3184,12 @@ fn prepare(
         Action::List { path } => {
             let s = format!("list {path}");
             let r = resolve(ws, &path, &s)?;
+            // The folder is the call's file: Guard refuses one on the blocked-files list, and
+            // the listing leaves blocked entries out (`files::list`).
             base(
                 format!("list {}", r.shown()),
                 r.shown().into(),
-                vec![],
+                vec![r.clone()],
                 Work::List(r),
             )
         }
