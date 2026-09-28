@@ -567,7 +567,7 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   (`[hidden by Plenipo: …]`). A web address in Plenipo's own records and on its screens (approval cards; `capability.used`,
   `guard.denied`, `guard.approvals_limited`, and `browser.opened_by_owner` events for the browser
   tools; screenshot records; the control center's notes) is its website and page
-  (`plenipo_guard::websites::safe_address`, ADR-053): of what follows `?`, only the fields' names
+  (`plenipo_guard::websites::safe_address`, ADR-057): of what follows `?`, only the fields' names
   (`?to=…&amount=…`); of what follows `#`, a mark (`#…`); no user name or password. Addresses are
   cleaned before secrets are hidden. A program's command line or a file's text is kept as it is.
   The worker still reads the page's address with its `?` part (the browser leaves a loaded

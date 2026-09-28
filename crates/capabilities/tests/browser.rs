@@ -1911,7 +1911,7 @@ async fn the_owners_sign_survives_the_page_and_a_page_that_keeps_fighting_it_is_
 
 /// A web address in what Plenipo keeps for good (the approval card, `capability.used`, the
 /// control center's notes, a screenshot's record) keeps the website, the page, and the names of
-/// its fields (ADR-053): the values after `?` are left out, while the worker itself still reads
+/// its fields (ADR-057): the values after `?` are left out, while the worker itself still reads
 /// the address.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn addresses_are_kept_without_what_follows_the_page() {

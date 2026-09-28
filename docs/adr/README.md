@@ -66,4 +66,4 @@ architecture must be recorded here.
 | [049](ADR-049-computer-use-asks-every-step.md)       | Computer use asks before every click and keystroke (amends 020)                             | Accepted |
 | [050](ADR-050-lessons-kept-on-their-own.md)          | Lessons a role keeps on its own are notes, not orders (amends 024)                          | Accepted |
 | [051](ADR-051-codex-own-shell.md)                    | Codex works through Plenipo's tools: its own command tool is off (amends 007)               | Accepted |
-| [053](ADR-053-addresses-in-the-record.md)            | Web addresses in the record keep the page and the names of its fields (amends 020)          | Proposed |
+| [057](ADR-057-addresses-in-the-record.md)            | Web addresses in the record keep the page and the names of its fields (amends 020)          | Proposed |

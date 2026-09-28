@@ -54,7 +54,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - A web address in Plenipo's own records of the browser (approval cards, the record of each
   browser tool a worker used or was refused, screenshot records) keeps its website, its page,
   and the names of its fields only: the values after `?` (search terms, sign-in tokens, session
-  keys) show as `…`, and a user name or password in it is dropped (ADR-053). The worker still
+  keys) show as `…`, and a user name or password in it is dropped (ADR-057). The worker still
   reads the address, and what the AI tool itself says (its tool calls and its answer, in the
   Activity trail) is kept as it said it, with secrets hidden.
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved

@@ -1,4 +1,4 @@
-# ADR-053: Web addresses in the record keep the page and the names of its fields
+# ADR-057: Web addresses in the record keep the page and the names of its fields
 
 - **Status:** Proposed
 - **Date:** 2026-09-28

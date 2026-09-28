@@ -137,7 +137,7 @@ blocking notes were fixed and the sensible smaller ones carried.
 
 ### Guard
 
-- [x] **C4 · Web addresses in the record keep the page and its field names (ADR-053).** Approval
+- [x] **C4 · Web addresses in the record keep the page and its field names (ADR-057).** Approval
       cards, the `capability.used` and `guard.*` records of the browser tools, the control
       center's notes, and screenshot records keep an address's website, page, and the names of
       its fields only (`?to=…&amount=…`), never a user name or password (`safe_address`).

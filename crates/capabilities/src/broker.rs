@@ -744,7 +744,7 @@ impl Broker {
 
     /// The first line of a `tool` call's result as Plenipo keeps it for good (`capability.used`):
     /// secrets hidden, and, for a browser tool, every web address in it cleaned first
-    /// ([`safe_address`]: its website, page, and field names, ADR-053), so a hidden secret never
+    /// ([`safe_address`]: its website, page, and field names, ADR-057), so a hidden secret never
     /// ends an address early. A browser call's summary and detail are built with its addresses
     /// already cleaned (`prepare_control`), so what a worker would type stays exact on the card;
     /// a program's command line or a file's text is kept as it is.
