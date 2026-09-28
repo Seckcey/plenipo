@@ -92,9 +92,10 @@ export function useAiTools() {
 
 /**
  * One AI tool's usage from last week's Monday (or 14 days ago) to today, with the days it was
- * read for. Read again when `revision` moves on (a task finished).
+ * read for. Read again when `revision` moves on (a task finished), and when `today` does (the
+ * start of the day on this computer: after midnight, "Today" and "This week" are new days).
  */
-export function useToolUsage(runtimeId: string, revision: number) {
+export function useToolUsage(runtimeId: string, revision: number, today: number) {
   const [state, setState] = useState<{
     usage: AiToolUsage | null;
     window: UsageWindow | null;
@@ -102,7 +103,7 @@ export function useToolUsage(runtimeId: string, revision: number) {
   }>({ usage: null, window: null, error: null });
   useEffect(() => {
     let live = true;
-    const window = usageWindow(Date.now());
+    const window = usageWindow(today);
     Promise.resolve()
       .then(() => getAiToolUsage(runtimeId, window.starts))
       .then(
@@ -116,6 +117,6 @@ export function useToolUsage(runtimeId: string, revision: number) {
     return () => {
       live = false;
     };
-  }, [runtimeId, revision]);
+  }, [runtimeId, revision, today]);
   return state;
 }

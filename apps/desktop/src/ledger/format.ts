@@ -232,6 +232,8 @@ function describeAiToolEvent(type: string, p: Record<string, unknown>): string |
       return `${name}'s update didn't finish${str(p.reason) ? `: ${brief(p.reason, 240)}` : ""}${
         p.oldStillWorks === true ? " (the old version still works)" : ""
       }`;
+    case "ai_tool.update_by_hand":
+      return `${name} can't update itself here${str(p.message) ? `: ${brief(p.message, 240)}` : ""}`;
     case "ai_tool.put_back":
       return `Plenipo put back ${name}${str(p.version) ? ` ${str(p.version)}` : "'s old version"}`;
     case "ai_tool.models_changed": {

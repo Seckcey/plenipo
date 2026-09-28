@@ -176,7 +176,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     assert.match(codex, /Subscription/);
     // The paid-key switch is shown, and cannot be turned on before spending caps (Phase 16).
     const paid = await browser.$(
-      '//li[@aria-label="Codex AI tool"]//button[@role="switch"][@aria-label="Paid AI key (pay per use)"]',
+      '//li[@aria-label="Codex AI tool"]//button[@role="switch"][@aria-label="Paid AI key for Codex (pay per use)"]',
     );
     await paid.waitForExist({ timeout: 10_000 });
     assert.equal(await paid.isEnabled(), false, "the paid-key switch is locked");

@@ -55,6 +55,11 @@ export interface OwnerTab {
   title: string;
   environment: Environment | null;
   openedAt: number;
+  /**
+   * Opened by itself (an AI tool's sign-in tab that waited until the tool was free): the
+   * keyboard stays where it is.
+   */
+  quiet?: boolean;
 }
 
 /** An AI tool's sign-in or sign-out tab's name: "Sign in · Codex" (ADR-058). */
@@ -63,11 +68,12 @@ export function aiToolTitle(label: string, action: AccountAction): string {
 }
 
 /**
- * Plenipo would not open an AI tool's sign-in or sign-out tab because a task is using the tool
- * ("1 task is using Codex. Plenipo waits until it finishes.").
+ * Plenipo would not open an AI tool's sign-in or sign-out tab because the tool is busy for now: a
+ * task is using it ("1 task is using Codex. Plenipo waits until it finishes."), or it is being
+ * updated ("Codex is being updated. Plenipo waits until it's done.").
  */
 export function isBusyRefusal(message: string): boolean {
-  return /\btasks? (?:is|are) using\b/.test(message);
+  return /\btasks? (?:is|are) using\b|\bis being updated\b/.test(message);
 }
 
 export interface WatchEntry {

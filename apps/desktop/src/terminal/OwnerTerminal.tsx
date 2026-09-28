@@ -34,6 +34,7 @@ export function OwnerTerminal({
   theme,
   focusToken,
   onLeave,
+  onOpened,
   onEnded,
   onFailed,
 }: {
@@ -46,6 +47,8 @@ export function OwnerTerminal({
   focusToken: number;
   /** F6 in the terminal: the keyboard goes back to the panel's tabs (Tab itself is the shell's). */
   onLeave?: (() => void) | undefined;
+  /** It opened (the first time, or again after Try again). */
+  onOpened?: (() => void) | undefined;
   /** Its program ended (the tab stays, and says how). */
   onEnded?: (() => void) | undefined;
   /** It could not open, with Plenipo's reason. */
@@ -58,10 +61,12 @@ export function OwnerTerminal({
   const [status, setStatus] = useState<Status>({ kind: "opening" });
   const [attempt, setAttempt] = useState(0);
   const leave = useRef(onLeave);
+  const openedNow = useRef(onOpened);
   const endedNow = useRef(onEnded);
   const failedNow = useRef(onFailed);
   useLayoutEffect(() => {
     leave.current = onLeave;
+    openedNow.current = onOpened;
     endedNow.current = onEnded;
     failedNow.current = onFailed;
   });
@@ -161,7 +166,10 @@ export function OwnerTerminal({
           return;
         }
         id = info.id;
-        if (!ended) setStatus({ kind: "open", info });
+        if (!ended) {
+          setStatus({ kind: "open", info });
+          openedNow.current?.();
+        }
         // The panel may have changed size while a server's terminal was connecting.
         if (!ended && (xterm.cols !== opened.cols || xterm.rows !== opened.rows)) {
           void resizeTerminal(info.id, xterm.cols, xterm.rows).catch(() => undefined);
@@ -206,12 +214,17 @@ export function OwnerTerminal({
 
   // The keyboard goes into the terminal when it opens, when the panel is shown, and when the
   // panel asks (its tab clicked, a new terminal); a tab reached with the arrow keys leaves the
-  // keyboard in the list of tabs.
+  // keyboard in the list of tabs. A tab that opened by itself leaves the keyboard where it is
+  // until the panel asks.
   const activeNow = useRef(active);
   useLayoutEffect(() => {
     activeNow.current = active;
   });
+  const quietUntil = useRef(tab.quiet === true ? { visible, focusToken } : null);
   useEffect(() => {
+    const quiet = quietUntil.current;
+    if (quiet && quiet.visible === visible && quiet.focusToken === focusToken) return;
+    quietUntil.current = null;
     if (activeNow.current && visible) term.current?.focus();
   }, [visible, focusToken]);
 

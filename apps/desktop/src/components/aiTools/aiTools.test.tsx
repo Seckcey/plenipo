@@ -22,10 +22,16 @@ import { session } from "../../test/agentFixtures";
 import { aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { RuntimesView } from "../../views/RuntimesView";
+import { firstSentence, isNewerVersion, planLeft, planWindowName } from "./words";
 
 // xterm.js draws on a real screen; a stand-in records what it is given.
 const xterm = vi.hoisted(() => {
-  const made: { written: (string | Uint8Array)[]; type: (data: string) => void }[] = [];
+  const made: {
+    written: (string | Uint8Array)[];
+    type: (data: string) => void;
+    /** How often the keyboard was put in it. */
+    focused: number;
+  }[] = [];
   return { made };
 });
 vi.mock("@xterm/xterm", () => ({
@@ -37,12 +43,18 @@ vi.mock("@xterm/xterm", () => ({
     private record: (typeof xterm.made)[number];
     constructor(options: Record<string, unknown>) {
       this.options = { ...options };
-      this.record = { written: [], type: (d: string) => this.handlers.forEach((h) => h(d)) };
+      this.record = {
+        written: [],
+        type: (d: string) => this.handlers.forEach((h) => h(d)),
+        focused: 0,
+      };
       xterm.made.push(this.record);
     }
     loadAddon() {}
     open() {}
-    focus() {}
+    focus() {
+      this.record.focused += 1;
+    }
     dispose() {}
     write(d: string | Uint8Array) {
       this.record.written.push(d);
@@ -402,6 +414,143 @@ describe("the AI tools page: signing in (ADR-058)", () => {
     expect(within(codex).queryByText(/^Waiting:/)).toBeNull();
   });
 
+  it("a waiting sign-out still opens after the card shows another tab (the wait is kept with the terminal panel)", async () => {
+    const busy = session("s1", { runtimeId: "codex", activeTaskId: "t1" });
+    api.getAgentOverview.mockResolvedValue({ runtimes: runtimes(), sessions: [busy], notices: [] });
+    await show();
+    const user = userEvent.setup();
+    const codex = card("Codex");
+    await user.click(within(codex).getByRole("button", { name: "Sign out of Codex" }));
+    expect(within(codex).getByRole("status")).toHaveTextContent("Waiting: 1 task is using Codex.");
+    // Usage, then Overview again: still waiting.
+    await user.click(within(codex).getByRole("tab", { name: "Usage" }));
+    await user.click(within(codex).getByRole("tab", { name: "Overview" }));
+    expect(within(codex).getByRole("status")).toHaveTextContent("Waiting: 1 task is using Codex.");
+    // Usage again (the Sign-in part is gone from the screen), and the task finishes.
+    await user.click(within(codex).getByRole("tab", { name: "Usage" }));
+    expect(within(codex).queryByText(/^Waiting:/)).toBeNull();
+    agents({ kind: "session", ...busy, activeTaskId: null });
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1));
+    expect(api.openTerminal.mock.calls[0]![0]).toEqual({
+      kind: "aiTool",
+      runtimeId: "codex",
+      action: "signOut",
+    });
+    expect(await screen.findByRole("tab", { name: "Sign out · Codex" })).toBeInTheDocument();
+    await user.click(within(codex).getByRole("tab", { name: "Overview" }));
+    await waitFor(() => expect(within(codex).queryByText(/^Waiting:/)).toBeNull());
+  });
+
+  it("puts the keyboard on Cancel while it waits, and back on the card's first button after", async () => {
+    const busy = session("s1", { runtimeId: "codex", activeTaskId: "t1" });
+    api.getAgentOverview.mockResolvedValue({ runtimes: runtimes(), sessions: [busy], notices: [] });
+    await show();
+    const user = userEvent.setup();
+    const codex = card("Codex");
+    await user.click(within(codex).getByRole("button", { name: "Sign out of Codex" }));
+    await waitFor(() =>
+      expect(within(codex).getByRole("button", { name: "Cancel Codex's sign-out" })).toHaveFocus(),
+    );
+    await user.keyboard("{Enter}");
+    expect(within(codex).queryByText(/^Waiting:/)).toBeNull();
+    await waitFor(() =>
+      expect(within(codex).getByRole("button", { name: "Reconnect Codex" })).toHaveFocus(),
+    );
+    // It waits again, and the tab opens by itself: the keyboard stays on the card, not in the
+    // new tab.
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(within(codex).getByRole("button", { name: "Cancel Codex's sign-in" })).toHaveFocus(),
+    );
+    agents({ kind: "session", ...busy, activeTaskId: null });
+    expect(await screen.findByRole("tab", { name: "Sign in · Codex" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(codex).getByRole("button", { name: "Reconnect Codex" })).toHaveFocus(),
+    );
+    expect(xterm.made.at(-1)!.focused).toBe(0);
+  });
+
+  it("stops trying by itself after Plenipo refused the tab three times while nothing changed", async () => {
+    const updating = "Codex is being updated. Plenipo waits until it's done.";
+    await show();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.openTerminal.mockRejectedValue({ kind: "invalidInput", message: updating });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const codex = card("Codex");
+    await user.click(within(codex).getByRole("button", { name: "Reconnect Codex" }));
+    expect(await within(codex).findByRole("status")).toHaveTextContent(`Waiting: ${updating}`);
+    // Pressed: the keyboard went into the tab.
+    expect(xterm.made[0]!.focused).toBe(1);
+    // Nothing changes: it tries again every 5 seconds, without taking the keyboard.
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2));
+    expect(xterm.made[1]!.focused).toBe(0);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(3));
+    // Refused three times: it stops, and says why.
+    expect(
+      await within(codex).findByText(
+        /^The sign-in tab didn't open: Codex is being updated\. Plenipo stopped trying by itself\./,
+      ),
+    ).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(api.openTerminal).toHaveBeenCalledTimes(3);
+    expect(within(codex).queryByText(/^Waiting:/)).toBeNull();
+    expect(within(codex).getByRole("button", { name: "Reconnect Codex" })).toBeEnabled();
+    // Try again: one more try, and it waits again.
+    await user.click(within(codex).getByRole("button", { name: "Try Codex's sign-in again" }));
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(4));
+    expect(await within(codex).findByText(/^Waiting:/)).toBeVisible();
+    // Cancel stops it.
+    await user.click(within(codex).getByRole("button", { name: "Cancel Codex's sign-in" }));
+    expect(within(codex).queryByText(/^Waiting:|^The sign-in tab/)).toBeNull();
+  });
+
+  it("a tab that opened after Try again is shown again, not opened twice", async () => {
+    // Not busy: this refusal stays in its tab, and nothing waits.
+    const open = "Codex's sign-in tab is open. Close it first; Plenipo waits until then.";
+    api.openTerminal.mockRejectedValueOnce({ kind: "invalidInput", message: open });
+    await show();
+    const user = userEvent.setup();
+    const codex = card("Codex");
+    await user.click(within(codex).getByRole("button", { name: "Reconnect Codex" }));
+    expect(await screen.findByText("Sign in · Codex could not open")).toBeVisible();
+    expect(screen.getByText(open)).toBeVisible();
+    expect(within(codex).queryByText(/^Waiting:/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Sign in · Codex could not open")).toBeNull());
+    // Reconnect again: the tab running now is shown.
+    await user.click(within(codex).getByRole("button", { name: "Reconnect Codex" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.openTerminal).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole("tab", { name: "Sign in · Codex" })).toHaveLength(1);
+  });
+
+  it("a tool that stopped working says so, not that it is not installed", async () => {
+    const why = "Codex didn't answer when Plenipo asked for its version.";
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        codex: {
+          installation: { state: "broken", executable: "/bin/codex", version: null, detail: why },
+          ready: false,
+        },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const codex = card("Codex");
+    expect(codex).toHaveTextContent("Not working · Checked by Plenipo 0.50.0");
+    expect(within(codex).getByText(why)).toBeVisible();
+    expect(codex).toHaveTextContent("Plenipo can't update Codex now (not working).");
+    expect(codex).toHaveTextContent(
+      `Not working: you can't sign in to Codex here now. ${why} Install Codex.`,
+    );
+    expect(codex).not.toHaveTextContent(/not installed/i);
+    expect(within(codex).getByRole("button", { name: "Reconnect Codex" })).toBeDisabled();
+  });
+
   it("goes straight to a card another page asked for", async () => {
     await show("codex");
     await waitFor(() => expect(card("Codex")).toHaveFocus());
@@ -542,6 +691,25 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
     expect(api.updateAiTool).toHaveBeenCalledWith("kimi");
   });
 
+  it("never offers a pre-release as an update, as Plenipo's own look doesn't count it newer", async () => {
+    api.getAiTools.mockResolvedValue(
+      page({ codex: { newest: "0.51.0-beta.1" }, grok: { newest: "1.0.43" } }),
+    );
+    await show();
+    const codex = card("Codex");
+    expect(within(codex).queryByRole("button", { name: /^Update Codex/ })).toBeNull();
+    expect(codex).toHaveTextContent("Up to date (looked at");
+    expect(codex).not.toHaveTextContent("Newest version");
+    // A release is newer.
+    expect(
+      within(card("Grok")).getByRole("button", { name: "Update Grok to 1.0.43" }),
+    ).toBeVisible();
+    expect(isNewerVersion("1.0.44-beta.1", "1.0.43")).toBe(false);
+    expect(isNewerVersion("1.0.44+build.5", "1.0.43")).toBe(false);
+    expect(isNewerVersion("1.0.44", "1.0.43")).toBe(true);
+    expect(isNewerVersion("1.0.44", "1.0.44-beta.1")).toBe(false);
+  });
+
   it("looks for new versions, checks again, and switches Update AI tools by themselves", async () => {
     api.checkAiToolVersions.mockResolvedValue(page({ grok: { newest: "1.0.43" } }));
     api.setAiToolsAutoUpdate.mockResolvedValue({ ...page(), autoUpdate: true });
@@ -577,8 +745,16 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     await show();
     const user = userEvent.setup();
     expect(card("Codex")).toHaveTextContent("Subscription (ChatGPT sign-in)");
-    const switches = screen.getAllByRole("switch", { name: "Paid AI key (pay per use)" });
+    // Each card's switch has a name of its own; its words on screen stay the same.
+    const switches = screen.getAllByRole("switch", {
+      name: /^Paid AI key for .+ \(pay per use\)$/,
+    });
     expect(switches).toHaveLength(5);
+    const codexKey = within(card("Codex")).getByRole("switch", {
+      name: "Paid AI key for Codex (pay per use)",
+    });
+    expect(switches).toContain(codexKey);
+    expect(within(card("Codex")).getByText("Paid AI key (pay per use)")).toBeVisible();
     for (const s of switches) {
       expect(s).toBeDisabled();
       expect(s).toHaveAttribute("aria-checked", "false");
@@ -699,6 +875,18 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     ).toBeNull();
   });
 
+  it("reads the usage again after midnight, so Today and This week move on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 30, 23, 59, 50));
+    await show();
+    // The last day asked for ends at the next midnight.
+    const ends = () =>
+      api.getAiToolUsage.mock.calls.filter(([id]) => id === "codex").map(([, s]) => s.at(-1));
+    expect(ends()).toEqual([new Date(2026, 9, 1).getTime()]);
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    await waitFor(() => expect(ends()).toContain(new Date(2026, 9, 2).getTime()));
+  });
+
   it("shows the usage limit with Try again now, and what is left of the plan where the tool reports it", async () => {
     const resets = T0 + 2 * 3_600_000;
     api.getRouting.mockResolvedValue(
@@ -781,7 +969,59 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     });
     expect(await within(card("Claude Code")).findByText("Limit reached")).toBeVisible();
     expect(card("Codex")).toHaveTextContent(
-      "Codex reports this during a task; nothing reported yet.",
+      "Codex hasn't reported it yet. Plenipo asks when it checks Codex.",
+    );
+  });
+
+  it("says Limit reached once for a whole report, and keeps each window's share left", async () => {
+    api.getAiTools.mockResolvedValue(
+      page({
+        // Codex says "limited" once, for all its windows: the weekly one is used up.
+        codex: {
+          plan: {
+            windows: [
+              { minutes: 300, usedPercent: 20, resetsAt: null },
+              { minutes: 10080, usedPercent: 100, resetsAt: null },
+            ],
+            limited: true,
+            warning: false,
+            plan: "plus",
+            reportedAt: T0,
+          },
+        },
+        // Limited, with no window used up: said once, above the windows.
+        "claude-code": {
+          plan: {
+            windows: [{ minutes: 300, usedPercent: 95, resetsAt: null }],
+            limited: true,
+            warning: false,
+            plan: null,
+            reportedAt: T0,
+          },
+        },
+      }),
+    );
+    await show();
+    const codex = card("Codex");
+    const codexPlan = within(codex).getByRole("list", { name: "Left of your plan with Codex" });
+    expect(
+      within(codexPlan)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual(["5-hour limit: 80% of your plan left", "Weekly limit: Limit reached"]);
+    expect(within(codex).getAllByText(/Limit reached/)).toHaveLength(1);
+    const claude = card("Claude Code");
+    expect(within(claude).getAllByText(/Limit reached/)).toHaveLength(1);
+    expect(claude).toHaveTextContent("Limit reached5-hour limit: 5% of your plan left");
+  });
+
+  it("says where each tool's plan left comes from before it has reported any", async () => {
+    await show();
+    expect(card("Claude Code")).toHaveTextContent(
+      "Claude Code reports this during a task; nothing reported yet.",
+    );
+    expect(card("Codex")).toHaveTextContent(
+      "Codex hasn't reported it yet. Plenipo asks when it checks Codex.",
     );
   });
 
@@ -852,5 +1092,42 @@ describe("the AI tools page: accessibility smoke", () => {
     await user.click(within(card("Grok")).getByRole("tab", { name: "Models" }));
     await waitFor(() => expect(container.querySelector('[role="status"][aria-busy]')).toBeNull());
     expect(a11yProblems(container)).toEqual([]);
+  });
+});
+
+describe("left of your plan, in words", () => {
+  it("names a window by its length, and says nothing twice when the tool gave none", () => {
+    expect(planWindowName(300)).toBe("5-hour limit");
+    expect(planWindowName(1440)).toBe("Daily limit");
+    expect(planWindowName(10080)).toBe("Weekly limit");
+    expect(planWindowName(4320)).toBe("3-day limit");
+    expect(planWindowName(90)).toBe("90-minute limit");
+    // Claude Code does not say how long its window is: "91% of your plan left", never
+    // "Your plan: 91% of your plan left".
+    expect(planWindowName(null)).toBeNull();
+    const ok = { limited: false, warning: false };
+    expect(planLeft({ minutes: null, usedPercent: 9, resetsAt: null }, ok)).toBe(
+      "91% of your plan left",
+    );
+  });
+
+  it("keeps a window's share left when the report says limited; a used-up window says Limit reached", () => {
+    const limited = { limited: true, warning: false };
+    expect(planLeft({ minutes: 300, usedPercent: 20, resetsAt: null }, limited)).toBe(
+      "80% of your plan left",
+    );
+    expect(planLeft({ minutes: 10080, usedPercent: 100, resetsAt: null }, limited)).toBe(
+      "Limit reached",
+    );
+    expect(planLeft({ minutes: null, usedPercent: null, resetsAt: null }, limited)).toBe(
+      "Limit reached",
+    );
+  });
+
+  it("takes a refusal's first sentence", () => {
+    expect(firstSentence("Codex is being updated. Plenipo waits until it's done.")).toBe(
+      "Codex is being updated",
+    );
+    expect(firstSentence("Codex 1.0.4 is busy")).toBe("Codex 1.0.4 is busy");
   });
 });

@@ -638,6 +638,16 @@ describe("describeEvent (Phase 19 AI tools)", () => {
         }),
       ),
     ).toBe("Codex's update didn't finish: Codex does not answer");
+    expect(
+      describeEvent(
+        event("ai_tool.update_by_hand", {
+          runtime: "codex",
+          newest: "0.158.0",
+          message: "Codex installed with npm updates with npm.",
+          automatic: true,
+        }),
+      ),
+    ).toBe("Codex can't update itself here: Codex installed with npm updates with npm.");
     expect(describeEvent(event("ai_tool.put_back", { runtime: "grok", version: "1.0.41" }))).toBe(
       "Plenipo put back Grok 1.0.41",
     );

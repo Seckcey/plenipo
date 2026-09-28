@@ -431,6 +431,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                     theme={theme}
                     focusToken={focusToken}
                     onLeave={toTabs}
+                    onOpened={() => t.tabOpened(tab)}
                     onEnded={() => t.tabEnded(tab)}
                     onFailed={(message) => t.tabFailed(tab, message)}
                   />

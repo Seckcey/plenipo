@@ -1,16 +1,11 @@
-import { useEffect, useState } from "react";
-import type { AccountAction, AgentRuntimeInfo, AgentSession, AuthState } from "@plenipo/types";
+import { useEffect, useRef } from "react";
+import type { AccountAction, AgentRuntimeInfo, AuthState } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
-import { AUTH_LABEL } from "../../agents/format";
+import { AUTH_LABEL, INSTALL_LABEL } from "../../agents/format";
 import { useAgents } from "../../agents/useAgents";
 import { useTerminalIfAny } from "../../terminal/useTerminal";
-import { tasksUsing, usingWords } from "./words";
-
-/** A moment after the AI tool looks free: Plenipo may still be finishing the task's step. */
-const FREE_MS = 500;
-/** A tab Plenipo refused tries again this often while nothing changes (or when a task does). */
-const RETRY_MS = 5000;
+import { firstSentence, tasksUsing, usingWords } from "./words";
 
 /** Signed in, with anything (a subscription, an API key, a cloud): Reconnect and Sign out. */
 const SIGNED_IN: ReadonlySet<AuthState> = new Set([
@@ -20,65 +15,78 @@ const SIGNED_IN: ReadonlySet<AuthState> = new Set([
   "thirdPartyCloud",
 ]);
 
-/** A sign-in or sign-out tab waiting for the AI tool to be free (ADR-058 §5). */
-interface Waiting {
-  action: AccountAction;
-  /** Plenipo would not open it (a task was using the tool): its words. */
-  refused: string | null;
-  /** The conversations when it was refused: it tries again soon after they change. */
-  sessions: Readonly<Record<string, AgentSession>> | null;
-}
-
 const ACTION_WORDS: Record<AccountAction, string> = { signIn: "sign-in", signOut: "sign-out" };
 
 /**
  * Sign in, Reconnect, and Sign out (ADR-058): each opens a tab in the terminal panel that runs the
  * AI tool's own command. You sign in there yourself; Plenipo never types into it and never sees
- * it. While a task is using the tool, the tab waits until it is free (or you press Cancel).
+ * it. While a task is using the tool, the tab waits until it is free (or you press Cancel). The
+ * wait is kept with the terminal panel, so the tab still opens after you leave the card or page.
  */
 export function SignIn({ info, checking }: { info: AgentRuntimeInfo; checking: boolean }) {
   const terminal = useTerminalIfAny();
   const { state } = useAgents();
-  const sessions = state.sessions;
-  const busy = tasksUsing(sessions, info.id);
-  const [waiting, setWaiting] = useState<Waiting | null>(null);
-  // A tab refused after this card was shown makes it wait, then try again.
-  const refusal = terminal?.signInRefused[info.id];
-  const [seen, setSeen] = useState(() => refusal?.at ?? 0);
-  if (refusal && refusal.at > seen) {
-    setSeen(refusal.at);
-    setWaiting({ action: refusal.action, refused: refusal.message, sessions });
-  }
+  const busy = tasksUsing(state.sessions, info.id);
+  const wait = terminal?.aiToolWaits[info.id] ?? null;
+  const waiting = wait !== null && !wait.stopped;
+  const stopped = wait?.stopped === true ? wait : null;
+  const shown = waiting ? "waiting" : stopped ? "stopped" : null;
 
-  const openAiTool = terminal?.openAiTool;
+  // Pressed while the tool is busy: the keyboard goes to Cancel. When that line goes (the tab
+  // opened, or Cancel, or Plenipo stopped trying), the keyboard that was in it goes to the card's
+  // first button (or to Try again), not to the top of the window.
+  const block = useRef<HTMLDivElement>(null);
+  const focusCancel = useRef(false);
+  const inLine = useRef(false);
+  const shownBefore = useRef(shown);
   useEffect(() => {
-    if (!waiting || busy > 0 || !openAiTool) return;
-    const changed = waiting.sessions !== null && waiting.sessions !== sessions;
-    const timer = setTimeout(
-      () => {
-        setWaiting(null);
-        openAiTool(info.id, info.label, waiting.action);
-      },
-      waiting.refused === null || changed ? FREE_MS : RETRY_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [waiting, busy, sessions, openAiTool, info.id, info.label]);
-
-  const press = (action: AccountAction) => {
-    if (!openAiTool) return;
-    if (busy > 0) setWaiting({ action, refused: null, sessions: null });
-    else openAiTool(info.id, info.label, action);
+    const before = shownBefore.current;
+    shownBefore.current = shown;
+    const el = block.current;
+    if (!el || shown === before) return;
+    if (shown === "waiting" && focusCancel.current) {
+      focusCancel.current = false;
+      el.querySelector<HTMLButtonElement>(".ai-tool__waiting button")?.focus();
+      return;
+    }
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (!inLine.current || !lost) return;
+    inLine.current = false;
+    el.querySelector<HTMLButtonElement>(
+      shown === "stopped"
+        ? ".ai-tool__waiting button:not(:disabled)"
+        : ".ai-tool__buttons button:not(:disabled)",
+    )?.focus();
+  }, [shown]);
+  const lineFocus = {
+    onFocus: () => {
+      inLine.current = true;
+    },
+    onBlur: () => {
+      inLine.current = false;
+    },
   };
 
-  const installed = info.installation.state === "installed";
+  const press = (action: AccountAction) => {
+    if (!terminal) return;
+    if (busy > 0) {
+      focusCancel.current = true;
+      terminal.waitForAiTool(info.id, info.label, action);
+    } else {
+      terminal.openAiTool(info.id, info.label, action);
+    }
+  };
+
+  const install = info.installation.state;
+  const installed = install === "installed";
   const signedIn = SIGNED_IN.has(info.auth.state);
   const { signIn, signOut } = info.account;
   const canSignOut = signOut !== null && (signedIn || info.auth.state === "unknown");
-  const off = !installed || checking || waiting !== null;
+  const off = !installed || checking || waiting;
   const where = terminal?.panel.side === "right" ? "on the right" : "at the bottom";
 
   return (
-    <div className="ai-tool__block">
+    <div className="ai-tool__block" ref={block}>
       <div>
         {checking
           ? "Checking…"
@@ -119,27 +127,53 @@ export function SignIn({ info, checking }: { info: AgentRuntimeInfo; checking: b
               </Button>
             )}
           </div>
-          {waiting && (
-            <p className="ai-tool__waiting" role="status">
+          {wait && waiting && (
+            <p className="ai-tool__waiting" role="status" {...lineFocus}>
               Waiting:{" "}
               {busy > 0
                 ? `${usingWords(busy, info.label)}.`
-                : (waiting.refused ?? `the task using ${info.label} is finishing.`)}{" "}
-              The {ACTION_WORDS[waiting.action]} tab opens when {info.label} is free.{" "}
+                : (wait.refused ?? `the task using ${info.label} is finishing.`)}{" "}
+              The {ACTION_WORDS[wait.action]} tab opens when {info.label} is free.{" "}
               <Button
                 size="sm"
                 variant="quiet"
-                aria-label={`Cancel ${info.label}'s ${ACTION_WORDS[waiting.action]}`}
-                onClick={() => setWaiting(null)}
+                aria-label={`Cancel ${info.label}'s ${ACTION_WORDS[wait.action]}`}
+                onClick={() => terminal?.cancelAiToolWait(info.id)}
               >
                 Cancel
               </Button>
             </p>
           )}
-          {!installed ? (
+          {stopped && (
+            <p className="ai-tool__waiting" role="status" {...lineFocus}>
+              The {ACTION_WORDS[stopped.action]} tab didn&apos;t open:{" "}
+              {firstSentence(stopped.refused ?? "")}. Plenipo stopped trying by itself.{" "}
+              <Button
+                size="sm"
+                disabled={off}
+                aria-label={`Try ${info.label}'s ${ACTION_WORDS[stopped.action]} again`}
+                onClick={() => press(stopped.action)}
+              >
+                Try again
+              </Button>{" "}
+              <Button
+                size="sm"
+                variant="quiet"
+                aria-label={`Cancel ${info.label}'s ${ACTION_WORDS[stopped.action]}`}
+                onClick={() => terminal?.cancelAiToolWait(info.id)}
+              >
+                Cancel
+              </Button>
+            </p>
+          )}
+          {install === "checking" ? null : !installed ? (
             <p className="muted">
-              {info.label} is not installed, so you can&apos;t sign in to it here.{" "}
-              {info.installHint}
+              {install === "notInstalled"
+                ? `${info.label} is not installed, so you can't sign in to it here.`
+                : `${INSTALL_LABEL[install]}: you can't sign in to ${info.label} here now.`}{" "}
+              {[install === "notInstalled" ? null : info.installation.detail, info.installHint]
+                .filter(Boolean)
+                .join(" ")}
             </p>
           ) : (
             signIn !== null && (

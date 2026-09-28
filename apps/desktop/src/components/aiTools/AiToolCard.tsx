@@ -16,7 +16,7 @@ import { ModelsTab } from "./ModelsTab";
 import { Overview } from "./Overview";
 import { UsageTab } from "./UsageTab";
 import { useToolUsage } from "./useAiTools";
-import { MOVING } from "./words";
+import { midnight, MOVING } from "./words";
 
 type CardTab = "overview" | "usage" | "models";
 
@@ -64,9 +64,10 @@ export function AiToolCard({
   onRouting: (snapshot: RoutingSnapshot) => void;
 }) {
   const [tab, setTab] = useState<CardTab>("overview");
-  const usage = useToolUsage(info.id, usageRevision);
   const terminal = useTerminalIfAny();
   const now = useNow(5000);
+  // Read again after midnight too: "Today" and "This week" move on.
+  const usage = useToolUsage(info.id, usageRevision, midnight(now));
   // After its sign-in tab's program ended, Plenipo checks the tool again by itself (ADR-058 §4):
   // "Checking…" until that check's answer arrives.
   const ended = terminal?.signInEnded[info.id];

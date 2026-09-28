@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AccountAction, Environment, LedgerEvent } from "@plenipo/types";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { AccountAction, AgentSession, Environment, LedgerEvent } from "@plenipo/types";
 import { useElementSize, useStoredState } from "@plenipo/ui";
 
+import { AgentsContext } from "../agents/context";
 import { getControlStatus, getTaskTimeline } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
-import { TerminalContext, type AiToolRefusal, type TerminalApi } from "./context";
+import { tasksUsing } from "../components/aiTools/words";
+import { TerminalContext, type AiToolWait, type TerminalApi } from "./context";
 import {
   aiToolTitle,
   codeTabId,
@@ -23,6 +33,23 @@ import {
 } from "./panel";
 import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
 
+/** A moment after an AI tool looks free: Plenipo may still be finishing the task's step. */
+const FREE_MS = 500;
+/** A tab Plenipo refused tries again this often while nothing changes (or when a task does). */
+const RETRY_MS = 5000;
+/** Refused this many times in a row while nothing changed: it stops trying by itself. */
+const MOST_REFUSALS = 3;
+
+const NO_SESSIONS: Readonly<Record<string, AgentSession>> = {};
+
+type Waits = Readonly<Record<string, AiToolWait>>;
+
+/** The waits without those `drop` picks (the same object when it picks none). */
+function dropWaits(all: Waits, drop: (runtimeId: string, wait: AiToolWait) => boolean): Waits {
+  const kept = Object.entries(all).filter(([id, wait]) => !drop(id, wait));
+  return kept.length === Object.keys(all).length ? all : Object.fromEntries(kept);
+}
+
 /**
  * The terminal panel (Phase 12, ADR-031): the owner's terminals and the workers' watch tabs,
  * and where the panel is. Watch tabs come from the Ledger: the workers connected to a server
@@ -30,8 +57,9 @@ import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
  * worker connects to a server, and stays readable after it disconnects, until the owner closes
  * it. Watch tabs for code (Phase 18, ADR-055) open when the owner presses Watch on an agent: one
  * per agent, until closed. An AI tool's sign-in and sign-out tabs (Phase 19, ADR-058) open from
- * its card on the AI tools page; the page learns when their program ends, and when Plenipo would
- * not open one because a task was using the tool.
+ * its card on the AI tools page; the page learns when their program ends. One pressed while the
+ * tool is busy (or that Plenipo would not open for that reason) waits here until the tool is
+ * free, then opens: it still does after you leave the page.
  */
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [panel, setPanel] = useStoredState<PanelState>(PANEL_KEY, DEFAULT_PANEL, isPanelState);
@@ -45,7 +73,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<string | null>(null);
   const [unseen, setUnseen] = useState(0);
   const [signInEnded, setSignInEnded] = useState<Record<string, number>>({});
-  const [signInRefused, setSignInRefused] = useState<Record<string, AiToolRefusal>>({});
+  const [aiToolWaits, setAiToolWaits] = useState<Waits>({});
   const counter = useRef(0);
   // The owner's tabs whose program ended (or never started), and the tabs open now.
   const endedTabs = useRef(new Set<string>());
@@ -59,6 +87,23 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     panelRef.current = panel;
   }, [panel]);
+  // The conversations (none without the agents, as in some tests): a waiting AI tool's tab opens
+  // when no task is using the tool.
+  const sessions = useContext(AgentsContext)?.state.sessions ?? NO_SESSIONS;
+  const sessionsRef = useRef(sessions);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+  // The waits, known at once (a tab's answer may come before the next render), and each AI
+  // tool's name.
+  const waitsRef = useRef<Waits>({});
+  const aiToolLabels = useRef(new Map<string, string>());
+  const changeWaits = useCallback((change: (all: Waits) => Waits) => {
+    const next = change(waitsRef.current);
+    if (next === waitsRef.current) return;
+    waitsRef.current = next;
+    setAiToolWaits(next);
+  }, []);
 
   const show = useCallback(() => {
     if (!panelRef.current.open) setPanel({ ...panelRef.current, open: true });
@@ -170,8 +215,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggle]);
 
+  /** One of the owner's terminals: a new tab, shown. Its ID. */
   const openOwner = useCallback(
-    (tab: Omit<OwnerTab, "id" | "kind" | "openedAt">) => {
+    (tab: Omit<OwnerTab, "id" | "kind" | "openedAt">): string => {
       counter.current += 1;
       const id = `owner-${counter.current}`;
       const added: OwnerTab = { ...tab, kind: "owner", id, openedAt: Date.now() };
@@ -180,13 +226,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setOwners((all) => [...all, added]);
       setActive(id);
       show();
+      return id;
     },
     [show],
   );
 
-  /** An AI tool's sign-in or sign-out tab: opened, or the one still running that command. */
-  const openAiTool = useCallback(
-    (runtimeId: string, label: string, action: AccountAction) => {
+  /**
+   * An AI tool's sign-in or sign-out tab: opened (its ID), or the one still running that command
+   * (`null`). `quiet`: opened by itself, so the keyboard stays where it is.
+   */
+  const openAiToolTab = useCallback(
+    (runtimeId: string, label: string, action: AccountAction, quiet: boolean): string | null => {
+      aiToolLabels.current.set(runtimeId, label);
       const running = ownersRef.current.find(
         (t) =>
           t.place.kind === "aiTool" &&
@@ -197,16 +248,106 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (running) {
         setActive(running.id);
         show();
-        return;
+        return null;
       }
-      openOwner({
+      return openOwner({
         place: { kind: "aiTool", runtimeId, action },
         title: aiToolTitle(label, action),
         environment: null,
+        ...(quiet ? { quiet } : {}),
       });
     },
     [openOwner, show],
   );
+
+  /** Pressed on the AI tools page: the tab opens now, and the tool's wait (if any) is over. */
+  const openAiTool = useCallback(
+    (runtimeId: string, label: string, action: AccountAction) => {
+      changeWaits((all) => dropWaits(all, (id) => id === runtimeId));
+      openAiToolTab(runtimeId, label, action, false);
+    },
+    [changeWaits, openAiToolTab],
+  );
+
+  const waitForAiTool = useCallback(
+    (runtimeId: string, label: string, action: AccountAction) => {
+      aiToolLabels.current.set(runtimeId, label);
+      changeWaits((all) => ({
+        ...all,
+        [runtimeId]: {
+          action,
+          label,
+          refused: null,
+          sessions: null,
+          refusals: 0,
+          opening: null,
+          stopped: false,
+          at: Date.now(),
+        },
+      }));
+    },
+    [changeWaits],
+  );
+
+  const cancelAiToolWait = useCallback(
+    (runtimeId: string) => changeWaits((all) => dropWaits(all, (id) => id === runtimeId)),
+    [changeWaits],
+  );
+
+  /** A waiting tab's AI tool is free: it opens, and the wait ends once it has opened. */
+  const openWaiting = useCallback(
+    (runtimeId: string) => {
+      const wait = waitsRef.current[runtimeId];
+      if (!wait || wait.opening !== null || wait.stopped) return;
+      const opening = openAiToolTab(runtimeId, wait.label, wait.action, true);
+      changeWaits((all) => {
+        const now = all[runtimeId];
+        if (!now) return all;
+        if (opening === null) return dropWaits(all, (id) => id === runtimeId);
+        return { ...all, [runtimeId]: { ...now, opening } };
+      });
+    },
+    [changeWaits, openAiToolTab],
+  );
+
+  // A waiting tab opens a moment after no task is using its AI tool. One Plenipo refused tries
+  // again soon after the conversations change, or else every few seconds, until it has been
+  // refused too many times. A timer starts again only when its reason changes (not each time a
+  // conversation does).
+  const waitTimers = useRef(
+    new Map<string, { key: string; timer: ReturnType<typeof setTimeout> }>(),
+  );
+  useEffect(() => {
+    const timers = waitTimers.current;
+    const due = new Set<string>();
+    for (const [runtimeId, wait] of Object.entries(aiToolWaits)) {
+      if (wait.opening !== null || wait.stopped || tasksUsing(sessions, runtimeId) > 0) continue;
+      const changed = wait.sessions !== null && wait.sessions !== sessions;
+      const ms = wait.refused === null || changed ? FREE_MS : RETRY_MS;
+      const key = `${wait.at}:${ms}`;
+      due.add(runtimeId);
+      const before = timers.get(runtimeId);
+      if (before?.key === key) continue;
+      if (before) clearTimeout(before.timer);
+      const timer = setTimeout(() => {
+        timers.delete(runtimeId);
+        openWaiting(runtimeId);
+      }, ms);
+      timers.set(runtimeId, { key, timer });
+    }
+    for (const [runtimeId, { timer }] of timers) {
+      if (due.has(runtimeId)) continue;
+      clearTimeout(timer);
+      timers.delete(runtimeId);
+    }
+  }, [aiToolWaits, sessions, openWaiting]);
+  useEffect(() => {
+    const timers = waitTimers.current;
+    return () => {
+      for (const { timer } of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   /** An agent's Watch tab for code: opened, or the one already open (renamed if it was). */
   const openWatch = useCallback(
@@ -238,6 +379,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       const i = tabs.findIndex((t) => t.id === id);
       const next = tabs[i + 1] ?? tabs[i - 1];
+      // A waiting AI tool's tab closed before it opened: that wait is over.
+      changeWaits((all) => dropWaits(all, (_, wait) => wait.opening === id));
       setOwners((all) => all.filter((t) => t.id !== id));
       setCodes((all) => all.filter((t) => t.id !== id));
       if (watchesRef.current.some((w) => w.id === id)) {
@@ -246,30 +389,71 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       setActive((current) => (current === id ? (next?.id ?? null) : current));
     },
-    [tabs],
+    [tabs, changeWaits],
+  );
+
+  /**
+   * A terminal opened (again, after Try again: it is running, so an AI tool's tab is found and
+   * shown rather than opened twice). An AI tool's tab that waited is open: the wait is over.
+   */
+  const tabOpened = useCallback(
+    (tab: OwnerTab) => {
+      endedTabs.current.delete(tab.id);
+      changeWaits((all) => dropWaits(all, (_, wait) => wait.opening === tab.id));
+    },
+    [changeWaits],
   );
 
   /** A terminal's program ended: for a sign-in tab, the AI tools page shows "Checking…". */
-  const tabEnded = useCallback((tab: OwnerTab) => {
-    endedTabs.current.add(tab.id);
-    if (tab.place.kind !== "aiTool") return;
-    const { runtimeId } = tab.place;
-    setSignInEnded((all) => ({ ...all, [runtimeId]: Date.now() }));
-  }, []);
+  const tabEnded = useCallback(
+    (tab: OwnerTab) => {
+      endedTabs.current.add(tab.id);
+      changeWaits((all) => dropWaits(all, (_, wait) => wait.opening === tab.id));
+      if (tab.place.kind !== "aiTool") return;
+      const { runtimeId } = tab.place;
+      setSignInEnded((all) => ({ ...all, [runtimeId]: Date.now() }));
+    },
+    [changeWaits],
+  );
 
   /**
-   * A terminal could not open. A sign-in tab refused because a task is using the AI tool closes:
-   * the AI tools page waits until the tool is free, then opens it again.
+   * A terminal could not open. An AI tool's tab refused because the tool is busy (a task is
+   * using it, or it is being updated) closes and waits until the tool is free, then opens again;
+   * refused too often while nothing changes, it stops trying by itself. Refused for another
+   * reason, it stays and says why.
    */
   const tabFailed = useCallback(
     (tab: OwnerTab, message: string) => {
       endedTabs.current.add(tab.id);
-      if (tab.place.kind !== "aiTool" || !isBusyRefusal(message)) return;
+      if (tab.place.kind !== "aiTool") return;
       const { runtimeId, action } = tab.place;
-      setSignInRefused((all) => ({ ...all, [runtimeId]: { action, message, at: Date.now() } }));
+      if (!isBusyRefusal(message)) {
+        changeWaits((all) => dropWaits(all, (_, wait) => wait.opening === tab.id));
+        return;
+      }
+      const sessionsNow = sessionsRef.current;
+      const before = waitsRef.current[runtimeId];
+      const refusals =
+        before && before.refused !== null && before.sessions === sessionsNow
+          ? before.refusals + 1
+          : 1;
+      const label = before?.label ?? aiToolLabels.current.get(runtimeId) ?? runtimeId;
+      changeWaits((all) => ({
+        ...all,
+        [runtimeId]: {
+          action,
+          label,
+          refused: message,
+          sessions: sessionsNow,
+          refusals,
+          opening: null,
+          stopped: refusals >= MOST_REFUSALS,
+          at: Date.now(),
+        },
+      }));
       close(tab.id);
     },
-    [close],
+    [close, changeWaits],
   );
 
   const api: TerminalApi = {
@@ -298,8 +482,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       openOwner({ place: { kind: "server", serverId }, title: name, environment }),
     openWatch,
     openAiTool,
+    waitForAiTool,
+    cancelAiToolWait,
+    aiToolWaits,
     signInEnded,
-    signInRefused,
+    tabOpened,
     tabEnded,
     tabFailed,
     close,

@@ -42,6 +42,15 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
   return 0;
 }
 
+/**
+ * `newest` is a newer version than `installed`, as Plenipo's own look for new versions counts it:
+ * a pre-release or a build ("1.0.44-beta.1", "1.0.44+abc") never is.
+ */
+export function isNewerVersion(newest: string, installed: string): boolean {
+  if (newest.includes("-") || newest.includes("+")) return false;
+  return compareVersions(newest, installed) === 1;
+}
+
 /** The notice when the installed version is not the one Plenipo was checked with. */
 export function versionNotice(installed: string | null, checked: string): string | null {
   if (!installed) return null;
@@ -67,20 +76,33 @@ export function usingWords(n: number, label: string): string {
   return `${count(n, "task")} ${n === 1 ? "is" : "are"} using ${label}`;
 }
 
+/** A message's first sentence, without its full stop: "Codex is being updated". */
+export function firstSentence(message: string): string {
+  return (message.split(/(?<=\.)\s+/)[0] ?? message).replace(/\.$/, "");
+}
+
 // ---- Left of your plan (ADR-060 §3) ----------------------------------------------------------
 
-/** "5-hour limit", "Weekly limit": a window's name, from its length. */
-export function planWindowName(minutes: number | null): string {
-  switch (minutes) {
-    case 300:
-      return "5-hour limit";
-    case 1440:
-      return "Daily limit";
-    case 10080:
-      return "Weekly limit";
-    default:
-      return "Your plan";
-  }
+/**
+ * "5-hour limit", "Weekly limit": a window's name, from its length; `null` when the tool did not
+ * say how long it is (the line then reads "91% of your plan left").
+ */
+export function planWindowName(minutes: number | null): string | null {
+  if (minutes === null || !Number.isInteger(minutes) || minutes <= 0) return null;
+  if (minutes === 10080) return "Weekly limit";
+  if (minutes === 1440) return "Daily limit";
+  if (minutes % 1440 === 0) return `${minutes / 1440}-day limit`;
+  if (minutes % 60 === 0) return `${minutes / 60}-hour limit`;
+  return `${minutes}-minute limit`;
+}
+
+/**
+ * One window is at its limit: all of it used, or the tool said the plan is limited and gave no
+ * number. (Codex says "limited" once for all its windows: the others keep their "% left".)
+ */
+export function atLimit(window: PlanWindow, report: { limited: boolean }): boolean {
+  const used = window.usedPercent;
+  return used === null ? report.limited : used >= 100;
 }
 
 /** "91% of your plan left", or only what the tool said. */
@@ -88,7 +110,7 @@ export function planLeft(
   window: PlanWindow,
   report: { limited: boolean; warning: boolean },
 ): string {
-  if (report.limited) return "Limit reached";
+  if (atLimit(window, report)) return "Limit reached";
   const used = window.usedPercent;
   const left = used === null ? null : `${Math.max(0, Math.round(100 - used))}% of your plan left`;
   if (report.warning) return left ? `Close to the limit: ${left}` : "Close to the limit";
@@ -110,7 +132,7 @@ export interface UsageWindow {
 }
 
 /** Midnight `days` days after the day `ms` falls on (this computer's time, summer time too). */
-function midnight(ms: number, days = 0): number {
+export function midnight(ms: number, days = 0): number {
   const d = new Date(ms);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days).getTime();
 }

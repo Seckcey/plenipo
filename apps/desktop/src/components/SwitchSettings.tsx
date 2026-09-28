@@ -9,16 +9,20 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 
 /**
  * One on/off switch: the library's switch (a button with the switch role and its name), with
- * its name, "On" or "Off", and what "off" or "on" means beside it.
+ * its name, "On" or "Off", and what "off" or "on" means beside it. `name`: what a screen reader
+ * calls it, when the same switch is shown more than once ("Paid AI key for Codex (pay per use)");
+ * `label` otherwise.
  */
 export function Toggle({
   label,
+  name,
   hint,
   checked,
   disabled = false,
   onChange,
 }: {
   label: string;
+  name?: string;
   hint: ReactNode;
   checked: boolean;
   disabled?: boolean;
@@ -28,7 +32,7 @@ export function Toggle({
   return (
     <div className="toggle">
       <Switch
-        label={label}
+        label={name ?? label}
         checked={checked}
         disabled={disabled}
         showState={false}

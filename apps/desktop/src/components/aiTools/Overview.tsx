@@ -4,12 +4,14 @@ import type {
   AiToolsPage,
   AiToolState,
   AiToolUsage,
+  InstallState,
   PlanWindow,
   RoutingSnapshot,
   ToolInfo,
 } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
+import { INSTALL_LABEL } from "../../agents/format";
 import { cancelAiToolUpdate, checkAiTool, clearUsageLimit, updateAiTool } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { when } from "../../pages/words";
@@ -19,8 +21,9 @@ import { Refusal } from "../models/shared";
 import { Toggle } from "../SwitchSettings";
 import { SignIn } from "./SignIn";
 import {
-  compareVersions,
+  atLimit,
   countsNothing,
+  isNewerVersion,
   MOVING,
   planLeft,
   planWindowName,
@@ -32,6 +35,12 @@ import {
 } from "./words";
 
 type Apply = (page: AiToolsPage) => void;
+
+/**
+ * Claude Code reports what is left of your plan in the messages Plenipo reads during a task; the
+ * others that report it (Codex) do when Plenipo checks them (ADR-060 §3).
+ */
+const PLAN_DURING_A_TASK: ReadonlySet<string> = new Set(["claude-code"]);
 
 /**
  * A card's Overview (Phase 19): sign-in, version and update, how it is paid for, the usage limit,
@@ -56,8 +65,11 @@ export function Overview({
   onApply: Apply;
   onRouting: (snapshot: RoutingSnapshot) => void;
 }) {
-  const installed =
-    info.installation.state === "installed" ? (info.installation.version ?? "unknown") : null;
+  const install = info.installation.state;
+  const installed = install === "installed" ? (info.installation.version ?? "unknown") : null;
+  // Not working, or installed in a way Plenipo can't use: Plenipo's reason, where it gave one.
+  const problem =
+    install === "broken" || install === "unsupported" ? info.installation.detail : null;
   const notice = versionNotice(info.installation.version, info.checkedVersion);
   // The subscription's name, as the tool's sign-in check says it ("Claude subscription (max)").
   const plan =
@@ -73,9 +85,10 @@ export function Overview({
       <dt>Version</dt>
       <dd>
         <div>
-          {installed ? `Installed ${installed}` : "Not installed"} · Checked by Plenipo{" "}
+          {installed ? `Installed ${installed}` : INSTALL_LABEL[install]} · Checked by Plenipo{" "}
           {info.checkedVersion}
         </div>
+        {problem && <p className="muted">{problem}</p>}
         {notice && <p className="muted">{notice}</p>}
       </dd>
       <dt>Update</dt>
@@ -91,6 +104,7 @@ export function Overview({
         {/* Locked until spending caps exist (Phase 16): it never asks for a paid key. */}
         <Toggle
           label="Paid AI key (pay per use)"
+          name={`Paid AI key for ${info.label} (pay per use)`}
           hint="Comes with spending caps in a later version."
           checked={tool?.payment === "paidKey"}
           disabled
@@ -103,7 +117,7 @@ export function Overview({
       </dd>
       <dt>Left of your plan</dt>
       <dd>
-        <PlanLeft label={info.label} tool={tool} />
+        <PlanLeft info={info} tool={tool} />
       </dd>
       <dt>This week</dt>
       <dd>
@@ -131,7 +145,7 @@ function UpdateInfo({
   const installed = info.installation.state === "installed" ? info.installation.version : null;
   const moving = MOVING.has(u.state);
   const newer =
-    tool.newest !== null && installed !== null && compareVersions(tool.newest, installed) === 1;
+    tool.newest !== null && installed !== null && isNewerVersion(tool.newest, installed);
   const looked = tool.newestCheckedAt ? ` (looked at ${when(tool.newestCheckedAt)})` : "";
   const update = (to: string | null) => (
     <Button
@@ -220,7 +234,7 @@ function UpdateInfo({
   let newest: ReactNode = null;
   if (!moving) {
     if (installed === null) {
-      newest = <p className="muted">Nothing to update: {label} is not installed.</p>;
+      newest = <p className="muted">{nothingToUpdate(label, info.installation.state)}</p>;
     } else if (!tool.canUpdate) {
       newest = (
         <>
@@ -297,6 +311,21 @@ function UpdateInfo({
   );
 }
 
+/** Why there is no version to update: still checking, not installed, or not working. */
+function nothingToUpdate(label: string, install: InstallState): string {
+  switch (install) {
+    case "checking":
+      return "Checking…";
+    case "notInstalled":
+      return `Nothing to update: ${label} is not installed.`;
+    case "installed":
+      return `Plenipo can't tell which version of ${label} is installed.`;
+    case "unsupported":
+    case "broken":
+      return `Plenipo can't update ${label} now (${INSTALL_LABEL[install].toLowerCase()}).`;
+  }
+}
+
 /** The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2). */
 function UsageLimit({
   route,
@@ -335,22 +364,41 @@ function UsageLimit({
 
 const NO_WINDOW: PlanWindow = { minutes: null, usedPercent: null, resetsAt: null };
 
-/** How much of the plan is left, only as the tool officially reported it (ADR-060 §3). */
-function PlanLeft({ label, tool }: { label: string; tool: AiToolState | undefined }) {
+/**
+ * How much of the plan is left, only as the tool officially reported it (ADR-060 §3). "Limit
+ * reached" is said once: on the window at its limit, or above them all when the tool said only
+ * that the plan is limited.
+ */
+function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | undefined }) {
+  const label = info.label;
   if (!tool) return <span className="muted">Loading…</span>;
   if (!tool.reportsPlanLeft) return <>{label} doesn&apos;t report how much of your plan is left.</>;
   const plan = tool.plan;
-  if (!plan) return <>{label} reports this during a task; nothing reported yet.</>;
+  if (!plan) {
+    return PLAN_DURING_A_TASK.has(info.id) ? (
+      <>{label} reports this during a task; nothing reported yet.</>
+    ) : (
+      <>
+        {label} hasn&apos;t reported it yet. Plenipo asks when it checks {label}.
+      </>
+    );
+  }
   const windows = plan.windows.length > 0 ? plan.windows : [NO_WINDOW];
+  const limitedAbove = plan.limited && !windows.some((w) => atLimit(w, plan));
   return (
     <div className="ai-tool__block">
+      {limitedAbove && <div>Limit reached</div>}
       <ul className="ai-tool__list" aria-label={`Left of your plan with ${label}`}>
-        {windows.map((w, i) => (
-          <li key={`${w.minutes ?? "plan"}-${i}`}>
-            <strong>{planWindowName(w.minutes)}:</strong> {planLeft(w, plan)}
-            {w.resetsAt ? ` · resets at ${when(w.resetsAt)}` : ""}
-          </li>
-        ))}
+        {windows.map((w, i) => {
+          const name = planWindowName(w.minutes);
+          return (
+            <li key={`${w.minutes ?? "plan"}-${i}`}>
+              {name && <strong>{name}: </strong>}
+              {planLeft(w, plan)}
+              {w.resetsAt ? ` · resets at ${when(w.resetsAt)}` : ""}
+            </li>
+          );
+        })}
       </ul>
       <span className="muted">
         Reported by {label} at {when(plan.reportedAt)}
