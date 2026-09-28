@@ -2,6 +2,9 @@
 
 - **Status:** Accepted (by the owner, 2026-09-27, as recommended, with one choice: checking for
   updates is always on, for Free and Pro alike; there is no switch to turn it off)
+- **Amended by:** [ADR-052 (signing runs only for main and release tags, behind the owner's
+  approval)](ADR-052-release-signing-environment.md): the signing secrets live in the `release`
+  Environment behind the owner's approval, and a dry run no longer signs (section 6)
 - **Date:** 2026-09-27
 - **Phase:** 13
 - **Number:** ADR-034 and ADR-035 are taken by pull request #69 (the security fixes) and

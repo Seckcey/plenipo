@@ -76,7 +76,7 @@ release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
 ([code signing](code-signing.md)), checks the signature, and publishes a GitHub release with the
 installer attached. From 1.9.0 it also signs the installer with the updater key and attaches
 its `.sig` and `latest.json`, which installed copies read to find the new version (ADR-038,
-updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-037)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
+updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-038)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
 The signing secrets are Environment secrets of `release`, which only `main` and `v*` tags may use
 ([code signing → where the secrets live](code-signing.md#where-the-secrets-live-the-release-environment)).
 **Run workflow** with **Dry run** ticked builds an unsigned installer from any branch, needs no

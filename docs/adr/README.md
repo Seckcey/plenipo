@@ -52,7 +52,7 @@ architecture must be recorded here.
 | [035](ADR-035-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |
 | [036](ADR-036-every-ai-model.md)                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes         | Accepted |
 | [037](ADR-037-background-work.md)                    | Background work: Plenipo lives in the tray, and the window comes and goes                   | Accepted |
-| [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so                  | Accepted |
+| [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so (amended by 052) | Accepted |
 | [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)     | Accepted |
 | [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amends 039)    | Accepted |
 | [041](ADR-041-model-effort-learning-layers.md)       | Model, effort, and learning set in layers, the closest winning (amends 011, 024)            | Accepted |
@@ -66,3 +66,4 @@ architecture must be recorded here.
 | [049](ADR-049-computer-use-asks-every-step.md)       | Computer use asks before every click and keystroke (amends 020)                             | Accepted |
 | [050](ADR-050-lessons-kept-on-their-own.md)          | Lessons a role keeps on its own are notes, not orders (amends 024)                          | Accepted |
 | [051](ADR-051-codex-own-shell.md)                    | Codex works through Plenipo's tools: its own command tool is off (amends 007)               | Accepted |
+| [052](ADR-052-release-signing-environment.md)        | Signing runs only for main and release tags, behind the owner's approval (amends 038)       | Accepted |
