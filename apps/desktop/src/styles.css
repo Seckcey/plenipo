@@ -2071,11 +2071,15 @@ body {
   background: var(--ui-accent);
 }
 
+/* The six tabs stay in view: at a narrow width they wrap onto a second line. */
 .inspector__tabs {
   flex: none;
-  overflow-x: auto;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--ui-border);
+  flex-wrap: wrap;
+  padding: 0 var(--ui-space-3);
+}
+
+.inspector__tabs .ui-tabs__tab {
+  padding: 0 var(--ui-space-3);
 }
 
 /* Every option in the panel: the control, and under it what it does. */
@@ -2102,6 +2106,12 @@ body {
 
 .check-option {
   margin: 0 0 10px;
+}
+
+/* A hint set after its field's label (so the control's name stays short). */
+.field__hint--after {
+  display: block;
+  margin: -6px 0 10px;
 }
 
 .check-option > .check {

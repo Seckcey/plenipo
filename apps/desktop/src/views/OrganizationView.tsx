@@ -546,7 +546,8 @@ export function OrganizationView({
     selectedId !== null &&
     (selectedId === OWNER_ID ||
       selectedId === ORG_ID ||
-      snapshot.positions.some((p) => p.id === selectedId) ||
+      // A position deleted for good (or moved to the Workforce) leaves the panel too.
+      snapshot.positions.some((p) => p.id === selectedId && !p.deleted) ||
       selectedId.startsWith("worker:"));
   const empty = snapshot.positions.every((p) => !p.active);
   const editingDepartment =

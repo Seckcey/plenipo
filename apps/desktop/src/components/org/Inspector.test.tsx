@@ -217,8 +217,10 @@ function nameOf(el: Element): string {
   if (aria) return aria;
   if (el instanceof HTMLButtonElement) return (el.textContent ?? "").trim();
   const id = el.getAttribute("id");
-  const label = id ? document.querySelector(`label[for="${id}"]`) : el.closest("label");
-  return (label?.textContent ?? "").trim();
+  const byFor = id ? document.querySelector(`label[for="${id}"]`) : null;
+  // A label around the control: its own words (not the menu's choices).
+  const around = el.closest("label")?.querySelector(":scope > span");
+  return ((byFor ?? around)?.textContent ?? "").trim();
 }
 
 /** Every option in the open tab: each control (not the links to other items, nor the tabs of

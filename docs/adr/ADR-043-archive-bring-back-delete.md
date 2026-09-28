@@ -1,9 +1,9 @@
 # ADR-043: Archive, bring back, and delete for good — agents, departments, and projects
 
-- **Status:** Accepted (by the owner, 2026-09-28, as recommended). Amended by
+- **Status:** Accepted (by the owner, 2026-09-27, as recommended). Amended by
   [ADR-045](ADR-045-experience-and-the-workforce.md): deleting for good first offers to save
   experienced agents to the Workforce.
-- **Date:** 2026-09-28
+- **Date:** 2026-09-27
 - **Phase:** 17
 - **Carries out:** ADR-039 (the owner's notes) §2.1, which amended ADR-009 (the organization) §1:
   "archived, never deleted" became "archive, then delete for good"
@@ -93,7 +93,7 @@ Today (v1.9.0, Ledger layout 8):
     notices, and the Activity trail keep showing who did what. Deleted items leave the Archived
     list and every list of the organization.
 12. **A project or department takes along what was archived with it,** each leaving its own
-    short record (the owner's choice, 2026-09-28). Before anything goes, Plenipo offers to save
+    short record (the owner's choice, 2026-09-27). Before anything goes, Plenipo offers to save
     the experienced agents to your Workforce (ADR-045).
 13. **Its name can be used again.** A deleted project or department is renamed "Website
     (deleted)" (with a number if that is taken), because project and department names must be

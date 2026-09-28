@@ -52,12 +52,9 @@ function Picker({
 
   return (
     <>
-      <div className="field">
-        <label className="field__label" htmlFor={`${id}-model`}>
-          {label}
-        </label>
+      <label className="field">
+        <span>{label}</span>
         <select
-          id={`${id}-model`}
           aria-describedby={hint ? `${id}-hint` : undefined}
           value={custom ? TYPE_A_NAME : value}
           disabled={disabled}
@@ -85,19 +82,17 @@ function Picker({
           ))}
           <option value={TYPE_A_NAME}>Type another name…</option>
         </select>
-        {hint && (
-          <small id={`${id}-hint`} className="field__hint">
-            {hint}
-          </small>
-        )}
-      </div>
+      </label>
+      {/* After the label, so the menu's name stays "Model"; read out as its description. */}
+      {hint && (
+        <small id={`${id}-hint`} className="field__hint field__hint--after">
+          {hint}
+        </small>
+      )}
       {custom && (
-        <div className="field">
-          <label className="field__label" htmlFor={`${id}-name`}>
-            Model name the AI tool accepts
-          </label>
+        <label className="field">
+          <span>Model name the AI tool accepts</span>
           <input
-            id={`${id}-name`}
             aria-describedby={`${id}-name-hint`}
             value={value}
             maxLength={64}
@@ -108,7 +103,7 @@ function Picker({
           <small id={`${id}-name-hint`} className="field__hint">
             Exactly as the AI tool&apos;s own model option takes it.
           </small>
-        </div>
+        </label>
       )}
     </>
   );

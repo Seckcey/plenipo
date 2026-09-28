@@ -1,6 +1,6 @@
 # Phase 17 — Implementation Checklist
 
-**Status:** built (2026-09-28); design approved by the owner, with the owner's addition
+**Status:** built (2026-09-27); design approved by the owner, with the owner's addition
 (ADR-045). Delivered as **v1.10.0**. Built on v1.9.0 (Phase 13). Acceptance report:
 [`phase-17-acceptance-report.md`](phase-17-acceptance-report.md).
 
@@ -14,6 +14,8 @@ work, ADR-039), and the four records written for it:
 - [ADR-045 (experience and the Workforce)](../adr/ADR-045-experience-and-the-workforce.md), the
   owner's addition
 
+Dates are Pacific time. ADR-039 and ADR-040 record the same evening by its UTC date (2026-09-28).
+
 This checklist keeps the plan's words where it quotes the plan. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md): a "layer" is a **rule** ("the
 Development department's rule"), a "position" is an **agent** on the chart, a "turn" is a
@@ -24,7 +26,7 @@ specialty — at the level that fits (the organization, a department, a role, or
 archive, bring back, and delete agents; and understand every option in the properties panel.
 Make prompts only as long as the job needs."
 
-## Owner decisions (2026-09-28)
+## Owner decisions (2026-09-27)
 
 - **The design is approved, and ADR-041, ADR-042, ADR-043, and ADR-044 are accepted, as
   recommended.**
@@ -50,7 +52,7 @@ Make prompts only as long as the job needs."
 - Out of scope (plan): the canvas's trash can, drawer, and dragging (Phase 18); agents writing in
   an invented or hidden language; paid AI keys (Phase 16).
 
-## Design (2026-09-28)
+## Design (2026-09-27)
 
 Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
 

@@ -153,14 +153,11 @@ export function ModelOrder({
           </p>
         </>
       )}
-      <div className="field">
-        <label className="field__label" htmlFor={addId}>
-          Add a model to the list
-        </label>
+      <label className="field">
+        <span>Add a model to the list</span>
         {/* Remounted after every change, so it always shows its prompt again (a controlled
             select kept at "" is not reset by the browser when its options change). */}
         <select
-          id={addId}
           key={models.join()}
           aria-describedby={`${addId}-hint`}
           value=""
@@ -176,10 +173,10 @@ export function ModelOrder({
             </option>
           ))}
         </select>
-        <small id={`${addId}-hint`} className="field__hint">
-          Adds a model from your list (Settings → AI models) at the end.
-        </small>
-      </div>
+      </label>
+      <small id={`${addId}-hint`} className="field__hint field__hint--after">
+        Adds a model from your list (Settings → AI models) at the end.
+      </small>
     </fieldset>
   );
 }
@@ -235,28 +232,27 @@ export function AnyEffort({
   const id = useId();
   const levels = anyEffortLevels(snapshot);
   return (
-    <div className="field">
-      <label className="field__label" htmlFor={id}>
-        Effort for any other model
+    <>
+      <label className="field">
+        <span>Effort for any other model</span>
+        <select
+          aria-describedby={`${id}-hint`}
+          value={value ?? ""}
+          onChange={(e) => onChange((e.target.value || null) as Effort | null)}
+        >
+          <option value="">None set here</option>
+          {levels.map((l) => (
+            <option key={l} value={l}>
+              {EFFORT_LABEL[l]} effort
+            </option>
+          ))}
+        </select>
       </label>
-      <select
-        id={id}
-        aria-describedby={`${id}-hint`}
-        value={value ?? ""}
-        onChange={(e) => onChange((e.target.value || null) as Effort | null)}
-      >
-        <option value="">None set here</option>
-        {levels.map((l) => (
-          <option key={l} value={l}>
-            {EFFORT_LABEL[l]} effort
-          </option>
-        ))}
-      </select>
-      <small id={`${id}-hint`} className="field__hint">
+      <small id={`${id}-hint`} className="field__hint field__hint--after">
         How hard a model thinks when this rule does not name it above. A model that does not take
         this level keeps its own.
       </small>
-    </div>
+    </>
   );
 }
 

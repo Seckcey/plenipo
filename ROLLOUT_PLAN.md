@@ -1798,7 +1798,7 @@ Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. O
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work. Its design
 is ADR-041 (model, effort, and learning in layers), ADR-042 (specialties), ADR-043 (archive, bring
-back, and delete for good), and ADR-044 (prompts sized to the job). **The owner added (2026-09-28),
+back, and delete for good), and ADR-044 (prompts sized to the job). **The owner added (2026-09-27),
 ADR-045:** an experience score for each agent, and a Workforce tab to keep experienced agents and
 hire them again, offered whenever agents are deleted for good.
 

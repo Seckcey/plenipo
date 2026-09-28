@@ -1,8 +1,8 @@
 # ADR-045: Experience and the Workforce — keeping your best agents
 
-- **Status:** Accepted (by the owner, 2026-09-28, as written; experienced agents start out
+- **Status:** Accepted (by the owner, 2026-09-27, as written; experienced agents start out
   checked)
-- **Date:** 2026-09-28
+- **Date:** 2026-09-27
 - **Phase:** 17 (added by the owner while approving ADR-043)
 - **Amends:** ADR-043 (archive, bring back, and delete for good) — deleting for good first offers
   to save experienced agents; ADR-024 (workers learn from their work) — each agent's kept lessons
@@ -23,7 +23,7 @@ below.
 
 ## Context
 
-When approving ADR-043, the owner asked (2026-09-28): "When our agents start learning their jobs
+When approving ADR-043, the owner asked (2026-09-27): "When our agents start learning their jobs
 better, we need a way to score how much the agent has learned. For the agents with a lot of
 experience and learned knowledge, Plenipo needs to have a Workforce tab where we can save and
 store agents to. When deleting an agent or organization, if there are agents with higher than

@@ -1,7 +1,7 @@
 # ADR-044: Prompts sized to the job — measure, then send the full instructions only when needed
 
-- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
-- **Date:** 2026-09-28
+- **Status:** Accepted (by the owner, 2026-09-27, as recommended)
+- **Date:** 2026-09-27
 - **Phase:** 17
 - **Amends:** ADR-008 (Liaison) §1 — "restated every time"; ADR-012 (brief messages between
   agents) — a shorter, labeled request format, and replies that show their task's ID

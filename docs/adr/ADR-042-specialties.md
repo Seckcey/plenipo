@@ -1,11 +1,11 @@
 # ADR-042: Specialties under each role — built in, and your own
 
-- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
+- **Status:** Accepted (by the owner, 2026-09-27, as recommended)
 - **As built (v1.10.0):** as written, with one difference: Authorized penetration testing is not
   a built-in specialty (§3, §8). You can add it yourself as one of your own specialties (§4), and
   Guard still decides what that worker may do. See the
   [Phase 17 acceptance report](../phases/phase-17-acceptance-report.md), deviations.
-- **Date:** 2026-09-28
+- **Date:** 2026-09-27
 - **Phase:** 17
 - **Amends:** ADR-019 (every role knows its job: working instructions) — a specialty adds lines
   to them; ADR-009 (the organization) §10 — specialties are data, like roles

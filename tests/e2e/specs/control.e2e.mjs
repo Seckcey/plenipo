@@ -166,6 +166,7 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
       await waitForNode(browser, `${title},`);
     }
     await select(browser, "Database Developer");
+    await detailsTab(browser, "Overview");
     await waitForText(browser, DETAILS, "Senior Developer (Database)");
   });
 
@@ -177,7 +178,7 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
     const form = "Rule for The whole organization";
     await (
       await browser.$(
-        `//form[@aria-label="${form}"]//select[@id=//label[normalize-space()="Effort for any other model"]/@for]`,
+        `//form[@aria-label="${form}"]//label[.//span[normalize-space()="Effort for any other model"]]//select`,
       )
     ).selectByVisibleText("High effort");
     await (
@@ -219,7 +220,7 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
     await detailsTab(browser, "Manage");
     // Widen the panel from its edge (the arrow keys move it too), and it stays wider.
     const edge = await browser.$('[role="separator"][aria-label="Widen or narrow the details"]');
-    await edge.click();
+    await browser.execute((el) => el.focus(), edge);
     for (let i = 0; i < 12; i++) await browser.keys("ArrowLeft");
     await waitUntil(
       async () => Number(await edge.getAttribute("aria-valuenow")) >= 540,
@@ -279,6 +280,7 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
     await clickButton(browser, "Topology");
     await waitForNode(browser, "Database Developer,");
     await select(browser, "Database Developer");
+    await detailsTab(browser, "Overview");
     await waitForText(browser, DETAILS, "Senior Developer (Database)");
 
     // Deleted for good without saving: gone from every list, a short record in the Ledger.
@@ -307,6 +309,8 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
   it("archives a whole department and brings it back", async () => {
     const { browser } = app;
     await nav(browser, "Organization");
+    await waitUntil(() => exists(browser, MAP), "the organization's map");
+    await closeDetails(browser);
     await select(browser, "Development Manager");
     await detailsTab(browser, "Team");
     await clickButton(browser, "Archive department");
