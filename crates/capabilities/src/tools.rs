@@ -46,7 +46,7 @@ pub struct ToolDef {
     pub capability: Capability,
     pub risk: Risk,
     pub description: &'static str,
-    schema: fn() -> Value,
+    pub(crate) schema: fn() -> Value,
 }
 
 impl ToolDef {
@@ -478,8 +478,12 @@ pub fn is_server(tool: &ToolDef) -> bool {
     tool.capability == Capability::SshConnect
 }
 
+/// A tool by its name: one of Plenipo's own, or a connection's (Phase 20).
 pub fn find(name: &str) -> Option<&'static ToolDef> {
-    TOOLS.iter().find(|t| t.name == name)
+    TOOLS
+        .iter()
+        .find(|t| t.name == name)
+        .or_else(|| crate::connections::microsoft365::tool(name).map(|t| &t.def))
 }
 
 /// What a tool call asks for, with its arguments read.

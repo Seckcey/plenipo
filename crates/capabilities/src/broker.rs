@@ -48,6 +48,7 @@ use crate::tools::{self, Action, ToolDef, TOOLS};
 use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
+pub(crate) mod connecting;
 mod git_tools;
 pub mod live;
 mod operate;
@@ -115,6 +116,9 @@ pub struct BrokerConfig {
     /// would too (ADR-031). Always on in Plenipo; tests turn it off to reach the shell on test
     /// machines that run everything as administrator (GitHub's Windows machines do).
     pub terminal_refuses_administrator: bool,
+    /// The app IDs this copy signs in to connections with, and the stand-in for the services in
+    /// copies built for the tests (Phase 20).
+    pub connections: crate::connections::ConnectionsConfig,
 }
 
 impl BrokerConfig {
@@ -132,6 +136,7 @@ impl BrokerConfig {
             approval_minute: Duration::from_secs(60),
             ssh: crate::ssh::Limits::default(),
             terminal_refuses_administrator: true,
+            connections: crate::connections::ConnectionsConfig::default(),
         }
     }
 }
@@ -313,6 +318,14 @@ struct Grant {
     /// Why Plenipo itself stopped its use of the browser (the page fought the owner's sign, or
     /// the gate would not go back on), for the worker's next refused call.
     stop_reason: Option<String>,
+    /// (connection ID, capability) → the level this step was given through each connection
+    /// (Phase 20, ADR-062 §3).
+    connection_levels: BTreeMap<(String, Capability), Level>,
+    /// Plenipo's note about its connections.
+    connection_note: String,
+    /// What it read through connections in this step ("email", "files"), in the order first
+    /// read, for the approval cards that follow (ADR-062 §6).
+    read_outside: Vec<&'static str>,
 }
 
 impl Grant {
@@ -333,7 +346,7 @@ impl Grant {
             permissions: self
                 .levels
                 .iter()
-                .filter(|(c, l)| **l != Level::Blocked && c.has_tools())
+                .filter(|(c, l)| **l != Level::Blocked && c.has_tools() && !c.is_connection())
                 .map(|(c, l)| GrantPermission {
                     capability: *c,
                     label: c.label().into(),
@@ -406,6 +419,8 @@ struct Inner {
     evidence: Evidence,
     /// The owner's terminals (Phase 12, ADR-031), apart from every worker's grant.
     terminals: terminals::Terminals,
+    /// The owner's connections (Phase 20): sign-ins and calls.
+    connections: Arc<crate::connections::Connections>,
 }
 
 /// Cheap to clone; clones share state.
@@ -655,6 +670,17 @@ impl Broker {
         config: BrokerConfig,
     ) -> Self {
         let supervisor_for_browser = supervisor.clone();
+        let opener: Arc<dyn crate::connections::Opener> = if config.connections.stand_in.is_some() {
+            Arc::new(crate::connections::FollowOpener)
+        } else {
+            Arc::new(crate::connections::SystemOpener::new(supervisor.clone()))
+        };
+        let connections = Arc::new(crate::connections::Connections::new(
+            guard.clone(),
+            Arc::clone(&store),
+            config.connections.clone(),
+            opener,
+        ));
         let this = Self {
             inner: Arc::new(Inner {
                 guard,
@@ -673,9 +699,17 @@ impl Broker {
                 control: ControlCenter::default(),
                 evidence: Evidence::new(config.screenshots_dir.clone()),
                 terminals: terminals::Terminals::default(),
+                connections,
                 config,
             }),
         };
+        // A connection's sign-in changed: hide the new one in text too.
+        let weak = Arc::downgrade(&this.inner);
+        this.inner.connections.set_changed(Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                Broker { inner }.refresh_redactor();
+            }
+        }));
         match this
             .ledger()
             .expire_pending_approvals("Plenipo stopped before you answered.", PLENIPO)
@@ -788,6 +822,7 @@ impl Broker {
                     .map(|v| (v, s.name.clone()))
             })
             .chain(self.server_secrets())
+            .chain(self.inner.connections.secrets())
             .collect();
         *self
             .inner
@@ -881,13 +916,16 @@ impl Broker {
             }
             (workspace, _) => (workspace, None, problem),
         };
-        let offered: Vec<&'static str> = TOOLS
+        let mut offered: Vec<&'static str> = TOOLS
             .iter()
             .filter(|t| {
                 permitted(t.capability) && (!t.capability.needs_folder() || workspace.is_some())
             })
             .map(|t| t.name)
             .collect();
+        // The connections this worker may use (Phase 20, ADR-062 §3–§4).
+        let offers = self.connection_offers(&config, &scope);
+        offered.extend(offers.tools.iter().copied());
         let position_id = workforce["positionId"].as_str().map(str::to_owned);
         let worker = position_id
             .as_deref()
@@ -964,7 +1002,7 @@ impl Broker {
         }
         let permissions: BTreeMap<String, Level> = levels
             .iter()
-            .filter(|(c, l)| **l != Level::Blocked && c.has_tools())
+            .filter(|(c, l)| **l != Level::Blocked && c.has_tools() && !c.is_connection())
             .map(|(c, l)| (c.id().to_owned(), *l))
             .collect();
         let folder = workspace.as_ref().map(|w| w.root().display().to_string());
@@ -987,18 +1025,22 @@ impl Broker {
                     "changesFiles": p.writer,
                 })),
                 "permissions": permissions,
+                "connections": offers.record,
                 "tools": offered,
                 "note": problem,
             }),
             ..NewEvent::default()
         })?;
-        let note = note_for(
+        let mut note = note_for(
             &scope,
             workspace.as_ref(),
             place.as_ref(),
             &levels,
             problem.as_deref(),
         );
+        if !offers.note.is_empty() {
+            note = format!("{note}\n{}", offers.note);
+        }
         let github = scope
             .project
             .as_ref()
@@ -1035,6 +1077,9 @@ impl Broker {
             desktop: DesktopUse::default(),
             ssh: Arc::default(),
             stop_reason: None,
+            connection_levels: offers.levels,
+            connection_note: offers.note,
+            read_outside: Vec::new(),
         };
         {
             let mut s = self.state();
@@ -1517,13 +1562,18 @@ impl Broker {
     pub fn instructions(&self, grant_id: &str) -> String {
         let s = self.state();
         s.grants.get(grant_id).map_or_else(String::new, |g| {
-            note_for(
+            let note = note_for(
                 &g.scope,
                 g.workspace.as_ref(),
                 g.place.as_ref(),
                 &g.levels,
                 None,
-            )
+            );
+            if g.connection_note.is_empty() {
+                note
+            } else {
+                format!("{note}\n{}", g.connection_note)
+            }
         })
     }
 
@@ -1542,7 +1592,14 @@ impl Broker {
             .iter()
             .filter_map(|name| tools::find(name))
             .map(|t| {
-                let level = g.levels.get(&t.capability).copied().unwrap_or_default();
+                let level = match connecting::connection_tool(t.name) {
+                    Some(c) => g
+                        .connection_levels
+                        .get(&(c.service.id().to_owned(), t.capability))
+                        .copied()
+                        .unwrap_or_default(),
+                    None => g.levels.get(&t.capability).copied().unwrap_or_default(),
+                };
                 let mut description = t.description.to_owned();
                 if t.capability.needs_folder() {
                     description.push_str(&format!(" Project folder: {folder}."));
@@ -1580,6 +1637,13 @@ impl Broker {
     }
 
     async fn act(&self, grant_id: &str, tool: &'static ToolDef, asked: Asked) -> CallResult {
+        // A connection's tool (Phase 20) is decided and carried out on its own path.
+        if let Some(conn_tool) = connecting::connection_tool(tool.name) {
+            return match asked {
+                Asked::Call(args) => self.act_connection(grant_id, conn_tool, args).await,
+                Asked::File(_) => CallResult::error("A connection's tool reads no files."),
+            };
+        }
         let context = {
             let s = self.state();
             s.grants.get(grant_id).map(|g| {
@@ -1804,6 +1868,7 @@ impl Broker {
                     (None, None) => ServerUse::Connect,
                 },
             }),
+            connection: None,
         };
         let mut decision = evaluate(
             &config,
@@ -2997,7 +3062,11 @@ fn note_for(
     }
     let mut allowed = Vec::new();
     for (c, l) in levels {
-        if *l == Level::Blocked || !c.has_tools() || (c.needs_folder() && workspace.is_none()) {
+        if *l == Level::Blocked
+            || !c.has_tools()
+            || c.is_connection()
+            || (c.needs_folder() && workspace.is_none())
+        {
             continue;
         }
         let what = doing(*c);
@@ -3019,7 +3088,7 @@ fn note_for(
     }
     let not: Vec<&str> = levels
         .iter()
-        .filter(|(c, l)| **l == Level::Blocked && c.has_tools())
+        .filter(|(c, l)| **l == Level::Blocked && c.has_tools() && !c.is_connection())
         .map(|(c, _)| doing(*c))
         .collect();
     if !not.is_empty() {

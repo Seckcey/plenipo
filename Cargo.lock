@@ -4138,6 +4138,7 @@ name = "plenipo-capabilities"
 version = "1.12.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "dunce",
  "enigo",
  "futures-util",
@@ -4171,6 +4172,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x11rb 0.14.0",
  "xcap",
+ "zip",
 ]
 
 [[package]]

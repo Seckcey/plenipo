@@ -28,8 +28,20 @@ name = "plenipo-test-sshd"
 path = "tests/support/sshd_main.rs"
 test = false
 
+[[bin]]
+# Test helper: stand-ins for the connections' services on 127.0.0.1 (Microsoft's sign-in and
+# Microsoft Graph, in part 20A), for the Phase 20 end-to-end tests (the Rust tests run the same
+# stand-ins in-process). Never shipped.
+name = "plenipo-test-services"
+path = "tests/support/services_main.rs"
+test = false
+
 [dependencies]
 base64 = "0.22"
+# Connections (Phase 20): times on this PC's clock for calendars, and a Word document's words
+# (the same versions and features the desktop app already uses).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 dunce = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 log = "0.4"
