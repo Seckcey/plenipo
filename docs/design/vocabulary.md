@@ -185,6 +185,9 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | log files (what Plenipo did, kept to five)                                  | log rotation, trace output                                             |
 | diagnostics file (one file to send when something went wrong)               | support bundle, diagnostics bundle, crash dump                         |
 | Reset to starting settings                                                  | factory reset, reset config                                            |
+| full instructions / short reminder (sent with a task)                       | full brief, system prompt, context re-injection                        |
+| shortened its memory (an AI tool, of a conversation)                        | compaction, context compaction                                         |
+| Plenipo's own text (its size, with a task)                                  | prompt overhead, token overhead                                        |
 
 ## Where technical words may stay
 
