@@ -295,7 +295,17 @@ fn before_change(file: &Resolved) -> Before {
             binary: false,
         };
     }
-    match fs::read(&file.abs) {
+    // Read at most one byte past the limit: a file that grew since is not read whole.
+    let read = fs::File::open(&file.abs).and_then(|f| {
+        let mut bytes = Vec::new();
+        f.take(MAX_WATCH_READ + 1).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    });
+    match read {
+        Ok(bytes) if bytes.len() as u64 > MAX_WATCH_READ => Before::Unshown {
+            bytes: bytes.len() as u64,
+            binary: false,
+        },
         Ok(bytes) if !is_binary(&bytes) => match String::from_utf8(bytes) {
             Ok(text) => Before::Text(text),
             Err(e) => Before::Unshown {
@@ -322,13 +332,7 @@ pub fn write_watched(file: &Resolved, content: &str) -> Result<(String, Written)
     }
     let before = before_change(file);
     let text = write(file, content)?;
-    Ok((
-        text,
-        Written {
-            before,
-            after: content.to_owned(),
-        },
-    ))
+    Ok((text, Written::new(before, content.to_owned())))
 }
 
 /// Edit `file`, and say what it was before and after (Watch, Phase 18).
@@ -338,20 +342,31 @@ pub fn edit_watched(
     new: &str,
     all: bool,
 ) -> Result<(String, Written), String> {
-    let before = fs::read_to_string(&file.abs).unwrap_or_default();
+    // A file too large for Watch is not read for it: its change shows as a summary.
+    let size = fs::metadata(&file.abs).map_or(0, |m| m.len());
+    let before = (size <= MAX_WATCH_READ)
+        .then(|| fs::read_to_string(&file.abs).ok())
+        .flatten();
     let text = edit(file, old, new, all)?;
-    let after = if all {
-        before.replace(old, new)
-    } else {
-        before.replacen(old, new, 1)
-    };
-    Ok((
-        text,
-        Written {
-            before: Before::Text(before),
-            after,
+    let written = match before {
+        Some(before) => {
+            let after = if all {
+                before.replace(old, new)
+            } else {
+                before.replacen(old, new, 1)
+            };
+            Written::new(Before::Text(before), after)
+        }
+        None => Written {
+            before: Before::Unshown {
+                bytes: size,
+                binary: false,
+            },
+            after: String::new(),
+            after_bytes: fs::metadata(&file.abs).map_or(size, |m| m.len()),
         },
-    ))
+    };
+    Ok((text, written))
 }
 
 pub fn write(file: &Resolved, content: &str) -> Out {

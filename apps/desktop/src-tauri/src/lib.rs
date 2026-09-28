@@ -3780,11 +3780,6 @@ mod ipc_boundary_tests {
                 "on the canvas",
             ),
             (
-                "place_tiles",
-                serde_json::json!({ "places": [{ "tileId": SESSION, "x": 0, "y": 0 }] }),
-                "not on the organization canvas",
-            ),
-            (
                 "retarget_oversight",
                 serde_json::json!({ "oversightId": SESSION, "overseerId": null, "targetId": null }),
                 "name the new overseer or the new team",
@@ -3921,10 +3916,13 @@ mod ipc_boundary_tests {
             serde_json::json!({ "places": [
                 { "tileId": "owner", "x": -20.5, "y": 10 },
                 { "tileId": auditor, "x": 900, "y": 300 },
+                // No longer on the canvas (Undo of Tidy up can bring one back): skipped.
+                { "tileId": SESSION, "x": 0, "y": 0 },
             ]}),
         ));
         let s: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
         assert_eq!(s.places.len(), 2);
+        assert!(s.places.iter().all(|p| p.tile_id != SESSION));
         assert_eq!(
             ledger.recent_events(1000).unwrap().len(),
             events_before,

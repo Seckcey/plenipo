@@ -194,10 +194,20 @@ pub fn preview_of(call: &str, tool: WriteTool, json: &str, done: bool) -> Option
         json
     };
     let fields = partial_fields(json);
+    // A file named twice is not shown at all: the AI tool uses the last, and the text must
+    // never show under another file's name.
+    let named = fields
+        .fields
+        .iter()
+        .filter(|(k, _, _)| matches!(k.as_str(), "path" | "file_path" | "filePath"))
+        .count();
     let path = fields
         .get(&["path", "file_path", "filePath"])
-        .filter(|(_, complete)| *complete)
+        .filter(|(_, complete)| *complete && named == 1)
         .map(|(p, _)| p.to_owned());
+    if named > 1 {
+        return None;
+    }
     let text = match tool {
         WriteTool::Write => fields.get(&["content", "text"]),
         WriteTool::Edit => fields.get(&["newText", "new_text", "new_string", "newString"]),
@@ -221,6 +231,14 @@ pub struct PreviewPace {
 }
 
 impl PreviewPace {
+    /// Whether a preview of `call` could be due now (its path not known yet, or long enough
+    /// since the last): before reading its arguments again.
+    pub fn ready(&self, call: &str) -> bool {
+        self.last
+            .get(call)
+            .is_none_or(|(at, had_path)| !had_path || at.elapsed() >= PREVIEW_EVERY)
+    }
+
     pub fn due(&mut self, preview: &WritePreview) -> bool {
         let now = Instant::now();
         let has_path = preview.path.is_some();
@@ -293,6 +311,9 @@ mod tests {
         let half = partial_fields(r#"{"text": "ok \ud83d"#);
         assert_eq!(half.get(&["text"]), Some(("ok ", false)));
         assert!(preview_of("c3", WriteTool::Write, "not json", false).is_none());
+        // A file named twice shows nothing (the AI tool would write to the last one).
+        let twice = r#"{"path": "src/ok.rs", "content": "text", "path": ".env"}"#;
+        assert!(preview_of("c4", WriteTool::Write, twice, false).is_none());
     }
 
     #[test]
@@ -305,9 +326,12 @@ mod tests {
             text: text.into(),
             done,
         };
+        assert!(pace.ready("c"), "nothing yet");
         assert!(pace.due(&p(None, "a", false)), "the first");
+        assert!(pace.ready("c"), "its file is not known yet");
         assert!(!pace.due(&p(None, "ab", false)), "too soon");
         assert!(pace.due(&p(Some("x"), "ab", false)), "the path is new");
+        assert!(!pace.ready("c"), "not read again this soon");
         assert!(!pace.due(&p(Some("x"), "abc", false)));
         assert!(pace.due(&p(Some("x"), "abcd", true)), "done");
         assert_eq!(

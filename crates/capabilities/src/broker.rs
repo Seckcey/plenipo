@@ -1597,6 +1597,8 @@ impl Broker {
             Action::Write { path, .. } | Action::Edit { path, .. } => Some(path.clone()),
             _ => None,
         };
+        // Who makes it, taken now: a step that ends while this call waits still settles it.
+        let watcher = asked_path.as_ref().and_then(|_| self.who(grant_id));
         let config = match self.inner.guard.config() {
             Ok(c) => c,
             Err(e) => {
@@ -1661,7 +1663,7 @@ impl Broker {
                     checks: Vec::new(),
                 };
                 if let Some(path) = &asked_path {
-                    self.watch_refused(grant_id, path, &decision.reason);
+                    self.watch_refused_named(watcher.as_ref(), path, &decision.reason);
                 }
                 return self.deny(
                     grant_id, &task_id, &worker, tool, &r.summary, "", &decision, None,
@@ -1799,7 +1801,7 @@ impl Broker {
                     _ => detail.clone(),
                 };
                 if let Some(path) = &watched {
-                    self.watch_refused(grant_id, path, &decision.reason);
+                    self.watch_refused(watcher.as_ref(), path, &decision.reason);
                 }
                 return self.deny(
                     grant_id,
@@ -1815,7 +1817,7 @@ impl Broker {
             Verdict::Ask => {
                 let minutes = config.options.approval_minutes;
                 if let Some(path) = &watched {
-                    self.watch_waiting(grant_id, path);
+                    self.watch_waiting(watcher.as_ref(), path);
                 }
                 match self
                     .ask(
@@ -1840,7 +1842,11 @@ impl Broker {
                             _ => "the owner did not answer in time",
                         };
                         if let Some(path) = &watched {
-                            self.watch_refused(grant_id, path, &format!("Not approved: {why}"));
+                            self.watch_refused(
+                                watcher.as_ref(),
+                                path,
+                                &format!("Not approved: {why}"),
+                            );
                         }
                         return CallResult::error(format!(
                             "Not done: {why} ({}). Do not try to do this another way; say in \
@@ -1850,19 +1856,26 @@ impl Broker {
                     }
                     Err(NotAsked::Limited(words)) => {
                         if let Some(path) = &watched {
-                            self.watch_not_saved(grant_id, path, &words);
+                            self.watch_not_saved(watcher.as_ref(), path, &words);
                         }
                         return CallResult::error(words);
                     }
                     Err(NotAsked::Failed(e)) => {
                         if let Some(path) = &watched {
-                            self.watch_not_saved(grant_id, path, &e.to_string());
+                            self.watch_not_saved(watcher.as_ref(), path, &e.to_string());
                         }
                         return CallResult::error(format!("Not done: {e}"));
                     }
                 }
                 // Revoked while waiting?
                 if self.state().grants.get(grant_id).is_none_or(|g| g.revoked) {
+                    if let Some(path) = &watched {
+                        self.watch_refused(
+                            watcher.as_ref(),
+                            path,
+                            "Not done: this worker's permissions were revoked",
+                        );
+                    }
                     return CallResult::error("Not done: this worker's permissions were revoked.");
                 }
                 // An approved website stays approved for the rest of this step (Phase 10).
@@ -1891,42 +1904,46 @@ impl Broker {
         let mut change = Value::Null;
         let (outcome, execution) = match prepared.work {
             // A file change Watch shows (Phase 18, ADR-055): the file before and after.
+            // The change and Watch's look at it (secrets hidden, lines compared) are done off the
+            // async threads: a large file takes a while.
             Work::Write(file, content) if watched.is_some() => {
                 let rel = file.rel.clone();
+                let broker = self.clone();
+                let who = watcher.clone();
                 let done = tokio::task::spawn_blocking(move || {
-                    crate::files::write_watched(&file, &content)
+                    let (text, written) = crate::files::write_watched(&file, &content)?;
+                    Ok((text, broker.watch_saved(who.as_ref(), &file.rel, written)))
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("the work stopped unexpectedly: {e}")));
                 match done {
-                    Ok((text, written)) => {
-                        change = self
-                            .watch_saved(grant_id, &rel, written)
-                            .unwrap_or_default();
+                    Ok((text, record)) => {
+                        change = record.unwrap_or_default();
                         (Ok(text), None)
                     }
                     Err(why) => {
-                        self.watch_not_saved(grant_id, &rel, &why);
+                        self.watch_not_saved(watcher.as_ref(), &rel, &why);
                         (Err(why), None)
                     }
                 }
             }
             Work::Edit(file, old, new, all) if watched.is_some() => {
                 let rel = file.rel.clone();
+                let broker = self.clone();
+                let who = watcher.clone();
                 let done = tokio::task::spawn_blocking(move || {
-                    crate::files::edit_watched(&file, &old, &new, all)
+                    let (text, written) = crate::files::edit_watched(&file, &old, &new, all)?;
+                    Ok((text, broker.watch_saved(who.as_ref(), &file.rel, written)))
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("the work stopped unexpectedly: {e}")));
                 match done {
-                    Ok((text, written)) => {
-                        change = self
-                            .watch_saved(grant_id, &rel, written)
-                            .unwrap_or_default();
+                    Ok((text, record)) => {
+                        change = record.unwrap_or_default();
                         (Ok(text), None)
                     }
                     Err(why) => {
-                        self.watch_not_saved(grant_id, &rel, &why);
+                        self.watch_not_saved(watcher.as_ref(), &rel, &why);
                         (Err(why), None)
                     }
                 }

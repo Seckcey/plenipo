@@ -403,7 +403,11 @@ impl Parser {
         let index = event.get("index").and_then(Value::as_u64);
         let mut parsed = Parsed::none();
         match (event.get("type").and_then(Value::as_str), index) {
+            // A new message: no block of an earlier one is still being written.
+            (Some("message_start" | "message_stop"), _) => self.writing.clear(),
             (Some("content_block_start"), Some(index)) => {
+                // Whatever this block is, an earlier block at the same place is over.
+                self.writing.remove(&index);
                 let block = event.get("content_block").unwrap_or(&Value::Null);
                 if block.get("type").and_then(Value::as_str) == Some("tool_use") {
                     if let Some(tool) = block
@@ -432,9 +436,13 @@ impl Parser {
                     if json.len() < MAX_PREVIEW_JSON {
                         json.push_str(piece);
                     }
-                    if let Some(p) = preview_of(id, *tool, json, false) {
-                        if self.pace.due(&p) {
-                            parsed.previews.push(p);
+                    // Read the arguments so far only when a preview may be due (reading them
+                    // on every piece would grow with the square of their size).
+                    if self.pace.ready(id) {
+                        if let Some(p) = preview_of(id, *tool, json, false) {
+                            if self.pace.due(&p) {
+                                parsed.previews.push(p);
+                            }
                         }
                     }
                 }
@@ -876,6 +884,25 @@ mod tests {
         assert_eq!(last.path.as_deref(), Some("src/a.rs"));
         assert_eq!(last.text, "fn main() {}\n");
         assert!(previews.iter().any(|x| !x.done && x.path.is_some()));
+
+        // A block left open (a stream cut off) is forgotten when a new message starts, so
+        // another tool's arguments at the same place never join it.
+        let message = json!({"type":"stream_event","event":{"type":"message_start"}});
+        let mut later = Vec::new();
+        for line in [
+            start(3, "mcp__plenipo__write_file"),
+            delta(3, "{\"path\": \"src/b.rs\", \"content\": \"x"),
+            message,
+            start(3, "mcp__plenipo__read_file"),
+            delta(3, "{\"path\": \"other.txt\"}"),
+            stop(3),
+        ] {
+            later.extend(p.line(&line.to_string(), false).previews);
+        }
+        assert!(
+            later.iter().all(|x| !x.text.contains("other") && !x.done),
+            "{later:#?}"
+        );
     }
 
     /// ADR-044 §2.5: Claude Code's "compacted" notice tells Plenipo it shortened its memory.

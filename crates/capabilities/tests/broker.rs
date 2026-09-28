@@ -2324,6 +2324,34 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
     let view = h.broker.watch_view(&h.developer);
     let paths: Vec<&str> = view.changes.iter().map(|c| c.path.as_str()).collect();
     assert_eq!(paths, vec!["big.txt", ".env", "src/app.txt", "src/new.txt"]);
+    assert!(!view.from_the_record, "every file is still in memory");
+
+    // After a restart, the record lists the saved files again (the refused one was never
+    // saved), for this agent only: its lead's own list has none of them.
+    let restarted = Broker::new(
+        h.guard.clone(),
+        Supervisor::new(
+            SupervisorConfig::default(),
+            ExecutablePolicy::default(),
+            ProfileRegistry::default(),
+            Arc::new(LedgerExecutionStore(Arc::clone(&h.ledger))),
+            Arc::new(NoOutput),
+            vec![],
+        ),
+        Arc::new(MemorySecretStore::default()),
+        BrokerConfig::new(PathBuf::from("relay"), h.dir.path().join("tickets-watch")),
+    );
+    let after = restarted.watch_view(&h.developer);
+    assert!(after.from_the_record);
+    let mut paths: Vec<&str> = after.changes.iter().map(|c| c.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, vec!["big.txt", "src/app.txt", "src/new.txt"]);
+    assert!(after
+        .changes
+        .iter()
+        .all(|c| c.state == WatchState::Saved
+            && c.position_id.as_deref() == Some(h.developer.as_str())));
+    assert!(restarted.watch_view(&h.supervisor).changes.is_empty());
 
     // An ACP write (Kimi) shows the same way.
     h.workforce

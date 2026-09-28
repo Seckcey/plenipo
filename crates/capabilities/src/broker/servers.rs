@@ -807,6 +807,10 @@ impl Broker {
         };
         let command_id = uuid::Uuid::new_v4().to_string();
         facts["commandId"] = json!(command_id);
+        // This command stops when the owner presses Stop in its watch tab, or when the whole
+        // step's server work stops. Stop reaches it from the moment its start is recorded.
+        let (stop_this, stopped) = watch::channel(None::<String>);
+        lock(&use_.commands).insert(command_id.clone(), stop_this.clone());
         self.event(
             Some(who.task_id),
             GUARD,
@@ -871,10 +875,6 @@ impl Broker {
             let log = Arc::clone(&log);
             move |stream: Stream, bytes: &[u8]| lock(&log).add(stream, bytes)
         };
-        // This command stops when the owner presses Stop in its watch tab, or when the whole
-        // step's server work stops.
-        let (stop_this, stopped) = watch::channel(None::<String>);
-        lock(&use_.commands).insert(command_id.clone(), stop_this.clone());
         let relay = {
             let mut step = use_.stop.subscribe();
             tokio::spawn(async move {

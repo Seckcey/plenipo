@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -22,6 +23,10 @@ pub const MAX_KEPT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CHANGES: usize = 5_000;
 /// What a change Plenipo will not show says.
 pub const HIDDEN: &str = "A change Plenipo will not show";
+/// The longest Watch spends comparing a file before and after (a very different large file
+/// would otherwise take minutes); past it, the marks are coarser and a large file's counts are
+/// left out.
+const DIFF_TIME: Duration = Duration::from_millis(300);
 
 /// Where a change stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -163,11 +168,25 @@ pub enum Before {
     },
 }
 
-/// A change Plenipo made: the file before and after (secrets hidden in both).
+/// A change Plenipo made: the file before and after (secrets hidden in both). A file too large
+/// to read for Watch has no text after (`after` is empty) and only its size (`after_bytes`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     pub before: Before,
     pub after: String,
+    pub after_bytes: u64,
+}
+
+impl Written {
+    /// A change whose text after is known.
+    pub fn new(before: Before, after: String) -> Self {
+        let after_bytes = after.len() as u64;
+        Self {
+            before,
+            after,
+            after_bytes,
+        }
+    }
 }
 
 /// The counts of a change: lines added and removed.
@@ -187,9 +206,41 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+/// Compare `before` and `after` line by line, within [`DIFF_TIME`]; whether it finished in time
+/// (past it, the comparison is coarser: correct, but it may mark more than changed).
+fn diff<'a>(before: &'a str, after: &'a str) -> (similar::TextDiff<'a, 'a, 'a, str>, bool) {
+    let started = Instant::now();
+    let diff = similar::TextDiff::configure()
+        .timeout(DIFF_TIME)
+        .diff_lines(before, after);
+    (diff, started.elapsed() < DIFF_TIME)
+}
+
+/// The counts of a change too large to show (`None` when they could not be worked out in time).
+fn counts_only(before: &str, after: &str) -> Option<Counts> {
+    let (diff, in_time) = diff(before, after);
+    if !in_time {
+        return None;
+    }
+    let mut counts = Counts::default();
+    for op in diff.ops() {
+        let (tag, old, new) = op.as_tag_tuple();
+        match tag {
+            similar::DiffTag::Equal => {}
+            similar::DiffTag::Insert => counts.added += count(new.len()),
+            similar::DiffTag::Delete => counts.removed += count(old.len()),
+            similar::DiffTag::Replace => {
+                counts.added += count(new.len());
+                counts.removed += count(old.len());
+            }
+        }
+    }
+    Some(counts)
+}
+
 /// Mark `after`'s lines against `before`: new, changed, and where lines went.
 fn mark(before: &str, after: &str) -> (Counts, Marked) {
-    let diff = similar::TextDiff::from_lines(before, after);
+    let (diff, _) = diff(before, after);
     let new_lines: Vec<&str> = diff
         .new_slices()
         .iter()
@@ -216,8 +267,14 @@ fn mark(before: &str, after: &str) -> (Counts, Marked) {
             similar::DiffTag::Replace => {
                 counts.added += count(new.len());
                 counts.removed += count(old.len());
-                for m in &mut marks[new.clone()] {
-                    *m = Some(LineMark::Changed);
+                // As many lines as were replaced are changed; any more are new.
+                let changed = old.len().min(new.len());
+                for (i, m) in marks[new.clone()].iter_mut().enumerate() {
+                    *m = Some(if i < changed {
+                        LineMark::Changed
+                    } else {
+                        LineMark::New
+                    });
                 }
                 if old.len() > new.len() {
                     removed_before[new.end] += count(old.len() - new.len());
@@ -235,7 +292,8 @@ fn mark(before: &str, after: &str) -> (Counts, Marked) {
             removed_before: removed_before[i],
         })
         .collect();
-    let bytes = after.len();
+    // What keeping the lines costs: their text and each line's own record.
+    let bytes = after.len() + lines.len() * std::mem::size_of::<WatchLine>();
     (
         counts,
         Marked {
@@ -260,6 +318,14 @@ fn plural(n: u32, one: &str) -> String {
     format!("{n} {one}{}", if n == 1 { "" } else { "s" })
 }
 
+/// A change shown as a summary, not its lines: a large file, or one Watch did not read before.
+fn large(written: &Written) -> bool {
+    written.after_bytes > MAX_SHOWN_BYTES as u64
+        || written.after.len() > MAX_SHOWN_BYTES
+        || written.after.lines().count() > MAX_SHOWN_LINES
+        || matches!(written.before, Before::Unshown { .. })
+}
+
 /// Why lines are not shown, when they are not.
 fn summary_of(written: &Written, counts: Option<Counts>) -> Option<String> {
     if let Before::Unshown {
@@ -269,13 +335,10 @@ fn summary_of(written: &Written, counts: Option<Counts>) -> Option<String> {
     {
         return Some(format!("Not a text file ({})", size(bytes)));
     }
-    let large = written.after.len() > MAX_SHOWN_BYTES
-        || written.after.lines().count() > MAX_SHOWN_LINES
-        || matches!(written.before, Before::Unshown { binary: false, .. });
-    if !large {
+    if !large(written) {
         return None;
     }
-    let mut s = format!("Large file: {}", size(written.after.len() as u64));
+    let mut s = format!("Large file: {}", size(written.after_bytes));
     if let Some(c) = counts {
         s.push_str(&format!(
             " · {} added, {} removed",
@@ -300,10 +363,26 @@ struct State {
     /// Oldest first.
     order: VecDeque<String>,
     kept_bytes: usize,
-    /// (conversation, path) → the change being written or waiting there.
-    open: HashMap<(String, String), String>,
-    /// A tool call's preview → its change.
+    /// (conversation, path) → the changes being written or waiting there, in the order the AI
+    /// tool began them (a save or a refusal settles the first).
+    open: HashMap<(String, String), VecDeque<String>>,
+    /// A tool call's preview → its change (kept after it settles, so a late preview for it is
+    /// dropped, not taken for a new change).
     previews: HashMap<(String, String), String>,
+}
+
+/// A change's time, never earlier than its last update's: an update that arrives late (it was
+/// sent just before a newer one) is then recognised as older and dropped by the window.
+fn touch(change: &mut WatchChange) {
+    change.at = plenipo_ledger::now_ms().max(change.at.saturating_add(1));
+}
+
+/// Set a change's text so far, keeping what is held in step.
+fn set_writing(kept_bytes: &mut usize, kept: &mut Kept, text: Option<String>) {
+    let before = kept.writing.as_ref().map_or(0, String::len);
+    let after = text.as_ref().map_or(0, String::len);
+    *kept_bytes = kept_bytes.saturating_sub(before) + after;
+    kept.writing = text;
 }
 
 /// The changes Watch shows, while Plenipo runs.
@@ -373,9 +452,8 @@ impl WatchHub {
         while state.order.len() > MAX_CHANGES {
             if let Some(id) = state.order.pop_front() {
                 if let Some(k) = state.changes.remove(&id) {
-                    if let Some(m) = k.marked {
-                        state.kept_bytes = state.kept_bytes.saturating_sub(m.bytes);
-                    }
+                    let held = k.marked.map_or(0, |m| m.bytes) + k.writing.map_or(0, |w| w.len());
+                    state.kept_bytes = state.kept_bytes.saturating_sub(held);
                 }
             }
         }
@@ -384,43 +462,69 @@ impl WatchHub {
     /// The open change in `who`'s conversation for `path` (being written or waiting), or a new
     /// one.
     fn take_open(state: &mut State, who: &Who, path: &str) -> Option<String> {
+        let key = (who.session_id.clone(), path.to_owned());
+        let queue = state.open.get_mut(&key)?;
+        let mut found = None;
+        while let Some(id) = queue.pop_front() {
+            if state.changes.contains_key(&id) {
+                found = Some(id);
+                break;
+            }
+        }
+        if queue.is_empty() {
+            state.open.remove(&key);
+        }
+        found
+    }
+
+    /// Add a change being written (or waiting) to `who`'s open ones for `path`.
+    fn open(state: &mut State, who: &Who, path: &str, id: &str) {
         state
             .open
-            .remove(&(who.session_id.clone(), path.to_owned()))
-            .filter(|id| state.changes.contains_key(id))
+            .entry((who.session_id.clone(), path.to_owned()))
+            .or_default()
+            .push_back(id.to_owned());
+    }
+
+    /// A new change, remembered.
+    fn remember(state: &mut State, who: &Who, change: WatchChange) -> String {
+        let id = change.id.clone();
+        state.order.push_back(id.clone());
+        state.changes.insert(
+            id.clone(),
+            Kept {
+                change,
+                marked: None,
+                writing: None,
+                session_id: who.session_id.clone(),
+            },
+        );
+        id
     }
 
     fn settle(&self, who: &Who, path: &str, apply: impl FnOnce(&mut Kept)) -> WatchChange {
         let change = {
             let mut state = self.state();
-            let id = Self::take_open(&mut state, who, path);
-            let id = match id {
+            let id = match Self::take_open(&mut state, who, path) {
                 Some(id) => id,
                 None => {
                     let change = Self::new_change(who, path, WatchState::Writing);
-                    let id = change.id.clone();
-                    state.order.push_back(id.clone());
-                    state.changes.insert(
-                        id.clone(),
-                        Kept {
-                            change,
-                            marked: None,
-                            writing: None,
-                            session_id: who.session_id.clone(),
-                        },
-                    );
-                    id
+                    Self::remember(&mut state, who, change)
                 }
             };
-            state.previews.retain(|_, v| *v != id);
-            let kept = state.changes.get_mut(&id).expect("just found or made");
+            let State {
+                changes,
+                kept_bytes,
+                ..
+            } = &mut *state;
+            let kept = changes.get_mut(&id).expect("just found or made");
             let before = kept.marked.as_ref().map_or(0, |m| m.bytes);
-            kept.writing = None;
-            kept.change.at = plenipo_ledger::now_ms();
+            set_writing(kept_bytes, kept, None);
+            touch(&mut kept.change);
             apply(kept);
             let after = kept.marked.as_ref().map_or(0, |m| m.bytes);
             let change = kept.change.clone();
-            state.kept_bytes = state.kept_bytes.saturating_sub(before) + after;
+            *kept_bytes = kept_bytes.saturating_sub(before) + after;
             Self::trim(&mut state);
             change
         };
@@ -431,16 +535,24 @@ impl WatchHub {
         change
     }
 
-    /// Plenipo saved a change to `path` (secrets already hidden in `written`).
-    pub fn saved(&self, who: &Who, path: &str, written: &Written) -> (WatchChange, Counts) {
+    /// Plenipo saved a change to `path` (secrets already hidden in `written`). Its lines are
+    /// marked only when they will be shown; the counts are `None` when they are not known (a
+    /// file Watch did not read before, or too different to compare in time).
+    pub fn saved(&self, who: &Who, path: &str, written: &Written) -> (WatchChange, Option<Counts>) {
         let shown_before = match &written.before {
             Before::Missing => Some(""),
             Before::Text(t) => Some(t.as_str()),
             Before::Unshown { .. } => None,
         };
-        let marked = shown_before.map(|b| mark(b, &written.after));
-        let counts = marked.as_ref().map(|(c, _)| *c).unwrap_or_default();
-        let summary = summary_of(written, marked.as_ref().map(|(c, _)| *c));
+        let (counts, marked) = match shown_before {
+            Some(b) if !large(written) => {
+                let (c, m) = mark(b, &written.after);
+                (Some(c), Some((c, m)))
+            }
+            Some(b) => (counts_only(b, &written.after), None),
+            None => (None, None),
+        };
+        let summary = summary_of(written, counts);
         let change = self.settle(who, path, |k| {
             k.change.state = WatchState::Saved;
             k.change.kind = Some(if written.before == Before::Missing {
@@ -448,8 +560,8 @@ impl WatchHub {
             } else {
                 ChangeKind::Changed
             });
-            k.change.added = counts.added;
-            k.change.removed = counts.removed;
+            k.change.added = counts.map_or(0, |c| c.added);
+            k.change.removed = counts.map_or(0, |c| c.removed);
             k.change.reason = None;
             k.change.summary = summary.clone();
             k.marked = match (summary.is_none(), marked) {
@@ -487,28 +599,22 @@ impl WatchHub {
         let change = {
             let mut state = self.state();
             let key = (who.session_id.clone(), path.to_owned());
-            let id = match state.open.get(&key).cloned() {
-                Some(id) if state.changes.contains_key(&id) => id,
-                _ => {
+            let first = state
+                .open
+                .get(&key)
+                .and_then(|q| q.iter().find(|id| state.changes.contains_key(*id)).cloned());
+            let id = match first {
+                Some(id) => id,
+                None => {
                     let change = Self::new_change(who, path, WatchState::Waiting);
-                    let id = change.id.clone();
-                    state.order.push_back(id.clone());
-                    state.changes.insert(
-                        id.clone(),
-                        Kept {
-                            change,
-                            marked: None,
-                            writing: None,
-                            session_id: who.session_id.clone(),
-                        },
-                    );
-                    state.open.insert(key, id.clone());
+                    let id = Self::remember(&mut state, who, change);
+                    Self::open(&mut state, who, path, &id);
                     id
                 }
             };
             let kept = state.changes.get_mut(&id).expect("just found or made");
             kept.change.state = WatchState::Waiting;
-            kept.change.at = plenipo_ledger::now_ms();
+            touch(&mut kept.change);
             (kept.change.clone(), kept.writing.clone())
         };
         self.tell(&WatchUpdate {
@@ -533,34 +639,22 @@ impl WatchHub {
         }
         let change = {
             let mut state = self.state();
-            let call_key = (who.session_id.clone(), call.to_owned());
-            let id = match state.previews.get(&call_key).cloned() {
-                Some(id) if state.changes.contains_key(&id) => id,
-                _ => {
-                    let change = Self::new_change(who, path, WatchState::Writing);
-                    let id = change.id.clone();
-                    state.order.push_back(id.clone());
-                    state.changes.insert(
-                        id.clone(),
-                        Kept {
-                            change,
-                            marked: None,
-                            writing: None,
-                            session_id: who.session_id.clone(),
-                        },
-                    );
-                    state.previews.insert(call_key, id.clone());
-                    state
-                        .open
-                        .insert((who.session_id.clone(), path.to_owned()), id.clone());
-                    id
-                }
+            let Some(id) = Self::preview_change(&mut state, who, call, path) else {
+                drop(state);
+                return self.late(who, call);
             };
-            let kept = state.changes.get_mut(&id).expect("just found or made");
-            kept.writing = Some(text.clone());
+            let State {
+                changes,
+                kept_bytes,
+                ..
+            } = &mut *state;
+            let kept = changes.get_mut(&id).expect("just found or made");
+            set_writing(kept_bytes, kept, Some(text.clone()));
             kept.change.summary = summary;
-            kept.change.at = plenipo_ledger::now_ms();
-            kept.change.clone()
+            touch(&mut kept.change);
+            let change = kept.change.clone();
+            Self::trim(&mut state);
+            change
         };
         self.tell(&WatchUpdate {
             change: change.clone(),
@@ -569,38 +663,53 @@ impl WatchHub {
         change
     }
 
+    /// The change a preview of tool call `call` belongs to, made when it is new; `None` when
+    /// that call's change has already ended (saved, refused, or not saved): a preview that
+    /// arrives after the save is dropped.
+    fn preview_change(state: &mut State, who: &Who, call: &str, path: &str) -> Option<String> {
+        let call_key = (who.session_id.clone(), call.to_owned());
+        if let Some(id) = state.previews.get(&call_key).cloned() {
+            if let Some(k) = state.changes.get(&id) {
+                return matches!(k.change.state, WatchState::Writing | WatchState::Waiting)
+                    .then_some(id);
+            }
+        }
+        let change = Self::new_change(who, path, WatchState::Writing);
+        let id = Self::remember(state, who, change);
+        state.previews.insert(call_key, id.clone());
+        Self::open(state, who, path, &id);
+        Some(id)
+    }
+
+    /// What a late preview returns: its change as it is (nothing is told).
+    fn late(&self, who: &Who, call: &str) -> WatchChange {
+        let state = self.state();
+        state
+            .previews
+            .get(&(who.session_id.clone(), call.to_owned()))
+            .and_then(|id| state.changes.get(id))
+            .map(|k| k.change.clone())
+            .expect("a late preview's change is kept")
+    }
+
     /// A change an AI tool is writing to a file Plenipo will not show (outside its working copy,
     /// a blocked file, or git's own files): its name only, never its text.
     pub fn hidden(&self, who: &Who, call: &str, path: &str) -> WatchChange {
         let change = {
             let mut state = self.state();
-            let call_key = (who.session_id.clone(), call.to_owned());
-            let id = match state.previews.get(&call_key).cloned() {
-                Some(id) if state.changes.contains_key(&id) => id,
-                _ => {
-                    let change = Self::new_change(who, path, WatchState::Writing);
-                    let id = change.id.clone();
-                    state.order.push_back(id.clone());
-                    state.changes.insert(
-                        id.clone(),
-                        Kept {
-                            change,
-                            marked: None,
-                            writing: None,
-                            session_id: who.session_id.clone(),
-                        },
-                    );
-                    state.previews.insert(call_key, id.clone());
-                    state
-                        .open
-                        .insert((who.session_id.clone(), path.to_owned()), id.clone());
-                    id
-                }
+            let Some(id) = Self::preview_change(&mut state, who, call, path) else {
+                drop(state);
+                return self.late(who, call);
             };
-            let kept = state.changes.get_mut(&id).expect("just found or made");
-            kept.writing = None;
+            let State {
+                changes,
+                kept_bytes,
+                ..
+            } = &mut *state;
+            let kept = changes.get_mut(&id).expect("just found or made");
+            set_writing(kept_bytes, kept, None);
             kept.change.summary = Some(HIDDEN.to_owned());
-            kept.change.at = plenipo_ledger::now_ms();
+            touch(&mut kept.change);
             kept.change.clone()
         };
         self.tell(&WatchUpdate {
@@ -610,28 +719,39 @@ impl WatchHub {
         change
     }
 
-    /// A step ended: changes still being written in its conversation were never sent.
+    /// A step ended: changes still being written in its conversation were never sent, and
+    /// those waiting for the owner's answer were not made.
     pub fn step_ended(&self, session_id: &str) {
         let ended: Vec<WatchChange> = {
             let mut state = self.state();
             let open: Vec<(String, String)> = state
                 .open
-                .iter()
-                .filter(|((s, _), _)| s == session_id)
-                .map(|(k, _)| k.clone())
+                .keys()
+                .filter(|(s, _)| s == session_id)
+                .cloned()
                 .collect();
             let mut out = Vec::new();
             for key in open {
-                if let Some(id) = state.open.remove(&key) {
-                    if let Some(k) = state.changes.get_mut(&id) {
-                        if k.change.state == WatchState::Writing {
-                            k.change.state = WatchState::NotSaved;
-                            k.change.reason =
-                                Some("the AI tool stopped before sending it".to_owned());
-                            k.writing = None;
-                            out.push(k.change.clone());
-                        }
-                    }
+                let ids = state.open.remove(&key).unwrap_or_default();
+                let State {
+                    changes,
+                    kept_bytes,
+                    ..
+                } = &mut *state;
+                for id in ids {
+                    let Some(k) = changes.get_mut(&id) else {
+                        continue;
+                    };
+                    let why = match k.change.state {
+                        WatchState::Writing => "the AI tool stopped before sending it",
+                        WatchState::Waiting => "the worker's step ended before you answered",
+                        _ => continue,
+                    };
+                    k.change.state = WatchState::NotSaved;
+                    k.change.reason = Some(why.to_owned());
+                    set_writing(kept_bytes, k, None);
+                    touch(&mut k.change);
+                    out.push(k.change.clone());
                 }
             }
             state.previews.retain(|(s, _), _| s != session_id);
@@ -717,10 +837,7 @@ mod tests {
     }
 
     fn text(before: &str, after: &str) -> Written {
-        Written {
-            before: Before::Text(before.into()),
-            after: after.into(),
-        }
+        Written::new(Before::Text(before.into()), after.into())
     }
 
     #[test]
@@ -736,6 +853,7 @@ mod tests {
         );
         assert_eq!(change.state, WatchState::Saved);
         assert_eq!(change.kind, Some(ChangeKind::Changed));
+        let counts = counts.unwrap();
         assert_eq!((counts.added, counts.removed), (3, 2));
         let file = hub.file(&change.id).unwrap();
         let marks: Vec<(&str, Option<LineMark>, u32)> = file
@@ -759,10 +877,7 @@ mod tests {
         let (created, _) = hub.saved(
             &who(),
             "src/new.rs",
-            &Written {
-                before: Before::Missing,
-                after: "a\nb\n".into(),
-            },
+            &Written::new(Before::Missing, "a\nb\n".into()),
         );
         assert_eq!(created.kind, Some(ChangeKind::Created));
         assert!(hub
@@ -788,13 +903,13 @@ mod tests {
         let (binary, _) = hub.saved(
             &who(),
             "logo.png",
-            &Written {
-                before: Before::Unshown {
+            &Written::new(
+                Before::Unshown {
                     bytes: 34 * 1024,
                     binary: true,
                 },
-                after: "now text".into(),
-            },
+                "now text".into(),
+            ),
         );
         assert_eq!(binary.summary.as_deref(), Some("Not a text file (34 KB)"));
         assert!(hub.file(&binary.id).unwrap().lines.is_empty());
@@ -868,5 +983,97 @@ mod tests {
         let view = hub.view("p1").unwrap();
         assert_eq!(view.changes.len(), 1);
         assert!(hub.view("nobody").is_none());
+    }
+
+    #[test]
+    fn a_very_different_large_file_is_summed_up_quickly() {
+        // Two unrelated files of short lines: comparing them in full would take minutes.
+        let before: String = (0..60_000).map(|i| format!("a{i}\n")).collect();
+        let after: String = (0..60_000).map(|i| format!("b{i}\n")).collect();
+        let hub = WatchHub::default();
+        let started = Instant::now();
+        let (change, _) = hub.saved(&who(), "data.txt", &text(&before, &after));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(change.summary.unwrap().starts_with("Large file: "));
+        assert!(hub.file(&change.id).unwrap().lines.is_empty());
+    }
+
+    #[test]
+    fn a_grown_block_marks_its_extra_lines_new() {
+        let hub = WatchHub::default();
+        let (change, _) = hub.saved(&who(), "a.txt", &text("x\na\ny\n", "x\nA\nB\nC\ny\n"));
+        let marks: Vec<_> = hub
+            .file(&change.id)
+            .unwrap()
+            .lines
+            .iter()
+            .map(|l| l.mark)
+            .collect();
+        assert_eq!(
+            marks,
+            vec![
+                None,
+                Some(LineMark::Changed),
+                Some(LineMark::New),
+                Some(LineMark::New),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn a_change_waiting_for_an_answer_ends_with_its_step() {
+        let hub = WatchHub::default();
+        let w = who();
+        hub.writing(&w, "call-1", "src/a.rs", "text\n");
+        let waiting = hub.waiting(&w, "src/a.rs");
+        assert_eq!(waiting.state, WatchState::Waiting);
+        hub.step_ended(&w.session_id);
+        let ended = hub.file(&waiting.id).unwrap();
+        assert_eq!(ended.change.state, WatchState::NotSaved);
+        assert_eq!(
+            ended.change.reason.as_deref(),
+            Some("the worker's step ended before you answered")
+        );
+        assert!(ended.writing.is_none(), "its text is not kept");
+    }
+
+    #[test]
+    fn two_changes_to_one_file_are_settled_in_order_and_a_late_preview_is_dropped() {
+        let hub = WatchHub::default();
+        let seen: Arc<Mutex<Vec<WatchUpdate>>> = Arc::default();
+        let log = Arc::clone(&seen);
+        hub.set_listener(Arc::new(move |u| log.lock().unwrap().push(u.clone())));
+        let w = who();
+        let a = hub.writing(&w, "call-a", "f.rs", "first\n");
+        let b = hub.writing(&w, "call-b", "f.rs", "second\n");
+        assert_ne!(a.id, b.id);
+        // The first save settles the first change, the second the second.
+        let (saved_a, _) = hub.saved(&w, "f.rs", &text("", "first\n"));
+        assert_eq!(saved_a.id, a.id);
+        let (saved_b, _) = hub.saved(&w, "f.rs", &text("first\n", "second\n"));
+        assert_eq!(saved_b.id, b.id);
+        // A preview that arrives after its change was saved changes nothing.
+        let count = seen.lock().unwrap().len();
+        let late = hub.writing(&w, "call-a", "f.rs", "first\n");
+        assert_eq!(late.id, a.id);
+        assert_eq!(late.state, WatchState::Saved);
+        assert_eq!(seen.lock().unwrap().len(), count, "nothing told");
+        hub.step_ended(&w.session_id);
+        assert_eq!(hub.file(&a.id).unwrap().change.state, WatchState::Saved);
+        assert_eq!(hub.file(&b.id).unwrap().change.state, WatchState::Saved);
+        // Each update of a change is later than the one before, so a late one is recognised.
+        let times: Vec<u64> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| u.change.id == a.id)
+            .map(|u| u.change.at)
+            .collect();
+        assert!(times.windows(2).all(|t| t[1] > t[0]), "{times:?}");
     }
 }
