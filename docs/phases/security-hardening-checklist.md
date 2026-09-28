@@ -1,6 +1,6 @@
 # Security hardening (2026-09-27 sweep) — Checklist
 
-**Status:** Done. All twenty-five findings are on `main`: Group A (the four High findings) through PR #69; Group B (the eleven Medium findings) through PR #74 (B1–B6), PR #76 (B7–B9), PR #78 (B10), and PR #84 (B11); Group C (the ten Low findings) through PR #86. What is left is the owner's: the Windows check below, and closing each advisory.
+**Status:** Done. All twenty-five findings are on `main`: Group A (the four High findings) through PR #69; Group B (the eleven Medium findings) through PR #74 (B1–B6), PR #76 (B7–B9), PR #78 (B10), and PR #84 (B11); Group C (the ten Low findings) through PR #86. The owner's Windows check is done. What is left is closing each advisory.
 
 The sweep's findings live in the repository's private security advisories (GHSA-m2rr-m89h-jp56,
 GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B; GHSA-c86x-xcxc-pgf6 for Group C). This checklist
@@ -200,7 +200,7 @@ blocking notes were fixed and the sensible smaller ones carried.
       with raw HTML), and the test fails when the terminal stops needing them, so the policy can
       drop them. Drawing the terminal with its WebGL renderer would remove most of the need; it
       falls back to the same styles when WebGL is lost, so it is a follow-up, not this fix.
-- [ ] Owner's check on Windows: the terminal (including colored output, for example Claude
+- [x] Owner's check on Windows: the terminal (including colored output, for example Claude
       Code's diffs) and every page look right in the pull request's **Windows** build (the
       policy change).
 
