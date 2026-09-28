@@ -27,8 +27,30 @@ function page() {
   function element(id) {
     if (!elements.has(id)) {
       elements.set(id, {
-        hidden: id === "demo-root" || id === "stop-demo",
-        disabled: false,
+        _hidden: id === "demo-root" || id === "stop-demo",
+        get hidden() {
+          return this._hidden;
+        },
+        set hidden(value) {
+          this._hidden = value;
+          // Browsers blur a focused control when it or its ancestor is hidden.
+          if (
+            value &&
+            (document.activeElement === this ||
+              (id === "demo-fallback" && document.activeElement === element("start-demo")))
+          )
+            document.activeElement = element("body");
+        },
+        set disabled(value) {
+          if (value && document.activeElement === this) document.activeElement = element("body");
+        },
+        attributes: {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
+        getAttribute(name) {
+          return this.attributes[name];
+        },
         dataset: {},
         parentElement: { dataset: {} },
         listeners: {},
@@ -98,7 +120,7 @@ function page() {
 test("page entry starts one load without a click and preserves focus when ready", async () => {
   const p = page();
   assert.equal(p.requests.length, 1);
-  assert.equal(p.element("start-demo").disabled, true);
+  assert.equal(p.element("start-demo").getAttribute("aria-disabled"), "true");
   assert.equal(p.element("demo-fallback").hidden, false);
   // Even a duplicate event cannot mount a second root during the pending load.
   p.element("start-demo").listeners.click();
@@ -120,6 +142,7 @@ test("returning to static stays there until explicit reactivation", async () => 
   assert.equal(p.element("demo-fallback").hidden, false);
   assert.equal(p.element("demo-root").hidden, true);
   p.click("start-demo");
+  assert.equal(p.document.activeElement, p.element("start-demo"));
   await p.complete();
   assert.equal(p.mounts(), 2);
   assert.equal(p.document.activeElement, p.element('[role="tab"]'));
@@ -130,7 +153,7 @@ test("failed automatic import retains the readable fallback and retries a fresh 
   p.requests[0].reject(new Error("network unavailable"));
   await settle();
   assert.equal(p.element("demo-fallback").hidden, false);
-  assert.equal(p.element("start-demo").disabled, false);
+  assert.equal(p.element("start-demo").getAttribute("aria-disabled"), "false");
   assert.match(p.element("demo-load-status").textContent, /could not load/);
   p.click("start-demo");
   assert.match(p.requests[1].url, /demo-test\.js\?retry=1$/);
@@ -153,7 +176,7 @@ test("render failure restores the static controls and permits a clean new root",
   await p.complete();
   p.failRender();
   assert.equal(p.element("demo-fallback").hidden, false);
-  assert.equal(p.element("start-demo").disabled, false);
+  assert.equal(p.element("start-demo").getAttribute("aria-disabled"), "false");
   p.click("start-demo");
   await p.complete();
   assert.equal(p.unmounts(), 1);

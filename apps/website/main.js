@@ -101,7 +101,7 @@ const showFallback = (message) => {
   demoRoot.hidden = true;
   fallback.hidden = false;
   stopDemo.hidden = true;
-  startDemo.disabled = false;
+  startDemo.setAttribute("aria-disabled", "false");
   startDemo.textContent = "Explore the interactive demo";
   loadStatus.textContent = message;
 };
@@ -110,7 +110,8 @@ const openDemo = async (focus = false) => {
   demoState = "loading";
   // Reserve the expanded scene before a slow bundle arrives.
   fallback.parentElement.dataset.demoOpen = "true";
-  startDemo.disabled = true;
+  // Keep the control focusable while loading; demoState blocks repeat activation.
+  startDemo.setAttribute("aria-disabled", "true");
   startDemo.textContent = "Opening the sample team…";
   loadStatus.textContent = "Loading the interactive sample. No AI tools are being connected.";
   try {
@@ -135,10 +136,10 @@ const openDemo = async (focus = false) => {
       demoRoot,
       () => {
         demoState = "ready";
+        const focusDemo = focus && document.activeElement === startDemo;
         fallback.hidden = true;
         stopDemo.hidden = false;
-        if (focus && document.activeElement === startDemo)
-          demoRoot.querySelector('[role="tab"]')?.focus({ preventScroll: true });
+        if (focusDemo) demoRoot.querySelector('[role="tab"]')?.focus({ preventScroll: true });
       },
       () =>
         showFallback(
