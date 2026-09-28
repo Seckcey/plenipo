@@ -11,6 +11,7 @@ import {
   PictureError,
   STILL_TOO_BIG,
   TOO_MANY_PIXELS,
+  WINDOW_PAINTER,
   base64Bytes,
   isPictureType,
   pngBase64,
@@ -195,5 +196,27 @@ describe("shrinkToPng", () => {
       },
     };
     await expect(shrinkToPng(png(), noCanvas)).rejects.toBeInstanceOf(PictureError);
+  });
+
+  it("measures the picture from a data: address, the only kind the window's content policy allows", async () => {
+    const loaded: string[] = [];
+    class FakeImage {
+      naturalWidth = 640;
+      naturalHeight = 480;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(address: string) {
+        loaded.push(address);
+        queueMicrotask(() => (address.startsWith("data:") ? this.onload?.() : this.onerror?.()));
+      }
+    }
+    vi.stubGlobal("Image", FakeImage);
+    try {
+      const file = new File([new Uint8Array([137, 80, 78, 71])], "me.png", { type: "image/png" });
+      await expect(WINDOW_PAINTER.measure(file)).resolves.toEqual({ width: 640, height: 480 });
+      expect(loaded).toEqual(["data:image/png;base64,iVBORw=="]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

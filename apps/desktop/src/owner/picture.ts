@@ -107,17 +107,33 @@ export interface Painter {
 }
 
 /**
+ * The file as a `data:` address. Plenipo's pages may show pictures only from themselves or from
+ * `data:` addresses (the content policy in `tauri.conf.json`), so never a `blob:` one.
+ */
+function pictureAddress(file: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("The picture could not be read."));
+    reader.onerror = () => reject(new Error("The picture could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
  * The picture's size, from an `<img>` that loads it but is never drawn (so the window does not
  * make the full-size picture for it).
  */
-function measureInWindow(file: Blob): Promise<{ width: number; height: number }> {
-  const url = URL.createObjectURL(file);
+async function measureInWindow(file: Blob): Promise<{ width: number; height: number }> {
+  const address = await pictureAddress(file);
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
     image.onerror = () => reject(new Error("The picture could not be read."));
-    image.src = url;
-  }).finally(() => URL.revokeObjectURL(url));
+    image.src = address;
+  });
 }
 
 function fromBitmap(bitmap: ImageBitmap): DecodedPicture {
@@ -145,21 +161,15 @@ async function decodeInWindow(file: Blob, crop: Crop, side: number): Promise<Dec
       return fromBitmap(await createImageBitmap(file));
     }
   }
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    return {
-      source: image,
-      width: image.naturalWidth,
-      height: image.naturalHeight,
-      close: () => URL.revokeObjectURL(url),
-    };
-  } catch (error) {
-    URL.revokeObjectURL(url);
-    throw error;
-  }
+  const image = new Image();
+  image.src = await pictureAddress(file);
+  await image.decode();
+  return {
+    source: image,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    close: () => undefined,
+  };
 }
 
 function drawInWindow(picture: DecodedPicture, crop: Crop, side: number): string {
