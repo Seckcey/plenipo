@@ -147,6 +147,9 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           # The updater key's public half, built into Plenipo (ADR-038).
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          # 8 West's Microsoft app ID (ADR-065 §6): public, not a secret. Until the owner adds the
+          # variable, Plenipo says it has no app ID yet (an organization can use its own).
+          PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -169,8 +172,9 @@ jobs:
       - name: Build release app and NSIS installer, unsigned (dry run)
         if: inputs.dry_run
         env:
-          # Not a secret; built in so a dry-run installer is otherwise the same as a release one.
+          # Not secrets; built in so a dry-run installer is otherwise the same as a release one.
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run

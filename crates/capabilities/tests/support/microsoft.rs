@@ -7,7 +7,7 @@
 //!
 //! Test controls, over HTTP for the end-to-end tests: `GET /_control/world` (what was sent,
 //! every request, and every token issued) and `POST /_control/knobs` (`adminNeeded`,
-//! `refuseRefresh`, `throttleNext`).
+//! `refuseRefresh`, `throttleNext`, `slowSignInMs`).
 
 #![allow(dead_code)]
 
@@ -51,6 +51,9 @@ pub struct World {
     pub refuse_refresh: bool,
     /// Answer "too many requests" to the next N Graph calls (with a 1-second wait).
     pub throttle_next: u32,
+    /// Wait this long before answering the sign-in page (the end-to-end tests photograph the
+    /// card while it waits, and cancel it).
+    pub slow_sign_in_ms: u64,
     pub codes: HashMap<String, Code>,
     pub access: Vec<String>,
     pub refresh: Vec<String>,
@@ -417,6 +420,10 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
     let Some(req) = read_request(&mut stream).await else {
         return Ok(());
     };
+    let slow = world.lock().unwrap().slow_sign_in_ms;
+    if slow > 0 && req.path.ends_with("/oauth2/v2.0/authorize") {
+        tokio::time::sleep(std::time::Duration::from_millis(slow)).await;
+    }
     let resp = route(&req, &world);
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
@@ -468,6 +475,9 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 }
                 if let Some(b) = v["refuseRefresh"].as_bool() {
                     w.refuse_refresh = b;
+                }
+                if let Some(ms) = v["slowSignInMs"].as_u64() {
+                    w.slow_sign_in_ms = ms.min(120_000);
                 }
                 if let Some(n) = v["throttleNext"].as_u64() {
                     w.throttle_next = n as u32;
