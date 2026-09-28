@@ -220,8 +220,11 @@ Edge that comes with Windows 11, or Google Chrome if you prefer it. Nothing to i
 - **Screenshots** are kept in `%LOCALAPPDATA%\com.eightwest.plenipo\screenshots`. They can show
   whatever was on the page or screen; delete a task's folder when you no longer need it.
 - **The mouse and keyboard:** no built-in role gets them. Give the **Screen, mouse, and keyboard**
-  permission set to a role of your own only when no API, program, or website will do; taking control asks
-  you every time. Windows' own administrator prompts (UAC) cannot be clicked by any program,
+  permission set to a role of your own only when no API, program, or website will do. Taking
+  control asks you every time, and so does each click, typing, and key press after it. Workers
+  can press only ordinary keys, and Ctrl, Shift, or Alt with letters, digits, and the moving
+  keys: never the Windows key or the shortcuts that close or switch programs or open Windows'
+  own screens (Alt+F4, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc, Ctrl+W, Ctrl+Alt+Delete). Windows' own administrator prompts (UAC) cannot be clicked by any program,
   which is as it should be.
 - **Stop:** **Stop all** on the sign in the app, **Stop all browser, desktop, and server work**
   in the tray menu, or **Stop** on the small window shown while a worker has the mouse and

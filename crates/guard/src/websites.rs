@@ -2,15 +2,27 @@
 //! browser without asking, the ones they may never open, and what happens with every other
 //! website (ask the owner, or blocked). Addresses on this computer or the local network open
 //! only when a list allows them by name.
+//!
+//! It also says how a web address is recorded ([`safe_address`]): its website and page, with
+//! what follows `?` or `#` left out (only the names of a query's fields are kept).
 
+use std::borrow::Cow;
 use std::net::IpAddr;
+use std::sync::OnceLock;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Most entries in each list, and the longest entry.
 pub const MAX_SITES: usize = 300;
 pub const MAX_SITE_CHARS: usize = 260;
+/// Most characters of a recorded address ([`safe_address`]).
+pub const MAX_ADDRESS_CHARS: usize = 200;
+/// Longest query field name kept in a recorded address; a longer or odd one shows as `…`.
+const MAX_FIELD_NAME_CHARS: usize = 24;
+/// Most digits in a kept field name: a name full of digits is more likely a key than a name.
+const MAX_FIELD_NAME_DIGITS: usize = 4;
 
 /// What happens with a website on neither list.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -147,6 +159,118 @@ impl Site {
     }
 }
 
+/// A web address as Plenipo records it (the Ledger, approval cards, the control center,
+/// screenshot records) and shows it to the owner: its website and page. Search terms, sign-in
+/// tokens, session keys, and the like belong to the page and the moment, not to a record kept
+/// for good, so what follows `?` keeps only its fields' names (`?to=…&amount=…`: the owner still
+/// sees what kind of data the address carries), what follows `#` shows as `#…`, a page path's
+/// own settings (`;jsessionid=…`) keep only their name, and a user name or password is
+/// dropped. The address is cut as written, never rebuilt, so the secrets filter still finds a
+/// stored secret in what is left. Cut short at [`MAX_ADDRESS_CHARS`].
+pub fn safe_address(address: &str) -> String {
+    let address = address.trim();
+    // Only what comes before `?` or `#` can name the scheme; an address with none (as a worker
+    // may type one) starts with its website, which may carry a user name and password too.
+    let before_query = &address[..address.find(['?', '#']).unwrap_or(address.len())];
+    let scheme = before_query.find("://").filter(|&i| {
+        let s = &address[..i];
+        s.starts_with(|c: char| c.is_ascii_alphabetic())
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+    });
+    let (head, after) = match scheme {
+        Some(i) => (&address[..i + 3], &address[i + 3..]),
+        None if before_query.contains('@') => ("", address),
+        None => ("", ""),
+    };
+    let (mut kept, rest) = if head.is_empty() && after.is_empty() {
+        (String::new(), address)
+    } else {
+        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
+        let authority = &after[..end];
+        let host = authority
+            .rsplit_once('@')
+            .map_or(authority, |(_, host)| host);
+        (format!("{head}{host}"), &after[end..])
+    };
+    let (rest, fragment) = rest.split_once('#').unwrap_or((rest, ""));
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let path: Vec<String> = path
+        .split('/')
+        .map(|part| match part.split_once(';') {
+            Some((name, _)) => format!("{name};…"),
+            None => part.to_owned(),
+        })
+        .collect();
+    kept.push_str(&path.join("/"));
+    let fields: Vec<String> = query
+        .split('&')
+        .filter(|field| !field.is_empty())
+        .map(|field| {
+            // A name is kept only for a field with a value: a bare token (`?dG9r…=`) is not one.
+            let (name, value) = field.split_once('=').unwrap_or(("", ""));
+            let plain = !name.is_empty()
+                && !value.is_empty()
+                && name.chars().count() <= MAX_FIELD_NAME_CHARS
+                && name.chars().filter(char::is_ascii_digit).count() <= MAX_FIELD_NAME_DIGITS
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_-.[]".contains(c));
+            if plain {
+                format!("{name}=…")
+            } else {
+                "…".to_owned()
+            }
+        })
+        .collect();
+    if !fields.is_empty() {
+        kept.push('?');
+        kept.push_str(&fields.join("&"));
+    }
+    if !fragment.is_empty() {
+        kept.push_str("#…");
+    }
+    if kept.chars().count() <= MAX_ADDRESS_CHARS {
+        return kept;
+    }
+    let mut cut: String = kept.chars().take(MAX_ADDRESS_CHARS - 1).collect();
+    cut.push('…');
+    cut
+}
+
+/// `text` with every web address in it (any `scheme://…`, up to a space or a quote) as
+/// [`safe_address`] records it. Sentence marks right after an address, and a closing bracket
+/// the address did not open, stay in the text.
+pub fn safe_addresses(text: &str) -> Cow<'_, str> {
+    static ADDRESS: OnceLock<Regex> = OnceLock::new();
+    let re = ADDRESS.get_or_init(|| {
+        Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>`]+"#).expect("valid address pattern")
+    });
+    if !re.is_match(text) {
+        return Cow::Borrowed(text);
+    }
+    re.replace_all(text, |caps: &regex::Captures<'_>| {
+        let found = &caps[0];
+        let mut address = found;
+        loop {
+            let unopened = |open: char, close: char| {
+                address.ends_with(close)
+                    && address.matches(open).count() < address.matches(close).count()
+            };
+            if address.ends_with(['.', ',', ';', ':', '!', '?'])
+                || unopened('(', ')')
+                || unopened('[', ']')
+                || unopened('{', '}')
+            {
+                address = &address[..address.len() - 1];
+            } else {
+                break;
+            }
+        }
+        format!("{}{}", safe_address(address), &found[address.len()..])
+    })
+}
+
 /// One list entry, read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
@@ -267,6 +391,92 @@ pub fn clean(rules: &WebsiteRules) -> Result<WebsiteRules, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A recorded address keeps the website and its page: of what follows `?`, only its fields'
+    /// names; of what follows `#`, only a mark; never a user name or password. Addresses inside
+    /// a sentence are cleaned the same way, whatever characters their query holds.
+    #[test]
+    fn a_recorded_address_keeps_the_page_and_drops_the_rest() {
+        for (address, recorded) in [
+            (
+                "https://shop.test/cart?session=abc123&q=mug#top",
+                "https://shop.test/cart?session=…&q=…#…",
+            ),
+            (
+                "http://mail.test:8080/inbox/?token=xyz",
+                "http://mail.test:8080/inbox/?token=…",
+            ),
+            ("https://shop.test", "https://shop.test"),
+            ("https://shop.test/a?", "https://shop.test/a"),
+            (
+                "https://user:pa55word@shop.test/private?x=1",
+                "https://shop.test/private?x=…",
+            ),
+            (
+                "https://app.test/items?page[size]=10&access_token=abc",
+                "https://app.test/items?page[size]=…&access_token=…",
+            ),
+            (
+                "https://app.test/cb?eyJhbGciOiJIUzI1NiJ9",
+                "https://app.test/cb?…",
+            ),
+            (
+                "https://shop.test/cart;jsessionid=ABC123/view?x=1",
+                "https://shop.test/cart;…/view?x=…",
+            ),
+            (
+                "http://[::1]:3000/cb?code=q1w2",
+                "http://[::1]:3000/cb?code=…",
+            ),
+            ("about:blank", "about:blank"),
+            (
+                "javascript:alert(document.cookie)#x",
+                "javascript:alert(document.cookie)#…",
+            ),
+            ("not a url?secret=1", "not a url?secret=…"),
+            // As a worker may type it: no scheme, a user name and password, a query.
+            ("admin:hunter2@192.168.1.1/", "192.168.1.1/"),
+            (
+                "login.test/cb?next=https://app.test/&code=S3CR3T",
+                "login.test/cb?next=…&code=…",
+            ),
+            // A field name that looks like a key is not kept.
+            (
+                "https://x.test/v?dG9rZW4xMjM0NTY3ODk=",
+                "https://x.test/v?…",
+            ),
+            (
+                "https://x.test/v?5f2b8c90d1e3a4b6c7d8e9f0a1b2c3d4=1",
+                "https://x.test/v?…",
+            ),
+            (
+                "https://x.test/v?utm_campaign=fall&page2=3",
+                "https://x.test/v?utm_campaign=…&page2=…",
+            ),
+        ] {
+            assert_eq!(safe_address(address), recorded, "{address}");
+        }
+        let long = format!("https://shop.test/{}", "a".repeat(400));
+        let cut = safe_address(&long);
+        assert_eq!(cut.chars().count(), MAX_ADDRESS_CHARS);
+        assert!(cut.ends_with('…'));
+        assert_eq!(
+            safe_addresses(
+                "Opened \"Cart\" (https://shop.test/cart?session=abc123). Then \
+                 http://mail.test/in?token=xyz, https://shop.test/plain, \
+                 https://app.test/items?page[size]=10&access_token=abc, \
+                 ftp://files.test/get?key=k3y and https://wiki.test/Foo_(bar)?id=9."
+            ),
+            "Opened \"Cart\" (https://shop.test/cart?session=…). Then \
+             http://mail.test/in?token=…, https://shop.test/plain, \
+             https://app.test/items?page[size]=…&access_token=…, \
+             ftp://files.test/get?key=… and https://wiki.test/Foo_(bar)?id=…."
+        );
+        assert!(matches!(
+            safe_addresses("no address here"),
+            Cow::Borrowed(_)
+        ));
+    }
 
     fn rules(allowed: &[&str], blocked: &[&str], others: OtherSites) -> WebsiteRules {
         WebsiteRules {

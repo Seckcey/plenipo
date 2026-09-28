@@ -35,12 +35,24 @@ const EXPORT_TABLES: [&str; 18] = [
     "saved_agents",
 ];
 
-/// Write a consistent snapshot of `conn` to `dir/<prefix>-<timestamp>.db` and verify it.
-pub(crate) fn snapshot(conn: &Connection, dir: &Path, prefix: &str) -> Result<BackupInfo> {
+/// Write a consistent snapshot of `conn` to `dir/<prefix>-<timestamp>.db` and verify it. The
+/// backup is the owner's alone; so is `dir` when it is the Ledger's own backups folder
+/// (`own_folder`), never a folder someone chose.
+pub(crate) fn snapshot(
+    conn: &Connection,
+    dir: &Path,
+    prefix: &str,
+    own_folder: bool,
+) -> Result<BackupInfo> {
     std::fs::create_dir_all(dir)?;
+    if own_folder {
+        let _ = crate::owner_only::folder(dir);
+    }
     let created_at = crate::now_ms();
     let path = unique_path(dir, &format!("{prefix}-{created_at}"), "db");
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy()])?;
+    // A backup is the whole activity history: the owner's alone, like the Ledger itself.
+    let _ = crate::owner_only::file(&path);
     let verified = verify(&path);
     Ok(BackupInfo {
         size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
@@ -170,23 +182,27 @@ impl Ledger {
         Ok(report)
     }
 
-    /// Consistent, verified snapshot into `dir` (default: next to the database).
-    /// Keeps the newest [`KEEP_BACKUPS`] backups in that directory.
+    /// Consistent, verified snapshot into `dir` (default: next to the database, a folder made
+    /// the owner's alone). Keeps the newest [`KEEP_BACKUPS`] backups in that directory.
     pub fn backup(&self, dir: Option<&Path>) -> Result<BackupInfo> {
+        let own_folder = dir.is_none();
         let dir = dir
             .map(Path::to_path_buf)
             .or_else(|| self.backups_dir())
             .ok_or_else(|| {
                 LedgerError::InvalidInput("in-memory ledger needs a backup directory".into())
             })?;
-        let info = self.read(|c| snapshot(c, &dir, BACKUP_PREFIX.trim_end_matches('-')))?;
+        let info =
+            self.read(|c| snapshot(c, &dir, BACKUP_PREFIX.trim_end_matches('-'), own_folder))?;
         prune(&dir, KEEP_BACKUPS)?;
         *lock(&self.last_backup) = Some(info.clone());
         Ok(info)
     }
 
-    /// Export every table as JSON to `dir` (default: next to the database).
+    /// Export every table as JSON to `dir` (default: next to the database, a folder made the
+    /// owner's alone). The export itself is the owner's alone either way.
     pub fn export_json(&self, dir: Option<&Path>) -> Result<ExportInfo> {
+        let own_folder = dir.is_none();
         let dir = dir
             .map(Path::to_path_buf)
             .or_else(|| self.backups_dir())
@@ -194,6 +210,9 @@ impl Ledger {
                 LedgerError::InvalidInput("in-memory ledger needs an export directory".into())
             })?;
         std::fs::create_dir_all(&dir)?;
+        if own_folder {
+            let _ = crate::owner_only::folder(&dir);
+        }
         let created_at = crate::now_ms();
         let tables = self.read(|c| {
             let mut tables = Map::new();
@@ -223,6 +242,8 @@ impl Ledger {
         });
         let path = unique_path(&dir, &format!("plenipo-export-{created_at}"), "json");
         std::fs::write(&path, serde_json::to_vec_pretty(&doc)?)?;
+        // An export is the whole activity history in plain text: the owner's alone.
+        let _ = crate::owner_only::file(&path);
         Ok(ExportInfo {
             size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
             path: path.display().to_string(),

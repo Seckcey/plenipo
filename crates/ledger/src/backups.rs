@@ -328,6 +328,7 @@ pub fn request_restore(db_path: &Path, name: &str) -> Result<LedgerBackup> {
     let path = restore_request_path(db_path);
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&request)?)?;
+    let _ = crate::owner_only::file(&tmp);
     std::fs::rename(&tmp, &path)?;
     Ok(backup)
 }
@@ -364,7 +365,7 @@ fn restore_request_path(db_path: &Path) -> PathBuf {
     db_path.with_file_name(RESTORE_REQUEST)
 }
 
-fn side_file(db_path: &Path, suffix: &str) -> PathBuf {
+pub(crate) fn side_file(db_path: &Path, suffix: &str) -> PathBuf {
     let mut s = db_path.as_os_str().to_owned();
     s.push(suffix);
     PathBuf::from(s)
@@ -421,6 +422,7 @@ fn keep_current(db_path: &Path) -> std::result::Result<Option<Kept>, String> {
             &conn,
             &backups_dir(db_path),
             BackupKind::BeforeRestore.prefix(),
+            true,
         )
         .map_err(|e| format!("it could not be backed up first ({e})"))?;
         if !info.verified {
@@ -485,6 +487,8 @@ pub fn apply_pending_restore(db_path: &Path) -> Option<RestoreOutcome> {
     let staged = side_file(db_path, ".restoring");
     let _ = std::fs::remove_file(&staged);
     let copied = std::fs::copy(backups_dir(db_path).join(&backup.name), &staged);
+    // A copy keeps the backup's own mode; the restored Ledger is the owner's alone.
+    let _ = crate::owner_only::file(&staged);
     if let Err(e) = copied {
         let _ = std::fs::remove_file(&staged);
         return Some(failed(format!("the backup could not be copied ({e}).")));
@@ -581,7 +585,7 @@ impl Ledger {
             }
             _ => kind.prefix().to_owned(),
         };
-        let info = self.read(|c| snapshot(c, &dir, &prefix))?;
+        let info = self.read(|c| snapshot(c, &dir, &prefix, true))?;
         if !info.verified {
             let _ = std::fs::remove_file(&info.path);
             return Err(LedgerError::InvalidInput(

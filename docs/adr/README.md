@@ -71,3 +71,4 @@ architecture must be recorded here.
 | [054](ADR-054-move-or-lend.md)                       | Move or lend an agent to another team; a task's own team decides its limits (amends 009, 013) | Proposed |
 | [055](ADR-055-watch-a-worker-write-code.md)          | Watch: seeing a worker write code as it happens (amends 031)                                  | Proposed |
 | [056](ADR-056-the-owners-tile.md)                    | The owner's tile: your picture, status, mood, and message                                     | Proposed |
+| [057](ADR-057-addresses-in-the-record.md)            | Web addresses in the record keep the page and the names of its fields (amends 020)            | Proposed |

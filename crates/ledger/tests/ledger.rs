@@ -1021,3 +1021,60 @@ fn an_interrupted_layout_change_is_undone_and_done_again() {
         .count();
     assert_eq!(before, 2, "one backup per attempt");
 }
+
+/// The Ledger's folder, database, backups, and exports are the owner's alone on Unix (folders
+/// 0700, files 0600), also when an older version left the folder open; a folder someone chose
+/// for a backup keeps its own mode. On Windows the account's app-data folder is private already,
+/// and there are no mode bits (`crates/ledger/src/owner_only.rs`).
+#[cfg(unix)]
+#[test]
+fn the_ledgers_folder_and_files_are_the_owners_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("ledger");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&folder), 0o755, "open to everyone before");
+
+    let l = Ledger::open(&db_path(dir.path())).unwrap();
+    new_task(&l, "private");
+    assert_eq!(mode(&folder), 0o700);
+    assert_eq!(mode(&db_path(dir.path())), 0o600);
+    for suffix in ["-wal", "-shm"] {
+        let mut side = db_path(dir.path()).into_os_string();
+        side.push(suffix);
+        let side = PathBuf::from(side);
+        if side.exists() {
+            assert_eq!(mode(&side), 0o600, "{}", side.display());
+        }
+    }
+    let backup = l.backup(None).unwrap();
+    assert_eq!(mode(&folder.join("backups")), 0o700);
+    assert_eq!(mode(Path::new(&backup.path)), 0o600);
+    let export = l.export_json(None).unwrap();
+    assert_eq!(mode(Path::new(&export.path)), 0o600);
+    // A folder someone chose keeps its own mode; the backup in it is still the owner's alone.
+    let chosen = dir.path().join("chosen");
+    std::fs::create_dir_all(&chosen).unwrap();
+    std::fs::set_permissions(&chosen, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let elsewhere = l.backup(Some(&chosen)).unwrap();
+    assert_eq!(mode(&chosen), 0o755);
+    assert_eq!(mode(Path::new(&elsewhere.path)), 0o600);
+
+    // A backup left open by an older version is made private when it is restored.
+    let loose = folder
+        .join("backups")
+        .join("plenipo-backup-1700000000000.db");
+    std::fs::copy(&backup.path, &loose).unwrap();
+    std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o644)).unwrap();
+    drop(l);
+    plenipo_ledger::backups::request_restore(
+        &db_path(dir.path()),
+        "plenipo-backup-1700000000000.db",
+    )
+    .unwrap();
+    let outcome = plenipo_ledger::backups::apply_pending_restore(&db_path(dir.path())).unwrap();
+    assert!(outcome.restored.is_some(), "{}", outcome.message);
+    assert_eq!(mode(&db_path(dir.path())), 0o600);
+}

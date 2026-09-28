@@ -19,6 +19,8 @@ pub const MAX_ARG_CHARS: usize = 4000;
 /// Longest web address, text typed at once, and reason or purpose given (Phase 10).
 pub const MAX_URL_CHARS: usize = 2000;
 pub const MAX_TYPE_CHARS: usize = 10_000;
+/// Most characters typed on the screen at once: all of them fit on the owner's card (ADR-049).
+pub const MAX_SCREEN_TYPE_CHARS: usize = 500;
 pub const MAX_REASON_CHARS: usize = 500;
 /// Keys a worker may press in the browser.
 pub const BROWSER_KEYS: &[&str] = &[
@@ -383,7 +385,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_type",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Type text where the keyboard focus is. The owner approves each typing before it runs and sees the text. Never passwords or other secrets. Say what it is for in purpose.",
+        description: "Type text where the keyboard focus is: visible text, tabs, and line breaks only, at most 500 characters at a time. The owner approves each typing before it runs and sees the text. Never passwords or other secrets. Say what it is for in purpose.",
         schema: || json!({ "type": "object", "properties": {
             "text": { "type": "string" },
             "purpose": { "type": "string" }
@@ -393,7 +395,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_keys",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Press a key or combination, like enter, tab, or ctrl+s (the Windows key is not available). The owner approves each key press before it runs; Enter is marked as one that can send something.",
+        description: "Press a key or combination, like enter, tab, ctrl+s, or alt+f: ordinary keys, and Ctrl, Shift, or Alt with letters, digits, and the moving keys. Not available: the Windows key and the shortcuts that close or switch programs (Alt+F4, Ctrl+W, Alt+Tab), open the system's own screens (Ctrl+Esc, Ctrl+Shift+Esc), or open a browser's developer tools. The owner approves each key press before it runs; Enter is marked as one that can send something.",
         schema: || json!({ "type": "object", "properties": {
             "keys": { "type": "string" },
             "purpose": { "type": "string" }
@@ -1008,12 +1010,16 @@ pub fn parse(tool: &ToolDef, args: &Value) -> Result<Action, String> {
             purpose: purpose(args, "purpose")?,
         },
         "screen_type" => {
-            let t = text(args, "text")?;
-            if t.is_empty() || t.chars().count() > MAX_TYPE_CHARS || t.contains('\0') {
-                return Err(format!("\"text\" must be 1–{MAX_TYPE_CHARS} characters"));
+            let t = crate::desktop::one_kind_of_line_break(text(args, "text")?);
+            if t.is_empty() || t.chars().count() > MAX_SCREEN_TYPE_CHARS {
+                return Err(format!(
+                    "\"text\" must be 1–{MAX_SCREEN_TYPE_CHARS} characters (type more in more steps)"
+                ));
             }
+            // Only visible text, tabs, and line breaks: the owner sees on the card what is typed.
+            crate::desktop::refuse_hidden_characters(&t)?;
             Action::ScreenType {
-                text: t.to_owned(),
+                text: t,
                 purpose: purpose(args, "purpose")?,
             }
         }

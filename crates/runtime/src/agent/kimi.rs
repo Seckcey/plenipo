@@ -686,15 +686,22 @@ mod tests {
             stop.reason
         );
 
-        // The same change written through Plenipo is fine.
-        let (mut parser, _) = configured(&request);
-        parser.line(&agent_line(file, 275), false);
-        parser.line(&agent_line(file, 287), false);
+        // The same change written through Plenipo (Guard allowed it, and it was written) is fine;
+        // one Plenipo refused still counts as never come.
         let write = json!({ "jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file",
                             "params": { "path": "test4.txt", "content": "hi\n" } });
-        parser.line(&write.to_string(), false);
-        let p = parser.line(&done.to_string(), false);
-        assert!(p.stop.is_none());
+        for (answer, stops) in [
+            (Ok(String::new()), false),
+            (Err("Blocked: test4.txt is a blocked file".to_owned()), true),
+        ] {
+            let (mut parser, _) = configured(&request);
+            parser.line(&agent_line(file, 275), false);
+            parser.line(&agent_line(file, 287), false);
+            let asked = parser.line(&write.to_string(), false);
+            parser.file_answered(asked.files[0].id, answer);
+            let p = parser.line(&done.to_string(), false);
+            assert_eq!(p.stop.is_some(), stops);
+        }
     }
 
     #[test]

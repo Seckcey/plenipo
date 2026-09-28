@@ -393,6 +393,8 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
       }`;
     case "browser.tab_lost":
       return `${worker}'s browser tab closed${why}`;
+    case "browser.tab_stopped":
+      return `Plenipo stopped ${worker}'s use of the browser${why}`;
     case "browser.opened_by_owner":
       return `You opened Plenipo's browser${str(p.url) ? ` at ${str(p.url)}` : ""}`;
     case "control.started":

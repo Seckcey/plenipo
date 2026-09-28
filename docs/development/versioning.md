@@ -15,8 +15,14 @@ The root `package.json` `version` is authoritative. These must match it:
 | `tests/e2e/package.json`                 | `version`                                                                 |
 | `Cargo.toml`                             | `[workspace.package] version` (inherited by all crates)                   |
 | `apps/desktop/src-tauri/tauri.conf.json` | `version` must be `"../package.json"` (reads the desktop package version) |
+| `apps/website/index.html`                | carries `__PLENIPO_VERSION__`; the website build fills it in              |
 
-`pnpm versions:check` (run in CI) fails if any of these disagree.
+`pnpm versions:check` (run in CI) fails if any of these disagree, or if a version is typed into
+the website's page by hand (a download link, a version label, or the structured data). The
+website's build (`apps/website/scripts/build.mjs`) reads the root `package.json`, or
+`PLENIPO_VERSION` when it is given: a container build has no repository around it and stops
+without it. A version on `main` is not yet an installer on GitHub Releases, so the website is
+deployed with the release that is published ([the website](website.md)).
 
 ## Version per phase (owner decision)
 
@@ -56,7 +62,8 @@ After the MVP:
 
 ## Releasing
 
-1. Update the version in the files above (and `Cargo.lock`: `cargo update --workspace`).
+1. Update the version in the files above (and `Cargo.lock`: `cargo update --workspace`). The
+   website's page needs no change; its build fills the version in.
 2. Run `pnpm versions:check`.
 3. Add release notes at `docs/releases/vX.Y.Z.md` (first line `# <release title>`).
 4. Commit as `chore(release): vX.Y.Z` and merge to `main`.
@@ -71,6 +78,8 @@ After the MVP:
    signing runs only for main and release tags, behind the owner's approval; where to click is
    in [code signing → approving a release run](code-signing.md#approving-a-release-run)). Reject
    a run you did not start.
+7. Once the release is published, deploy the website ([the website](website.md)) so its download
+   buttons point to the new installer.
 
 `.github/workflows/release.yml` runs on Windows: it checks that the version matches and that
 release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
