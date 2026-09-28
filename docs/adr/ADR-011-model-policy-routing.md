@@ -2,6 +2,9 @@
 
 - **Status:** Accepted (owner, 2026-09-26), with effort selection (§15) and model menus (§16)
   added at the owner's request
+- **Amended by:** [ADR-041 (model, effort, and learning in layers)](ADR-041-model-effort-learning-layers.md):
+  rules for the organization, each department, and each agent beside each role's (§5, §9, §11,
+  §15), the closest winning, and an effort for each agent.
 - **Date:** 2026-09-26
 - **Phase:** 6
 

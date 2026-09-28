@@ -1,6 +1,10 @@
 # ADR-024: Workers learn from their work
 
 - **Status:** Accepted (by the owner, 2026-09-27)
+- **Amended by:** [ADR-041 (model, effort, and learning in layers)](ADR-041-model-effort-learning-layers.md)
+  (learning on or off for each role and each agent, under the main switch) and
+  [ADR-045 (experience and the Workforce)](ADR-045-experience-and-the-workforce.md) (kept lessons
+  count toward an agent's experience).
 - **Number:** accepted as ADR-022 while in review; renumbered when ADR-021 went to the Free
   and Pro editions (and ADR-022 was held for Kimi's file access, now ADR-027)
 - **Date:** 2026-09-27

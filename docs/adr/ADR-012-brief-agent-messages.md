@@ -1,6 +1,8 @@
 # ADR-012: Brief messages between agents
 
 - **Status:** Accepted (by the owner, 2026-09-26)
+- **Amended by:** [ADR-044 (prompts sized to the job)](ADR-044-prompts-sized-to-the-job.md): a
+  shorter, labeled request format, and replies that show their task's ID.
 - **Date:** 2026-09-26
 - **Phase:** 5 (follow-up, v0.6.1)
 
