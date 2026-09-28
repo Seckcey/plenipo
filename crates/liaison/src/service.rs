@@ -231,6 +231,15 @@ impl Snapshot {
     }
 }
 
+/// Whom a worker's messages are for: a member's identity and its one line about itself (none
+/// for the owner's own workers), and the workers it may hand work to.
+#[derive(Debug, Clone, Default)]
+struct Audience {
+    identity: Option<String>,
+    who: Option<String>,
+    destinations: Vec<Destination>,
+}
+
 /// A request Liaison accepted, with what the child needs.
 struct Accepted {
     runtime_id: String,
@@ -296,19 +305,29 @@ impl Liaison {
         self.directory()?.team(workforce)
     }
 
-    /// A worker's identity and destinations: its team for a member, runtimes otherwise.
-    fn audience(&self, workforce: &Value) -> (Option<String>, Vec<Destination>) {
+    /// Whom a worker's messages are for: its team for a member, runtimes otherwise.
+    fn audience(&self, workforce: &Value) -> Audience {
         match self.team(workforce) {
-            Some(team) => (Some(team.identity), team.members),
-            None => (None, self.destinations()),
+            Some(team) => Audience {
+                identity: Some(team.identity),
+                who: team.reminder,
+                destinations: team.members,
+            },
+            None => Audience {
+                destinations: self.destinations(),
+                ..Audience::default()
+            },
         }
     }
 
-    async fn audience_async(&self, workforce: Value) -> (Option<String>, Vec<Destination>) {
+    async fn audience_async(&self, workforce: Value) -> Audience {
         let this = self.clone();
         tokio::task::spawn_blocking(move || this.audience(&workforce))
             .await
-            .unwrap_or_else(|_| (None, self.destinations()))
+            .unwrap_or_else(|_| Audience {
+                destinations: self.destinations(),
+                ..Audience::default()
+            })
     }
 
     fn notice(&self, notice: String) {
@@ -396,7 +415,7 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let brief = context::root_brief(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
         runtime
             .start_session_with(
                 SessionStart {
@@ -450,7 +469,7 @@ impl Liaison {
         if !info.enabled {
             return runtime.resume_session(session_id, objective).await;
         }
-        let brief = context::root_brief(objective, None, &self.destinations(), self.limits());
+        let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
         runtime
             .resume_session_with(
                 session_id,
@@ -493,9 +512,14 @@ impl Liaison {
         {
             runtime.refresh().await;
         }
-        let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let brief =
-            context::root_brief(objective, identity.as_deref(), &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::root_brief(
+            objective,
+            audience.identity.as_deref(),
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
         let mut metadata = match start.metadata {
             Value::Object(_) => start.metadata,
             _ => json!({}),
@@ -541,9 +565,14 @@ impl Liaison {
                 "this session does not belong to that member".into(),
             ));
         }
-        let (identity, destinations) = self.audience_async(workforce.clone()).await;
-        let brief =
-            context::root_brief(objective, identity.as_deref(), &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::root_brief(
+            objective,
+            audience.identity.as_deref(),
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
         let mut task_metadata = root_metadata();
         task_metadata["workforce"] = workforce;
         runtime
@@ -1398,8 +1427,13 @@ impl Liaison {
         };
         // A member's worker addresses its own team; others address runtimes.
         let workforce = child.metadata["workforce"].clone();
-        let (_, destinations) = self.audience_async(workforce.clone()).await;
-        let brief = context::child_brief(&packet, &destinations, self.limits());
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::child_brief(
+            &packet,
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
         if is_full_time(&workforce) {
             return self.dispatch_member(request, child, brief).await;
         }
@@ -1535,9 +1569,10 @@ impl Liaison {
             .config
             .max_rounds
             .saturating_sub(rounds.saturating_add(1));
-        let (_, destinations) = self
+        let destinations = self
             .audience_async(task.metadata["workforce"].clone())
-            .await;
+            .await
+            .destinations;
         let message = context::replies_message(
             &delivered,
             &replies[0].correlation_id,

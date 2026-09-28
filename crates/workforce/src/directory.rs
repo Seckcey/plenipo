@@ -14,7 +14,7 @@ use plenipo_runtime::agent::SessionStart;
 use serde_json::{json, Value};
 
 use crate::conversation;
-use crate::prompt::{member_identity, member_label, worker_identity};
+use crate::prompt::{member_identity, member_label, member_reminder, worker_identity};
 use crate::service::org_name;
 use crate::view::{OrgView, TeamMember};
 
@@ -212,6 +212,9 @@ impl Directory for WorkforceDirectory {
         } + &learned(&self.ledger, &view, me);
         Some(Team {
             identity,
+            reminder: view
+                .persistent(me)
+                .then(|| member_reminder(&view, &name, me)),
             members: destinations,
         })
     }

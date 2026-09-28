@@ -27,6 +27,11 @@ pub struct MemberConversation {
 pub struct Team {
     /// A short description of the worker (position, role, project) for its instructions.
     pub identity: String,
+    /// Who a full-time member is, in one line ("You are Website Supervisor, the Supervisor of
+    /// the Website project in Acme."), for the short reminder that stands in for its
+    /// instructions once its conversation has them (ADR-044). `None`: the reminder says only
+    /// that its instructions still apply.
+    pub reminder: Option<String>,
     /// The team members it may hand work to (`role:<title>` addresses).
     pub members: Vec<Destination>,
 }

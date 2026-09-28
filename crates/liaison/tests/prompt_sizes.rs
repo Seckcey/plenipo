@@ -9,18 +9,20 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_ledger::{
-    Ledger, NewPosition, NewWorker, Position, RoleTemplate, RoleType, Task, DB_FILE_NAME,
+    ChildConversation, Ledger, NewPosition, NewWorker, Position, RoleTemplate, RoleType, Task,
+    DB_FILE_NAME,
 };
 use plenipo_liaison::context::Destination;
+use plenipo_liaison::protocol::PROTOCOL;
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
-use plenipo_liaison::{Directory, Liaison, LiaisonConfig, Placement, Team};
+use plenipo_liaison::{Directory, Liaison, LiaisonConfig, MemberConversation, Placement, Team};
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, SessionStart,
     StepInfo, StepTools, ToolProvider, TurnResult,
 };
 use plenipo_runtime::{
-    BriefKind, EventSink, ExecutablePolicy, NoteKind, ProfileRegistry, PromptSize, RuntimeEvent,
-    Supervisor, SupervisorConfig,
+    BriefKind, BriefWhy, EventSink, ExecutablePolicy, NoteKind, ProfileRegistry, PromptSize,
+    RuntimeEvent, Supervisor, SupervisorConfig,
 };
 use serde_json::{json, Value};
 
@@ -201,6 +203,9 @@ impl Directory for Org {
         };
         Some(Team {
             identity,
+            reminder: (me.id == self.lead.id).then(|| {
+                "You are Website Supervisor, the Supervisor of the Website project in Acme.".into()
+            }),
             members: self
                 .members
                 .iter()
@@ -261,6 +266,12 @@ struct H {
 }
 
 async fn harness() -> H {
+    harness_with(organization).await
+}
+
+/// The stack, with the organization `org` sets up (it installs its directory and returns the
+/// workforce record of the member the test gives objectives to).
+async fn harness_with(org: impl FnOnce(&Arc<Ledger>, &Liaison) -> Value) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     let home = dir.path().join("home");
@@ -299,7 +310,7 @@ async fn harness() -> H {
             ..LiaisonConfig::default()
         },
     );
-    let lead = organization(&ledger, &liaison);
+    let lead = org(&ledger, &liaison);
     let run = tokio::spawn(liaison.clone().run());
     H {
         ledger,
@@ -311,9 +322,9 @@ async fn harness() -> H {
     }
 }
 
-/// The Website Supervisor (staffed, on Claude Code) and its on-call Senior Developer (Codex)
-/// and Code Reviewer (Claude Code). Returns the Supervisor's workforce record.
-fn organization(l: &Ledger, liaison: &Liaison) -> Value {
+/// The roles the tests' positions use: a department head's, an on-call specialist's, and a
+/// full-time member's.
+fn roles(l: &Ledger) -> (String, String, String) {
     let roles = l
         .ensure_roles(
             &[
@@ -333,18 +344,36 @@ fn organization(l: &Ledger, liaison: &Liaison) -> Value {
                     metadata: Value::Null,
                     formerly: &[],
                 },
+                RoleTemplate {
+                    name: "Full-time lead",
+                    description: "",
+                    role_type: RoleType::Worker,
+                    persistent: true,
+                    metadata: Value::Null,
+                    formerly: &[],
+                },
             ],
             "plenipo",
         )
         .unwrap();
     let role = |n: &str| roles.iter().find(|r| r.name == n).unwrap().id.clone();
+    (
+        role("Supervisor"),
+        role("Specialist"),
+        role("Full-time lead"),
+    )
+}
+
+/// A department headed by a full-time lead titled `title`, on Claude Code, and its workforce
+/// record.
+fn head(l: &Ledger, title: &str, role: &str) -> (Position, Value) {
     let (_, lead) = l
         .create_department_with_head(
             "Development",
             "",
             &NewPosition {
-                title: "Website Supervisor".into(),
-                role_id: role("Supervisor"),
+                title: title.into(),
+                role_id: role.into(),
                 runtime_id: Some("claude-code".into()),
                 staffed: true,
                 ..NewPosition::default()
@@ -352,11 +381,21 @@ fn organization(l: &Ledger, liaison: &Liaison) -> Value {
             "owner",
         )
         .unwrap();
+    let agent = l.position_incumbent(&lead.id).unwrap().unwrap();
+    let workforce = json!({ "positionId": lead.id, "agentId": agent.id });
+    (lead, workforce)
+}
+
+/// The Website Supervisor (staffed, on Claude Code) and its on-call Senior Developer (Codex)
+/// and Code Reviewer (Claude Code). Returns the Supervisor's workforce record.
+fn organization(l: &Arc<Ledger>, liaison: &Liaison) -> Value {
+    let (lead_role, specialist, _) = roles(l);
+    let (lead, workforce) = head(l, "Website Supervisor", &lead_role);
     let member = |title: &str, runtime: &str| {
         l.create_position(
             &NewPosition {
                 title: title.into(),
-                role_id: role("Specialist"),
+                role_id: specialist.clone(),
                 reports_to: Some(lead.id.clone()),
                 runtime_id: Some(runtime.into()),
                 ..NewPosition::default()
@@ -370,9 +409,141 @@ fn organization(l: &Ledger, liaison: &Liaison) -> Value {
         member("Senior Developer", "codex"),
         member("Code Reviewer", "claude-code"),
     ];
-    let agent = l.position_incumbent(&lead.id).unwrap().unwrap();
-    let workforce = json!({ "positionId": lead.id, "agentId": agent.id });
     liaison.set_directory(Arc::new(Org { lead, members }));
+    workforce
+}
+
+/// A VP's instructions, shortened.
+const VP: &str = "Your position: Development VP, the VP of the Development department in Acme. \
+You report to the owner.
+Hand each objective to the member of your team who leads the work it concerns (for a project, \
+its supervisor): the whole objective, the project, and what to send back, in a few sentences.";
+
+/// A full-time VP whose team is a full-time Supervisor, which does work handed to it in its own
+/// conversation (ADR-016).
+struct Chain {
+    ledger: Arc<Ledger>,
+    vp: Position,
+    sup: Position,
+    /// The Supervisor's workforce record (`fullTime`) and its conversation.
+    sup_workforce: Value,
+    sup_session: String,
+}
+
+impl Chain {
+    fn child_conversation(&self) -> ChildConversation {
+        ChildConversation {
+            session_id: self.sup_session.clone(),
+            runtime_id: "claude-code".into(),
+            model: None,
+            effort: None,
+        }
+    }
+}
+
+impl Directory for Chain {
+    fn team(&self, workforce: &Value) -> Option<Team> {
+        let position = workforce["positionId"].as_str()?;
+        if position == self.vp.id {
+            Some(Team {
+                identity: VP.into(),
+                reminder: Some(
+                    "You are Development VP, the VP of the Development department in Acme.".into(),
+                ),
+                members: vec![Destination {
+                    address: "role:Website Supervisor".into(),
+                    label: "Supervisor, leads the project Website; full-time, it works on the \
+                            task with its own team"
+                        .into(),
+                    ready: true,
+                }],
+            })
+        } else if position == self.sup.id {
+            Some(Team {
+                identity: SUPERVISOR.into(),
+                reminder: Some(
+                    "You are Website Supervisor, the Supervisor of the Website project in Acme."
+                        .into(),
+                ),
+                members: Vec::new(),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn place(
+        &self,
+        _: &Value,
+        requester: &Task,
+        name: &str,
+        _: &[String],
+    ) -> Result<Placement, String> {
+        if !name.eq_ignore_ascii_case(&self.sup.title) {
+            return Err(format!("\"{name}\" is not on your team"));
+        }
+        Ok(Placement {
+            address: format!("role:{}", self.sup.title),
+            label: format!("{} (Claude Code)", self.sup.title),
+            runtime_id: "claude-code".into(),
+            model: None,
+            effort: None,
+            worker: None,
+            conversation: Some(self.child_conversation()),
+            workforce: self.sup_workforce.clone(),
+            identity: SUPERVISOR.into(),
+            project_id: requester.project_id.clone(),
+        })
+    }
+
+    fn conversation(&self, _: &Value) -> Result<MemberConversation, String> {
+        let open = self
+            .ledger
+            .runtime_session(&self.sup_session)
+            .map_err(|e| e.to_string())?
+            .is_some();
+        Ok(MemberConversation {
+            conversation: self.child_conversation(),
+            start: (!open).then(|| SessionStart {
+                id: Some(self.sup_session.clone()),
+                runtime_id: "claude-code".into(),
+                title: Some(self.sup.title.clone()),
+                metadata: json!({
+                    "liaison": { "enabled": true, "origin": "member", "protocol": PROTOCOL },
+                    "workforce": self.sup_workforce,
+                }),
+                ..SessionStart::default()
+            }),
+        })
+    }
+}
+
+/// The Development VP and its full-time Website Supervisor. Returns the VP's workforce record.
+fn chain(l: &Arc<Ledger>, liaison: &Liaison) -> Value {
+    let (lead_role, _, member_role) = roles(l);
+    let (vp, workforce) = head(l, "Development VP", &lead_role);
+    let (sup, _) = l
+        .create_position(
+            &NewPosition {
+                title: "Website Supervisor".into(),
+                role_id: member_role,
+                reports_to: Some(vp.id.clone()),
+                runtime_id: Some("claude-code".into()),
+                staffed: true,
+                ..NewPosition::default()
+            },
+            "owner",
+        )
+        .unwrap();
+    let agent = l.position_incumbent(&sup.id).unwrap().unwrap();
+    let sup_workforce = json!({ "positionId": sup.id, "agentId": agent.id, "fullTime": true });
+    liaison.set_directory(Arc::new(Chain {
+        ledger: Arc::clone(l),
+        vp,
+        sup,
+        sup_workforce,
+        sup_session: uuid::Uuid::new_v4().to_string(),
+    }));
     workforce
 }
 
@@ -429,6 +600,19 @@ impl H {
         let task = detail.turns.last().unwrap().task_id.clone();
         self.finished(&task).await;
         (detail.session.id, task)
+    }
+
+    /// A task's final answer.
+    fn text(&self, task_id: &str) -> String {
+        let e = self
+            .ledger
+            .last_task_event(task_id, "agent.result")
+            .unwrap()
+            .expect("a result");
+        serde_json::from_value::<TurnResult>(e.payload)
+            .unwrap()
+            .text
+            .unwrap_or_default()
     }
 
     /// Each step's recorded size, from its `agent.result`, in order.
@@ -548,5 +732,75 @@ async fn a_supervisors_conversation_is_measured_step_by_step() {
     for size in &routine_sizes {
         assert!(size.own_bytes <= size.full_own_bytes);
         assert!(size.bytes > size.own_bytes, "the objective is passed along");
+        // A routine objective in a conversation that has the instructions: a short reminder,
+        // and the short permissions note.
+        assert_eq!(
+            (size.brief, size.why, size.note),
+            (
+                BriefKind::Reminder,
+                Some(BriefWhy::Routine),
+                NoteKind::Reminder
+            )
+        );
     }
+    assert_eq!(first_size.why, Some(BriefWhy::First));
+    // The goal (ADR-044 §6): routine tasks carry at least half less of Plenipo's own text.
+    assert!(own * 2.0 <= full, "{own} vs {full}");
+    // The step that delivers a reply carries the short note too.
+    assert_eq!(handed_sizes[1].note, NoteKind::Reminder);
+    assert!(handed_sizes[1].own_bytes < handed_sizes[1].full_own_bytes);
+}
+
+/// ADR-044 §3.9: a task handed to a full-time member whose conversation already has its
+/// instructions carries a short reminder; its first one carries the full instructions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_task_handed_to_a_full_time_members_conversation_carries_a_short_reminder() {
+    let h = harness_with(chain).await;
+    let (session, first) = h
+        .objective(
+            None,
+            "Plan the launch {{handoff:role:Website Supervisor|Fix the login page.}}",
+        )
+        .await;
+    let (_, second) = h
+        .objective(
+            Some(&session),
+            "Plan more {{handoff:role:Website Supervisor|Change the footer's year to 2026.}}",
+        )
+        .await;
+    let children: Vec<Task> = [&first, &second]
+        .iter()
+        .map(|t| {
+            let mut c = h.ledger.child_tasks(t).unwrap();
+            assert_eq!(c.len(), 1, "{c:#?}");
+            c.remove(0)
+        })
+        .collect();
+    // Both ran in the Supervisor's own conversation.
+    let conversation = children[0].metadata["sessionId"].as_str().unwrap();
+    assert_eq!(children[1].metadata["sessionId"], conversation);
+    let sizes: Vec<PromptSize> = children.iter().map(|c| h.step_sizes(&c.id)[0]).collect();
+    assert_eq!(
+        (sizes[0].brief, sizes[0].why),
+        (BriefKind::Full, Some(BriefWhy::First))
+    );
+    assert_eq!(
+        (sizes[1].brief, sizes[1].why, sizes[1].note),
+        (
+            BriefKind::Reminder,
+            Some(BriefWhy::Routine),
+            NoteKind::Reminder
+        )
+    );
+    assert!(
+        sizes[1].own_bytes * 2 <= sizes[1].full_own_bytes,
+        "{:?}",
+        sizes[1]
+    );
+    // The Supervisor still understood the task (the fake AI tool read it from the reminder).
+    let text = h.text(&children[1].id);
+    assert!(
+        text.contains("you asked \"Change the footer's year to 2026.\""),
+        "{text}"
+    );
 }

@@ -304,11 +304,66 @@ fn protocol_section(out: &mut Writer, destinations: &[Destination], limits: Prom
     true
 }
 
+/// Which form of a message to write: with the full instructions, or with a short reminder of
+/// them for a conversation that already has them (ADR-044). `who` is a member's one line about
+/// itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Form<'a> {
+    Full,
+    Reminder { who: Option<&'a str> },
+}
+
+/// The start of the short reminder (ADR-044 §3.9): who the worker is and that its instructions
+/// from earlier in the conversation still apply. `member`: a member of the organization.
+fn reminder_head(out: &mut Writer, member: bool, who: Option<&str>, limits: PromptLimits) {
+    if !member {
+        out.own(
+            "Reminder: your instructions from the start of this conversation still apply, \
+             including how to ask another AI worker for help.\n",
+        );
+        return;
+    }
+    let who = who.map(str::trim).filter(|w| !w.is_empty());
+    if let Some(who) = who {
+        out.own(who);
+        out.own("\n");
+    }
+    out.own(&format!(
+        "Your instructions from earlier in this conversation still apply: {}your job, your \
+         team, and how to hand work on (plenipo-handoff blocks, at most {} per answer, in plain \
+         words).\n",
+        if who.is_some() { "" } else { "who you are, " },
+        limits.requests_per_answer
+    ));
+}
+
+/// Who can take work now, for a short reminder.
+fn ready_line(out: &mut Writer, member: bool, destinations: &[Destination]) {
+    let ready: Vec<&str> = destinations
+        .iter()
+        .filter(|d| d.ready)
+        .map(|d| d.address.as_str())
+        .collect();
+    if ready.is_empty() {
+        out.own(
+            "No other worker is available right now, so do not request handoffs; do the work \
+             yourself.\n",
+        );
+    } else if member {
+        out.own(&format!("Team members ready now: {}.\n", ready.join(", ")));
+    } else {
+        out.own(&format!("Workers ready now: {}.\n", ready.join(", ")));
+    }
+}
+
 /// The first message of a session that allows handoffs: instructions, then the objective.
-/// `identity` describes a member of the organization (its position and team).
+/// `identity` describes a member of the organization (its position and team), and `who` says who
+/// it is in one line, for the short reminder that stands in for its instructions once its
+/// conversation has them.
 pub fn root_brief(
     objective: &str,
     identity: Option<&str>,
+    who: Option<&str>,
     destinations: &[Destination],
     limits: PromptLimits,
 ) -> Brief {
@@ -329,20 +384,62 @@ pub fn root_brief(
     out.own(FOOTER);
     out.own("\n\n");
     out.pass(objective.trim());
+
+    let mut short = Writer::default();
+    short.own(ROOT_HEADER);
+    short.own("\n");
+    reminder_head(&mut short, identity.is_some(), who, limits);
+    ready_line(&mut short, identity.is_some(), destinations);
+    short.own(FOOTER);
+    short.own("\n\n");
+    short.pass(objective.trim());
     Brief {
         full: out.done(),
-        reminder: None,
+        reminder: Some(short.done()),
         hash: instructions_hash(identity, destinations, limits, protocol),
         large: is_large([objective.trim()]),
     }
 }
 
-/// The message a child worker receives.
+/// The message a child worker receives: with its full instructions, and with a short reminder
+/// of them for a full-time member's conversation that already has them (`who`: the member's one
+/// line about itself).
 pub fn child_brief(
     packet: &ContextPacket,
+    who: Option<&str>,
     destinations: &[Destination],
     limits: PromptLimits,
 ) -> Brief {
+    let (full, protocol) = child_message(packet, Form::Full, destinations, limits);
+    let (reminder, _) = child_message(packet, Form::Reminder { who }, destinations, limits);
+    let identity = packet
+        .identity
+        .as_deref()
+        .map(str::trim)
+        .filter(|i| !i.is_empty());
+    let context = packet.references.iter().map(|r| r.text.as_str());
+    Brief {
+        full,
+        reminder: Some(reminder),
+        hash: instructions_hash(identity, destinations, limits, protocol),
+        large: is_large(
+            [
+                packet.task.objective.as_str(),
+                packet.task.acceptance_criteria.as_str(),
+            ]
+            .into_iter()
+            .chain(context),
+        ),
+    }
+}
+
+/// One form of a child's message, and whether it says how to hand work on.
+fn child_message(
+    packet: &ContextPacket,
+    form: Form<'_>,
+    destinations: &[Destination],
+    limits: PromptLimits,
+) -> (Message, bool) {
     let nonce = nonce(&packet.message_id);
     let identity = packet
         .identity
@@ -352,9 +449,17 @@ pub fn child_brief(
     let mut out = Writer::default();
     out.own(REQUEST_HEADER);
     out.own("\n");
-    if let Some(identity) = identity {
-        out.own(identity);
-        out.own("\n\n");
+    match form {
+        Form::Full => {
+            if let Some(identity) = identity {
+                out.own(identity);
+                out.own("\n\n");
+            }
+        }
+        Form::Reminder { who } => {
+            reminder_head(&mut out, identity.is_some(), who, limits);
+            out.own("\n");
+        }
     }
     out.own(&format!(
         "Plenipo Liaison assigned you this task for another AI worker ({}, working on: \"",
@@ -424,23 +529,16 @@ pub fn child_brief(
             "You may ask another worker for help ({remaining} more level(s) of handoff \
              allowed).\n"
         ));
-        protocol_section(&mut out, destinations, limits)
+        match form {
+            Form::Full => protocol_section(&mut out, destinations, limits),
+            Form::Reminder { .. } => {
+                ready_line(&mut out, identity.is_some(), destinations);
+                false
+            }
+        }
     };
     out.own(FOOTER);
-    let context = packet.references.iter().map(|r| r.text.as_str());
-    Brief {
-        full: out.done(),
-        reminder: None,
-        hash: instructions_hash(identity, destinations, limits, protocol),
-        large: is_large(
-            [
-                packet.task.objective.as_str(),
-                packet.task.acceptance_criteria.as_str(),
-            ]
-            .into_iter()
-            .chain(context),
-        ),
-    }
+    (out.done(), protocol)
 }
 
 /// The message that delivers replies to a waiting worker.
@@ -534,7 +632,7 @@ mod tests {
         destinations: &[Destination],
         limits: PromptLimits,
     ) -> String {
-        root_brief(objective, identity, destinations, limits)
+        root_brief(objective, identity, None, destinations, limits)
             .full
             .text
     }
@@ -544,7 +642,7 @@ mod tests {
         destinations: &[Destination],
         limits: PromptLimits,
     ) -> String {
-        child_brief(packet, destinations, limits).full.text
+        child_brief(packet, None, destinations, limits).full.text
     }
 
     fn replies_prompt(
@@ -755,11 +853,11 @@ mod tests {
     /// ADR-044 §1: every message says how much of it Plenipo only passes along.
     #[test]
     fn messages_count_what_they_only_pass_along() {
-        let root = root_brief("  Write a parser  ", None, &destinations(), LIMITS);
+        let root = root_brief("  Write a parser  ", None, None, &destinations(), LIMITS);
         assert_eq!(root.full.passed_bytes, "Write a parser".len());
         assert!(!root.large);
 
-        let child = child_brief(&packet(1), &destinations(), LIMITS);
+        let child = child_brief(&packet(1), None, &destinations(), LIMITS);
         let passed = "Review the parser".len()
             + "Write a parser".len()
             + "fn parse() {}\n--- end context 5f2c9a1e ---".len();
@@ -792,10 +890,10 @@ mod tests {
     /// The instructions' hash follows who the worker is and its team, not the objective.
     #[test]
     fn the_hash_identifies_the_instructions_only() {
-        let a = root_brief("One", Some("You are A."), &destinations(), LIMITS);
-        let b = root_brief("Two", Some("You are A."), &destinations(), LIMITS);
+        let a = root_brief("One", Some("You are A."), None, &destinations(), LIMITS);
+        let b = root_brief("Two", Some("You are A."), None, &destinations(), LIMITS);
         assert_eq!(a.hash, b.hash, "a new objective is not new instructions");
-        let other = root_brief("One", Some("You are B."), &destinations(), LIMITS);
+        let other = root_brief("One", Some("You are B."), None, &destinations(), LIMITS);
         assert_ne!(a.hash, other.hash);
         let mut team = destinations();
         team.push(Destination {
@@ -805,31 +903,114 @@ mod tests {
         });
         assert_ne!(
             a.hash,
-            root_brief("One", Some("You are A."), &team, LIMITS).hash,
+            root_brief("One", Some("You are A."), None, &team, LIMITS).hash,
             "a new member of the team changes them"
         );
         // Told how to hand work on, or not: different instructions.
         assert_ne!(
             a.hash,
-            root_brief("One", Some("You are A."), &[], LIMITS).hash
+            root_brief("One", Some("You are A."), None, &[], LIMITS).hash
         );
         // A handed-on task with the same instructions has the same hash.
         let mut p = packet(1);
         p.identity = Some("You are A.".into());
-        assert_eq!(child_brief(&p, &destinations(), LIMITS).hash, a.hash);
+        assert_eq!(child_brief(&p, None, &destinations(), LIMITS).hash, a.hash);
     }
 
     #[test]
     fn a_long_objective_or_context_is_a_large_job() {
         let long = "x".repeat(LARGE_JOB_CHARS);
-        assert!(root_brief(&long, None, &destinations(), LIMITS).large);
+        assert!(root_brief(&long, None, None, &destinations(), LIMITS).large);
         let mut p = packet(1);
-        assert!(!child_brief(&p, &destinations(), LIMITS).large);
+        assert!(!child_brief(&p, None, &destinations(), LIMITS).large);
         p.references[0].text = "y".repeat(LARGE_JOB_CHARS - 10);
-        assert!(child_brief(&p, &destinations(), LIMITS).large);
-        let input = child_brief(&p, &destinations(), LIMITS).into_input();
-        assert!(input.large && input.reminder.is_none());
-        assert_eq!(input.reminder_passed_bytes, 0);
+        assert!(child_brief(&p, None, &destinations(), LIMITS).large);
+        let input = child_brief(&p, None, &destinations(), LIMITS).into_input();
+        assert!(input.large && input.reminder.is_some());
+    }
+
+    /// ADR-044 §3.9: a conversation that already has its instructions gets a short reminder
+    /// instead: who the worker is, that its instructions still apply, and who can take work now.
+    #[test]
+    fn short_reminders_stand_in_for_the_instructions() {
+        // (a) The owner's own worker.
+        let owner = root_brief("Write a parser", None, None, &destinations(), LIMITS);
+        let r = owner.reminder.unwrap();
+        assert_eq!(
+            r.text,
+            format!(
+                "{ROOT_HEADER}\nReminder: your instructions from the start of this conversation \
+                 still apply, including how to ask another AI worker for help.\nWorkers ready \
+                 now: claude-code.\n{FOOTER}\n\nWrite a parser"
+            )
+        );
+        assert_eq!(r.passed_bytes, "Write a parser".len());
+        assert!(r.text.len() * 3 < owner.full.text.len());
+
+        // (b) A member, told who it is in one line.
+        let team = [
+            Destination {
+                address: "role:QA Engineer".into(),
+                label: "QA Engineer, your team's QA evaluator".into(),
+                ready: true,
+            },
+            Destination {
+                address: "role:Designer".into(),
+                label: "Designer, a new worker for each request".into(),
+                ready: false,
+            },
+        ];
+        let identity = "Your position: Cloudline Supervisor, the Supervisor of the Development \
+                        department in Acme. You lead the project Cloudline.";
+        let who = "You are Cloudline Supervisor, the Supervisor of the Cloudline project in Acme.";
+        let member = root_brief("Ship it", Some(identity), Some(who), &team, LIMITS);
+        let r = member.reminder.unwrap().text;
+        assert_eq!(
+            r,
+            format!(
+                "{ROOT_HEADER}\n{who}\nYour instructions from earlier in this conversation still \
+                 apply: your job, your team, and how to hand work on (plenipo-handoff blocks, at \
+                 most 3 per answer, in plain words).\nTeam members ready now: role:QA \
+                 Engineer.\n{FOOTER}\n\nShip it"
+            )
+        );
+        assert!(member.full.text.contains(identity));
+        // Without its one line, the member is still told its instructions apply; nobody ready.
+        let alone = root_brief("x", Some(identity), None, &[], LIMITS)
+            .reminder
+            .unwrap()
+            .text;
+        assert!(
+            alone.contains("still apply: who you are, your job"),
+            "{alone}"
+        );
+        assert!(alone.contains("No other worker is available right now"));
+
+        // (c) A task handed to a member's conversation that has its instructions.
+        let mut p = packet(1);
+        p.identity = Some(identity.into());
+        let child = child_brief(&p, Some(who), &team, LIMITS);
+        let short = child.reminder.unwrap();
+        assert!(
+            short.text.starts_with(&format!(
+                "{REQUEST_HEADER}\n{who}\nYour instructions from earlier"
+            )),
+            "{}",
+            short.text
+        );
+        assert!(!short.text.contains("Your position"), "{}", short.text);
+        assert!(
+            !short.text.contains("```plenipo-handoff"),
+            "a reminder of how to hand work on, not the whole of it"
+        );
+        assert!(short
+            .text
+            .contains("Team members ready now: role:QA Engineer."));
+        // The task itself is all there, its context delimited as before.
+        assert!(short.text.contains("--- begin context 5f2c9a1e ---"));
+        assert_eq!(short.passed_bytes, child.full.passed_bytes);
+        assert!(short.text.ends_with(FOOTER));
+        assert!(short.text.len() < child.full.text.len());
     }
 
     #[test]
