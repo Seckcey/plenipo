@@ -22,6 +22,8 @@ export const CAPABILITY_LABEL: Record<Capability, string> = {
   "browser.automate": "Use websites",
   "computer.observe": "See the screen",
   "computer.control": "Use the mouse and keyboard",
+  "connections.read": "Read through Connections",
+  "connections.write": "Write through Connections",
   "mcp.invoke": "Use add-on tools",
   "network.local": "Reach local services",
   "process.manage": "Manage running programs",

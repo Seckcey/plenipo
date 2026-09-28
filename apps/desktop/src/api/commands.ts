@@ -27,6 +27,12 @@ import type {
   AiToolsPage,
   AiToolUsage,
   PaymentMethod,
+  Access,
+  AccountKind,
+  ConnectionsPage,
+  OwnApp,
+  Part,
+  PartLevel,
   AgentSessionDetail,
   AppInfo,
   BackupInfo,
@@ -1065,4 +1071,63 @@ export function setAiToolsAutoUpdate(on: boolean): Promise<AiToolsPage> {
  */
 export function setAiToolPayment(runtimeId: string, method: PaymentMethod): Promise<AiToolsPage> {
   return call<AiToolsPage>("set_ai_tool_payment", { runtimeId, method });
+}
+
+// ---- Settings → Connections (Phase 20, ADR-062 to ADR-065) ------------------------------------
+// None of these takes a password, a key, or a token: signing in happens on the service's own
+// page in your browser, and its sign-in is kept only in the Vault.
+
+/** Each service, its connection's state, parts, who may use it, and its list. */
+export function getConnections(): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("get_connections");
+}
+
+/** Open the service's sign-in page in your browser; Plenipo waits for it in the background. */
+export function connectConnection(
+  connectionId: string,
+  kind: AccountKind,
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("connect_connection", { connectionId, kind });
+}
+
+/** Stop a sign-in still waiting in your browser. */
+export function cancelConnectionSignIn(connectionId: string): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("cancel_connection_sign_in", { connectionId });
+}
+
+/** Disconnect: its tools stop at once, and its sign-in leaves the Vault. */
+export function disconnectConnection(connectionId: string): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("disconnect_connection", { connectionId });
+}
+
+/** Parts' levels (those not given keep theirs). */
+export function setConnectionParts(
+  connectionId: string,
+  parts: Partial<Record<Part, PartLevel>>,
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("set_connection_parts", { connectionId, parts });
+}
+
+/** **Who may use it**: roles and agents, each Read only or Read and write. */
+export function setConnectionAccess(
+  connectionId: string,
+  access: Access[],
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("set_connection_access", { connectionId, access });
+}
+
+/** **Send without asking to**: addresses, `@domains`, and channels. */
+export function setConnectionSendList(
+  connectionId: string,
+  list: string[],
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("set_connection_send_list", { connectionId, list });
+}
+
+/** Advanced: the organization's own app ID (not a secret), or 8 West's (`null`). */
+export function setConnectionOwnApp(
+  connectionId: string,
+  app: OwnApp | null,
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("set_connection_own_app", { connectionId, app });
 }

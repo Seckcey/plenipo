@@ -4398,3 +4398,95 @@ body {
   padding: 0;
   list-style: none;
 }
+
+/* Settings → Connections (Phase 20) */
+.connection-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connection {
+  padding: 12px 14px;
+  border: 1px solid var(--ui-border);
+  border-left-width: 6px;
+  border-radius: 10px;
+  background: var(--ui-surface);
+}
+
+.connection--connected {
+  border-left-color: var(--ui-ok-text);
+}
+
+.connection--needsSignIn {
+  border-left-color: var(--ui-warn-text);
+}
+
+.connection--later {
+  opacity: 0.8;
+}
+
+.connection__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+}
+
+.connection__header h3 {
+  margin: 0;
+  font-size: var(--ui-font-lg);
+}
+
+.connection__account {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.connection__section {
+  margin-top: 14px;
+}
+
+.connection__section h4 {
+  margin: 0 0 6px;
+}
+
+.connection-parts,
+.connection-who,
+.connection-send,
+.connection-granted {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connection-part__head,
+.connection-who__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.connection-part__head strong {
+  min-width: 90px;
+}
+
+.connection-part__words {
+  margin: 4px 0 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.connection-granted code {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.connection__advanced summary {
+  cursor: pointer;
+}

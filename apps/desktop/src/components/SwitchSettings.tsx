@@ -158,7 +158,7 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
         </p>
         <Toggle
           label="Sending forms and messages"
-          hint="Submitting a form, posting, or sending a message."
+          hint="Submitting a form, posting, or sending a message. Also email and chat through a Connection, but only when everyone it goes to is on that connection's Send without asking to list (Settings → Connections)."
           checked={s.sendWithoutAsking}
           disabled={pending}
           onChange={flip("sendWithoutAsking")}

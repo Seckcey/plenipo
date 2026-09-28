@@ -161,6 +161,7 @@ describe("Settings in one place", () => {
       "Permissions",
       "Organization",
       "Servers",
+      "Connections",
       "Switches",
       "Notifications",
       "Terminal",
