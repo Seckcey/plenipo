@@ -80,8 +80,14 @@ operations itself. This is enforced by:
    from Rust only: its own commands are granted to no window.
 3. **Single IPC client.** `apps/desktop/src/api/commands.ts` is the only module allowed to
    call `invoke` (ESLint `no-restricted-imports`).
-4. **Content Security Policy.** `tauri.conf.json` restricts scripts to `'self'` and network
-   connections to Tauri IPC.
+4. **Content Security Policy.** `tauri.conf.json` restricts scripts to `'self'`, `style-src` to
+   `'self'`, and network connections to Tauri IPC. Inline styles are allowed by name for one
+   reason: the terminal (xterm.js) makes its own `<style>` elements (`style-src-elem`) and sets
+   `style` attributes for true colors and contrast fixes (`style-src-attr`). The app's own code
+   needs neither (React sets styles through the style object). `scripts/csp.test.mjs` (run by
+   `pnpm lint`) pins the policy, checks the app's own code for inline styles, `<style>`
+   elements, and raw HTML, and fails when xterm.js stops needing inline styles, so they can be
+   dropped then.
 5. **Input validation in Rust.** Commands validate their arguments and return a typed
    `CommandError`; they never panic on bad input.
 

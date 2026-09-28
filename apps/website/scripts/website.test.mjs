@@ -4,12 +4,13 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { buildWebsite, websiteRoot } from "./build.mjs";
+import { buildWebsite, releaseVersion, rootPackage, websiteRoot } from "./build.mjs";
 
 test("production build includes every local asset and valid internal destination", async () => {
   const output = await mkdtemp(join(tmpdir(), "plenipo-website-"));
   try {
-    await buildWebsite(output);
+    // The repository's own version (whatever the shell may have exported).
+    await buildWebsite(output, { env: {} });
     const html = await readFile(join(output, "index.html"), "utf8");
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
     assert.equal(new Set(ids).size, ids.length, "HTML IDs must be unique");
@@ -40,6 +41,10 @@ test("production build includes every local asset and valid internal destination
     }
     const release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
     assert.match(release.version, /^\d+\.\d+\.\d+$/);
+    // The version is the product's (the root package.json), filled in at build time.
+    const product = JSON.parse(await readFile(rootPackage, "utf8")).version;
+    assert.equal(release.version, product);
+    assert.ok(!html.includes("__PLENIPO_VERSION__"), "every version mark is filled in");
     const visibleVersions = [...html.matchAll(/data-version>v([^<]+)</g)];
     assert.equal(visibleVersions.length, 2);
     assert.ok(visibleVersions.every((match) => match[1] === release.version));
@@ -70,4 +75,43 @@ test("search metadata describes the actual free Windows release without fabricat
   assert.match(data.license, /\/LICENSE$/);
   assert.match(html, /Free\s+<span>Planned<\/span>/);
   assert.match(html, /Pro\s+<span>Planned<\/span>/);
+});
+
+test("the page carries no version typed by hand", async () => {
+  const source = await readFile(resolve(websiteRoot, "index.html"), "utf8");
+  assert.ok(!/\/v\d+\.\d+\.\d+\//.test(source), "a download link carries a typed version");
+  assert.ok(!/data-version>v\d/.test(source), "a version label is typed");
+  assert.ok(!/"softwareVersion":\s*"\d/.test(source), "the structured data's version is typed");
+});
+
+test("PLENIPO_VERSION wins over the root package.json and must be a release version", async () => {
+  const product = JSON.parse(await readFile(rootPackage, "utf8")).version;
+  assert.equal(await releaseVersion({ env: {} }), product);
+  assert.equal(await releaseVersion({ env: { PLENIPO_VERSION: "  " } }), product);
+  assert.equal(await releaseVersion({ env: { PLENIPO_VERSION: " 9.8.7 " } }), "9.8.7");
+  assert.equal(await releaseVersion({ env: { PLENIPO_VERSION: "9.8.7-beta.1" } }), "9.8.7-beta.1");
+  for (const bad of ["latest", "v9.8.7", "9.8", '9.8.7"><script>', "9.8.7-"]) {
+    await assert.rejects(
+      releaseVersion({ env: { PLENIPO_VERSION: bad } }),
+      /not a release version/,
+    );
+  }
+  await assert.rejects(
+    releaseVersion({ env: {}, packageFile: join(tmpdir(), "no-such-plenipo-package.json") }),
+    /pass PLENIPO_VERSION/,
+  );
+});
+
+test("a container build fills the page with the version it is given", async () => {
+  const output = await mkdtemp(join(tmpdir(), "plenipo-website-"));
+  try {
+    await buildWebsite(output, { env: { PLENIPO_VERSION: "9.8.7" } });
+    const html = await readFile(join(output, "index.html"), "utf8");
+    assert.ok(html.includes("/releases/download/v9.8.7/Plenipo_9.8.7_x64-setup.exe"));
+    assert.equal([...html.matchAll(/data-version>v9\.8\.7</g)].length, 2);
+    const release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
+    assert.equal(release.version, "9.8.7");
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
 });

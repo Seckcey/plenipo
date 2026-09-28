@@ -1,9 +1,9 @@
 # Security hardening (2026-09-27 sweep) — Checklist
 
-**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) is in progress on PR #74: batch 1 (B1–B6) built, reviewed, and tested; batches 2 (B7–B9) and 3 (B10–B11) follow. Group C follows in a later pull request.
+**Status:** Group A (the four High findings) merged (PR #69). Group B (the eleven Medium findings) merged (PR #74 and PR #76). Group C (the ten Low findings) is built, reviewed, and tested on the `fable/security-c` pull request; the owner merges it.
 
 The sweep's findings live in the repository's private security advisories (GHSA-m2rr-m89h-jp56,
-GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B). This checklist
+GHSA-87xq-h83r-hmpg, GHSA-gv7h-v8h5-m9c9, GHSA-4f58-pwvq-9vmf for Group A; GHSA-2fq6-vq5f-685h, GHSA-phg2-6j94-84g9, and GHSA-2hxf-v9c3-44q2 for Group B; GHSA-c86x-xcxc-pgf6 for Group C). This checklist
 records what was changed and how it was checked, in plain words, without the attack details.
 
 ## Group A: High
@@ -107,6 +107,100 @@ records what was changed and how it was checked, in plain words, without the att
 - [ ] B10 · GitHub Actions pinned by commit, Dependabot
 - [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-052)
 
+## Group C: Low (GHSA-c86x-xcxc-pgf6)
+
+Ten fixes in four clusters, each built with a test that failed first, read by three independent
+reviewers (security completeness; correctness and Windows; conventions), and pushed once their
+blocking notes were fixed and the sensible smaller ones carried.
+
+### Browser
+
+- [x] **C1 · A control is read again just before the action.** A click, typing, a key press, or a
+      choice goes ahead only on the control the owner saw on the card: what the control is (its
+      kind, words, link, form and where it sends, whether it takes a password) is compared again,
+      and a changed one is refused with the worker told what changed and to read the page again.
+- [x] **C2 · A handed tab comes back only with the gate on.** After the owner solves a check, the
+      checks on the page's requests go back on before the worker gets the tab; if the browser
+      will not turn them on, the tab is stopped instead (fail closed) and the worker is told.
+      Browser calls for a tab in the owner's hands, taken over, or stopped are refused, however
+      the calls came in.
+- [x] **C3 · The owner's sign cannot be taken off the page.** The sign sits in the browser's top
+      layer with styles the page cannot override; a page that removes, restyles, hides, or closes
+      it gets it put back at once. A page that keeps doing so stops that worker's use of the
+      browser, the Ledger records it (`browser.tab_stopped`), the Activity trail says so in plain
+      words, and the worker's next browser call says why. A page's own dialog or top-most widget
+      is not a fight.
+- [x] Tests against the synthetic website: a form re-aimed and a field turned into a password
+      field while the owner decides; a page that hides the sign once (it comes back), one that
+      keeps removing it (the worker is stopped), and one with its own dialog in front (nothing
+      happens).
+
+### Guard
+
+- [x] **C4 · Web addresses in the record keep the page and its field names (ADR-053).** Approval
+      cards, the `capability.used` and `guard.*` records of the browser tools, the control
+      center's notes, and screenshot records keep an address's website, page, and the names of
+      its fields only (`?to=…&amount=…`), never a user name or password (`safe_address`).
+      Addresses are cleaned before secrets are hidden. The worker still reads the address; a
+      program's command line is kept as it is; the AI tool's own activity keeps what it said.
+- [x] **C5 · A folder listing respects the blocked-files list.** `list_directory` puts the folder
+      itself through Guard's blocked-files check (a blocked folder is refused), and the listing
+      leaves blocked entries out, uncounted; without its settings, it lists nothing.
+- [x] **C6 · Each allowed change of an AI tool's own is matched to its write.** Over ACP, a write
+      that came through Plenipo and was carried out clears only the one allowed change it is
+      for (the same file, worked out against the task's folder), never all of them, so a second
+      change that never comes through Plenipo is still caught and stops the task. At most 64
+      wait; the next is refused, never an older one forgotten.
+- [x] Tests: an address with a sign-in token and a session key reaches the worker but no approval
+      card, `capability.used` or `guard.*` record, control center note, or screenshot record
+      (against the synthetic website); a listing with `.env`, a key file, and a blocked folder;
+      allowed Kimi changes where one write never comes, one is refused, one names another
+      folder's file, and one too many is asked.
+
+### Desktop and Ledger
+
+- [x] **C7 · Only ordinary keys and shortcuts on the desktop.** `screen_keys` takes ordinary
+      keys, and Ctrl, Shift, or Alt with letters, digits, and the moving keys (an allow-list, so
+      a shortcut nobody listed is refused too). Refused, among others: Alt+F4, Ctrl+W, Ctrl+F4,
+      Ctrl+Q, Alt+Tab, Ctrl+Alt+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc, Ctrl+Alt+Delete,
+      Alt+Space, F1, F12, a browser's developer tools, Shift+Delete, and a letter from another
+      alphabet; the Windows key was refused already (this extends ADR-020; ADR-049's asking is
+      unchanged).
+- [x] **C8 · Typed text holds only what the card shows.** `screen_type` refuses control
+      characters other than tab and line breaks, and invisible ones (zero-width, right-to-left
+      marks, tag characters); line breaks are made one kind; at most 500 characters a step, so
+      the card shows all of it.
+- [x] **C9 · The Ledger's files are kept from other accounts.** On Unix (Linux is used for
+      development and CI) the app's data folder and the Ledger's folder are readable by the
+      owner's account only (`0700`), also when an older version left them open, and so are new
+      backups, exports, the database, and a restored copy (`0600`); a folder that cannot be made
+      so gives a notice. On Windows nothing changes: the account's app-data folder is private
+      already through its access control list, and files have no mode bits
+      (`crates/ledger/src/owner_only.rs`).
+- [x] Tests: the allowed and refused combinations, the hidden characters, and the modes of the
+      Ledger's folder, database, backups, exports, a chosen folder (left as it is), and a restored
+      copy.
+
+### Web
+
+- [x] **C10a · The website's version is never typed by hand.** The page carries a mark the build
+      fills from the root `package.json`, or from `PLENIPO_VERSION` (a container build has no
+      repository and stops without it); `pnpm versions:check` refuses a version typed into the
+      page. The root version runs ahead of GitHub Releases (1.9.0 on `main`, v1.10.0 published,
+      no v1.9.0 installer), so the deploy runbook passes the latest published release and checks
+      its installer link first (`docs/development/website.md`).
+- [x] **C10b · The desktop app's page policy names its inline styles.** `style-src` is `'self'`
+      alone. Inline styles are allowed by name only where the terminal (xterm.js) needs them: its
+      own `<style>` elements (`style-src-elem`) and the `style` attributes it sets for true colors
+      and contrast fixes (`style-src-attr`). In today's WebView2 that allows the same inline
+      styles as before; the gain is that the app's own code is held to none (a test checks it,
+      with raw HTML), and the test fails when the terminal stops needing them, so the policy can
+      drop them. Drawing the terminal with its WebGL renderer would remove most of the need; it
+      falls back to the same styles when WebGL is lost, so it is a follow-up, not this fix.
+- [ ] Owner's check on Windows: the terminal (including colored output, for example Claude
+      Code's diffs) and every page look right in the pull request's **Windows** build (the
+      policy change).
+
 ## Advisories: closing out
 
 The sweep's findings live in the repository's private security advisories (**Security →
@@ -114,16 +208,16 @@ Advisories**). Plenipo's GitHub connection here cannot change advisories, so the
 one once its fix is on `main` (open the draft advisory → **Close advisory**; or on the PC:
 `gh api -X PATCH repos/Seckcey/plenipo/security-advisories/<GHSA id> -f state=closed`).
 
-| Advisory            | Findings | Fixed by              | Close it        |
-| ------------------- | -------- | --------------------- | --------------- |
-| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)       | now             |
-| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)       | now             |
-| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)       | now             |
-| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)       | now             |
-| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)       | now             |
-| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (in progress)  | after it merges |
-| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #76 (in progress)  | after it merges |
-| GHSA-c86x-xcxc-pgf6 | C        | Group C (not started) | later           |
+| Advisory            | Findings | Fixed by           | Close it        |
+| ------------------- | -------- | ------------------ | --------------- |
+| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)    | now             |
+| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)    | now             |
+| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)    | now             |
+| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)    | now             |
+| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)    | now             |
+| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (merged)    | now             |
+| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #76 (merged)    | now             |
+| GHSA-c86x-xcxc-pgf6 | C1–C10   | `fable/security-c` | after it merges |
 
 ## Checks
 

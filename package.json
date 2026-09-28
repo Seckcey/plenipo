@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "pnpm --filter @plenipo/desktop tauri dev",
     "build": "pnpm --filter @plenipo/desktop tauri build",
-    "lint": "eslint . --max-warnings 0 && node --test scripts/colors.test.mjs scripts/update-manifest.test.mjs scripts/check-doc-links.test.mjs && node scripts/check-colors.mjs && pnpm docs:links",
+    "lint": "eslint . --max-warnings 0 && node --test scripts/*.test.mjs && node scripts/check-colors.mjs && pnpm docs:links",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docs:links": "node scripts/check-doc-links.mjs",

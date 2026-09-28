@@ -8,9 +8,12 @@ release workflow are unchanged.
 ## Content and search
 
 The page links to the published Windows installer, explains the current free release, and labels
-the proposed Free/Pro limits as planned. A merge containing a desktop version bump does not mean
-that an installer has been published. Verify GitHub Releases before changing the download URL,
-version, availability, or edition claims.
+the proposed Free/Pro limits as planned. Nobody types the version into the page: both download
+buttons, both version labels, the structured data, and `release.json` come from the version the
+build is given (the root `package.json`, or `PLENIPO_VERSION`). A merge containing a desktop
+version bump does not mean that an installer has been published, so a deploy passes the release
+it checked on GitHub Releases (below). Still check GitHub Releases before changing availability
+or edition claims.
 
 The Pip branding update aligns the page with the published
 [v1.6.0 Windows release](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0)
@@ -18,9 +21,9 @@ The Pip branding update aligns the page with the published
 [Kimi runtime](https://github.com/Seckcey/plenipo/blob/v1.6.0/crates/runtime/src/agent/kimi.rs) and
 [owner acceptance record](https://github.com/Seckcey/plenipo/blob/v1.6.0/docs/phases/ai-tools-kimi-acceptance-report.md)
 establish the Kimi/Moonshot entry; Ollama cloud support remains in adjacent text.
-The development branch's v1.7.0 version is not an installer availability claim. Both download
-buttons, both visible version labels, structured data, and generated release metadata agree on
-v1.6.0. Existing screenshot captions continue to identify earlier app previews.
+Both download buttons, both visible version labels, the structured data, and `release.json`
+always show the same version: the one the build was given. Existing screenshot captions continue
+to identify earlier app previews.
 
 The initial content is present in HTML without JavaScript. The title, description, canonical URL,
 Open Graph/Twitter metadata, SoftwareApplication structured data, `robots.txt`, sitemap, and
@@ -44,9 +47,11 @@ pnpm --filter @plenipo/website test
 SOURCE_REVISION="$(git rev-parse HEAD)" pnpm --filter @plenipo/website build
 ```
 
-The build copies public files to `apps/website/dist`; `release.json` identifies its source.
-The website workflow also builds and starts the production image, checks health, the home page,
-sitemap, and a genuine HTTP 404 response. Existing repository checks still cover formatting,
+The build reads the version from the root `package.json` (or `PLENIPO_VERSION`), copies public
+files to `apps/website/dist`, and writes `release.json`, which names its source and the version
+it shows. The website workflow also builds and starts the production image with the root version,
+checks health, the home page, sitemap, `release.json`'s version, and a genuine HTTP 404
+response. Existing repository checks still cover formatting,
 linting, the workspace, and the desktop application.
 
 On Frankie's machines, container builds/tests/previews run on `ssh coastline`, never Docker
@@ -105,8 +110,15 @@ After the coordinator merges the reviewed PR, export that exact commit into an i
 directory, build the image, and retain the archive hash, image ID, image revision label, and
 `release.json` response together. For example, on Coastline with verified values:
 
+The image has no `package.json` to read, so its build stops without `PLENIPO_VERSION`. Pass the
+latest published release, and check that its installer is there before building:
+
 ```sh
+version="$(gh release view --repo Seckcey/plenipo --json tagName -q .tagName)"
+version="${version#v}"
+curl -fsIL "https://github.com/Seckcey/plenipo/releases/download/v$version/Plenipo_${version}_x64-setup.exe" >/dev/null
 docker build --build-arg SOURCE_REVISION="$revision" \
+  --build-arg PLENIPO_VERSION="$version" \
   -t "plenipo-website:$revision" "$release_dir/apps/website"
 PLENIPO_IMAGE="plenipo-website:$revision" PLENIPO_PORT=14380 PLENIPO_SUBNET=10.204.229.0/28 \
   docker compose -p plenipo-website -f "$release_dir/apps/website/compose.yaml" \
@@ -115,7 +127,8 @@ PLENIPO_IMAGE="plenipo-website:$revision" PLENIPO_PORT=14380 PLENIPO_SUBNET=10.2
 
 Keep the active image, source and Compose environment references in the application directory's
 release record; keep the prior image/release for rollback. Confirm the container image matches
-the build, localhost health and pages/assets return the intended release, an unknown path is 404,
+the build, localhost health and pages/assets return the intended release (`release.json` shows
+that version), an unknown path is 404,
 the port is loopback only, logs are clean, and restart count is stable. Record public acceptance
 separately after the Tunnel is configured. For a failed update, point only this Compose project
 back to the retained prior image/configuration and repeat health checks. Do not prune images,

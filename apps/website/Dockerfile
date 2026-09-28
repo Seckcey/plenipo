@@ -5,6 +5,10 @@ COPY scripts ./scripts
 COPY public ./public
 ARG SOURCE_REVISION=development
 ENV SOURCE_REVISION=$SOURCE_REVISION
+# The version to show (the image has no root package.json to read): the release checked on
+# GitHub Releases, e.g. --build-arg PLENIPO_VERSION=1.10.0. The build stops without it.
+ARG PLENIPO_VERSION
+ENV PLENIPO_VERSION=$PLENIPO_VERSION
 RUN node scripts/build.mjs
 
 FROM nginx:1.30.5-alpine
