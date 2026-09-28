@@ -61,16 +61,17 @@ impl WorkforceDirectory {
             }),
             workforce,
             identity: member_identity(view, &org_name(&self.ledger), target, has_team)
-                + &learned(&self.ledger, view, target),
+                + &learned(&self.ledger, view, target, plan.project_id.as_deref()),
             project_id: plan.project_id,
         })
     }
 }
 
-/// What the position's role has learned, and how to write down a lesson (ADR-024).
-fn learned(ledger: &Ledger, view: &OrgView<'_>, p: &Position) -> String {
+/// What the position's role has learned, for a worker on `project_id`, and how to write down a
+/// lesson (ADR-024; ADR-040: notes in a fence, from this project or from none).
+fn learned(ledger: &Ledger, view: &OrgView<'_>, p: &Position, project_id: Option<&str>) -> String {
     view.role(p).map_or_else(String::new, |r| {
-        crate::learning::instructions(ledger, &r.id, &r.name)
+        crate::learning::instructions(ledger, &r.id, &r.name, project_id)
     })
 }
 
@@ -209,7 +210,7 @@ impl Directory for WorkforceDirectory {
                 .as_str()
                 .unwrap_or_default();
             worker_identity(&view, &name, me, None, sees_images(&planner, model))
-        } + &learned(&self.ledger, &view, me);
+        } + &learned(&self.ledger, &view, me, workforce["projectId"].as_str());
         Some(Team {
             identity,
             members: destinations,
@@ -298,7 +299,7 @@ impl Directory for WorkforceDirectory {
                 target,
                 member.oversight.map(|o| (lead, o.kind)),
                 sees_images(&planner, &choice.model_id),
-            ) + &learned(&self.ledger, &view, target),
+            ) + &learned(&self.ledger, &view, target, project_id.as_deref()),
             project_id,
         })
     }

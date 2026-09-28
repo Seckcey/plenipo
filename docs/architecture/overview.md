@@ -241,14 +241,14 @@ Server commands (Phase 11). Servers are part of Guard's settings; their sign-ins
 Switches and learning commands (v1.4). The switches are part of Guard's settings
 (`PermissionsSnapshot.settings.switches`); learning is a Workforce setting.
 
-| Command             | Input                       | Returns               | Purpose                                                                                                    |
-| ------------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `set_switches`      | `switches` (`Switches`)     | `PermissionsSnapshot` | Settings → Switches. Switching the browser or the screen off also stops the workers using it now           |
-| `get_learning`      | —                           | `LearningSnapshot`    | Worker learning on or off, the roles that learn on their own, lessons waiting (oldest first) and kept      |
-| `set_learning`      | `enabled`                   | `LearningSnapshot`    | Worker learning on or off                                                                                  |
-| `set_role_learning` | `roleId`, `auto`            | `LearningSnapshot`    | Whether a role learns on its own (its lessons are kept without asking, except from websites or the screen) |
-| `decide_lesson`     | `lessonId`, `keep`, `text?` | `LearningSnapshot`    | Keep (in the owner's words, if given) or discard a waiting lesson                                          |
-| `remove_lesson`     | `lessonId`                  | `LearningSnapshot`    | Remove a kept lesson                                                                                       |
+| Command             | Input                       | Returns               | Purpose                                                                                                          |
+| ------------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `set_switches`      | `switches` (`Switches`)     | `PermissionsSnapshot` | Settings → Switches. Switching the browser or the screen off also stops the workers using it now                 |
+| `get_learning`      | —                           | `LearningSnapshot`    | Worker learning on or off, the roles that learn on their own, lessons waiting (oldest first) and kept            |
+| `set_learning`      | `enabled`                   | `LearningSnapshot`    | Worker learning on or off                                                                                        |
+| `set_role_learning` | `roleId`, `auto`            | `LearningSnapshot`    | Whether a role learns on its own (a lesson from a task that used no tools is kept without asking; the rest wait) |
+| `decide_lesson`     | `lessonId`, `keep`, `text?` | `LearningSnapshot`    | Keep (in the owner's words, if given) or discard a waiting lesson                                                |
+| `remove_lesson`     | `lessonId`                  | `LearningSnapshot`    | Remove a kept lesson                                                                                             |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -690,8 +690,9 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 
 ## 12a. Switches and learning (v1.4)
 
-Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md)
-and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md).
+Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md),
+[ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md), and
+[ADR-040 (lessons a role keeps on its own are notes, not orders)](../adr/ADR-040-lessons-kept-on-their-own.md).
 
 - **Switches** (`crates/guard/src/dto.rs` `Switches`, in the Guard settings, event
   `guard.switches_changed`): Plenipo's browser (on), the screen, mouse, and keyboard (off),
@@ -722,10 +723,16 @@ and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300
   characters each) and records them for the worker's role, waiting or kept (`lesson.added`).
   Lessons from a task that used the browser, the screen, or (Phase 11) a server (itself or any
-  task handed on from it: `task_used_web_screen_or_servers`) always wait. The owner keeps (optionally edited), discards, or removes them (`lesson.kept`,
-  `lesson.discarded`, `lesson.removed`). Each worker's instructions (`directory.rs`) carry its
-  role's newest 20 kept lessons and how to write one, unless learning is off (Ledger setting
-  `learning`, events `learning.switched` and `learning.role_changed`).
+  task handed on from it: `task_used_web_screen_or_servers`) always wait, with a warning. A role
+  that learns on its own keeps a lesson unasked only when the task's tree used no tool at all
+  (`task_used_any_tool`: every `capability.used` and `agent.tool_use` event, screen and server
+  sessions) and the lesson has no command, path, or web address (`has_command_path_or_address`);
+  the rest wait with a `held_reason` for the owner (ADR-040). The owner keeps (optionally
+  edited), discards, or removes them (`lesson.kept`, `lesson.discarded`, `lesson.removed`). Each
+  worker's instructions (`directory.rs`) carry its role's newest 20 kept lessons from its own
+  project or from no project (`lessons.project_id`, migration 9) inside a nonce fence that says
+  who kept each one (notes, never orders), and how to write one, unless learning is off (Ledger
+  setting `learning`, events `learning.switched` and `learning.role_changed`).
 - **Screens:** Settings → Switches (`SwitchSettings.tsx`); Approvals → New lessons, and a role's
   "What it has learned" and **Learn on its own** in its details (`learning/Lessons.tsx`). The
   sidebar's Approvals count includes waiting lessons.
