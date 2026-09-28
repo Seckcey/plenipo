@@ -98,6 +98,20 @@ async function setTheme(browser, wanted) {
   await waitUntil(async () => (await theme(browser)) === wanted, `the ${wanted} theme`);
 }
 
+/** Wait for the colors to finish changing: buttons, cards, and switches fade to a new theme,
+ * and a busy machine can take longer than any fixed pause. Endless animations (a spinner, a
+ * placeholder's shimmer) are left out: they never finish. */
+const settled = (browser) =>
+  waitUntil(
+    () =>
+      browser.execute(() =>
+        document
+          .getAnimations()
+          .every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity),
+      ),
+    "the colors to finish changing",
+  );
+
 /** Scroll a Gallery section to the top of the page, for a screenshot. */
 async function showSection(browser, id) {
   await browser.execute((s) => {
@@ -399,7 +413,7 @@ describe("Phase 12A: design system (real app)", () => {
     await openGallery(browser);
     for (const t of ["dark", "light"]) {
       await setTheme(browser, t);
-      await browser.pause(400);
+      await settled(browser);
       checkLook(await lookOf(browser), `gallery-${t}`);
       await browser.execute(() => document.querySelector("main")?.scrollTo(0, 0));
       await screenshot(browser, `gallery-${t}-top`);
