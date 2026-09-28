@@ -8,15 +8,16 @@ Plenipo's desktop app and its release workflow are unchanged.
 
 ## Interactive sample
 
-The interactive homepage is live from approved source `155ad42cd7830976400bad4535beda5297de6435`
-as of September 28, 2026. See the [release receipt](website-releases/2026-09-28-interactive.md)
-for actual source/image identity, public acceptance, and retained rollback. Its installer metadata
-remains v1.6.0. Later main-branch version templating is not included in that deployment.
+The interactive homepage automatically opens its sample from approved source
+`0a018ad3bb61b461de76928e1aef377dc98839a7`, deployed September 28, 2026. See the
+[automatic-entry release receipt](website-releases/2026-09-28-autostart.md) for exact source/image
+identity, public acceptance, and cleanup. The previous [click-entry release](website-releases/2026-09-28-interactive.md)
+remains the immediate rollback. Installer metadata stays v1.6.0 through an explicit build argument;
+this correction does not update the advertised installer.
 
-The hero and download links render without JavaScript. In the corrected source, a small loader in
+The hero and download links render without JavaScript. A small loader in
 `main.js` starts the React/React Flow island immediately on page entry, without a click, scroll,
-or idle gate. The deployed `155ad42` release above still requires a click until the correction is
-released and its production receipt is recorded. The loader's
+or idle gate. The loader's
 content-hashed JS and CSS are built with esbuild and served from the same origin. A readable
 HTML example remains available without JavaScript, after a load/render failure, and through
 **Return to the static example**. No desktop modules, commands, provider calls, storage, or
@@ -65,9 +66,9 @@ for fresh-navigation measurements and fallback checks.
 ## Content and search
 
 The page links to the published Windows installer, explains the current free release, and labels
-the proposed Free/Pro limits as planned. Current main uses build-time version templating, while the
-deployed September 28 revision retains its earlier fixed v1.6.0 metadata. In the newer source,
-nobody types the version into the page: both download
+the proposed Free/Pro limits as planned. Build-time version templating is used; the automatic-entry
+release deliberately passes `PLENIPO_VERSION=1.6.0` to preserve its authorized content scope.
+Nobody types the version into the page: both download
 buttons, both version labels, the structured data, and `release.json` come from the version the
 build is given (the root `package.json`, or `PLENIPO_VERSION`). A merge containing a desktop
 version bump does not mean that an installer has been published, so a deploy passes the release
@@ -145,7 +146,8 @@ short asset caching, revalidated HTML, and a health check.
 
 Coastline's automatic Docker network pools were exhausted during setup. Use the additional
 `compose.coastline.yaml` with a freshly verified `PLENIPO_SUBNET`; the permanent service's chosen
-subnet is `10.204.229.0/28`. The temporary preview uses `10.204.230.0/28`. Check all Docker networks
+subnet is `10.204.229.0/28`. Earlier temporary previews used `10.204.230.0/28` and
+`10.204.231.0/28`; both are stopped and their task networks/reservations removed. Check all Docker networks
 (including unused networks) and every host route table, including VPN routes, for overlap before
 creating either. Record the app subnet under the same allocation lock. Do not remove another
 project's network or change Docker's daemon pools to make room.
@@ -162,15 +164,18 @@ Create an atomic task-owned JSON record containing the host/bind/ports, app and 
 task owner, purpose, timestamp, and state before starting. Retain the lock through the actual
 Docker bind and update the record with the healthy container/image identity. This serializes
 participating deployers only; Docker's successful bind decides collisions with other processes.
-Never remove the shared lock inode. Temporary preview 14381 uses a separate project and directory;
-remove only its reservation after its containers and reclaimable configuration are removed.
+Never remove the shared lock inode. Temporary previews use separate projects and directories;
+remove only their own reservations after their containers cannot reclaim those ports. Historical
+preview ports are not evidence of current availability.
 
 After the coordinator merges the reviewed PR, export that exact commit into an immutable release
 directory, build the image, and retain the archive hash, image ID, image revision label, and
 `release.json` response together. For example, on Coastline with verified values:
 
 The image has no `package.json` to read, so its build stops without `PLENIPO_VERSION`. Pass the
-latest published release, and check that its installer is there before building:
+authorized published release, and check that its installer is there before building. The example
+below selects the latest release; a narrowly scoped correction can explicitly retain its previous
+version instead, as the automatic-entry release did with v1.6.0:
 
 ```sh
 version="$(gh release view --repo Seckcey/plenipo --json tagName -q .tagName)"

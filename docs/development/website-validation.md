@@ -1,5 +1,9 @@
 # Marketing website acceptance
 
+The latest production correction opens the demo automatically. Its exact release, fresh public
+browser checks, and cleanup are in the [automatic-entry receipt](website-releases/2026-09-28-autostart.md).
+The click-entry measurements below remain historical; automatic-entry costs are recorded separately.
+
 Production acceptance for the approved interactive homepage is recorded in the
 [September 28 release receipt](website-releases/2026-09-28-interactive.md). It supersedes the
 production-pending status of the historical implementation/preview checks below; their measured

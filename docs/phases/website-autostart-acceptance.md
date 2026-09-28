@@ -82,8 +82,8 @@ the intended loader/hash-reference and release identity changes; record any demo
 whitespace separately. Unexplained output differences block release. No installer repair,
 desktop feature, external PR #88, provider connection, or customer data is included.
 
-Production remains on `155ad42` until the correction is merged, deployed, and verified. Retain
-that image/source/configuration as rollback. The initial `35781ba` comparison verified 62 files:
+Production was on `155ad42` during implementation acceptance. That image/source/configuration
+was retained as rollback when the correction was deployed. The initial `35781ba` comparison verified 62 files:
 61 byte-identical, with only `index.html` template whitespace different. An initial extraction hit
 read-only directory permissions; the retained failure was resolved by extracting tar-stream file
 bytes into private writable directories. No application change was needed for extraction.
@@ -105,4 +105,6 @@ slow-import wait timed out before network completion; the completed state and re
 check confirmed correct behavior. Original timing evidence remains labeled `35781ba`; the focus
 correction does not change the island bundle or its automatic entry behavior.
 
-Production identity is recorded after release; this implementation receipt is not a release claim.
+The correction was merged and deployed as `0a018ad3bb61b461de76928e1aef377dc98839a7`.
+See the [production release receipt](../development/website-releases/2026-09-28-autostart.md)
+for public checks, runtime identity, rollback, and completed preview cleanup.
