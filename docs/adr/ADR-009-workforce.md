@@ -3,6 +3,9 @@
 - **Status:** Accepted (owner, 2026-09-26). §1 (positions archived, never deleted) and §7 (the
   working directory is never opened) are amended by [ADR-039](ADR-039-owners-notes-order-of-work.md):
   an archived item can be deleted for good, and the owner can open and edit project files.
+- **Amended by:** [ADR-043 (archive, bring back, and delete for good)](ADR-043-archive-bring-back-delete.md)
+  (§1, §3: a department can be archived; archived items can be brought back or deleted for good)
+  and [ADR-042 (specialties)](ADR-042-specialties.md) (§10: specialties are data, like roles).
 - **Date:** 2026-09-26
 - **Phase:** 5
 

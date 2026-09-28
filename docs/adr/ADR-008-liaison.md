@@ -2,6 +2,8 @@
 
 - **Status:** Accepted (owner, 2026-09-26). The size limits in §1 and §4 are changed by
   [ADR-012](ADR-012-brief-agent-messages.md) (brief messages between agents).
+- **Amended by:** [ADR-044 (prompts sized to the job)](ADR-044-prompts-sized-to-the-job.md): the
+  instructions are no longer restated with every objective (§1), only when needed.
 - **Date:** 2026-09-26
 - **Phase:** 4
 

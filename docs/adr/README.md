@@ -55,6 +55,11 @@ architecture must be recorded here.
 | [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so                  | Accepted |
 | [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)     | Accepted |
 | [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amends 039)    | Accepted |
+| [041](ADR-041-model-effort-learning-layers.md)       | Model, effort, and learning set in layers, the closest winning (amends 011, 024)            | Accepted |
+| [042](ADR-042-specialties.md)                        | Specialties under each role, built in and your own (amends 019)                             | Accepted |
+| [043](ADR-043-archive-bring-back-delete.md)          | Archive, bring back, and delete for good (carries out 039 §2.1; amends 009)                 | Accepted |
+| [044](ADR-044-prompts-sized-to-the-job.md)           | Prompts sized to the job: measured, full instructions only when needed (amends 008, 012)    | Accepted |
+| [045](ADR-045-experience-and-the-workforce.md)       | Experience and the Workforce: keeping your best agents (amends 024, 043)                    | Accepted |
 | [046](ADR-046-new-tabs-open-in-the-workers-tab.md)   | New tabs open in the worker's own tab (amends 020)                                          | Accepted |
 | [047](ADR-047-browser-never-saves-files.md)          | Plenipo's browser does not save files (amends 020)                                          | Accepted |
 | [048](ADR-048-secrets-only-to-their-programs.md)     | Secrets reach only the programs they are for (amends 013)                                   | Accepted |
