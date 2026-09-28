@@ -169,17 +169,25 @@ export function focusCamera(camera: Camera, view: Size, rect: Rect): Camera {
   };
 }
 
+/** The strip along the top of the canvas its toolbar covers (Phase 18). */
+export const TOOLBAR_ROOM = 56;
+
 /**
  * A camera computed for the uncovered part of the canvas (its right-hand `insetRight` pixels are
- * under a panel) moved to the whole canvas: what it centers stays centered in the uncovered part.
+ * under a panel, its top `insetTop` pixels under the toolbar) moved to the whole canvas: what it
+ * centers stays centered in the uncovered part.
  */
-export function forInset(camera: Camera, insetRight: number): Camera {
-  return { ...camera, x: camera.x + insetRight / 2 / camera.z };
+export function forInset(camera: Camera, insetRight: number, insetTop = 0): Camera {
+  return {
+    ...camera,
+    x: camera.x + insetRight / 2 / camera.z,
+    y: camera.y - insetTop / 2 / camera.z,
+  };
 }
 
-/** The part of the canvas a panel does not cover. */
-export function uncovered(view: Size, insetRight: number): Size {
-  return { w: Math.max(1, view.w - insetRight), h: view.h };
+/** The part of the canvas a panel and the toolbar do not cover. */
+export function uncovered(view: Size, insetRight: number, insetTop = 0): Size {
+  return { w: Math.max(1, view.w - insetRight), h: Math.max(1, view.h - insetTop) };
 }
 
 export function easeInOutCubic(t: number): number {

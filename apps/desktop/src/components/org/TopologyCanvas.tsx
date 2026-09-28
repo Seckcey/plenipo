@@ -47,6 +47,7 @@ import {
   wheelFactor,
   worldTransform,
   zoomAt,
+  TOOLBAR_ROOM,
   type Camera,
   type Rect,
   type Size,
@@ -247,10 +248,16 @@ export function TopologyCanvas({
   const [measured, setMeasured] = useState<Size | null>(null);
   const size = measured ?? DEFAULT_SIZE;
   const [restored] = useState(readCamera);
+  /** The toolbar covers a strip along the top: fitting leaves it clear. */
+  const top = toolbar ? TOOLBAR_ROOM : 0;
   const [camera, setCameraState] = useState<Camera>(
     () =>
       restored ??
-      forInset(initialCamera(layout.bounds, uncovered(DEFAULT_SIZE, insetRight)), insetRight),
+      forInset(
+        initialCamera(layout.bounds, uncovered(DEFAULT_SIZE, insetRight, top)),
+        insetRight,
+        top,
+      ),
   );
   const [drag, setDrag] = useState<DragView | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -269,6 +276,7 @@ export function TopologyCanvas({
     onArrange,
     mode: pointerMode,
     inset: insetRight,
+    top,
   });
   const live = useRef(current());
   useLayoutEffect(() => {
@@ -336,8 +344,8 @@ export function TopologyCanvas({
 
   const fit = useCallback(() => {
     const view = measure();
-    const { layout: l, inset } = live.current;
-    flyTo(forInset(fitCamera(l.bounds, uncovered(view, inset)), inset));
+    const { layout: l, inset, top: t } = live.current;
+    flyTo(forInset(fitCamera(l.bounds, uncovered(view, inset, t)), inset, t));
   }, [flyTo, measure]);
 
   const zoomBy = useCallback(
@@ -354,16 +362,18 @@ export function TopologyCanvas({
   const reveal = useCallback(
     (node: LayoutNode, force: boolean) => {
       const view = measure();
-      const { camera: c, inset } = live.current;
+      const { camera: c, inset, top: t } = live.current;
       const full = visibleRect(c, view);
-      const seen = { ...full, w: full.w - inset / c.z };
+      const seen = { ...full, y: full.y + t / c.z, w: full.w - inset / c.z, h: full.h - t / c.z };
       const margin = 24 / c.z;
       const inside =
         node.x >= seen.x + margin &&
         node.y >= seen.y + margin &&
         node.x + node.w <= seen.x + seen.w - margin &&
         node.y + node.h <= seen.y + seen.h - margin;
-      if (force || !inside) flyTo(forInset(focusCamera(c, uncovered(view, inset), node), inset));
+      if (force || !inside) {
+        flyTo(forInset(focusCamera(c, uncovered(view, inset, t), node), inset, t));
+      }
     },
     [flyTo, measure],
   );
@@ -395,10 +405,14 @@ export function TopologyCanvas({
     if (!measured || fitted.current) return;
     fitted.current = true;
     live.current.size = measured;
-    const inset = live.current.inset;
+    const { inset, top: t } = live.current;
     setCamera(
       restored ??
-        forInset(initialCamera(live.current.layout.bounds, uncovered(measured, inset)), inset),
+        forInset(
+          initialCamera(live.current.layout.bounds, uncovered(measured, inset, t)),
+          inset,
+          t,
+        ),
     );
   }, [measured, restored, setCamera]);
 

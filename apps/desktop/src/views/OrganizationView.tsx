@@ -269,7 +269,7 @@ export function OrganizationView({
   const [pointer, setPointerState] = useState<PointerMode>(readPointer);
   const [filters, setFiltersState] = useState<CanvasFilters>(readFilters);
   const [panel, setPanel] = useState<Panel>(null);
-  const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY) !== "hidden");
+  const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY) === "shown");
   const [whereOn, setWhereOn] = useState(() => read(WHERE_KEY) === "on");
   const [touring, setTouring] = useState(() => readFlag(TOUR_KEY) !== "seen");
   /** Tiles following the pointer while they are arranged (not saved yet). */

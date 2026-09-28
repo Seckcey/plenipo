@@ -504,6 +504,8 @@ describe("filters, the legend, the live view, and the guide (ADR-053 §13–§21
     ]) {
       expect(shown.has(key), `${key} shows on a full canvas`).toBe(true);
     }
+    await user.click(screen.getByRole("button", { name: "Legend" }));
+    expect(localStorage.getItem("plenipo.canvasLegend")).toBe("shown");
     const legend = screen.getByRole("region", { name: "Legend" });
     for (const s of SYMBOLS) {
       expect(legend.querySelector(`[data-legend="${s.key}"]`), s.key).not.toBeNull();

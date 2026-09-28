@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import * as events from "../api/events";
-import { initialCamera, worldToScreen } from "../org/camera";
+import { TOOLBAR_ROOM, forInset, initialCamera, uncovered, worldToScreen } from "../org/camera";
 import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
@@ -76,8 +76,9 @@ function screenPoint(snapshot: OrgSnapshot, id: string): { clientX: number; clie
   const node = layout.byId.get(id);
   if (!node) throw new Error(`no node ${id}`);
   const view = { w: 960, h: 640 };
+  // The first view leaves the toolbar's strip along the top clear.
   const [x, y] = worldToScreen(
-    initialCamera(layout.bounds, view),
+    forInset(initialCamera(layout.bounds, uncovered(view, 0, TOOLBAR_ROOM)), 0, TOOLBAR_ROOM),
     view,
     node.x + node.w / 2,
     node.y + node.h / 2,
