@@ -221,10 +221,11 @@ again, for "talent pool", "bench", "agent library").
       Archived list in the organization's List view.
 - [x] **The properties panel rebuilt** — tabs (Overview, Job, AI model, Work, Team, Manage); a
       one-line "what this does" under every option; effort and permissions shown; can be widened.
-- [ ] **Prompts sized to the job** — measured and recorded per task; a short reminder on routine
+- [x] **Prompts sized to the job** — measured and recorded per task; a short reminder on routine
       tasks; the full brief at the start, after a shortened memory, after a set number of
       objectives, and for a large job; handoffs pointing at saved records by ID, in a compact,
-      labeled, plain-words format.
+      labeled, plain-words format. As built: a permissions change sends the full note, not the
+      full instructions; Kimi's and Grok's records are pasted, as for Codex (ADR-044, As built).
 - [x] **Experience and the Workforce** (the owner's addition, ADR-045) — a score for how much
       each agent has learned and done; a Workforce tab to save agents and hire them again;
       deleting for good offers to save the experienced ones.
@@ -240,8 +241,9 @@ again, for "talent pool", "bench", "agent library").
 - [x] Delete for good removes the item and its settings; the Ledger keeps a short record in its
       place (ID, name, role, dates, "deleted by the owner"); refused while anything has
       unfinished work; recorded as its own event.
-- [ ] Prompt sizes: the byte count of Plenipo's own text on each task's record; the goal set after
-      measuring — at least half off on routine tasks; no invented private language.
+- [x] Prompt sizes: the byte count of Plenipo's own text on each task's record; the goal set after
+      measuring — at least half off on routine tasks (met: 73% less for a new routine objective,
+      45% for a reply step; acceptance report §5); no invented private language.
 - [x] Screen text follows the word list; new words go into `docs/design/vocabulary.md`.
 
 ## Tests (plan)
@@ -256,9 +258,9 @@ again, for "talent pool", "bench", "agent library").
 - [x] Archive → bring back restores the agent; delete for good leaves a short record, and old
       activity still names it.
 - [x] Delete for good is refused while there is unfinished work.
-- [ ] Routine tasks carry the short reminder; the first task, a shortened memory, and a large job
+- [x] Routine tasks carry the short reminder; the first task, a shortened memory, and a large job
       carry the full brief.
-- [ ] Each task's prompt size is recorded.
+- [x] Each task's prompt size is recorded.
 - [x] The properties panel's every option has its one-line explanation (snapshot against the word
       list).
 - [x] (ADR-045) Experience counts kept lessons and finished tasks; deleting for good offers the
@@ -284,8 +286,8 @@ again, for "talent pool", "bench", "agent library").
 - [ ] Release notes (`docs/releases/v1.10.0.md`), the plan's Phase 17 status line and its state in
       the order of work, this checklist, and the acceptance report with screenshots in
       `evidence/phase-17/`, in Pacific time.
-- [ ] A review across several areas, with a second reviewer checking each finding, before the
-      final push.
+- [x] A review across several areas, with a second reviewer checking each finding, before the
+      final push (five areas; acceptance report §7).
 - [ ] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
@@ -293,7 +295,7 @@ again, for "talent pool", "bench", "agent library").
 
 ## Left for the owner (on Windows)
 
-To be listed in the acceptance report once built: the acceptance walk-through on a real PC with
-real AI tools (a rule for the organization, one department, and one agent; learning off for one
-agent; a Database developer; archive, bring back, archive, delete for good), and whether each AI
-tool's "shortened memory" notice arrives as expected.
+Listed in the acceptance report, section 8: the acceptance walk-through on a real PC with real
+AI tools (a rule for the organization, one department, and one agent; learning off for one
+agent; a Database developer; archive, bring back, archive, delete for good), whether each AI
+tool's "shortened memory" signal arrives as expected, and the upgrade from 1.9.0.
