@@ -151,9 +151,16 @@ impl Broker {
                         .and_then(|v| u32::try_from(v).ok())
                         .unwrap_or(0)
                 };
+                let session_id = ledger
+                    .task(&task_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|t| t.metadata["sessionId"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
                 changes.push(WatchChange {
                     id: e.id.clone(),
                     task_id: task_id.clone(),
+                    session_id,
                     position_id: Some(position_id.to_owned()),
                     worker: e.payload["worker"].as_str().unwrap_or("").to_owned(),
                     objective_task_id: objective.clone(),

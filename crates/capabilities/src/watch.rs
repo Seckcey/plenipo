@@ -64,6 +64,8 @@ pub enum LineMark {
 pub struct WatchChange {
     pub id: String,
     pub task_id: String,
+    /// The worker's conversation (Stop stops its task, as on the Workers page).
+    pub session_id: String,
     #[ts(optional)]
     pub position_id: Option<String>,
     pub worker: String,
@@ -335,6 +337,7 @@ impl WatchHub {
         WatchChange {
             id: uuid::Uuid::new_v4().to_string(),
             task_id: who.task_id.clone(),
+            session_id: who.session_id.clone(),
             position_id: who.position_id.clone(),
             worker: who.worker.clone(),
             objective_task_id: who.objective_task_id.clone(),

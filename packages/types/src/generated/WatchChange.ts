@@ -5,7 +5,11 @@ import type { WatchState } from "./WatchState";
 /**
  * One change to one file by one worker.
  */
-export type WatchChange = { id: string, taskId: string, positionId?: string, worker: string, 
+export type WatchChange = { id: string, taskId: string, 
+/**
+ * The worker's conversation (Stop stops its task, as on the Workers page).
+ */
+sessionId: string, positionId?: string, worker: string, 
 /**
  * The objective it belongs to (the root task).
  */
