@@ -34,7 +34,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 
 - A worker stays inside its project's folder. It cannot read or change files outside it.
 - The AI tools' own file access is off or goes through Plenipo: Claude Code runs with none of
-  its built-in tools, Codex's own commands and its picture reader are switched off (ADR-042),
+  its built-in tools, Codex's own commands and its picture reader are switched off (ADR-051),
   Grok runs with a profile that has none of its own tools, and Kimi's file reads go through
   Plenipo (ADR-027). A worker reads files, runs programs, and uses git only through Plenipo's
   tools, each checked by Guard and recorded.

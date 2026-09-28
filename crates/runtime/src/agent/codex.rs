@@ -3,7 +3,7 @@
 //! One turn = `codex exec --json --sandbox read-only --skip-git-repo-check
 //! -c features.shell_tool=false -c features.view_image=false [resume <thread>]` with the
 //! objective on stdin — the invocation OpenAI's Codex SDK uses, plus the two settings that
-//! switch off Codex's own command tool and picture reader (ADR-042, Codex works through
+//! switch off Codex's own command tool and picture reader (ADR-051, Codex works through
 //! Plenipo's tools). The thread ID arrives in `thread.started`. Codex does not report its
 //! credential source in the stream, so a subscription sign-in must be positively confirmed
 //! before every turn.
@@ -81,7 +81,7 @@ impl RuntimeAdapter for Codex {
             cancel: true,
             structured_results: true,
             billing_checked_per_turn: false,
-            // ADR-042 (Codex works through Plenipo's tools).
+            // ADR-051 (Codex works through Plenipo's tools).
             tool_posture: "Codex's own commands are off: it cannot run commands or read files \
                            on its own, and its read-only sandbox allows no writes and no \
                            network. A worker with permissions gets Plenipo's file, program, \
@@ -198,7 +198,7 @@ impl RuntimeAdapter for Codex {
             "read-only",
             // Each session runs in its own empty workspace, not a repository.
             "--skip-git-repo-check",
-            // ADR-042 (Codex works through Plenipo's tools): Codex's own command tool
+            // ADR-051 (Codex works through Plenipo's tools): Codex's own command tool
             // (`exec_command`, `write_stdin`) and its picture reader (`view_image`) are off, so
             // it reads files only through Plenipo's tools, where Guard decides and the use is
             // recorded. Both are stable `features` settings of Codex 0.157.1; the read-only
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn codex_own_commands_are_switched_off() {
-        // ADR-042: Codex's own command tool and its own picture reader are off in every turn,
+        // ADR-051: Codex's own command tool and its own picture reader are off in every turn,
         // as settings Codex reads before it starts (`features.shell_tool`, `features.view_image`).
         for request in [
             new_request(),

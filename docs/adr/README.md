@@ -65,3 +65,4 @@ architecture must be recorded here.
 | [048](ADR-048-secrets-only-to-their-programs.md)     | Secrets reach only the programs they are for (amends 013)                                   | Accepted |
 | [049](ADR-049-computer-use-asks-every-step.md)       | Computer use asks before every click and keystroke (amends 020)                             | Accepted |
 | [050](ADR-050-lessons-kept-on-their-own.md)          | Lessons a role keeps on its own are notes, not orders (amends 024)                          | Accepted |
+| [051](ADR-051-codex-own-shell.md)                    | Codex works through Plenipo's tools: its own command tool is off (amends 007)               | Accepted |

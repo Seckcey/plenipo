@@ -1,4 +1,4 @@
-# ADR-042: Codex works through Plenipo's tools
+# ADR-051: Codex works through Plenipo's tools
 
 - **Status:** Accepted (by the owner, 2026-09-28)
 - **Date:** 2026-09-28

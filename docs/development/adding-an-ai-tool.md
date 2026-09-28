@@ -171,7 +171,7 @@ by Windows command-line length, and cannot be misquoted.
 | --------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | One task, JSON output | `-p --output-format stream-json --verbose --include-partial-messages` | `exec --json --skip-git-repo-check`                                   |
 | Least privilege       | `--tools "" --strict-mcp-config` (no tools, no MCP servers)           | `--sandbox read-only`                                                 |
-| Own commands off      | covered by `--tools ""` above                                         | `-c features.shell_tool=false -c features.view_image=false` (ADR-042) |
+| Own commands off      | covered by `--tools ""` above                                         | `-c features.shell_tool=false -c features.view_image=false` (ADR-051) |
 | Model                 | `--model <name>`                                                      | `--model <name>`                                                      |
 | Effort                | `--effort <level>`                                                    | `-c model_reasoning_effort=<level>`                                   |
 | New session           | `--session-id <uuid Plenipo chose>`                                   | nothing: the thread ID arrives in `thread.started`                    |
