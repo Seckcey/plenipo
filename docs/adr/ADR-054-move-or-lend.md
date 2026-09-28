@@ -157,4 +157,9 @@ its tile's corner; choosing it offers **Send home** and a way to show the team i
 Team tab says where it helps and until when, with **Send home**; a lead's Team tab lists the
 agents lent to its team. The canvas explains a refusal before the drop (a full-time agent, one
 already lent, a lead's own team); the Ledger still decides, with the checks above, and its
-reason is what you see if the two ever disagree.
+reason is what you see if the two ever disagree. Without a mouse, an on-call agent's Team tab has **Lend to another team**: choose
+the team's lead and for how long, then **Lend**.
+
+While an agent is lent, a change to its title or AI tool is checked against the rules of the
+team it helps, and a loan "for one objective" still brings it home when a job joins that
+objective only after the objective has ended.

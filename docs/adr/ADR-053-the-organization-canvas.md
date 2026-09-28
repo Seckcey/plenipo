@@ -244,4 +244,10 @@ screens working:
   screen.
 - The keyboard: V, H, and A choose the pointer's mode; the space bar moves the view while held;
   Alt and the arrow keys move the selected tile. The **?** button opens the guide (there is no
-  "?" key).
+  "?" key). While the space bar is held to move the view, it does not also press the focused
+  tile; Enter does.
+- **Nothing drops through the chrome**: a tile under the toolbar, a panel, the tour, the minimap,
+  or the details panel cannot be dropped on, and neither can the trash can while the details
+  panel covers it. The view does not scroll while an agent is held over the trash can.
+- **Searching for a hidden agent** (or choosing **Show** for one) clears the filters that hide
+  it, on the canvas only.

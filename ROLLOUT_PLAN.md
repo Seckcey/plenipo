@@ -27,8 +27,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 |---|---|---|---|
 | 1 | 13 | Windows service, installer, updates, and recovery | Delivered (v1.9.0) |
 | 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
-| 3 | 18 | The organization canvas, and watching workers write code as it happens | Next |
-| 4 | 19 | The AI tools page: sign-in, usage, and updates | Planned |
+| 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
+| 4 | 19 | The AI tools page: sign-in, usage, and updates | Next |
 | 5 | 16 | Every AI model worth having | Planned (ADR-036) |
 | 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, 13, and 17 are delivered.
+Phases 0–8, 10, 11, 12A, 12, 13, 17, and 18 are delivered.
 
 ---
 
@@ -1868,6 +1868,8 @@ Phase 13 merged. Uses ADR-011 (routing), ADR-019 (working instructions), ADR-024
 ---
 
 # Phase 18 — The Organization Canvas
+
+**Status: delivered in v1.11.0** (checklist and acceptance report in `docs/phases/phase-18-*`). Decisions: ADR-053 (the organization canvas: arrange, rewire, the trash can, and a live view, accepted), ADR-054 (move or lend an agent to another team, accepted, on-call agents only, with the fix that Guard reads each task's own project), ADR-055 (Watch: seeing a worker write code as it happens, accepted, with the owner's choice that a refused change's record keeps no text), and ADR-056 (the owner's tile, accepted: Do not disturb holds Windows notices, which come as one when it ends). Tile places, loans, and your details are kept in the Ledger (layout 11); moving tiles is not listed in the Activity trail. Watch shows only the files Guard lets the worker change, only complete lines while a change is being written, and only in the main window, through its own channel. Deviations, each recorded in its ADR as built: line ends show for the selected agent; the legend starts hidden; Where is a toolbar switch; and Stop in Watch stops the task that changed the file on screen. The walk-through with real AI tools on Windows is the owner's check.
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Third in the order of work.
 

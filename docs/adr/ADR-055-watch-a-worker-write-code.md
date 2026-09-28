@@ -196,9 +196,30 @@ Built as written, with these details:
   would not show — a blocked file, git's own folder, or anything outside the working copy — the
   tab lists it as "A change Plenipo will not show", with no text; if Guard then refuses it, it
   shows as **refused**, with the file and why.
-- The tab is named **Watch · {the agent}**. Its **Stop** stops the worker's conversation, as
-  Cancel does on the Workers page; it is off when there is nothing to stop.
+- The tab is named **Watch · {the agent}**. Its **Stop** stops the conversation of the task
+  that changed the file on screen ("Stop Task 2" when the list holds several), as Cancel does on
+  the Workers page; it is off, and says why, when that task has nothing left to stop.
 - **Watch a worker** in the terminal panel's **New** menu lists the agents working now, from the
   same live view the canvas reads.
 - On-call agents: an agent's tab lists the changes of all its workers in its latest objective,
   labeled "Task 1", "Task 2" when more than one worker changed files.
+- **Only the main window hears it.** Watch's updates travel through a channel the main window
+  opens (`subscribe_watch`, refused to the sign window and to web pages), never as an event: in
+  Tauri a page that listens to every event hears events sent to another window too. The sign
+  window may now only listen to events, not send them. An update over 8 KB waits in Tauri's own
+  channel store until the main window collects it; only Plenipo's own pages run in its windows
+  (their content policy allows nothing else), so nothing else can ask for it.
+- **While a change is being written**, the tab shows only its complete lines (never half a
+  line, which could be the start of a secret the filter cannot recognize yet), and only while
+  Guard still lets the worker change that file. A write that names the same file twice in one
+  call is not shown until it is saved.
+- **Line marks have a time limit** (0.3 s): a change too large or too tangled to compare in that
+  time shows as a summary ("Large file: …"), with its line counts when they are known.
+- **After a restart**, the list shows only the agent's own saved files from its latest
+  objective (read from the Activity trail, without their lines).
+- **Design limit (from Phase 7, unchanged; the owner's choice):** an edit keeps up to 200
+  characters of its old and new text, after secrets are hidden, in two Ledger records: the
+  approval's (so the approval card can show what would change, and kept when you refuse it) and
+  the Activity trail's record of an edit that was carried out. Watch adds nothing to either, and
+  a refusal by Guard keeps no text (§13). Keeping only the file and the size in both is
+  possible; the approval card would then show the text from memory while Plenipo runs.

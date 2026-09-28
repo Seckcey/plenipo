@@ -92,3 +92,7 @@ its word is always there. The window shrinks the picture to at most 256 × 256 a
 PNG would be over 256 KB, tries smaller sizes before giving up with a plain reason. Your tile on
 the canvas is named for screen readers with your status, mood, and message ("You, President:
 Busy, feeling Great, “Feeling great!”").
+
+The notices that wait during Do not disturb come as one pop-up when you turn it off ("3 things
+need you", with the first few listed), so none is lost; at most 200 wait, and they wait only
+while Plenipo runs (the bell keeps the full count either way).

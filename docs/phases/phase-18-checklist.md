@@ -1,7 +1,7 @@
 # Phase 18 — Implementation Checklist
 
-**Status:** design approved by the owner (2026-09-28); being built. To be delivered as
-**v1.11.0**. Builds on v1.10.0 (Phase 17).
+**Status:** delivered in **v1.11.0** (2026-09-28); see the
+[acceptance report](phase-18-acceptance-report.md). Builds on v1.10.0 (Phase 17).
 
 Source: `ROLLOUT_PLAN.md`, Phase 18 — The Organization Canvas (third in the order of work,
 ADR-039), and the four records written for it:
@@ -211,7 +211,8 @@ to_department_id, until ('objective' | 'returned'), objective_task_id, state ('a
 added to `build.rs` and `capabilities/default.json` only (not the sign window's
 `indicator.json`), and an IPC test calls each from the main window and checks that another
 window, the sign window, and a web page are refused; another checks each refusal's reason for
-bad input.
+bad input. _As built:_ 12, with `subscribe_watch` and `unsubscribe_watch`, which carry Watch's
+updates through the main window's own channel instead of an event (ADR-055, "As built").
 
 ### 10. Words on screen
 
@@ -227,88 +228,88 @@ mood / message (for "avatar", "presence", "profile").
 
 ## Deliverables (plan)
 
-- [ ] **Arrange freely** — drag tiles anywhere; positions are saved; Tidy up re-runs the
+- [x] **Arrange freely** — drag tiles anywhere; positions are saved; Tidy up re-runs the
       automatic layout.
-- [ ] **Rewire by dragging lines** — "reports to" and oversight lines, with today's checks.
-- [ ] **Move or lend** — Move here, or Lend for one objective or until sent home; a lent line and
+- [x] **Rewire by dragging lines** — "reports to" and oversight lines, with today's checks.
+- [x] **Move or lend** — Move here, or Lend for one objective or until sent home; a lent line and
       badge; home by itself when done.
-- [ ] **Trash can** — drop archives, with Undo; the Archived drawer brings back or deletes for
+- [x] **Trash can** — drop archives, with Undo; the Archived drawer brings back or deletes for
       good (Phase 17's commands).
-- [ ] **Toolbar** — select, move the view, arrange, Tidy up, zoom, fit, filters, legend, trash,
+- [x] **Toolbar** — select, move the view, arrange, Tidy up, zoom, fit, filters, legend, trash,
       and add department, project, or role.
-- [ ] **Filters** — department, project, status, AI tool, AI company, rank, specialty, and search.
-- [ ] **Legend** — every symbol, line, color, and badge; can be hidden; remembered.
-- [ ] **Live view** — who is working and hand-offs moving along the lines; where the compute is;
+- [x] **Filters** — department, project, status, AI tool, AI company, rank, specialty, and search.
+- [x] **Legend** — every symbol, line, color, and badge; can be hidden; remembered.
+- [x] **Live view** — who is working and hand-offs moving along the lines; where the compute is;
       where the data is.
-- [ ] **A guide to the canvas** — a first-time tour and a "?".
-- [ ] **The owner's tile** — picture, status light, mood, message, on the canvas and in the top
+- [x] **A guide to the canvas** — a first-time tour and a "?".
+- [x] **The owner's tile** — picture, status light, mood, message, on the canvas and in the top
       bar; local only.
-- [ ] **Watch a worker write code, live** — the Watch tab and button; the file with new and
+- [x] **Watch a worker write code, live** — the Watch tab and button; the file with new and
       changed lines; the files touched in this objective; being written, saved, refused; follow
       or pin; Stop; read-only.
 
 ## Technical implementation (plan)
 
-- [ ] The canvas stays custom-built, with pointer events.
-- [ ] Saved positions per organization, in the Ledger, as coordinates per tile; new tiles placed by
+- [x] The canvas stays custom-built, with pointer events.
+- [x] Saved positions per organization, in the Ledger, as coordinates per tile; new tiles placed by
       the automatic layout until moved.
-- [ ] Lending is a Workforce record; while lent, the agent takes objectives from the borrowing team
+- [x] Lending is a Workforce record; while lent, the agent takes objectives from the borrowing team
       under the borrowing project's permission limit; returning is recorded.
-- [ ] The live view reads what Plenipo already records; motion respects reduce motion; nothing
+- [x] The live view reads what Plenipo already records; motion respects reduce motion; nothing
       shown by color alone.
-- [ ] Rewiring by line uses the same rules as the drop menu and records the same events.
-- [ ] Watching code reads the file changes Plenipo carries out (`write_file`, `edit_file`,
+- [x] Rewiring by line uses the same rules as the drop menu and records the same events.
+- [x] Watching code reads the file changes Plenipo carries out (`write_file`, `edit_file`,
       `fs/write_text_file`); no new permission.
-- [ ] Letter by letter from AI tools that stream a tool call; each other AI tool checked (against
+- [x] Letter by letter from AI tools that stream a tool call; each other AI tool checked (against
       its recorded real program here, and on the owner's PC in the walk-through).
-- [ ] The Ledger records each saved change; the preview is shown, not stored; large and binary
+- [x] The Ledger records each saved change; the preview is shown, not stored; large and binary
       files show a summary.
-- [ ] The Watch tab never writes to a working copy.
+- [x] The Watch tab never writes to a working copy.
 
 ## Tests (plan)
 
-- [ ] A moved tile stays where it was put after a restart; Tidy up restores the automatic layout.
-- [ ] Dragging a line end to a valid agent rewires it; to an invalid one, it is refused with the
+- [x] A moved tile stays where it was put after a restart; Tidy up restores the automatic layout.
+- [x] Dragging a line end to a valid agent rewires it; to an invalid one, it is refused with the
       reason.
-- [ ] Lend: the agent takes one objective from the other team under that project's permission
+- [x] Lend: the agent takes one objective from the other team under that project's permission
       limit, then goes home; the Ledger records both.
-- [ ] Trash: drop archives, Undo restores; the drawer brings back and deletes for good.
-- [ ] Each filter narrows the canvas; the legend lists every symbol that can appear.
-- [ ] The live view shows the right place (this PC, a server, an AI company) for a worker in each
+- [x] Trash: drop archives, Undo restores; the drawer brings back and deletes for good.
+- [x] Each filter narrows the canvas; the legend lists every symbol that can appear.
+- [x] The live view shows the right place (this PC, a server, an AI company) for a worker in each
       case.
-- [ ] Reduce motion turns the moving hand-offs into still markers.
-- [ ] The owner's picture, status, mood, and message are saved and shown.
-- [ ] Watch: each `write_file`, `edit_file`, and ACP file write by a fake worker appears in the tab
+- [x] Reduce motion turns the moving hand-offs into still markers.
+- [x] The owner's picture, status, mood, and message are saved and shown.
+- [x] Watch: each `write_file`, `edit_file`, and ACP file write by a fake worker appears in the tab
       in order, with the right file and lines.
-- [ ] Watch: a streamed change shows as "being written", then "saved"; a change Guard refuses shows
+- [x] Watch: a streamed change shows as "being written", then "saved"; a change Guard refuses shows
       as "refused" and never as saved.
-- [ ] Watch: the tab cannot write to the working copy; Stop stops the worker.
-- [ ] Watch: a large or binary file shows a summary.
-- [ ] End-to-end tests in the real app, with screenshots in `evidence/phase-18/`.
+- [x] Watch: the tab cannot write to the working copy; Stop stops the worker.
+- [x] Watch: a large or binary file shows a summary.
+- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-18/`.
 
 ## Owner's rules for this phase
 
-- [ ] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
-- [ ] No secrets asked for in chat; nothing secret committed.
-- [ ] Anything touching files, programs, the network, the browser, or the screen goes through
+- [x] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
+- [x] No secrets asked for in chat; nothing secret committed.
+- [x] Anything touching files, programs, the network, the browser, or the screen goes through
       Guard and the capability broker (Watch reads what the broker carries out; the owner's
       picture is chosen by the owner, never by a path Plenipo opens).
-- [ ] New desktop commands are the main window's alone; the sign window and web pages are refused
+- [x] New desktop commands are the main window's alone; the sign window and web pages are refused
       (IPC tests).
-- [ ] Watch shows only what Guard already allows that worker to touch; secrets and blocked files
+- [x] Watch shows only what Guard already allows that worker to touch; secrets and blocked files
       are never shown; nothing is written to disk that Guard would refuse.
-- [ ] Delete for good is refused while anything has unfinished work, keeps a short record in the
+- [x] Delete for good is refused while anything has unfinished work, keeps a short record in the
       Ledger, and asks first (Phase 17's commands, from the drawer).
-- [ ] Logs and diagnostics files never hold secrets or anything typed in the terminal (Watch keeps
+- [x] Logs and diagnostics files never hold secrets or anything typed in the terminal (Watch keeps
       no file contents in the Ledger, logs, or diagnostics).
-- [ ] No model names in commits, branch names, or pull requests.
-- [ ] Version 1.11.0 everywhere, with the Phase 18 row in `docs/development/versioning.md`.
-- [ ] Release notes (`docs/releases/v1.11.0.md`), the plan's Phase 18 status line and its state
+- [x] No model names in commits, branch names, or pull requests.
+- [x] Version 1.11.0 everywhere, with the Phase 18 row in `docs/development/versioning.md`.
+- [x] Release notes (`docs/releases/v1.11.0.md`), the plan's Phase 18 status line and its state
       in the order of work, this checklist, and the acceptance report with screenshots in
       `evidence/phase-18/`, in Pacific time.
-- [ ] A review across several areas, with a second reviewer checking each finding, before the
+- [x] A review across several areas, with a second reviewer checking each finding, before the
       final push.
-- [ ] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
+- [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
