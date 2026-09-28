@@ -1,6 +1,7 @@
 # ADR-036: Every AI model worth having — API keys with spending caps, models by maker and by app, and more than one route to a model
 
-- **Status:** Accepted (by the owner, 2026-09-27)
+- **Status:** Accepted (by the owner, 2026-09-27). Its place in the order of work moved up, after
+  Phase 19, by [ADR-039](ADR-039-owners-notes-order-of-work.md).
 - **Date:** 2026-09-27
 - **Phase:** 16 (new, after Phase 15)
 
@@ -49,7 +50,7 @@ Answers 1 and 4 change rules that ADR-003, ADR-007, ADR-011, and ADR-014 set. Th
 ADR-014's five-item bar stays for every AI tool that signs in with a subscription. Phase 15's
 sentence is read as it was meant: an AI tool earns its place by being useful, not by adding a
 name. Plenipo adds an AI tool when it brings something the owner does not already have — a model
-maker, a specialist skill, or a second route to a model he already pays for — and refuses one that
+maker, a specialist skill, or a second route to a model the owner already pays for — and refuses one that
 only repeats what is there. A tool that fails gets a written finding, as GitHub Copilot did.
 
 ### 2. API keys are allowed, off by default, and never without a spending cap
@@ -85,7 +86,7 @@ only repeats what is there. A tool that fails gets a written finding, as GitHub 
    both came from one company. After this change the maker decides. This fixes a real hole in
    ADR-011's cross-company review, and it is the first work of the phase.
 3. **The model list can be grouped either way** — by maker or by the app that runs it — and the
-   owner chooses which grouping he sees. Both groupings show the same models.
+   owner chooses which grouping to see. Both groupings show the same models.
 4. **An AI tool that runs other companies' models** (Cursor, Copilot, OpenRouter, Ollama) no
    longer needs its own decision record for how it is counted. The maker field answers it. This
    settles the question ADR-014 left open and the Copilot notes raised.
@@ -144,7 +145,7 @@ structured events, which is the route Plenipo should check first, the way ADR-01
 service. Hermes is its own decision record after step 0, or its own finding.
 
 Security work through any AI tool stays inside the owner's own authority: Plenipo's workers do
-security review and defensive work on systems the owner or his clients own, and Guard's approvals
+security review and defensive work on systems the owner or the owner's clients own, and Guard's approvals
 and the never-list (ADR-025) still apply. Nothing here loosens that.
 
 ### 6. Out of scope
@@ -168,7 +169,7 @@ These stay out, and none of them is a gap to close later without a new record:
 
 ## Consequences
 
-- **The owner can reach far more models,** and the ones he pays for can cover each other when a
+- **The owner can reach far more models,** and the ones the owner pays for can cover each other when a
   subscription runs out.
 - **Plenipo can now spend the owner's money.** That is the real change. It is why the spending cap
   work comes before the first key, why the switch is off by default, and why every paid task is

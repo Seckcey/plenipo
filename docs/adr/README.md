@@ -23,7 +23,7 @@ architecture must be recorded here.
 | [006](ADR-006-ledger.md)                             | Plenipo Ledger (SQLite system of record)                                                    | Accepted |
 | [007](ADR-007-runtime-adapters.md)                   | Provider runtime adapters (Codex, Claude Code)                                              | Accepted |
 | [008](ADR-008-liaison.md)                            | Liaison message bus and cross-provider handoffs                                             | Accepted |
-| [009](ADR-009-workforce.md)                          | Workforce organization engine and topology canvas                                           | Accepted |
+| [009](ADR-009-workforce.md)                          | Workforce organization engine and topology canvas (amended by 039)                          | Accepted |
 | [010](ADR-010-plain-titles.md)                       | Plain words, chain of command, choosable ranks                                              | Accepted |
 | [011](ADR-011-model-policy-routing.md)               | Router: model registry, role policies, routing                                              | Accepted |
 | [012](ADR-012-brief-agent-messages.md)               | Brief messages between agents                                                               | Accepted |
@@ -53,4 +53,5 @@ architecture must be recorded here.
 | [036](ADR-036-every-ai-model.md)                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes         | Accepted |
 | [037](ADR-037-background-work.md)                    | Background work: Plenipo lives in the tray, and the window comes and goes                   | Accepted |
 | [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so                  | Accepted |
-| [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan                 | Accepted |
+| [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)     | Accepted |
+| [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amends 039)    | Accepted |

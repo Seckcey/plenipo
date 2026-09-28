@@ -1,6 +1,8 @@
 # ADR-009: Plenipo Workforce — organization engine and topology canvas
 
-- **Status:** Accepted (owner, 2026-09-26)
+- **Status:** Accepted (owner, 2026-09-26). §1 (positions archived, never deleted) and §7 (the
+  working directory is never opened) are amended by [ADR-039](ADR-039-owners-notes-order-of-work.md):
+  an archived item can be deleted for good, and the owner can open and edit project files.
 - **Date:** 2026-09-26
 - **Phase:** 5
 
