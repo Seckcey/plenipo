@@ -324,6 +324,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app changes a department with `update_department_details`, which refuses
+    /// archived and deleted ones.
+    #[cfg(test)]
     pub fn update_department(
         &self,
         id: &str,
@@ -348,6 +351,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app archives a department and deletes it for good (`archive.rs`), which
+    /// keeps a short record and refuses while anything has unfinished work.
+    #[cfg(test)]
     pub fn delete_department(&self, id: &str, actor: &str) -> Result<()> {
         self.write(|tx, out| {
             let n = tx
@@ -437,6 +443,9 @@ impl Ledger {
         })
     }
 
+    /// Tests only: the app archives a project and deletes it for good (`archive.rs`), which keeps
+    /// a short record and refuses while anything has unfinished work.
+    #[cfg(test)]
     pub fn delete_project(&self, id: &str, actor: &str) -> Result<()> {
         self.write(|tx, out| {
             let n = tx

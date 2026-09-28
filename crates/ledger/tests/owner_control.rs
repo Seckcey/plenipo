@@ -495,12 +495,23 @@ fn a_department_is_archived_with_everything_in_it_and_comes_back_whole() {
     let w = world();
     let o = org(&w);
     let l = &w.l;
+    // The website's reviewer also reviews the staff engineer's team.
+    l.assign_oversight(OversightKind::Review, &o.reviewer, &o.staff, OWNER)
+        .unwrap();
     // Unfinished work anywhere in it blocks archiving.
     let task = busy(l, &o.developer);
     assert!(err(l.archive_department(&o.dept, OWNER)).contains("unfinished task"));
     l.transition_task(&task, TaskState::Cancelled, OWNER, None)
         .unwrap();
     let d = l.archive_department(&o.dept, OWNER).unwrap();
+    // Both sides of the assignment were archived; it ended once.
+    let ended = |l: &plenipo_ledger::Ledger| {
+        types(l)
+            .iter()
+            .filter(|t| *t == "org.oversight_ended")
+            .count()
+    };
+    assert_eq!(ended(l), 1);
     assert!(d.archived_at.is_some());
     assert_eq!(d.status, "inactive");
     for id in [
@@ -537,6 +548,115 @@ fn a_department_is_archived_with_everything_in_it_and_comes_back_whole() {
         assert_eq!(state(l, id), PositionState::Active, "{id}");
     }
     assert!(types(l).iter().any(|t| t == "org.department_restored"));
+    assert!(
+        l.org_records()
+            .unwrap()
+            .oversight
+            .iter()
+            .any(|x| x.active && x.overseer_id == o.reviewer && x.target_id == o.staff),
+        "the review assignment came back"
+    );
+}
+
+#[test]
+fn archiving_or_deleting_goes_no_further_than_what_it_names() {
+    let w = world();
+    let o = org(&w);
+    let l = &w.l;
+    // Engineering is run by a VP, and the Development manager reports to that VP.
+    let (engineering, vp) = l
+        .create_department_with_head(
+            "Engineering",
+            "",
+            &new_position(&w.roles["VP"], "VP of Engineering", None),
+            OWNER,
+        )
+        .unwrap();
+    l.move_position(&o.manager, Some(&vp.id), OWNER).unwrap();
+    // Archiving Engineering would take Development's manager along: refused, with what to do.
+    let why = err(l.archive_department(&engineering.id, OWNER));
+    assert!(
+        why.contains("Development Manager runs the Development department"),
+        "{why}"
+    );
+    assert_eq!(state(l, &vp.id), PositionState::Active);
+    assert_eq!(state(l, &o.manager), PositionState::Active);
+    assert!(l
+        .department(&engineering.id)
+        .unwrap()
+        .unwrap()
+        .archived_at
+        .is_none());
+    // Archived one at a time, each goes on its own.
+    l.archive_department(&o.dept, OWNER).unwrap();
+    l.archive_department(&engineering.id, OWNER).unwrap();
+    assert_eq!(state(l, &vp.id), PositionState::Archived);
+    // Deleting Engineering for good would delete Development's manager and team, which were
+    // archived with Development: refused.
+    let why = err(l.deletion_plan("department", &engineering.id));
+    assert!(
+        why.contains("Development Manager runs the Development department"),
+        "{why}"
+    );
+    assert!(
+        err(l.delete_department_for_good(&engineering.id, &[], OWNER))
+            .contains("delete Development for good first")
+    );
+    assert_eq!(state(l, &o.manager), PositionState::Archived);
+    assert!(l
+        .position(&o.manager)
+        .unwrap()
+        .unwrap()
+        .deleted_at
+        .is_none());
+    // Development still comes back whole once its VP is back.
+    let why = err(l.bring_back_department(&o.dept, &no_providers(), OWNER));
+    assert!(why.contains("bring VP of Engineering back first"), "{why}");
+    // Deleting Development first, then Engineering, works.
+    l.delete_department_for_good(&o.dept, &[], OWNER).unwrap();
+    let plan = l.deletion_plan("department", &engineering.id).unwrap();
+    assert_eq!(
+        plan.positions
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>(),
+        [vp.id.as_str()]
+    );
+    l.delete_department_for_good(&engineering.id, &[], OWNER)
+        .unwrap();
+}
+
+#[test]
+fn a_position_deleted_for_good_takes_no_other_departments_lead() {
+    let w = world();
+    let o = org(&w);
+    let l = &w.l;
+    // A VP who runs no department, with the Development manager reporting to it.
+    let (vp, _) = l
+        .create_position(&new_position(&w.roles["VP"], "VP of Products", None), OWNER)
+        .unwrap();
+    l.move_position(&o.manager, Some(&vp.id), OWNER).unwrap();
+    l.archive_department(&o.dept, OWNER).unwrap();
+    l.archive_position(&vp.id, OWNER).unwrap();
+    let why = err(l.delete_position_for_good(&vp.id, &[], OWNER));
+    assert!(
+        why.contains("Development Manager runs the Development department"),
+        "{why}"
+    );
+    for id in [&o.manager, &o.supervisor, &o.developer, &o.staff] {
+        assert!(
+            l.position(id).unwrap().unwrap().deleted_at.is_none(),
+            "{id}"
+        );
+    }
+    // Brought back, Development comes back with its manager and team.
+    l.bring_back_position(&vp.id, &no_providers(), OWNER)
+        .unwrap();
+    l.bring_back_department(&o.dept, &no_providers(), OWNER)
+        .unwrap();
+    for id in [&o.manager, &o.supervisor, &o.developer, &o.staff] {
+        assert_eq!(state(l, id), PositionState::Active, "{id}");
+    }
 }
 
 // ---- Delete for good (ADR-043) --------------------------------------------------------------
@@ -701,9 +821,15 @@ fn a_saved_agent_leaves_a_short_record_and_is_hired_again_with_its_experience() 
     assert_eq!(again.metadata["experience"]["keptLessons"], 1);
     assert_eq!(again.metadata["experience"]["savedId"], s.id.as_str());
     assert!(l.saved_agents().unwrap().is_empty());
-    assert!(types(l)
-        .iter()
-        .any(|t| t == "org.agent_hired_from_workforce"));
+    // The Ledger keeps what it came back with.
+    let hired = l
+        .recent_events(1000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.event_type == "org.agent_hired_from_workforce")
+        .unwrap();
+    assert_eq!(hired.payload["settings"], settings);
+    assert_eq!(hired.payload["experience"]["tasksDone"], 1);
     // It keeps its role.
     let another = l.saved_agents().unwrap();
     assert!(another.is_empty());

@@ -236,6 +236,9 @@ pub(super) fn adopt(
             "positionId": position_id,
             "title": title,
             "roleId": role_id,
+            // The saved row goes; its record stays here: what it came back with.
+            "settings": s.settings,
+            "experience": s.experience,
             "lessonsRestored": restored,
         }),
     )

@@ -1025,7 +1025,7 @@ impl Workforce {
                 .collect(),
             projects: plan.projects.iter().map(|p| p.name.clone()).collect(),
             departments: plan.departments.iter().map(|d| d.name.clone()).collect(),
-            average_experience: average,
+            average_experience: average.shown(),
         })
     }
 

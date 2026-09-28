@@ -111,30 +111,53 @@ pub(crate) fn experience_counts(records: &OrgRecords, p: &Position) -> (u32, u32
     )
 }
 
-/// The organization's average experience, over its agents (not deleted) that finished a task.
-pub(crate) fn average_experience(records: &OrgRecords) -> u32 {
-    let scores: Vec<u64> = records
+/// The organization's average experience: the total of its agents' scores and how many agents
+/// it is over (ADR-045: agents, not deleted, that finished a task).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Average {
+    sum: u64,
+    n: u64,
+}
+
+impl Average {
+    /// The average, rounded, for the screen.
+    pub(crate) fn shown(self) -> u32 {
+        if self.n == 0 {
+            return 0;
+        }
+        u32::try_from((self.sum + self.n / 2) / self.n).unwrap_or(u32::MAX)
+    }
+
+    /// Is `score` above the exact average (not the rounded one on screen)?
+    fn exceeded_by(self, score: u32) -> bool {
+        score > 0 && (self.n == 0 || u64::from(score) * self.n > self.sum)
+    }
+}
+
+pub(crate) fn average_experience(records: &OrgRecords) -> Average {
+    records
         .positions
         .iter()
         .filter(|p| !p.is_deleted())
         .map(|p| experience_counts(records, p))
         .filter(|(_, tasks)| *tasks > 0)
-        .map(|(kept, tasks)| u64::from(score(kept, tasks)))
-        .collect();
-    if scores.is_empty() {
-        return 0;
-    }
-    let n = scores.len() as u64;
-    u32::try_from((scores.iter().sum::<u64>() + n / 2) / n).unwrap_or(u32::MAX)
+        .fold(Average::default(), |a, (kept, tasks)| Average {
+            sum: a.sum + u64::from(score(kept, tasks)),
+            n: a.n + 1,
+        })
 }
 
-pub(crate) fn experience_info(kept_lessons: u32, tasks_done: u32, average: u32) -> ExperienceInfo {
+pub(crate) fn experience_info(
+    kept_lessons: u32,
+    tasks_done: u32,
+    average: Average,
+) -> ExperienceInfo {
     let score = score(kept_lessons, tasks_done);
     ExperienceInfo {
         score,
         kept_lessons,
         tasks_done,
-        experienced: score > 0 && score > average,
+        experienced: average.exceeded_by(score),
     }
 }
 
@@ -158,7 +181,7 @@ fn archived_with(v: &Value) -> Option<ArchivedWith> {
     })
 }
 
-pub(crate) fn saved_info(records: &OrgRecords, s: &SavedAgent, average: u32) -> SavedAgentInfo {
+pub(crate) fn saved_info(records: &OrgRecords, s: &SavedAgent, average: Average) -> SavedAgentInfo {
     let e = &s.experience;
     let specialty = s
         .specialty_id
@@ -561,7 +584,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             .iter()
             .map(|s| saved_info(records, s, average))
             .collect(),
-        average_experience: average,
+        average_experience: average.shown(),
         oversight: records
             .oversight
             .iter()
@@ -1091,5 +1114,20 @@ mod tests {
         );
         assert!(!last.active && last.archived_at.is_some());
         assert_eq!(s.stats.positions, 3);
+    }
+
+    #[test]
+    fn experienced_means_above_the_exact_average_not_the_rounded_one() {
+        // Scores 10 and 11: the average is 10.5, shown as 11.
+        let average = Average { sum: 21, n: 2 };
+        assert_eq!(average.shown(), 11);
+        assert!(
+            experience_info(1, 1, average).experienced,
+            "11 is above 10.5"
+        );
+        assert!(!experience_info(1, 0, average).experienced, "10 is not");
+        // Nobody has finished a task yet: any experience at all counts.
+        assert!(experience_info(1, 0, Average::default()).experienced);
+        assert!(!experience_info(0, 0, Average::default()).experienced);
     }
 }

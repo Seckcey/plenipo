@@ -35,12 +35,18 @@ ALTER TABLE projects ADD COLUMN deleted_at INTEGER
     CHECK (deleted_at IS NULL OR archived_at IS NOT NULL);
 
 -- An archived position changes in exactly two ways: it is brought back (active again), or it is
--- deleted for good (it stays archived and becomes a short record). A short record never changes.
+-- deleted for good (it stays archived and becomes a short record). Either way its ID, title,
+-- role, and dates stay as they were. A short record never changes.
 DROP TRIGGER positions_stay_archived;
 CREATE TRIGGER positions_stay_archived BEFORE UPDATE ON positions
 WHEN OLD.state = 'archived' AND NOT (
-    (OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NEW.state = 'active')
-    OR (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.state = 'archived')
+    NEW.id = OLD.id AND NEW.title = OLD.title AND NEW.role_id = OLD.role_id
+    AND NEW.created_at = OLD.created_at
+    AND (
+        (OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NEW.state = 'active')
+        OR (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.state = 'archived'
+            AND NEW.archived_at = OLD.archived_at)
+    )
 )
 BEGIN
     SELECT RAISE(ABORT, 'an archived position cannot change');

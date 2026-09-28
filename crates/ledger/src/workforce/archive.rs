@@ -216,6 +216,71 @@ pub struct DeletionPlan {
     pub departments: Vec<Department>,
 }
 
+/// A deletion goes no further than what it names: a position in it that runs another department,
+/// or supervises another project, that is not being deleted too stops it, with what to do.
+fn refuse_other_leads(
+    c: &Connection,
+    every: &HashMap<String, Position>,
+    ids: &[String],
+    plan: &DeletionPlan,
+) -> Result<()> {
+    let leads = |sql: &str| -> Result<HashMap<String, (String, String)>> {
+        Ok(all(c, sql, [], |r| {
+            Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?)))
+        })?
+        .into_iter()
+        .collect())
+    };
+    let heads = leads(
+        "SELECT head_position_id, id, name FROM departments
+         WHERE deleted_at IS NULL AND head_position_id IS NOT NULL",
+    )?;
+    let supervisors = leads(
+        "SELECT coordinator_position_id, id, name FROM projects
+         WHERE deleted_at IS NULL AND coordinator_position_id IS NOT NULL",
+    )?;
+    for pid in ids {
+        let title = every.get(pid).map_or("An agent", |p| p.title.as_str());
+        if let Some((dept, name)) = heads.get(pid) {
+            if !plan.departments.iter().any(|d| &d.id == dept) {
+                return Err(invalid(format!(
+                    "{title} runs the {name} department, which reports to someone being deleted; \
+                     delete {name} for good first, or bring it back and move {title}"
+                )));
+            }
+        }
+        if let Some((project, name)) = supervisors.get(pid) {
+            if !plan.projects.iter().any(|p| &p.id == project) {
+                return Err(invalid(format!(
+                    "{title} supervises the {name} project, which reports to someone being \
+                     deleted; delete {name} for good first, or bring it back and move {title}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A department or project comes back only with its lead on the chart (a safety net: deleting
+/// for good never takes a lead without its department or project).
+fn lead_is_back(c: &Connection, lead: Option<&str>, name: &str, what: &str) -> Result<()> {
+    if let Some(id) = lead {
+        let p = get_position(c, id)?;
+        if p.state != PositionState::Active {
+            let gone = if p.is_deleted() {
+                "was deleted for good"
+            } else {
+                "is still archived"
+            };
+            return Err(invalid(format!(
+                "{name} cannot come back: its {what}, {}, {gone}",
+                p.title
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// What `kind` (`position`, `project`, or `department`) `id` would take along when deleted for
 /// good, or why it cannot be deleted.
 fn plan(c: &Connection, kind: &str, id: &str) -> Result<DeletionPlan> {
@@ -328,6 +393,7 @@ fn plan(c: &Connection, kind: &str, id: &str) -> Result<DeletionPlan> {
             )))
         }
     }
+    refuse_other_leads(c, &every, &ids, &plan)?;
     ids.sort_by_key(|pid| depth(&every, pid));
     plan.positions = ids
         .iter()
@@ -620,6 +686,34 @@ impl Ledger {
                 .filter(|h| org.positions.contains_key(*h))
                 .map(|h| org.subtree(h))
                 .unwrap_or_default();
+            // Everything in the department goes with it, and nothing of another: a manager of
+            // another department, or a supervisor of another department's project, who reports to
+            // someone in this one must be moved first (ADR-043 §7: refused, with what to do).
+            for pid in &team {
+                let Some(p) = org.positions.get(pid) else {
+                    continue;
+                };
+                if let Some(other) = org
+                    .heads
+                    .get(pid)
+                    .filter(|o| o.id != d.id && o.deleted_at.is_none())
+                {
+                    return Err(invalid(format!(
+                        "{} runs the {} department and reports to someone in {}; move {} to report \
+                         to you or another VP first, or archive {} on its own",
+                        p.title, other.name, d.name, p.title, other.name
+                    )));
+                }
+                if let Some(pr) = org.coordinators.get(pid).filter(|pr| {
+                    pr.deleted_at.is_none() && pr.department_id.as_deref() != Some(d.id.as_str())
+                }) {
+                    return Err(invalid(format!(
+                        "{} supervises the {} project, which is not in {}; move {} first, or \
+                         archive {} on its own",
+                        p.title, pr.name, d.name, p.title, pr.name
+                    )));
+                }
+            }
             for pid in &team {
                 if let Some(p) = org.positions.get(pid) {
                     refuse_if_busy(tx, p, "archiving the department")?;
@@ -827,6 +921,12 @@ impl Ledger {
                 [id],
             )?;
             let (positions, skipped) = restore_all(tx, out, team, providers, actor)?;
+            lead_is_back(
+                tx,
+                pr.coordinator_position_id.as_deref(),
+                &pr.name,
+                "supervisor",
+            )?;
             org_event(
                 out,
                 tx,
@@ -889,6 +989,15 @@ impl Ledger {
                 team.extend(archived_with_item(tx, &pr.id)?);
             }
             let (positions, skipped) = restore_all(tx, out, team, providers, actor)?;
+            lead_is_back(tx, d.head_position_id.as_deref(), &d.name, "manager")?;
+            for pr in &projects {
+                lead_is_back(
+                    tx,
+                    pr.coordinator_position_id.as_deref(),
+                    &pr.name,
+                    "supervisor",
+                )?;
+            }
             org_event(
                 out,
                 tx,

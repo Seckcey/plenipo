@@ -820,10 +820,14 @@ fn end_oversight_row(
     reason: &str,
     actor: &str,
 ) -> Result<()> {
-    tx.execute(
+    let ended = tx.execute(
         "UPDATE oversight SET state = 'ended', ended_at = ?2 WHERE id = ?1 AND state = 'active'",
         params![o.id, now()],
     )?;
+    if ended == 0 {
+        // Already ended (archiving a team can meet the same assignment from both sides).
+        return Ok(());
+    }
     org_event(
         out,
         tx,
@@ -3728,13 +3732,29 @@ mod tests {
                 "owner",
             )
             .unwrap();
-        // An archived position changes only by coming back or becoming a short record.
+        // An archived position changes only by coming back or becoming a short record, and
+        // neither changes its title, role, or dates.
         l.archive_position(&dev.id, "owner").unwrap();
         {
             let c = l.conn();
-            assert!(c
-                .execute("UPDATE positions SET title = 'x' WHERE id = ?1", [&dev.id])
-                .is_err());
+            for sql in [
+                "UPDATE positions SET title = 'x' WHERE id = ?1",
+                "UPDATE positions SET state = 'active', archived_at = NULL, title = 'x'
+                 WHERE id = ?1",
+                "UPDATE positions SET state = 'active', archived_at = NULL, created_at = 1
+                 WHERE id = ?1",
+                "UPDATE positions SET deleted_at = 1,
+                     role_id = (SELECT id FROM roles WHERE id <> positions.role_id LIMIT 1)
+                 WHERE id = ?1",
+                "UPDATE positions SET deleted_at = archived_at + 1, archived_at = archived_at + 1
+                 WHERE id = ?1",
+            ] {
+                let e = c.execute(sql, [&dev.id]).unwrap_err().to_string();
+                assert!(
+                    e.contains("an archived position cannot change"),
+                    "{sql}: {e}"
+                );
+            }
         }
         l.delete_position_for_good(&dev.id, &[], "owner").unwrap();
         let c = l.conn();
