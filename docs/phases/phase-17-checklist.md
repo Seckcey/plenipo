@@ -1,7 +1,7 @@
 # Phase 17 — Implementation Checklist
 
-**Status:** design written (2026-09-28), waiting for the owner's approval before building. To be
-delivered as **v1.10.0**. Built on v1.9.0 (Phase 13).
+**Status:** design approved by the owner (2026-09-28), with the owner's addition (ADR-045);
+building. To be delivered as **v1.10.0**. Built on v1.9.0 (Phase 13).
 
 Source: `ROLLOUT_PLAN.md`, Phase 17 — The Owner's Control Over Workers (second in the order of
 work, ADR-039), and the four records written for it:
@@ -10,6 +10,8 @@ work, ADR-039), and the four records written for it:
 - [ADR-042 (specialties under each role)](../adr/ADR-042-specialties.md)
 - [ADR-043 (archive, bring back, and delete for good)](../adr/ADR-043-archive-bring-back-delete.md)
 - [ADR-044 (prompts sized to the job)](../adr/ADR-044-prompts-sized-to-the-job.md)
+- [ADR-045 (experience and the Workforce)](../adr/ADR-045-experience-and-the-workforce.md), the
+  owner's addition
 
 This checklist keeps the plan's words where it quotes the plan. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md): a "layer" is a **rule** ("the
@@ -23,7 +25,22 @@ Make prompts only as long as the job needs."
 
 ## Owner decisions (2026-09-28)
 
-- _Waiting for the owner:_ approval of this design and of ADR-041, ADR-042, ADR-043, and ADR-044.
+- **The design is approved, and ADR-041, ADR-042, ADR-043, and ADR-044 are accepted, as
+  recommended.**
+- **AI companies never to use add up** across the layers ("never" means never), as ADR-041 §4
+  recommends, instead of the plan's "closest wins" for that one setting.
+- **Deleting a project or department for good takes along what was archived with it**, each
+  leaving its short record, after offering to save the experienced agents (ADR-043 §12,
+  ADR-045).
+- **The owner's addition:** "When our agents start learning their jobs better, we need a way to
+  score how much the agent has learned. For the agents with a lot of experience and learned
+  knowledge, Plenipo needs to have a Workforce tab where we can save and store agents to. When
+  deleting an agent or organization, if there are agents with higher than average score, offer
+  to save them to the user's Workforce for future use. If none are selected to save and move to
+  the Workforce then they get permanently deleted." Written as
+  [ADR-045 (experience and the Workforce)](../adr/ADR-045-experience-and-the-workforce.md),
+  **accepted as written**, with the experienced agents checked (saved) by default in the
+  delete-for-good box.
 - Version **1.10.0** (the owner's instruction when starting the phase).
 - Numbers: **ADR-041 to ADR-044**. `main` ends at ADR-040. The one open pull request with
   records, #74 (the security fixes, Group B), numbers its three records ADR-036 to ADR-038, which
@@ -147,23 +164,40 @@ Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
 - **Tests' fake AI tool** (`plenipo-fake-agent`) learns the new format, can report a shortened
   memory, and records each prompt's size.
 
-### 7. New desktop commands — the main window's alone
+### 7. Experience and the Workforce (ADR-045, the owner's addition)
+
+- **Experience** is worked out from the Ledger for each agent: 10 for each lesson it wrote that
+  is still kept, 1 for each task it finished, plus what it brought from the Workforce. The
+  snapshot carries each agent's score and reasons, and the organization's average (over agents
+  with a finished task).
+- **Ledger layout 9** adds `saved_agents` (the Workforce); saving turns the agent's position
+  into a short record ("moved to your Workforce") and copies its settings, experience, and kept
+  lessons. Hiring from the Workforce creates a new position with them and restores the lessons
+  its role no longer has (unless you removed them).
+- **Deleting for good** takes a list of agents to save first; the confirmation checks the
+  experienced ones (above the average).
+- **Screens:** a **Workforce** tab in the List view; Save to my Workforce on archived agents;
+  Hire from my Workforce in the hire menu and the Workforce tab.
+
+### 8. New desktop commands — the main window's alone
 
 `set_model_rule`, `set_role_learns`, `set_agent_learning`, `create_specialty`,
 `update_specialty`, `remove_specialty`, `archive_department`, `bring_back_position`,
 `bring_back_project`, `bring_back_department`, `delete_position_for_good`,
-`delete_project_for_good`, `delete_department_for_good`. Each is added to `build.rs` and
+`delete_project_for_good`, `delete_department_for_good`, `save_to_workforce`,
+`hire_from_workforce`, `delete_saved_agent`. Each is added to `build.rs` and
 `capabilities/default.json` only (not the sign window's `indicator.json`), and an IPC test calls
 each from the main window and checks that another window, the sign window, and a web page are
 refused. `remove_department` is removed.
 
-### 8. Words on screen
+### 9. Words on screen
 
 New pairs for the word list: **rule** (for "layer", "policy layer", "precedence"); **effort for
 any other model**; **specialty**; **Archived** / **Bring back** / **Delete for good** (for
 "restore", "unarchive", "purge", "hard delete", "tombstone"); **short record** (for
 "tombstone"); **full instructions** / **short reminder** (for "full brief", "system prompt",
-"context re-injection"); **shortened its memory** (for "compaction", "context compaction").
+"context re-injection"); **shortened its memory** (for "compaction", "context compaction"); **experience** (for "score", "XP"); **Workforce** (agents you saved to hire
+again, for "talent pool", "bench", "agent library").
 
 ## Deliverables (plan)
 
@@ -183,6 +217,9 @@ any other model**; **specialty**; **Archived** / **Bring back** / **Delete for g
       tasks; the full brief at the start, after a shortened memory, after a set number of
       objectives, and for a large job; handoffs pointing at saved records by ID, in a compact,
       labeled, plain-words format.
+- [ ] **Experience and the Workforce** (the owner's addition, ADR-045) — a score for how much
+      each agent has learned and done; a Workforce tab to save agents and hire them again;
+      deleting for good offers to save the experienced ones.
 
 ## Technical implementation (plan)
 
@@ -216,6 +253,9 @@ any other model**; **specialty**; **Archived** / **Bring back** / **Delete for g
 - [ ] Each task's prompt size is recorded.
 - [ ] The properties panel's every option has its one-line explanation (snapshot against the word
       list).
+- [ ] (ADR-045) Experience counts kept lessons and finished tasks; deleting for good offers the
+      agents above the average, saves the checked ones to the Workforce, and deletes the rest;
+      hiring from the Workforce brings back its settings, experience, and lessons.
 - [ ] End-to-end tests in the real app, with screenshots for the acceptance report.
 
 ## Owner's rules for this phase

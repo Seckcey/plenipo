@@ -1,6 +1,6 @@
 # ADR-044: Prompts sized to the job — measure, then send the full instructions only when needed
 
-- **Status:** Proposed (2026-09-28), waiting for the owner
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 17
 - **Amends:** ADR-008 (Liaison) §1 — "restated every time"; ADR-012 (brief messages between

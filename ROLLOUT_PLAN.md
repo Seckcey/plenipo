@@ -1794,7 +1794,11 @@ Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. O
 
 # Phase 17 — The Owner's Control Over Workers
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work. Its design
+is ADR-041 (model, effort, and learning in layers), ADR-042 (specialties), ADR-043 (archive, bring
+back, and delete for good), and ADR-044 (prompts sized to the job). **The owner added (2026-09-28),
+ADR-045:** an experience score for each agent, and a Workforce tab to keep experienced agents and
+hire them again, offered whenever agents are deleted for good.
 
 ## Goal
 
@@ -1820,6 +1824,7 @@ Let the owner set how every agent works — its model, effort, learning, and spe
   - routine turns (a short reply, a small handoff, a follow-up in the same conversation) get a short reminder instead of the full brief
   - the full brief goes out at the start of a conversation, when the AI tool reports it has shortened its memory of the conversation, after a set number of objectives, and when the job is large
   - handoffs point at saved records by ID instead of pasting them again, with a compact, labeled, plain-words format
+- **experience and the Workforce** (the owner's addition, ADR-045): a score for how much each agent has learned and done (kept lessons and finished tasks); a Workforce tab to save agents and hire them again with their settings, experience, and lessons; deleting an agent, a project, or a department for good offers to save the agents whose experience is above average (checked by default), and deletes the rest
 
 ## Technical Implementation
 
@@ -1842,10 +1847,11 @@ Let the owner set how every agent works — its model, effort, learning, and spe
 - routine turns carry the short reminder; the first turn, a shortened memory, and a large job carry the full brief
 - each turn's prompt size is recorded
 - the properties panel's every option has its one-line explanation (snapshot against the word list)
+- experience counts kept lessons and finished tasks; deleting for good offers the agents above the average, saves the checked ones to the Workforce, and deletes the rest; hiring from the Workforce brings back its settings, experience, and lessons
 
 ## Acceptance Criteria
 
-The owner sets a model and effort for the whole organization, overrides it for one department and for one agent, and the Router's reason shows which layer decided each. The owner turns learning off for one agent while the rest keep learning, hires a Senior Developer with the Database specialty, and archives an agent, brings it back, archives it again, and deletes it for good, and older activity still shows its name. The average prompt size on routine turns falls, measured before and after.
+The owner sets a model and effort for the whole organization, overrides it for one department and for one agent, and the Router's reason shows which layer decided each. The owner turns learning off for one agent while the rest keep learning, hires a Senior Developer with the Database specialty, and archives an agent, brings it back, archives it again, and deletes it for good, and older activity still shows its name. The average prompt size on routine turns falls, measured before and after. (Added by the owner, ADR-045:) deleting a department for good offers to save its experienced agents; one saved to the Workforce is hired again into another team, with its experience and lessons.
 
 ## Dependencies
 

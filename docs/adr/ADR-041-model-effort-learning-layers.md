@@ -1,6 +1,6 @@
 # ADR-041: Model, effort, and learning set in layers — organization, department, role, agent
 
-- **Status:** Proposed (2026-09-28), waiting for the owner
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 17
 - **Amends:** ADR-011 (the Router: model choices and routing) §5, §9, §11, and §15; ADR-024
@@ -84,7 +84,7 @@ What the code does today (v1.9.0, read at `b199e5d`):
    organization → the model's own setting.** A fixed agent's AI tool and model win over every
    list. Its effort still comes from the layers, its own first.
 
-4. **Never-use lists add up; they are not "closest wins".** This is the one place this record
+4. **Never-use lists add up; they are not "closest wins".** The owner chose this (2026-09-28). This is the one place this record
    departs from the plan's words. If "closest wins" applied here, a department that said "never
    use OpenAI" would silently allow a company the whole organization had ruled out. "Never" has
    to mean never. So:

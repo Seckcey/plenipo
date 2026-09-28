@@ -1,6 +1,6 @@
 # ADR-042: Specialties under each role — built in, and your own
 
-- **Status:** Proposed (2026-09-28), waiting for the owner
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 17
 - **Amends:** ADR-019 (every role knows its job: working instructions) — a specialty adds lines
