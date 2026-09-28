@@ -2881,7 +2881,13 @@ fn program_path(
         .and_then(|p| programs::find_in(program, Some(p.to_os_string())))
         .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
-    Ok((found, program.to_owned(), Origin::Path))
+    // Found through PATH but lying inside the project folder: the project's own file, not the
+    // installed program (ADR-038).
+    let origin = match &found {
+        Ok(p) if p.starts_with(ws.root()) => Origin::Project,
+        _ => Origin::Path,
+    };
+    Ok((found, program.to_owned(), origin))
 }
 
 /// Read a call into what Guard checks and what Plenipo then does. In an objective's working
@@ -3641,10 +3647,10 @@ mod tests {
             gh: None,
             search: Some(bin.clone().into_os_string()),
         };
-        let run = |program: &str| {
+        let run = |at: &Where, program: &str| {
             let tool = tools::find("run_command").unwrap();
             let action = tools::parse(tool, &json!({ "program": program, "args": [] })).unwrap();
-            let Ok(p) = prepare(tool, action, &at, Duration::from_secs(30)) else {
+            let Ok(p) = prepare(tool, action, at, Duration::from_secs(30)) else {
                 panic!("{program} was refused");
             };
             let Work::Program {
@@ -3655,19 +3661,36 @@ mod tests {
             };
             (executable, origin, p.command.unwrap().program)
         };
-        let (executable, origin, key) = run(&format!("./{}", exe("gh")));
+        // The project folder as the workspace names it (its real path; the temp folder's path
+        // may be a link to it).
+        let root = ws.root();
+        let (executable, origin, key) = run(&at, &format!("./{}", exe("gh")));
         assert_eq!(origin, Origin::Project);
-        assert_eq!(executable, project.join(exe("gh")));
+        assert_eq!(executable, root.join(exe("gh")));
         assert_eq!(key, format!("./{}", exe("gh")));
-        let (executable, origin, key) = run(&format!("scripts/{}", exe("gh")));
+        let (executable, origin, key) = run(&at, &format!("scripts/{}", exe("gh")));
         assert_eq!(origin, Origin::Project);
-        assert_eq!(executable, project.join("scripts").join(exe("gh")));
+        assert_eq!(executable, root.join("scripts").join(exe("gh")));
         assert_eq!(key, format!("./scripts/{}", exe("gh")));
         // The bare name is the installed program, even though the project has a file of that
         // name.
-        let (executable, origin, key) = run("gh");
+        let (executable, origin, key) = run(&at, "gh");
         assert_eq!(origin, Origin::Path);
         assert_eq!(executable, bin.join(exe("gh")));
+        assert_eq!(key, "gh");
+        // A search path inside the project folder finds the project's own file: not the
+        // installed program, even by its bare name.
+        let inside = Where {
+            ws: Some(&ws),
+            branch: None,
+            base: None,
+            repo: None,
+            gh: None,
+            search: Some(root.join("scripts").into_os_string()),
+        };
+        let (executable, origin, key) = run(&inside, "gh");
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, root.join("scripts").join(exe("gh")));
         assert_eq!(key, "gh");
     }
 
