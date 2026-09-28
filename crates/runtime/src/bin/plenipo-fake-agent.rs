@@ -1638,6 +1638,10 @@ fn codex_app_server(args: &[String]) -> i32 {
                     "rateLimitReachedType": null } }),
             ),
             "model/list" => {
+                // `slow-model-list`: the list takes longer than Plenipo waits.
+                if state_dir().join("slow-model-list").exists() {
+                    std::thread::sleep(Duration::from_secs(30));
+                }
                 let mut data = vec![
                     json!({ "id": "gpt-6-sol", "model": "gpt-6-sol", "displayName": "GPT-6-Sol",
                             "hidden": false, "isDefault": true,

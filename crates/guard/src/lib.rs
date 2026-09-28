@@ -28,7 +28,7 @@ pub mod servers;
 mod service;
 pub mod websites;
 
-pub use ai_tools::{AiToolAction, AiToolRequest};
+pub use ai_tools::{AiToolAction, AiToolBusy, AiToolRequest};
 pub use commands::CommandLine;
 pub use config::GuardConfig;
 pub use dto::*;

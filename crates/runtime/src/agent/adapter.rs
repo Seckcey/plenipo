@@ -405,15 +405,10 @@ pub fn plain_name(text: &str, max: usize) -> Option<String> {
     plain.then(|| text.to_owned())
 }
 
-/// A model name as the tool's model option takes it (the rule Plenipo checks typed names
-/// against, ADR-007 §3).
+/// A model name as the tool's model option takes it: exactly the rule Plenipo checks typed
+/// names against (ADR-007 §3), so a model the tool reports can always be chosen.
 pub fn model_name(text: &str) -> Option<String> {
-    let text = text.trim();
-    let mut chars = text.chars();
-    let ok = text.len() <= 64
-        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && chars.all(|c| c.is_ascii_alphanumeric() || "._:[]-/".contains(c));
-    ok.then(|| text.to_owned())
+    crate::agent::service::validate_model(text.trim()).ok()
 }
 
 /// A short, task-free check of an AI tool (ADR-060): no conversation with a model, no prompt,
@@ -898,6 +893,32 @@ mod tests {
 #[cfg(test)]
 mod published_list_tests {
     use super::*;
+
+    #[test]
+    fn a_reported_model_is_kept_only_when_it_can_be_chosen() {
+        for name in [
+            "grok-5",
+            "kimi-code/kimi-for-coding",
+            "llama3.2:3b",
+            "gpt-6[1m]",
+        ] {
+            assert_eq!(model_name(name).as_deref(), Some(name), "{name}");
+            assert!(
+                crate::agent::service::validate_model(name).is_ok(),
+                "{name}"
+            );
+        }
+        // Names Plenipo would refuse when chosen are never offered.
+        for name in [
+            "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M",
+            "C:/models/x",
+            "-rf",
+            "a b",
+            "",
+        ] {
+            assert_eq!(model_name(name), None, "{name}");
+        }
+    }
 
     #[test]
     fn each_list_has_one_address_and_gives_only_a_version() {

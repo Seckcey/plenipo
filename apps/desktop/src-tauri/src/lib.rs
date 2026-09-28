@@ -4007,14 +4007,16 @@ mod ipc_boundary_tests {
                 "updates itself",
             ),
             (
-                "update_ai_tool",
-                serde_json::json!({ "runtimeId": "codex", "command": "npm install" }),
-                "",
-            ),
-            (
                 "cancel_ai_tool_update",
                 serde_json::json!({ "runtimeId": "codex" }),
                 "Only an update that is still waiting",
+            ),
+            // Extra arguments are ignored: only the tool's ID reaches the command, which finds
+            // nothing to update (no AI tool is installed in these tests) and starts nothing.
+            (
+                "update_ai_tool",
+                serde_json::json!({ "runtimeId": "codex", "command": "npm install" }),
+                "Codex is not installed on this PC, so there is nothing to update",
             ),
             (
                 "set_ai_tool_payment",
@@ -4028,10 +4030,6 @@ mod ipc_boundary_tests {
             ),
         ] {
             let answer = invoke_json(&main, cmd, args.clone());
-            if why.is_empty() {
-                // Extra arguments are ignored: nothing but the tool's ID reaches the command.
-                continue;
-            }
             let err = answer.expect_err(&format!("{cmd} must refuse {args}"));
             let said = err["message"]
                 .as_str()

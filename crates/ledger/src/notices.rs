@@ -121,6 +121,7 @@ pub fn may_notify(event_type: &str) -> bool {
             | "ai_tool.update_available"
             | "ai_tool.updated"
             | "ai_tool.update_failed"
+            | "ai_tool.update_by_hand"
     )
 }
 
@@ -236,6 +237,18 @@ impl Ledger {
                     "Plenipo checked its version, its sign-in, and its models again.",
                 )
             }),
+            // An automatic update the tool could not do by itself (installed another way).
+            "ai_tool.update_by_hand" if p["automatic"] == json!(true) => {
+                let name = tool(text(p, "runtime").unwrap_or_default());
+                Some(Notice::new(
+                    NoticeKind::Plenipo,
+                    format!("{name} can't update itself"),
+                    text(p, "message").map_or_else(
+                        || format!("See {name}'s card on the AI tools page."),
+                        str::to_owned,
+                    ),
+                ))
+            }
             "ai_tool.update_failed" => {
                 let name = tool(text(p, "runtime").unwrap_or_default());
                 let body = match (p["oldStillWorks"].as_bool(), text(p, "from")) {
@@ -788,6 +801,22 @@ mod tests {
         let n = l.notice_for(&failed, &tool).unwrap().unwrap();
         assert_eq!(n.title, "Grok's update didn't finish");
         assert_eq!(n.body, "The old version (1.0.41) still works.");
+        // An automatic update the tool could not do by itself says what to type.
+        let by_hand = event(
+            "ai_tool.update_by_hand",
+            json!({ "runtime": "grok", "newest": "1.0.43", "automatic": true,
+                    "message": "Grok installed with npm updates with npm." }),
+        );
+        assert!(may_notify(&by_hand.event_type));
+        let n = l.notice_for(&by_hand, &tool).unwrap().unwrap();
+        assert_eq!(n.title, "Grok can't update itself");
+        assert_eq!(n.body, "Grok installed with npm updates with npm.");
+        // The owner pressed Update and sees the card: no notice.
+        let pressed = event(
+            "ai_tool.update_by_hand",
+            json!({ "runtime": "grok", "newest": "1.0.43", "automatic": false }),
+        );
+        assert_eq!(l.notice_for(&pressed, &tool).unwrap(), None);
         let stopped = event(
             "ai_tool.update_failed",
             json!({ "runtime": "grok", "from": "1.0.41", "oldStillWorks": false }),

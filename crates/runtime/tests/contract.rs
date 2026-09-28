@@ -12,8 +12,8 @@ use plenipo_runtime::agent::adapter::{find_version, ProcessEnd};
 use plenipo_runtime::agent::service::validate_model;
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSink, AgentTurn, AgentUpdate,
-    AuthState, Bridge, Effort, HoldFor, HostEnv, InstallState, MemorySessionStore, ProviderSession,
-    RuntimeAdapter, TurnOutcome, TurnRequest,
+    AuthState, Bridge, Effort, HoldFor, HostEnv, InstallState, MemorySessionStore, NotFree,
+    ProviderSession, RuntimeAdapter, TurnOutcome, TurnRequest,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ExecutionState, MetadataStore, ProfileRegistry, RuntimeEvent,
@@ -669,12 +669,41 @@ async fn each_tools_own_check_lists_its_models_with_no_task() {
 }
 
 #[tokio::test]
+async fn a_tool_that_answers_its_check_counts_as_answering_even_signed_out_or_slow() {
+    // Signed out, Kimi answers `initialize`, then says it needs a sign-in: it still answers
+    // the way Plenipo reads it (it is not broken), and reports no models.
+    let fakes = Fakes::new("signed-out");
+    fakes.rt.refresh().await;
+    let kimi = fakes.rt.status_check("kimi").await.expect("Kimi answers");
+    assert!(kimi.checked);
+    assert!(kimi.models.is_none());
+
+    // Codex answers its plan, then is slow to list its models: what it answered is kept.
+    let fakes = Fakes::with("subscription", |c| c.probe_timeout = Duration::from_secs(2));
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    std::fs::write(state.join("slow-model-list"), "yes").unwrap();
+    fakes.rt.refresh().await;
+    let codex = fakes.rt.status_check("codex").await.expect("Codex answers");
+    assert_eq!(codex.plan.expect("its plan was kept").windows.len(), 2);
+    assert!(codex.models.is_none());
+}
+
+#[tokio::test]
 async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
     let fakes = Fakes::new("subscription");
     fakes.rt.refresh().await;
     // Held (a sign-in or an update): a task that would start waits, then runs.
     let hold = fakes.rt.hold_if_free("codex", HoldFor::Update).unwrap();
     assert!(fakes.rt.held("codex"));
+    // One at a time: no sign-in tab while it updates, and no second update.
+    assert_eq!(
+        fakes.rt.hold_if_free("codex", HoldFor::SignIn).unwrap_err(),
+        NotFree::Held(HoldFor::Update)
+    );
+    assert_eq!(
+        fakes.rt.hold_if_free("codex", HoldFor::Update).unwrap_err(),
+        NotFree::Held(HoldFor::Update)
+    );
     let rt = fakes.rt.clone();
     let started = tokio::spawn(async move { rt.start_session("codex", "hello", None).await });
     tokio::time::sleep(Duration::from_millis(400)).await;
@@ -701,7 +730,10 @@ async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
         .rt
         .hold_if_free("claude-code", HoldFor::SignIn)
         .unwrap_err();
-    assert_eq!(busy.len(), 1);
+    assert!(
+        matches!(&busy, NotFree::Tasks(tasks) if tasks.len() == 1),
+        "{busy:?}"
+    );
     assert!(!fakes.rt.held("claude-code"));
     // Another AI tool is free.
     assert!(fakes.rt.hold_if_free("grok", HoldFor::Update).is_ok());
@@ -729,10 +761,11 @@ async fn a_sign_in_tab_left_open_holds_tasks_a_while_and_an_update_until_it_is_d
     tokio::time::sleep(Duration::from_millis(900)).await;
     assert!(!started.is_finished(), "the task waits for the update");
     assert!(fakes.rt.tasks_using("grok").is_empty());
-    // A sign-in tab opened and closed meanwhile does not let it go.
-    drop(fakes.rt.hold_if_free("grok", HoldFor::SignIn).unwrap());
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(!started.is_finished());
+    // No sign-in tab opens while it updates.
+    assert_eq!(
+        fakes.rt.hold_if_free("grok", HoldFor::SignIn).unwrap_err(),
+        NotFree::Held(HoldFor::Update)
+    );
     drop(update);
     let detail = tokio::time::timeout(WAIT, started)
         .await

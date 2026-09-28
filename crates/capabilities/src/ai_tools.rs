@@ -27,12 +27,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use plenipo_guard::{AiToolAction, AiToolRequest, OutboundRules, Purpose};
+use plenipo_guard::{AiToolAction, AiToolBusy, AiToolRequest, OutboundRules, Purpose};
 use plenipo_ledger::NewEvent;
-use plenipo_runtime::agent::adapter::{find_version, NewestVersion, PublishedList, StatusCheck};
+use plenipo_runtime::agent::adapter::{NewestVersion, PublishedList, StatusCheck};
 use plenipo_runtime::agent::{
-    AccountAction, AgentRuntime, AgentRuntimeInfo, AuthState, HoldFor, InstallState, PlanReport,
-    ReportedModels, RuntimeAdapter,
+    AccountAction, AgentRuntime, AgentRuntimeInfo, AuthState, HoldFor, InstallState, NotFree,
+    PlanReport, ReportedModels, RuntimeAdapter,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -283,6 +283,9 @@ struct StoredTool {
     plan: Option<PlanReport>,
     out_of_service: Option<String>,
     last_update: Option<AiToolUpdate>,
+    /// The newest version the tool could not update to by itself (installed another way): not
+    /// tried again by itself until a newer one comes (ADR-059 §10).
+    by_hand_for: Option<String>,
 }
 
 // ---- The service ----------------------------------------------------------------------------------
@@ -295,6 +298,27 @@ struct Live {
     checking: HashSet<String>,
     /// When each tool's plan was last asked for after a task.
     plan_checked: HashMap<String, u64>,
+    /// Plenipo's own checks running now, by tool: an update waits for them (ADR-059 §3).
+    checks: HashMap<String, u32>,
+}
+
+/// One of Plenipo's own checks of a tool, running: while it is kept, an update of that tool
+/// waits ([`AiTools::start_check`]).
+struct CheckRunning {
+    tools: AiTools,
+    runtime_id: String,
+}
+
+impl Drop for CheckRunning {
+    fn drop(&mut self) {
+        let mut live = lock(&self.tools.inner.live);
+        if let Some(n) = live.checks.get_mut(&self.runtime_id) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                live.checks.remove(&self.runtime_id);
+            }
+        }
+    }
 }
 
 struct Inner {
@@ -343,9 +367,15 @@ pub fn newer_version(current: &str, candidate: &str) -> bool {
 }
 
 /// A version Plenipo passes to a tool's own command (`claude install <version>`): exactly a
-/// version number.
+/// version number — two to four numbers with dots between, nothing else.
 fn plain_version(version: &str) -> Option<&str> {
-    (find_version(version).as_deref() == Some(version) && version.len() <= 32).then_some(version)
+    let parts: Vec<&str> = version.split('.').collect();
+    let plain = version.len() <= 32
+        && (2..=4).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    plain.then_some(version)
 }
 
 impl AiTools {
@@ -393,15 +423,24 @@ impl AiTools {
             .unwrap_or_default()
     }
 
-    /// Change what Plenipo keeps, without an event (meaningful changes record their own).
+    /// Change what Plenipo keeps, without an event (meaningful changes record their own). Read
+    /// and written in one transaction; when what is kept cannot be read, nothing is written, so
+    /// the owner's switch and the tools given no tasks are never lost.
     fn keep(&self, change: impl FnOnce(&mut Stored)) {
         let _held = lock(&self.inner.keeping);
-        let mut stored = self.stored();
-        change(&mut stored);
-        if let Ok(value) = serde_json::to_value(&stored) {
-            if let Err(e) = self.ledger().keep_setting(SETTING, &value) {
-                log::warn!("the AI tools page could not keep what it learned: {e}");
-            }
+        let kept = self.ledger().change_setting(SETTING, |current| {
+            let mut stored: Stored = if current.is_null() {
+                Stored::default()
+            } else {
+                serde_json::from_value(current)
+                    .map_err(|e| plenipo_ledger::LedgerError::InvalidInput(e.to_string()))?
+            };
+            change(&mut stored);
+            serde_json::to_value(&stored)
+                .map_err(|e| plenipo_ledger::LedgerError::InvalidInput(e.to_string()))
+        });
+        if let Err(e) = kept {
+            log::warn!("the AI tools page could not keep what it learned: {e}");
         }
     }
 
@@ -426,6 +465,29 @@ impl AiTools {
             .runtimes()
             .into_iter()
             .find(|r| r.id == runtime_id)
+    }
+
+    /// Start one of Plenipo's own checks of `runtime_id` (its version, sign-in, models, or
+    /// plan), which runs the tool's program: never while the tool is held — its sign-in tab is
+    /// open, or it is updating — so `None` then, and the check is skipped. While the check runs,
+    /// an update of the tool waits.
+    fn start_check(&self, runtime_id: &str) -> Option<CheckRunning> {
+        *lock(&self.inner.live)
+            .checks
+            .entry(runtime_id.to_owned())
+            .or_default() += 1;
+        let running = CheckRunning {
+            tools: self.clone(),
+            runtime_id: runtime_id.to_owned(),
+        };
+        // Counted first, then the hold looked at: an update takes its hold first, then looks at
+        // the checks, so one of the two always sees the other.
+        (!self.agents().held(runtime_id)).then_some(running)
+    }
+
+    /// Whether one of Plenipo's own checks of `runtime_id` is running.
+    fn checking_now(&self, runtime_id: &str) -> bool {
+        lock(&self.inner.live).checks.contains_key(runtime_id)
     }
 
     /// When Plenipo starts: the models each tool reported earlier, and the tools it gives no
@@ -520,12 +582,14 @@ impl AiTools {
             AccountAction::SignIn => AiToolAction::SignIn,
             AccountAction::SignOut => AiToolAction::SignOut,
         };
-        let (hold, tasks_using) = match command {
+        let (hold, tasks_using, busy) = match command {
             Some(_) => match self.agents().hold_if_free(runtime_id, HoldFor::SignIn) {
-                Ok(hold) => (Some(hold), 0),
-                Err(tasks) => (None, tasks.len()),
+                Ok(hold) => (Some(hold), 0, None),
+                Err(NotFree::Tasks(tasks)) => (None, tasks.len(), None),
+                Err(NotFree::Held(HoldFor::Update)) => (None, 0, Some(AiToolBusy::Updating)),
+                Err(NotFree::Held(HoldFor::SignIn)) => (None, 0, Some(AiToolBusy::SignInOpen)),
             },
-            None => (None, 0),
+            None => (None, 0, None),
         };
         self.inner
             .broker
@@ -536,6 +600,7 @@ impl AiTools {
                 action: guard_action,
                 has_command: command.is_some(),
                 tasks_using,
+                busy,
             })
             .map_err(BrokerError::Invalid)?;
         let (Some(args), Some(hold)) = (command, hold) else {
@@ -626,6 +691,10 @@ impl AiTools {
     /// it answers.
     pub async fn check(&self, runtime_id: &str) -> Result<AiToolsPage> {
         let adapter = self.adapter(runtime_id)?;
+        // While it updates or its sign-in tab is open, those check it when they end.
+        let Some(_running) = self.start_check(runtime_id) else {
+            return Ok(self.page());
+        };
         lock(&self.inner.live)
             .checking
             .insert(runtime_id.to_owned());
@@ -738,11 +807,15 @@ impl AiTools {
             }
             live.plan_checked.insert(runtime_id.to_owned(), now());
         }
+        let Some(running) = self.start_check(runtime_id) else {
+            return;
+        };
         let this = self.clone();
         let id = runtime_id.to_owned();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 this.status_check(&id).await;
+                drop(running);
             });
         }
     }
@@ -764,6 +837,12 @@ impl AiTools {
                 "The days must follow one another".into(),
             ));
         }
+        // A day is at most 25 hours (the day a clock goes back).
+        if day_starts.windows(2).any(|w| w[1] - w[0] > 25 * 3_600_000) {
+            return Err(BrokerError::Invalid(
+                "Each day is at most 25 hours long".into(),
+            ));
+        }
         let (first, last) = (day_starts[0], day_starts[day_starts.len() - 1]);
         let steps = self.ledger().token_steps(runtime_id, first, last)?;
         let mut days: Vec<UsageDay> = day_starts
@@ -773,7 +852,10 @@ impl AiTools {
                 models: Vec::new(),
             })
             .collect();
-        let mut tasks: HashSet<(usize, Option<String>, String)> = HashSet::new();
+        // Each task is counted once: on the day, and under the model, of its first step here, so
+        // the days and the models add up to the tasks (a task that ran past midnight, or on two
+        // models, is not counted twice).
+        let mut tasks: HashSet<String> = HashSet::new();
         for step in steps {
             let Some(day) = day_starts
                 .windows(2)
@@ -800,7 +882,7 @@ impl AiTools {
             let entry = &mut models[at];
             entry.steps += 1;
             if let Some(task) = &step.task_id {
-                if tasks.insert((day, step.model.clone(), task.clone())) {
+                if tasks.insert(task.clone()) {
                     entry.tasks += 1;
                 }
             } else {
@@ -844,7 +926,13 @@ impl AiTools {
             "ai_tools.auto_update_switched",
             OWNER,
             |current| {
-                let mut stored: Stored = serde_json::from_value(current).unwrap_or_default();
+                // What is kept but cannot be read is never written over.
+                let mut stored: Stored = if current.is_null() {
+                    Stored::default()
+                } else {
+                    serde_json::from_value(current)
+                        .map_err(|e| plenipo_ledger::LedgerError::InvalidInput(e.to_string()))?
+                };
                 stored.auto_update = on;
                 let value = serde_json::to_value(&stored)
                     .map_err(|e| plenipo_ledger::LedgerError::InvalidInput(e.to_string()))?;
@@ -885,20 +973,27 @@ impl AiTools {
                     }
                     continue;
                 }
-                NewestVersion::Command(_) => self
-                    .agents()
-                    .newest_by_command(id)
-                    .await
-                    .and_then(|v| v.ok_or_else(|| "it did not say".to_owned())),
+                NewestVersion::Command(_) => match self.start_check(id) {
+                    Some(_running) => self
+                        .agents()
+                        .newest_by_command(id)
+                        .await
+                        .and_then(|v| v.ok_or_else(|| "it did not say".to_owned())),
+                    // Updating, or its sign-in tab is open: it is asked next time.
+                    None => continue,
+                },
                 NewestVersion::Published(list) => self.published(list).await,
             };
             let checked_at = now();
             let (newest, problem) = match newest {
                 Ok(v) => (Some(v), None),
-                Err(e) => (None, Some(e)),
+                // Kept and shown: in plain words, with secrets hidden, and short.
+                Err(e) => (None, Some(self.last_line(&e, "it did not say"))),
             };
             let mut announce = None;
+            let mut by_hand_for = None;
             self.keep_tool(id, |t| {
+                by_hand_for = t.by_hand_for.clone();
                 t.newest_checked_at = Some(checked_at);
                 t.newest_problem = problem.clone();
                 if let Some(v) = &newest {
@@ -913,19 +1008,29 @@ impl AiTools {
                 self.record(
                     PLENIPO,
                     "ai_tool.update_available",
+                    // With the switch on, the update itself says what happened — for a tool
+                    // Plenipo can update (Ollama updates from its own tray app).
                     json!({ "runtime": id, "installed": installed, "newest": v,
-                            "automatic": auto }),
+                            "automatic": auto && adapter.update_command().is_some() }),
                 );
             }
             let available = newest
                 .as_deref()
                 .is_some_and(|v| newer_version(&installed, v));
-            if auto && available && adapter.update_command().is_some() {
-                let _ = self.update(id, UpdateBy::Automatic);
+            // Not again for a version the tool could not update to by itself.
+            let update_now = auto
+                && available
+                && adapter.update_command().is_some()
+                && by_hand_for.is_none_or(|v| newest.as_deref() != Some(v.as_str()));
+            // Models and plans, once a day with the look (never Kimi's: it leaves a trace). A tool
+            // about to update is checked after its update instead.
+            if by == UpdateBy::Automatic && !update_now && !adapter.status_check_leaves_a_trace() {
+                if let Some(_running) = self.start_check(id) {
+                    self.status_check(id).await;
+                }
             }
-            // Models and plans, once a day with the look (never Kimi's: it leaves a trace).
-            if by == UpdateBy::Automatic && !adapter.status_check_leaves_a_trace() {
-                self.status_check(id).await;
+            if update_now {
+                let _ = self.update(id, UpdateBy::Automatic);
             }
         }
         self.keep(|s| s.last_looked_at = Some(now()));
@@ -987,7 +1092,9 @@ impl AiTools {
                 .info(id)
                 .is_some_and(|i| i.installation.state == InstallState::Installed);
             if installed && !adapter.status_check_leaves_a_trace() {
-                self.status_check(id).await;
+                if let Some(_running) = self.start_check(id) {
+                    self.status_check(id).await;
+                }
             }
         }
     }
@@ -1011,6 +1118,15 @@ impl AiTools {
         if adapter.update_command().is_none() {
             return Err(BrokerError::Invalid(format!(
                 "{} updates itself: use its own icon in the tray.",
+                adapter.label()
+            )));
+        }
+        let installed = self
+            .info(runtime_id)
+            .is_some_and(|i| i.installation.state == InstallState::Installed);
+        if !installed {
+            return Err(BrokerError::Invalid(format!(
+                "{} is not installed on this PC, so there is nothing to update.",
                 adapter.label()
             )));
         }
@@ -1045,7 +1161,7 @@ impl AiTools {
     /// Stop an update that is still waiting for its tool to be free (a running one finishes).
     pub fn cancel_update(&self, runtime_id: &str) -> Result<AiToolsPage> {
         self.adapter(runtime_id)?;
-        let live = lock(&self.inner.live);
+        let mut live = lock(&self.inner.live);
         let waiting = live
             .updates
             .get(runtime_id)
@@ -1055,9 +1171,11 @@ impl AiTools {
                 "Only an update that is still waiting can be cancelled".into(),
             ));
         }
-        if let Some(cancel) = live.cancels.get(runtime_id) {
+        // Stopped at once: its entry goes now, so Update can be pressed again right away.
+        if let Some(cancel) = live.cancels.remove(runtime_id) {
             cancel.store(true, Ordering::SeqCst);
         }
+        live.updates.remove(runtime_id);
         drop(live);
         Ok(self.page())
     }
@@ -1072,40 +1190,74 @@ impl AiTools {
             automatic,
             ..AiToolUpdate::idle()
         };
-        // Wait until no task is using the tool; then hold it, so none starts meanwhile.
+        // Wait until no task is using the tool; then hold it, so none starts meanwhile. Whether
+        // it was cancelled is looked at under the same lock that says it runs, so a Cancel is
+        // either in time (nothing runs) or refused (it already runs).
         let started = now();
         let hold = loop {
-            if cancel.load(Ordering::SeqCst) {
-                lock(&self.inner.live).updates.remove(runtime_id);
-                return;
-            }
-            match self.agents().hold_if_free(runtime_id, HoldFor::Update) {
-                Ok(hold) => break hold,
-                Err(tasks) => {
-                    if now().saturating_sub(started) > WAIT_AT_MOST_MS {
-                        self.set_update(
-                            runtime_id,
+            let free = match self.agents().hold_if_free(runtime_id, HoldFor::Update) {
+                // One of Plenipo's own checks is running the tool: let it finish first.
+                Ok(hold) if self.checking_now(runtime_id) => {
+                    drop(hold);
+                    Err(Vec::new())
+                }
+                Ok(hold) => Ok(hold),
+                Err(NotFree::Tasks(tasks)) => Err(tasks),
+                // Its sign-in tab is open: wait until it closes.
+                Err(NotFree::Held(_)) => Err(Vec::new()),
+            };
+            let busy_all_day = now().saturating_sub(started) > WAIT_AT_MOST_MS;
+            {
+                let mut live = lock(&self.inner.live);
+                let mine = live
+                    .cancels
+                    .get(runtime_id)
+                    .is_some_and(|c| Arc::ptr_eq(c, &cancel));
+                if cancel.load(Ordering::SeqCst) || !mine {
+                    // Cancelled: its entry is gone already; a hold just taken is let go.
+                    return;
+                }
+                match &free {
+                    Ok(_) => {
+                        live.updates.insert(
+                            runtime_id.to_owned(),
                             AiToolUpdate {
-                                message: Some(format!(
-                                    "{label} was busy all day, so Plenipo will try again."
-                                )),
+                                state: AiToolUpdateState::Updating,
                                 at: Some(now()),
                                 ..base.clone()
                             },
                         );
-                        return;
                     }
+                    Err(tasks) if !busy_all_day => {
+                        live.updates.insert(
+                            runtime_id.to_owned(),
+                            AiToolUpdate {
+                                state: AiToolUpdateState::Waiting,
+                                tasks_using: u32::try_from(tasks.len()).unwrap_or(u32::MAX),
+                                at: Some(now()),
+                                ..base.clone()
+                            },
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+            match free {
+                Ok(hold) => break hold,
+                Err(_) if busy_all_day => {
                     self.set_update(
                         runtime_id,
                         AiToolUpdate {
-                            state: AiToolUpdateState::Waiting,
-                            tasks_using: u32::try_from(tasks.len()).unwrap_or(u32::MAX),
+                            message: Some(format!(
+                                "{label} was busy all day, so Plenipo will try again."
+                            )),
                             at: Some(now()),
                             ..base.clone()
                         },
                     );
-                    tokio::time::sleep(WAIT_STEP).await;
+                    return;
                 }
+                Err(_) => tokio::time::sleep(WAIT_STEP).await,
             }
         };
         if let Err(why) = self
@@ -1118,6 +1270,7 @@ impl AiTools {
                 action: AiToolAction::Update,
                 has_command: true,
                 tasks_using: 0,
+                busy: None,
             })
         {
             self.set_update(
@@ -1151,11 +1304,27 @@ impl AiTools {
         let ran = self
             .run_own(adapter.as_ref(), &format!("Update {label}"), args, true)
             .await;
+        // It never started (the program is gone, or not allowed): nothing changed.
+        if let Err(why) = &ran {
+            self.set_update(
+                runtime_id,
+                AiToolUpdate {
+                    state: AiToolUpdateState::Failed,
+                    from: from.clone(),
+                    message: Some(why.clone()),
+                    old_still_works: None,
+                    at: Some(now()),
+                    ..base
+                },
+            );
+            drop(hold);
+            return;
+        }
         let (command_ok, failure) = match &ran {
             Ok(r) if r.succeeded() => (true, None),
             Ok(r) => (
                 false,
-                Some(self.first_line(&r.output, &r.ending(UPDATE_TIME_LIMIT))),
+                Some(self.last_line(&r.output, &r.ending(UPDATE_TIME_LIMIT))),
             ),
             Err(e) => (false, Some(e.clone())),
         };
@@ -1217,14 +1386,15 @@ impl AiTools {
                     _ => false,
                 };
                 if behind {
-                    self.set_update(
-                        runtime_id,
-                        done(
-                            AiToolUpdateState::ByHand,
-                            adapter.update_by_hand().map(str::to_owned),
-                            None,
-                        ),
+                    let message = adapter.update_by_hand().map(str::to_owned);
+                    self.record(
+                        if automatic { PLENIPO } else { OWNER },
+                        "ai_tool.update_by_hand",
+                        json!({ "runtime": runtime_id, "installed": to, "newest": newest,
+                                "message": message, "automatic": automatic }),
                     );
+                    self.keep_tool(runtime_id, |t| t.by_hand_for = newest.clone());
+                    self.set_update(runtime_id, done(AiToolUpdateState::ByHand, message, None));
                 } else {
                     self.set_update(runtime_id, done(AiToolUpdateState::UpToDate, None, None));
                 }
@@ -1246,6 +1416,7 @@ impl AiTools {
                         action: AiToolAction::PutBack,
                         has_command: true,
                         tasks_using: 0,
+                        busy: None,
                     })
                     .is_ok();
                 if allowed
@@ -1342,8 +1513,9 @@ impl AiTools {
         .await
     }
 
-    /// A program's last words, as one line with secrets hidden (what is kept of its output).
-    fn first_line(&self, output: &str, otherwise: &str) -> String {
+    /// A program's last words — its last line that says anything, usually the error — with
+    /// secrets hidden and at most 200 characters (what is kept of its output).
+    fn last_line(&self, output: &str, otherwise: &str) -> String {
         let line = output
             .lines()
             .rev()
@@ -1394,7 +1566,20 @@ mod tests {
         assert!(!newer_version("1.0.41", "latest"));
         assert!(newer_version("v0.34.4", "0.35.0"));
         assert_eq!(plain_version("2.1.283"), Some("2.1.283"));
+        assert_eq!(plain_version("0.34"), Some("0.34"));
         assert_eq!(plain_version("2.1.283; rm -rf /"), None);
         assert_eq!(plain_version("--help"), None);
+        // Exactly numbers and dots: nothing that merely starts like a version.
+        for odd in [
+            "2.1.283;x",
+            "1.0=--y",
+            "1.2.3/../..",
+            "1.2--help",
+            "1",
+            "1..2",
+            "v1.2.3",
+        ] {
+            assert_eq!(plain_version(odd), None, "{odd}");
+        }
     }
 }

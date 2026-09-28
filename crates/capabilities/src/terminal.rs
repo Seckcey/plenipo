@@ -88,8 +88,9 @@ pub struct ShellProgram {
     pub label: String,
     pub program: PathBuf,
     pub args: Vec<String>,
-    /// `None`: the shell gets Plenipo's own environment, as the owner's terminal always has.
-    /// `Some`: exactly these variables and nothing else (an AI tool's sign-in tab, ADR-058 §2).
+    /// `None`: a shell, with Plenipo's own environment, as the owner's terminal always has.
+    /// `Some`: a program that is not a shell (an AI tool's sign-in tab, ADR-058 §2), with exactly
+    /// these variables and nothing else; it ends as "<label> ended".
     pub env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
 }
 
@@ -273,6 +274,12 @@ pub fn start_local(
     let pair = native_pty_system()
         .openpty(size.pty())
         .map_err(|e| format!("Plenipo could not open a terminal ({e})"))?;
+    // A program that is not a shell (an AI tool's sign-in tab) ends as itself: "Codex's sign-in
+    // ended", not "the shell ended".
+    let ends_as = match shell.env {
+        Some(_) => format!("{} ended", shell.label),
+        None => "the shell ended".to_owned(),
+    };
     let mut command = CommandBuilder::new(&shell.program);
     command.args(&shell.args);
     if let Some(dir) = cwd {
@@ -409,9 +416,7 @@ pub fn start_local(
                     .as_ref()
                     .ok()
                     .and_then(|s| i32::try_from(s.exit_code()).ok());
-                let why = lock(&closing)
-                    .clone()
-                    .unwrap_or_else(|| "the shell ended".to_owned());
+                let why = lock(&closing).clone().unwrap_or(ends_as);
                 ended(Ending { why, code });
             })
             .map_err(|e| format!("Plenipo could not start the terminal ({e})"))?;

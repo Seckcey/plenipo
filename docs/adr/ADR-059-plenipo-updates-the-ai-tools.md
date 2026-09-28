@@ -243,17 +243,31 @@ Built as written, with these details:
   stops it. Closing Plenipo while an update waits or runs asks first.
 - **A task that would start during an update** waits until the update and its checks are done,
   however long that takes; each step has its own time limit, so the wait ends. (A sign-in tab
-  holds tasks for at most ten minutes, ADR-058.)
+  holds tasks for at most ten minutes, ADR-058.) **Stop** works on a task while it waits. A limit
+  of the design: a waiting task counts toward the tasks Plenipo runs at once, so while one AI tool
+  updates (at most about 20 minutes, with a put-back), fewer tasks can start on the others.
+- **One at a time:** an update waits while the tool's sign-in tab is open and while one of
+  Plenipo's own short checks is running it; those checks skip a tool that is updating (the
+  update checks it itself). A Cancel is either in time — nothing runs — or refused, because the
+  update already runs; Update can be pressed again at once.
+- **Nothing to update:** Update is refused for a tool that is not installed, and an update whose
+  command never started changes nothing (the tool is never marked "not given tasks" for it).
 - **The first look** is 4 minutes after Plenipo starts, then Plenipo looks each hour whether a
   day has passed since the last look (kept in the Ledger).
 - **"Up to date" or by hand:** when the update command succeeds but the version does not change
   while a newer one is known, the card shows the tool's own command to type (Claude Code with
-  WinGet, Codex with npm) and **Open a terminal**.
+  WinGet, Codex with npm) and **Open a terminal**. It is recorded (`ai_tool.update_by_hand`);
+  when it happened by itself, a Windows notice says what to type, and Plenipo does not try that
+  version again by itself.
+- **What is kept of an update's output:** its last line that says anything (usually the error),
+  with secrets hidden, at most 200 characters. The secret filter now also knows xAI's keys and
+  npm's tokens.
 - **Given no tasks:** when a new version does not answer and there is no put-back command, the
   AI tool is marked "not given tasks for now" (kept in the Ledger); every place that picks an
   AI tool says so, and **Check again** gives it tasks again once it answers.
 - **Notices:** `ai_tool.update_available` (once per version), `ai_tool.updated`, and
   `ai_tool.update_failed` come as Windows notices of the **Plenipo** kind; a new version is not
-  announced when the switch is on, since Plenipo updates it by itself.
+  announced when the switch is on, since Plenipo updates it by itself — except Ollama's, which
+  Plenipo cannot update.
 - **Codex's own update check is off** in its tasks and checks
   (`-c check_for_update_on_startup=false`).

@@ -23,8 +23,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::adapter::{
-    cap, first_line, FileRequest, NewestVersion, ProcessEnd, ProviderSession, RuntimeAdapter,
-    StatusCheck, TurnParser, TurnRequest, MAX_EVENT_TEXT,
+    cap, first_line, talk_answer, FileRequest, NewestVersion, ProcessEnd, ProviderSession,
+    RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, MAX_EVENT_TEXT,
 };
 use crate::agent::brief::{
     note_in_full, text_hash, BriefInput, Conversation, Delivery, Standing, StepMessage,
@@ -289,6 +289,10 @@ struct Active {
     done: watch::Receiver<bool>,
     /// Asks a task that talks (ADR-015) to stop itself before its process is ended.
     interrupt: Option<mpsc::UnboundedSender<()>>,
+    /// The step waits for its AI tool, held by an update or a sign-in tab ([`HoldFor`]).
+    waiting_for_hold: bool,
+    /// The owner stopped it while it waited: it ends as cancelled, before it starts.
+    stop_waiting: bool,
 }
 
 #[derive(Default)]
@@ -876,7 +880,15 @@ impl AgentRuntime {
         adapter: &dyn RuntimeAdapter,
         session_id: &str,
     ) -> Result<Ready, NotReady> {
-        self.wait_for_hold(adapter.id(), session_id).await;
+        if !self.wait_for_hold(adapter.id(), session_id).await {
+            return Err(NotReady {
+                error: RuntimeError::NotReady(format!(
+                    "Stopped while it waited for {} to be free.",
+                    adapter.label()
+                )),
+                outcome: TurnOutcome::Cancelled,
+            });
+        }
         let (info, ready) = self.detect(adapter, false).await;
         let changed = self
             .lock()
@@ -911,19 +923,23 @@ impl AgentRuntime {
         using(&self.lock(), runtime_id)
     }
 
-    /// Hold `runtime_id` — no new task starts on it while the hold is kept — if no task is using
-    /// it now; otherwise the tasks using it. A task that would start meanwhile waits: for a
-    /// sign-in, [`AgentConfig::hold_wait`] at most, then it goes on; for an update, until the
-    /// hold is let go ([`HoldFor`]).
-    pub fn hold_if_free(
-        &self,
-        runtime_id: &str,
-        reason: HoldFor,
-    ) -> Result<RuntimeHold, Vec<String>> {
+    /// Hold `runtime_id` — no new task starts on it while the hold is kept — if it is free: no
+    /// task is using it, and it is not held already (one sign-in tab or update at a time, since
+    /// both run the tool's own program). A task that would start meanwhile waits: for a sign-in,
+    /// [`AgentConfig::hold_wait`] at most, then it goes on; for an update, until the hold is let
+    /// go ([`HoldFor`]).
+    pub fn hold_if_free(&self, runtime_id: &str, reason: HoldFor) -> Result<RuntimeHold, NotFree> {
         let mut state = self.lock();
         let tasks = using(&state, runtime_id);
         if !tasks.is_empty() {
-            return Err(tasks);
+            return Err(NotFree::Tasks(tasks));
+        }
+        if let Some(held) = state.holds.get(runtime_id) {
+            return Err(NotFree::Held(if held.update > 0 {
+                HoldFor::Update
+            } else {
+                HoldFor::SignIn
+            }));
         }
         let holds = state.holds.entry(runtime_id.to_owned()).or_default();
         *holds.count(reason) += 1;
@@ -955,8 +971,8 @@ impl AgentRuntime {
 
     /// Wait while `runtime_id` is held — while it updates, until the update and its checks are
     /// done; while only a sign-in tab holds it, [`AgentConfig::hold_wait`] at most — then mark
-    /// the session's step as using it.
-    async fn wait_for_hold(&self, runtime_id: &str, session_id: &str) {
+    /// the session's step as using it. `false`: the owner stopped the task while it waited.
+    async fn wait_for_hold(&self, runtime_id: &str, session_id: &str) -> bool {
         let deadline = tokio::time::Instant::now() + self.inner.config.hold_wait;
         loop {
             let notified = self.inner.holds_changed.notified();
@@ -966,12 +982,19 @@ impl AgentRuntime {
                 let mut state = self.lock();
                 let holds = state.holds.get(runtime_id).copied().unwrap_or_default();
                 let past = tokio::time::Instant::now() >= deadline;
-                if holds.update == 0 && (holds.sign_in == 0 || past) {
-                    if let Some(active) = state.active.get_mut(session_id) {
-                        active.runtime_id = Some(runtime_id.to_owned());
-                    }
-                    return;
+                let Some(active) = state.active.get_mut(session_id) else {
+                    return true;
+                };
+                if active.stop_waiting {
+                    active.waiting_for_hold = false;
+                    return false;
                 }
+                if holds.update == 0 && (holds.sign_in == 0 || past) {
+                    active.runtime_id = Some(runtime_id.to_owned());
+                    active.waiting_for_hold = false;
+                    return true;
+                }
+                active.waiting_for_hold = true;
                 holds.update > 0
             };
             if updating {
@@ -1071,7 +1094,14 @@ impl AgentRuntime {
             .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
         let program = self.tool_program(runtime_id)?;
         let timeout = self.inner.config.probe_timeout;
-        let out = match adapter.status_check(&program.dir) {
+        let check = adapter.status_check(&program.dir);
+        // A tool that talks answers its first request (`initialize`) the way Plenipo reads it
+        // even when it then says it needs a sign-in, or is slow to list its models.
+        let greeting = match &check {
+            StatusCheck::Talk { answers, .. } => answers.first().copied(),
+            _ => None,
+        };
+        let out = match check {
             StatusCheck::None => return Ok(StatusAnswer::default()),
             StatusCheck::Command(args) => {
                 run_probe(
@@ -1117,7 +1147,8 @@ impl AgentRuntime {
         };
         let models = adapter.parse_models(&out);
         let plan = adapter.parse_plan(&out);
-        if models.is_none() && plan.is_none() {
+        let greeted = greeting.is_some_and(|id| talk_answer(&out, id).is_some());
+        if models.is_none() && plan.is_none() && !greeted {
             return Err(probe_failure("check", &out));
         }
         if let Some(models) = &models {
@@ -1398,6 +1429,10 @@ impl AgentRuntime {
             let (tx, rx) = watch::channel(false);
             active.claim = Claim::Turn;
             active.execution_id = None;
+            // Not using its AI tool until its check passes (it may wait for a hold first).
+            active.runtime_id = None;
+            active.waiting_for_hold = false;
+            active.stop_waiting = false;
             active.step += 1;
             active.step_started_at = crate::now_ms();
             active.done = rx;
@@ -1588,6 +1623,8 @@ impl AgentRuntime {
                 Option<mpsc::UnboundedSender<()>>,
             ),
             Waiting(String),
+            /// Waiting for its AI tool (an update or a sign-in tab): it ends before it starts.
+            Held(watch::Receiver<bool>),
         }
         let target = {
             let mut state = self.lock();
@@ -1622,6 +1659,13 @@ impl AgentRuntime {
                         active.claim = Claim::Close;
                     }
                     Target::Waiting(task)
+                }
+                _ if active.waiting_for_hold && active.execution_id.is_none() => {
+                    let done = active.done.clone();
+                    if let Some(active) = state.active.get_mut(session_id) {
+                        active.stop_waiting = true;
+                    }
+                    Target::Held(done)
                 }
                 _ => {
                     let execution = active.execution_id.clone().ok_or_else(|| {
@@ -1663,6 +1707,11 @@ impl AgentRuntime {
                 }
             }
             Target::Waiting(task_id) => Some(task_id),
+            Target::Held(mut done) => {
+                self.inner.holds_changed.notify_waiters();
+                let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+                None
+            }
         };
         if let Some(task_id) = waiting {
             let id = session_id.to_owned();
@@ -1777,6 +1826,8 @@ impl AgentRuntime {
                 step_started_at: crate::now_ms(),
                 done: done_rx,
                 interrupt: None,
+                waiting_for_hold: false,
+                stop_waiting: false,
             },
         );
         Ok(Reservation {
@@ -2229,6 +2280,15 @@ pub enum HoldFor {
     /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
     /// starts on the new version, or on the old one if the update failed.
     Update,
+}
+
+/// Why an AI tool could not be held ([`AgentRuntime::hold_if_free`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotFree {
+    /// These tasks are using it.
+    Tasks(Vec<String>),
+    /// It is held already: its sign-in tab is open, or it is updating.
+    Held(HoldFor),
 }
 
 /// How many holds of each kind one AI tool has.

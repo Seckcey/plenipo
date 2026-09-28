@@ -208,7 +208,19 @@ task still uses the tool, so a request that arrives too early is never carried o
 
 **The hold on new tasks** starts when the program starts and ends once the tool has been checked
 again after it ends. A task waits for it for at most ten minutes, then goes ahead: a sign-in tab
-left open must not stop your work for good.
+left open must not stop your work for good. **Stop** works on a task while it waits.
+
+**One at a time:** a sign-in tab never opens while the tool updates ("Codex is being updated.
+Plenipo waits until it's done." — the card waits, then opens it), and an update waits while the
+tool's sign-in tab is open. Only one sign-in or sign-out tab per tool runs at a time.
+
+**A task between steps** (for example, waiting for another worker's reply) does not count as
+using the tool, so Sign out does not wait for it; its next step then finds the tool signed out
+and says to sign in. Waiting for such a task could take hours.
+
+**What reaches the program:** only the keys you press, and the terminal's own automatic answers
+about the screen (where the cursor is, its size), which every terminal gives the program it
+runs and which carry nothing of yours.
 
 The Activity trail says "You opened Codex's sign-in" and "Codex's sign-in closed after 40 s";
 `ai_tool.sign_in_changed` keeps the old and new state and the kind of sign-in, never an account.

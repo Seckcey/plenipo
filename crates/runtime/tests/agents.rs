@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HostEnv, InstallState,
+    AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HoldFor, HostEnv, InstallState,
     MemorySessionStore, SessionStart, SessionState, SessionStore, StepInfo, StepNote, StepTools,
     ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask,
     STEP_SEQ,
@@ -1206,6 +1206,61 @@ async fn a_turn_reads_as_waiting_as_soon_as_its_wait_is_recorded() {
     };
     assert!(seen.waiting && !seen.running, "{seen:#?}");
     assert!(seen.steps.iter().all(|s| !s.running), "{seen:#?}");
+}
+
+#[tokio::test]
+async fn a_continuing_task_waiting_for_its_ai_tool_is_not_counted_as_using_it() {
+    let h = harness();
+    let _hook = with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    // Codex is being updated: the next step waits, and does not count as using Codex (so the
+    // owner's sign-in tab or another update is not refused because of it).
+    let hold = h.rt.hold_if_free("codex", HoldFor::Update).unwrap();
+    let rt = h.rt.clone();
+    let (sid, tid) = (id.clone(), task.clone());
+    let next = tokio::spawn(async move {
+        rt.continue_turn(&sid, &tid, "here are the replies", StepNote::default())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!next.is_finished(), "the step waits for the update");
+    assert!(h.rt.tasks_using("codex").is_empty());
+    drop(hold);
+    next.await.unwrap().unwrap();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+    assert_eq!(
+        detail.turns[0].result.as_ref().unwrap().outcome,
+        TurnOutcome::Completed
+    );
+}
+
+#[tokio::test]
+async fn the_owner_can_stop_a_task_that_waits_for_its_ai_tool() {
+    let h = harness();
+    let _hook = with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    let hold = h.rt.hold_if_free("codex", HoldFor::Update).unwrap();
+    let rt = h.rt.clone();
+    let (sid, tid) = (id.clone(), task.clone());
+    let next = tokio::spawn(async move {
+        rt.continue_turn(&sid, &tid, "here are the replies", StepNote::default())
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!next.is_finished(), "the step waits for the update");
+    // Stop works while it waits: the task ends as stopped, and never starts on Codex.
+    tokio::time::timeout(Duration::from_secs(10), h.rt.cancel_task(&id, &task))
+        .await
+        .expect("stopping does not wait for the update")
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+    assert_eq!(
+        detail.turns[0].result.as_ref().unwrap().outcome,
+        TurnOutcome::Cancelled
+    );
+    assert!(next.await.unwrap().is_err());
+    assert!(h.rt.held("codex"), "the update goes on");
+    drop(hold);
 }
 
 #[tokio::test]

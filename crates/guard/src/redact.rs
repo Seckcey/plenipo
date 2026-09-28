@@ -43,6 +43,9 @@ fn patterns() -> &'static [Pattern] {
             p(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", "cloud access key", 0),
             p(r"\bAIza[0-9A-Za-z_\-]{35}", "API key", 0),
             p(r"\bxox[abposr]-[A-Za-z0-9-]{10,}", "chat token", 0),
+            // xAI's keys (Grok) and npm's tokens, which an AI tool's update can print (Phase 19).
+            p(r"\bxai-[A-Za-z0-9]{20,}", "API key", 0),
+            p(r"\bnpm_[A-Za-z0-9]{30,}", "npm token", 0),
             p(
                 r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
                 "token",
@@ -176,6 +179,11 @@ mod tests {
             ("gh ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "GitHub token"),
             ("AKIAIOSFODNN7EXAMPLE", "cloud access key"),
             ("xoxb-1234567890-abcdefghij", "chat token"),
+            ("grok xai-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "API key"),
+            (
+                "npm ERR! npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+                "npm token",
+            ),
             (
                 "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
                 "token",

@@ -175,14 +175,24 @@ Built as written, with these details:
 
 - **Usage** is one read-only Ledger query (`token_steps`) over the steps saved with each task;
   the window sends the local day starts (Monday of last week, or 14 days ago, whichever is
-  earlier, through tomorrow) and adds them up by model. The command accepts 1 to 60 days.
+  earlier, through tomorrow) and adds them up by model. The command accepts 1 to 60 days of at
+  most 25 hours each. Tokens count for every step; a **task counts once**, on the day and under
+  the model of its first step, so a task that ran past midnight or on two models is not counted
+  twice. With more than 50,000 steps in the days asked for, the oldest are left out.
 - **Claude Code's plan left** comes from `rate_limit_event` in its task stream: only the
   documented fields `status`, `resetsAt`, and `utilization` are read. It is kept
   in the Ledger's settings, not the Activity trail.
 - **Codex's check** starts `codex -c check_for_update_on_startup=false app-server` for one short
   exchange (`initialize`, `account/read`, `account/rateLimits/read`, `model/list`) with a
   20-second limit. From `account/read`, only the kind of sign-in and the plan's name are kept.
-  After a Codex task it runs at most once every five minutes.
+  After a Codex task it runs at most once every five minutes. Answers that came before the limit
+  are kept; a tool that answers `initialize` counts as answering the way Plenipo reads it, even if
+  it then says it needs a sign-in.
+- **These checks** run the tool's own program as an approved program (the supervisor allows it,
+  ADR-005), like the version and sign-in checks before every task; they are not listed in
+  **Runs**, since they are not work.
+- **A model the tool reports** is kept only when its name is one Plenipo accepts when you choose
+  it, so every model marked new can be chosen.
 - **Grok's models** come from its ACP `initialize` answer (`_meta.modelState.availableModels`,
   with each model's effort levels); `grok models` was not needed. **Kimi's** come from
   `session/new` in Plenipo's empty check folder. **Ollama's** come from `/api/tags` through

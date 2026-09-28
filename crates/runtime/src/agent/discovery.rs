@@ -12,6 +12,9 @@ use crate::agent::adapter::{ProbeOutput, RuntimeAdapter};
 
 /// Longest probe output kept per stream.
 const MAX_PROBE_OUTPUT: usize = 64 * 1024;
+/// The longest line kept from a tool's talk check (a longer one is read and cut, so a tool that
+/// never ends its line cannot fill Plenipo's memory).
+const MAX_TALK_LINE: usize = 1024 * 1024;
 
 /// The parts of Plenipo's environment that discovery reads. Captured once so tests can
 /// supply their own.
@@ -251,7 +254,7 @@ pub async fn run_talk(
     answers: &[u64],
     timeout: Duration,
 ) -> ProbeOutput {
-    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::io::{AsyncWriteExt as _, BufReader};
 
     let mut command =
         crate::supervisor::wrapped_command(executable, args, env, working_dir, Stdio::piped());
@@ -267,6 +270,8 @@ pub async fn run_talk(
     let mut stdin = child.stdin().take();
     let stdout = child.stdout().take();
     let err = tokio::spawn(read_capped(child.stderr().take()));
+    // What the tool wrote, kept even when the time runs out (the answers it gave still count).
+    let mut kept = String::new();
     let talk = async {
         if let Some(input) = stdin.as_mut() {
             for line in lines {
@@ -278,33 +283,31 @@ pub async fn run_talk(
                 }
             }
         }
-        let mut kept = String::new();
         let mut waiting: Vec<u64> = answers.to_vec();
         if let Some(stdout) = stdout {
-            let mut reader = BufReader::new(stdout).lines();
+            let mut reader = BufReader::new(stdout);
             while !waiting.is_empty() {
-                let Ok(Some(line)) = reader.next_line().await else {
+                let Some(line) = capped_line(&mut reader, MAX_TALK_LINE).await else {
                     break;
                 };
-                if kept.len() + line.len() < MAX_PROBE_OUTPUT {
-                    kept.push_str(&line);
-                    kept.push('\n');
-                }
                 let answered = serde_json::from_str::<serde_json::Value>(line.trim())
                     .ok()
                     .filter(|v| v.get("result").is_some() || v.get("error").is_some())
-                    .and_then(|v| v.get("id").and_then(serde_json::Value::as_u64));
+                    .and_then(|v| v.get("id").and_then(serde_json::Value::as_u64))
+                    .filter(|id| waiting.contains(id));
+                // An answer Plenipo waits for is always kept; anything else while there is room.
+                if answered.is_some() || kept.len() + line.len() < MAX_PROBE_OUTPUT {
+                    kept.push_str(&line);
+                    kept.push('\n');
+                }
                 if let Some(id) = answered {
                     waiting.retain(|w| *w != id);
                 }
             }
         }
-        kept
     };
-    let (stdout, timed_out) = match tokio::time::timeout(timeout, talk).await {
-        Ok(kept) => (kept, false),
-        Err(_) => (String::new(), true),
-    };
+    let timed_out = tokio::time::timeout(timeout, talk).await.is_err();
+    let stdout = kept;
     // Done: the way in closes, so the tool can end by itself; if it does not, it is ended.
     drop(stdin);
     let status = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
@@ -328,6 +331,42 @@ pub async fn run_talk(
         timed_out,
         spawn_error: None,
     }
+}
+
+/// One line from `reader`, without its end; at most `max` bytes of it are kept (the rest of a
+/// longer line is read and dropped). `None` at the end of the output.
+async fn capped_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max: usize,
+) -> Option<String> {
+    use tokio::io::AsyncBufReadExt as _;
+    let mut line = Vec::new();
+    let mut any = false;
+    loop {
+        let (used, ended) = {
+            let Ok(buf) = reader.fill_buf().await else {
+                break;
+            };
+            if buf.is_empty() {
+                break;
+            }
+            any = true;
+            let end = buf.iter().position(|b| *b == b'\n');
+            let chunk = &buf[..end.unwrap_or(buf.len())];
+            let room = max.saturating_sub(line.len());
+            line.extend_from_slice(&chunk[..chunk.len().min(room)]);
+            (end.map_or(buf.len(), |e| e + 1), end.is_some())
+        };
+        reader.consume(used);
+        if ended {
+            break;
+        }
+    }
+    any.then(|| {
+        String::from_utf8_lossy(&line)
+            .trim_end_matches('\r')
+            .to_owned()
+    })
 }
 
 async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>) -> String {

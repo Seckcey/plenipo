@@ -30,7 +30,7 @@ use plenipo_ledger::{Ledger, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_runtime::agent::{
     builtin_adapters, AccountAction, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, AuthState,
-    Bridge, HostEnv,
+    Bridge, HostEnv, PlanReport,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
@@ -406,6 +406,9 @@ async fn after_the_tab_closes_the_card_checks_again_and_shows_the_new_sign_in() 
     // The owner signs in, in the tab.
     h.broker.write_terminal(&info.id, b"\r").unwrap();
     until("the tab to end", || screen.lock().unwrap().ended.is_some()).await;
+    // The tab says the sign-in ended, not a shell.
+    let (why, code) = screen.lock().unwrap().ended.clone().unwrap();
+    assert_eq!((why.as_str(), code), ("Grok's sign-in ended", Some(0)));
     until("the check after it", || !h.rt.held("grok")).await;
     let grok = h.info("grok");
     assert_eq!(grok.auth.state, AuthState::Subscription);
@@ -504,6 +507,90 @@ async fn an_update_never_starts_while_a_task_is_using_the_tool_it_waits() {
     h.free("grok", &session).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(h.read("update-log"), None);
+
+    // Cancelled, then Update pressed again at once: the new press is not lost, and the update
+    // runs once, when the tool is free.
+    let session = h.busy("grok").await;
+    h.tools.update("grok", UpdateBy::Owner).unwrap();
+    h.tools.cancel_update("grok").unwrap();
+    let again = h.tools.update("grok", UpdateBy::Owner).unwrap();
+    let grok = again.tools.iter().find(|t| t.runtime_id == "grok").unwrap();
+    assert_eq!(grok.update.state, AiToolUpdateState::Waiting);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    h.free("grok", &session).await;
+    let done = h.tools.settled("grok", WAIT).await.unwrap();
+    assert_eq!(done.state, AiToolUpdateState::Updated, "{done:?}");
+    let log = h.read("update-log").unwrap();
+    assert_eq!(log.matches("grok update").count(), 1, "{log}");
+    // A running update cannot be cancelled: Cancel says so, and nothing is left half done.
+    assert!(h.tools.cancel_update("grok").is_err());
+}
+
+#[tokio::test]
+async fn an_update_and_a_sign_in_tab_take_turns_on_one_tool() {
+    let h = harness("subscription").await;
+    h.write("newest-grok", "1.0.100");
+    // The sign-in tab is open: the update waits until it closes.
+    let screen = Shared::default();
+    let info = h
+        .tools
+        .open_account("grok", AccountAction::SignIn, 100, 30, sink(&screen))
+        .await
+        .unwrap();
+    until("the sign-in program", || {
+        text(&screen).contains("Press Enter")
+    })
+    .await;
+    h.tools.update("grok", UpdateBy::Owner).unwrap();
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(
+        h.read("update-log"),
+        None,
+        "it updated while the sign-in tab ran"
+    );
+    let waiting = h.tools.page();
+    let grok = waiting
+        .tools
+        .iter()
+        .find(|t| t.runtime_id == "grok")
+        .unwrap();
+    assert_eq!(grok.update.state, AiToolUpdateState::Waiting);
+    h.broker.write_terminal(&info.id, b"\r").unwrap();
+    let done = h.tools.settled("grok", WAIT).await.unwrap();
+    assert_eq!(done.state, AiToolUpdateState::Updated, "{done:?}");
+
+    // While it updates, its sign-in tab does not open; Guard says why.
+    h.write("newest-grok", "1.0.101");
+    h.write("update-grok", "slow");
+    h.tools.update("grok", UpdateBy::Owner).unwrap();
+    until("the update to run", || {
+        h.tools
+            .page()
+            .tools
+            .iter()
+            .any(|t| t.runtime_id == "grok" && t.update.state == AiToolUpdateState::Updating)
+    })
+    .await;
+    let refused = h
+        .tools
+        .open_account(
+            "grok",
+            AccountAction::SignOut,
+            100,
+            30,
+            sink(&Shared::default()),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Grok is being updated"), "{refused}");
+    let reasons = h.events("guard.ai_tool_refused");
+    assert!(
+        reasons.iter().any(|e| e["action"] == "signOut"),
+        "{reasons:?}"
+    );
+    let done = h.tools.settled("grok", WAIT).await.unwrap();
+    assert_eq!(done.state, AiToolUpdateState::Updated, "{done:?}");
 }
 
 #[tokio::test]
@@ -657,6 +744,51 @@ async fn new_versions_come_from_each_tools_own_check_or_its_makers_list() {
     assert!(done.automatic);
 }
 
+#[tokio::test]
+async fn with_the_switch_on_the_owner_still_hears_what_plenipo_cannot_update() {
+    let h = harness("subscription").await;
+    h.tools.set_auto_update(true).unwrap();
+    h.tools.look_for_new_versions(UpdateBy::Automatic).await;
+    let told = h.events("ai_tool.update_available");
+    let automatic = |id: &str| {
+        told.iter()
+            .find(|e| e["runtime"] == id)
+            .map(|e| e["automatic"].clone())
+    };
+    // Ollama updates from its own tray app: the owner is told, as with the switch off.
+    assert_eq!(automatic("ollama"), Some(serde_json::json!(false)));
+    assert_eq!(
+        automatic("grok"),
+        None,
+        "Grok's own check has nothing newer"
+    );
+    assert_eq!(automatic("codex"), Some(serde_json::json!(true)));
+    // Codex and Claude Code, installed here another way, cannot reach 9.9.9 by themselves: the
+    // owner is told what to type, once.
+    for id in ["codex", "claude-code"] {
+        let done = h.tools.settled(id, WAIT).await.unwrap();
+        assert_eq!(done.state, AiToolUpdateState::ByHand, "{id}: {done:?}");
+    }
+    let by_hand = h.events("ai_tool.update_by_hand");
+    assert_eq!(by_hand.len(), 2, "{by_hand:?}");
+    assert!(by_hand.iter().all(|e| e["automatic"] == true));
+    // The next day's look does not try the same version again (Kimi, which has no list of its
+    // versions, asks its own upgrade once a day).
+    let runs = || {
+        h.read("update-log")
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("codex ") || l.starts_with("claude "))
+            .count()
+    };
+    let before = runs();
+    assert_eq!(before, 2);
+    h.tools.look_for_new_versions(UpdateBy::Automatic).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(runs(), before);
+    assert_eq!(h.events("ai_tool.update_by_hand").len(), 2);
+}
+
 // ---- Usage and payment (ADR-060) ------------------------------------------------------------------
 
 #[tokio::test]
@@ -707,6 +839,74 @@ async fn usage_totals_match_the_saved_turns() {
 }
 
 #[tokio::test]
+async fn a_task_that_runs_past_midnight_on_two_models_is_counted_once() {
+    let h = harness("subscription").await;
+    let task = h
+        .ledger
+        .create_task(
+            plenipo_ledger::NewTask {
+                parent_task_id: None,
+                requested_by: "owner".into(),
+                assigned_to: None,
+                project_id: None,
+                objective: "Late night".into(),
+                acceptance_criteria: String::new(),
+                priority: 3,
+                metadata: serde_json::Value::Null,
+            },
+            "owner",
+        )
+        .unwrap();
+    let day = 86_400_000;
+    let midnight = 20_000 * day;
+    let counts = serde_json::json!({ "usage": { "inputTokens": 10, "cachedInputTokens": 4,
+                                                "outputTokens": 5 } });
+    for (id, model, at) in [
+        ("step-1", "gpt-6-sol", midnight - 600_000),
+        ("step-2", "gpt-5.5", midnight + 600_000),
+    ] {
+        h.ledger
+            .upsert_execution(
+                &plenipo_ledger::ExecutionRow {
+                    id: id.into(),
+                    task_id: Some(task.id.clone()),
+                    runtime: "codex".into(),
+                    provider: None,
+                    model: Some(model.into()),
+                    session_id: None,
+                    process_id: None,
+                    profile_id: None,
+                    label: "turn".into(),
+                    executable: None,
+                    args: vec![],
+                    working_dir: None,
+                    state: "succeeded".into(),
+                    exit_code: Some(0),
+                    detail: None,
+                    started_at: at,
+                    ended_at: Some(at + 1),
+                    usage_metadata: counts.clone(),
+                },
+                "test",
+            )
+            .unwrap();
+    }
+    let usage = h
+        .tools
+        .usage("codex", &[midnight - day, midnight, midnight + day])
+        .unwrap();
+    let all: Vec<_> = usage.days.iter().flat_map(|d| d.models.iter()).collect();
+    // Both steps' tokens count, and the task once: on its first day, under its first model.
+    assert_eq!(all.iter().map(|m| m.read).sum::<u64>(), 20);
+    assert_eq!(all.iter().map(|m| m.steps).sum::<u32>(), 2);
+    assert_eq!(all.iter().map(|m| m.tasks).sum::<u32>(), 1);
+    assert_eq!(usage.days[0].models[0].tasks, 1);
+    assert_eq!(usage.days[0].models[0].model.as_deref(), Some("gpt-6-sol"));
+    // A "day" longer than 25 hours is refused.
+    assert!(h.tools.usage("codex", &[0, 9_000_000_000_000_000]).is_err());
+}
+
+#[tokio::test]
 async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_as_reported() {
     let h = harness("subscription").await;
     assert!(h
@@ -734,4 +934,30 @@ async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_a
     let grok = page.tools.iter().find(|t| t.runtime_id == "grok").unwrap();
     assert!(!grok.reports_plan_left && grok.plan.is_none());
     assert!(codex.reports_plan_left);
+}
+
+#[tokio::test]
+async fn what_plenipo_keeps_but_cannot_read_is_never_written_over() {
+    let h = harness("subscription").await;
+    // Kept by a version of Plenipo that wrote it differently: this one cannot read it.
+    let odd =
+        serde_json::json!({ "autoUpdate": "yes", "tools": { "grok": { "outOfService": 7 } } });
+    h.ledger
+        .change_setting("ai_tools", |_| Ok(odd.clone()))
+        .unwrap();
+    // A plan report arrives: it is not kept, and what was there stays as it was.
+    h.tools.plan_reported(
+        "claude-code",
+        PlanReport {
+            windows: vec![],
+            limited: false,
+            warning: false,
+            plan: None,
+            reported_at: 1,
+        },
+    );
+    assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);
+    // Nor does the switch write over it; it says it could not.
+    assert!(h.tools.set_auto_update(true).is_err());
+    assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);
 }

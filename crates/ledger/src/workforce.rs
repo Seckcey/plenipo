@@ -37,6 +37,9 @@ pub(crate) const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_
 /// chooses the runtime (Phase 6, ADR-011). No runtime may use this ID.
 pub const AUTOMATIC: &str = "auto";
 
+/// The most steps [`Ledger::token_steps`] gives at once (the newest ones).
+pub const MAX_TOKEN_STEPS: i64 = 50_000;
+
 pub(crate) fn position_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Position> {
     let runtime: String = r.get(4)?;
     Ok(Position {
@@ -1352,18 +1355,31 @@ impl Ledger {
         })
     }
 
-    /// Keep what Plenipo last learned for itself under `key` — not a choice of the owner's, so
-    /// no event (the AI tools' newest versions, their model lists, and their plan reports,
-    /// Phase 19; each meaningful change records its own event).
-    pub fn keep_setting(&self, key: &str, value: &Value) -> Result<()> {
+    /// Change what Plenipo keeps for itself under `key` — not a choice of the owner's, so no
+    /// event (the AI tools' newest versions, their model lists, and their plan reports, Phase 19;
+    /// each meaningful change records its own event). `change` gets the value kept now (`Null`
+    /// when none) and returns the new one, in one transaction: two changes never undo each other,
+    /// and nothing is written when the value cannot be read or `change` refuses.
+    pub fn change_setting(
+        &self,
+        key: &str,
+        change: impl FnOnce(Value) -> Result<Value>,
+    ) -> Result<Value> {
         let key = clean_line("the setting key", key, 64)?;
         self.write(|tx, _out| {
+            let current = tx
+                .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()?
+                .map_or(Value::Null, parse_json);
+            let value = change(current)?;
             tx.execute(
                 "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
                  ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                 params![key, value.to_string(), now()],
             )?;
-            Ok(())
+            Ok(value)
         })
     }
 
@@ -2427,7 +2443,7 @@ impl Ledger {
 
     /// Each step `runtime` ran from `from` (ms) up to `to`, with the token counts saved for it
     /// (Phase 19, ADR-060 §1: usage is added up from these, never from anything else). Oldest
-    /// first, at most 20,000 steps.
+    /// first; at most [`MAX_TOKEN_STEPS`], the newest ones (so today is never the part left out).
     pub fn token_steps(&self, runtime: &str, from: u64, to: u64) -> Result<Vec<TokenStep>> {
         fn count(v: Option<i64>) -> Option<u64> {
             v.and_then(|n| u64::try_from(n).ok())
@@ -2441,11 +2457,12 @@ impl Ledger {
                         json_extract(usage_metadata, '$.usage.outputTokens')
                  FROM executions
                  WHERE runtime = ?1 AND started_at >= ?2 AND started_at < ?3
-                 ORDER BY started_at LIMIT 20000",
+                 ORDER BY started_at DESC, id DESC LIMIT ?4",
                 rusqlite::params![
                     runtime,
                     i64::try_from(from).unwrap_or(i64::MAX),
-                    i64::try_from(to).unwrap_or(i64::MAX)
+                    i64::try_from(to).unwrap_or(i64::MAX),
+                    MAX_TOKEN_STEPS
                 ],
                 |r| {
                     Ok(TokenStep {
@@ -2458,6 +2475,10 @@ impl Ledger {
                     })
                 },
             )
+            .map(|mut steps| {
+                steps.reverse();
+                steps
+            })
         })
     }
 
@@ -3790,6 +3811,33 @@ mod tests {
             .is_err());
         assert_eq!(l.setting("counter").unwrap().unwrap()["total"], 5);
         assert_eq!(l.recent_events(10).unwrap().len(), before);
+    }
+
+    #[test]
+    fn a_setting_plenipo_keeps_changes_in_one_step_and_a_refused_change_writes_nothing() {
+        let l = ledger();
+        let events = l.recent_events(10).unwrap().len();
+        let first = l
+            .change_setting("ai_tools", |current| {
+                assert_eq!(current, Value::Null);
+                Ok(json!({ "autoUpdate": true, "tools": {} }))
+            })
+            .unwrap();
+        assert_eq!(first["autoUpdate"], true);
+        l.change_setting("ai_tools", |mut current| {
+            current["tools"]["grok"] = json!({ "newest": "1.0.43" });
+            Ok(current)
+        })
+        .unwrap();
+        // A change that cannot read what is kept refuses, and nothing is written over it.
+        assert!(l
+            .change_setting("ai_tools", |_| Err(invalid("cannot read it")))
+            .is_err());
+        let kept = l.setting("ai_tools").unwrap().unwrap();
+        assert_eq!(kept["autoUpdate"], true, "the owner's switch is kept");
+        assert_eq!(kept["tools"]["grok"]["newest"], "1.0.43");
+        // Plenipo's own notes are not the owner's choices: no event.
+        assert_eq!(l.recent_events(10).unwrap().len(), events);
     }
 
     #[test]

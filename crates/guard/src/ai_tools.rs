@@ -7,6 +7,8 @@
 //! - only an AI tool Plenipo knows, and only an action the tool has its own command for;
 //! - never while a task is using the tool (signing out or updating it would break the task):
 //!   Plenipo waits until the tool is free;
+//! - one at a time: never an update while the tool's sign-in tab runs, and never a sign-in tab
+//!   while the tool updates (both run the tool's own program);
 //! - Guard never sees, and never checks, what the owner types in a sign-in tab (ADR-031 §3).
 
 use serde_json::json;
@@ -34,6 +36,15 @@ impl AiToolAction {
     }
 }
 
+/// Something of Plenipo's own already running the tool's program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiToolBusy {
+    /// Its sign-in or sign-out tab is open.
+    SignInOpen,
+    /// It is being updated (or its old version put back).
+    Updating,
+}
+
 /// What Guard needs to know to decide.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiToolRequest<'a> {
@@ -45,6 +56,8 @@ pub struct AiToolRequest<'a> {
     pub has_command: bool,
     /// How many tasks are using the tool now.
     pub tasks_using: usize,
+    /// Plenipo's own sign-in tab or update already running the tool, if any.
+    pub busy: Option<AiToolBusy>,
 }
 
 impl Guard {
@@ -84,6 +97,19 @@ fn decide(request: &AiToolRequest<'_>) -> Result<(), String> {
             }
         });
     }
+    match request.busy {
+        Some(AiToolBusy::Updating) => {
+            return Err(format!(
+                "{label} is being updated. Plenipo waits until it's done."
+            ))
+        }
+        Some(AiToolBusy::SignInOpen) => {
+            return Err(format!(
+                "{label}'s sign-in tab is open. Close it first; Plenipo waits until then."
+            ))
+        }
+        None => {}
+    }
     match request.tasks_using {
         0 => Ok(()),
         1 => Err(format!(
@@ -110,6 +136,7 @@ mod tests {
             action,
             has_command,
             tasks_using,
+            busy: None,
         }
     }
 
@@ -139,6 +166,21 @@ mod tests {
         assert_eq!(
             guard.check_ai_tool_action(&request(AiToolAction::SignOut, false, 0)),
             Err("Codex has no sign-out command of its own.".into())
+        );
+        // One at a time: an update never starts while the sign-in tab runs, and the reverse.
+        assert_eq!(
+            guard.check_ai_tool_action(&AiToolRequest {
+                busy: Some(AiToolBusy::SignInOpen),
+                ..request(AiToolAction::Update, true, 0)
+            }),
+            Err("Codex's sign-in tab is open. Close it first; Plenipo waits until then.".into())
+        );
+        assert_eq!(
+            guard.check_ai_tool_action(&AiToolRequest {
+                busy: Some(AiToolBusy::Updating),
+                ..request(AiToolAction::SignOut, true, 0)
+            }),
+            Err("Codex is being updated. Plenipo waits until it's done.".into())
         );
         let unknown = AiToolRequest {
             runtime_id: "calc",

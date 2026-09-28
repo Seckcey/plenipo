@@ -216,8 +216,14 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await (await browser.$(`${PANEL} .terminal-panel__tab:not([hidden]) .xterm`)).click();
     await type(browser, ["Enter"]);
     await waitUntil(async () => (await screenText(browser)).includes("Signed in."), "signed in");
-    // Only the owner's key reached the program.
+    // Only the owner's key reached the program, and the tab says the sign-in ended.
     assert.match(readState("sign-in-input"), /^[\r\n]+$/);
+    await waitUntil(
+      async () => (await screenText(browser)).includes("Codex's sign-in ended."),
+      "the tab to say the sign-in ended",
+    );
+    // The owner hides the terminal again (Plenipo never closes it by itself).
+    await clickButton(browser, "Hide the terminal (Ctrl+`)");
     // The card checks again by itself when the program ends.
     await nav(browser, "AI tools");
     await waitForText(browser, card("Codex"), "Reconnect");
@@ -373,6 +379,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     const same = await browser.$(AUTO_UPDATE);
     await same.waitForExist({ timeout: 10_000 });
     assert.equal(await same.getAttribute("aria-checked"), "true", "one setting, two places");
+    await browser.execute((el) => el.scrollIntoView({ block: "center" }), same);
     await screenshot(browser, "ai-tools-switch-in-settings");
     await same.click();
     await waitUntil(async () => (await same.getAttribute("aria-checked")) === "false", "off");
