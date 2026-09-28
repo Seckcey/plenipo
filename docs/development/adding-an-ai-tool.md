@@ -424,6 +424,37 @@ accepts them in the messages. The fake's `kimi` persona asks for files the same 
 `[own-read:PATH]`, `[own-write:PATH|TEXT]`, `[write-around:PATH|TEXT]`, `[own-shell]`,
 `[settings]`, and `[yolo]` exercise each rule.
 
+## 12. The AI tools page: sign-in, updates, and models (Phase 19)
+
+ADR-058 (signing in to an AI tool in a terminal tab), ADR-059 (Plenipo keeps the AI tools up to
+date, between tasks), and ADR-060 (usage, "plan left", and new models, only from what the AI
+tools officially report) add these to the `RuntimeAdapter` contract. Each has a default, so a
+tool without one simply goes without; the contract suite checks what each tool declares.
+
+- **`account_command(action)`** — the tool's own sign-in (also Reconnect) and sign-out command,
+  e.g. `["login"]` / `["logout"]`. Only its maker's documented command; never a flag that
+  changes what is billed (`--console`, `--with-api-key`). `None` when there is no such command
+  (Kimi has no sign-out). The owner signs in in a terminal tab; Plenipo never types into it.
+- **`newest_version()`** — where the newest version comes from: the tool's own check
+  (`Command`, read by `parse_newest`), its maker's published list (`Published(Npm(..))` or
+  `Published(GitHub(..))` — a new address also needs Guard's `AI_TOOL_RELEASE_LISTS`), or
+  `None` when no list matches its program (Update then checks and installs in one step).
+- **`update_command()`**, **`update_env()`**, **`put_back_command(version)`**,
+  **`update_by_hand()`** — its own official update command, run with standard input closed,
+  the variables that keep it from asking questions, its own command that installs an earlier
+  version (when it has one), and the sentence to show when it was installed another way (npm,
+  WinGet).
+- **`status_check(dir)`**, **`parse_models`**, **`parse_plan`**, **`reports_every_model()`**,
+  **`status_check_leaves_a_trace()`**, **`reports_plan_left()`** — a short check with no task and
+  no prompt (a command, Plenipo's bridge, or a JSON-RPC talk such as ACP `initialize`), the
+  models it reports, how much of the plan is used when it reports that officially, and whether
+  the check leaves anything in the tool's own history. Only documented methods; never the
+  tool's saved sign-in files or its web addresses.
+
+The fake persona plays each: its sign-in program waits for a line typed in its tab
+(`sign-in-input` records every byte it got), `version-<persona>`, `newest-<persona>`,
+`update-<persona>` (`ok`, `fail`, `broken`, `slow`, `by-hand`), and `models-<persona>`.
+
 ## Checklist for a tool branch
 
 Copy this into `docs/phases/ai-tools-<tool>-checklist.md` and tick it as you go.
@@ -453,6 +484,10 @@ Copy this into `docs/phases/ai-tools-<tool>-checklist.md` and tick it as you go.
       usage-limit and sign-in errors classified
 - [ ] Capabilities: tool posture, effort levels, known models with their own effort levels,
       `checked_version()`
+- [ ] The AI tools page (Phase 19): its own sign-in and sign-out commands, where its newest
+      version comes from, its update command (and a put-back command if it has one), and its
+      short check for models (and plan), each from its maker's documentation or the recorded
+      help
 - [ ] Unit tests in the module, using the outputs recorded above
 - [ ] After Phase 7 is on main: Plenipo's tool server wired in, or conversation-only stated
 

@@ -68,9 +68,12 @@ apps do not need to be open.
 | Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code) | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
 | Ollama      | The installer from ollama.com/download                          | `ollama signin` — finish in the browser                                        |
 
-Then open **AI tools** in Plenipo and choose **Re-check**: each tool should show **Ready**
+Then open **AI tools** in Plenipo and choose **Check again**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
-not signed in, API key), follow the hint on the card.
+not signed in, API key), follow the hint on the card. From version 1.12.0 each card also has
+**Sign in**, **Reconnect**, and **Sign out**: the button opens a tab in the terminal panel that
+runs the command above, and you sign in there (Plenipo never sees it). The card also shows the
+tool's usage, how it is paid for, its version and updates, and its models.
 
 Notes:
 
