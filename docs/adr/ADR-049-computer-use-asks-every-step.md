@@ -41,6 +41,10 @@ whatever the point did.
    counts the cards of the last minute that are still unanswered or were refused or expired. An
    owner who approves each step promptly is never slowed down by their own answers; a worker
    whose cards go unanswered or refused still is. The cap of three waiting requests is unchanged.
+7. **One step at a time while the owner decides.** While a step's card waits, the next click,
+   typing, key press, or scroll is refused and told to wait for the answer: a scroll can move
+   the mouse too, and the owner decides from the picture of the screen as it was when the card
+   was made. Looking at the screen is still allowed.
 
 ## Consequences
 
@@ -61,7 +65,8 @@ whatever the point did.
   (`at_most_ten_unanswered_or_refused_cards_a_minute`,
   `approved_cards_do_not_count_against_the_minute`), the screenshot marker
   (`a_point_is_marked_for_the_owner`), and end to end
-  (`every_click_and_key_on_the_desktop_asks_the_owner`; the existing
+  (`every_click_and_key_on_the_desktop_asks_the_owner`,
+  `one_desktop_step_at_a_time_while_the_owner_decides`; the existing
   `computer_use_asks_first_and_never_types_secrets` and `plan_user_takes_control` now approve
   each step).
 

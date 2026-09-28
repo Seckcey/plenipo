@@ -63,7 +63,7 @@ export function ApprovalCard({
       {a.screenshot && (
         <ScreenshotView
           id={a.screenshot}
-          label={`The page when ${a.worker} asked`}
+          label={a.url ? `The page when ${a.worker} asked` : `The screen when ${a.worker} asked`}
           startOpen={a.status === "pending"}
         />
       )}

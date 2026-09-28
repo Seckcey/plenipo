@@ -1957,7 +1957,7 @@ async fn every_click_and_key_on_the_desktop_asks_the_owner() {
     assert_eq!(a.sensitive_label.as_deref(), Some(control));
     assert!(a.summary.contains("click at (100, 100)"), "{}", a.summary);
     assert!(
-        a.reason.contains("\"continue\"") && a.reason.contains("asks before each one"),
+        a.reason.contains("\"continue\"") && a.reason.contains("asks before each click"),
         "{}",
         a.reason
     );
@@ -2055,6 +2055,92 @@ async fn every_click_and_key_on_the_desktop_asks_the_owner() {
     // Six cards: taking control, three approved steps, two refused. Looking and scrolling made
     // none.
     assert_eq!(h.events(&task, "approval.requested").len(), 6);
+    ToolProvider::close(&h.broker, &grant);
+}
+
+/// ADR-049: one desktop step at a time while the owner decides. While a click's card waits, a
+/// scroll (which can move the mouse too) is refused and told to wait, so the picture the owner
+/// decides from stays the screen as it is; nothing is scrolled and no card is made. Once the
+/// owner answers, the scroll runs. Looking at the screen is allowed all along.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_desktop_step_at_a_time_while_the_owner_decides() {
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness(None).await;
+    h.run(
+        "Desk Operator",
+        json!([{ "tools": [tool("screen_view", json!({}))], "say": "Done." }]),
+    )
+    .await;
+    let (task, grant) = h.direct_grant("Desk Operator").await;
+    let call = |name: &'static str, args: Value| {
+        let (broker, grant) = (h.broker.clone(), grant.clone());
+        tokio::spawn(async move { broker.call(&grant, name, args).await })
+    };
+    let take = call(
+        "screen_take_control",
+        json!({ "reason": "The billing program has no API." }),
+    );
+    let a = h.pending().await;
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    assert!(!take.await.unwrap().is_error);
+    assert!(
+        !h.broker
+            .call(&grant, "screen_view", json!({}))
+            .await
+            .is_error
+    );
+    let click = call(
+        "screen_click",
+        json!({ "x": 100, "y": 100, "purpose": "continue" }),
+    );
+    let a = h.pending().await;
+    // While the click's card waits, a scroll is refused, and nothing moves or scrolls.
+    let scrolled = h
+        .broker
+        .call(
+            &grant,
+            "screen_scroll",
+            json!({ "x": 100, "y": 300, "amount": 3, "purpose": "see more" }),
+        )
+        .await;
+    assert!(scrolled.is_error, "{}", scrolled.text);
+    assert!(
+        scrolled.text.contains(
+            "Wait for the owner's answer to the step that is waiting before the next one."
+        ),
+        "{}",
+        scrolled.text
+    );
+    let did = h.desktop.did();
+    assert!(!did.contains(&Did::Scroll(3)), "{did:?}");
+    assert!(!did.contains(&Did::Move(100, 300)), "{did:?}");
+    // Looking at the screen still is, and the refusal made no card of its own.
+    assert!(
+        !h.broker
+            .call(&grant, "screen_view", json!({}))
+            .await
+            .is_error
+    );
+    assert_eq!(h.broker.approvals().unwrap().pending.len(), 1);
+    // The owner answers: the click runs, and then the scroll does.
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    let r = click.await.unwrap();
+    assert!(r.text.contains("Clicked at (100, 100)"), "{}", r.text);
+    let scrolled = h
+        .broker
+        .call(
+            &grant,
+            "screen_scroll",
+            json!({ "x": 100, "y": 300, "amount": 3, "purpose": "see more" }),
+        )
+        .await;
+    assert!(!scrolled.is_error, "{}", scrolled.text);
+    assert!(h
+        .desktop
+        .did()
+        .ends_with(&[Did::Move(100, 300), Did::Scroll(3)]));
+    // Two cards: taking control and the click.
+    assert_eq!(h.events(&task, "approval.requested").len(), 2);
     ToolProvider::close(&h.broker, &grant);
 }
 

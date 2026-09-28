@@ -108,10 +108,10 @@ export function AiToolsSettings({ go }: { go: Go }) {
         </li>
         <li>
           <strong>Permissions:</strong> workers never get their AI tool&apos;s own tools or your
-          add-ons (MCP servers); Codex&apos;s own commands stay read-only, without internet access.
-          Workers of your organization with permissions get Plenipo&apos;s own tools instead,
-          confined to their project&apos;s folder and checked by Plenipo Guard. Tasks you start
-          yourself in Workers get no tools.
+          add-ons (MCP servers); Codex&apos;s own commands are switched off; it works through
+          Plenipo&apos;s tools. Workers of your organization with permissions get Plenipo&apos;s own
+          tools instead, confined to their project&apos;s folder and checked by Plenipo Guard. Tasks
+          you start yourself in Workers get no tools.
         </li>
         <li>
           <strong>Your keys and secrets:</strong> API keys and other secrets on this computer are

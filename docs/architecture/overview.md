@@ -326,7 +326,7 @@ cancelled` (terminal states are final).
 ## 6. Agent runtimes (Phase 3)
 
 Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
-and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP), and
+and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP),
 [ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
 and writes going through Plenipo), and [ADR-051](../adr/ADR-051-codex-own-shell.md) (Codex works
 through Plenipo's tools).

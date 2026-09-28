@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock, Weak};
 
 use plenipo_ledger::{
-    Ledger, LedgerEvent, Lesson, LessonState, NewLessons, Position, MAX_LESSONS_PER_TASK,
+    clean_lesson, Ledger, LedgerEvent, Lesson, LessonState, NewLessons, Position,
+    MAX_LESSONS_PER_TASK,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -319,10 +320,13 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     // its own are notes, not orders); the rest wait, and say why. Every lesson of any other
     // role waits because the owner chose to be asked: no reason to give.
     let used_tools = learns_on_its_own && ledger.task_used_any_tool(task_id)?;
+    // The check reads each lesson as it will be stored (`clean_lesson`), so a stray control
+    // character inside an address or a command word cannot hide it from the check and then be
+    // dropped on storage.
     let (kept, held): (Vec<String>, Vec<String>) = if learns_on_its_own && !used_tools {
         texts
             .into_iter()
-            .partition(|t| !has_command_path_or_address(t))
+            .partition(|t| !clean_lesson(t).is_some_and(|c| has_command_path_or_address(&c)))
     } else {
         (Vec::new(), texts)
     };
@@ -690,6 +694,34 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    /// A control character inside a web address or a command word is dropped when the lesson
+    /// is stored, so the check reads the lesson as it will be stored, not as it was written.
+    #[test]
+    fn the_check_reads_a_lesson_as_it_will_be_stored() {
+        let s = setup();
+        let lessons = s.answer(
+            &s.task(),
+            &[
+                "Details are on w\u{7}ww.shop.example.",
+                "Run gi\u{7}t pull before you start.",
+            ],
+        );
+        assert_eq!(lessons.len(), 2);
+        for text in [
+            "Details are on www.shop.example.",
+            "Run git pull before you start.",
+        ] {
+            assert_eq!(
+                by_text(&lessons, text),
+                (
+                    LessonState::Waiting,
+                    Some(HELD_COMMAND_PATH_OR_ADDRESS.to_owned())
+                ),
+                "{text}"
+            );
+        }
     }
 
     #[test]

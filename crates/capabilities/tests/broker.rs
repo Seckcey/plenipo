@@ -2099,8 +2099,9 @@ async fn a_fourth_request_for_approval_waits_for_the_first_three() {
     assert_eq!(closed["asked"], 4, "{closed}");
 }
 
-/// B6: a worker may make ten approval cards a minute. The eleventh call that needs approval in
-/// that minute is refused at once, in plain words, and makes no card.
+/// B6: a worker may make ten approval cards a minute that go unanswered or refused (an approved
+/// card no longer counts, ADR-049). The eleventh call that needs approval in that minute is
+/// refused at once, in plain words, and makes no card.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn too_many_requests_for_approval_in_a_minute_are_refused() {
     use plenipo_runtime::agent::ToolProvider;

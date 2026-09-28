@@ -75,6 +75,11 @@ its `.sig` and `latest.json`, which installed copies read to find the new versio
 updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-037)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
 **Run workflow** with **Dry run** ticked builds and signs from any branch and publishes nothing.
 
+The workflows (`ci.yml`, `release.yml`, `website.yml`) name each GitHub Action they use by the
+exact commit it runs, not by a tag that someone could move to other code, and Dependabot
+(`.github/dependabot.yml`) opens a pull request each week when a newer release of an action, an
+npm package, or a Rust crate is out.
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`,
