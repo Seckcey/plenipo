@@ -28,8 +28,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 1 | 13 | Windows service, installer, updates, and recovery | Delivered (v1.9.0) |
 | 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
-| 4 | 19 | The AI tools page: sign-in, usage, and updates | Next |
-| 5 | 16 | Every AI model worth having | Planned (ADR-036) |
+| 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
+| 5 | 16 | Every AI model worth having | Next (ADR-036) |
 | 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, 13, 17, and 18 are delivered.
+Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, and 19 are delivered.
 
 ---
 
@@ -1942,6 +1942,8 @@ Phase 17 (specialties, archive, delete for good, the properties panel).
 ---
 
 # Phase 19 — The AI Tools Page: Sign-in, Usage, and Updates
+
+**Status: delivered in v1.12.0** (checklist and acceptance report in `docs/phases/phase-19-*`). Decisions: ADR-058 (signing in to an AI tool in a terminal tab that runs the tool's own command, accepted), ADR-059 (Plenipo keeps the AI tools up to date, between tasks, asking first unless the owner turns on "Update AI tools by themselves", accepted), and ADR-060 (usage added up from what Plenipo already saved, "plan left" only where the tool reports it officially, and new models marked "new — not checked yet", accepted), all with every choice as recommended. No new Ledger layout (it stays at 11). An update and a sign-in tab never run on one AI tool at once; a new task on a tool that is updating waits until the update and its checks are done, and can be stopped while it waits; a sign-in tab left open holds new tasks for ten minutes at most. Deviations, each recorded in its ADR as built: Grok's models come from its ACP answer; models are first asked for with the first look for new versions; and a task between steps does not count as using the tool. The walk-through with real AI tools on Windows is the owner's check.
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Fourth in the order of work.
 

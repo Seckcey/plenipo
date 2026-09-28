@@ -1,7 +1,8 @@
 # Phase 19 — Implementation Checklist
 
-**Status:** design approved by the owner (2026-09-28); being built. Builds on v1.11.0 (Phase 18);
-releases as **v1.12.0**.
+**Status:** built (2026-09-28): every deliverable and plan test, with the review's fixes; see the
+[acceptance report](phase-19-acceptance-report.md). Builds on v1.11.0 (Phase 18); releases as
+**v1.12.0**.
 
 Source: `ROLLOUT_PLAN.md`, Phase 19 — The AI Tools Page: Sign-in, Usage, and Updates (fourth in
 the order of work, ADR-039), and the three records written for it:
@@ -364,77 +365,77 @@ model", "deprecated").
 
 ## Deliverables (plan)
 
-- [ ] **On each AI tool's card: Sign in / Reconnect / Sign out** — opens a terminal tab that runs
+- [x] **On each AI tool's card: Sign in / Reconnect / Sign out** — opens a terminal tab that runs
       the AI tool's own command; Plenipo re-checks when the tab closes.
-- [ ] **Usage** — totals of tokens by day and week, by model; the current usage limit and its
+- [x] **Usage** — totals of tokens by day and week, by model; the current usage limit and its
       reset time; and "plan left" only where the tool reports it officially.
-- [ ] **How it is paid for** — "Subscription" today; the switch to a paid key is shown and works
+- [x] **How it is paid for** — "Subscription" today; the switch to a paid key is shown and works
       when Phase 16's spending caps exist.
-- [ ] **Version** — installed, and the version Plenipo last checked; a notice when they differ.
-- [ ] **Update** — available, updating, updated.
-- [ ] **Models** — the tool's models, with new ones marked "new — not checked yet".
-- [ ] The usage limits move from Settings → AI models to this page (Settings links to it).
-- [ ] **Updates** — Plenipo checks each AI tool for a new version once a day, and updates it only
+- [x] **Version** — installed, and the version Plenipo last checked; a notice when they differ.
+- [x] **Update** — available, updating, updated.
+- [x] **Models** — the tool's models, with new ones marked "new — not checked yet".
+- [x] The usage limits move from Settings → AI models to this page (Settings links to it).
+- [x] **Updates** — Plenipo checks each AI tool for a new version once a day, and updates it only
       when no task is using it — automatically, or only when the owner says so (a switch; the
       default is to ask).
 
 ## Technical implementation (plan)
 
-- [ ] Sign-in in the terminal (ADR-031's panel): the tab's starting command comes from a fixed
+- [x] Sign-in in the terminal (ADR-031's panel): the tab's starting command comes from a fixed
       list per AI tool; the owner completes the login; Plenipo never reads, stores, or passes the
       credential, and never types into the tab.
-- [ ] Updates use each AI tool's own official update command or installer; the tool's own
+- [x] Updates use each AI tool's own official update command or installer; the tool's own
       self-updater stays off during tasks; after an update, a version check, a sign-in check, a
       quick check that the tool still answers in the form Plenipo reads (without running a task),
       and a model refresh.
-- [ ] New models come from the AI tool's own list where it has one; a tool without a list gets
+- [x] New models come from the AI tool's own list where it has one; a tool without a list gets
       its models with Plenipo's own updates; new models are offered as "new — not checked yet".
-- [ ] Usage adds up the token counts already saved per turn; "plan left" only from an official
+- [x] Usage adds up the token counts already saved per turn; "plan left" only from an official
       command or protocol; Plenipo never reads an AI tool's saved sign-in or calls its
       unpublished web addresses.
-- [ ] A new decision record for sign-in in the terminal and for Plenipo-run updates (ADR-058,
+- [x] A new decision record for sign-in in the terminal and for Plenipo-run updates (ADR-058,
       ADR-059; and ADR-060 for usage and models).
 
 ## Tests (plan)
 
-- [ ] Sign in opens a terminal tab running exactly that tool's login command, and nothing else
+- [x] Sign in opens a terminal tab running exactly that tool's login command, and nothing else
       can be started that way.
-- [ ] After the tab closes, the card re-checks and shows the new sign-in state.
-- [ ] An update never starts while a task is using that tool; it waits.
-- [ ] A failed update leaves the old version working and says so.
-- [ ] After an update, the version, sign-in, and models are re-checked.
-- [ ] A model the tool reports but Plenipo has not checked shows as "new — not checked yet" and
+- [x] After the tab closes, the card re-checks and shows the new sign-in state.
+- [x] An update never starts while a task is using that tool; it waits.
+- [x] A failed update leaves the old version working and says so.
+- [x] After an update, the version, sign-in, and models are re-checked.
+- [x] A model the tool reports but Plenipo has not checked shows as "new — not checked yet" and
       can be chosen.
-- [ ] Usage totals match the saved turns; the limit and reset time show on the card.
-- [ ] The payment switch cannot be turned to a paid key before Phase 16.
-- [ ] End-to-end tests in the real app, with screenshots in `evidence/phase-19/`.
+- [x] Usage totals match the saved turns; the limit and reset time show on the card.
+- [x] The payment switch cannot be turned to a paid key before Phase 16.
+- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-19/`.
 
 ## Owner's rules for this phase
 
-- [ ] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
-- [ ] No passwords, keys, tokens, or secrets asked for in chat; nothing secret committed.
-- [ ] Anything touching files, programs, the network, the browser, or the screen goes through
+- [x] Plain words on screen (the word list gains the new pairs); ADRs named, not just numbered.
+- [x] No passwords, keys, tokens, or secrets asked for in chat; nothing secret committed.
+- [x] Anything touching files, programs, the network, the browser, or the screen goes through
       Guard and the capability broker (§8).
-- [ ] New desktop commands are the main window's alone; the sign window and web pages are refused
+- [x] New desktop commands are the main window's alone; the sign window and web pages are refused
       (IPC tests).
-- [ ] Signing in happens only in a terminal tab that runs the AI tool's own login command, from a
+- [x] Signing in happens only in a terminal tab that runs the AI tool's own login command, from a
       fixed list; the owner types the sign-in; Plenipo never reads, stores, or passes it, never
       types into that tab, and never reads an AI tool's saved sign-in files.
-- [ ] Plenipo never calls an AI tool's unpublished web addresses; "plan left" only when the tool
+- [x] Plenipo never calls an AI tool's unpublished web addresses; "plan left" only when the tool
       reports it through an official command or protocol.
-- [ ] Updates use only each tool's own official update command or installer, never while a task
+- [x] Updates use only each tool's own official update command or installer, never while a task
       is using that tool, and ask first unless automatic updates are on; a failed update leaves
       the old version working.
-- [ ] The paid-key switch cannot be turned on before Phase 16.
-- [ ] Logs and diagnostics files never hold secrets or anything typed in the terminal.
-- [ ] No model names in commits, branch names, or pull requests.
-- [ ] Version 1.12.0 everywhere, with the Phase 19 row in `docs/development/versioning.md`.
-- [ ] Release notes (`docs/releases/v1.12.0.md`), the plan's Phase 19 status line and its state in
+- [x] The paid-key switch cannot be turned on before Phase 16.
+- [x] Logs and diagnostics files never hold secrets or anything typed in the terminal.
+- [x] No model names in commits, branch names, or pull requests.
+- [x] Version 1.12.0 everywhere, with the Phase 19 row in `docs/development/versioning.md`.
+- [x] Release notes (`docs/releases/v1.12.0.md`), the plan's Phase 19 status line and its state in
       the order of work, this checklist, and the acceptance report with screenshots in
       `evidence/phase-19/`, in Pacific time.
-- [ ] A review across several areas, with a second reviewer checking each finding, before the
+- [x] A review across several areas, with a second reviewer checking each finding, before the
       final push; each confirmed finding fixed with a test, or recorded as a design limit.
-- [ ] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
+- [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
