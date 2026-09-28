@@ -1,6 +1,15 @@
 # ADR-041: Model, effort, and learning set in layers — organization, department, role, agent
 
 - **Status:** Accepted (by the owner, 2026-09-27, as recommended)
+- **As built (v1.10.0):** as written, with two notes.
+  - **A fixed AI tool that a rule never uses is refused when you save it** (hiring, a new
+    department's or project's lead, hiring from your Workforce, or changing an agent), with the
+    rule named. An agent fixed on it before the rule was set shows it cannot start, and why. A
+    conversation it already has open carries on until you change the agent or the rule.
+  - **Settings → AI models shows each rule's choices, not each rule's next worker.** What an
+    agent's next worker gets, and which rule decided, shows on each role's line in that table and
+    in each agent's details (the AI model tab). See the
+    [Phase 17 acceptance report](../phases/phase-17-acceptance-report.md), deviations.
 - **Date:** 2026-09-27
 - **Phase:** 17
 - **Amends:** ADR-011 (the Router: model choices and routing) §5, §9, §11, and §15; ADR-024

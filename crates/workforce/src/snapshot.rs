@@ -329,6 +329,11 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 project.map_or("The project", |x| x.name.as_str()),
                 tool_label(r)
             )),
+            // A fixed AI tool whose AI company a rule never uses cannot start a new
+            // conversation (an open one carries on).
+            (Some(_), Some(d)) if conversation.is_none() && d.choice.is_none() => {
+                Some(d.reason.clone())
+            }
             (Some(r), _) => planner.unavailable(r),
             (None, Some(d)) => Some(d.reason.clone()),
             (None, None) => None,

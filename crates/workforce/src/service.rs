@@ -12,7 +12,7 @@ use plenipo_ledger::{
     RuntimeSessionState, SaveAgent, SpecialtyFields, Task, TaskState,
 };
 use plenipo_liaison::Liaison;
-use plenipo_router::{ModelRule, Router, RoutingSnapshot, RuleTarget};
+use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
 use plenipo_runtime::agent::{
     AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
 };
@@ -59,6 +59,19 @@ fn org_titles(ledger: &Ledger) -> TitleTheme {
         .unwrap_or_default()
 }
 
+/// Where a position with a fixed AI tool sits, for the rules over it (ADR-041).
+#[derive(Debug, Clone, Copy)]
+enum Seat<'a> {
+    /// An existing position.
+    Position(&'a str),
+    /// A new position reporting to this one (`None`: to the owner).
+    Under(Option<&'a str>),
+    /// A new department's head: the department has no rule yet.
+    NewDepartment,
+    /// A new project's supervisor, in this department.
+    NewProject(&'a str),
+}
+
 fn invalid(message: impl Into<String>) -> WorkforceError {
     WorkforceError::Invalid(message.into())
 }
@@ -69,6 +82,8 @@ struct Inner {
     liaison: Liaison,
     router: Router,
     notices: Mutex<Vec<String>>,
+    /// Held while open conversations take their new effort, one change at a time.
+    refreshing: Mutex<()>,
 }
 
 /// Cheap to clone; clones share state.
@@ -135,6 +150,7 @@ impl Workforce {
                 liaison: liaison.clone(),
                 router: router.clone(),
                 notices: Mutex::new(Vec::new()),
+                refreshing: Mutex::new(()),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
@@ -500,6 +516,39 @@ impl Workforce {
     }
 
     /// A fixed runtime and its provider, or `(None, None)`: automatic.
+    /// Refuse an AI tool fixed for `new` when a rule over it never uses that AI company: the
+    /// agent could never start (ADR-041 §3–§4). The reason says which rule, in plain words.
+    fn refuse_never_used(&self, new: &NewPosition, seat: Seat<'_>) -> Result<()> {
+        let Some(runtime_id) = new.runtime_id.as_deref() else {
+            return Ok(());
+        };
+        let records = self.ledger().org_records()?;
+        let view = OrgView::new(&records);
+        let (position_id, department, project) = match seat {
+            Seat::Position(id) => (Some(id), view.department_of(id), view.project_of(id)),
+            Seat::Under(Some(lead)) => (None, view.department_of(lead), view.project_of(lead)),
+            Seat::Under(None) | Seat::NewDepartment => (None, None, None),
+            Seat::NewProject(d) => (None, records.departments.iter().find(|x| x.id == d), None),
+        };
+        let request = RouteRequest {
+            role_id: &new.role_id,
+            position_id,
+            department: department.map(|d| (d.id.as_str(), d.name.as_str())),
+            project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
+            reviewed: &[],
+        };
+        let decision = self.inner.router.planner()?.fixed(
+            &request,
+            &new.title,
+            runtime_id,
+            new.model.as_deref(),
+        );
+        match decision.choice {
+            Some(_) => Ok(()),
+            None => Err(invalid(decision.reason)),
+        }
+    }
+
     fn fixed_runtime(&self, id: Option<&str>) -> Result<(Option<String>, Option<String>)> {
         match id {
             Some(id) => {
@@ -641,6 +690,7 @@ impl Workforce {
             .ok_or_else(|| invalid("a new department needs a head position"))?;
         let saved = self.saved_for(head.from_workforce.as_deref())?;
         let head = self.lead(head, input.reports_to.clone())?;
+        self.refuse_never_used(&head, Seat::NewDepartment)?;
         let (_, position) = self.ledger().create_department_with_head(
             &input.name,
             &input.description,
@@ -712,6 +762,7 @@ impl Workforce {
         let settings = self.settings(input)?;
         let saved = self.saved_for(coordinator.from_workforce.as_deref())?;
         let coordinator = self.lead(coordinator, None)?;
+        self.refuse_never_used(&coordinator, Seat::NewProject(department_id))?;
         let (_, position) = self.ledger().create_project_with_coordinator(
             department_id,
             &settings,
@@ -845,20 +896,19 @@ impl Workforce {
     /// optional specialty of its role (ADR-042).
     pub fn hire(&self, input: &HireInput) -> Result<OrgSnapshot> {
         let (runtime_id, runtime_provider) = self.fixed_runtime(input.runtime_id.as_deref())?;
-        self.ledger().create_position(
-            &NewPosition {
-                title: input.title.clone(),
-                role_id: input.role_id.clone(),
-                reports_to: input.reports_to.clone(),
-                runtime_id,
-                runtime_provider,
-                model: input.model.clone(),
-                staffed: !input.vacant.unwrap_or(false),
-                specialty_id: input.specialty_id.clone(),
-                from_workforce: None,
-            },
-            OWNER,
-        )?;
+        let new = NewPosition {
+            title: input.title.clone(),
+            role_id: input.role_id.clone(),
+            reports_to: input.reports_to.clone(),
+            runtime_id,
+            runtime_provider,
+            model: input.model.clone(),
+            staffed: !input.vacant.unwrap_or(false),
+            specialty_id: input.specialty_id.clone(),
+            from_workforce: None,
+        };
+        self.refuse_never_used(&new, Seat::Under(new.reports_to.as_deref()))?;
+        self.ledger().create_position(&new, OWNER)?;
         self.snapshot()
     }
 
@@ -880,6 +930,7 @@ impl Workforce {
             title,
             reports_to.map(str::to_owned),
         )?;
+        self.refuse_never_used(&new, Seat::Under(reports_to))?;
         let (position, _) = self.ledger().create_position(&new, OWNER)?;
         self.restore_saved_settings(&position.id, &position.title, &saved.settings);
         self.snapshot()
@@ -942,6 +993,24 @@ impl Workforce {
             let s = s.trim();
             (!s.is_empty()).then(|| s.to_owned())
         });
+        // A newly fixed AI tool must be one every rule over the agent uses.
+        if let Some(Some((runtime_id, _))) = &runtime {
+            let current = self.ledger().position(id)?.ok_or_else(|| {
+                WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
+                    "position {id}"
+                )))
+            })?;
+            self.refuse_never_used(
+                &NewPosition {
+                    title: input.title.clone().unwrap_or(current.title),
+                    role_id: current.role_id,
+                    runtime_id: Some(runtime_id.clone()),
+                    model: model.clone().unwrap_or(current.model),
+                    ..NewPosition::default()
+                },
+                Seat::Position(id),
+            )?;
+        }
         self.ledger().update_position(
             id,
             &PositionPatch {
@@ -958,6 +1027,8 @@ impl Workforce {
     /// Make a position report to `reports_to` (`None`: the owner).
     pub fn move_position(&self, id: &str, reports_to: Option<&str>) -> Result<OrgSnapshot> {
         self.ledger().move_position(id, reports_to, OWNER)?;
+        // In another department, another department's rule may give it another effort.
+        self.refresh_open_efforts();
         self.snapshot()
     }
 
@@ -1085,18 +1156,16 @@ impl Workforce {
             t => plenipo_ledger::workforce::clean_line("the suggested title", t, 80)?,
         };
         let job = clean_job(&input.job)?;
+        if input.suggest.models.len() > plenipo_router::config::MAX_ROLE_MODELS {
+            return Err(invalid("suggest at most 12 models"));
+        }
         let config = self.inner.router.config()?;
         let mut models = Vec::new();
         for id in &input.suggest.models {
-            if config.model(id).is_none() {
-                return Err(invalid("a suggested model is no longer in your list"));
-            }
-            if !models.contains(id) {
+            // A model removed from your list since is dropped: a suggestion changes nothing.
+            if config.model(id).is_some() && !models.contains(id) {
                 models.push(id.clone());
             }
-        }
-        if models.len() > plenipo_router::config::MAX_ROLE_MODELS {
-            return Err(invalid("suggest at most 12 models"));
         }
         let mut permissions = Vec::new();
         for p in &input.suggest.permissions {
@@ -1173,6 +1242,12 @@ impl Workforce {
     }
 
     fn try_refresh_open_efforts(&self) -> Result<u32> {
+        // Two changes in a row must not interleave: the later one reads what the earlier wrote.
+        let _one_at_a_time = self
+            .inner
+            .refreshing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let l = self.ledger();
         let records = l.org_records()?;
         let view = OrgView::new(&records);
@@ -1197,12 +1272,25 @@ impl Workforce {
                 continue;
             };
             let request = crate::directory::request(&view, p, view.project_of(&p.id), &[]);
+            // The model as listed in Settings (the agent's), not the name the AI tool reported
+            // back when the conversation started, which may not match any listed model.
+            let model = if agent.runtime_id.as_deref() == Some(session.runtime.as_str()) {
+                agent.model.as_deref()
+            } else {
+                session.model.as_deref()
+            };
             let want = planner
-                .effort_now(&request, &session.runtime, session.model.as_deref())
+                .effort_now(&request, &session.runtime, model)
                 .map(|e| e.as_str());
             if session.effort.as_deref() != want {
-                l.set_session_effort(&session.id, want, OWNER)?;
-                changed += 1;
+                // One conversation that cannot change does not hold the others back.
+                match l.set_session_effort(&session.id, want, OWNER) {
+                    Ok(_) => changed += 1,
+                    Err(e) => self.notice(format!(
+                        "Could not bring {}'s conversation up to its new effort: {e}",
+                        p.title
+                    )),
+                }
             }
         }
         Ok(changed)

@@ -101,17 +101,19 @@ pub async fn set_agent_learning(
 // ---- Specialties (ADR-042) -------------------------------------------------------------------
 
 fn validate_specialty(input: &SpecialtyInput) -> Result<(), CommandError> {
+    // Counts first: a long list is refused before anything in it is read.
+    let suggest = &input.suggest;
+    if suggest.permissions.len() > 32 || suggest.models.len() > 32 || suggest.needs.len() > 8 {
+        return Err(CommandError::invalid_input("too many suggestions"));
+    }
     if let Some(role) = &input.role_id {
         validate_id("role", role)?;
     }
     bounded("the name", &input.name)?;
     bounded("the title", &input.title)?;
     validate_job(&input.job)?;
-    for id in &input.suggest.models {
+    for id in &suggest.models {
         validate_id("model", id)?;
-    }
-    if input.suggest.permissions.len() > 32 || input.suggest.models.len() > 32 {
-        return Err(CommandError::invalid_input("too many suggestions"));
     }
     input
         .suggest

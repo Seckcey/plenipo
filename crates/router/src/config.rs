@@ -259,6 +259,7 @@ impl RoutingConfig {
         for rule in self.rules_mut() {
             rule.efforts.retain(keep);
         }
+        self.drop_empty_rules();
         match existing {
             Some(i) => self.models[i] = model.clone(),
             None => {
@@ -299,7 +300,15 @@ impl RoutingConfig {
             rule.models.retain(|m| m != id);
             rule.efforts.remove(id);
         }
+        self.drop_empty_rules();
         Ok((removed, changed))
+    }
+
+    /// A department's or agent's rule left with nothing in it (its only model left the list, or
+    /// no longer takes its effort) is no rule: forget it, as saving an empty rule does.
+    fn drop_empty_rules(&mut self) {
+        self.departments.retain(|_, r| !r.is_empty());
+        self.positions.retain(|_, r| !r.is_empty());
     }
 
     /// Every rule that is not a role's: the organization's, each department's, each agent's.
@@ -654,6 +663,44 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_left_with_nothing_in_it_is_forgotten() {
+        let mut c = RoutingConfig::default();
+        let a = c
+            .save_model(&input("alpha", Some("a"), "A"), &tools())
+            .unwrap();
+        let b = c
+            .save_model(&input("alpha", Some("b"), "B"), &tools())
+            .unwrap();
+        let only = |id: &str| ModelRule {
+            efforts: BTreeMap::from([(id.to_owned(), Effort::High)]),
+            ..ModelRule::default()
+        };
+        c.positions.insert("agent".into(), only(&a.id));
+        c.departments.insert("sales".into(), only(&a.id));
+        c.departments.insert(
+            "ops".into(),
+            ModelRule {
+                effort: Some(Effort::Low),
+                ..only(&a.id)
+            },
+        );
+        c.remove_model(&a.id).unwrap();
+        assert!(c.positions.is_empty());
+        assert_eq!(c.departments.keys().collect::<Vec<_>>(), ["ops"]);
+        // Moved to an AI tool that takes no effort level: its effort, and so the rule, goes.
+        c.positions.insert("agent".into(), only(&b.id));
+        c.save_model(
+            &ModelInput {
+                id: Some(b.id.clone()),
+                ..input("beta", Some("b"), "B")
+            },
+            &tools(),
+        )
+        .unwrap();
+        assert!(c.positions.is_empty());
+    }
+
+    #[test]
     fn policies_are_validated() {
         let mut c = RoutingConfig::default();
         let a = c
@@ -784,6 +831,9 @@ mod tests {
         c.departments.insert("dev".into(), c.organization.clone());
         c.remove_model(&opus.id).unwrap();
         assert!(c.organization.models.is_empty() && c.organization.efforts.is_empty());
-        assert!(c.departments["dev"].models.is_empty());
+        assert!(
+            !c.departments.contains_key("dev"),
+            "left empty, it is forgotten"
+        );
     }
 }

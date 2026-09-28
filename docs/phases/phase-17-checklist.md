@@ -208,7 +208,9 @@ again, for "talent pool", "bench", "agent library").
 - [x] **Effort per agent** — with or without fixing its AI tool and model.
 - [x] **Model and effort rules in layers** — organization → department → role → agent, the
       closest wins; each layer sets an ordered list of models, the effort for each, and AI
-      companies never to use.
+      companies never to use. Deviation: Settings shows each rule's choices; what the next
+      worker gets, and why, shows on each role's line and in each agent's details (ADR-041, As
+      built).
 - [x] **Learning in layers** — organization (today's switch), each role, each agent; each role's
       "keep lessons without asking" stays.
 - [x] **Specialties under each role** — built in (Senior Developer, Designer, Security Auditor,

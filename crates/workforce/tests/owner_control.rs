@@ -23,7 +23,7 @@ use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::learning::{self, LearningFrom};
 use plenipo_workforce::{
     DepartmentInput, HireInput, LeadInput, OrgSnapshot, PositionInfo, PositionPatchInput,
-    ProjectInput, RoleJob, SpecialtyInput, SpecialtySuggest, Workforce,
+    PositionStatus, ProjectInput, RoleJob, SpecialtyInput, SpecialtySuggest, Workforce,
 };
 use serde_json::json;
 
@@ -363,6 +363,182 @@ impl H {
     }
 }
 
+/// ADR-041 §7: an open conversation takes the effort set for its listed model, even when the AI
+/// tool reported another name for it (the fake Claude Code calls its default model
+/// "fake-claude-model").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_open_conversation_takes_the_effort_set_for_its_listed_model() {
+    let h = harness().await;
+    let org = h.development();
+    let first = h.objective(&org.coordinator, "Plan the release.").await;
+    h.finished(&first).await;
+    let session = h.task(&first).metadata["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let open = h.ledger.runtime_session(&session).unwrap().unwrap();
+    assert_eq!(open.model.as_deref(), Some("fake-claude-model"));
+    assert_eq!(open.effort, None);
+    let default_model = h
+        .router
+        .snapshot()
+        .unwrap()
+        .models
+        .into_iter()
+        .find(|m| m.built_in && m.runtime_id == "claude-code")
+        .unwrap()
+        .id;
+    h.workforce
+        .set_model_rule(
+            &RuleTarget::Organization,
+            &ModelRule {
+                efforts: [(default_model, Effort::Low)].into_iter().collect(),
+                ..ModelRule::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        h.ledger
+            .runtime_session(&session)
+            .unwrap()
+            .unwrap()
+            .effort
+            .as_deref(),
+        Some("low")
+    );
+}
+
+/// ADR-041 §7: moved to another department, an agent's open conversation takes that
+/// department's effort from its next task.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moved_agent_takes_its_new_departments_effort() {
+    let h = harness().await;
+    let org = h.development();
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Operations".into(),
+            description: String::new(),
+            head: Some(lead(
+                &h.role("Manager"),
+                "Operations Manager",
+                "claude-code",
+            )),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let ops = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Operations")
+        .unwrap();
+    let (ops_id, ops_head) = (ops.id.clone(), ops.head_position_id.clone().unwrap());
+    h.workforce
+        .set_model_rule(
+            &RuleTarget::Department(ops_id),
+            &ModelRule {
+                effort: Some(Effort::Medium),
+                ..ModelRule::default()
+            },
+        )
+        .unwrap();
+    let first = h.objective(&org.coordinator, "Plan the release.").await;
+    h.finished(&first).await;
+    let session = h.task(&first).metadata["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let effort = |h: &H| h.ledger.runtime_session(&session).unwrap().unwrap().effort;
+    assert_eq!(effort(&h), None);
+    h.workforce
+        .move_position(&org.coordinator, Some(&ops_head))
+        .unwrap();
+    assert_eq!(effort(&h).as_deref(), Some("medium"));
+}
+
+/// ADR-041 §3–§4: an AI company a rule never uses cannot be fixed for an agent under that rule;
+/// one fixed before the rule shows it cannot start, and why.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fixed_ai_tool_a_rule_never_uses_is_refused_in_plain_words() {
+    let h = harness().await;
+    let org = h.development();
+    let openai = h
+        .router
+        .snapshot()
+        .unwrap()
+        .tools
+        .into_iter()
+        .find(|t| t.runtime_id == "codex")
+        .unwrap()
+        .company;
+    h.workforce
+        .set_model_rule(
+            &RuleTarget::Department(org.department.clone()),
+            &ModelRule {
+                never_companies: vec![openai],
+                ..ModelRule::default()
+            },
+        )
+        .unwrap();
+    // The developer was fixed on Codex before the rule: it cannot start, and says why.
+    let developer = h.position(&org.developer);
+    assert_eq!(developer.status, PositionStatus::Unavailable);
+    let why = developer.status_detail.unwrap();
+    assert!(why.contains("never uses"), "{why}");
+    // Hiring, or changing an agent, onto Codex under that rule is refused.
+    let refused = h
+        .workforce
+        .hire(&HireInput {
+            role_id: h.role("Senior Developer"),
+            title: "Second Developer".into(),
+            reports_to: Some(org.coordinator.clone()),
+            runtime_id: Some("codex".into()),
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains("Second Developer") && refused.contains("never uses"),
+        "{refused}"
+    );
+    let refused = h
+        .workforce
+        .update_position(
+            &org.coordinator,
+            &PositionPatchInput {
+                runtime_id: Some("codex".into()),
+                ..PositionPatchInput::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("never uses"), "{refused}");
+    assert_eq!(
+        h.position(&org.coordinator).runtime_id.as_deref(),
+        Some("claude-code")
+    );
+    // Outside the department the rule does not apply.
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Operations".into(),
+            description: String::new(),
+            head: Some(lead(&h.role("Manager"), "Operations Manager", "codex")),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let ops = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Operations")
+        .unwrap();
+    assert!(ops.head_position_id.is_some());
+}
+
 /// ADR-041 §7: changing only effort keeps the agent and its conversation; the next task runs at
 /// the new level, and the reason names the layer. Changing the model still hires a new agent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -657,6 +833,33 @@ async fn a_senior_developer_with_the_database_specialty() {
         h.position(&org.coordinator).specialty.as_deref(),
         Some("Releases")
     );
+    // A suggested model that has left the owner's list is dropped, not refused.
+    let s = h
+        .workforce
+        .update_specialty(
+            &releases.id,
+            &SpecialtyInput {
+                role_id: None,
+                name: "Releases".into(),
+                title: "Release Supervisor".into(),
+                job: RoleJob {
+                    duties: vec!["plan each release with its checklist".into()],
+                    ..RoleJob::default()
+                },
+                suggest: SpecialtySuggest {
+                    models: vec!["a-model-removed-since".into()],
+                    ..SpecialtySuggest::default()
+                },
+            },
+        )
+        .unwrap();
+    let kept = s
+        .roles
+        .iter()
+        .flat_map(|r| &r.specialties)
+        .find(|x| x.id == releases.id)
+        .unwrap();
+    assert!(kept.suggest.models.is_empty());
     // A built-in specialty cannot be changed; a suggested permission must be a real one.
     assert!(h
         .workforce
