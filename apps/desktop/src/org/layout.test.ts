@@ -102,6 +102,37 @@ describe("organization layout", () => {
     expect(layout.links.find((l) => l.id === "link:p-review")?.active).toBe(false);
   });
 
+  it("keeps a report's line on the bus when the report above it was moved away", () => {
+    const snapshot = sampleOrganization();
+    const auto = layoutOrganization(snapshot);
+    const design = auto.byId.get("p-design")!;
+    const camp = auto.byId.get("p-camp")!;
+    const busX = camp.x + camp.w + BUS_OFFSET;
+    // Designer (the first of two reports) placed elsewhere: Documentation Writer is the only one
+    // left on the bus, below the lead's row.
+    snapshot.places = [{ tileId: "p-design", x: design.x + 600, y: design.y + 400 }];
+    const moved = layoutOrganization(snapshot);
+    const docs = moved.byId.get("p-docs")!;
+    expect(center(docs)).toBeGreaterThan(center(camp) + 12);
+    expect(moved.links.find((l) => l.id === "bus:p-camp")?.d).toBe(
+      `M ${camp.x + camp.w} ${center(camp)} H ${busX} V ${center(docs) - 12}`,
+    );
+    // Its line curves off the bottom of the bus, not floating on its own row.
+    expect(moved.links.find((l) => l.id === "link:p-docs")?.d).toBe(
+      `M ${busX} ${center(docs) - 12} Q ${busX} ${center(docs)} ${busX + 12} ${center(docs)} H ${docs.x}`,
+    );
+
+    // The second placed elsewhere instead: the first stays straight on, with no bus down.
+    snapshot.places = [{ tileId: "p-docs", x: design.x + 600, y: design.y + 400 }];
+    const second = layoutOrganization(snapshot);
+    expect(second.links.find((l) => l.id === "bus:p-camp")?.d).toBe(
+      `M ${camp.x + camp.w} ${center(camp)} H ${busX}`,
+    );
+    expect(second.links.find((l) => l.id === "link:p-design")?.d).toBe(
+      `M ${busX} ${center(camp)} H ${design.x}`,
+    );
+  });
+
   it("labels department heads and coordinators with their department and project", () => {
     const layout = layoutOrganization(sampleOrganization());
     const chip = (id: string) => layout.chips.find((c) => c.id === `chip:${id}`);

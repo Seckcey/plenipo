@@ -22,6 +22,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -141,7 +142,14 @@ interface Props {
   /** Why `payload` cannot be dropped on node `target`; `null` when it can. */
   dropRefusal: (payload: DragPayload, target: string) => string | null;
   onDrop: (payload: DragPayload, target: string, at: { x: number; y: number }) => void;
-  describeDrag: (payload: DragPayload) => { title: string; glyph: string; hint: string };
+  /**
+   * The ghost's title, glyph, and words for `payload` over `over` (a node ID, TRASH, EMPTY_CANVAS,
+   * or `null`). The canvas shows a refusal instead of the words, and its own away from any tile.
+   */
+  describeDrag: (
+    payload: DragPayload,
+    over: string | null,
+  ) => { title: string; glyph: string; hint: string };
   /** Pixels on the right covered by a panel (the details panel floats over the canvas). */
   insetRight?: number;
   children?: ReactNode;
@@ -155,12 +163,16 @@ type Gesture =
       pointerId: number;
       x0: number;
       y0: number;
+      /** The world point pressed, with the camera as it was then. */
+      start: Point;
       x: number;
       y: number;
       nodeId: string | null;
       /** A line end pressed (ADR-053 §7). */
       line: LineEnd | null;
       button: number;
+      /** The pointer's mode when pressed (the space bar may be held). */
+      mode: PointerMode;
     }
   | { kind: "pan"; pointerId: number; x: number; y: number }
   | {
@@ -169,14 +181,16 @@ type Gesture =
       payload: DragPayload;
       x0: number;
       y0: number;
+      /** The world point where the drag started: the camera may move during it. */
+      start: Point;
       live: boolean;
     }
   | {
       kind: "arrange";
       pointerId: number;
       tileId: string;
-      x0: number;
-      y0: number;
+      /** The world point where the tile was picked up. */
+      start: Point;
       alone: boolean;
       moved: ArrangeMove | null;
       raf: number;
@@ -388,6 +402,22 @@ export function TopologyCanvas({
     [flyTo],
   );
 
+  /** The world point under a client point, with the camera as it is now. */
+  const worldAt = useCallback(
+    (clientX: number, clientY: number): Point => {
+      const view = measure();
+      const r = viewportRef.current?.getBoundingClientRect();
+      const [x, y] = screenToWorld(
+        live.current.camera,
+        view,
+        clientX - (r?.left ?? 0),
+        clientY - (r?.top ?? 0),
+      );
+      return { x, y };
+    },
+    [measure],
+  );
+
   // Viewport size.
   useEffect(() => {
     const el = viewportRef.current;
@@ -455,30 +485,39 @@ export function TopologyCanvas({
 
   useEffect(() => () => stopFly(), [stopFly]);
 
-  /** What is under a client point: a node ID, EMPTY_CANVAS, TRASH, or `null` outside the canvas. */
+  /**
+   * What is under a client point: a node ID, EMPTY_CANVAS, TRASH, or `null` where nothing can be
+   * dropped (outside the canvas, under the details panel, or on the toolbar, a panel, the tour,
+   * or the minimap: a tile hidden under them is not a target).
+   */
   const hitTest = useCallback(
     (clientX: number, clientY: number): string | null => {
       const el = viewportRef.current;
       if (!el) return null;
-      const trash = el.querySelector('[data-drop="trash"]')?.getBoundingClientRect();
-      if (
-        trash &&
-        trash.width > 0 &&
-        clientX >= trash.left &&
-        clientX <= trash.right &&
-        clientY >= trash.top &&
-        clientY <= trash.bottom
-      ) {
-        return TRASH;
-      }
       const r = el.getBoundingClientRect();
       const sized = r.width > 0 && r.height > 0;
       const view = measure();
       const { camera: c, layout: l, inset } = live.current;
-      // The panel over the right-hand side is not canvas.
+      // The panel over the right-hand side is not canvas (even where the trash can is under it).
       const right = r.right - inset;
       if (sized && (clientX < r.left || clientX > right || clientY < r.top || clientY > r.bottom)) {
         return null;
+      }
+      const inside = (box: DOMRect | undefined) =>
+        !!box &&
+        box.width > 0 &&
+        box.height > 0 &&
+        clientX >= box.left &&
+        clientX <= box.right &&
+        clientY >= box.top &&
+        clientY <= box.bottom;
+      if (inside(el.querySelector('[data-drop="trash"]')?.getBoundingClientRect())) return TRASH;
+      // What floats over the canvas (only the viewport's own children: the badges, Watch
+      // buttons, and toggles in the world stay part of the canvas).
+      for (const child of el.children) {
+        if (child.hasAttribute("data-canvas-ui") && inside(child.getBoundingClientRect())) {
+          return null;
+        }
       }
       const [wx, wy] = screenToWorld(c, view, clientX - r.left, clientY - r.top);
       return nodeAt(l, wx, wy)?.id ?? EMPTY_CANVAS;
@@ -500,7 +539,8 @@ export function TopologyCanvas({
       e.y = y;
       e.vx = 0;
       e.vy = 0;
-      if (r && r.width > 0 && over !== null) {
+      // Not over the trash can or anything floating over the canvas (the toolbar is in the edge).
+      if (r && r.width > 0 && over !== null && over !== TRASH) {
         if (x < r.left + EDGE) e.vx = -EDGE_SPEED;
         else if (x > r.right - live.current.inset - EDGE) e.vx = EDGE_SPEED;
         if (y < r.top + EDGE) e.vy = -EDGE_SPEED;
@@ -589,12 +629,12 @@ export function TopologyCanvas({
           if (Math.hypot(e.clientX - g.x0, e.clientY - g.y0) <= DRAG_THRESHOLD) return;
           capture(e.pointerId);
           const node = g.nodeId ? l.byId.get(g.nodeId) : undefined;
-          const how = live.current.mode;
+          const how = g.mode;
           const placeable =
             node !== undefined &&
             node.kind !== "worker" &&
             (node.kind !== "position" || node.position.active);
-          if (g.button === 0 && g.line) {
+          if (g.button === 0 && g.line && how === "select") {
             const payload: DragPayload = { kind: "line", line: g.line };
             gesture.current = {
               kind: "drag",
@@ -602,6 +642,7 @@ export function TopologyCanvas({
               payload,
               x0: g.x0,
               y0: g.y0,
+              start: g.start,
               live: true,
             };
             updateDrag(payload, e.clientX, e.clientY);
@@ -617,8 +658,7 @@ export function TopologyCanvas({
               kind: "arrange",
               pointerId: g.pointerId,
               tileId: node.id,
-              x0: g.x0,
-              y0: g.y0,
+              start: g.start,
               alone: e.altKey,
               moved: null,
               raf: 0,
@@ -632,6 +672,7 @@ export function TopologyCanvas({
               payload,
               x0: g.x0,
               y0: g.y0,
+              start: g.start,
               live: true,
             };
             updateDrag(payload, e.clientX, e.clientY);
@@ -670,12 +711,14 @@ export function TopologyCanvas({
     const arrangeTo = (clientX: number, clientY: number, alt: boolean) => {
       const g = gesture.current;
       if (g.kind !== "arrange") return;
-      const z = live.current.camera.z;
+      // Measured in the world, so a zoom or a scroll during the gesture keeps the tile under the
+      // pointer.
+      const at = worldAt(clientX, clientY);
       g.alone = g.alone || alt;
       g.moved = {
         tileId: g.tileId,
-        dx: (clientX - g.x0) / z,
-        dy: (clientY - g.y0) / z,
+        dx: at.x - g.start.x,
+        dy: at.y - g.start.y,
         alone: g.alone,
       };
       if (g.raf) return;
@@ -716,13 +759,14 @@ export function TopologyCanvas({
       if (g.kind === "drag" && g.live && e.type === "pointerup") {
         const over = hitTest(e.clientX, e.clientY);
         if (over === EMPTY_CANVAS && g.payload.kind === "position") {
-          // Select: an agent dropped on an empty spot is placed there.
-          const z = live.current.camera.z;
+          // Select: an agent dropped on an empty spot is placed there (measured in the world:
+          // the view may have scrolled or zoomed during the drag).
+          const at = worldAt(e.clientX, e.clientY);
           live.current.onArrange?.(
             {
               tileId: g.payload.positionId,
-              dx: (e.clientX - g.x0) / z,
-              dy: (e.clientY - g.y0) / z,
+              dx: at.x - g.start.x,
+              dy: at.y - g.start.y,
               alone: e.altKey,
             },
             true,
@@ -759,7 +803,7 @@ export function TopologyCanvas({
       window.removeEventListener("pointercancel", onEnd);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [endDrag, hitTest, setCamera, updateDrag]);
+  }, [endDrag, hitTest, setCamera, updateDrag, worldAt]);
 
   // Wheel: zoom at the cursor; shift+wheel pans sideways. (Non-passive, so the page never scrolls.)
   useLayoutEffect(() => {
@@ -803,12 +847,13 @@ export function TopologyCanvas({
           payload,
           x0: event.clientX,
           y0: event.clientY,
+          start: worldAt(event.clientX, event.clientY),
           live: false,
         };
       },
       fit,
     }),
-    [fit],
+    [fit, worldAt],
   );
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -820,6 +865,12 @@ export function TopologyCanvas({
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
+      // A second finger ends what the first was doing: a tile being arranged goes back.
+      const was = gesture.current;
+      if (was.kind === "arrange") {
+        if (was.raf) cancelAnimationFrame(was.raf);
+        live.current.onArrange?.(null, false);
+      }
       gesture.current = { kind: "pinch", distance: a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0 };
       endDrag();
       return;
@@ -831,15 +882,20 @@ export function TopologyCanvas({
       pointerId: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
+      start: worldAt(e.clientX, e.clientY),
       x: e.clientX,
       y: e.clientY,
       nodeId: node?.dataset.nodeId ?? null,
       line: handle ? lineOf(handle) : null,
       button: e.button,
+      // Read now: pressing a tile moves the focus, and the first move comes after that.
+      mode: live.current.mode,
     };
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Already handled: Escape that cancelled a drag, or closed a menu, keeps the selection.
+    if (e.key === "Escape" && e.nativeEvent.defaultPrevented) return;
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, select")) return;
     if (target.closest("[data-canvas-ui]") && e.key !== "Escape") return;
@@ -866,7 +922,9 @@ export function TopologyCanvas({
         return;
       }
     }
-    if (e.key === " " && target === e.currentTarget) {
+    // The space bar held moves the view, with a tile focused too (it does not press the tile
+    // then: Enter does).
+    if (e.key === " ") {
       e.preventDefault();
       if (!e.repeat) setSpaceHeld(true);
       return;
@@ -951,11 +1009,18 @@ export function TopologyCanvas({
         const node = id ? live.current.layout.byId.get(id) : undefined;
         if (node) zoomTo(node);
       }}
+      style={{ "--canvas-inset": `${insetRight}px` } as CSSProperties}
       onKeyDown={onKeyDown}
       onKeyUp={(e) => {
-        if (e.key === " ") setSpaceHeld(false);
+        if (e.key !== " ") return;
+        setSpaceHeld(false);
+        const target = e.target as HTMLElement;
+        if (!target.closest("input, textarea, select, [data-canvas-ui]")) e.preventDefault();
       }}
-      onBlur={() => setSpaceHeld(false)}
+      onBlur={(e) => {
+        // Focus moving to a tile inside the canvas keeps the space bar held.
+        if (!e.currentTarget.contains(e.relatedTarget)) setSpaceHeld(false);
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <p id="topology-help" className="visually-hidden">
@@ -1012,7 +1077,7 @@ export function TopologyCanvas({
           }}
         />
       )}
-      {drag && <DragGhost drag={drag} describe={describeDrag} />}
+      {drag && <DragGhost drag={drag} describe={describeDrag} canPlace={!!onArrange} />}
     </div>
   );
 }
@@ -1199,18 +1264,23 @@ const World = memo(function World({
         layout.nodes.map((n) => {
           const w = live.where?.get(n.id);
           if (!w) return null;
-          const parts = [w.thinksIn, w.runsOn, w.touching].filter((p) => p !== null);
+          // Keyed by its slot: where it runs and what it touches can both be a server.
+          const parts = [
+            { slot: "thinks", part: w.thinksIn },
+            { slot: "runs", part: w.runsOn },
+            { slot: "touch", part: w.touching },
+          ].flatMap(({ slot, part }) => (part ? [{ slot, part }] : []));
           return (
             <div
               key={`where:${n.id}`}
               className="topo-where"
               style={{ left: n.x, top: n.y + n.h + 6, width: n.w }}
-              title={parts.map((p) => p.words).join(" · ")}
+              title={parts.map((p) => p.part.words).join(" · ")}
             >
-              {parts.map((p) => (
-                <span key={p.symbol} className="topo-where__part" data-symbol={p.symbol}>
-                  <Glyph name={WHERE_GLYPH[p.symbol] ?? "where"} size={12} />
-                  {p.words}
+              {parts.map(({ slot, part }) => (
+                <span key={slot} className="topo-where__part" data-symbol={part.symbol}>
+                  <Glyph name={WHERE_GLYPH[part.symbol] ?? "where"} size={12} />
+                  {part.words}
                 </span>
               ))}
             </div>
@@ -1441,12 +1511,30 @@ function Minimap({
   );
 }
 
-function DragGhost({ drag, describe }: { drag: DragView; describe: Props["describeDrag"] }) {
-  const d = describe(drag.payload);
+/** What releasing does away from any tile. */
+function spareHint(payload: DragPayload, over: string | null, canPlace: boolean): string {
+  if (payload.kind === "line") return "Drop the line's end on an agent · Esc cancels";
+  if (payload.kind === "position" && over === EMPTY_CANVAS && canPlace) {
+    return "Release to place it here · Alt: alone · Esc cancels";
+  }
+  return "Drop on a position · Esc cancels";
+}
+
+function DragGhost({
+  drag,
+  describe,
+  canPlace,
+}: {
+  drag: DragView;
+  describe: Props["describeDrag"];
+  canPlace: boolean;
+}) {
+  const d = describe(drag.payload, drag.over);
   const hint =
-    drag.over === null || drag.over === EMPTY_CANVAS
-      ? "Drop on a position · Esc cancels"
-      : (drag.refusal ?? d.hint);
+    drag.refusal ??
+    (drag.over === null || drag.over === EMPTY_CANVAS
+      ? spareHint(drag.payload, drag.over, canPlace)
+      : d.hint);
   return (
     <div
       className={`topo-ghost${drag.refusal ? " is-refused" : ""}`}

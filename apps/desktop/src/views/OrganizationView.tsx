@@ -306,10 +306,10 @@ export function OrganizationView({
     setPointerState(next);
     write(POINTER_KEY, next);
   };
-  const setFilters = (next: CanvasFilters) => {
+  const setFilters = useCallback((next: CanvasFilters) => {
     setFiltersState(next);
     write(FILTERS_KEY, filtersActive(next) ? JSON.stringify(next) : null);
-  };
+  }, []);
   const toggleLegend = () => {
     setLegendOpen((open) => {
       writeFlag(LEGEND_KEY, open ? "hidden" : "shown");
@@ -380,9 +380,18 @@ export function OrganizationView({
       if (!snapshot) return;
       const next = expanded(snapshot, collapsed, id);
       if (next) updateCollapsed(next);
+      // An agent the canvas's filters hide: clear them, so the tile chosen is on the canvas.
+      if (
+        mode === "topology" &&
+        filtered &&
+        !filtered.shown.has(id) &&
+        snapshot.positions.some((p) => p.id === id && p.active)
+      ) {
+        setFilters(NO_FILTERS);
+      }
       setSelected(id);
     },
-    [snapshot, collapsed, updateCollapsed, setSelected],
+    [snapshot, collapsed, updateCollapsed, setSelected, mode, filtered, setFilters],
   );
 
   // Arriving from another view with a position to show.
@@ -496,6 +505,7 @@ export function OrganizationView({
         bringBack,
         saveToWorkforce,
         sendHome,
+        lend: lendAgent,
       },
     }),
     [run, change, reload, onOpenSession, onOpenTask, onOpenPage, snapshot],
@@ -893,7 +903,7 @@ export function OrganizationView({
   }, [tidy, place, toast]);
 
   const describeDrag = useCallback(
-    (payload: DragPayload) => {
+    (payload: DragPayload, over: string | null) => {
       if (payload.kind === "role") {
         const role = snapshot?.roles.find((r) => r.id === payload.roleId);
         return {
@@ -910,10 +920,21 @@ export function OrganizationView({
         };
       }
       const p = byId.get(payload.positionId);
+      let hint = "Release to choose: move here, lend, or oversee this team";
+      if (over === TRASH && snapshot && p) {
+        // What the trash can does with it (a refusal is shown instead, by the canvas).
+        const t = trashTarget(snapshot, p);
+        if (!("refused" in t)) {
+          hint =
+            t.kind === "position"
+              ? "Release to archive it (with Undo)"
+              : `Release to archive its ${t.kind} (asks first)`;
+        }
+      }
       return {
         title: p?.title ?? "Position",
         glyph: snapshot?.roles.find((r) => r.id === p?.roleId)?.glyph ?? "worker",
-        hint: "Release to choose: move here, lend, or oversee this team",
+        hint,
       };
     },
     [snapshot, byId, titles],

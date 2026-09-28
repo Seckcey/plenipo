@@ -7,6 +7,10 @@ export interface OwnerApi {
   profile: OwnerProfile | null;
   /** Keep a change; resolves with your tile as kept, or refuses with the reason. */
   save: (input: OwnerProfileInput) => Promise<OwnerProfile>;
+  /** Read your tile again (when it is not loaded yet, or the last read failed). */
+  reload?: () => void;
+  /** Why the last read of your tile failed; `null` or absent when it did not. */
+  loadError?: string | null;
 }
 
 export const OwnerContext = createContext<OwnerApi | null>(null);
@@ -16,6 +20,7 @@ const WITHOUT_PROVIDER: OwnerApi = {
   profile: null,
   save: () =>
     Promise.reject(new Error("Your picture, status, mood, and message can't change here.")),
+  loadError: "Your picture, status, mood, and message can't change here.",
 };
 
 /** Your tile, from `OwnerProvider`. Never throws: without one, there is no profile yet. */

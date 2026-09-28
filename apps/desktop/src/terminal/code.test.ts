@@ -127,6 +127,64 @@ describe("a Watch tab's list of files", () => {
     expect(late).toBe(s);
   });
 
+  it("does not swap objectives while a change in this one is being written or waits", () => {
+    // An on-call agent with work in two objectives at once.
+    const a = change({ path: "a.txt", state: "writing", at: 10 });
+    let s = apply(
+      emptyCodeWatch("p-dev"),
+      update(a, "one"),
+      update(change({ path: "b.txt", at: 20 })),
+    );
+    s = pinFile(s, "b.txt");
+    const elsewhere = update(change({ path: "b.txt", objectiveTaskId: "root2", at: 30 }));
+    expect(apply(s, elsewhere)).toBe(s);
+    // Once nothing here is open, the other objective's next change starts a fresh list; the
+    // pinned file stays pinned, as it is in the new list.
+    s = apply(s, update({ ...a, state: "saved", at: 40 }));
+    s = apply(s, update(change({ path: "b.txt", objectiveTaskId: "root2", at: 50 })));
+    expect(s.objectiveTaskId).toBe("root2");
+    expect(paths(s)).toEqual(["b.txt"]);
+    expect(s.following).toBe(false);
+    expect(s.pinned).toBe("b.txt");
+    // A change waiting for approval holds the list too.
+    s = apply(
+      s,
+      update(change({ path: "c.txt", objectiveTaskId: "root2", state: "waiting", at: 60 }), "x"),
+    );
+    expect(apply(s, update(change({ path: "d.txt", at: 70 })))).toBe(s);
+    // Following along stays on when the list is swapped.
+    s = setFollowing(
+      apply(s, update(change({ path: "c.txt", objectiveTaskId: "root2", at: 80 }))),
+      true,
+    );
+    s = apply(s, update(change({ path: "d.txt", at: 90 })));
+    expect(s.objectiveTaskId).toBe("root");
+    expect(s.following).toBe(true);
+  });
+
+  it("keeps what it heard over what Plenipo had, when both are as new", () => {
+    // Written and saved in the same millisecond; Plenipo's list was read in between.
+    const c = change({ path: "a.txt", state: "writing", at: 50 });
+    let s = apply(emptyCodeWatch("p-dev"), update(c, "fn main"));
+    s = apply(s, update({ ...c, state: "saved", kind: "created" }));
+    expect(s.changes[0]!.state).toBe("saved");
+    const view: WatchView = {
+      positionId: "p-dev",
+      objectiveTaskId: "root",
+      changes: [{ ...c, state: "writing" }],
+      fromTheRecord: false,
+    };
+    expect(loadWatchView(s, view)).toBe(s);
+    // Nor does another objective's change read as new as the newest start a fresh list.
+    const other: WatchView = {
+      positionId: "p-dev",
+      objectiveTaskId: "root2",
+      changes: [change({ path: "b.txt", objectiveTaskId: "root2", at: 50 })],
+      fromTheRecord: false,
+    };
+    expect(loadWatchView(s, other).objectiveTaskId).toBe("root");
+  });
+
   it("keeps at most a few hundred files", () => {
     let s = emptyCodeWatch("p-dev");
     for (let i = 0; i < MAX_FILES + 25; i++) {

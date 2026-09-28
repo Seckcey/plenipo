@@ -84,6 +84,56 @@ function toScreen(wx: number, wy: number): { clientX: number; clientY: number } 
   return { clientX: tx + wx * z, clientY: ty + wy * z };
 }
 
+/** The world point at a screen point now (the inverse of `toScreen`). */
+function toWorld(p: { clientX: number; clientY: number }): { x: number; y: number } {
+  const world = document.querySelector<HTMLElement>(".topology__world");
+  const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(
+    world?.style.transform ?? "",
+  );
+  if (!m) throw new Error("no camera");
+  const [tx, ty, z] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return { x: (p.clientX - tx) / z, y: (p.clientY - ty) / z };
+}
+
+/** A box on screen, as `getBoundingClientRect` gives it (nothing is measured in tests). */
+function box(left: number, top: number, width: number, height: number): () => DOMRect {
+  return () =>
+    ({
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      x: left,
+      y: top,
+    }) as DOMRect;
+}
+
+/** The words next to the pointer while dragging. */
+function ghost(): Element | null {
+  return document.querySelector(".topo-ghost");
+}
+
+function canvas(): HTMLElement {
+  return screen.getByRole("region", { name: "Organization topology" });
+}
+
+/** Start dragging `el` from `start` (past the threshold), then point at `to`. */
+function pointAt(
+  el: Element,
+  start: { clientX: number; clientY: number },
+  to: { clientX: number; clientY: number },
+) {
+  fireEvent.pointerDown(el, { pointerId: 1, button: 0, ...start });
+  fireEvent.pointerMove(window, {
+    pointerId: 1,
+    clientX: start.clientX + 20,
+    clientY: start.clientY + 20,
+  });
+  fireEvent.pointerMove(window, { pointerId: 1, ...to });
+}
+
 function zoom(): number {
   const world = document.querySelector<HTMLElement>(".topology__world");
   return Number(/scale\(([\d.]+)\)/.exec(world?.style.transform ?? "")?.[1] ?? 1);
@@ -603,5 +653,333 @@ describe("the owner's tile (ADR-056)", () => {
     expect(you).toHaveTextContent("Busy");
     expect(you).toHaveTextContent("Great");
     expect(you).toHaveTextContent("Feeling great!");
+  });
+});
+
+describe("where a drop lands (ADR-053 §2–§11)", () => {
+  it("never drops on the trash can where it is under the details panel", async () => {
+    const org = sampleOrganization();
+    show(org);
+    api.archivePosition.mockResolvedValue(org);
+    const user = userEvent.setup();
+    const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
+    await user.click(reviewer);
+    expect(screen.getByRole("complementary", { name: "Details: Code Reviewer" })).toBeVisible();
+    // The toolbar and the panels keep clear of the details panel (360 wide by default).
+    expect(canvas().style.getPropertyValue("--canvas-inset")).toBe("360px");
+    // A 960-wide canvas: the trash can (at 900) is under the details panel.
+    canvas().getBoundingClientRect = box(0, 0, 960, 640);
+    const trash = placeTrash();
+    pointAt(reviewer, centerOf(org, "p-review"), trash);
+    expect(screen.getByRole("button", { name: /^Trash can/ })).not.toHaveClass("is-drop-target");
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, ...trash });
+    expect(api.archivePosition).not.toHaveBeenCalled();
+  });
+
+  it("does not scroll the view while an agent is held over the trash can", async () => {
+    const org = sampleOrganization();
+    show(org);
+    const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
+    canvas().getBoundingClientRect = box(0, 0, 960, 640);
+    // The trash can is in the top edge, where holding a drag scrolls the view.
+    const trash = placeTrash();
+    const transform = () =>
+      document.querySelector<HTMLElement>(".topology__world")!.style.transform;
+    pointAt(reviewer, centerOf(org, "p-review"), trash);
+    const before = transform();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(transform()).toBe(before);
+    // Near the top edge elsewhere, it does scroll.
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 600, clientY: 20 });
+    await waitFor(() => expect(transform()).not.toBe(before));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+  });
+
+  it("never drops on a tile hidden under a panel", async () => {
+    const org = sampleOrganization();
+    show(org);
+    const user = userEvent.setup();
+    const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    // The Filters panel covers Campaign Supervisor.
+    const hidden = centerOf(org, "p-camp");
+    screen.getByRole("region", { name: "Filters" }).getBoundingClientRect = box(
+      hidden.clientX - 60,
+      hidden.clientY - 60,
+      120,
+      120,
+    );
+    pointAt(auditor, centerOf(org, "p-sec"), hidden);
+    expect(screen.getByRole("button", { name: /^Campaign Supervisor/ })).not.toHaveClass(
+      "is-drop-target",
+    );
+    expect(ghost()).toHaveTextContent("Drop on a position · Esc cancels");
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, ...hidden });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("says what releasing does: archive, place, or where a line's end goes", async () => {
+    const org = sampleOrganization();
+    show(org);
+    const layout = layoutOrganization(org);
+    const escape = () => fireEvent.keyDown(document.body, { key: "Escape" });
+    const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
+    const trash = placeTrash();
+    pointAt(reviewer, centerOf(org, "p-review"), trash);
+    expect(ghost()).toHaveTextContent("Release to archive it (with Undo)");
+    const empty = toScreen(layout.bounds.x + 40, layout.bounds.y + layout.bounds.h + 300);
+    fireEvent.pointerMove(window, { pointerId: 1, ...empty });
+    expect(ghost()).toHaveTextContent("Release to place it here · Alt: alone · Esc cancels");
+    escape();
+    expect(ghost()).toBeNull();
+
+    // A Supervisor or a Manager asks first.
+    const supervisor = screen.getByRole("button", { name: /^Campaign Supervisor/ });
+    pointAt(supervisor, centerOf(org, "p-camp"), trash);
+    expect(ghost()).toHaveTextContent("Release to archive its project (asks first)");
+    escape();
+    const manager = screen.getByRole("button", { name: /^Engineering Manager/ });
+    pointAt(manager, centerOf(org, "p-eng"), trash);
+    expect(ghost()).toHaveTextContent("Release to archive its department (asks first)");
+    escape();
+
+    // A line's end over an empty spot.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Senior Developer, Working" }));
+    const handle = screen.getByRole("button", { name: /^Line end: Senior Developer reports/ });
+    const link = layoutOrganization(org).links.find((l) => l.childId === "p-dev")!;
+    pointAt(handle, toScreen(link.from!.x, link.from!.y), empty);
+    expect(ghost()).toHaveTextContent("Drop the line's end on an agent · Esc cancels");
+    escape();
+  });
+
+  it.each(["select", "arrange"])(
+    "keeps a tile under the pointer when the view zooms during the drag (%s)",
+    async (pointer) => {
+      sessionStorage.setItem("plenipo.orgPointer", pointer);
+      const org = sampleOrganization();
+      show(org);
+      const layout = layoutOrganization(org);
+      const node = layout.byId.get("p-sec")!;
+      const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
+      const start = centerOf(org, "p-sec");
+      fireEvent.pointerDown(auditor, { pointerId: 1, button: 0, ...start });
+      fireEvent.pointerMove(window, {
+        pointerId: 1,
+        clientX: start.clientX + 20,
+        clientY: start.clientY + 20,
+      });
+      const before = zoom();
+      fireEvent.wheel(canvas(), { deltaY: -200, clientX: 200, clientY: 200 });
+      expect(zoom()).not.toBe(before);
+      // An empty spot below everything, where it is on screen after the zoom.
+      const spot = { x: node.x + node.w / 2 + 40, y: layout.bounds.y + layout.bounds.h + 300 };
+      const to = toScreen(spot.x, spot.y);
+      expect(toWorld(to).y).toBeCloseTo(spot.y);
+      fireEvent.pointerMove(window, { pointerId: 1, ...to });
+      fireEvent.pointerUp(window, { pointerId: 1, button: 0, ...to });
+      await waitFor(() => expect(api.placeTiles).toHaveBeenCalledTimes(1));
+      const [saved] = api.placeTiles.mock.calls[0]![0];
+      // Its middle is where it was dropped.
+      expect(saved!.x + node.w / 2).toBeCloseTo(spot.x, -1);
+      expect(saved!.y + node.h / 2).toBeCloseTo(spot.y, -1);
+    },
+  );
+});
+
+describe("the pointer and the keys (ADR-053 §12)", () => {
+  it("moves the view while the space bar is held, with a tile focused too", async () => {
+    const org = sampleOrganization();
+    show(org);
+    const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
+    auditor.focus();
+    // The space bar does not press the focused tile: it holds the view.
+    expect(fireEvent.keyDown(auditor, { key: " " })).toBe(false);
+    expect(canvas()).toHaveClass("topology--pan");
+    // Pressing another tile moves the focus to it; the view still moves.
+    const reviewer = screen.getByRole("button", { name: "Code Reviewer, Idle" });
+    const start = centerOf(org, "p-review");
+    const before = document.querySelector<HTMLElement>(".topology__world")!.style.transform;
+    fireEvent.pointerDown(reviewer, { pointerId: 1, button: 0, ...start });
+    act(() => reviewer.focus());
+    expect(canvas()).toHaveClass("topology--pan");
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: start.clientX + 40,
+      clientY: start.clientY + 30,
+    });
+    expect(ghost()).toBeNull();
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: start.clientX + 80,
+      clientY: start.clientY + 60,
+    });
+    expect(document.querySelector<HTMLElement>(".topology__world")!.style.transform).not.toBe(
+      before,
+    );
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+    // What a press does is decided when pressed: letting go of the space bar before the pointer
+    // moves still moves the view.
+    fireEvent.pointerDown(reviewer, { pointerId: 1, button: 0, ...start });
+    fireEvent.keyUp(reviewer, { key: " " });
+    expect(canvas()).toHaveClass("topology--select");
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: start.clientX + 40,
+      clientY: start.clientY + 30,
+    });
+    expect(ghost()).toBeNull();
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.placeTiles).not.toHaveBeenCalled();
+  });
+
+  it("moves the view, not a line's end, in Move the view", async () => {
+    const org = sampleOrganization();
+    show(org);
+    api.movePosition.mockResolvedValue(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Senior Developer, Working" }));
+    const handle = screen.getByRole("button", { name: /^Line end: Senior Developer reports/ });
+    await user.click(screen.getByRole("button", { name: "Move the view" }));
+    const link = layoutOrganization(org).links.find((l) => l.childId === "p-dev")!;
+    const target = centerOf(org, "p-camp");
+    pointAt(handle, toScreen(link.from!.x, link.from!.y), target);
+    expect(ghost()).toBeNull();
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, ...target });
+    expect(api.movePosition).not.toHaveBeenCalled();
+  });
+
+  it("a second finger puts back a tile being arranged", async () => {
+    sessionStorage.setItem("plenipo.orgPointer", "arrange");
+    const org = sampleOrganization();
+    show(org);
+    const node = layoutOrganization(org).byId.get("p-sec")!;
+    const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
+    const start = centerOf(org, "p-sec");
+    fireEvent.pointerDown(auditor, { pointerId: 1, button: 0, ...start });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: start.clientX + 60,
+      clientY: start.clientY + 80,
+    });
+    await waitFor(() => expect(auditor.style.top).not.toBe(`${node.y}px`));
+    fireEvent.pointerDown(canvas(), { pointerId: 2, button: 0, clientX: 20, clientY: 400 });
+    await waitFor(() => expect(auditor.style.top).toBe(`${node.y}px`));
+    fireEvent.pointerUp(window, { pointerId: 2, button: 0, clientX: 20, clientY: 400 });
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, ...start });
+    expect(api.placeTiles).not.toHaveBeenCalled();
+  });
+
+  it("Escape that cancels a drag, or closes the Add menu, keeps the details open", async () => {
+    const org = sampleOrganization();
+    show(org);
+    const user = userEvent.setup();
+    const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
+    await user.click(reviewer);
+    const details = () => screen.queryByRole("complementary", { name: "Details: Code Reviewer" });
+    expect(details()).toBeInTheDocument();
+    pointAt(reviewer, centerOf(org, "p-review"), { clientX: 30, clientY: 400 });
+    expect(ghost()).not.toBeNull();
+    fireEvent.keyDown(reviewer, { key: "Escape" });
+    expect(ghost()).toBeNull();
+    expect(details()).toBeInTheDocument();
+    fireEvent.pointerUp(window, { pointerId: 1, button: 0, clientX: 30, clientY: 400 });
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(details()).toBeInTheDocument();
+    // Escape on the canvas itself still closes them.
+    fireEvent.keyDown(canvas(), { key: "Escape" });
+    expect(details()).not.toBeInTheDocument();
+  });
+
+  it("lends an agent from its details, without a mouse (ADR-054)", async () => {
+    const org = sampleOrganization();
+    show(org);
+    api.lendAgent.mockResolvedValue(org);
+    const user = userEvent.setup();
+    const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
+    auditor.focus();
+    await user.keyboard("{Enter}");
+    const details = screen.getByRole("complementary", { name: "Details: Security Auditor" });
+    await user.click(within(details).getByRole("tab", { name: "Team" }));
+    const form = within(details).getByRole("form", { name: "Lend to another team" });
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: "Lend to the team of" }),
+      "Campaign Supervisor",
+    );
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: "For how long" }),
+      "Until I send it home",
+    );
+    await user.click(within(form).getByRole("button", { name: "Lend" }));
+    expect(api.lendAgent).toHaveBeenCalledWith("p-sec", "p-camp", "returned");
+  });
+
+  it("clears the filters to show an agent they hide", async () => {
+    show();
+    const user = userEvent.setup();
+    await screen.findByRole("button", { name: "VP, Working" });
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const panel = screen.getByRole("region", { name: "Filters" });
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "AI company" }), "OpenAI");
+    expect(
+      screen.queryByRole("button", { name: "Security Auditor, Idle" }),
+    ).not.toBeInTheDocument();
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find in the organization" }),
+      "Security Auditor{Enter}",
+    );
+    expect(await screen.findByRole("button", { name: "Security Auditor, Idle" })).toBeVisible();
+    expect(screen.getByRole("complementary", { name: "Details: Security Auditor" })).toBeVisible();
+  });
+});
+
+describe("plain words on the canvas (ADR-010)", () => {
+  it("names the filters' choices and the guide's buttons plainly", async () => {
+    show();
+    const user = userEvent.setup();
+    await screen.findByRole("button", { name: "VP, Working" });
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const panel = screen.getByRole("region", { name: "Filters" });
+    for (const name of ["Any AI tool", "Any AI company", "Any department"]) {
+      expect(within(panel).getByRole("option", { name })).toBeInTheDocument();
+    }
+    const guide = screen.getByRole("button", { name: "Guide to the canvas" });
+    // There is no "?" key: the tooltip does not promise one.
+    expect(guide).toHaveAttribute("title", "Guide to the canvas");
+    await user.click(guide);
+    const help = screen.getByRole("region", { name: "The canvas" });
+    await user.click(within(help).getByRole("button", { name: "Close the guide" }));
+    expect(screen.queryByRole("region", { name: "The canvas" })).not.toBeInTheDocument();
+  });
+
+  it("keys each part of a “where” line by its place, so two servers do not clash", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    api.getLiveView.mockResolvedValue({
+      at: Date.now(),
+      workers: [
+        {
+          grantId: "g1",
+          taskId: "t1",
+          positionId: "p-review",
+          worker: "Code Reviewer",
+          runtimeId: "claude-code",
+          runsOn: { kind: "server", name: "Shop", production: false },
+          touching: { kind: "server", name: "Shop", production: false },
+        },
+      ],
+      handoffs: [],
+    });
+    show();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Where" }));
+    expect(await screen.findByText("Runs on Shop")).toBeInTheDocument();
+    expect(screen.getByText("Touching Shop")).toBeInTheDocument();
+    expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    errors.mockRestore();
   });
 });

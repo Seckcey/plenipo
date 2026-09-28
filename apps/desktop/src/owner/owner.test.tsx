@@ -29,6 +29,23 @@ let emit: (e: LedgerEvent) => void = () => undefined;
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
 
+/** A promise the test answers when it wants to (a slow read or save). */
+function later<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((yes) => {
+    resolve = yes;
+  });
+  return {
+    promise,
+    /** Answer it, and let the page take the answer in. */
+    answer: (value: T) =>
+      act(async () => {
+        resolve(value);
+        await promise;
+      }),
+  };
+}
+
 function profile(patch: Partial<OwnerProfile> = {}): OwnerProfile {
   return { status: "available", mood: null, message: "", picture: null, ...patch };
 }
@@ -300,7 +317,8 @@ describe("OwnerButton", () => {
   it("explains Do not disturb when you choose it", async () => {
     renderButton();
     const { user, panel } = await openPanel();
-    const hint = "Windows pop-up notices wait while this is on; the bell still counts them.";
+    const hint =
+      "Windows pop-up notices wait while this is on and come as one when you turn it off; the bell still counts them.";
     expect(within(panel).queryByText(hint)).not.toBeInTheDocument();
     const dnd = within(panel).getByRole("radio", { name: "Do not disturb" });
     await user.click(dnd);
@@ -326,15 +344,121 @@ describe("OwnerButton", () => {
     expect(within(panel).getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("works without a provider: nothing loaded, and Save says it can't", async () => {
+  it("works without a provider: nothing loaded, and Save stays off", async () => {
     renderButton(false);
-    const { user, panel } = await openPanel("You — change your picture, status, mood, and message");
-    await user.click(within(panel).getByRole("button", { name: "Save" }));
-    expect(await within(panel).findByRole("alert")).toHaveTextContent(
-      /^Couldn't save your changes/,
+    const { panel } = await openPanel("You — change your picture, status, mood, and message");
+    expect(within(panel).getByRole("alert")).toHaveTextContent(
+      "Your picture, status, mood, and message can't change here.",
     );
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(panel).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(api.getOwnerProfile).not.toHaveBeenCalled();
     expect(api.setOwnerProfile).not.toHaveBeenCalled();
+  });
+
+  it("keeps Save off until your details are read, reading them again when the panel opens", async () => {
+    // The first read, when Plenipo starts, fails.
+    api.getOwnerProfile.mockRejectedValueOnce(new commands.PlenipoCommandError("internal", "down"));
+    const second = later<OwnerProfile>();
+    api.getOwnerProfile.mockReturnValueOnce(second.promise);
+    renderButton();
+    await waitFor(() => expect(api.getOwnerProfile).toHaveBeenCalledTimes(1));
+    const { panel } = await openPanel("You — change your picture, status, mood, and message");
+    // Opening the panel reads them again; meanwhile Save would wipe what is kept, so it is off.
+    expect(api.getOwnerProfile).toHaveBeenCalledTimes(2);
+    expect(within(panel).getByRole("status")).toHaveTextContent("Reading your details…");
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(a11yProblems(document.body)).toEqual([]);
+
+    await second.answer(profile({ status: "away", mood: "focused", message: "Heads down" }));
+    // They fill the panel as they arrive.
+    expect(within(panel).queryByText("Reading your details…")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("radio", { name: "Away" })).toBeChecked();
+    expect(within(panel).getByRole("radio", { name: "Focused" })).toBeChecked();
+    expect(within(panel).getByRole("textbox", { name: "Message" })).toHaveValue("Heads down");
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("fills in only what you have not changed when your details arrive", async () => {
+    const first = later<OwnerProfile>();
+    api.getOwnerProfile.mockReturnValue(first.promise);
+    renderButton();
+    await waitFor(() => expect(api.getOwnerProfile).toHaveBeenCalled());
+    const { user, panel } = await openPanel("You — change your picture, status, mood, and message");
+    await user.click(within(panel).getByRole("radio", { name: "Busy" }));
+    await user.type(within(panel).getByRole("textbox", { name: "Message" }), "Back at 3");
+    // Every read answers with the same details (opening the panel read them again).
+    await first.answer(profile({ status: "away", mood: "focused", message: "Heads down" }));
+    expect(within(panel).getByRole("radio", { name: "Busy" })).toBeChecked();
+    expect(within(panel).getByRole("radio", { name: "Focused" })).toBeChecked();
+    expect(within(panel).getByRole("textbox", { name: "Message" })).toHaveValue("Back at 3");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(api.setOwnerProfile).toHaveBeenCalledWith({
+      status: "busy",
+      mood: "focused",
+      message: "Back at 3",
+      picture: { kind: "keep" },
+    });
+  });
+
+  it("says when your details could not be read, and Try again reads them again", async () => {
+    api.getOwnerProfile.mockRejectedValue(new commands.PlenipoCommandError("internal", "down"));
+    renderButton();
+    await waitFor(() => expect(api.getOwnerProfile).toHaveBeenCalledTimes(1));
+    const { user, panel } = await openPanel("You — change your picture, status, mood, and message");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "Plenipo couldn't read your details, so Save is off for now: down",
+    );
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+    api.getOwnerProfile.mockResolvedValue(profile({ status: "busy" }));
+    await user.click(within(panel).getByRole("button", { name: "Try again" }));
+    expect(within(panel).getByRole("button", { name: "Choose a picture…" })).toHaveFocus();
+    await waitFor(() => expect(within(panel).getByRole("radio", { name: "Busy" })).toBeChecked());
+    expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("waits for a slow save: Cancel, Escape, and clicks outside do not close the panel", async () => {
+    const slow = later<OwnerProfile>();
+    api.setOwnerProfile.mockReturnValue(slow.promise);
+    renderButton();
+    const { user, panel } = await openPanel();
+    await user.click(within(panel).getByRole("radio", { name: "Busy" }));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(within(panel).getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(within(panel).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.keyDown(within(panel).getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    await user.click(screen.getByText("Somewhere else"));
+    await user.click(screen.getByRole("button", { name: /^You: Available/ }));
+    expect(screen.getByRole("dialog", { name: "You" })).toBe(panel);
+
+    await slow.answer(profile({ status: "busy" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^You: Busy/ })).toHaveFocus();
+  });
+
+  it("keeps Shift+Tab inside the panel while the picture is being read", async () => {
+    const reading = later<string>();
+    shrink.mockReturnValue(reading.promise);
+    renderButton();
+    const { user, panel } = await openPanel();
+    const busy = within(panel).getByRole("radio", { name: "Busy" });
+    await user.click(busy);
+    const input = panel.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "me.png", { type: "image/png" })] },
+    });
+    expect(
+      await within(panel).findByRole("button", { name: "Reading the picture…" }),
+    ).toBeDisabled();
+    // The chosen status is the first stop Tab can reach: Shift+Tab goes round to the last.
+    busy.focus();
+    await user.tab({ shift: true });
+    const cancel = within(panel).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    await user.tab();
+    expect(busy).toHaveFocus();
+    await reading.answer(PNG);
   });
 });
 

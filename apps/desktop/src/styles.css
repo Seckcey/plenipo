@@ -293,6 +293,20 @@ body {
   font-size: var(--ui-font-lg);
 }
 
+/* "Reading your details…", or why they could not be read (Save is off meanwhile). */
+.owner-panel__loading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.owner-panel__loading p {
+  margin: 0;
+}
+
 .owner-panel__group {
   display: grid;
   gap: var(--ui-space-3);
@@ -2516,7 +2530,8 @@ body {
   cursor: move;
 }
 
-/* The toolbar (Phase 18, ADR-053 §12). */
+/* The toolbar (Phase 18, ADR-053 §12). It wraps rather than go under the details panel, whose
+   width the canvas sets as --canvas-inset. */
 .canvas-toolbar {
   position: absolute;
   top: 10px;
@@ -2528,7 +2543,7 @@ body {
   align-items: center;
   gap: 4px;
   width: fit-content;
-  max-width: calc(100% - 28px);
+  max-width: calc(100% - 28px - var(--canvas-inset, 0px));
   padding: 4px;
   border: 1px solid var(--ui-border);
   border-radius: 12px;
@@ -2618,7 +2633,8 @@ body {
   color: var(--ui-error-text);
 }
 
-/* Panels over the canvas: filters, the legend, the guide, the Archived drawer. */
+/* Panels over the canvas: filters, the legend, the guide, the Archived drawer (never under the
+   details panel). */
 .canvas-panel {
   position: absolute;
   top: 58px;
@@ -2627,7 +2643,7 @@ body {
   display: grid;
   align-content: start;
   gap: 10px;
-  width: min(340px, calc(100% - 28px));
+  width: min(340px, calc(100% - 28px - var(--canvas-inset, 0px)));
   max-height: calc(100% - 76px);
   padding: 12px 14px;
   overflow: auto;
@@ -2661,12 +2677,12 @@ body {
   top: auto;
   bottom: 14px;
   z-index: 2;
-  width: min(360px, calc(100% - 28px));
+  width: min(360px, calc(100% - 28px - var(--canvas-inset, 0px)));
   max-height: 44%;
 }
 
 .canvas-panel--archived {
-  width: min(620px, calc(100% - 28px));
+  width: min(620px, calc(100% - 28px - var(--canvas-inset, 0px)));
 }
 
 .canvas-filters {

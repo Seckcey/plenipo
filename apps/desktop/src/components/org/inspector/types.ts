@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { OrgSnapshot, OversightRole, PositionPatchInput } from "@plenipo/types";
+import type { LoanUntil, OrgSnapshot, OversightRole, PositionPatchInput } from "@plenipo/types";
 
 import type { ArchivedKind } from "../../../api/commands";
 import type { Go } from "../../views";
@@ -53,5 +53,7 @@ export interface InspectorActions {
     saveToWorkforce: (id: string) => Promise<OrgSnapshot>;
     /** Send a lent agent home (ADR-054 §6). */
     sendHome: (id: string) => Promise<OrgSnapshot>;
+    /** Lend an on-call agent to another lead's team (ADR-054 §2–§4). */
+    lend: (id: string, toLeadId: string, until: LoanUntil) => Promise<OrgSnapshot>;
   };
 }

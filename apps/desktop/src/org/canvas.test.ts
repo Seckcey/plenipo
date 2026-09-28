@@ -239,4 +239,12 @@ describe("the legend's list (ADR-053 §15)", () => {
     expect(ORG_ID).toBe("organization");
     expect(position("x", "X", "r-dev", null).loan).toBeNull();
   });
+
+  it("describes the drop outlines as they are drawn: green, or red with the reason in words", () => {
+    const words = (key: string) => SYMBOLS.find((s) => s.key === key)?.words ?? "";
+    expect(words("drop-valid")).toBe("A green outline: dropping here opens its choices.");
+    expect(words("drop-refused")).toBe(
+      "A red outline, with the reason in words next to the pointer.",
+    );
+  });
 });

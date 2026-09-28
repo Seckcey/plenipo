@@ -51,6 +51,9 @@ an on-call agent › AI model (its own rule) › Cancel — Save keeps this rule
 an on-call agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
 an on-call agent › Team › Move to report to — It joins the chosen lead's team.
 an on-call agent › Team › Move — Makes it report to the one chosen above.
+an on-call agent › Team › Lend to the team of — Its lead can hand it work while it helps.
+an on-call agent › Team › For how long — One objective, or until you press Send home.
+an on-call agent › Team › Lend — It helps that team, under that team's project's limits, and comes home when you choose (or when that objective is done).
 an on-call agent › Team › Assign as — What it checks for the team: its work, its testing, or its safety.
 an on-call agent › Team › Of the team led by — The lead whose team hands it work to check.
 an on-call agent › Team › Assign — It stays where it is and joins that team's list of who checks the work.

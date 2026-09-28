@@ -29,8 +29,10 @@ import {
   MOOD_WORDS,
   NO_MOOD_WORD,
   PICTURE_NOTE,
+  READING_DETAILS,
   STATUS_ORDER,
   STATUS_WORDS,
+  cannotReadDetails,
   describeOwner,
   oneLineMessage,
 } from "./words";
@@ -40,10 +42,17 @@ export const OWNER_BUTTON_ID = "owner-button";
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** What the keyboard can reach in the panel, in order (not the hidden file input). */
+/**
+ * What Tab can reach in the panel, in order: not the hidden file input, nothing turned off, and
+ * of each group of choices only the chosen one (Tab goes to it; the arrow keys move in the group).
+ */
 function focusables(root: HTMLElement | null): HTMLElement[] {
   return [...(root?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter(
-    (el) => el.tabIndex >= 0 && !el.closest("[hidden]"),
+    (el) =>
+      el.tabIndex >= 0 &&
+      !el.closest("[hidden]") &&
+      !el.matches(":disabled") &&
+      !(el instanceof HTMLInputElement && el.type === "radio" && !el.checked),
   );
 }
 
@@ -52,26 +61,39 @@ function focusables(root: HTMLElement | null): HTMLElement[] {
  * small panel to change your picture, status, mood, and message.
  */
 export function OwnerButton() {
-  const { profile, save } = useOwnerProfile();
+  const { profile, save, reload, loadError } = useOwnerProfile();
   const [open, setOpen] = useState(false);
+  // While Save is on its way, the panel stays open: only Plenipo's answer closes it.
+  const [saving, setSaving] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panelId = useId();
 
   const close = useCallback((refocus: boolean) => {
     setOpen(false);
+    setSaving(false);
     if (refocus) button.current?.focus();
   }, []);
 
+  const toggle = () => {
+    if (open) {
+      if (!saving) close(false);
+      return;
+    }
+    setOpen(true);
+    // Your details are not loaded yet (or reading them failed): read them again.
+    if (!profile) reload?.();
+  };
+
   // A click outside the panel closes it, like Cancel (the focus stays where you clicked).
   useEffect(() => {
-    if (!open) return;
+    if (!open || saving) return;
     const outside = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
-  }, [open]);
+  }, [open, saving]);
 
   const now = profile
     ? `${STATUS_WORDS[profile.status]}${profile.mood ? `, feeling ${MOOD_WORDS[profile.mood]}` : ""}`
@@ -90,25 +112,57 @@ export function OwnerButton() {
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         title={profile ? `You: ${describeOwner(profile)}` : "You"}
-        onClick={() => (open ? close(false) : setOpen(true))}
+        onClick={toggle}
       >
         <OwnerFace profile={profile} size={22} />
       </button>
-      {open && <OwnerPanel id={panelId} profile={profile} save={save} onClose={close} />}
+      {open && (
+        <OwnerPanel
+          id={panelId}
+          profile={profile}
+          loadError={loadError ?? null}
+          reload={reload}
+          save={save}
+          pending={saving}
+          onPending={setSaving}
+          onClose={close}
+        />
+      )}
     </div>
   );
 }
 
-/** The panel: your picture, status, mood, and message, kept by Save. */
+/** What you changed in the panel. The rest shows your details as kept, even as they arrive. */
+interface Edits {
+  status?: OwnerStatus;
+  mood?: Mood | null;
+  message?: string;
+}
+
+/**
+ * The panel: your picture, status, mood, and message, kept by Save. Until your details are read,
+ * Save is off (it would replace what is kept with the panel's starting choices); when they
+ * arrive, they fill in what you have not changed yet.
+ */
 function OwnerPanel({
   id,
   profile,
+  loadError,
+  reload,
   save,
+  pending,
+  onPending,
   onClose,
 }: {
   id: string;
   profile: OwnerProfile | null;
+  /** Why your details could not be read (while `profile` is `null`). */
+  loadError: string | null;
+  reload: (() => void) | undefined;
   save: (input: OwnerProfileInput) => Promise<OwnerProfile>;
+  /** Save is on its way: Cancel, Escape, and clicks outside wait for it. */
+  pending: boolean;
+  onPending: (pending: boolean) => void;
   /** `true`: the focus goes back to the button. */
   onClose: (refocus: boolean) => void;
 }) {
@@ -120,12 +174,15 @@ function OwnerPanel({
   const countId = `${uid}-count`;
   const box = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<OwnerStatus>(profile?.status ?? "available");
-  const [mood, setMood] = useState<Mood | null>(profile?.mood ?? null);
-  const [message, setMessage] = useState(profile?.message ?? "");
+  const [edits, setEdits] = useState<Edits>({});
+  const status = edits.status ?? profile?.status ?? "available";
+  const mood = edits.mood !== undefined ? edits.mood : (profile?.mood ?? null);
+  const message = edits.message ?? profile?.message ?? "";
+  const setStatus = (next: OwnerStatus) => setEdits((e) => ({ ...e, status: next }));
+  const setMood = (next: Mood | null) => setEdits((e) => ({ ...e, mood: next }));
+  const setMessage = (next: string) => setEdits((e) => ({ ...e, message: next }));
   const [picture, setPicture] = useState<PictureChange>({ kind: "keep" });
   const [reading, setReading] = useState(false);
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const shown =
@@ -166,15 +223,15 @@ function OwnerPanel({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (pending || reading) return;
-    setPending(true);
+    if (pending || reading || !profile) return;
+    onPending(true);
     setError(null);
     try {
       await save({ status, mood, message: message.trim(), picture });
       onClose(true);
     } catch (reason) {
       setError(`Couldn't save your changes: ${toCommandError(reason).message}`);
-      setPending(false);
+      onPending(false);
     }
   };
 
@@ -182,7 +239,8 @@ function OwnerPanel({
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      onClose(true);
+      // While Save is on its way, the panel waits for Plenipo's answer.
+      if (!pending) onClose(true);
       return;
     }
     if (e.key !== "Tab") return;
@@ -214,6 +272,30 @@ function OwnerPanel({
         <h2 id={titleId} className="owner-panel__title">
           You
         </h2>
+
+        {!profile && (
+          <div className="owner-panel__loading">
+            {loadError ? (
+              <>
+                <p role="alert">{reload ? cannotReadDetails(loadError) : loadError}</p>
+                {reload && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      reload();
+                      // Try again goes away as it reads: the keyboard moves to Choose a picture….
+                      document.getElementById(chooseId)?.focus();
+                    }}
+                  >
+                    Try again
+                  </Button>
+                )}
+              </>
+            ) : (
+              <p role="status">{READING_DETAILS}</p>
+            )}
+          </div>
+        )}
 
         <fieldset className="owner-panel__group">
           <legend>Your picture</legend>
@@ -334,10 +416,10 @@ function OwnerPanel({
         )}
 
         <footer className="owner-panel__footer">
-          <Button variant="quiet" onClick={() => onClose(true)}>
+          <Button variant="quiet" disabled={pending} onClick={() => onClose(true)}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={pending || reading}>
+          <Button type="submit" variant="primary" disabled={pending || reading || !profile}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </footer>

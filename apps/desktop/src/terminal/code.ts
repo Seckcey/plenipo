@@ -50,26 +50,39 @@ export function isOpen(state: WatchState): boolean {
  * Put one change in the list. `writing` is the text so far: a string, `null` for none, or
  * `undefined` when unknown (a change read from `get_watch`), which keeps what the tab has.
  * A change older than the one the list has for its file, or from an older objective, is news
- * that came late: it changes nothing.
+ * that came late: it changes nothing. A change `read` from `get_watch` that is only as new as
+ * what the tab heard changes nothing either (what was heard live is the latest word).
+ *
+ * Another objective's change starts a fresh list only once nothing in this one is still being
+ * written or waiting for approval: an agent with work in two objectives at once (an on-call or
+ * lent agent) would otherwise keep swapping one list for the other.
  */
-function put(state: CodeWatch, change: WatchChange, writing: string | null | undefined): CodeWatch {
+function put(
+  state: CodeWatch,
+  change: WatchChange,
+  writing: string | null | undefined,
+  read = false,
+): CodeWatch {
   let s = state;
   if (s.objectiveTaskId !== null && change.objectiveTaskId !== s.objectiveTaskId) {
     const newest = s.changes[0];
-    if (newest && change.at < newest.at) return state;
-    // A new objective: a fresh list, following along.
+    if (newest && (change.at < newest.at || (read && change.at === newest.at))) return state;
+    if (s.changes.some((c) => isOpen(c.state))) return state;
+    // A new objective: a fresh list. Follow along or Pin this file stays as it was, unless the
+    // pinned file is not in the new list.
+    const keepPin = s.pinned === null || s.pinned === change.path;
     s = {
       ...s,
       changes: [],
       writing: {},
       fromTheRecord: false,
-      following: true,
-      pinned: null,
+      following: keepPin ? s.following : true,
+      pinned: keepPin ? s.pinned : null,
     };
   }
   const i = s.changes.findIndex((c) => c.path === change.path);
   const old = i >= 0 ? s.changes[i] : undefined;
-  if (old && old.at > change.at) return state;
+  if (old && (old.at > change.at || (read && old.at === change.at))) return state;
   const rest = s.changes.filter((_, j) => j !== i);
   // Newest first; a change as new as another goes before it (it was heard later).
   const at = rest.findIndex((c) => c.at <= change.at);
@@ -100,7 +113,7 @@ export function loadWatchView(state: CodeWatch, view: WatchView): CodeWatch {
   let s = state;
   // Oldest first, so the newest decides the objective.
   for (const change of [...view.changes].reverse()) {
-    s = put(s, { ...change, positionId: change.positionId ?? view.positionId }, undefined);
+    s = put(s, { ...change, positionId: change.positionId ?? view.positionId }, undefined, true);
   }
   if (view.fromTheRecord && s.objectiveTaskId === (view.objectiveTaskId ?? null)) {
     s = { ...s, fromTheRecord: true };
@@ -129,7 +142,7 @@ export function setFollowing(state: CodeWatch, on: boolean): CodeWatch {
   return shown ? pinFile(state, shown.path) : { ...state, following: false };
 }
 
-/** The newest change (its conversation is the one Stop stops). */
+/** The newest change in the list. */
 export function latestChange(state: CodeWatch): WatchChange | null {
   return state.changes[0] ?? null;
 }

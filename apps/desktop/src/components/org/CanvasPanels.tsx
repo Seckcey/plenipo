@@ -53,6 +53,11 @@ const MODES: { mode: PointerMode; label: string; key: string; glyph: string; wor
   },
 ];
 
+/** Words in the middle of a sentence: "Department" → "department", but "AI tool" stays. */
+function lowerFirst(words: string): string {
+  return /^[A-Z]{2}/.test(words) ? words : words.charAt(0).toLowerCase() + words.slice(1);
+}
+
 export function CanvasToolbar({
   mode,
   onMode,
@@ -248,7 +253,7 @@ export function CanvasToolbar({
         </button>
         {tool({
           label: "Guide to the canvas",
-          title: "Guide to the canvas (?)",
+          title: "Guide to the canvas",
           glyph: "help",
           expanded: helpOpen,
           onClick: onHelp,
@@ -263,11 +268,14 @@ function Panel({
   label,
   className,
   onClose,
+  closeLabel = `Close ${lowerFirst(label)}`,
   children,
 }: {
   label: string;
   className: string;
   onClose: () => void;
+  /** The close button's name, when "Close" and the heading do not say it. */
+  closeLabel?: string;
   children: ReactNode;
 }) {
   const id = useId();
@@ -286,7 +294,7 @@ function Panel({
     >
       <header className="canvas-panel__head">
         <h2 id={id}>{label}</h2>
-        <IconButton icon="close" label={`Close ${label.toLowerCase()}`} onClick={onClose} />
+        <IconButton icon="close" label={closeLabel} onClick={onClose} />
       </header>
       {children}
     </section>
@@ -326,7 +334,7 @@ export function FiltersPanel({
             label={FILTER_LABEL[key]}
             value={filters[key] ?? ""}
             options={[
-              { value: "", label: `Any ${FILTER_LABEL[key].toLowerCase()}` },
+              { value: "", label: `Any ${lowerFirst(FILTER_LABEL[key])}` },
               ...options[key],
             ]}
             onChange={(v) => choose(key, v)}
@@ -414,7 +422,12 @@ export function LegendPanel({ onClose }: { onClose: () => void }) {
 
 export function HelpPanel({ onTour, onClose }: { onTour: () => void; onClose: () => void }) {
   return (
-    <Panel label="The canvas" className="canvas-panel--help" onClose={onClose}>
+    <Panel
+      label="The canvas"
+      className="canvas-panel--help"
+      closeLabel="Close the guide"
+      onClose={onClose}
+    >
       <ul className="canvas-help">
         <li>
           <strong>Select</strong> (V): click a tile for its details. Drag an agent onto another for

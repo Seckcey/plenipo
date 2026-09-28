@@ -2,6 +2,9 @@
  * Your picture (Phase 18, ADR-056 §3): the window reads the file you chose in Windows' own
  * "Open" box, cuts it square from the middle, and shrinks it to at most 256 × 256 pixels. Plenipo
  * receives only that small PNG, in base64; it never opens a file path itself.
+ *
+ * The window reads the picture's size first and refuses one over 50 megapixels, then makes only
+ * the small square (not the whole photo at full size), so a huge photo cannot use up its memory.
  */
 
 /** The largest side of the picture Plenipo keeps, in pixels. */
@@ -10,6 +13,8 @@ export const PICTURE_SIDE = 256;
 export const MAX_PICTURE_BYTES = 256 * 1024;
 /** The largest file the window reads, in bytes (a phone photo is well under this). */
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+/** The most pixels a picture may have (50 megapixels: far more than a usual phone photo). */
+export const MAX_PIXELS = 50_000_000;
 /** The kinds of pictures the window can read. */
 export const PICTURE_TYPES = [
   "image/png",
@@ -33,13 +38,18 @@ export const NOT_A_PICTURE =
   "That file isn't a picture Plenipo can use. Choose a PNG, JPEG, GIF, WebP, or BMP picture.";
 export const FILE_TOO_BIG = "That picture is too big (over 20 MB). Choose a smaller one.";
 export const CANNOT_READ = "Plenipo couldn't read that picture. Try another one.";
+export const TOO_MANY_PIXELS = "That picture is too large to use: choose one under 50 megapixels.";
 export const STILL_TOO_BIG = "That picture is still too big after shrinking it. Try another one.";
 
+/** A square part of a picture: where it starts, and its side, in pixels. */
+export interface Crop {
+  sx: number;
+  sy: number;
+  side: number;
+}
+
 /** The biggest square in the middle of a picture: where to start, and its side. */
-export function squareCrop(
-  width: number,
-  height: number,
-): { sx: number; sy: number; side: number } {
+export function squareCrop(width: number, height: number): Crop {
   const side = Math.max(0, Math.floor(Math.min(width, height)));
   return {
     sx: Math.floor((width - side) / 2),
@@ -85,24 +95,55 @@ export interface DecodedPicture {
 
 /** How the window reads and draws a picture (tests put a stand-in here: jsdom has no canvas). */
 export interface Painter {
-  decode: (file: Blob) => Promise<DecodedPicture>;
+  /** The picture's size in pixels, read without making the picture itself. */
+  measure: (file: Blob) => Promise<{ width: number; height: number }>;
+  /**
+   * Read the picture. Where the window can, it makes only `crop` of it, `side` pixels square;
+   * otherwise the whole picture (either way, the result's `width` and `height` say what it made).
+   */
+  decode: (file: Blob, crop: Crop, side: number) => Promise<DecodedPicture>;
   /** Draw `crop` of the picture as a square of `side` pixels; returns a PNG `data:` address. */
-  draw: (
-    picture: DecodedPicture,
-    crop: { sx: number; sy: number; side: number },
-    side: number,
-  ) => string;
+  draw: (picture: DecodedPicture, crop: Crop, side: number) => string;
 }
 
-async function decodeInWindow(file: Blob): Promise<DecodedPicture> {
+/**
+ * The picture's size, from an `<img>` that loads it but is never drawn (so the window does not
+ * make the full-size picture for it).
+ */
+function measureInWindow(file: Blob): Promise<{ width: number; height: number }> {
+  const url = URL.createObjectURL(file);
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("The picture could not be read."));
+    image.src = url;
+  }).finally(() => URL.revokeObjectURL(url));
+}
+
+function fromBitmap(bitmap: ImageBitmap): DecodedPicture {
+  return {
+    source: bitmap,
+    width: bitmap.width,
+    height: bitmap.height,
+    close: () => bitmap.close(),
+  };
+}
+
+async function decodeInWindow(file: Blob, crop: Crop, side: number): Promise<DecodedPicture> {
   if (typeof createImageBitmap === "function") {
-    const bitmap = await createImageBitmap(file);
-    return {
-      source: bitmap,
-      width: bitmap.width,
-      height: bitmap.height,
-      close: () => bitmap.close(),
-    };
+    try {
+      // Only the middle square, already small.
+      return fromBitmap(
+        await createImageBitmap(file, crop.sx, crop.sy, crop.side, crop.side, {
+          resizeWidth: side,
+          resizeHeight: side,
+          resizeQuality: "high",
+        }),
+      );
+    } catch {
+      // A window that cannot shrink as it reads: the whole picture (at most 50 megapixels).
+      return fromBitmap(await createImageBitmap(file));
+    }
   }
   const url = URL.createObjectURL(file);
   try {
@@ -121,11 +162,7 @@ async function decodeInWindow(file: Blob): Promise<DecodedPicture> {
   }
 }
 
-function drawInWindow(
-  picture: DecodedPicture,
-  crop: { sx: number; sy: number; side: number },
-  side: number,
-): string {
+function drawInWindow(picture: DecodedPicture, crop: Crop, side: number): string {
   const canvas = document.createElement("canvas");
   canvas.width = side;
   canvas.height = side;
@@ -138,7 +175,11 @@ function drawInWindow(
 }
 
 /** The window's own reading and drawing. */
-export const WINDOW_PAINTER: Painter = { decode: decodeInWindow, draw: drawInWindow };
+export const WINDOW_PAINTER: Painter = {
+  measure: measureInWindow,
+  decode: decodeInWindow,
+  draw: drawInWindow,
+};
 
 /**
  * Read a chosen picture, cut the middle square, and shrink it to at most 256 × 256 pixels (or
@@ -148,13 +189,24 @@ export const WINDOW_PAINTER: Painter = { decode: decodeInWindow, draw: drawInWin
 export async function shrinkToPng(file: Blob, painter: Painter = WINDOW_PAINTER): Promise<string> {
   if (!isPictureType(file.type)) throw new PictureError(NOT_A_PICTURE);
   if (file.size > MAX_FILE_BYTES) throw new PictureError(FILE_TOO_BIG);
+  let size: { width: number; height: number };
+  try {
+    size = await painter.measure(file);
+  } catch {
+    throw new PictureError(CANNOT_READ);
+  }
+  if (size.width * size.height > MAX_PIXELS) throw new PictureError(TOO_MANY_PIXELS);
+  const middle = squareCrop(size.width, size.height);
+  const first = sidesToTry(middle.side)[0];
+  if (first === undefined) throw new PictureError(CANNOT_READ);
   let picture: DecodedPicture;
   try {
-    picture = await painter.decode(file);
+    picture = await painter.decode(file, middle, first);
   } catch {
     throw new PictureError(CANNOT_READ);
   }
   try {
+    // The middle square of what was read: the whole picture's, or all of the square made.
     const crop = squareCrop(picture.width, picture.height);
     const sides = sidesToTry(crop.side);
     if (sides.length === 0) throw new PictureError(CANNOT_READ);

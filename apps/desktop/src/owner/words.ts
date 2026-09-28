@@ -51,7 +51,15 @@ export const NO_MOOD_WORD = "None";
 
 /** What Do not disturb does, under the status picker. */
 export const DO_NOT_DISTURB_HINT =
-  "Windows pop-up notices wait while this is on; the bell still counts them.";
+  "Windows pop-up notices wait while this is on and come as one when you turn it off; the bell still counts them.";
+
+/** While your details are being read: Save waits for them, so nothing kept is lost. */
+export const READING_DETAILS = "Reading your details…";
+
+/** When your details could not be read: Save stays off, so nothing kept is lost. */
+export function cannotReadDetails(reason: string): string {
+  return `Plenipo couldn't read your details, so Save is off for now: ${reason}`;
+}
 
 /** Where your picture is kept. */
 export const PICTURE_NOTE = "Kept on this PC only. Plenipo never sends it anywhere.";

@@ -293,14 +293,14 @@ export const SYMBOLS = [
     key: "drop-valid",
     group: "Dragging",
     label: "Can drop here",
-    words: "A solid outline: dropping here opens its choices.",
+    words: "A green outline: dropping here opens its choices.",
     sample: { kind: "tile", className: "topo-node--position is-drop-target", glyph: "manager" },
   },
   {
     key: "drop-refused",
     group: "Dragging",
     label: "Cannot drop here",
-    words: "A crossed outline, with the reason next to the pointer.",
+    words: "A red outline, with the reason in words next to the pointer.",
     sample: { kind: "tile", className: "topo-node--position is-drop-refused", glyph: "manager" },
   },
   {

@@ -354,18 +354,19 @@ export function layoutOrganization(
       const workersOnly = attached.every((c) => c.kind === "worker");
       links.push({
         id: `bus:${parent.id}`,
-        d:
-          `M ${px} ${py} H ${busX}` +
-          (children.length > 1 && lastCy - CORNER > py ? ` V ${lastCy - CORNER}` : ""),
+        // Down to the last attached report whenever it is below the lead's row (even when it is
+        // the only one left: its first report may have been moved away).
+        d: `M ${px} ${py} H ${busX}` + (lastCy - CORNER > py ? ` V ${lastCy - CORNER}` : ""),
         style: workersOnly ? "worker" : "tree",
         active: attached.some(isActive),
       });
     }
-    attached.forEach((item, i) => {
+    attached.forEach((item) => {
       const child = byId.get(item.id);
       if (!child) return;
       const cy = child.y + child.h / 2;
-      const straight = i === 0 || cy - CORNER <= py;
+      // Straight on only for a report on the lead's own row; a lower one curves off the bus.
+      const straight = cy - CORNER <= py;
       links.push({
         id: `link:${child.id}`,
         d: straight

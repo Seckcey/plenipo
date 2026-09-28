@@ -12,7 +12,6 @@ import {
   emptyCodeWatch,
   isOpen,
   KIND_WORD,
-  latestChange,
   loadWatchView,
   pinFile,
   removedWords,
@@ -27,12 +26,18 @@ import {
 } from "./code";
 import type { CodeTab } from "./panel";
 
-/** A change's file, as read from Plenipo (or why it could not be). */
+/** A change's file, as read from Plenipo. */
 interface Loaded {
   /** The change's ID and state: a change read again once its state moves on. */
   key: string;
+  /** `null`: Plenipo no longer has it. */
   file: WatchFileView | null;
-  error: string | null;
+}
+
+/** Why a change's file could not be read. Not kept with the files: picking it reads it again. */
+interface Failed {
+  key: string;
+  error: string;
 }
 
 /** The files read lately, kept so going back to one does not read it again. */
@@ -64,12 +69,16 @@ export function CodeWatchView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<readonly Loaded[]>([]);
+  const [failed, setFailed] = useState<Failed | null>(null);
 
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
     subscribeWatch((update) => {
-      if (!disposed) setWatch((s) => applyWatchUpdate(s, update));
+      if (disposed) return;
+      setWatch((s) => applyWatchUpdate(s, update));
+      // News of this agent's changes: the list is up to date again from here on.
+      if (update.change.positionId === positionId) setLoadError(null);
     })
       .then((s) => {
         if (disposed) s();
@@ -102,24 +111,46 @@ export function CodeWatchView({
   }, [onWriting, tab.id, writing]);
   useEffect(() => () => onWriting?.(tab.id, false), [onWriting, tab.id]);
 
-  // Stop: the task of the conversation that made the newest change, while it is working.
+  /** Try again, after Plenipo could not read the changes. */
+  const readAgain = () => {
+    setLoadError(null);
+    setReading(true);
+    getWatch(positionId)
+      .then((view) => setWatch((s) => loadWatchView(s, view)))
+      .catch((reason: unknown) => setLoadError(toCommandError(reason).message))
+      .finally(() => setReading(false));
+  };
+
+  const shown = shownChange(watch);
+  const labels = taskLabels(watch.changes);
+
+  // Stop: the task that made the change shown (the file on screen), while it is working. When
+  // the list holds more than one task's work, the button names the task.
   const agents = useContext(AgentsContext);
-  const latest = latestChange(watch);
-  const sessionId = latest?.sessionId ? latest.sessionId : null;
+  const stopTask = shown ? labels.get(shown.taskId) : undefined;
+  const sessionId = shown?.sessionId ? shown.sessionId : null;
   const session = sessionId ? agents?.state.sessions[sessionId] : undefined;
   const working = sessionId !== null && (session ? isRunning(session) || isWaiting(session) : true);
+  const stopTitle = !shown
+    ? "Nothing is being worked on"
+    : !working
+      ? "Nothing to stop in this file's task"
+      : stopTask
+        ? `Stop ${stopTask}, the task that changed this file`
+        : "Stop the task that changed this file";
   const stopIt = () => {
     if (!sessionId) return;
     setBusy(true);
     setError(null);
-    cancelAgentTurn(sessionId)
+    // As Cancel task on the Workers page does (it also updates that page), when it is here.
+    const cancel: (id: string) => Promise<unknown> = agents?.cancel ?? cancelAgentTurn;
+    cancel(sessionId)
       .catch((reason: unknown) => setError(toCommandError(reason).message))
       .finally(() => setBusy(false));
   };
 
   // The file shown: read from Plenipo once saved (its lines, marked), or while being written
   // when the tab has none of its text yet.
-  const shown = shownChange(watch);
   const liveText = shown ? watch.writing[shown.id] : undefined;
   const key = shown ? `${shown.id}:${shown.state}` : null;
   const shownId = shown?.id ?? null;
@@ -128,26 +159,27 @@ export function CodeWatchView({
     (shown.state === "saved" ? !shown.summary : isOpen(shown.state) && liveText === undefined);
   const loaded = key === null ? undefined : files.find((f) => f.key === key);
   const have = loaded !== undefined;
+  const failedHere = failed !== null && failed.key === key;
   useEffect(() => {
-    if (!wanted || have || key === null || shownId === null) return;
+    if (!wanted || have || failedHere || key === null || shownId === null) return;
     let live = true;
     getWatchChange(shownId)
       .then((file) => {
-        if (live) setFiles((all) => remember(all, { key, file, error: null }));
+        if (live) setFiles((all) => remember(all, { key, file }));
       })
       .catch((reason: unknown) => {
-        if (live) {
-          setFiles((all) =>
-            remember(all, { key, file: null, error: toCommandError(reason).message }),
-          );
-        }
+        if (live) setFailed({ key, error: toCommandError(reason).message });
       });
     return () => {
       live = false;
     };
-  }, [wanted, have, key, shownId]);
+  }, [wanted, have, failedHere, key, shownId]);
 
-  const labels = taskLabels(watch.changes);
+  /** A file picked from the list: it stays in view, and is read again if reading it failed. */
+  const pick = (path: string) => {
+    setFailed(null);
+    setWatch((s) => pinFile(s, path));
+  };
 
   return (
     <div className="code-watch">
@@ -169,10 +201,10 @@ export function CodeWatchView({
           size="sm"
           icon="stop"
           disabled={busy || !working}
-          title={working ? "Stop the task it is working on" : "Nothing is being worked on"}
+          title={stopTitle}
           onClick={stopIt}
         >
-          Stop
+          {stopTask ? `Stop ${stopTask}` : "Stop"}
         </Button>
       </div>
       {error && (
@@ -181,7 +213,16 @@ export function CodeWatchView({
         </Banner>
       )}
       {loadError && (
-        <Banner tone="error" role="alert" title="Plenipo could not read the changes">
+        <Banner
+          tone="error"
+          role="alert"
+          title="Plenipo could not read the changes"
+          action={
+            <Button size="sm" onClick={readAgain}>
+              Try again
+            </Button>
+          }
+        >
           {loadError}
         </Banner>
       )}
@@ -218,7 +259,7 @@ export function CodeWatchView({
                       className={cx("code-watch__file", current && "code-watch__file--shown")}
                       aria-current={current ? "true" : undefined}
                       title={c.path}
-                      onClick={() => setWatch((s) => pinFile(s, c.path))}
+                      onClick={() => pick(c.path)}
                     >
                       <span className="code-watch__file-name">{name}</span>
                       {folder && <span className="code-watch__file-folder">{folder}</span>}
@@ -239,7 +280,8 @@ export function CodeWatchView({
               key={shown.id}
               change={shown}
               text={liveText ?? loaded?.file?.writing ?? null}
-              loaded={loaded}
+              file={loaded?.file}
+              error={failed !== null && failed.key === key ? failed.error : null}
               following={watch.following}
               task={labels.get(shown.taskId)}
             />
@@ -265,21 +307,31 @@ function Counts({ change }: { change: WatchChange }) {
 
 /** The chosen file: its state, and its lines (marked), its text so far, or why there is none. */
 function FilePane({
-  change,
+  change: heard,
   text,
-  loaded,
+  file,
+  error,
   following,
   task,
 }: {
   change: WatchChange;
   /** The text so far, while it is being written (or waits for your approval). */
   text: string | null;
-  loaded: Loaded | undefined;
+  /** The file as read from Plenipo: `undefined` not read (yet), `null` its lines are gone. */
+  file: WatchFileView | null | undefined;
+  /** Why the file could not be read. */
+  error: string | null;
   following: boolean;
   task: string | undefined;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  const lines = change.state === "saved" && !change.summary ? (loaded?.file?.lines ?? null) : null;
+  // What Plenipo said when the file was read wins when it is newer than what the tab heard. Its
+  // summary counts even when it is not newer: Plenipo lets go of old lines (to keep its memory
+  // small) without telling the tab, and then says so only in the file it gives.
+  const read = file?.change;
+  const change = read && read.id === heard.id && read.at > heard.at ? read : heard;
+  const summary = change.summary ?? read?.summary;
+  const lines = change.state === "saved" && !summary ? (file?.lines ?? null) : null;
   const open = isOpen(change.state);
 
   // Scroll to the change: the first new or changed line (or where lines went) once the file's
@@ -323,7 +375,7 @@ function FilePane({
             Approve or deny it in Approvals. It is not saved yet.
           </Banner>
         )}
-        {change.summary && <p className="code-watch__summary">{change.summary}</p>}
+        {summary && <p className="code-watch__summary">{summary}</p>}
         {text !== null ? (
           <div
             ref={box}
@@ -343,7 +395,7 @@ function FilePane({
             ))}
           </div>
         ) : (
-          !change.summary && (
+          !summary && (
             <p className="code-watch__summary">
               {change.state === "writing"
                 ? "Its text shows here as the AI writes it."
@@ -353,15 +405,16 @@ function FilePane({
         )}
       </>
     );
-  } else if (change.summary) {
-    body = <p className="code-watch__summary">{change.summary}</p>;
-  } else if (loaded?.error) {
+  } else if (summary) {
+    body = <p className="code-watch__summary">{summary}</p>;
+  } else if (error) {
     body = (
       <Banner tone="error" role="status" title="Plenipo could not read this file">
-        {loaded.error}
+        <p className="code-watch__reason">{error}</p>
+        <p>Pick the file in the list to try again.</p>
       </Banner>
     );
-  } else if (loaded && loaded.file === null) {
+  } else if (file === null) {
     body = (
       <p className="code-watch__summary">
         Plenipo no longer has the lines of this change. The file is in the working copy.
@@ -390,7 +443,7 @@ function FilePane({
             <Line line={line} number={i + 1} />
           </Fragment>
         ))}
-        {(loaded?.file?.removedAtEnd ?? 0) > 0 && <Removed n={loaded?.file?.removedAtEnd ?? 0} />}
+        {(file?.removedAtEnd ?? 0) > 0 && <Removed n={file?.removedAtEnd ?? 0} />}
       </div>
     );
   }

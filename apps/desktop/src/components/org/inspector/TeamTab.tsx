@@ -1,7 +1,7 @@
-/** The Team tab: who it reports to (and Move), its team, its reviewer, QA, and security
+/** The Team tab: who it reports to (and Move), Lend, its team, its reviewer, QA, and security
  * assignments, and the department or project it leads. */
 import { useId, useState } from "react";
-import type { OrgSnapshot, OversightRole, PositionInfo } from "@plenipo/types";
+import type { LoanUntil, OrgSnapshot, OversightRole, PositionInfo } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
 
 import { POSITION_STATUS } from "../../../org/cards";
@@ -12,7 +12,13 @@ import {
   plural,
   runtimeLabel,
 } from "../../../org/format";
-import { moveChoices, oversightOrder, oversightRefusal, positionMap } from "../../../org/rules";
+import {
+  lendRefusal,
+  moveChoices,
+  oversightOrder,
+  oversightRefusal,
+  positionMap,
+} from "../../../org/rules";
 import { rankName, titlesOf } from "../../../org/titles";
 import { Field, ItemLink, Option, Options, Refusal, Section } from "./parts";
 import { useRun } from "./useRun";
@@ -49,6 +55,9 @@ export function TeamTab({
         </p>
         {p.active && <MoveForm p={p} snapshot={snapshot} actions={actions} />}
       </Section>
+      {p.active && p.staffing === "onDemand" && !p.loan && (
+        <LendForm p={p} snapshot={snapshot} actions={actions} />
+      )}
       {p.staffing === "persistent" && (
         <Section title={`Its team (${team.length})`}>
           {team.length === 0 ? (
@@ -213,6 +222,93 @@ function MoveForm({
       </div>
       <Refusal error={error} />
     </form>
+  );
+}
+
+/**
+ * Lend an on-call agent to another team (ADR-054 §2–§4), without a mouse: the same choices as
+ * dropping it on a lead (ADR-053: the details do everything the canvas does).
+ */
+function LendForm({
+  p,
+  snapshot,
+  actions,
+}: {
+  p: PositionInfo;
+  snapshot: OrgSnapshot;
+  actions: InspectorActions;
+}) {
+  const leads = snapshot.positions.filter((lead) => lendRefusal(snapshot, p, lead) === null);
+  const [lead, setLead] = useState("");
+  const [until, setUntil] = useState<LoanUntil>("objective");
+  const { pending, error, go } = useRun(actions);
+  const lendHint = useId();
+  const chosen = leads.find((l) => l.id === lead) ?? null;
+  return (
+    <Section title="Lend to another team">
+      <form
+        className="inspector__assign"
+        aria-label="Lend to another team"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (chosen) {
+            void go(() => actions.api.lend(p.id, chosen.id, until)).then(
+              (lent) => lent && setLead(""),
+            );
+          }
+        }}
+      >
+        <Field label="Lend to the team of" hint="Its lead can hand it work while it helps.">
+          {({ id, hintId }) => (
+            <select
+              id={id}
+              aria-describedby={hintId}
+              value={chosen?.id ?? ""}
+              onChange={(e) => setLead(e.target.value)}
+              disabled={leads.length === 0}
+            >
+              <option value="">
+                {leads.length === 0 ? "No team can take it now" : "Choose a team…"}
+              </option>
+              {leads.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="For how long" hint="One objective, or until you press Send home.">
+          {({ id, hintId }) => (
+            <select
+              id={id}
+              aria-describedby={hintId}
+              value={until}
+              onChange={(e) => setUntil(e.target.value === "returned" ? "returned" : "objective")}
+            >
+              <option value="objective">For one objective</option>
+              <option value="returned">Until I send it home</option>
+            </select>
+          )}
+        </Field>
+        <div className="option">
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            aria-describedby={lendHint}
+            disabled={pending || !chosen}
+          >
+            Lend
+          </Button>
+          <span id={lendHint} className="option__hint">
+            It helps that team, under that team&apos;s project&apos;s limits, and comes home when
+            you choose (or when that objective is done).
+          </span>
+        </div>
+        <Refusal error={error} />
+      </form>
+    </Section>
   );
 }
 

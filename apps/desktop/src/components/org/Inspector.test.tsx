@@ -132,6 +132,7 @@ function actions(): InspectorActions {
       bringBack: vi.fn(),
       saveToWorkforce: vi.fn(),
       sendHome: vi.fn(),
+      lend: vi.fn(),
     },
   };
 }
@@ -447,6 +448,56 @@ describe("The properties panel", () => {
         confirmLabel: "Archive department",
       }),
     );
+  });
+
+  it("lends an on-call agent from its Team tab, to the teams the rules allow (ADR-054)", async () => {
+    const user = userEvent.setup();
+    const { actions: a } = show("p-sec");
+    await user.click(details().getByRole("tab", { name: "Team" }));
+    const form = screen.getByRole("form", { name: "Lend to another team" });
+    const lead = within(form).getByRole("combobox", { name: "Lend to the team of" });
+    const leads = within(lead)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    // Its own lead's team, and the team it already checks, are not offered.
+    expect(leads).toContain("Campaign Supervisor");
+    expect(leads).not.toContain("Engineering Manager");
+    expect(leads).not.toContain("Website Supervisor");
+    expect(leads).not.toContain("Code Reviewer");
+    const lend = within(form).getByRole("button", { name: "Lend" });
+    expect(lend).toBeDisabled();
+    expect(lend).toHaveAccessibleDescription(
+      "It helps that team, under that team's project's limits, and comes home when you choose (or when that objective is done).",
+    );
+    await user.selectOptions(lead, "Campaign Supervisor");
+    expect(within(form).getByRole("combobox", { name: "For how long" })).toHaveDisplayValue(
+      "For one objective",
+    );
+    await user.click(lend);
+    expect(a.api.lend).toHaveBeenCalledWith("p-sec", "p-camp", "objective");
+  });
+
+  it("offers no Lend for a full-time agent or one already lent", async () => {
+    const user = userEvent.setup();
+    show("p-web");
+    await user.click(details().getByRole("tab", { name: "Team" }));
+    expect(screen.queryByRole("form", { name: "Lend to another team" })).toBeNull();
+    cleanup();
+    const org = organization();
+    const auditor = org.positions.find((p) => p.id === "p-sec")!;
+    auditor.loan = {
+      toLeadId: "p-camp",
+      to: "Campaign Supervisor",
+      project: "Q4 Campaign",
+      until: "returned",
+      objectiveTaskId: null,
+      goingHome: false,
+      since: 1,
+    };
+    show("p-sec", org);
+    await user.click(details().getByRole("tab", { name: "Team" }));
+    expect(screen.queryByRole("form", { name: "Lend to another team" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send home" })).toBeInTheDocument();
   });
 
   it("can be widened from its edge, with the arrow keys too", async () => {

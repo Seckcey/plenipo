@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import type { WatchChange, WatchFileView, WatchUpdate, WatchView } from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentsContext, type AgentsContextValue } from "../agents/context";
+import { initialAgentState } from "../agents/store";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { TerminalPanel } from "./TerminalPanel";
@@ -34,6 +36,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getWatch: vi.fn(),
     getWatchChange: vi.fn(),
     getLiveView: vi.fn(),
+    getOrganization: vi.fn(),
     cancelAgentTurn: vi.fn(),
   };
 });
@@ -382,6 +385,201 @@ describe("the Watch tab for code", () => {
     await user.click(await screen.findByRole("menuitem", { name: /^Watch Senior Developer/ }));
     expect(
       await screen.findByRole("tab", { name: /Watch · Senior Developer/ }),
+    ).toBeInTheDocument();
+  });
+  it("says so when Plenipo no longer keeps a saved change's lines, not that the file is empty", async () => {
+    const user = userEvent.setup();
+    const saved = change();
+    api.getWatch.mockResolvedValue(view([saved]));
+    // Plenipo let go of the lines (to keep its memory small) without telling the tab.
+    const note =
+      "3 lines added, 2 removed. The lines are no longer kept; the file is in the working copy.";
+    api.getWatchChange.mockResolvedValue({
+      change: { ...saved, summary: note },
+      lines: [],
+      removedAtEnd: 0,
+    });
+    render(<Harness />);
+    const body = await openTab(user);
+    expect(await within(body).findByText(note)).toBeInTheDocument();
+    expect(within(body).queryByText("The file is empty now.")).toBeNull();
+  });
+
+  it("shows what Plenipo said when the file was read, when that is newer", async () => {
+    const user = userEvent.setup();
+    // The tab has it as being written (without its text); Plenipo has saved it since.
+    const writing = change({ state: "writing", added: 0, removed: 0 });
+    api.getWatch.mockResolvedValue(view([writing]));
+    api.getWatchChange.mockResolvedValue(
+      marked({ ...writing, state: "saved", at: writing.at + 5 }),
+    );
+    render(<Harness />);
+    const body = await openTab(user);
+    const file = await within(body).findByRole("region", { name: "src/app.rs, after the change" });
+    expect(file).toHaveTextContent("TWO");
+    expect(within(body).queryByText("Being written — not saved yet")).toBeNull();
+  });
+
+  it("Stop stops the task of the file shown, and names it when the list holds several", async () => {
+    const user = userEvent.setup();
+    api.getWatch.mockResolvedValue(
+      view([
+        change({ path: "src/b.rs", taskId: "t2", sessionId: "s-2", at: 2_000 }),
+        change({ path: "src/a.rs", taskId: "t1", sessionId: "s-1", at: 1_000 }),
+      ]),
+    );
+    render(<Harness />);
+    const body = await openTab(user);
+    // Following along: the newest file shows, made by Task 2.
+    const stop2 = await screen.findByRole("button", { name: "Stop Task 2" });
+    await waitFor(() => expect(stop2).toBeEnabled());
+    // The file on screen decides which task Stop stops.
+    await user.click(within(body).getByRole("button", { name: /a\.rs/ }));
+    await user.click(screen.getByRole("button", { name: "Stop Task 1" }));
+    expect(api.cancelAgentTurn).toHaveBeenCalledWith("s-1");
+    expect(api.cancelAgentTurn).not.toHaveBeenCalledWith("s-2");
+  });
+
+  it("Stop cancels through the Workers page when it is there, and says when a task is done", async () => {
+    const user = userEvent.setup();
+    const cancel = vi.fn(() => Promise.resolve());
+    const agents = {
+      state: {
+        ...initialAgentState,
+        sessions: {
+          "s-busy": { id: "s-busy", activeTaskId: "t2", waitingTaskId: null },
+          "s-done": { id: "s-done", activeTaskId: null, waitingTaskId: null },
+        },
+      },
+      cancel,
+    } as unknown as AgentsContextValue;
+    api.getWatch.mockResolvedValue(
+      view([
+        change({ path: "src/b.rs", taskId: "t2", sessionId: "s-busy", at: 2_000 }),
+        change({ path: "src/a.rs", taskId: "t1", sessionId: "s-done", at: 1_000 }),
+      ]),
+    );
+    render(
+      <AgentsContext.Provider value={agents}>
+        <Harness />
+      </AgentsContext.Provider>,
+    );
+    const body = await openTab(user);
+    const stop = await screen.findByRole("button", { name: "Stop Task 2" });
+    expect(stop).toHaveAttribute("title", "Stop Task 2, the task that changed this file");
+    await user.click(stop);
+    expect(cancel).toHaveBeenCalledWith("s-busy");
+    expect(api.cancelAgentTurn).not.toHaveBeenCalled();
+    // Task 1 is done: nothing to stop in its file's task (while Task 2 still works).
+    await user.click(within(body).getByRole("button", { name: /a\.rs/ }));
+    const stop1 = screen.getByRole("button", { name: "Stop Task 1" });
+    expect(stop1).toBeDisabled();
+    expect(stop1).toHaveAttribute("title", "Nothing to stop in this file's task");
+  });
+
+  it("says when Plenipo could not read the changes, and Try again reads them again", async () => {
+    const user = userEvent.setup();
+    api.getWatch.mockRejectedValueOnce({ kind: "internal", message: "The list is not ready" });
+    render(<Harness />);
+    const body = await openTab(user);
+    const banner = await within(body).findByRole("alert");
+    expect(banner).toHaveTextContent("Plenipo could not read the changes");
+    expect(banner).toHaveTextContent("The list is not ready");
+    api.getWatch.mockResolvedValue(view([change({ path: "README.md", summary: "Kept short" })]));
+    await user.click(within(banner).getByRole("button", { name: "Try again" }));
+    expect(await within(body).findAllByText("Kept short")).not.toHaveLength(0);
+    expect(within(body).queryByRole("alert")).toBeNull();
+    expect(api.getWatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears the could-not-read banner when news of this agent's changes arrives", async () => {
+    const user = userEvent.setup();
+    api.getWatch.mockRejectedValueOnce({ kind: "internal", message: "The list is not ready" });
+    render(<Harness />);
+    const body = await openTab(user);
+    await within(body).findByRole("alert");
+    // Another agent's news is not this tab's.
+    tell({
+      change: change({ positionId: "p-other", path: "x.rs", state: "writing" }),
+      writing: "x",
+    });
+    expect(within(body).getByRole("alert")).toHaveTextContent("Plenipo could not read the changes");
+    tell({ change: change({ path: "src/x.rs", state: "writing" }), writing: "let x = 1;" });
+    expect(within(body).queryByText("Plenipo could not read the changes")).toBeNull();
+    expect(within(body).getByText("let x = 1;")).toBeInTheDocument();
+  });
+
+  it("reads a file again when it is picked after reading it failed", async () => {
+    const user = userEvent.setup();
+    const saved = change();
+    api.getWatch.mockResolvedValue(view([saved]));
+    api.getWatchChange.mockRejectedValueOnce({ kind: "internal", message: "Plenipo is busy" });
+    render(<Harness />);
+    const body = await openTab(user);
+    expect(await within(body).findByText("Plenipo could not read this file")).toBeInTheDocument();
+    expect(within(body).getByText("Plenipo is busy")).toBeInTheDocument();
+    expect(within(body).getByText("Pick the file in the list to try again.")).toBeInTheDocument();
+    expect(api.getWatchChange).toHaveBeenCalledTimes(1);
+    api.getWatchChange.mockResolvedValue(marked(saved));
+    await user.click(within(body).getByRole("button", { name: /app\.rs/ }));
+    expect(
+      await within(body).findByRole("region", { name: "src/app.rs, after the change" }),
+    ).toBeInTheDocument();
+    expect(within(body).queryByText("Plenipo could not read this file")).toBeNull();
+    expect(api.getWatchChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("names agents that share a title by their team (a title is unique only within a team)", async () => {
+    const user = userEvent.setup();
+    api.getLiveView.mockResolvedValue({
+      at: 1,
+      handoffs: [],
+      workers: [
+        {
+          grantId: "g1",
+          taskId: "t1",
+          positionId: "p-web-dev",
+          worker: "Senior Developer",
+          runtimeId: "claude-code",
+        },
+        {
+          grantId: "g2",
+          taskId: "t2",
+          positionId: "p-app-dev",
+          worker: "Senior Developer",
+          runtimeId: "claude-code",
+        },
+      ],
+    });
+    api.getOrganization.mockResolvedValue({
+      positions: [
+        { id: "p-web", title: "Website Supervisor", reportsTo: null },
+        { id: "p-app", title: "App Supervisor", reportsTo: null },
+        { id: "p-web-dev", title: "Senior Developer", reportsTo: "p-web" },
+        { id: "p-app-dev", title: "Senior Developer", reportsTo: "p-app" },
+      ],
+    } as never);
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Watch Senior Developer" }));
+    await user.click(screen.getByRole("button", { name: /Close Watch for Senior Developer/ }));
+    await user.click(await screen.findByRole("button", { name: "New terminal" }));
+    expect(
+      await screen.findByRole("menuitem", {
+        name: /^Watch Senior Developer \(Website Supervisor's team\)/,
+      }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("menuitem", { name: /^Watch Senior Developer \(App Supervisor's team\)/ }),
+    );
+    expect(
+      await screen.findByRole("tab", {
+        name: /Watch · Senior Developer \(App Supervisor's team\)/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Close Watch for Senior Developer (App Supervisor's team)",
+      }),
     ).toBeInTheDocument();
   });
 });
