@@ -9,8 +9,8 @@ export type LearningSettings = {
  */
 enabled: boolean, 
 /**
- * Roles that learn on their own: their lessons are kept without asking (except lessons
- * from tasks that used websites or the screen).
+ * Roles that learn on their own: a lesson from a task that used no tool, with no command,
+ * path, or web address in it, is kept without asking; the rest wait (ADR-050).
  */
 autoRoles: Array<string>, 
 /**

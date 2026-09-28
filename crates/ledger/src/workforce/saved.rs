@@ -106,7 +106,14 @@ pub(super) fn save(
     let before = &p.metadata["experience"];
     let mut lessons: Vec<String> =
         serde_json::from_value(before["lessons"].clone()).unwrap_or_default();
-    for text in experience::kept_lessons(tx, &p.id)? {
+    // The ones its role kept on its own, never reviewed by the owner: they come back the same
+    // way, never as the owner's (ADR-050).
+    let mut unreviewed: Vec<String> =
+        serde_json::from_value(before["unreviewed"].clone()).unwrap_or_default();
+    for (text, by_owner) in experience::kept_lessons(tx, &p.id)? {
+        if !by_owner && !unreviewed.contains(&text) {
+            unreviewed.push(text.clone());
+        }
         if !lessons.contains(&text) {
             lessons.push(text);
         }
@@ -133,6 +140,7 @@ pub(super) fn save(
         "firstWorked": first,
         "lastWorked": last,
         "places": worked,
+        "unreviewed": unreviewed,
     });
     let specialty = super::specialties::current(tx, p.specialty_id.as_deref())?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -174,8 +182,14 @@ pub(super) fn save(
     get(tx, &id)?.ok_or_else(|| LedgerError::NotFound(format!("saved agent {id}")))
 }
 
-/// Position `position_id` (just created) hires saved agent `saved_id` again: its experience
-/// carries on, its lessons its role no longer has come back as kept, and it leaves the Workforce.
+/// Who a lesson kept on its own was kept by: anyone but the owner reads as "kept on its own, not
+/// reviewed" in a worker's instructions (ADR-050).
+const KEPT_ON_ITS_OWN: &str = "plenipo";
+
+/// Position `position_id` (just created, on `project_id`) hires saved agent `saved_id` again: its
+/// experience carries on, its lessons its role no longer has come back as kept (by the owner, or
+/// on their own and unreviewed, as they were) for its project, and it leaves the Workforce.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn adopt(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
@@ -183,6 +197,7 @@ pub(super) fn adopt(
     position_id: &str,
     role_id: &str,
     title: &str,
+    project_id: Option<&str>,
     actor: &str,
 ) -> Result<()> {
     let s =
@@ -205,6 +220,8 @@ pub(super) fn adopt(
         params![position_id, base.to_string()],
     )?;
     let at = now();
+    let unreviewed: Vec<String> =
+        serde_json::from_value(s.experience["unreviewed"].clone()).unwrap_or_default();
     let mut restored = 0;
     for text in &s.lessons {
         // Only a lesson its role has never had: one the owner removed or discarded stays so.
@@ -216,12 +233,28 @@ pub(super) fn adopt(
         if known {
             continue;
         }
+        // As it was kept (ADR-050), and for the project it works on now: a lesson belongs to
+        // its project.
+        let kept_by = if unreviewed.contains(text) {
+            KEPT_ON_ITS_OWN
+        } else {
+            actor
+        };
         let lesson_id = uuid::Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO lessons (id, role_id, task_id, position_id, worker, text, state,
-                 from_web, created_at, decided_at, decided_by)
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 'kept', 0, ?6, ?6, ?7)",
-            params![lesson_id, role_id, s.from_position, title, text, at, actor],
+                 from_web, created_at, decided_at, decided_by, project_id)
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 'kept', 0, ?6, ?6, ?7, ?8)",
+            params![
+                lesson_id,
+                role_id,
+                s.from_position,
+                title,
+                text,
+                at,
+                kept_by,
+                project_id
+            ],
         )?;
         restored += 1;
     }

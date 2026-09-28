@@ -1,4 +1,4 @@
--- Plenipo Ledger, schema version 9: the owner's control over workers (Phase 17).
+-- Plenipo Ledger, schema version 10: the owner's control over workers (Phase 17).
 --
 -- Specialties under each role (ADR-042); archive, bring back, and delete for good for agents,
 -- departments, and projects, where an item deleted for good keeps a short record in its own row

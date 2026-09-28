@@ -361,7 +361,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_take_control",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Ask to use this computer's mouse and keyboard. Only as a last resort: when no official connection, Plenipo's other tools, a command-line program, or the browser can do the job. The owner is asked each time, with your reason, and sees a sign while you have control; the owner moving the mouse takes control back.",
+        description: "Ask to use this computer's mouse and keyboard. Only as a last resort: when no official connection, Plenipo's other tools, a command-line program, or the browser can do the job. The owner is asked each time, with your reason, and then approves each click, each typing, and each key press before it runs, so plan few, well-described steps. The owner sees a sign while you have control; the owner moving the mouse takes control back.",
         schema: || json!({ "type": "object", "properties": {
             "reason": { "type": "string", "description": "Why nothing else can do this, in a sentence or two" }
         }, "required": ["reason"] }),
@@ -370,7 +370,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_click",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Click at a point of the screen (in screen_view's picture pixels). Say what the click does in purpose.",
+        description: "Click at a point of the screen (in screen_view's picture pixels). The owner approves each click before it runs, seeing the point on the screen and your purpose. Say what the click does in purpose.",
         schema: || json!({ "type": "object", "properties": {
             "x": { "type": "integer", "minimum": 0 },
             "y": { "type": "integer", "minimum": 0 },
@@ -383,7 +383,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_type",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Type text where the keyboard focus is. Never passwords or other secrets. Say what it is for in purpose.",
+        description: "Type text where the keyboard focus is. The owner approves each typing before it runs and sees the text. Never passwords or other secrets. Say what it is for in purpose.",
         schema: || json!({ "type": "object", "properties": {
             "text": { "type": "string" },
             "purpose": { "type": "string" }
@@ -393,7 +393,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "screen_keys",
         capability: Capability::ComputerControl,
         risk: Risk::Screen,
-        description: "Press a key or combination, like enter, tab, or ctrl+s (the Windows key is not available). Enter waits for the owner's approval, since it can send something.",
+        description: "Press a key or combination, like enter, tab, or ctrl+s (the Windows key is not available). The owner approves each key press before it runs; Enter is marked as one that can send something.",
         schema: || json!({ "type": "object", "properties": {
             "keys": { "type": "string" },
             "purpose": { "type": "string" }

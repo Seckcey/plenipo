@@ -748,6 +748,8 @@ fn experience_counts_kept_lessons_and_finished_tasks() {
             texts: vec!["Run the tests first.".into(), "Read the README.".into()],
             from_web: false,
             keep: true,
+            project_id: None,
+            held_reason: None,
         },
         "plenipo",
     )
@@ -774,6 +776,8 @@ fn a_saved_agent_leaves_a_short_record_and_is_hired_again_with_its_experience() 
             texts: vec!["Run the tests first.".into()],
             from_web: false,
             keep: true,
+            project_id: None,
+            held_reason: None,
         },
         "plenipo",
     )

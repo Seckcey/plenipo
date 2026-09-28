@@ -1,4 +1,4 @@
--- Reverses 0009_owner_control. Development/test use only (see ADR-006).
+-- Reverses 0010_owner_control. Development/test use only (see ADR-006).
 DROP INDEX saved_agents_by_role;
 DROP TABLE saved_agents;
 DROP TRIGGER positions_stay_archived;

@@ -47,7 +47,7 @@ permission set in Guard (ADR-013); a role's "capabilities" are a note.
    - **suggested models:** what a model should be able to do (see images, make images, take a large
      context), and — for your own specialties — models from your list;
    - **suggested permissions:** the permissions its work usually needs.
-2. **Kept as data, like roles.** A new table, `specialties` (Ledger layout 9), and each position
+2. **Kept as data, like roles.** A new table, `specialties` (Ledger layout 10), and each position
    records its optional specialty (`positions.specialty_id`). They live apart from roles because
    built-in roles are refreshed at every start. Changes are recorded as `org.specialty_created`,
    `org.specialty_updated`, and `org.specialty_removed`.

@@ -82,9 +82,15 @@ pub const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 9,
+        name: "lessons_project_and_reason",
+        up: include_str!("../migrations/0009_lessons_project_and_reason.up.sql"),
+        down: include_str!("../migrations/0009_lessons_project_and_reason.down.sql"),
+    },
+    Migration {
+        version: 10,
         name: "owner_control",
-        up: include_str!("../migrations/0009_owner_control.up.sql"),
-        down: include_str!("../migrations/0009_owner_control.down.sql"),
+        up: include_str!("../migrations/0010_owner_control.up.sql"),
+        down: include_str!("../migrations/0010_owner_control.down.sql"),
     },
 ];
 

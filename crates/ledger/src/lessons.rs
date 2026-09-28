@@ -1,7 +1,9 @@
 //! Lessons workers learn from their work (ADR-024). A worker ends a task with what would help
 //! the next worker in its role; each lesson waits for the owner's Keep or Discard, unless the
-//! owner lets that role learn on its own. Kept lessons go into the role's later workers'
-//! instructions. Every change is a `lesson.*` event in the same transaction.
+//! owner lets that role learn on its own, and even then only a lesson from a task that used no
+//! tool is kept unasked (ADR-050, lessons a role keeps on its own are notes, not orders). Kept
+//! lessons go into the role's later workers' instructions, on the lesson's project or on any
+//! when it has none. Every change is a `lesson.*` event in the same transaction.
 
 use rusqlite::{params, Connection, OptionalExtension as _};
 use serde_json::json;
@@ -17,7 +19,7 @@ pub const MAX_LESSON_CHARS: usize = 300;
 pub const MAX_LESSONS_PER_TASK: usize = 3;
 
 const COLS: &str = "id, role_id, task_id, position_id, worker, text, state, from_web, created_at, \
-    decided_at, decided_by";
+    decided_at, decided_by, project_id, held_reason";
 
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Lesson> {
     Ok(Lesson {
@@ -32,6 +34,8 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Lesson> {
         created_at: u64_of(r.get(8)?),
         decided_at: r.get::<_, Option<i64>>(9)?.map(u64_of),
         decided_by: r.get(10)?,
+        project_id: r.get(11)?,
+        held_reason: r.get(12)?,
     })
 }
 
@@ -85,6 +89,8 @@ fn lesson_event(lesson: &Lesson, actor: &str, event_type: &str) -> NewEvent {
             "text": lesson.text,
             "state": lesson.state,
             "fromWeb": lesson.from_web,
+            "projectId": lesson.project_id,
+            "heldReason": lesson.held_reason,
         }),
         ..NewEvent::default()
     }
@@ -92,14 +98,22 @@ fn lesson_event(lesson: &Lesson, actor: &str, event_type: &str) -> NewEvent {
 
 impl Ledger {
     /// Record what one task's worker learned: kept at once when `new.keep`, otherwise waiting
-    /// for the owner. At most [`MAX_LESSONS_PER_TASK`]; blanks and lessons the role already has
-    /// are left out. Each gets `lesson.added`.
+    /// for the owner (with `new.held_reason` when there is one to show). At most
+    /// [`MAX_LESSONS_PER_TASK`]; blanks and lessons the role already has, for the same project
+    /// or for every project, are left out. Each gets `lesson.added`.
     pub fn add_lessons(&self, new: &NewLessons, actor: &str) -> Result<Vec<Lesson>> {
         let state = if new.keep {
             LessonState::Kept
         } else {
             LessonState::Waiting
         };
+        let held_reason = new
+            .held_reason
+            .as_deref()
+            .filter(|_| !new.keep)
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(|r| r.chars().take(200).collect::<String>());
         self.write(|tx, out| {
             let mut added = Vec::new();
             for text in new.texts.iter().filter_map(|t| clean_lesson(t)) {
@@ -108,8 +122,9 @@ impl Ledger {
                 }
                 let known: bool = tx.query_row(
                     "SELECT EXISTS (SELECT 1 FROM lessons WHERE role_id = ?1 AND text = ?2 \
-                     AND state IN ('waiting', 'kept'))",
-                    params![new.role_id, text],
+                     AND state IN ('waiting', 'kept') \
+                     AND (project_id IS NULL OR project_id IS ?3))",
+                    params![new.role_id, text, new.project_id],
                     |r| r.get(0),
                 )?;
                 if known {
@@ -119,8 +134,8 @@ impl Ledger {
                 let now = crate::now_ms() as i64;
                 tx.execute(
                     "INSERT INTO lessons (id, role_id, task_id, position_id, worker, text, state, \
-                     from_web, created_at, decided_at, decided_by) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                     from_web, created_at, decided_at, decided_by, project_id, held_reason) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     params![
                         id,
                         new.role_id,
@@ -133,6 +148,8 @@ impl Ledger {
                         now,
                         new.keep.then_some(now),
                         new.keep.then_some(actor),
+                        new.project_id,
+                        held_reason,
                     ],
                 )
                 .map_err(|e| match e {
@@ -241,9 +258,31 @@ impl Ledger {
         })
     }
 
+    /// The kept lessons a worker of `role_id` on `project_id` gets (ADR-050): the role's lessons
+    /// from that project and its lessons from no project, newest first. Outside any project
+    /// (`None`), only the lessons from no project.
+    pub fn kept_lessons(
+        &self,
+        role_id: &str,
+        project_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<Lesson>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "SELECT {COLS} FROM lessons WHERE state = 'kept' AND role_id = ?1 \
+                 AND (project_id IS NULL OR project_id = ?2) \
+                 ORDER BY created_at DESC, rowid DESC LIMIT ?3"
+            ))?;
+            let rows = stmt
+                .query_map(params![role_id, project_id, i64::from(limit)], row)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
     /// The task, or any task handed on from it, used Plenipo's browser, saw the screen, or ran
     /// commands on a server (Phase 11). Its lessons may carry what a website, another program, or
-    /// a server said, so they always wait for the owner.
+    /// a server said, so they always wait for the owner, with a warning (`Lesson::from_web`).
     pub fn task_used_web_screen_or_servers(&self, task_id: &str) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
@@ -256,6 +295,27 @@ impl Ledger {
                        OR json_extract(payload, '$.capability') LIKE 'computer.%' \
                        OR json_extract(payload, '$.capability') LIKE 'ssh.%')) \
                    OR event_type = 'control.started' \
+                   OR event_type LIKE 'ssh.%')",
+                [task_id],
+                |r| r.get(0),
+            )?)
+        })
+    }
+
+    /// The task, or any task handed on from it, used any tool at all (ADR-050): one of
+    /// Plenipo's tools (files, programs, git, GitHub, websites, the screen, servers), a tool of
+    /// the AI tool's own, a screen session, or a server session. Its lessons may repeat what a
+    /// file, a program, or a page said, so a role that learns on its own does not keep them
+    /// unasked.
+    pub fn task_used_any_tool(&self, task_id: &str) -> Result<bool> {
+        self.read(|c| {
+            Ok(c.query_row(
+                "WITH RECURSIVE tree(id) AS ( \
+                   SELECT ?1 UNION ALL \
+                   SELECT t.id FROM tasks t JOIN tree ON t.parent_task_id = tree.id) \
+                 SELECT EXISTS (SELECT 1 FROM events JOIN tree ON events.task_id = tree.id \
+                   WHERE event_type IN ('capability.used', 'agent.tool_use', \
+                     'agent.tool_result', 'control.started') \
                    OR event_type LIKE 'ssh.%')",
                 [task_id],
                 |r| r.get(0),
@@ -310,6 +370,8 @@ mod tests {
             texts: texts.iter().map(|t| (*t).to_owned()).collect(),
             from_web: false,
             keep,
+            project_id: None,
+            held_reason: None,
         }
     }
 
@@ -457,5 +519,155 @@ mod tests {
         .unwrap();
         assert!(l.task_used_web_screen_or_servers(&connected).unwrap());
         assert!(!l.task_used_web_screen_or_servers(&task(&l)).unwrap());
+    }
+
+    #[test]
+    fn any_tool_use_anywhere_below_a_task_counts() {
+        let (_d, l) = ledger();
+        let (parent, quiet) = (task(&l), task(&l));
+        let child = l
+            .create_task(
+                NewTask {
+                    objective: "Read it".into(),
+                    requested_by: "owner".into(),
+                    parent_task_id: Some(parent.clone()),
+                    ..NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap()
+            .id;
+        let event = |task: &str, event_type: &str, payload: serde_json::Value| {
+            l.append_event(crate::dto::NewEvent {
+                task_id: Some(task.to_owned()),
+                source: "guard".into(),
+                event_type: event_type.into(),
+                payload,
+                ..Default::default()
+            })
+            .unwrap();
+        };
+        // Talking is not using a tool.
+        event(&quiet, "agent.message", json!({ "text": "Hello" }));
+        assert!(!l.task_used_any_tool(&quiet).unwrap());
+        assert!(!l.task_used_any_tool(&parent).unwrap());
+        // Reading a file is, though it is not a website, the screen, or a server; and a tool
+        // used by a task handed on from the task counts for it.
+        event(
+            &child,
+            "capability.used",
+            json!({ "capability": "files.read", "tool": "read_file" }),
+        );
+        assert!(l.task_used_any_tool(&child).unwrap());
+        assert!(l.task_used_any_tool(&parent).unwrap());
+        assert!(!l.task_used_web_screen_or_servers(&parent).unwrap());
+        // So is a tool the AI tool used on its own.
+        let own = task(&l);
+        event(
+            &own,
+            "agent.tool_use",
+            json!({ "tool": "Bash", "summary": "ls" }),
+        );
+        assert!(l.task_used_any_tool(&own).unwrap());
+        // And a server, or taking control of the screen.
+        let (server, screen) = (task(&l), task(&l));
+        event(&server, "ssh.connected", json!({ "server": "Shop" }));
+        assert!(l.task_used_any_tool(&server).unwrap());
+        event(&screen, "control.started", json!({}));
+        assert!(l.task_used_any_tool(&screen).unwrap());
+    }
+
+    #[test]
+    fn lessons_belong_to_their_project_and_say_why_they_wait() {
+        let (_d, l) = ledger();
+        let (r, t) = (role(&l), task(&l));
+        let with = |text: &str, project: Option<&str>, keep: bool| NewLessons {
+            project_id: project.map(str::to_owned),
+            ..new(&r, &t, &[text], keep)
+        };
+        l.add_lessons(
+            &with("Ask for the order number.", Some("shop"), true),
+            "plenipo",
+        )
+        .unwrap();
+        l.add_lessons(&with("Sign in first.", None, true), "plenipo")
+            .unwrap();
+        l.add_lessons(
+            &with("Use the staging server.", Some("blog"), true),
+            "plenipo",
+        )
+        .unwrap();
+        let texts = |project: Option<&str>| {
+            l.kept_lessons(&r, project, 20)
+                .unwrap()
+                .into_iter()
+                .map(|l| l.text)
+                .collect::<Vec<_>>()
+        };
+        // A worker on a project gets that project's lessons and the general ones, newest
+        // first; outside any project, only the general ones.
+        assert_eq!(
+            texts(Some("shop")),
+            ["Sign in first.", "Ask for the order number."]
+        );
+        assert_eq!(
+            texts(Some("blog")),
+            ["Use the staging server.", "Sign in first."]
+        );
+        assert_eq!(texts(None), ["Sign in first."]);
+        assert_eq!(l.lessons(LessonState::Kept, Some(&r), 20).unwrap().len(), 3);
+        // The same words in another project are a lesson of their own; the same words again in
+        // the same project, or already kept for every project, are not.
+        assert_eq!(
+            l.add_lessons(
+                &with("Ask for the order number.", Some("blog"), true),
+                "plenipo"
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        assert!(l
+            .add_lessons(
+                &with("Ask for the order number.", Some("shop"), true),
+                "plenipo"
+            )
+            .unwrap()
+            .is_empty());
+        assert!(l
+            .add_lessons(&with("Sign in first.", Some("shop"), true), "plenipo")
+            .unwrap()
+            .is_empty());
+        // A lesson held for the owner says why, and its event carries the reason.
+        let held = l
+            .add_lessons(
+                &NewLessons {
+                    held_reason: Some("Held for your review: it has a web address.".into()),
+                    ..with("See https://shop.example/help.", Some("shop"), false)
+                },
+                "plenipo",
+            )
+            .unwrap();
+        assert_eq!(held[0].state, LessonState::Waiting);
+        assert_eq!(
+            held[0].held_reason.as_deref(),
+            Some("Held for your review: it has a web address.")
+        );
+        assert_eq!(held[0].project_id.as_deref(), Some("shop"));
+        let event = l
+            .events_for_task(&t)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|e| e.event_type == "lesson.added")
+            .unwrap();
+        assert_eq!(
+            event.payload["heldReason"],
+            "Held for your review: it has a web address."
+        );
+        assert_eq!(event.payload["projectId"], "shop");
+        assert!(l.lessons(LessonState::Waiting, Some(&r), 20).unwrap()[0]
+            .held_reason
+            .is_some());
     }
 }

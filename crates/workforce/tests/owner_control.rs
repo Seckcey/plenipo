@@ -650,8 +650,8 @@ async fn learning_follows_the_closest_setting_under_the_main_switch() {
     h.workforce
         .set_agent_learning(&org.coordinator, Some(false))
         .unwrap();
-    assert!(learning::instructions(&h.ledger, &coordinator(), "Supervisor").is_empty());
-    assert!(!learning::instructions(&h.ledger, &head(), "Manager").is_empty());
+    assert!(learning::instructions(&h.ledger, &coordinator(), "Supervisor", Some(&org.project)).is_empty());
+    assert!(!learning::instructions(&h.ledger, &head(), "Manager", None).is_empty());
     let p = h.position(&org.coordinator);
     assert_eq!(
         (p.learning.learns, p.learning.from, p.learning.own),
@@ -675,7 +675,7 @@ async fn learning_follows_the_closest_setting_under_the_main_switch() {
     h.workforce
         .set_agent_learning(&org.coordinator, Some(true))
         .unwrap();
-    assert!(!learning::instructions(&h.ledger, &coordinator(), "Supervisor").is_empty());
+    assert!(!learning::instructions(&h.ledger, &coordinator(), "Supervisor", Some(&org.project)).is_empty());
     h.answer_with_lesson(&["Cloudline Coordinator"], "Ask QA first.");
     h.done(&org.coordinator, "Plan the next release.").await;
     h.until("the supervisor's lesson", || {
@@ -691,7 +691,7 @@ async fn learning_follows_the_closest_setting_under_the_main_switch() {
         (p.learning.learns, p.learning.from),
         (false, LearningFrom::Role)
     );
-    assert!(learning::instructions(&h.ledger, &coordinator(), "Supervisor").is_empty());
+    assert!(learning::instructions(&h.ledger, &coordinator(), "Supervisor", Some(&org.project)).is_empty());
 
     // The main switch off stops all learning, even an agent set on.
     h.workforce
@@ -712,7 +712,7 @@ async fn learning_follows_the_closest_setting_under_the_main_switch() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(h.lessons(&supervisor, "Nothing now."), 0);
     assert_eq!(h.lessons(&manager, "Nothing now."), 0);
-    assert!(learning::instructions(&h.ledger, &head(), "Manager").is_empty());
+    assert!(learning::instructions(&h.ledger, &head(), "Manager", None).is_empty());
 }
 
 /// ADR-042: hire a Senior Developer with the Database specialty; its lines reach its

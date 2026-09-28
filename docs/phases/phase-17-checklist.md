@@ -45,7 +45,8 @@ Make prompts only as long as the job needs."
   **accepted as written**, with the experienced agents checked (saved) by default in the
   delete-for-good box.
 - Version **1.10.0** (the owner's instruction when starting the phase).
-- Numbers: **ADR-041 to ADR-044**. `main` ends at ADR-040. The one open pull request with
+- Numbers: **ADR-041 to ADR-044**. `main` ends at ADR-040. (Update, 2026-09-28: the security
+  fixes merged as ADR-046 to ADR-051 and took Ledger layout 9; Phase 17's layout is 10.) The one open pull request with
   records, #74 (the security fixes, Group B), numbers its three records ADR-036 to ADR-038, which
   `main` already uses; it will need new numbers when it merges, and if it takes 041–044 first,
   these are renumbered.
@@ -95,7 +96,7 @@ Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
 
 ### 3. Specialties (ADR-042)
 
-- **Ledger layout 9** adds `specialties` (ID, role, name, suggested title, lines and suggestions
+- **Ledger layout 10** adds `specialties` (ID, role, name, suggested title, lines and suggestions
   as JSON, built-in or yours, when made, when removed) and `positions.specialty_id`. The table is
   added to the Ledger's export list.
 - **Built-in specialties** live in `crates/workforce/src/templates.rs` beside the roles, seeded
@@ -110,7 +111,7 @@ Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
 
 ### 4. Archive, bring back, delete for good (ADR-043)
 
-- **Ledger layout 9** also adds `positions.deleted_at`, `departments.archived_at` and
+- **Ledger layout 10** also adds `positions.deleted_at`, `departments.archived_at` and
   `deleted_at`, and `projects.archived_at` and `deleted_at`, and replaces the trigger that froze
   archived positions with one that allows only bringing back and becoming a short record (the
   "never deleted" trigger stays).
@@ -173,7 +174,7 @@ Written before building, from a map of the code at `b199e5d` (`main`, v1.9.0).
   is still kept, 1 for each task it finished, plus what it brought from the Workforce. The
   snapshot carries each agent's score and reasons, and the organization's average (over agents
   with a finished task).
-- **Ledger layout 9** adds `saved_agents` (the Workforce); saving turns the agent's position
+- **Ledger layout 10** adds `saved_agents` (the Workforce); saving turns the agent's position
   into a short record ("moved to your Workforce") and copies its settings, experience, and kept
   lessons. Hiring from the Workforce creates a new position with them and restores the lessons
   its role no longer has (unless you removed them).

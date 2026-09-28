@@ -637,11 +637,14 @@ fn next_sort_key(c: &Connection, lead: Option<&str>) -> Result<i64> {
     )?)
 }
 
+/// Insert position `new` under `reports_to`, on `project_id` (the project it works on, when
+/// known: an agent hired from the Workforce brings its lessons to it).
 fn insert_position(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
     new: &NewPosition,
     reports_to: Option<&str>,
+    project_id: Option<&str>,
     actor: &str,
 ) -> Result<Position> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -683,7 +686,16 @@ fn insert_position(
         }),
     )?;
     if let Some(saved_id) = new.from_workforce.as_deref() {
-        saved::adopt(tx, out, saved_id, &id, &new.role_id, &new.title, actor)?;
+        saved::adopt(
+            tx,
+            out,
+            saved_id,
+            &id,
+            &new.role_id,
+            &new.title,
+            project_id,
+            actor,
+        )?;
     }
     get_position(tx, &id)
 }
@@ -1483,7 +1495,8 @@ impl Ledger {
                 params![id, name, description, role.id, now()],
             )
             .map_err(|e| unique(e, &format!("a department named \"{name}\" already exists")))?;
-            let position = insert_position(tx, out, &head, head.reports_to.as_deref(), actor)?;
+            let position =
+                insert_position(tx, out, &head, head.reports_to.as_deref(), None, actor)?;
             tx.execute(
                 "UPDATE departments SET head_position_id = ?2 WHERE id = ?1",
                 params![id, position.id],
@@ -1642,7 +1655,8 @@ impl Ledger {
                     &format!("a project named \"{}\" already exists", settings.name),
                 )
             })?;
-            let position = insert_position(tx, out, &coordinator, Some(&head.id), actor)?;
+            let position =
+                insert_position(tx, out, &coordinator, Some(&head.id), Some(id.as_str()), actor)?;
             tx.execute(
                 "UPDATE projects SET coordinator_position_id = ?2 WHERE id = ?1",
                 params![id, position.id],
@@ -1831,7 +1845,14 @@ impl Ledger {
             org.check_title(&new.title, new.reports_to.as_deref(), None)?;
             let project = new.reports_to.as_deref().and_then(|l| org.project_of(l));
             Org::check_runtime(project, new.runtime_id.as_deref(), &new.title)?;
-            let position = insert_position(tx, out, &new, new.reports_to.as_deref(), actor)?;
+            let position = insert_position(
+                tx,
+                out,
+                &new,
+                new.reports_to.as_deref(),
+                project.map(|p| p.id.as_str()),
+                actor,
+            )?;
             let agent = if role.persistent && new.staffed {
                 Some(hire(
                     tx,
@@ -3773,7 +3794,7 @@ mod tests {
     #[test]
     fn hiring_from_the_workforce_restores_only_lessons_the_role_never_had() {
         let (l, roles) = setup();
-        let (_, _, _, coordinator) = development(&l, &roles);
+        let (_, _, project, coordinator) = development(&l, &roles);
         let (dev, _) = l
             .create_position(
                 &position(
@@ -3805,6 +3826,8 @@ mod tests {
                     texts: vec!["Removed by the owner.".into()],
                     from_web: false,
                     keep: true,
+                    project_id: None,
+                    held_reason: None,
                 },
                 "plenipo",
             )
@@ -3820,13 +3843,22 @@ mod tests {
                 "owner",
             )
             .unwrap();
-        // As if it came from another organization: one lesson this role never had.
+        // As if it came from another organization: lessons this role never had, one kept by the
+        // owner and one its role kept on its own, never reviewed (ADR-050).
         l.conn()
             .execute(
-                "UPDATE saved_agents SET lessons = ?2 WHERE id = ?1",
+                "UPDATE saved_agents SET lessons = ?2,
+                     experience = json_set(experience, '$.unreviewed', json(?3))
+                 WHERE id = ?1",
                 params![
                     saved.id,
-                    json!(["Removed by the owner.", "Check the diff twice."]).to_string()
+                    json!([
+                        "Removed by the owner.",
+                        "Check the diff twice.",
+                        "Ask before a rename."
+                    ])
+                    .to_string(),
+                    json!(["Ask before a rename."]).to_string()
                 ],
             )
             .unwrap();
@@ -3843,12 +3875,84 @@ mod tests {
             "owner",
         )
         .unwrap();
-        let kept: Vec<String> = l
+        let mut kept: Vec<(String, Option<String>, Option<String>)> = l
             .lessons(LessonState::Kept, Some(&roles["Senior Developer"]), 10)
             .unwrap()
             .into_iter()
-            .map(|x| x.text)
+            .map(|x| (x.text, x.decided_by, x.project_id))
             .collect();
-        assert_eq!(kept, ["Check the diff twice."]);
+        kept.sort();
+        // Each comes back as it was kept, for the project the agent works on now.
+        assert_eq!(
+            kept,
+            [
+                (
+                    "Ask before a rename.".to_owned(),
+                    Some("plenipo".to_owned()),
+                    Some(project.id.clone())
+                ),
+                (
+                    "Check the diff twice.".to_owned(),
+                    Some("owner".to_owned()),
+                    Some(project.id.clone())
+                ),
+            ]
+        );
+    }
+
+    /// An agent saved to the Workforce keeps which of its lessons the owner never reviewed
+    /// (ADR-050): its role kept them on its own.
+    #[test]
+    fn a_saved_agent_remembers_which_lessons_were_never_reviewed() {
+        let (l, roles) = setup();
+        let (_, _, _, coordinator) = development(&l, &roles);
+        let (dev, _) = l
+            .create_position(
+                &position(
+                    &roles["Senior Developer"],
+                    "Developer",
+                    Some(&coordinator.id),
+                    "codex",
+                ),
+                "owner",
+            )
+            .unwrap();
+        let task = l
+            .create_task(
+                NewTask {
+                    requested_by: "owner".into(),
+                    objective: "work".into(),
+                    ..NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let lesson = |text: &str, keep: bool| NewLessons {
+            role_id: roles["Senior Developer"].clone(),
+            task_id: task.id.clone(),
+            position_id: Some(dev.id.clone()),
+            worker: "Developer".into(),
+            texts: vec![text.into()],
+            from_web: false,
+            keep,
+            project_id: None,
+            held_reason: None,
+        };
+        l.add_lessons(&lesson("Kept on its own.", true), "plenipo")
+            .unwrap();
+        let waiting = l.add_lessons(&lesson("Kept by you.", false), "plenipo").unwrap();
+        l.decide_lesson(&waiting[0].id, true, None, "owner").unwrap();
+        l.archive_position(&dev.id, "owner").unwrap();
+        let saved = l
+            .save_to_workforce(
+                &SaveAgent {
+                    position_id: dev.id.clone(),
+                    settings: json!({}),
+                },
+                "owner",
+            )
+            .unwrap();
+        assert_eq!(saved.lessons, ["Kept on its own.", "Kept by you."]);
+        assert_eq!(saved.experience["unreviewed"], json!(["Kept on its own."]));
     }
 }

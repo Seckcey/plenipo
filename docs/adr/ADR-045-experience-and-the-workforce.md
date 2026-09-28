@@ -2,6 +2,9 @@
 
 - **Status:** Accepted (by the owner, 2026-09-27, as written; experienced agents start out
   checked)
+- **As built (v1.10.0):** as written. With ADR-050 (lessons a role keeps on its own are notes,
+  not orders), a saved agent also remembers which of its lessons the owner never reviewed; they
+  come back as never reviewed, and every lesson comes back for the project the agent joins.
 - **Date:** 2026-09-27
 - **Phase:** 17 (added by the owner while approving ADR-043)
 - **Amends:** ADR-043 (archive, bring back, and delete for good) — deleting for good first offers
@@ -89,7 +92,7 @@ Nothing scores an agent today, and nothing keeps an agent once it leaves the cha
 
 ### Where it is kept
 
-10. **Ledger layout 9** (the same change as ADR-042 and ADR-043) adds a `saved_agents` table:
+10. **Ledger layout 10** (the same change as ADR-042 and ADR-043) adds a `saved_agents` table:
     ID, title, role, specialty, settings, experience, lessons (copies), the position it came
     from, and when it was saved. It is included in backups and in exports.
 11. **The Workforce is yours, not one organization's.** Until Phase 21 adds more organizations, it

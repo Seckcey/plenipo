@@ -71,14 +71,16 @@ pub(crate) fn counts_for(c: &Connection, position_id: &str) -> Result<Experience
     })
 }
 
-/// The texts of the lessons `position_id` wrote that the owner keeps, oldest first.
-pub(crate) fn kept_lessons(c: &Connection, position_id: &str) -> Result<Vec<String>> {
+/// The lessons `position_id` wrote that are kept, oldest first: each text, and whether the owner
+/// kept it (a lesson its role kept on its own was never reviewed; ADR-050).
+pub(crate) fn kept_lessons(c: &Connection, position_id: &str) -> Result<Vec<(String, bool)>> {
     super::all(
         c,
-        "SELECT text FROM lessons WHERE position_id = ?1 AND state = 'kept'
+        "SELECT text, COALESCE(decided_by = 'owner', 0) FROM lessons
+         WHERE position_id = ?1 AND state = 'kept'
          ORDER BY created_at, rowid",
         params![position_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )
 }
 

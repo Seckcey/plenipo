@@ -167,14 +167,15 @@ provider's ID), the model, the effort, and whether billing was confirmed. **It h
 Plenipo writes the prompt to the CLI's stdin, so it never shows in process lists, is not limited
 by Windows command-line length, and cannot be misquoted.
 
-| Piece                 | Claude Code                                                           | Codex                                              |
-| --------------------- | --------------------------------------------------------------------- | -------------------------------------------------- |
-| One task, JSON output | `-p --output-format stream-json --verbose --include-partial-messages` | `exec --json --skip-git-repo-check`                |
-| Least privilege       | `--tools "" --strict-mcp-config` (no tools, no MCP servers)           | `--sandbox read-only`                              |
-| Model                 | `--model <name>`                                                      | `--model <name>`                                   |
-| Effort                | `--effort <level>`                                                    | `-c model_reasoning_effort=<level>`                |
-| New session           | `--session-id <uuid Plenipo chose>`                                   | nothing: the thread ID arrives in `thread.started` |
-| Resume                | `--resume <id>`                                                       | `resume <thread id>` (last)                        |
+| Piece                 | Claude Code                                                           | Codex                                                                 |
+| --------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| One task, JSON output | `-p --output-format stream-json --verbose --include-partial-messages` | `exec --json --skip-git-repo-check`                                   |
+| Least privilege       | `--tools "" --strict-mcp-config` (no tools, no MCP servers)           | `--sandbox read-only`                                                 |
+| Own commands off      | covered by `--tools ""` above                                         | `-c features.shell_tool=false -c features.view_image=false` (ADR-051) |
+| Model                 | `--model <name>`                                                      | `--model <name>`                                                      |
+| Effort                | `--effort <level>`                                                    | `-c model_reasoning_effort=<level>`                                   |
+| New session           | `--session-id <uuid Plenipo chose>`                                   | nothing: the thread ID arrives in `thread.started`                    |
+| Resume                | `--resume <id>`                                                       | `resume <thread id>` (last)                                           |
 
 - The model name is already validated (`validate_model`: a name, never a flag or a path). The
   effort level is one the tool lists.
@@ -260,7 +261,7 @@ fn capabilities(&self) -> RuntimeCapabilities {
         cancel: true,
         structured_results: true,
         billing_checked_per_turn: false,
-        tool_posture: "Read-only sandbox: Codex may run read-only commands but cannot write …".into(),
+        tool_posture: "Codex's own commands are off: it cannot run commands or read files on its own …".into(),
         effort_levels: ULTRA.to_vec(),                          // lowest first
         known_models: vec![
             KnownModel::new("gpt-6-sol", "GPT-6-Sol", ULTRA),   // name, label, its own levels

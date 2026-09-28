@@ -1,9 +1,12 @@
 //! Codex adapter (ADR-007).
 //!
-//! One turn = `codex exec --json --sandbox read-only --skip-git-repo-check [resume <thread>]`
-//! with the objective on stdin — the same invocation OpenAI's Codex SDK uses. The thread ID
-//! arrives in `thread.started`. Codex does not report its credential source in the stream, so
-//! a subscription sign-in must be positively confirmed before every turn.
+//! One turn = `codex exec --json --sandbox read-only --skip-git-repo-check
+//! -c features.shell_tool=false -c features.view_image=false [resume <thread>]` with the
+//! objective on stdin — the invocation OpenAI's Codex SDK uses, plus the two settings that
+//! switch off Codex's own command tool and picture reader (ADR-051, Codex works through
+//! Plenipo's tools). The thread ID arrives in `thread.started`. Codex does not report its
+//! credential source in the stream, so a subscription sign-in must be positively confirmed
+//! before every turn.
 
 use std::path::{Path, PathBuf};
 
@@ -78,9 +81,11 @@ impl RuntimeAdapter for Codex {
             cancel: true,
             structured_results: true,
             billing_checked_per_turn: false,
-            tool_posture: "Read-only sandbox: Codex's own commands can read but not write or \
-                           use the network. A worker with permissions gets Plenipo's file, \
-                           program, and git tools, each checked by Plenipo Guard."
+            // ADR-051 (Codex works through Plenipo's tools).
+            tool_posture: "Codex's own commands are off: it cannot run commands or read files \
+                           on its own, and its read-only sandbox allows no writes and no \
+                           network. A worker with permissions gets Plenipo's file, program, \
+                           and git tools, each checked by Plenipo Guard."
                 .into(),
             // `codex exec -c model_reasoning_effort=<level>`: every level one of its models
             // accepts. Codex passes any value on, so Plenipo keeps to these.
@@ -193,6 +198,15 @@ impl RuntimeAdapter for Codex {
             "read-only",
             // Each session runs in its own empty workspace, not a repository.
             "--skip-git-repo-check",
+            // ADR-051 (Codex works through Plenipo's tools): Codex's own command tool
+            // (`exec_command`, `write_stdin`) and its picture reader (`view_image`) are off, so
+            // it reads files only through Plenipo's tools, where Guard decides and the use is
+            // recorded. Both are stable `features` settings of Codex 0.157.1; the read-only
+            // sandbox stays as a second wall.
+            "-c",
+            "features.shell_tool=false",
+            "-c",
+            "features.view_image=false",
         ]
         .map(String::from)
         .to_vec();
@@ -621,7 +635,11 @@ mod tests {
                 "--json",
                 "--sandbox",
                 "read-only",
-                "--skip-git-repo-check"
+                "--skip-git-repo-check",
+                "-c",
+                "features.shell_tool=false",
+                "-c",
+                "features.view_image=false"
             ]
         );
         let resume = Codex.turn_args(&TurnRequest {
@@ -640,6 +658,10 @@ mod tests {
                 "--sandbox",
                 "read-only",
                 "--skip-git-repo-check",
+                "-c",
+                "features.shell_tool=false",
+                "-c",
+                "features.view_image=false",
                 "--model",
                 "gpt-x",
                 "-c",
@@ -649,6 +671,51 @@ mod tests {
             ]
         );
         assert!(!Codex.preassigns_session_id());
+    }
+
+    #[test]
+    fn codex_own_commands_are_switched_off() {
+        // ADR-051: Codex's own command tool and its own picture reader are off in every turn,
+        // as settings Codex reads before it starts (`features.shell_tool`, `features.view_image`).
+        for request in [
+            new_request(),
+            TurnRequest {
+                session: ProviderSession::Resume { id: "t-1".into() },
+                model: Some("gpt-x".into()),
+                effort: Some(Effort::High),
+                billing_confirmed: true,
+                tools: None,
+                working_dir: PathBuf::new(),
+            },
+        ] {
+            let args = Codex.turn_args(&request);
+            let settings: Vec<&str> = args
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i > 0 && args[i - 1] == "-c")
+                .map(|(_, a)| a.as_str())
+                .collect();
+            assert!(settings.contains(&"features.shell_tool=false"), "{args:?}");
+            assert!(settings.contains(&"features.view_image=false"), "{args:?}");
+            // Part of the fixed prefix: before the model and before the session.
+            let shell = args
+                .iter()
+                .position(|a| a == "features.shell_tool=false")
+                .unwrap();
+            if let Some(model) = args.iter().position(|a| a == "--model") {
+                assert!(shell < model, "{args:?}");
+            }
+            if let Some(resume) = args.iter().position(|a| a == "resume") {
+                assert!(shell < resume, "{args:?}");
+            }
+        }
+        // The posture the owner reads says so.
+        let posture = Codex.capabilities().tool_posture;
+        assert!(posture.contains("own commands are off"), "{posture}");
+        assert!(
+            posture.contains("Plenipo's file, program, and git tools"),
+            "{posture}"
+        );
     }
 
     #[test]

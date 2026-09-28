@@ -33,6 +33,8 @@ const lesson = (patch: Partial<Lesson> = {}): Lesson => ({
   text: "The order number is on the Orders page.",
   state: "waiting",
   fromWeb: true,
+  projectId: null,
+  heldReason: null,
   createdAt: 0,
   decidedAt: null,
   decidedBy: null,
@@ -68,10 +70,13 @@ afterEach(() => {
 
 describe("Learning", () => {
   it("keeps a new lesson in the owner's words, warning when it came from websites", async () => {
+    const held = "Held for your review: it has a command, a path, or a web address.";
+    api.getLearning.mockResolvedValue(snapshot({ waiting: [lesson({ heldReason: held })] }));
     api.decideLesson.mockResolvedValue(snapshot({ waiting: [] }));
     render(<Harness part="new" />);
     const card = await screen.findByRole("article", { name: "Lesson from Web Assistant" });
     expect(within(card).getByText("From a task that used websites or servers")).toBeInTheDocument();
+    expect(within(card).getByText(held)).toBeInTheDocument();
     const box = within(card).getByRole("textbox");
     const user = userEvent.setup();
     await user.clear(box);

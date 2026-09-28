@@ -129,9 +129,11 @@ objective and reported 89%; the review corrected the test, section 7.)
   reminder; Kimi's and Grok's saved records are pasted every time, as for Codex, because they
   report their memory only after each answer; once an Ollama conversation is longer than
   Plenipo's helper sends at once, every task goes out in full.
-- **Numbers for the records:** ADR-041 to ADR-045. The open pull request with the security fixes
-  (Group B) numbers its records ADR-036 to ADR-038, which `main` already uses; it will need new
-  numbers when it merges.
+- **Numbers for the records and the Ledger's layout:** ADR-041 to ADR-045. The security fixes
+  merged into `main` meanwhile as ADR-046 to ADR-051 and took Ledger layout 9 (each lesson's
+  project, ADR-050); Phase 17's layout is 10. With ADR-050, an agent saved to your Workforce
+  remembers which of its lessons you never reviewed, and they come back that way, for the
+  project it joins.
 
 ## 7. Defects found and fixed during Phase 17
 
@@ -205,4 +207,4 @@ words; hints follow them).
   compacts a long conversation (the next task's size then says "full instructions"), and Kimi's
   and Grok's context reports.
 - **Upgrading from 1.9.0:** the first start backs up your Ledger ("Before a new version") and
-  updates it to layout 9; your organization and work carry over.
+  updates it to layout 10; your organization and work carry over.

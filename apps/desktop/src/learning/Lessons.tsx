@@ -58,6 +58,7 @@ function LessonCard({
           website or server told it to write.
         </p>
       )}
+      {lesson.heldReason && <p className="muted">{lesson.heldReason}</p>}
       <label className="field">
         <span>The lesson (edit it before keeping, if you like)</span>
         <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} />
@@ -156,7 +157,7 @@ export function RoleLessons({
       )}
       <Toggle
         label="Learn on its own"
-        hint="On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask)."
+        hint="On: this role's lessons are kept without asking you. Only lessons from tasks that used no tools are kept without you; the rest wait for your review."
         checked={s.autoRoles.includes(roleId)}
         disabled={pending}
         onChange={(on) => void run(() => setRoleLearning(roleId, on))}

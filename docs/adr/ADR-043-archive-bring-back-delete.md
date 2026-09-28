@@ -110,7 +110,7 @@ Today (v1.9.0, Ledger layout 8):
 
 ### In the Ledger
 
-17. **Ledger layout 9:** `deleted_at` on positions; `archived_at` and `deleted_at` on departments
+17. **Ledger layout 10:** `deleted_at` on positions; `archived_at` and `deleted_at` on departments
     and projects. The rule that an archived position never changes now allows exactly two
     changes — being brought back, and becoming a short record — and a short record never changes
     again. Rows are still never removed. A backup is made before the layout changes, as for every

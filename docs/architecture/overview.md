@@ -261,14 +261,14 @@ Server commands (Phase 11). Servers are part of Guard's settings; their sign-ins
 Switches and learning commands (v1.4). The switches are part of Guard's settings
 (`PermissionsSnapshot.settings.switches`); learning is a Workforce setting.
 
-| Command             | Input                       | Returns               | Purpose                                                                                                    |
-| ------------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `set_switches`      | `switches` (`Switches`)     | `PermissionsSnapshot` | Settings → Switches. Switching the browser or the screen off also stops the workers using it now           |
-| `get_learning`      | —                           | `LearningSnapshot`    | Worker learning on or off, the roles that learn on their own, lessons waiting (oldest first) and kept      |
-| `set_learning`      | `enabled`                   | `LearningSnapshot`    | Worker learning on or off                                                                                  |
-| `set_role_learning` | `roleId`, `auto`            | `LearningSnapshot`    | Whether a role learns on its own (its lessons are kept without asking, except from websites or the screen) |
-| `decide_lesson`     | `lessonId`, `keep`, `text?` | `LearningSnapshot`    | Keep (in the owner's words, if given) or discard a waiting lesson                                          |
-| `remove_lesson`     | `lessonId`                  | `LearningSnapshot`    | Remove a kept lesson                                                                                       |
+| Command             | Input                       | Returns               | Purpose                                                                                                          |
+| ------------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `set_switches`      | `switches` (`Switches`)     | `PermissionsSnapshot` | Settings → Switches. Switching the browser or the screen off also stops the workers using it now                 |
+| `get_learning`      | —                           | `LearningSnapshot`    | Worker learning on or off, the roles that learn on their own, lessons waiting (oldest first) and kept            |
+| `set_learning`      | `enabled`                   | `LearningSnapshot`    | Worker learning on or off                                                                                        |
+| `set_role_learning` | `roleId`, `auto`            | `LearningSnapshot`    | Whether a role learns on its own (a lesson from a task that used no tools is kept without asking; the rest wait) |
+| `decide_lesson`     | `lessonId`, `keep`, `text?` | `LearningSnapshot`    | Keep (in the owner's words, if given) or discard a waiting lesson                                                |
+| `remove_lesson`     | `lessonId`                  | `LearningSnapshot`    | Remove a kept lesson                                                                                             |
 
 Events (Rust → UI): `plenipo://runtime` carries `RuntimeEvent`
 (`{ kind: "output", executionId, lines[] }` batched and `seq`-ordered, or
@@ -328,7 +328,8 @@ cancelled` (terminal states are final).
 Decision records: [ADR-007](../adr/ADR-007-runtime-adapters.md) (how Plenipo runs Claude Code
 and Codex), [ADR-015](../adr/ADR-015-acp-ai-tools.md) (running AI tools over ACP), and
 [ADR-027](../adr/ADR-027-acp-file-access-through-plenipo.md) (Kimi over ACP, with its file reads
-and writes going through Plenipo).
+and writes going through Plenipo), and [ADR-051](../adr/ADR-051-codex-own-shell.md) (Codex works
+through Plenipo's tools).
 
 - **Contract.** `RuntimeAdapter` (`crates/runtime/src/agent/adapter.rs`) is provider-neutral:
   detection, sign-in check, capabilities, turn arguments (new or resumed provider session),
@@ -369,7 +370,9 @@ and writes going through Plenipo).
   check (`kimi provider list`) must show the subscription provider (`managed:kimi-code`,
   `source=oauth`), and Plenipo runs only its `kimi-code/…` models (model names may carry one
   provider prefix, `provider/model`).
-- **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex:
+- **Least privilege.** Claude Code: no built-in tools, no MCP servers but Plenipo's. Codex: its
+  own command tool and picture reader switched off (`features.shell_tool=false` and
+  `features.view_image=false`, ADR-051): it reads files only through Plenipo's tools, inside its
   read-only sandbox. Grok: an agent profile with none of its own tools, no subagents, memory,
   web fetch, or Claude Code/Cursor settings. Kimi: its files through Guard, its shell refused,
   its `plan` mode for a worker without permissions. Each session has its own empty workspace. Organization workers with
@@ -560,10 +563,11 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   after the approval window (default 10 minutes), and approvals left pending at shutdown are
   expired at startup. The UI shows a banner on every page, a sidebar count, and a card with
   exactly what will run. A worker may have at most 3 requests waiting at once and make at most
-  10 approval cards a minute: a call past either limit is refused at once with no card, the
-  worker is told to wait, and the refusal is recorded (`guard.approvals_limited`) at most once
-  a minute; the tool server works on at most 4 of a connection's requests at a time, the rest
-  waiting their turn in arrival order.
+  10 approval cards a minute (counting the cards of the last minute still unanswered, refused,
+  or expired; a card the owner approved no longer counts, ADR-049): a call past either limit is
+  refused at once with no card, the worker is told to wait, and the refusal is recorded
+  (`guard.approvals_limited`) at most once a minute; the tool server works on at most 4 of a
+  connection's requests at a time, the rest waiting their turn in arrival order.
 - **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
   calls; a settings change applies to the next call.
 - **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
@@ -657,7 +661,11 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   mouse and keyboard). Every call goes through Guard: the permission set, the website lists
   (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
   (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
-  never allow).
+  never allow). On the desktop, taking control asks once and then every `screen_click`,
+  `screen_type`, and `screen_keys` asks again (ADR-049): `prepare_control` gives each a reason
+  that always asks (a purpose that reads like paying, signing in, or sending is the headline;
+  any other is quoted), and the card's picture is the screen as it is now with a click's point
+  marked (`approval_shot`, `screens::mark`); `screen_view` and `screen_scroll` do not ask.
 - **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
   `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
   `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
@@ -706,8 +714,9 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 
 ## 12a. Switches and learning (v1.4)
 
-Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md)
-and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md).
+Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md),
+[ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md), and
+[ADR-050 (lessons a role keeps on its own are notes, not orders)](../adr/ADR-050-lessons-kept-on-their-own.md).
 
 - **Switches** (`crates/guard/src/dto.rs` `Switches`, in the Guard settings, event
   `guard.switches_changed`): Plenipo's browser (on), the screen, mouse, and keyboard (off),
@@ -738,10 +747,16 @@ and [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300
   characters each) and records them for the worker's role, waiting or kept (`lesson.added`).
   Lessons from a task that used the browser, the screen, or (Phase 11) a server (itself or any
-  task handed on from it: `task_used_web_screen_or_servers`) always wait. The owner keeps (optionally edited), discards, or removes them (`lesson.kept`,
-  `lesson.discarded`, `lesson.removed`). Each worker's instructions (`directory.rs`) carry its
-  role's newest 20 kept lessons and how to write one, unless learning is off (Ledger setting
-  `learning`, events `learning.switched` and `learning.role_changed`).
+  task handed on from it: `task_used_web_screen_or_servers`) always wait, with a warning. A role
+  that learns on its own keeps a lesson unasked only when the task's tree used no tool at all
+  (`task_used_any_tool`: every `capability.used` and `agent.tool_use` event, screen and server
+  sessions) and the lesson has no command, path, or web address (`has_command_path_or_address`);
+  the rest wait with a `held_reason` for the owner (ADR-050). The owner keeps (optionally
+  edited), discards, or removes them (`lesson.kept`, `lesson.discarded`, `lesson.removed`). Each
+  worker's instructions (`directory.rs`) carry its role's newest 20 kept lessons from its own
+  project or from no project (`lessons.project_id`, migration 9) inside a nonce fence that says
+  who kept each one (notes, never orders), and how to write one, unless learning is off (Ledger
+  setting `learning`, events `learning.switched` and `learning.role_changed`).
 - **Screens:** Settings → Switches (`SwitchSettings.tsx`); Approvals → New lessons, and a role's
   "What it has learned" and **Learn on its own** in its details (`learning/Lessons.tsx`). The
   sidebar's Approvals count includes waiting lessons.

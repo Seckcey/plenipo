@@ -251,7 +251,9 @@ Check ((Installed-Version) -eq $Version) "Windows lists Plenipo $Version"
 $r = Start-Plenipo
 Check ($r.version -eq $Version) "it runs as $Version"
 Check ($r.lastVersion -eq $Version) 'the Ledger knows the new version'
-Check (Has $r.backups { $_.kind -eq 'beforeUpgrade' }) 'the Ledger was backed up before the new version first used it'
+# A new version that also changes the Ledger's layout backs it up once, before the migration
+# (kind beforeMigration), and makes no second copy; either kind is the backup before first use.
+Check (Has $r.backups { $_.kind -eq 'beforeUpgrade' -or $_.kind -eq 'beforeMigration' }) 'the Ledger was backed up before the new version first used it'
 Check ($r.eventTypes -contains 'plenipo.version_changed') 'the upgrade is recorded'
 Check ($null -eq $r.recovery.recovery) '1.8.0 had closed cleanly: nothing to recover'
 Done
@@ -261,8 +263,9 @@ Step 'Rollback: back to 1.8.0, then forward again'
 Install $OldInstaller
 Check ((Installed-Version) -eq '1.8.0') 'the older installer goes back to 1.8.0'
 Start-Plenipo | Out-Null
-# 1.10 changed the Ledger's layout (to 9, Phase 17): 1.8.0 reads up to layout 8, so it leaves the
-# newer Ledger untouched and runs on a temporary one; going forward again finds it as it was.
+# 1.10 changed the Ledger's layout (to 10: lessons' projects, then Phase 17): 1.8.0 reads up to
+# layout 8, so it leaves the newer Ledger untouched and runs on a temporary one; going forward
+# again finds it as it was.
 Check $true '1.8.0 starts, leaving the newer Ledger untouched'
 Install $NewInstaller
 $r = Start-Plenipo

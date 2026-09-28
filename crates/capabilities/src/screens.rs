@@ -57,6 +57,36 @@ pub fn downscale(frame: &Frame, max_width: u32) -> Frame {
     }
 }
 
+/// Mark a point on a frame for an approval card (ADR-049, computer use asks before every click
+/// and keystroke): a red ring with a white edge around a red dot at the point, so the owner
+/// sees where a click lands. A point off the frame marks nothing.
+pub fn mark(frame: &mut Frame, x: i32, y: i32) {
+    const DOT: f64 = 2.5;
+    const RING: (f64, f64) = (8.0, 12.0);
+    const EDGE: f64 = 15.0;
+    const RED: [u8; 4] = [220, 38, 38, 255];
+    const WHITE: [u8; 4] = [255, 255, 255, 255];
+    let (w, h) = (frame.width as i32, frame.height as i32);
+    if x < 0 || y < 0 || x >= w || y >= h {
+        return;
+    }
+    let reach = EDGE.ceil() as i32;
+    for py in (y - reach).max(0)..=(y + reach).min(h - 1) {
+        for px in (x - reach).max(0)..=(x + reach).min(w - 1) {
+            let d = f64::from(px - x).hypot(f64::from(py - y));
+            let color = if d <= DOT || (RING.0..=RING.1).contains(&d) {
+                RED
+            } else if d > RING.1 && d <= EDGE {
+                WHITE
+            } else {
+                continue;
+            };
+            let i = ((py * w + px) * 4) as usize;
+            frame.rgba[i..i + 4].copy_from_slice(&color);
+        }
+    }
+}
+
 /// A frame as a PNG file.
 pub fn png(frame: &Frame) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
@@ -199,6 +229,31 @@ mod tests {
         let bytes = png(&small).unwrap();
         assert_eq!(mime_of(&bytes), "image/png");
         assert_eq!(mime_of(&[0xff, 0xd8, 0xff]), "image/jpeg");
+    }
+
+    fn pixel(f: &Frame, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * f.width + x) * 4) as usize;
+        f.rgba[i..i + 4].try_into().unwrap()
+    }
+
+    /// ADR-049: the point a click lands at is marked on the card's picture, a red ring with a
+    /// white edge around a red dot; the mark is clipped at the picture's edge, and a point off
+    /// the picture marks nothing.
+    #[test]
+    fn a_point_is_marked_for_the_owner() {
+        let mut f = frame(100, 100, 200);
+        mark(&mut f, 50, 50);
+        assert_eq!(pixel(&f, 50, 50), [220, 38, 38, 255], "the dot");
+        assert_eq!(pixel(&f, 60, 50), [220, 38, 38, 255], "the ring");
+        assert_eq!(pixel(&f, 50, 64), [255, 255, 255, 255], "its white edge");
+        assert_eq!(pixel(&f, 55, 50), [200; 4], "between the dot and the ring");
+        assert_eq!(pixel(&f, 80, 50), [200; 4], "beyond the mark");
+        mark(&mut f, 0, 0);
+        assert_eq!(pixel(&f, 0, 0), [220, 38, 38, 255]);
+        let before = f.clone();
+        mark(&mut f, 100, 50);
+        mark(&mut f, -1, 50);
+        assert_eq!(f, before, "off the picture: nothing");
     }
 
     #[test]
