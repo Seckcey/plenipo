@@ -1,5 +1,10 @@
 # Marketing website acceptance
 
+Production acceptance for the approved interactive homepage is recorded in the
+[September 28 release receipt](website-releases/2026-09-28-interactive.md). It supersedes the
+production-pending status of the historical implementation/preview checks below; their measured
+performance limits and exact-source evidence remain applicable.
+
 ## Interactive homepage sample — September 28, 2026
 
 The owner selected React Flow and approved the preview's design direction. This website-only
