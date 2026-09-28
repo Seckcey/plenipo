@@ -539,10 +539,11 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   after the approval window (default 10 minutes), and approvals left pending at shutdown are
   expired at startup. The UI shows a banner on every page, a sidebar count, and a card with
   exactly what will run. A worker may have at most 3 requests waiting at once and make at most
-  10 approval cards a minute: a call past either limit is refused at once with no card, the
-  worker is told to wait, and the refusal is recorded (`guard.approvals_limited`) at most once
-  a minute; the tool server works on at most 4 of a connection's requests at a time, the rest
-  waiting their turn in arrival order.
+  10 approval cards a minute (counting the cards of the last minute still unanswered, refused,
+  or expired; a card the owner approved no longer counts, ADR-039): a call past either limit is
+  refused at once with no card, the worker is told to wait, and the refusal is recorded
+  (`guard.approvals_limited`) at most once a minute; the tool server works on at most 4 of a
+  connection's requests at a time, the rest waiting their turn in arrival order.
 - **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
   calls; a settings change applies to the next call.
 - **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
@@ -636,7 +637,11 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   mouse and keyboard). Every call goes through Guard: the permission set, the website lists
   (`crates/guard/src/websites.rs`, checked for every page the tab loads), and the sensitive kinds
   (sending, buying, **signing in**, **taking control of the mouse and keyboard** — ask or block,
-  never allow).
+  never allow). On the desktop, taking control asks once and then every `screen_click`,
+  `screen_type`, and `screen_keys` asks again (ADR-039): `prepare_control` gives each a reason
+  that always asks (a purpose that reads like paying, signing in, or sending is the headline;
+  any other is quoted), and the card's picture is the screen as it is now with a click's point
+  marked (`approval_shot`, `screens::mark`); `screen_view` and `screen_scroll` do not ask.
 - **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
   `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
   `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain

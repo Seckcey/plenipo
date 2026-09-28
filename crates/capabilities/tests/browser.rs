@@ -1718,9 +1718,17 @@ async fn plan_user_takes_control() {
         Some("Taking control of your mouse and keyboard")
     );
     h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    // Every click asks (ADR-039): the owner approves this one.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("click at (100, 100)"),
+        "{}",
+        click.summary
+    );
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
     // While the worker waits to press Enter, the owner reaches for the mouse.
     let enter = h.pending().await;
-    assert_ne!(enter.id, a.id);
+    assert_ne!(enter.id, click.id);
     h.desktop.owner_moves(700, 500);
     h.until("the owner to have the mouse", |h| {
         h.broker
@@ -1794,6 +1802,20 @@ async fn computer_use_asks_first_and_never_types_secrets() {
         take.detail
     );
     h.broker.resolve_approval(&take.id, true, "owner").unwrap();
+    // Every click, typing, and key press asks (ADR-039): the owner approves these three.
+    for words in [
+        "double-click at (400, 300)",
+        "type \"Invoice 42\"",
+        "press ctrl+s",
+    ] {
+        let step = h.pending().await;
+        assert!(step.summary.contains(words), "{}", step.summary);
+        assert_eq!(
+            step.sensitive_label.as_deref(),
+            Some("Taking control of your mouse and keyboard")
+        );
+        h.broker.resolve_approval(&step.id, true, "owner").unwrap();
+    }
     let line = h.pending().await;
     assert!(h.broker.control_status().desktop_active());
     assert!(
@@ -1888,6 +1910,150 @@ async fn computer_use_asks_first_and_never_types_secrets() {
     assert!(used
         .iter()
         .any(|u| u["tool"] == "screen_click" && u["screenshot"].is_string()));
+}
+
+/// ADR-039 (computer use asks before every click and keystroke): once the owner lets a worker
+/// take control, every click, typing, and key press on the screen asks the owner first, whatever
+/// the worker calls it, with a picture of the screen (a click's point marked), the worker's own
+/// words, and the text to be typed; each runs only when approved. Looking at the screen and
+/// scrolling do not ask. A refused step is not done, and the worker is told so. A purpose that
+/// reads like paying is the card's headline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn every_click_and_key_on_the_desktop_asks_the_owner() {
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness(None).await;
+    // A first task brings the worker's conversation up; then the test makes the calls itself.
+    h.run(
+        "Desk Operator",
+        json!([{ "tools": [tool("screen_view", json!({}))], "say": "Done." }]),
+    )
+    .await;
+    let (task, grant) = h.direct_grant("Desk Operator").await;
+    let call = |name: &'static str, args: Value| {
+        let (broker, grant) = (h.broker.clone(), grant.clone());
+        tokio::spawn(async move { broker.call(&grant, name, args).await })
+    };
+    let control = "Taking control of your mouse and keyboard";
+    // Taking control asks once.
+    let take = call(
+        "screen_take_control",
+        json!({ "reason": "The billing program has no API." }),
+    );
+    let a = h.pending().await;
+    assert_eq!(a.sensitive_label.as_deref(), Some(control));
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    assert!(!take.await.unwrap().is_error);
+    // Looking at the screen does not ask.
+    let looked = h.broker.call(&grant, "screen_view", json!({})).await;
+    assert!(!looked.is_error, "{}", looked.text);
+    // A click asks, whatever the worker calls it, with the screen and the point marked on it.
+    let click = call(
+        "screen_click",
+        json!({ "x": 100, "y": 100, "purpose": "continue" }),
+    );
+    let a = h.pending().await;
+    assert_eq!(a.sensitive_label.as_deref(), Some(control));
+    assert!(a.summary.contains("click at (100, 100)"), "{}", a.summary);
+    assert!(
+        a.reason.contains("\"continue\"") && a.reason.contains("asks before each one"),
+        "{}",
+        a.reason
+    );
+    let picture = h
+        .ledger
+        .artifact(a.screenshot.as_deref().expect("the screen on the card"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(picture.metadata["action"], "waiting for your approval");
+    assert_eq!(picture.metadata["kind"], "desktop");
+    assert_eq!(picture.metadata["point"], json!([100, 100]));
+    assert!(
+        !h.desktop.did().contains(&Did::Click(Button::Left, 1)),
+        "nothing is clicked before the owner answers"
+    );
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    let r = click.await.unwrap();
+    assert!(r.text.contains("Clicked at (100, 100)"), "{}", r.text);
+    assert!(h
+        .desktop
+        .did()
+        .ends_with(&[Did::Move(100, 100), Did::Click(Button::Left, 1)]));
+    // Typing asks, and the card shows the text.
+    let typed = call(
+        "screen_type",
+        json!({ "text": "Invoice 42", "purpose": "fill in the title" }),
+    );
+    let a = h.pending().await;
+    assert_eq!(a.sensitive_label.as_deref(), Some(control));
+    assert!(a.summary.contains("type \"Invoice 42\""), "{}", a.summary);
+    assert!(a.detail.contains("Invoice 42"), "{}", a.detail);
+    assert!(a.reason.contains("\"fill in the title\""), "{}", a.reason);
+    assert!(a.screenshot.is_some(), "the screen is on the card");
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    let r = typed.await.unwrap();
+    assert!(r.text.contains("Typed 10 characters"), "{}", r.text);
+    // A key press asks.
+    let keys = call(
+        "screen_keys",
+        json!({ "keys": "ctrl+s", "purpose": "keep the draft" }),
+    );
+    let a = h.pending().await;
+    assert_eq!(a.sensitive_label.as_deref(), Some(control));
+    assert!(a.summary.contains("press ctrl+s"), "{}", a.summary);
+    assert!(a.reason.contains("\"keep the draft\""), "{}", a.reason);
+    h.broker.resolve_approval(&a.id, true, "owner").unwrap();
+    assert!(!keys.await.unwrap().is_error);
+    assert!(h
+        .desktop
+        .did()
+        .contains(&Did::Keys(vec![KeyPart::Ctrl, KeyPart::Char('s')])));
+    // Scrolling does not ask.
+    let scrolled = h
+        .broker
+        .call(
+            &grant,
+            "screen_scroll",
+            json!({ "amount": 3, "purpose": "see more" }),
+        )
+        .await;
+    assert!(!scrolled.is_error, "{}", scrolled.text);
+    assert!(h.desktop.did().contains(&Did::Scroll(3)));
+    // A refused click is not done, and the worker is told so.
+    let click = call(
+        "screen_click",
+        json!({ "x": 200, "y": 200, "purpose": "continue" }),
+    );
+    let a = h.pending().await;
+    h.broker.resolve_approval(&a.id, false, "owner").unwrap();
+    let r = click.await.unwrap();
+    assert!(r.is_error);
+    assert!(
+        r.text.contains("Not done: the owner did not approve it"),
+        "{}",
+        r.text
+    );
+    assert!(!h.desktop.did().contains(&Did::Move(200, 200)));
+    // A purpose that reads like paying is the card's headline reason.
+    let click = call(
+        "screen_click",
+        json!({ "x": 300, "y": 300, "purpose": "pay the invoice" }),
+    );
+    let a = h.pending().await;
+    assert_eq!(
+        a.sensitive_label.as_deref(),
+        Some("Money: buying, payments, refunds, payouts")
+    );
+    assert!(
+        a.reason.contains("looks like buying or paying"),
+        "{}",
+        a.reason
+    );
+    h.broker.resolve_approval(&a.id, false, "owner").unwrap();
+    assert!(click.await.unwrap().is_error);
+    // Six cards: taking control, three approved steps, two refused. Looking and scrolling made
+    // none.
+    assert_eq!(h.events(&task, "approval.requested").len(), 6);
+    ToolProvider::close(&h.broker, &grant);
 }
 
 /// The Researcher reads websites but cannot use them; a worker without browser permissions

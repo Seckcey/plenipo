@@ -17,7 +17,9 @@
 //!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
 //!   check's checkbox and hears how each try went, ADR-032); the Windows key.
 //! - **Computer use is the last resort:** a worker must ask to take control, with its reason,
-//!   and the owner is asked each time. The owner moving the mouse takes control back.
+//!   and the owner is asked each time; after that, every click, typing, and key press asks the
+//!   owner again, with the screen on the card (ADR-039). The owner moving the mouse takes
+//!   control back.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,6 +110,29 @@ pub(super) enum ControlWork {
     Release,
 }
 
+impl ControlWork {
+    /// It clicks, types, presses keys, or scrolls on the desktop: an approval card for it shows
+    /// the screen as it is now (ADR-039).
+    fn on_desktop(&self) -> bool {
+        matches!(
+            self,
+            Self::ScreenClick { .. }
+                | Self::ScreenType { .. }
+                | Self::ScreenKeys { .. }
+                | Self::ScreenScroll { .. }
+        )
+    }
+
+    /// The screen point it acts at, when it has one (marked on the card's picture).
+    fn point(&self) -> Option<(i32, i32)> {
+        match self {
+            Self::ScreenClick { x, y, .. } => Some((*x, *y)),
+            Self::ScreenScroll { at, .. } => *at,
+            _ => None,
+        }
+    }
+}
+
 /// A worker's use of the screen in one step.
 #[derive(Default)]
 pub(super) struct DesktopUse {
@@ -195,6 +220,22 @@ fn live_connection() -> (SensitiveKind, String) {
     (
         SensitiveKind::Outbound,
         "this page has a live connection (a WebSocket) that sends as you type or click".into(),
+    )
+}
+
+/// Why a click, typing, or a key press on the desktop is sensitive (ADR-039, computer use asks
+/// before every click and keystroke): Plenipo cannot see what a point on the screen does, so
+/// the owner is asked before every one, with the worker's own words for it. A purpose that
+/// reads like paying, signing in, or sending gives its own reason instead
+/// ([`classify::purpose`]); this is the reason for every other.
+fn desktop_step(worker: &str, what: &str, purpose: &str) -> (SensitiveKind, String) {
+    (
+        SensitiveKind::DesktopControl,
+        format!(
+            "Plenipo cannot see what {what} on your screen does, so it asks before each one; \
+             {worker} says it is to \"{}\"",
+            cap(purpose.trim(), 200)
+        ),
     )
 }
 
@@ -908,7 +949,12 @@ impl Broker {
                         count: if double { 2 } else { 1 },
                     },
                 );
-                p.inherent_owned = classify::purpose(&purpose);
+                // Every click asks (ADR-039): the worker's words give the headline when they
+                // read like paying, signing in, or sending; otherwise they are quoted.
+                p.inherent_owned = Some(
+                    classify::purpose(&purpose)
+                        .unwrap_or_else(|| desktop_step(worker, "a click", &purpose)),
+                );
                 p
             }
             Action::ScreenType { text, purpose } => {
@@ -932,14 +978,16 @@ impl Broker {
                     format!("{}\npurpose: {purpose}", cap(&text, 500)),
                     ControlWork::ScreenType { text: text.clone() },
                 );
-                p.inherent_owned = if text.contains(['\n', '\r']) {
-                    Some((
+                // Every typing asks (ADR-039), and the card shows the text (never a secret).
+                p.inherent_owned = Some(if text.contains(['\n', '\r']) {
+                    (
                         SensitiveKind::Outbound,
                         "a new line presses Enter, which can send or submit something".into(),
-                    ))
+                    )
                 } else {
                     classify::purpose(&purpose)
-                };
+                        .unwrap_or_else(|| desktop_step(worker, "typing", &purpose))
+                });
                 p
             }
             Action::ScreenKeys { keys, purpose } => {
@@ -958,14 +1006,16 @@ impl Broker {
                 let enter = parts.contains(&KeyPart::Enter)
                     || (parts.contains(&KeyPart::Ctrl)
                         && matches!(parts.last(), Some(KeyPart::Char('m' | 'j'))));
-                p.inherent_owned = if enter {
-                    Some((
+                // Every key press asks (ADR-039).
+                p.inherent_owned = Some(if enter {
+                    (
                         SensitiveKind::Outbound,
                         "pressing Enter can send or submit something".into(),
-                    ))
+                    )
                 } else {
                     classify::purpose(&purpose)
-                };
+                        .unwrap_or_else(|| desktop_step(worker, "a key press", &purpose))
+                });
                 p
             }
             Action::ScreenScroll {
@@ -1060,17 +1110,57 @@ impl Broker {
             .clone()
     }
 
-    /// A screenshot of the grant's page for an approval card, kept as evidence.
+    /// A picture for an approval card, kept as evidence: the grant's page, or, for a step on
+    /// the desktop (ADR-039), the screen as it is now with the step's point marked on it.
     pub(super) async fn approval_shot(
         &self,
         grant_id: &str,
         task_id: &str,
         worker: &str,
+        prepared: &Prepared,
     ) -> Option<String> {
-        let tab = self.grant_tab(grant_id)?;
-        tab.broken().is_none().then_some(())?;
-        self.keep_page(&tab, task_id, worker, "waiting for your approval")
-            .await
+        match &prepared.work {
+            Work::Control(work) if work.on_desktop() => {
+                self.keep_screen(task_id, worker, work.point()).await
+            }
+            _ if prepared.site.is_some() => {
+                let tab = self.grant_tab(grant_id)?;
+                tab.broken().is_none().then_some(())?;
+                self.keep_page(&tab, task_id, worker, "waiting for your approval")
+                    .await
+            }
+            _ => None,
+        }
+    }
+
+    /// Keep the screen as it is now for an approval card (ADR-039), a step's point marked on
+    /// it; its artifact ID.
+    async fn keep_screen(
+        &self,
+        task_id: &str,
+        worker: &str,
+        point: Option<(i32, i32)>,
+    ) -> Option<String> {
+        let (full, mut small) = self.capture_screen().await.ok()?;
+        if let Some((x, y)) = point {
+            let scale = f64::from(small.width) / f64::from(full.width.max(1));
+            screens::mark(
+                &mut small,
+                (f64::from(x) * scale).round() as i32,
+                (f64::from(y) * scale).round() as i32,
+            );
+        }
+        let bytes = screens::png(&small).ok()?;
+        self.keep(
+            task_id,
+            &bytes,
+            json!({
+                "kind": "desktop",
+                "worker": worker,
+                "action": "waiting for your approval",
+                "point": point.map(|(x, y)| json!([x, y])),
+            }),
+        )
     }
 
     /// Keep a screenshot of the tab's page as evidence; its artifact ID.

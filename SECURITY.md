@@ -73,7 +73,11 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
     a worker's action, the worker's own tab goes to that address instead, checked like any page.
     The worker is told either way.
-- Taking control of the screen, mouse, or keyboard asks the owner every time.
+- Taking control of the screen, mouse, or keyboard asks the owner every time, and so does every
+  click, typing, and key press after that (ADR-039): Plenipo cannot see what a point on the
+  screen does, so the owner approves each step from a picture of the screen (the click's point
+  marked), the worker's words, and, for typing, the text. Looking at the screen and scrolling do
+  not ask.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 
 Programs a worker is allowed to run (the approved list, and anything you approve when asked)

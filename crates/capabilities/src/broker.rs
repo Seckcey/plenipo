@@ -169,14 +169,17 @@ impl CallResult {
 /// A grant's limits on asking the owner (B6): at most [`MAX_PENDING_APPROVALS`] requests
 /// waiting at once and at most [`MAX_APPROVALS_A_MINUTE`] new cards a minute, so a worker — or
 /// text that drives it — cannot bury the one request that matters under look-alike cards, nor
-/// load the Ledger and the Approvals page with them. A refused ask is recorded at most once a
-/// minute per grant.
+/// load the Ledger and the Approvals page with them. A card the owner approved stops counting
+/// against the minute (ADR-039). A refused ask is recorded at most once a minute per grant.
 #[derive(Default)]
 struct AskLimits {
     /// Cards being made now: checked and given a place, not yet among the grant's `pending`.
     opening: usize,
-    /// When each card of the last minute was made, oldest first.
-    made: VecDeque<Instant>,
+    /// The cards of the last minute that count against it, oldest first: when each was made,
+    /// and its request's ID once it has one. A card the owner approved is taken off (ADR-039:
+    /// an owner who answers promptly is never slowed down by their own answers); one still
+    /// waiting, refused, or expired counts until it is a minute old.
+    made: VecDeque<(Instant, Option<String>)>,
     /// When a refusal was last recorded.
     recorded: Option<Instant>,
 }
@@ -220,7 +223,7 @@ impl AskLimits {
         while self
             .made
             .front()
-            .is_some_and(|t| now.duration_since(*t) >= ASK_MINUTE)
+            .is_some_and(|(t, _)| now.duration_since(*t) >= ASK_MINUTE)
         {
             self.made.pop_front();
         }
@@ -231,15 +234,29 @@ impl AskLimits {
         if self.made.len() >= MAX_APPROVALS_A_MINUTE {
             return Err(Limited::Minute);
         }
-        self.made.push_back(now);
+        self.made.push_back((now, None));
         self.opening += 1;
         Ok(())
     }
 
-    /// The card a place was held for is made (and counted among the waiting ones), or could
-    /// not be made.
-    fn placed(&mut self) {
+    /// The card a place was held for at `at` is made (and counted among the waiting ones) as
+    /// the request `id`, or could not be made (no `id`).
+    fn placed(&mut self, at: Instant, id: Option<&str>) {
         self.opening = self.opening.saturating_sub(1);
+        if let Some(id) = id {
+            if let Some(entry) = self
+                .made
+                .iter_mut()
+                .find(|(made, card)| *made == at && card.is_none())
+            {
+                entry.1 = Some(id.to_owned());
+            }
+        }
+    }
+
+    /// The owner approved the card `id`: it no longer counts against the minute (ADR-039).
+    fn approved(&mut self, id: &str) {
+        self.made.retain(|(_, card)| card.as_deref() != Some(id));
     }
 
     /// Whether a refusal at `now` is to be recorded: once a minute at most.
@@ -1375,20 +1392,24 @@ impl Broker {
             .ledger()
             .settle_approval(approval_id, state, by, Some(note))
             .ok();
+        let actual = settled.as_ref().map_or(state, |a| a.state);
         let waiter = {
             let mut s = self.state();
             let waiter = s.waiters.remove(approval_id);
             // The grant's count of waiting requests moves with the answer, not with the woken
-            // call (B6): the next ask sees the place free at once.
+            // call (B6): the next ask sees the place free at once. An approved card stops
+            // counting against the minute (ADR-039).
             if let Some(grant) = s.askers.remove(approval_id) {
                 if let Some(g) = s.grants.get_mut(&grant) {
                     g.pending.remove(approval_id);
+                    if actual == ApprovalState::Approved {
+                        g.asks.approved(approval_id);
+                    }
                 }
             }
             waiter
         };
         if let Some(tx) = waiter {
-            let actual = settled.as_ref().map_or(state, |a| a.state);
             let _ = tx.send(actual);
         }
         settled
@@ -1989,11 +2010,12 @@ impl Broker {
             return Err(NotAsked::Limited(words));
         }
         // Work for the card only once a place is held, so a refused call costs nothing more
-        // than its refusal. The card shows the page as it is now (Phase 10), and a server's
-        // identity is checked before the owner is asked (Phase 11): never an approval for a
-        // command that cannot safely run.
-        let screenshot = if prepared.site.is_some() && tools::is_control(tool) {
-            self.approval_shot(grant_id, task_id, worker).await
+        // than its refusal. The card shows the page, or the screen (ADR-039), as it is now
+        // (Phase 10), and a server's identity is checked before the owner is asked (Phase 11):
+        // never an approval for a command that cannot safely run.
+        let screenshot = if tools::is_control(tool) {
+            self.approval_shot(grant_id, task_id, worker, prepared)
+                .await
         } else {
             None
         };
@@ -2007,7 +2029,7 @@ impl Broker {
             };
             if let Err(why) = self.connect_first(&who, &p.server).await {
                 if let Some(g) = self.state().grants.get_mut(grant_id) {
-                    g.asks.placed();
+                    g.asks.placed(at, None);
                 }
                 return Err(NotAsked::Failed(format!("{why}. ({})", prepared.summary)));
             }
@@ -2049,7 +2071,7 @@ impl Broker {
             Ok(a) => a,
             Err(e) => {
                 if let Some(g) = self.state().grants.get_mut(grant_id) {
-                    g.asks.placed();
+                    g.asks.placed(at, None);
                 }
                 return Err(NotAsked::Failed(format!(
                     "the approval could not be requested: {e}"
@@ -2062,7 +2084,7 @@ impl Broker {
             s.askers.insert(approval.id.clone(), grant_id.to_owned());
             if let Some(g) = s.grants.get_mut(grant_id) {
                 g.asked += 1;
-                g.asks.placed();
+                g.asks.placed(at, Some(&approval.id));
                 g.pending.insert(approval.id.clone());
             } else {
                 drop(s);
@@ -3482,34 +3504,67 @@ mod tests {
         let now = Instant::now();
         for waiting in 0..MAX_PENDING_APPROVALS {
             assert_eq!(limits.reserve(now, waiting), Ok(()));
-            limits.placed();
+            limits.placed(now, Some(&format!("card-{waiting}")));
         }
         assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
         // One answered: the next may ask, and its place counts until its card is made.
         assert_eq!(limits.reserve(now, 2), Ok(()));
         assert_eq!(limits.reserve(now, 2), Err(Limited::Waiting(3)));
-        limits.placed();
+        limits.placed(now, Some("card-3"));
         assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
         assert_eq!(limits.reserve(now, 0), Ok(()));
     }
 
-    /// B6: ten cards a minute. The eleventh waits until the oldest card is a minute old, and a
-    /// refused ask is not a card.
+    /// B6: ten cards a minute, counting those still waiting, refused, or expired. The eleventh
+    /// waits until the oldest card is a minute old, and a refused ask is not a card.
     #[test]
-    fn at_most_ten_approval_cards_a_minute() {
+    fn at_most_ten_unanswered_or_refused_cards_a_minute() {
         let mut limits = AskLimits::default();
         let start = Instant::now();
         let at = |seconds: u64| start + Duration::from_secs(seconds);
         for i in 0..MAX_APPROVALS_A_MINUTE {
             assert_eq!(limits.reserve(at(i as u64), 0), Ok(()));
-            limits.placed();
+            limits.placed(at(i as u64), Some(&format!("card-{i}")));
         }
         assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
         assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
         assert_eq!(limits.reserve(at(60), 0), Ok(()));
-        limits.placed();
+        limits.placed(at(60), Some("card-10"));
         assert_eq!(limits.reserve(at(60), 0), Err(Limited::Minute));
         assert_eq!(limits.reserve(at(61), 0), Ok(()));
+    }
+
+    /// ADR-039: a card the owner approved no longer counts against the minute. Ten approved
+    /// cards in a minute, and the eleventh still asks; cards refused or left waiting count
+    /// until they are a minute old, and so does a place held for a card that could not be made.
+    #[test]
+    fn approved_cards_do_not_count_against_the_minute() {
+        let mut limits = AskLimits::default();
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        for i in 0..MAX_APPROVALS_A_MINUTE {
+            let id = format!("card-{i}");
+            assert_eq!(limits.reserve(at(i as u64), 0), Ok(()));
+            limits.placed(at(i as u64), Some(&id));
+            limits.approved(&id);
+        }
+        assert_eq!(limits.reserve(at(10), 0), Ok(()), "the eleventh still asks");
+        limits.placed(at(10), Some("card-10"));
+        // Nine more, refused or left waiting: the minute is full...
+        for i in 11..20u64 {
+            assert_eq!(limits.reserve(at(i), 0), Ok(()));
+            limits.placed(at(i), Some(&format!("card-{i}")));
+        }
+        assert_eq!(limits.reserve(at(20), 0), Err(Limited::Minute));
+        // ...until the owner approves one of them.
+        limits.approved("card-15");
+        assert_eq!(limits.reserve(at(20), 0), Ok(()));
+        limits.placed(at(20), None);
+        // A card that could not be made keeps its place in the count, and approving a request
+        // that is not among the cards changes nothing.
+        assert_eq!(limits.reserve(at(21), 0), Err(Limited::Minute));
+        limits.approved("no-such-card");
+        assert_eq!(limits.reserve(at(21), 0), Err(Limited::Minute));
     }
 
     /// B6: a refused ask is recorded once a minute per grant.
