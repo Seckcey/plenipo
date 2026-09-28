@@ -191,7 +191,8 @@ mod tests {
         let refused = ledger
             .events_of_types(&["guard.ai_tool_refused"], 10)
             .unwrap();
-        assert_eq!(refused.len(), 4);
+        // Every refusal is recorded: 3 above, the 2 while busy, and the unknown tool.
+        assert_eq!(refused.len(), 6);
         assert_eq!(refused[0].payload["runtime"], "calc");
     }
 }
