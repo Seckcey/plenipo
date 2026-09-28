@@ -1,4 +1,4 @@
-//! Starting and closing (Phase 13, ADR-036, background work): Plenipo lives in the tray and the
+//! Starting and closing (Phase 13, ADR-037, background work): Plenipo lives in the tray and the
 //! window comes and goes.
 //!
 //! - **Start with Windows** (off until the owner turns it on): Windows' own per-user "Run at

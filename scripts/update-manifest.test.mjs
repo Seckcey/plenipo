@@ -1,4 +1,4 @@
-// The release's latest.json (ADR-037) has the layout Plenipo reads, and refuses broken input.
+// The release's latest.json (ADR-038) has the layout Plenipo reads, and refuses broken input.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

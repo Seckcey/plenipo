@@ -127,7 +127,7 @@ const COMMANDS: &[&str] = &[
 
 fn main() {
     // Where updates come from, and the updater key's public half, are built in by the Release
-    // workflow (ADR-037); a change to either rebuilds the app.
+    // workflow (ADR-038); a change to either rebuilds the app.
     println!("cargo:rerun-if-env-changed=PLENIPO_UPDATE_ENDPOINT");
     println!("cargo:rerun-if-env-changed=PLENIPO_UPDATER_PUBLIC_KEY");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")

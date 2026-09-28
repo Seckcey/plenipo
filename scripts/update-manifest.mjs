@@ -1,4 +1,4 @@
-// The release's `latest.json` (Phase 13, ADR-037): the newest version, its notes, and where its
+// The release's `latest.json` (Phase 13, ADR-038): the newest version, its notes, and where its
 // installer and updater signature are, in the layout of Tauri's updater. The Release workflow
 // writes it next to the installer; Plenipo reads it from
 // https://github.com/Seckcey/plenipo/releases/latest/download/latest.json.

@@ -82,7 +82,7 @@ jobs:
           key: e2e
       - run: cargo install tauri-driver --locked
       - run: pnpm install --frozen-lockfile
-      # Phase 13 (ADR-037): this copy trusts a throwaway updater key and looks for updates only on
+      # Phase 13 (ADR-038): this copy trusts a throwaway updater key and looks for updates only on
       # this machine (127.0.0.1), so the update test can find a new version. Made here, never
       # kept, never a release.
       - name: A throwaway updater key for the update test
@@ -134,7 +134,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: cargo test --workspace --locked
-      # Phase 13 (ADR-037): this run's copy trusts a throwaway updater key and looks for updates
+      # Phase 13 (ADR-038): this run's copy trusts a throwaway updater key and looks for updates
       # only on this machine (127.0.0.1), so the installer tests can install an update the way
       # Plenipo does. The key is made here and never kept. Released copies are built by the
       # Release workflow with 8 West's key and GitHub Releases instead.

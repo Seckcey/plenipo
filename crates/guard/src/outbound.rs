@@ -1,4 +1,4 @@
-//! Plenipo's own requests to the internet (Phase 13, ADR-037, updates). Workers never use this:
+//! Plenipo's own requests to the internet (Phase 13, ADR-038, updates). Workers never use this:
 //! their websites go through Plenipo's browser and the owner's website lists.
 //!
 //! Each request Plenipo makes for itself has a **purpose**, and a purpose allows only its own

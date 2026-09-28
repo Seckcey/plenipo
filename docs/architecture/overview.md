@@ -269,7 +269,7 @@ timedOut`; `interrupted` for runs left active by a previous session.
 - **Output**: 8 KiB line cap, 1,000-line ring buffer, batched events (50 ms / 200 lines).
 - **Shutdown**: tray Quit, `plenipo-desktop.exe --quit`, the installer, SIGTERM/SIGINT →
   graceful shutdown. What closing the window does is the owner's choice (Settings → Start and
-  close, ADR-036): by default it hides to the tray while work is going, and quits otherwise.
+  close, ADR-037): by default it hides to the tray while work is going, and quits otherwise.
 - **UI state** lives above the views, so navigation never loses it; after a webview reload it
   is rebuilt from `get_runtime_overview` + `get_execution_output` and deduplicated by `seq`.
 
@@ -803,10 +803,10 @@ Decision records: [ADR-031](../adr/ADR-031-terminal-panel.md) (the terminal pane
 
 ## 13c. Keeping Plenipo dependable (Phase 13)
 
-Decision records: [ADR-036](../adr/ADR-036-background-work.md) (background work) and
-[ADR-037](../adr/ADR-037-updates.md) (updates).
+Decision records: [ADR-037](../adr/ADR-037-background-work.md) (background work) and
+[ADR-038](../adr/ADR-038-updates.md) (updates).
 
-- **One Plenipo per person, in the tray** (ADR-036, option D: no separate Windows service). The
+- **One Plenipo per person, in the tray** (ADR-037, option D: no separate Windows service). The
   work lives in the one Plenipo process; the window comes and goes. `tauri-plugin-single-instance`
   (Windows) hands a second launch to the first, which shows its window (or quits, for `--quit`).
   The main window starts hidden and is shown unless Plenipo started with `--in-tray` (Start with
@@ -839,7 +839,7 @@ Decision records: [ADR-036](../adr/ADR-036-background-work.md) (background work)
   Windows, the Ledger's health and backups, how the last run ended, the AI tools found, the
   switches of Start and close and Updates), `recent-events.json` (types and times only, no
   payloads), and the log files; five kept in `diagnostics\`.
-- **Updates** (ADR-037, `update_host.rs`, capabilities `updates.rs`): `latest.json` from the
+- **Updates** (ADR-038, `update_host.rs`, capabilities `updates.rs`): `latest.json` from the
   newest GitHub release, read through Guard's outbound rules (`guard::outbound`, purpose
   `Updates`: HTTPS to Plenipo's releases on github.com and GitHub's download hosts only; each
   redirect checked again). The installer must carry the updater key's signature, whose trusted

@@ -104,7 +104,7 @@ impl Guard {
         &self.inner.ledger
     }
 
-    /// Plenipo's own request to the internet (Phase 13, ADR-037): allowed only to its purpose's
+    /// Plenipo's own request to the internet (Phase 13, ADR-038): allowed only to its purpose's
     /// addresses (see [`crate::outbound`]). A refusal is recorded in the Ledger as
     /// `guard.request_refused`, with the host and the reason (never the rest of the address).
     pub fn check_outbound(

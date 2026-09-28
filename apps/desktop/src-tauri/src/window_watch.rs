@@ -1,4 +1,4 @@
-//! A crashed or frozen window is brought back (Phase 13, ADR-036 item 3).
+//! A crashed or frozen window is brought back (Phase 13, ADR-037 item 3).
 //!
 //! The window's page runs in WebView2's own programs, so a crash there never stops the work;
 //! but nothing would bring the window back. While the window is open, its page tells Plenipo

@@ -1,10 +1,11 @@
-# ADR-036: Background work — Plenipo lives in the tray, and the window comes and goes
+# ADR-037: Background work — Plenipo lives in the tray, and the window comes and goes
 
 - **Status:** Accepted (by the owner, 2026-09-27, as recommended: option D)
 - **Date:** 2026-09-27
 - **Phase:** 13
-- **Number:** ADR-034 and ADR-035 are taken by pull request #69 (the security fixes), so this is
-  ADR-036. The owner approved it as "ADR-035" before the renumbering.
+- **Number:** ADR-034 and ADR-035 are taken by pull request #69 (the security fixes) and
+  ADR-036 by pull request #71 (every AI model), so this is ADR-037. The owner approved it as
+  "ADR-035" before the renumbering.
 
 ## Context
 

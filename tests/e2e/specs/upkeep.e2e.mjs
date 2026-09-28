@@ -1,4 +1,4 @@
-// Phase 13 end-to-end: keeping Plenipo dependable (ADR-036, background work; ADR-037, updates),
+// Phase 13 end-to-end: keeping Plenipo dependable (ADR-037, background work; ADR-038, updates),
 // in the real app. The top bar shows the version; Settings → Start and close keeps its choices,
 // with Start with Windows off to begin with; after Plenipo is ended the hard way, the next start
 // says how it last stopped; Diagnostics backs up the Ledger, lists the backups, and saves a

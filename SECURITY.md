@@ -64,7 +64,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 - Plenipo installs an update only when the owner chooses **Install now**, and only an installer
-  signed with 8 West's updater key for the version it claims (from v1.9.0, ADR-037). Its once-a-day
+  signed with 8 West's updater key for the version it claims (from v1.9.0, ADR-038). Its once-a-day
   check reads a public file from GitHub Releases and sends nothing about the owner or their work.
 - Plenipo's log files and diagnostics files never hold secrets, or what the owner types in the
   terminal (from v1.9.0).

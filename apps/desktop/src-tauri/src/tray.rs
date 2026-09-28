@@ -107,7 +107,7 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     }
 }
 
-/// Show the window (opening it again if it was closed for good, ADR-036).
+/// Show the window (opening it again if it was closed for good, ADR-037).
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     crate::start_close::show_main_window(app);
 }

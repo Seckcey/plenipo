@@ -33,7 +33,7 @@ function useUpdates() {
 }
 
 /**
- * The top bar's "Update ready" mark (ADR-037): shown only when a newer version is ready. It
+ * The top bar's "Update ready" mark (ADR-038): shown only when a newer version is ready. It
  * opens Settings → Updates; nothing installs until you say so there.
  */
 export function UpdateMark({ go }: { go: Go }) {
@@ -54,7 +54,7 @@ export function UpdateMark({ go }: { go: Go }) {
 }
 
 /**
- * Settings → Updates (ADR-037): this version, when Plenipo last checked, Check now, and a
+ * Settings → Updates (ADR-038): this version, when Plenipo last checked, Check now, and a
  * newer version's notes with Install now. Checking is always on (once a day); installing only
  * when you say so, and only a version 8 West signed.
  */

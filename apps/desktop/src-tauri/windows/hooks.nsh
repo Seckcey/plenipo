@@ -1,4 +1,4 @@
-; Plenipo's installer hooks (Phase 13; ADR-036 background work, ADR-037 updates). Tauri's
+; Plenipo's installer hooks (Phase 13; ADR-037 background work, ADR-038 updates). Tauri's
 ; installer includes this file and runs these macros at its own points.
 
 ; Before files change, a running Plenipo is asked to quit the normal way, so its work is stopped

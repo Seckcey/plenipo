@@ -11,6 +11,8 @@
 
 **Added after Phase 10 (v1.4.0):** on/off switches in Settings, including letting workers send, buy, or press Sign in without asking on allowed websites and handing CAPTCHAs to the owner (ADR-023, which amends ADR-020); and workers that learn from their work, with the owner keeping or discarding each lesson (ADR-024). Neither changes a phase.
 
+**Added as Phase 16, last, at the owner's direction (2026-09-27):** every AI model worth having — paid AI keys with spending caps, a maker on every model so cross-company review is correct, and more than one route to the same model (ADR-036). It comes after Phase 15 and changes no earlier phase.
+
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
 ---
@@ -1443,7 +1445,7 @@ Core workflows stable.
 
 # Phase 13 — Windows Service, Installer, Updates, and Recovery
 
-**Status: delivered in v1.9.0** (checklist and acceptance report in `docs/phases/phase-13-*`). Decisions: ADR-036 (background work, accepted) and ADR-037 (updates, accepted). The background work stays in the one Plenipo program, which lives in the tray (no separate Windows service): closing the window hides it while work is going (the owner can choose "always keep" or "quit"), a second launch opens the first, Start with Windows is a switch (off to begin with), and a window that stops responding is reloaded or reopened while the work goes on. After a crash, a Windows restart, or an interrupted Ledger layout change, the next start says what happened, lists the tasks that stopped, and offers Run again or Leave stopped. The Ledger is backed up every day, before a new version first uses it, and before an update; Diagnostics restores a backup and saves a diagnostics file; log files rotate. Plenipo checks GitHub once a day for a new version (Free and Pro, always on), and installs one only when the owner says so, only if it is signed with 8 West's updater key for the version it claims. The installer asks Plenipo to quit cleanly, keeps your data when uninstalling unless you tick "Also delete my Plenipo data", and is tested on GitHub's Windows machine (install, upgrade from 1.8.0, back and forward, an update, uninstall, what is left). A real Windows restart and a real update from GitHub are checked by the owner on Windows.
+**Status: delivered in v1.9.0** (checklist and acceptance report in `docs/phases/phase-13-*`). Decisions: ADR-037 (background work, accepted) and ADR-038 (updates, accepted). The background work stays in the one Plenipo program, which lives in the tray (no separate Windows service): closing the window hides it while work is going (the owner can choose "always keep" or "quit"), a second launch opens the first, Start with Windows is a switch (off to begin with), and a window that stops responding is reloaded or reopened while the work goes on. After a crash, a Windows restart, or an interrupted Ledger layout change, the next start says what happened, lists the tasks that stopped, and offers Run again or Leave stopped. The Ledger is backed up every day, before a new version first uses it, and before an update; Diagnostics restores a backup and saves a diagnostics file; log files rotate. Plenipo checks GitHub once a day for a new version (Free and Pro, always on), and installs one only when the owner says so, only if it is signed with 8 West's updater key for the version it claims. The installer asks Plenipo to quit cleanly, keeps your data when uninstalling unless you tick "Also delete my Plenipo data", and is tested on GitHub's Windows machine (install, upgrade from 1.8.0, back and forward, an update, uninstall, what is left). A real Windows restart and a real update from GitHub are checked by the owner on Windows.
 
 ## Goal
 
@@ -1646,6 +1648,99 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 - unsupported provider hacks
 - credential scraping
 - provider-specific business logic in Core
+
+---
+
+# Phase 16 — Every AI Model Worth Having
+
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). This phase comes last, after Phase 15.
+
+## Goal
+
+Reach every AI model and AI company that is worth having, without weakening Guard, the Ledger, or the owner's control of what gets spent.
+
+Paperclip was read at commit `0f14d26` for comparison. Plenipo already has four of the same AI tools (Claude Code, Codex, Grok, Kimi) plus Ollama, which Paperclip does not have. What Plenipo lacks is Google's and Cursor's own programs, and the paid-key routes that supply Paperclip's long model list.
+
+Phase 15's "Do not add providers merely to increase a logo count" stands as an idea. A count is not the point; the quality of the service is (ADR-036 §1).
+
+## Deliverables
+
+Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
+
+**Wave 1 — fits today's rules, no paid key**
+
+- `maker` on every known model: who made it, separate from the AI tool that runs it
+- cross-company review counts the maker, not the AI tool (fixes a real hole in ADR-011 for Ollama's models)
+- the model list groupable by maker or by the app that runs it, the owner's choice
+- exact Claude model versions beside the plain names
+- the older OpenAI models a ChatGPT sign-in really allows, each checked
+- Google's Gemini CLI as an AI tool, or a written finding
+- more Ollama cloud models once the owner's paid plan is active
+
+**Wave 2 — one AI tool, one decision record each**
+
+- Cursor's agent (its own models plus Anthropic's, OpenAI's, Google's, xAI's, Moonshot's)
+- GitHub Copilot, second try, through its `--headless --stdio` mode
+
+**Wave 3 — spending caps first, then paid routes**
+
+- spending caps: for the business, a department, and one position; monthly amount, warning at 80%, hard stop
+- pricing and recording of every paid task in the Ledger
+- "Let workers use paid AI keys" switch in Settings, off by default
+- paid keys in the Vault, reaching only the AI tool they were saved for
+- more than one route to a model, in the owner's order, with fallback when a route is usage-limited, signed out, or over its cap
+- OpenRouter through a Plenipo helper, built like the Ollama helper (ADR-017)
+- direct keys for Anthropic, OpenAI, xAI, and Google
+
+**Wave 4 — specialist workers**
+
+- Hermes Agent (Nous Research), checked through its own API server first, not its plain-text program
+
+## Technical Implementation
+
+- **The maker field comes first.** Today `crates/router/src/engine.rs` takes a model's company from its AI tool, so every Ollama model counts as "Ollama". Add `maker` to `KnownModel`, run `pnpm bindings`, and point cross-company review at it.
+- **A route** is a model, the AI tool that runs it, and how it is paid for. The Router's reason must name the route it chose, say whether it costs money, and say why it skipped an earlier one.
+- **New AI tools follow the existing guide** (`docs/development/adding-an-ai-tool.md`) and ADR-014's bar, with step 0 run on the owner's Windows PC before any code. The prompt goes in on standard input, directly or over ACP (ADR-015). A tool that fails the bar merges a finding, not a workaround.
+- **Paid keys** are kept in the Vault (`crates/capabilities/src/vault.rs`), as server sign-ins are. Settings keep a reference only. The contract suite keeps refusing key variables for every subscription AI tool; a paid AI tool declares the variables it needs and gets only those.
+- **The OpenRouter helper** follows ADR-017: a small supervised client per task, Plenipo keeping the conversation, fixed endpoints, and the key handed in from the Vault. Not `reqwest` inside the app.
+- **Amendments.** Wave 3 amends ADR-003, ADR-007 §4, ADR-011, and ADR-014 in its own decision record. It does not rewrite them.
+
+## Tests
+
+- cross-company review: two models with the same maker but different AI tools count as one company; two makers inside Ollama count as two
+- model list groups correctly by maker and by AI tool, with the same models in both
+- the contract suite still refuses key variables for every subscription AI tool
+- with the paid switch off: no key can be saved, and no paid route is offered
+- a key cannot be saved while no spending cap exists
+- warning at 80% of a cap; hard stop at 100%, with the work stopped and the owner told
+- a cap is enforced for the business, a department, and one position
+- route fallback: first route usage-limited → second route runs, and the reason says so
+- route fallback: first route over its cap → skipped until reset
+- a paid task records what it spent, against which cap, and which key by name
+- no key, and no part of a key, appears in the Ledger, a task's activity, or a log
+- each new AI tool passes the full contract suite with its own fake persona
+
+## Acceptance Criteria
+
+- Plenipo reaches every model maker that Paperclip reaches through the makers' own programs, and keeps the Ollama models Paperclip does not have.
+- One model can be reached by more than one route, and the owner's example works: the Kimi subscription runs out and the paid Ollama account carries the work.
+- With the paid switch off, Plenipo behaves exactly as it did before this phase, and every test that forbids keys still passes.
+- No paid work is possible without a spending cap, and a hard stop really stops the work.
+- Every model shows who made it and which app runs it.
+
+## Dependencies
+
+Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. Ollama's paid plan and the owner's Google, Copilot, and Cursor sign-ins are needed for the step-0 checks. Hermes needs its API server checked first.
+
+## Out of Scope
+
+- work that runs on another company's computers, where Guard cannot reach it (Cursor Cloud, hosted managed-agent services, Bedrock AgentCore)
+- any model through a cloud reseller account (Bedrock, Vertex, Foundry)
+- gateways into other agent systems
+- outside multi-company programs such as OpenCode and Pi
+- workers that run any program or call any web address
+- AI tools loaded while Plenipo runs (plugins)
+- scraping sign-ins, unofficial clients, driving an interactive screen
 
 ---
 

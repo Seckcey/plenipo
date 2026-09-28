@@ -1,4 +1,4 @@
-//! Updates in the desktop app (Phase 13, ADR-037): checking once a day (always on, for Free and
+//! Updates in the desktop app (Phase 13, ADR-038): checking once a day (always on, for Free and
 //! Pro alike), telling the owner, and installing only when the owner says so.
 //!
 //! Installing goes in order and stops at the first problem, leaving this version installed:

@@ -1,4 +1,4 @@
-//! Plenipo's own updates (Phase 13, ADR-037), on this computer only: a small test server plays
+//! Plenipo's own updates (Phase 13, ADR-038), on this computer only: a small test server plays
 //! GitHub, and a throwaway key plays 8 West's updater key. No internet.
 
 use std::collections::HashMap;

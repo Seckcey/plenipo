@@ -1,4 +1,4 @@
-//! Recovery (Phase 13, ADR-036 items 6–8): knowing how the last run ended, and telling the
+//! Recovery (Phase 13, ADR-037 items 6–8): knowing how the last run ended, and telling the
 //! owner in plain words what stopped and what they can do.
 //!
 //! While Plenipo runs it keeps a small note, `run\plenipo-running.json`, in its own folder: the

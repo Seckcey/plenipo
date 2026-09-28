@@ -34,7 +34,7 @@ Plenipo's log files are not set by a variable: Plenipo writes what it does (warn
 part, and its own steps) to `logs\plenipo.log`, starts a new file at 2 MB, and keeps five. Secrets
 and what you type in the terminal are never written to them (Phase 13).
 
-### Build-time variables (Phase 13, ADR-037 updates)
+### Build-time variables (Phase 13, ADR-038 updates)
 
 Read when the app is **built**, never at run time. The Release workflow sets them; copies built
 without them cannot install updates.

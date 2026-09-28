@@ -116,7 +116,7 @@ See [Free and Pro](docs/editions.md) for the full proposal. AI provider subscrip
 
 From v1.9.0, every copy (Free and Pro alike) checks Plenipo's GitHub Releases once a day for a
 new version and tells you when one is ready. The check sends nothing about you or your work, and
-nothing installs until you choose **Install now** ([ADR-037](docs/adr/ADR-037-updates.md), updates).
+nothing installs until you choose **Install now** ([ADR-038](docs/adr/ADR-038-updates.md), updates).
 
 Plenipo is **source-available under the [Elastic License 2.0](LICENSE)**. Read the license for
 its permissions and restrictions and [CONTRIBUTING.md](CONTRIBUTING.md#how-contributions-are-licensed)
@@ -253,8 +253,8 @@ and before each new version; Diagnostics can **Restore** a backup and **Save a d
 Plenipo checks for a new version once a day and installs it only when you choose **Install now**,
 and only if 8 West signed it. Uninstalling keeps your data unless you tick the box to delete it.
 
-[Release notes](docs/releases/v1.9.0.md) · [ADR-036](docs/adr/ADR-036-background-work.md)
-(background work) · [ADR-037](docs/adr/ADR-037-updates.md) (updates)
+[Release notes](docs/releases/v1.9.0.md) · [ADR-037](docs/adr/ADR-037-background-work.md)
+(background work) · [ADR-038](docs/adr/ADR-038-updates.md) (updates)
 
 </details>
 

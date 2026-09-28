@@ -1,13 +1,14 @@
-# ADR-037: Updates — from GitHub Releases, signed twice, installed only when you say so
+# ADR-038: Updates — from GitHub Releases, signed twice, installed only when you say so
 
 - **Status:** Accepted (by the owner, 2026-09-27, as recommended, with one choice: checking for
   updates is always on, for Free and Pro alike; there is no switch to turn it off)
 - **Date:** 2026-09-27
 - **Phase:** 13
-- **Number:** ADR-034 and ADR-035 are taken by pull request #69 (the security fixes), so this is
-  ADR-037. The owner approved it as "ADR-036" before the renumbering.
+- **Number:** ADR-034 and ADR-035 are taken by pull request #69 (the security fixes) and
+  ADR-036 by pull request #71 (every AI model), so this is ADR-038. The owner approved it as
+  "ADR-036" before the renumbering.
 - **Related:** ADR-021 (Free and Pro editions), ADR-022 (subscription and the weekly license
-  check), ADR-036 (background work), and ADR-013 (Guard and the capability broker).
+  check), ADR-037 (background work), and ADR-013 (Guard and the capability broker).
 
 ## Context
 

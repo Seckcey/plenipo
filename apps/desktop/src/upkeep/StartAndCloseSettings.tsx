@@ -27,7 +27,7 @@ const CLOSE_CHOICES: readonly { value: CloseWindow; label: string; hint: string 
 ];
 
 /**
- * Settings → Start and close (ADR-036, background work): Start with Windows (off until you
+ * Settings → Start and close (ADR-037, background work): Start with Windows (off until you
  * turn it on), and what closing the window does.
  */
 export function StartAndCloseSettings() {

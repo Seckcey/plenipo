@@ -1,4 +1,4 @@
-//! Plenipo's own updates (Phase 13, ADR-037): the one place Plenipo reaches the internet for
+//! Plenipo's own updates (Phase 13, ADR-038): the one place Plenipo reaches the internet for
 //! itself. Every request is Plenipo's own purpose ("checking for updates") and goes through
 //! Guard first ([`plenipo_guard::outbound`]): only GitHub's release addresses, only over
 //! `https`, and every redirect checked again. A download is used only when:

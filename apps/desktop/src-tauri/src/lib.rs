@@ -293,7 +293,7 @@ pub fn configure<R: Runtime>(
                     );
                 }
             }
-            // Started by Windows at sign-in: stay in the tray (ADR-036), unless this start is a
+            // Started by Windows at sign-in: stay in the tray (ADR-037), unless this start is a
             // restart Plenipo asked for itself (a restore), which shows the window.
             let in_tray = start_close::started_in_tray(&args)
                 && !data
@@ -333,7 +333,7 @@ pub fn configure<R: Runtime>(
         })
         .on_window_event(|window, event| {
             // Closing the window never stops approved work unless the owner chose that
-            // (ADR-036): hide to the tray while work is going (or always), or quit the normal
+            // (ADR-037): hide to the tray while work is going (or always), or quit the normal
             // way, which stops the work and records it.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
@@ -553,7 +553,7 @@ pub fn mark_stopped<R: Runtime>(app: &tauri::AppHandle<R>) {
 pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
     match event {
         // The last window closed because Plenipo is opening it again (a crashed window,
-        // ADR-036): that is not a quit.
+        // ADR-037): that is not a quit.
         RunEvent::ExitRequested {
             api, code: None, ..
         } if app
@@ -581,7 +581,7 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
             // Not after Plenipo's own shutdown (which removed the note): Windows is ending the
             // session (a restart, a shutdown, or signing out) and closes Plenipo, as it closes
             // every program, before the work can be stopped. Say so in the note, for the next
-            // start (ADR-036 item 7).
+            // start (ADR-037 item 7).
             if let Some(note) = app.try_state::<RunNote>() {
                 if let Some(keeper) = note.0.as_ref().filter(|k| k.is_running()) {
                     log::warn!("Windows is ending the session; Plenipo is being closed");
@@ -631,7 +631,7 @@ pub fn run() -> i32 {
     let smoke = SmokeTest::from_env();
     let outcome = smoke.clone();
 
-    // One Plenipo at a time (Phase 13, ADR-036): opening it again shows the one running, and
+    // One Plenipo at a time (Phase 13, ADR-037): opening it again shows the one running, and
     // `--quit` asks it to quit the normal way. First, so a second launch stops before anything
     // else starts. Windows only: the target, and Linux test runs start one after another.
     let builder = tauri::Builder::default();

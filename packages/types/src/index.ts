@@ -228,7 +228,7 @@ export type { PullRequestRef } from "./generated/PullRequestRef";
 export type { TaskRecord } from "./generated/TaskRecord";
 export type { WorkRecord } from "./generated/WorkRecord";
 
-// Keeping Plenipo dependable (Phase 13, ADR-036 background work, ADR-037 updates)
+// Keeping Plenipo dependable (Phase 13, ADR-037 background work, ADR-038 updates)
 export type { AvailableUpdate } from "./generated/AvailableUpdate";
 export type { BackupKind } from "./generated/BackupKind";
 export type { CloseWindow } from "./generated/CloseWindow";

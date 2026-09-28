@@ -1,4 +1,4 @@
-//! The Release workflow's check (Phase 13, ADR-037): the installer it is about to publish
+//! The Release workflow's check (Phase 13, ADR-038): the installer it is about to publish
 //! carries an updater signature Plenipo will accept, for exactly this version.
 //!
 //! `cargo run -p plenipo-capabilities --example verify_update -- <installer> <signature file>

@@ -1,5 +1,5 @@
 //! Phase 13 commands: recovery, starting and closing, backups and restore, the diagnostics
-//! file, and updates (ADR-036, background work; ADR-037, updates). Every one is the main
+//! file, and updates (ADR-037, background work; ADR-038, updates). Every one is the main
 //! window's alone (capabilities/default.json): the sign and web pages are refused.
 //!
 //! None takes a path: a backup is named from the list Core gives, the diagnostics file goes
@@ -145,7 +145,7 @@ pub async fn dismiss_window_recovery<R: Runtime>(
     recovery_status_off_thread(&app).await
 }
 
-/// The window's page is alive (every few seconds; ADR-036 item 3). `visible`: the page can be
+/// The window's page is alive (every few seconds; ADR-037 item 3). `visible`: the page can be
 /// seen (WebView2 may slow a hidden page down).
 #[tauri::command]
 pub async fn window_alive(
@@ -188,7 +188,7 @@ pub async fn reset_settings<R: Runtime>(
     recovery_status_off_thread(&app).await
 }
 
-// ---- Start and close (ADR-036) ---------------------------------------------------------------
+// ---- Start and close (ADR-037) ---------------------------------------------------------------
 
 /// Settings → Start and close.
 #[tauri::command]
@@ -464,7 +464,7 @@ fn last_run(status: &RecoveryStatus) -> Value {
     })
 }
 
-// ---- Updates (ADR-037) ------------------------------------------------------------------------
+// ---- Updates (ADR-038) ------------------------------------------------------------------------
 
 /// Settings → Updates.
 #[tauri::command]

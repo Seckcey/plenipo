@@ -3,7 +3,7 @@ import type { AvailableUpdate } from "./AvailableUpdate";
 import type { UpdateState } from "./UpdateState";
 
 /**
- * Settings → Updates (ADR-037).
+ * Settings → Updates (ADR-038).
  */
 export type UpdateStatus = { 
 /**

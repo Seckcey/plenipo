@@ -62,12 +62,12 @@ can still appear for a new release until enough people have downloaded it; no ce
 that. To speed it up, submit the signed installer at
 [microsoft.com/wdsi](https://www.microsoft.com/wdsi) as a software developer.
 
-## Updates: the updater key (Phase 13, ADR-037)
+## Updates: the updater key (Phase 13, ADR-038)
 
 Plenipo installs an update only when it carries a second signature: the **updater key**'s, over
 the installer and the version it claims. This key is separate from the Azure signing above, and
 only the owner holds it. How to make it once is in
-[ADR-037 (updates), section 6](../adr/ADR-037-updates.md#6-what-the-owner-does-once-the-updater-key).
+[ADR-038 (updates), section 6](../adr/ADR-038-updates.md#6-what-the-owner-does-once-the-updater-key).
 It goes in **Settings → Secrets and variables → Actions**:
 
 | Name                                 | Kind     | What                                                      |

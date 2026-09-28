@@ -27,7 +27,7 @@ function relevant(eventType: string): boolean {
 }
 
 /**
- * What recovery has to tell you (Phase 13, ADR-036): how the last run ended and what it
+ * What recovery has to tell you (Phase 13, ADR-037): how the last run ended and what it
  * stopped, with Run again and Leave stopped; a window that was brought back; and settings
  * Plenipo could not read. Notices, never alerts: the work is safe, and nothing runs again
  * until you say so.

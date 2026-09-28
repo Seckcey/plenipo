@@ -51,7 +51,7 @@ After the MVP:
 | Phase 11 — Servers over SSH (ADR-025, ADR-026)                     | `1.6.0` |
 | Phase 12A — Visual design system (ADR-030)                         | `1.7.0` |
 | Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)   | `1.8.0` |
-| Phase 13 — Installer, updates, and recovery (ADR-036, ADR-037)     | `1.9.0` |
+| Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)     | `1.9.0` |
 
 ## Releasing
 
@@ -70,7 +70,7 @@ After the MVP:
 release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
 ([code signing](code-signing.md)), checks the signature, and publishes a GitHub release with the
 installer attached. From 1.9.0 it also signs the installer with the updater key and attaches
-its `.sig` and `latest.json`, which installed copies read to find the new version (ADR-037,
+its `.sig` and `latest.json`, which installed copies read to find the new version (ADR-038,
 updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-037)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
 **Run workflow** with **Dry run** ticked builds and signs from any branch and publishes nothing.
 

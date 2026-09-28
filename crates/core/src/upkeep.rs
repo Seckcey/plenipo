@@ -1,5 +1,5 @@
-//! Keeping Plenipo dependable (Phase 13): starting and closing (ADR-036, background work),
-//! recovery after a crash or a Windows restart, the diagnostics file, and updates (ADR-037).
+//! Keeping Plenipo dependable (Phase 13): starting and closing (ADR-037, background work),
+//! recovery after a crash or a Windows restart, the diagnostics file, and updates (ADR-038).
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -91,7 +91,7 @@ pub struct Recovery {
     pub stopped_programs: u32,
 }
 
-/// The window's page stopped and was brought back (ADR-036 item 3).
+/// The window's page stopped and was brought back (ADR-037 item 3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -155,7 +155,7 @@ pub enum UpdateState {
     Failed,
 }
 
-/// Settings → Updates (ADR-037).
+/// Settings → Updates (ADR-038).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

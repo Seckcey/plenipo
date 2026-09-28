@@ -74,7 +74,7 @@ checks the contents of that request byte for byte, and you can read it in the so
 **A Free copy never checks in at all.** If you have not paid, Plenipo never contacts 8 West.
 
 **Checking for a new version is separate, and the same for Free and Pro** (from v1.9.0,
-[ADR-037](adr/ADR-037-updates.md), updates). Every copy asks GitHub once a day whether a newer
+[ADR-038](adr/ADR-038-updates.md), updates). Every copy asks GitHub once a day whether a newer
 Plenipo is out, by reading a public file from Plenipo's GitHub Releases. It sends nothing about you
 or your work, and has nothing to do with a license. GitHub sees what any website sees (your
 internet address, and that a copy of Plenipo asked). Nothing is downloaded or installed until you

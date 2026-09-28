@@ -10,7 +10,7 @@ name: Release
 # (docs/development/code-signing.md). Run workflow with "dry run" ticked builds and signs from any
 # branch, checks the signature, and keeps the installer as a download; it publishes nothing.
 #
-# Updates (Phase 13, ADR-037): the installer also gets an updater signature made with the updater
+# Updates (Phase 13, ADR-038): the installer also gets an updater signature made with the updater
 # key (secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the key's public
 # half is built into Plenipo (repository variable PLENIPO_UPDATER_PUBLIC_KEY), and the release
 # carries latest.json, which installed copies read once a day.
@@ -102,7 +102,7 @@ jobs:
               exit 1
             fi
           done
-          # Not a secret: the updater key's public half, built into Plenipo (ADR-037).
+          # Not a secret: the updater key's public half, built into Plenipo (ADR-038).
           if [ -z "$PLENIPO_UPDATER_PUBLIC_KEY" ]; then
             echo "::error::Repository variable PLENIPO_UPDATER_PUBLIC_KEY is not set; see docs/development/code-signing.md"
             exit 1
@@ -130,7 +130,7 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          # The updater key's public half, built into Plenipo (ADR-037).
+          # The updater key's public half, built into Plenipo (ADR-038).
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
@@ -148,7 +148,7 @@ jobs:
             if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
           }
           pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
-      # ADR-037: the finished installer (already signed as 8 West above) gets the updater
+      # ADR-038: the finished installer (already signed as 8 West above) gets the updater
       # signature, over its final bytes and naming this version, with Tauri's signing tool.
       - name: Sign the installer with the updater key, for this version
         shell: bash
@@ -239,7 +239,7 @@ jobs:
           fi
           installer=(target/release/bundle/nsis/*-setup.exe)
           test -f "${installer[0]}"
-          # The updater signature and latest.json go with it (ADR-037); a pre-release has no
+          # The updater signature and latest.json go with it (ADR-038); a pre-release has no
           # latest.json.
           test -f "${installer[0]}.sig"
           assets=("${installer[@]}" "${installer[0]}.sig")

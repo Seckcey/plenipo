@@ -4,8 +4,8 @@
 Acceptance report: [`phase-13-acceptance-report.md`](phase-13-acceptance-report.md).
 
 Source: `ROLLOUT_PLAN.md`, Phase 13 — Windows Service, Installer, Updates, and Recovery,
-[ADR-036 (background work)](../adr/ADR-036-background-work.md), and
-[ADR-037 (updates)](../adr/ADR-037-updates.md).
+[ADR-037 (background work)](../adr/ADR-037-background-work.md), and
+[ADR-038 (updates)](../adr/ADR-038-updates.md).
 
 This checklist keeps the plan's words where it quotes the plan. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md): the plan's "daemon" is Plenipo **in the
@@ -20,15 +20,15 @@ tray**, a "crash" is Plenipo **closing unexpectedly**, a "migration" is **updati
   uninstalls cleanly on a fresh Windows computer; closing, crashing, or restarting the window
   never loses the Ledger or stops approved work unless configured; after a crash the owner can
   see what happened and recover.
-- **ADR-036 (background work): accepted, as recommended (option D).** The work stays in the one
+- **ADR-037 (background work): accepted, as recommended (option D).** The work stays in the one
   Plenipo program, which lives in the tray; no separate Windows service.
-- **ADR-037 (updates): accepted, as recommended**, with the owner's choice: **update checking is
+- **ADR-038 (updates): accepted, as recommended**, with the owner's choice: **update checking is
   always on, for Free and Pro**, with no switch. Installing still happens only when the owner
   says so, and only a release signed with 8 West's updater key.
-- Numbers: **ADR-036 and ADR-037** (drafted as ADR-035 and ADR-036; pull request #69 took
-  ADR-034 and ADR-035 first). No Ledger migration (the Ledger's layout is unchanged; backups are
+- Numbers: **ADR-037 and ADR-038** (drafted as ADR-035 and ADR-036; pull requests #69 and #71 took
+  ADR-034 to ADR-036 first). No Ledger migration (the Ledger's layout is unchanged; backups are
   told apart by their file names, and Plenipo's own state uses the existing `settings` table).
-- The owner adds the updater key to GitHub themselves (two secrets and one variable, ADR-037 §6);
+- The owner adds the updater key to GitHub themselves (two secrets and one variable, ADR-038 §6);
   nothing secret is committed or pasted into a chat.
 - Out of scope (plan): Microsoft Store distribution, macOS and Linux packaging.
 
@@ -36,7 +36,7 @@ tray**, a "crash" is Plenipo **closing unexpectedly**, a "migration" is **updati
 
 Written before building, from a map of the code.
 
-- **Background work (ADR-036).** One per-user Plenipo process, in the tray. The main window
+- **Background work (ADR-037).** One per-user Plenipo process, in the tray. The main window
   starts hidden and is shown unless Plenipo started with `--in-tray`. Closing the window follows
   the owner's choice (keep while work is going, the default; always keep; quit). A second launch
   shows the first (`tauri-plugin-single-instance`, Windows); `--quit` asks the running one to
@@ -48,13 +48,13 @@ Written before building, from a map of the code.
   before Windows started) and from an interrupted layout change; a damaged note is "unknown".
   The next start lists the tasks and programs that stopped and offers Run again or Leave
   stopped. `unsafe` stays forbidden, so no Windows restart registration and no WebView2 events:
-  the heartbeat stands in (ADR-036 records it).
+  the heartbeat stands in (ADR-037 records it).
 - **Backups and restore.** Kinds by file-name prefix, each kept to its own number; a daily
   backup that waits for idle; one before a new version first uses the Ledger; one before an
   update; restore as a request applied at the next start, before the Ledger opens.
 - **Logs and diagnostics.** The `log` crate into rotating files, every line through Guard's
   redactor and the broker's secret filter; a zip of what helps, never the owner's work.
-- **Updates (ADR-037).** Plenipo's own updater (Tauri's quits without stopping the work):
+- **Updates (ADR-038).** Plenipo's own updater (Tauri's quits without stopping the work):
   `latest.json` from GitHub Releases through Guard's outbound rules, the updater signature and
   the signed version checked, backup, stop the work, start the installer, quit.
 - **Installer.** The existing NSIS per-user installer, with hooks: quit a running 1.9+ cleanly,
@@ -73,7 +73,7 @@ Written before building, from a map of the code.
 - [x] **Upgrade path** — installing over a running 1.9+ asks it to quit cleanly
       (`windows/hooks.nsh`); the first start of a new version backs up the Ledger
       (`backup_host.rs`) and records `plenipo.version_changed`. Tested over the published 1.8.0.
-- [x] **Background service/daemon** — ADR-036 option D: Plenipo in the tray, the window
+- [x] **Background service/daemon** — ADR-037 option D: Plenipo in the tray, the window
       separate from the work (`start_close.rs`, `lib.rs`).
 - [x] **Startup control** — Settings → Start and close: Start Plenipo with Windows (off by
       default) and what closing the window does.
@@ -84,7 +84,7 @@ Written before building, from a map of the code.
       and by you; restore from Diagnostics (Ledger `backups.rs`, `BackupsPanel.tsx`).
 - [x] **Log rotation** — `logs\plenipo.log`, 2 MB each, five kept (`logs.rs`).
 - [x] **Diagnostics bundle** — Save a diagnostics file (`diagnostics.rs`).
-- [x] **Safe update mechanism** — ADR-037 (`update_host.rs`, capabilities `updates.rs`,
+- [x] **Safe update mechanism** — ADR-038 (`update_host.rs`, capabilities `updates.rs`,
       `guard::outbound`, `UpdateSettings.tsx`).
 - [x] **Version display** — the top bar and Settings → About (reused), Settings → Updates, the
       diagnostics file, and the installer's entry in Windows' Apps list.
@@ -92,7 +92,7 @@ Written before building, from a map of the code.
 ## Technical implementation (plan)
 
 - [x] "Separate UI lifecycle from long-running task lifecycle." The window can close, crash, and
-      reopen while the work goes on (ADR-036).
+      reopen while the work goes on (ADR-037).
 - [x] "Closing the main window must not accidentally kill authorized long-running work unless the
       user configured that behavior." The default keeps Plenipo in the tray while work is going;
       only the owner's "Quit Plenipo and stop its work" choice (or Quit) stops it.
@@ -124,7 +124,7 @@ Written before building, from a map of the code.
 - [x] Database backup/restore — Ledger tests (each kind, restore at the next start, a bad or newer
       backup refused, an interrupted layout change); E2E backups.
 - [x] Version rollback strategy — back to 1.8.0 and forward again (CI); a failed update keeps this
-      version; ADR-037 §4.
+      version; ADR-038 §4.
 
 ## Owner's rules for this phase
 
