@@ -85,6 +85,8 @@ const lesson: Lesson = {
   text: "Run the tests before pushing.\nThey take a minute.",
   state: "waiting",
   fromWeb: false,
+  projectId: null,
+  heldReason: null,
   createdAt: NOW - 5 * 60_000,
   decidedAt: null,
   decidedBy: null,

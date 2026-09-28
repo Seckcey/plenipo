@@ -33,6 +33,11 @@ without including any sensitive details. No response-time commitment is made whi
 Plenipo's security promises, in plain words — a way around any of these is a vulnerability:
 
 - A worker stays inside its project's folder. It cannot read or change files outside it.
+- The AI tools' own file access is off or goes through Plenipo: Claude Code runs with none of
+  its built-in tools, Codex's own commands and its picture reader are switched off (ADR-051),
+  Grok runs with a profile that has none of its own tools, and Kimi's file reads go through
+  Plenipo (ADR-027). A worker reads files, runs programs, and uses git only through Plenipo's
+  tools, each checked by Guard and recorded.
 - Files on your blocked list (`.env` files, keys, and the like) are never read or changed by a
   worker: not through the file tools, and not through the git tools either, which never stage,
   show, or commit one. A push that would send one is not refused, but its approval card names
@@ -73,7 +78,11 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
     a worker's action, the worker's own tab goes to that address instead, checked like any page.
     The worker is told either way.
-- Taking control of the screen, mouse, or keyboard asks the owner every time.
+- Taking control of the screen, mouse, or keyboard asks the owner every time, and so does every
+  click, typing, and key press after that (ADR-049): Plenipo cannot see what a point on the
+  screen does, so the owner approves each step from a picture of the screen (the click's point
+  marked), the worker's words, and, for typing, the text. Looking at the screen and scrolling do
+  not ask.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 - Plenipo installs an update only when the owner chooses **Install now**, and only an installer
   signed with 8 West's updater key for the version it claims (from v1.9.0, ADR-038). Its once-a-day

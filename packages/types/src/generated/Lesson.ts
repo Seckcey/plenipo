@@ -18,4 +18,14 @@ worker: string, text: string, state: LessonState,
  * Its task (or a task handed on from it) used websites, the screen, or a server (Phase 11):
  * such lessons always wait for the owner.
  */
-fromWeb: boolean, createdAt: number, decidedAt: number | null, decidedBy: string | null, };
+fromWeb: boolean, 
+/**
+ * The project of the task it came from: only workers on that project get it. `None`:
+ * every worker of the role (ADR-050).
+ */
+projectId: string | null, 
+/**
+ * Why a lesson of a role that learns on its own waits for the owner anyway, in the owner's
+ * words (ADR-050). `None` for every other lesson.
+ */
+heldReason: string | null, createdAt: number, decidedAt: number | null, decidedBy: string | null, };

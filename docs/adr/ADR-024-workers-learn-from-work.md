@@ -4,7 +4,7 @@
 - **Amended by:** [ADR-041 (model, effort, and learning in layers)](ADR-041-model-effort-learning-layers.md)
   (learning on or off for each role and each agent, under the main switch) and
   [ADR-045 (experience and the Workforce)](ADR-045-experience-and-the-workforce.md) (kept lessons
-  count toward an agent's experience).
+  count toward an agent's experience); and by [ADR-050 (lessons a role keeps on its own are notes, not orders)](ADR-050-lessons-kept-on-their-own.md): a role that learns on its own keeps a lesson unasked only from a task that used no tool at all, a lesson with a command, a path, or a web address always waits, kept lessons reach workers inside a fence that says who kept them, never as orders, and a lesson belongs to its project (sections 3 and 4)
 - **Number:** accepted as ADR-022 while in review; renumbered when ADR-021 went to the Free
   and Pro editions (and ADR-022 was held for Kimi's file access, now ADR-027)
 - **Date:** 2026-09-27
