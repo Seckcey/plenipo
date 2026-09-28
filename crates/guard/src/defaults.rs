@@ -337,7 +337,7 @@ pub fn default_commands() -> CommandRules {
             "wsl *",
         ]),
         // No program is given a stored secret without asking until the owner says so
-        // (ADR-043).
+        // (ADR-048).
         with_secrets: Vec::new(),
     }
 }

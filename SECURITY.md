@@ -44,12 +44,12 @@ Plenipo's security promises, in plain words — a way around any of these is a v
   from the record. A stored secret is given only to the installed program the owner named, found on
   PATH — never to a file inside a project folder with the same name — and a program that would be
   given one asks the owner first, with the secret's name on the approval card, unless the owner's
-  rule names both the program and the secret (ADR-043).
+  rule names both the program and the secret (ADR-048).
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used. Plenipo controls its browser over a private pipe between the two
   programs, not a network port, so no other program on your computer can connect to the browser
   and drive it. Plenipo's browser never saves files to your computer: it refuses every download
-  from the moment it starts, and the worker is told why its click did nothing (ADR-042).
+  from the moment it starts, and the worker is told why its click did nothing (ADR-047).
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
@@ -69,7 +69,7 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     action running (a form it submits by itself, a script's POST on a timer, a beacon).
   - **Not seen:** what goes through a live connection (WebSocket frames) or a plain page load
     (a link that changes something with a GET); those are covered only by the asks above.
-  - **Kept in one tab:** a page never gets a second tab (ADR-041). A new tab it opens (a link
+  - **Kept in one tab:** a page never gets a second tab (ADR-046). A new tab it opens (a link
     to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
     a worker's action, the worker's own tab goes to that address instead, checked like any page.
     The worker is told either way.

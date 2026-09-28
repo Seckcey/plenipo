@@ -1,4 +1,4 @@
-# ADR-041: New tabs open in the worker's own tab
+# ADR-046: New tabs open in the worker's own tab
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27
@@ -57,7 +57,7 @@ Whatever that tab loaded or sent went unchecked and unnoticed, and the tab staye
      at most). Its page never loads. What the opener's script sends through the new window goes
      through the opener's own gate, so it is held or stopped like the page's own sends (ADR-035).
    - A browser that cannot be told to attach this way is not used, like one that cannot be told
-     to refuse downloads (ADR-042).
+     to refuse downloads (ADR-047).
 3. **Nothing else changes** for the worker's own tab: its helper, its gate, its live-connection
    watch, and its sign are as before. The browser's own pop-up rules stay too: a pop-up with no
    click behind it never appears at all.

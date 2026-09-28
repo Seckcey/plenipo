@@ -69,7 +69,7 @@ const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "make", "npx"];
 const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pnpm, yarn, make, \
                                 or npx, because they run the project's own scripts.)";
 /// What the worker is told when a stored secret is bound to the program's name, but the program
-/// is a file in the project folder rather than the installed one (ADR-043).
+/// is a file in the project folder rather than the installed one (ADR-048).
 const SECRETS_KEPT: &str = "(Plenipo gives a stored secret only to the installed program of that \
                             name, so no stored secrets were given (the program is not from PATH).)";
 /// The notice where this computer offers no way to tell which program connects (ADR-034).
@@ -440,7 +440,7 @@ enum Work {
         /// For GitHub's `gh --json` tools, the repository: their output is text anyone wrote on
         /// GitHub, so the fence around it says the words are GitHub's, not the program's.
         github: Option<String>,
-        /// Where it came from: only a program from PATH gets stored secrets (ADR-043).
+        /// Where it came from: only a program from PATH gets stored secrets (ADR-048).
         origin: Origin,
     },
     /// Plenipo's browser or the screen (Phase 10).
@@ -495,7 +495,7 @@ enum Admission {
     Refused(Option<u32>),
 }
 
-/// Where a program a worker runs came from (ADR-043, secrets reach only the programs they are
+/// Where a program a worker runs came from (ADR-048, secrets reach only the programs they are
 /// for).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Origin {
@@ -523,7 +523,7 @@ struct SecretsGiven {
     /// (ADR-034).
     withheld: Vec<String>,
     /// Bound to this program's name, but kept back because the program is not the installed
-    /// one from PATH (ADR-043).
+    /// one from PATH (ADR-048).
     kept: Vec<String>,
 }
 
@@ -535,7 +535,7 @@ impl SecretsGiven {
 }
 
 /// The secrets the owner bound to `program` (its bare name) when it came from `origin`: only
-/// the installed program from PATH gets them (ADR-043), and never a script runner (ADR-034).
+/// the installed program from PATH gets them (ADR-048), and never a script runner (ADR-034).
 fn secrets_for(program: &str, origin: Origin, secrets: &[SecretInfo]) -> SecretsGiven {
     let mut given = SecretsGiven::default();
     let runner = SCRIPT_RUNNERS.contains(&program);
@@ -1654,7 +1654,7 @@ impl Broker {
                 }
             }
         }
-        // ADR-043 (secrets reach only the programs they are for): the stored secrets a program
+        // ADR-048 (secrets reach only the programs they are for): the stored secrets a program
         // the worker named, or a script it wrote, would be given. Guard asks first unless one of
         // the owner's rules names the program and each secret, and the approval card says which.
         // Plenipo's own git and GitHub tools run git and gh with Plenipo's arguments under their
@@ -2898,7 +2898,7 @@ fn program_path(
         .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
     // Found through PATH but lying inside the project folder: the project's own file, not the
-    // installed program (ADR-043).
+    // installed program (ADR-048).
     let origin = match &found {
         Ok(p) if p.starts_with(ws.root()) => Origin::Project,
         _ => Origin::Path,
@@ -3592,7 +3592,7 @@ mod tests {
         assert!(SECRETS_WITHHELD.contains("npm, pnpm, yarn, make, or npx"));
     }
 
-    /// ADR-043: a stored secret goes only to the installed program of that name, found on
+    /// ADR-048: a stored secret goes only to the installed program of that name, found on
     /// PATH; a file in the project folder named like it gets nothing, and the worker is told.
     #[test]
     fn stored_secrets_go_only_to_programs_from_path() {
@@ -3625,7 +3625,7 @@ mod tests {
         assert_eq!(program_stem(Path::new("./scripts/gh.sh")), "gh");
     }
 
-    /// ADR-043: `prepare` says where a program came from: `./path` (or a path inside the
+    /// ADR-048: `prepare` says where a program came from: `./path` (or a path inside the
     /// project) is the project's own file; a bare name is the installed program from PATH.
     #[test]
     fn a_program_in_the_project_folder_is_not_the_installed_one() {

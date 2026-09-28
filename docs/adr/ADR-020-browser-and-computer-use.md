@@ -12,10 +12,10 @@
   page's own, and live connections)](ADR-035-network-gate-covers-sockets.md): Enter in any text
   box asks, data a page sends on its own is stopped, and a page with a live connection asks
   before a click (section 4 and the known limits); by
-  [ADR-041 (new tabs open in the worker's own tab)](ADR-041-new-tabs-open-in-the-workers-tab.md):
+  [ADR-046 (new tabs open in the worker's own tab)](ADR-046-new-tabs-open-in-the-workers-tab.md):
   a page never gets a second tab; one it opens is closed before it loads, the worker's own tab
   goes there when the worker's action opened it, and the worker is told (sections 2 and 4); and by
-  [ADR-042 (Plenipo's browser does not save files)](ADR-042-browser-never-saves-files.md): every
+  [ADR-047 (Plenipo's browser does not save files)](ADR-047-browser-never-saves-files.md): every
   download is refused from the browser's start, and the worker is told (section 2 and the known
   limits)
 - **Date:** 2026-09-27
@@ -105,7 +105,7 @@ per-step grants, an MCP tool server reached through Plenipo's relay, approvals, 
 - **What the page sends** is held too. While a worker's action runs, any request that is not a
   plain page read (a form post, or a script's POST, PUT, or DELETE) is held until the owner
   answers. A form the page sends by itself, with no worker action, is stopped.
-- **A page never gets a second tab** (ADR-041). A new tab it opens is closed before it loads;
+- **A page never gets a second tab** (ADR-046). A new tab it opens is closed before it loads;
   when the worker's action opened it and the website check allows the address, the worker's own
   tab goes there instead, checked like any page. The worker is told either way.
 - These sensitive kinds can be set to **Ask** or **Blocked**, never allowed without asking.
@@ -200,7 +200,7 @@ separate.
   (ADR-035); a page whose own sends are stopped may not work until the worker acts on it.
 - **Live connections are not seen.** What a page sends through a WebSocket cannot be held; on
   such a page every click, Enter, and Space asks the owner first (ADR-035).
-- **Plenipo's browser saves no files** (ADR-042). A website's file (a report, an export) cannot
+- **Plenipo's browser saves no files** (ADR-047). A website's file (a report, an export) cannot
   be taken by a worker: the browser refuses every download, and the worker is told. The owner
   saves such a file in their own browser.
 - **Website lists go by name.** An allowed website whose name points at a local address (DNS

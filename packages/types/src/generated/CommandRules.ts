@@ -20,7 +20,7 @@ ask: Array<string>,
  */
 blocked: Array<string>, 
 /**
- * Approved, and given the named stored secrets without asking (ADR-043, secrets reach
+ * Approved, and given the named stored secrets without asking (ADR-048, secrets reach
  * only the programs they are for). Any other run that would be given a stored secret asks
  * the owner first. Missing in older documents: none.
  */
