@@ -217,9 +217,9 @@ Built as written, with these details:
   time shows as a summary ("Large file: …"), with its line counts when they are known.
 - **After a restart**, the list shows only the agent's own saved files from its latest
   objective (read from the Activity trail, without their lines).
-- **Design limit (from Phase 7, unchanged; the owner's choice):** an edit keeps up to 200
+- **Kept by the owner's choice (from Phase 7, unchanged):** an edit keeps up to 200
   characters of its old and new text, after secrets are hidden, in two Ledger records: the
   approval's (so the approval card can show what would change, and kept when you refuse it) and
   the Activity trail's record of an edit that was carried out. Watch adds nothing to either, and
-  a refusal by Guard keeps no text (§13). Keeping only the file and the size in both is
-  possible; the approval card would then show the text from memory while Plenipo runs.
+  a refusal by Guard keeps no text (§13). Asked whether to keep only the file and the size
+  instead, the owner answered "Keep that" (2026-09-28).

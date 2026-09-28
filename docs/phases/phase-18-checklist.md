@@ -29,6 +29,11 @@ everything sounds perfect"). One choice waited for an explanation: whether a ref
 record keeps none of the refused text (item 6, last part; ADR-055 §13). After it, the owner
 answered "yes, that sounds fine": the record keeps the file, the size, and why, and no text.
 
+**After the review (2026-09-28):** asked whether an edit should keep only its file and size in
+its approval and Activity records, instead of up to 200 characters of its old and new text
+(secrets hidden, as since Phase 7), the owner answered "Keep that". Recorded in ADR-055, "As
+built", and the acceptance report, section 6.
+
 The recommendations the owner accepted:
 
 1. **Arranging** (ADR-053): a tile moves with its team (Alt moves one tile); dropping on an empty

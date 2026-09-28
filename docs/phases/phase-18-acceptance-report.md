@@ -1,12 +1,12 @@
 # Phase 18 — Acceptance Report
 
-|              |                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 18 — The Organization Canvas                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Branch**   | `claude/phase-18` ([PR #88](https://github.com/Seckcey/plenipo/pull/88))                                                                                                                                                                                                                                                                                                                                                                            |
-| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the canvas end-to-end tests against the release build (7 of 7; section 3). GitHub CI on PR #88: Rust, Frontend, Docs, Website, E2E on Linux (the whole end-to-end suite), and Windows (filled in from the final run).                                                                                                                                       |
-| **Date**     | 2026-09-28 (Pacific time)                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **Result**   | Every acceptance criterion and every Phase 18 test in the plan pass; every deliverable is built. Version **1.11.0**. Decisions: ADR-053 to ADR-056, accepted by the owner as recommended, with the owner's choice that a refused change's record keeps no text; all built, with the differences each records as built. The walk-through with real AI tools on Windows is the owner's (section 8), and one question waits for the owner (section 6). |
+|              |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 18 — The Organization Canvas                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Branch**   | `claude/phase-18` ([PR #88](https://github.com/Seckcey/plenipo/pull/88))                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Verified** | Locally on Linux: `pnpm check`, `cargo fmt/clippy/test`, `pnpm bindings` (no diff), and the canvas end-to-end tests against the release build (7 of 7; section 3). GitHub CI on PR #88: Rust, Frontend, Docs, Website, E2E on Linux (the whole end-to-end suite), and Windows (filled in from the final run).                                                                                                                                                         |
+| **Date**     | 2026-09-28 (Pacific time)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Result**   | Every acceptance criterion and every Phase 18 test in the plan pass; every deliverable is built. Version **1.11.0**. Decisions: ADR-053 to ADR-056, accepted by the owner as recommended, with the owner's choice that a refused change's record keeps no text; all built, with the differences each records as built. The walk-through with real AI tools on Windows is the owner's (section 8). The owner kept the text an edit has kept since Phase 7 (section 6). |
 
 Screenshots (from the end-to-end run in the real app, `tests/e2e/specs/canvas.e2e.mjs`):
 
@@ -122,14 +122,14 @@ Each is recorded in its ADR's "As built" section.
 - **Numbers:** ADR-053 to ADR-056; Ledger layout 11; 12 new desktop commands (the 10 in the
   design, and `subscribe_watch` and `unsubscribe_watch`).
 
-## 6. A question for the owner
+## 6. The owner's answer: an edit keeps its text, as since Phase 7
 
 Since Phase 7, an **edit** keeps up to 200 characters of its old and new text (secrets hidden) in
 two Ledger records: the approval's, so the approval card can show what would change (kept when
 you refuse it), and the Activity trail's record of an edit that was carried out. Phase 18 adds
-nothing to either, and a refusal by Guard keeps no text, as you chose. Keep this as it is, or
-keep only the file and the size in both (the approval card would show the text from memory
-while Plenipo runs)? Recorded as a design limit in ADR-055 (Watch), "As built".
+nothing to either, and a refusal by Guard keeps no text, as you chose. Asked whether to keep this
+or keep only the file and the size, the owner answered "Keep that" (2026-09-28). Recorded in
+ADR-055 (Watch), "As built".
 
 ## 7. Defects found and fixed during Phase 18
 
@@ -234,8 +234,7 @@ These have tests in `CodeWatchView.test.tsx`, `code.test.ts`, `owner.test.tsx`, 
 
 **Recorded, not changed**
 
-- The text an edit keeps in the Ledger: a design limit from Phase 7, and the owner's question
-  (section 6).
+- The text an edit keeps in the Ledger: as since Phase 7, by the owner's choice (section 6).
 - One reviewer finding was already fixed when it was checked (Undo of Tidy up).
 - One was a deliberate difference: line ends show for the selected agent only.
 
@@ -251,4 +250,3 @@ These have tests in `CodeWatchView.test.tsx`, `code.test.ts`, `owner.test.tsx`, 
 - **Which AI tools show code letter by letter** on their real programs. Claude Code and Kimi are
   expected to. Grok and Codex are to be checked.
 - **The upgrade from 1.10.0**: a backup is taken, then Ledger layout 11 is applied.
-- **Your answer to section 6.**
