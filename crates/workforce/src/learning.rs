@@ -4,7 +4,7 @@
 //! waits for the owner's Keep or Discard unless the owner lets that role learn on its own. Even
 //! then a lesson is kept unasked only when its task (and every task handed on from it) used no
 //! tool at all and the lesson has no command, path, or web address; the rest wait, and say why
-//! (ADR-040, lessons a role keeps on its own are notes, not orders).
+//! (ADR-050, lessons a role keeps on its own are notes, not orders).
 //! Kept lessons go into the instructions of the role's later workers on the same project (or on
 //! any, for a lesson from no project) as fenced notes that say who kept them, never as orders.
 
@@ -23,7 +23,7 @@ pub const SETTING: &str = "learning";
 /// Most kept lessons a worker's instructions carry (the newest).
 pub const MAX_IN_INSTRUCTIONS: u32 = 20;
 /// Why a lesson of a role that learns on its own waits for the owner anyway, as the Learning
-/// page shows it (ADR-040): its task used tools ...
+/// page shows it (ADR-050): its task used tools ...
 pub const HELD_USED_TOOLS: &str = "Held for your review: its task used tools, so it may repeat \
                                    what a file, a program, or a page said.";
 /// ... or its words have a command, a file path, or a web address.
@@ -56,7 +56,7 @@ pub struct LearningSettings {
     /// Worker learning (Settings → Switches). Off: no lessons are recorded or used.
     pub enabled: bool,
     /// Roles that learn on their own: a lesson from a task that used no tool, with no command,
-    /// path, or web address in it, is kept without asking; the rest wait (ADR-040).
+    /// path, or web address in it, is kept without asking; the rest wait (ADR-050).
     pub auto_roles: Vec<String>,
 }
 
@@ -116,7 +116,7 @@ pub fn lessons_in(text: &str) -> Vec<String> {
     out
 }
 
-/// Whether a lesson's words have a command, a file path, or a web address (ADR-040): such a
+/// Whether a lesson's words have a command, a file path, or a web address (ADR-050): such a
 /// lesson is never kept without the owner. A small, plain set of signs on purpose; the fence
 /// around kept lessons, not this list, is what keeps a lesson from being an order.
 pub fn has_command_path_or_address(text: &str) -> bool {
@@ -171,7 +171,7 @@ fn kept_by(lesson: &Lesson) -> &'static str {
 }
 
 /// `lessons` between the opening and closing lines of a fence with this nonce, one line each,
-/// with who kept it first (ADR-040). The same shape as the fences around a page's or a file's
+/// with who kept it first (ADR-050). The same shape as the fences around a page's or a file's
 /// text in `plenipo_capabilities::fence`, which this crate cannot use without a circular
 /// dependency. Every line ends with a line break.
 fn fenced_with(role_name: &str, nonce: &str, lessons: &[&Lesson]) -> String {
@@ -188,7 +188,7 @@ fn fenced_with(role_name: &str, nonce: &str, lessons: &[&Lesson]) -> String {
 
 /// What a worker of `role_name` on `project_id` (none: outside any project) is told about
 /// learning: the role's kept lessons for that project, as fenced notes that say who kept them
-/// (ADR-040), and how to write down a new one. Empty when the owner switched learning off.
+/// (ADR-050), and how to write down a new one. Empty when the owner switched learning off.
 pub fn instructions(
     ledger: &Ledger,
     role_id: &str,
@@ -252,7 +252,7 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     let from_web = ledger.task_used_web_screen_or_servers(task_id)?;
     let learns_on_its_own = s.auto_roles.contains(&position.role_id);
     // A role that learns on its own keeps a lesson unasked only when its task used no tool at
-    // all and the lesson has no command, path, or web address (ADR-040, lessons a role keeps on
+    // all and the lesson has no command, path, or web address (ADR-050, lessons a role keeps on
     // its own are notes, not orders); the rest wait, and say why. Every lesson of any other
     // role waits because the owner chose to be asked: no reason to give.
     let used_tools = learns_on_its_own && ledger.task_used_any_tool(task_id)?;

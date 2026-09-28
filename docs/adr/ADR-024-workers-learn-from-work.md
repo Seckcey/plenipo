@@ -11,8 +11,8 @@
 - **Phase:** 10 (follow-up, v1.4.0)
 - **Extended by:** [ADR-025 (servers over SSH, through Guard)](ADR-025-servers-over-ssh.md): a
   lesson from a task that ran commands on a server also always waits for the owner
-- **Amended by:** [ADR-040 (lessons a role keeps on its own are notes, not
-  orders)](ADR-040-lessons-kept-on-their-own.md): a role that learns on its own keeps a lesson
+- **Amended by:** [ADR-050 (lessons a role keeps on its own are notes, not
+  orders)](ADR-050-lessons-kept-on-their-own.md): a role that learns on its own keeps a lesson
   unasked only from a task that used no tool at all, a lesson with a command, a path, or a web
   address always waits, kept lessons reach workers inside a fence that says who kept them, never
   as orders, and a lesson belongs to its project (sections 3 and 4)

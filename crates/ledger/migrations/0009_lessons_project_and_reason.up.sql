@@ -1,5 +1,5 @@
 -- Plenipo Ledger, schema version 9: a lesson belongs to its project, and a lesson held for the
--- owner says why (ADR-040, lessons a role keeps on its own are notes, not orders).
+-- owner says why (ADR-050, lessons a role keeps on its own are notes, not orders).
 --
 -- project_id: the project of the task the lesson came from. Only workers on that project get
 -- it; NULL means every worker of the role (a task outside any project, and every lesson kept

@@ -21,11 +21,11 @@ worker: string, text: string, state: LessonState,
 fromWeb: boolean, 
 /**
  * The project of the task it came from: only workers on that project get it. `None`:
- * every worker of the role (ADR-040).
+ * every worker of the role (ADR-050).
  */
 projectId: string | null, 
 /**
  * Why a lesson of a role that learns on its own waits for the owner anyway, in the owner's
- * words (ADR-040). `None` for every other lesson.
+ * words (ADR-050). `None` for every other lesson.
  */
 heldReason: string | null, createdAt: number, decidedAt: number | null, decidedBy: string | null, };

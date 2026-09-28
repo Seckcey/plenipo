@@ -583,7 +583,7 @@ async fn workers_learn_lessons_the_owner_keeps() {
             .contains("Read the release notes")
     );
     // Kept in the owner's words, it is in the next workers' instructions on that project, in
-    // a fence that says who kept it (ADR-040), and nowhere else.
+    // a fence that says who kept it (ADR-050), and nowhere else.
     h.workforce
         .decide_lesson(&waiting.id, true, Some("Read the release notes first."))
         .unwrap();

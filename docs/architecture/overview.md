@@ -693,7 +693,7 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
 
 Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-settings-switches.md),
 [ADR-024 (workers learn from their work)](../adr/ADR-024-workers-learn-from-work.md), and
-[ADR-040 (lessons a role keeps on its own are notes, not orders)](../adr/ADR-040-lessons-kept-on-their-own.md).
+[ADR-050 (lessons a role keeps on its own are notes, not orders)](../adr/ADR-050-lessons-kept-on-their-own.md).
 
 - **Switches** (`crates/guard/src/dto.rs` `Switches`, in the Guard settings, event
   `guard.switches_changed`): Plenipo's browser (on), the screen, mouse, and keyboard (off),
@@ -728,7 +728,7 @@ Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-setting
   that learns on its own keeps a lesson unasked only when the task's tree used no tool at all
   (`task_used_any_tool`: every `capability.used` and `agent.tool_use` event, screen and server
   sessions) and the lesson has no command, path, or web address (`has_command_path_or_address`);
-  the rest wait with a `held_reason` for the owner (ADR-040). The owner keeps (optionally
+  the rest wait with a `held_reason` for the owner (ADR-050). The owner keeps (optionally
   edited), discards, or removes them (`lesson.kept`, `lesson.discarded`, `lesson.removed`). Each
   worker's instructions (`directory.rs`) carry its role's newest 20 kept lessons from its own
   project or from no project (`lessons.project_id`, migration 9) inside a nonce fence that says

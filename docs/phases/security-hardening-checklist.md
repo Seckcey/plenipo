@@ -94,7 +94,7 @@ records what was changed and how it was checked, in plain words, without the att
 ### Batch 2 (GHSA-phg2-6j94-84g9)
 
 - [x] B7 · Computer use asks before every click and keystroke (ADR-049)
-- [ ] B8 · Lessons a role keeps on its own are notes, not orders (ADR-050)
+- [x] B8 · Lessons a role keeps on its own are notes, not orders (ADR-050)
 - [ ] B9 · Codex's own shell (ADR-052, if Codex has no switch)
 
 ### Batch 3 (GHSA-2hxf-v9c3-44q2)

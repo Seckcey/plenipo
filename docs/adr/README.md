@@ -38,7 +38,7 @@ architecture must be recorded here.
 | [021](ADR-021-editions-and-license.md)               | Free and Pro editions under the Elastic License 2.0                                         | Accepted |
 | [022](ADR-022-subscription-and-license-check.md)     | Subscription pricing and the weekly license check                                           | Accepted |
 | [023](ADR-023-settings-switches.md)                  | On/off switches in Settings                                                                 | Accepted |
-| [024](ADR-024-workers-learn-from-work.md)            | Workers learn from their work                                                               | Accepted |
+| [024](ADR-024-workers-learn-from-work.md)            | Workers learn from their work (amended by 041, 045, 050)                                    | Accepted |
 | [025](ADR-025-servers-over-ssh.md)                   | Servers over SSH, through Guard                                                             | Accepted |
 | [026](ADR-026-ssh-built-in.md)                       | SSH built into Plenipo (russh), not Windows' ssh.exe                                        | Accepted |
 | [027](ADR-027-acp-file-access-through-plenipo.md)    | Kimi over ACP: file access through Plenipo                                                  | Accepted |
@@ -64,3 +64,4 @@ architecture must be recorded here.
 | [047](ADR-047-browser-never-saves-files.md)          | Plenipo's browser does not save files (amends 020)                                          | Accepted |
 | [048](ADR-048-secrets-only-to-their-programs.md)     | Secrets reach only the programs they are for (amends 013)                                   | Accepted |
 | [049](ADR-049-computer-use-asks-every-step.md)       | Computer use asks before every click and keystroke (amends 020)                             | Accepted |
+| [050](ADR-050-lessons-kept-on-their-own.md)          | Lessons a role keeps on its own are notes, not orders (amends 024)                          | Accepted |

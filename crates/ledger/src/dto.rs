@@ -1203,10 +1203,10 @@ pub struct Lesson {
     /// such lessons always wait for the owner.
     pub from_web: bool,
     /// The project of the task it came from: only workers on that project get it. `None`:
-    /// every worker of the role (ADR-040).
+    /// every worker of the role (ADR-050).
     pub project_id: Option<String>,
     /// Why a lesson of a role that learns on its own waits for the owner anyway, in the owner's
-    /// words (ADR-040). `None` for every other lesson.
+    /// words (ADR-050). `None` for every other lesson.
     pub held_reason: Option<String>,
     #[ts(type = "number")]
     pub created_at: u64,
@@ -1260,9 +1260,9 @@ pub struct NewLessons {
     pub from_web: bool,
     /// Keep them at once (the role learns on its own); otherwise they wait for the owner.
     pub keep: bool,
-    /// The project of the task they came from, if any (ADR-040).
+    /// The project of the task they came from, if any (ADR-050).
     pub project_id: Option<String>,
-    /// Why they wait although the role learns on its own, for the owner (ADR-040). Only with
+    /// Why they wait although the role learns on its own, for the owner (ADR-050). Only with
     /// `keep` false.
     pub held_reason: Option<String>,
 }

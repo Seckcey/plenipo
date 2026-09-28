@@ -1,7 +1,7 @@
 //! Lessons workers learn from their work (ADR-024). A worker ends a task with what would help
 //! the next worker in its role; each lesson waits for the owner's Keep or Discard, unless the
 //! owner lets that role learn on its own, and even then only a lesson from a task that used no
-//! tool is kept unasked (ADR-040, lessons a role keeps on its own are notes, not orders). Kept
+//! tool is kept unasked (ADR-050, lessons a role keeps on its own are notes, not orders). Kept
 //! lessons go into the role's later workers' instructions, on the lesson's project or on any
 //! when it has none. Every change is a `lesson.*` event in the same transaction.
 
@@ -258,7 +258,7 @@ impl Ledger {
         })
     }
 
-    /// The kept lessons a worker of `role_id` on `project_id` gets (ADR-040): the role's lessons
+    /// The kept lessons a worker of `role_id` on `project_id` gets (ADR-050): the role's lessons
     /// from that project and its lessons from no project, newest first. Outside any project
     /// (`None`), only the lessons from no project.
     pub fn kept_lessons(
@@ -302,7 +302,7 @@ impl Ledger {
         })
     }
 
-    /// The task, or any task handed on from it, used any tool at all (ADR-040): one of
+    /// The task, or any task handed on from it, used any tool at all (ADR-050): one of
     /// Plenipo's tools (files, programs, git, GitHub, websites, the screen, servers), a tool of
     /// the AI tool's own, a screen session, or a server session. Its lessons may repeat what a
     /// file, a program, or a page said, so a role that learns on its own does not keep them

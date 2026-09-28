@@ -1,4 +1,4 @@
-# ADR-040: Lessons a role keeps on its own are notes, not orders
+# ADR-050: Lessons a role keeps on its own are notes, not orders
 
 - **Status:** Accepted (by the owner, 2026-09-28)
 - **Date:** 2026-09-28

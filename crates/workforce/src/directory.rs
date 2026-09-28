@@ -68,7 +68,7 @@ impl WorkforceDirectory {
 }
 
 /// What the position's role has learned, for a worker on `project_id`, and how to write down a
-/// lesson (ADR-024; ADR-040: notes in a fence, from this project or from none).
+/// lesson (ADR-024; ADR-050: notes in a fence, from this project or from none).
 fn learned(ledger: &Ledger, view: &OrgView<'_>, p: &Position, project_id: Option<&str>) -> String {
     view.role(p).map_or_else(String::new, |r| {
         crate::learning::instructions(ledger, &r.id, &r.name, project_id)
