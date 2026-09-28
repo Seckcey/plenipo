@@ -23,7 +23,6 @@ vi.mock("../api/commands", async (importOriginal) => {
     updateRole: vi.fn(),
     createDepartment: vi.fn(),
     updateDepartment: vi.fn(),
-    removeDepartment: vi.fn(),
     createProject: vi.fn(),
     updateProject: vi.fn(),
     archiveProject: vi.fn(),

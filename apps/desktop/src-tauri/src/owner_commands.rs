@@ -16,8 +16,8 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::{
-    bounded, bounded_optional, guard_error, validate_id, validate_job, validate_runtimes,
-    with_workforce, workforce_error,
+    bounded, bounded_optional, validate_id, validate_job, validate_runtimes, with_workforce,
+    workforce_error,
 };
 
 /// What can be deleted for good.
@@ -230,23 +230,25 @@ pub async fn delete_for_good(
     let guard = guard.inner().clone();
     let workforce = workforce.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (snapshot, deleted) = workforce
+        let (_, deleted) = workforce
             .delete_for_good(kind.as_str(), &id, &save)
             .map_err(workforce_error)?;
-        // A deleted department's permission limit goes with it (ADR-043 §10).
+        // A deleted department's permission limit goes with it (ADR-043 §10). The deletion is
+        // done either way: a limit left behind binds nothing, and Guard drops it the next time a
+        // permission set is removed.
         for department in &deleted.departments {
-            let limited = guard
-                .config()
-                .map_err(guard_error)?
-                .departments
-                .contains_key(department);
-            if limited {
-                guard
-                    .assign_department(department, None)
-                    .map_err(guard_error)?;
+            let forgotten = guard.config().and_then(|c| {
+                if c.departments.contains_key(department) {
+                    guard.assign_department(department, None)
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(e) = forgotten {
+                log::warn!("a deleted department's permission limit was not removed: {e}");
             }
         }
-        Ok(snapshot)
+        workforce.snapshot().map_err(workforce_error)
     })
     .await
     .map_err(|e| CommandError::internal(format!("workforce task failed: {e}")))?

@@ -1804,12 +1804,28 @@ mod ipc_boundary_tests {
         let head = s.positions[0].clone();
         assert!(head.automatic && head.runtime_id.is_none());
         assert!(head.route.unwrap().choice.is_none(), "nothing is signed in");
-        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+        // An AI tool whose company the role's choices never use cannot be fixed (ADR-041).
+        let err = invoke_json(
             &main,
             "hire_position",
             serde_json::json!({ "input": {
                 "roleId": dev, "title": "Fixed Developer", "reportsTo": head.id,
                 "runtimeId": "codex",
+            }}),
+        )
+        .expect_err("never OpenAI");
+        assert!(
+            err["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("Senior Developer never uses OpenAI")),
+            "{err}"
+        );
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "hire_position",
+            serde_json::json!({ "input": {
+                "roleId": dev, "title": "Fixed Developer", "reportsTo": head.id,
+                "runtimeId": "claude-code",
             }}),
         ));
         let fixed = s
@@ -3339,10 +3355,12 @@ mod ipc_boundary_tests {
     fn the_phase_17_commands_check_what_they_are_given() {
         let app = app();
         let main = window(&app, "main");
-        for (cmd, args) in [
+        // Each is refused for the reason given, before it reaches the Ledger.
+        for (cmd, args, why) in [
             (
                 "set_model_rule",
                 serde_json::json!({ "target": { "layer": "agent", "id": "../x" }, "rule": {} }),
+                "invalid position id",
             ),
             (
                 "set_model_rule",
@@ -3350,6 +3368,7 @@ mod ipc_boundary_tests {
                     "target": { "layer": "organization" },
                     "rule": { "models": ["x".repeat(500)] },
                 }),
+                "invalid model id",
             ),
             (
                 // A rule has no room for a command, a path, or a key.
@@ -3358,41 +3377,63 @@ mod ipc_boundary_tests {
                     "target": { "layer": "organization" },
                     "rule": { "models": [], "command": "/bin/sh", "apiKey": "x" },
                 }),
+                "unknown field `",
             ),
             (
                 "set_role_learns",
                 serde_json::json!({ "roleId": "", "learns": false }),
+                "invalid role id",
             ),
             (
                 "create_specialty",
                 serde_json::json!({ "input": { "roleId": SESSION, "name": "" } }),
+                "the specialty's name",
             ),
             (
                 "create_specialty",
                 serde_json::json!({ "input": {
                     "roleId": SESSION, "name": "Databases", "path": "C:/Windows",
                 }}),
+                "unknown field `path`",
+            ),
+            (
+                "create_specialty",
+                serde_json::json!({ "input": {
+                    "roleId": SESSION, "name": "Databases",
+                    "suggest": { "needs": vec!["vision"; 9], "minContextTokens": null,
+                                 "models": [], "permissions": [] },
+                }}),
+                "too many suggestions",
             ),
             (
                 "preview_delete_for_good",
                 serde_json::json!({ "kind": "everything", "id": SESSION }),
+                "unknown variant `everything`",
             ),
             (
                 "delete_for_good",
                 serde_json::json!({ "kind": "position", "id": "../../x", "save": [] }),
+                "invalid position id",
             ),
             (
                 "delete_for_good",
                 serde_json::json!({ "kind": "position", "id": SESSION, "save": ["../x"] }),
+                "invalid position id",
             ),
             (
                 "hire_from_workforce",
                 serde_json::json!({ "savedId": SESSION, "reportsTo": "..", "title": null }),
+                "invalid position id",
             ),
         ] {
+            let err = invoke_json(&main, cmd, args.clone())
+                .expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
             assert!(
-                invoke_json(&main, cmd, args.clone()).is_err(),
-                "{cmd} must refuse {args}"
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
             );
         }
     }
@@ -3508,6 +3549,12 @@ mod ipc_boundary_tests {
         ));
         assert!(s.departments[0].archived_at.is_none());
         assert!(s.positions.iter().all(|p| p.active), "all came back");
+        // Its permission limit goes with it when it is deleted for good (ADR-043 §10).
+        let _: serde_json::Value = body(invoke_json(
+            &main,
+            "assign_permissions",
+            serde_json::json!({ "target": "department", "id": dept, "setId": "read-only" }),
+        ));
         let _: plenipo_workforce::OrgSnapshot = body(invoke_json(
             &main,
             "archive_department",
@@ -3528,6 +3575,21 @@ mod ipc_boundary_tests {
         ));
         assert!(s.departments[0].deleted);
         assert!(s.positions.iter().all(|p| p.deleted || p.in_workforce));
+        let guard = app.state::<plenipo_guard::Guard>();
+        assert!(!guard.config().unwrap().departments.contains_key(&dept));
+        // A department deleted for good cannot be given a limit again.
+        let err = invoke_json(
+            &main,
+            "assign_permissions",
+            serde_json::json!({ "target": "department", "id": dept, "setId": "read-only" }),
+        )
+        .expect_err("it is gone");
+        assert!(
+            err["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("no longer exists")),
+            "{err}"
+        );
         assert_eq!(s.workforce.len(), 1);
         let saved = s.workforce[0].clone();
         assert_eq!(saved.title, "Database Developer");
