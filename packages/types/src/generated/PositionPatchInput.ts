@@ -11,4 +11,8 @@ runtimeId?: string,
 /**
  * An empty string clears the model.
  */
-model?: string, };
+model?: string, 
+/**
+ * One of its role's specialties; an empty string clears it (ADR-042).
+ */
+specialtyId?: string, };

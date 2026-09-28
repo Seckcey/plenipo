@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::dto::TokenUsage;
+use crate::dto::{PromptSize, TokenUsage};
 
 /// Whether a runtime's CLI was found and runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -237,6 +237,12 @@ pub enum AgentEvent {
     Usage {
         usage: TokenUsage,
     },
+    /// The AI tool shortened its memory of the conversation (it compacted it, or left earlier
+    /// messages out), so the next task gets the full instructions again (ADR-044 §2.5).
+    /// `detail` says so in plain words.
+    MemoryShortened {
+        detail: String,
+    },
 }
 
 impl AgentEvent {
@@ -248,6 +254,7 @@ impl AgentEvent {
             Self::ToolUse { .. } => Some("agent.tool_use"),
             Self::ToolResult { .. } => Some("agent.tool_result"),
             Self::Notice { .. } => Some("agent.notice"),
+            Self::MemoryShortened { .. } => Some("agent.memory_shortened"),
             Self::TextDelta { .. } | Self::Reasoning { .. } | Self::Usage { .. } => None,
         }
     }
@@ -304,6 +311,11 @@ pub struct TurnResult {
     pub duration_ms: Option<u64>,
     /// Output lines that were not understood (malformed or unknown event types).
     pub ignored_lines: u32,
+    /// The size of what Plenipo sent with the step (ADR-044); none for a result recorded
+    /// without a step of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<PromptSize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -474,6 +486,15 @@ mod tests {
             serde_json::to_value(TurnOutcome::BillingNotAllowed).unwrap(),
             json!("billingNotAllowed")
         );
+        let event = AgentEvent::MemoryShortened {
+            detail: "Claude Code shortened its memory of this conversation.".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            json!({ "type": "memoryShortened",
+                    "detail": "Claude Code shortened its memory of this conversation." })
+        );
+        assert_eq!(event.ledger_type(), Some("agent.memory_shortened"));
     }
 
     #[test]

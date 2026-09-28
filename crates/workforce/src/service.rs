@@ -6,11 +6,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use plenipo_ledger::workforce::Providers;
 use plenipo_ledger::{
-    Ledger, NewPosition, OversightKind, PositionPatch, ProjectSettings, RoleType, Task, TaskState,
+    Deleted, Ledger, NewPosition, OversightKind, PositionPatch, ProjectSettings, RoleType,
+    RuntimeSessionState, SaveAgent, SpecialtyFields, Task, TaskState,
 };
 use plenipo_liaison::Liaison;
-use plenipo_router::Router;
+use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
 use plenipo_runtime::agent::{
     AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
 };
@@ -22,7 +24,9 @@ use crate::dto::*;
 use crate::error::{Result, WorkforceError};
 use crate::outcome::{self, ObjectiveReport};
 use crate::snapshot::{self, Inputs};
-use crate::templates::{self, default_glyph, role_templates, template_policies};
+use crate::templates::{
+    self, default_glyph, role_templates, specialty_templates, template_policies,
+};
 use crate::view::OrgView;
 
 /// Actor recorded for the owner's changes.
@@ -55,6 +59,19 @@ fn org_titles(ledger: &Ledger) -> TitleTheme {
         .unwrap_or_default()
 }
 
+/// Where a position with a fixed AI tool sits, for the rules over it (ADR-041).
+#[derive(Debug, Clone, Copy)]
+enum Seat<'a> {
+    /// An existing position.
+    Position(&'a str),
+    /// A new position reporting to this one (`None`: to the owner).
+    Under(Option<&'a str>),
+    /// A new department's head: the department has no rule yet.
+    NewDepartment,
+    /// A new project's supervisor, in this department.
+    NewProject(&'a str),
+}
+
 fn invalid(message: impl Into<String>) -> WorkforceError {
     WorkforceError::Invalid(message.into())
 }
@@ -65,6 +82,8 @@ struct Inner {
     liaison: Liaison,
     router: Router,
     notices: Mutex<Vec<String>>,
+    /// Held while open conversations take their new effort, one change at a time.
+    refreshing: Mutex<()>,
 }
 
 /// Cheap to clone; clones share state.
@@ -131,6 +150,7 @@ impl Workforce {
                 liaison: liaison.clone(),
                 router: router.clone(),
                 notices: Mutex::new(Vec::new()),
+                refreshing: Mutex::new(()),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
@@ -148,6 +168,9 @@ impl Workforce {
                     this.notice(format!(
                         "Could not add the built-in roles' model choices: {e}"
                     ));
+                }
+                if let Err(e) = ledger.ensure_specialties(&specialty_templates(), PLENIPO) {
+                    this.notice(format!("Could not add the built-in specialties: {e}"));
                 }
             }
             Err(e) => this.notice(format!("Could not add the built-in role templates: {e}")),
@@ -239,12 +262,14 @@ impl Workforce {
         let finished_recent = l.finished_workforce_tasks(now.saturating_sub(DAY_MS), 1000)?;
         let sessions = l.open_workforce_sessions()?;
         let planner = self.inner.router.planner()?;
+        let learning = crate::learning::settings(l)?;
         Ok(snapshot::build(&Inputs {
             records: &records,
             open_tasks: &open_tasks,
             finished_recent: &finished_recent,
             sessions: &sessions,
             planner: &planner,
+            learning: &learning,
             name: org_name(l),
             titles: org_titles(l),
             notices: self.notices().clone(),
@@ -491,6 +516,39 @@ impl Workforce {
     }
 
     /// A fixed runtime and its provider, or `(None, None)`: automatic.
+    /// Refuse an AI tool fixed for `new` when a rule over it never uses that AI company: the
+    /// agent could never start (ADR-041 §3–§4). The reason says which rule, in plain words.
+    fn refuse_never_used(&self, new: &NewPosition, seat: Seat<'_>) -> Result<()> {
+        let Some(runtime_id) = new.runtime_id.as_deref() else {
+            return Ok(());
+        };
+        let records = self.ledger().org_records()?;
+        let view = OrgView::new(&records);
+        let (position_id, department, project) = match seat {
+            Seat::Position(id) => (Some(id), view.department_of(id), view.project_of(id)),
+            Seat::Under(Some(lead)) => (None, view.department_of(lead), view.project_of(lead)),
+            Seat::Under(None) | Seat::NewDepartment => (None, None, None),
+            Seat::NewProject(d) => (None, records.departments.iter().find(|x| x.id == d), None),
+        };
+        let request = RouteRequest {
+            role_id: &new.role_id,
+            position_id,
+            department: department.map(|d| (d.id.as_str(), d.name.as_str())),
+            project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
+            reviewed: &[],
+        };
+        let decision = self.inner.router.planner()?.fixed(
+            &request,
+            &new.title,
+            runtime_id,
+            new.model.as_deref(),
+        );
+        match decision.choice {
+            Some(_) => Ok(()),
+            None => Err(invalid(decision.reason)),
+        }
+    }
+
     fn fixed_runtime(&self, id: Option<&str>) -> Result<(Option<String>, Option<String>)> {
         match id {
             Some(id) => {
@@ -502,6 +560,14 @@ impl Workforce {
     }
 
     fn lead(&self, input: &LeadInput, reports_to: Option<String>) -> Result<NewPosition> {
+        if let Some(saved) = input.from_workforce.as_deref() {
+            return self.rehire_from_workforce(
+                saved,
+                &input.role_id,
+                Some(&input.title),
+                reports_to,
+            );
+        }
         let (runtime_id, runtime_provider) = self.fixed_runtime(input.runtime_id.as_deref())?;
         Ok(NewPosition {
             title: input.title.clone(),
@@ -511,7 +577,110 @@ impl Workforce {
             runtime_provider,
             model: input.model.clone(),
             staffed: !input.vacant.unwrap_or(false),
+            ..NewPosition::default()
         })
+    }
+
+    /// A new position that hires `saved_id` from the Workforce again (ADR-045): its title
+    /// (unless `title` is given), role, AI tool, model, and specialty come with it.
+    fn rehire_from_workforce(
+        &self,
+        saved_id: &str,
+        role_id: &str,
+        title: Option<&str>,
+        reports_to: Option<String>,
+    ) -> Result<NewPosition> {
+        let saved = self
+            .ledger()
+            .saved_agent(saved_id)?
+            .ok_or_else(|| invalid("that agent is no longer in your Workforce"))?;
+        if saved.role_id != role_id {
+            return Err(invalid(format!(
+                "{} keeps its role when hired again from your Workforce",
+                saved.title
+            )));
+        }
+        let fixed = saved.settings["runtimeId"]
+            .as_str()
+            .filter(|r| self.runtimes().iter().any(|t| t.id == *r));
+        let (runtime_id, runtime_provider) = self.fixed_runtime(fixed)?;
+        let specialty = saved.specialty_id.clone().filter(|id| {
+            self.ledger()
+                .specialty(id)
+                .ok()
+                .flatten()
+                .is_some_and(|s| s.removed_at.is_none())
+        });
+        Ok(NewPosition {
+            title: title
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map_or_else(|| saved.title.clone(), str::to_owned),
+            role_id: saved.role_id.clone(),
+            reports_to,
+            model: runtime_id
+                .as_ref()
+                .and(saved.settings["model"].as_str().map(str::to_owned)),
+            runtime_id,
+            runtime_provider,
+            staffed: true,
+            specialty_id: specialty,
+            from_workforce: Some(saved.id),
+        })
+    }
+
+    /// After hiring from the Workforce: its own rule and learning setting come back too.
+    fn restore_saved_settings(&self, position_id: &str, title: &str, settings: &Value) {
+        if let Ok(rule) = serde_json::from_value::<ModelRule>(settings["rule"].clone()) {
+            if !rule.is_empty() {
+                if let Err(e) = self
+                    .inner
+                    .router
+                    .set_rule(&RuleTarget::Agent(position_id.to_owned()), &rule)
+                {
+                    self.notice(format!(
+                        "{title}'s own model rule could not come back from your Workforce: {e}"
+                    ));
+                }
+            }
+        }
+        if let Some(on) = settings["learns"].as_bool() {
+            if let Err(e) = crate::learning::set_agent(self.ledger(), position_id, Some(on)) {
+                self.notice(format!(
+                    "{title}'s learning setting could not come back from your Workforce: {e}"
+                ));
+            }
+        }
+    }
+
+    /// What the Workforce keeps of an agent's settings (ADR-045): its fixed AI tool and model,
+    /// its own rule, and its learning setting.
+    fn saved_settings(&self, position_id: &str) -> Result<Value> {
+        let p = self.ledger().position(position_id)?.ok_or_else(|| {
+            WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
+                "position {position_id}"
+            )))
+        })?;
+        let provider = p
+            .runtime_id
+            .as_deref()
+            .and_then(|r| self.runtimes().into_iter().find(|t| t.id == r))
+            .map(|t| t.provider);
+        Ok(json!({
+            "runtimeId": p.runtime_id,
+            "runtimeProvider": provider,
+            "model": p.model,
+            "rule": self.inner.router.rule_of(position_id)?,
+            "learns": crate::learning::settings(self.ledger())?.agents.get(position_id),
+        }))
+    }
+
+    /// Runtime ID → its AI company, for agents brought back.
+    fn providers(&self) -> Providers {
+        self.runtimes()
+            .into_iter()
+            .map(|t| (t.id, t.provider))
+            .collect()
     }
 
     pub fn create_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
@@ -519,10 +688,28 @@ impl Workforce {
             .head
             .as_ref()
             .ok_or_else(|| invalid("a new department needs a head position"))?;
+        let saved = self.saved_for(head.from_workforce.as_deref())?;
         let head = self.lead(head, input.reports_to.clone())?;
-        self.ledger()
-            .create_department_with_head(&input.name, &input.description, &head, OWNER)?;
+        self.refuse_never_used(&head, Seat::NewDepartment)?;
+        let (_, position) = self.ledger().create_department_with_head(
+            &input.name,
+            &input.description,
+            &head,
+            OWNER,
+        )?;
+        if let Some(settings) = saved {
+            self.restore_saved_settings(&position.id, &position.title, &settings);
+        }
         self.snapshot()
+    }
+
+    /// The saved settings of a Workforce agent about to be hired again, read before the hire
+    /// takes it out of the Workforce.
+    fn saved_for(&self, saved_id: Option<&str>) -> Result<Option<Value>> {
+        Ok(match saved_id {
+            Some(id) => self.ledger().saved_agent(id)?.map(|s| s.settings),
+            None => None,
+        })
     }
 
     pub fn update_department(&self, id: &str, input: &DepartmentInput) -> Result<OrgSnapshot> {
@@ -542,8 +729,9 @@ impl Workforce {
         self.snapshot()
     }
 
-    pub fn remove_department(&self, id: &str) -> Result<OrgSnapshot> {
-        self.ledger().remove_department(id, OWNER)?;
+    /// Archive a department with everything in it (ADR-043).
+    pub fn archive_department(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger().archive_department(id, OWNER)?;
         self.snapshot()
     }
 
@@ -572,13 +760,18 @@ impl Workforce {
             .as_ref()
             .ok_or_else(|| invalid("a new project needs a supervisor position"))?;
         let settings = self.settings(input)?;
+        let saved = self.saved_for(coordinator.from_workforce.as_deref())?;
         let coordinator = self.lead(coordinator, None)?;
-        self.ledger().create_project_with_coordinator(
+        self.refuse_never_used(&coordinator, Seat::NewProject(department_id))?;
+        let (_, position) = self.ledger().create_project_with_coordinator(
             department_id,
             &settings,
             &coordinator,
             OWNER,
         )?;
+        if let Some(settings) = saved {
+            self.restore_saved_settings(&position.id, &position.title, &settings);
+        }
         self.snapshot()
     }
 
@@ -634,6 +827,7 @@ impl Workforce {
             runtime_id: runtime.map(str::to_owned),
             model: None,
             vacant: None,
+            from_workforce: None,
         };
         let department = match self
             .ledger()
@@ -678,6 +872,7 @@ impl Workforce {
                 runtime_id: None,
                 model: None,
                 vacant: None,
+                specialty_id: None,
             })?;
         }
         self.snapshot()
@@ -697,21 +892,67 @@ impl Workforce {
 
     // ---- Positions ----------------------------------------------------------------------
 
-    /// Hire into a team: a new position (and, for a persistent one, its agent).
+    /// Hire into a team: a new position (and, for a persistent one, its agent), with an
+    /// optional specialty of its role (ADR-042).
     pub fn hire(&self, input: &HireInput) -> Result<OrgSnapshot> {
         let (runtime_id, runtime_provider) = self.fixed_runtime(input.runtime_id.as_deref())?;
-        self.ledger().create_position(
-            &NewPosition {
-                title: input.title.clone(),
-                role_id: input.role_id.clone(),
-                reports_to: input.reports_to.clone(),
-                runtime_id,
-                runtime_provider,
-                model: input.model.clone(),
-                staffed: !input.vacant.unwrap_or(false),
+        let new = NewPosition {
+            title: input.title.clone(),
+            role_id: input.role_id.clone(),
+            reports_to: input.reports_to.clone(),
+            runtime_id,
+            runtime_provider,
+            model: input.model.clone(),
+            staffed: !input.vacant.unwrap_or(false),
+            specialty_id: input.specialty_id.clone(),
+            from_workforce: None,
+        };
+        self.refuse_never_used(&new, Seat::Under(new.reports_to.as_deref()))?;
+        self.ledger().create_position(&new, OWNER)?;
+        self.snapshot()
+    }
+
+    /// Hire an agent from the Workforce again into a team (ADR-045); a supervisor or manager is
+    /// hired with a new project or department instead.
+    pub fn hire_from_workforce(
+        &self,
+        saved_id: &str,
+        reports_to: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<OrgSnapshot> {
+        let saved = self
+            .ledger()
+            .saved_agent(saved_id)?
+            .ok_or_else(|| invalid("that agent is no longer in your Workforce"))?;
+        let new = self.rehire_from_workforce(
+            saved_id,
+            &saved.role_id,
+            title,
+            reports_to.map(str::to_owned),
+        )?;
+        self.refuse_never_used(&new, Seat::Under(reports_to))?;
+        let (position, _) = self.ledger().create_position(&new, OWNER)?;
+        self.restore_saved_settings(&position.id, &position.title, &saved.settings);
+        self.snapshot()
+    }
+
+    /// Save an archived agent to the Workforce on its own (ADR-045).
+    pub fn save_to_workforce(&self, position_id: &str) -> Result<OrgSnapshot> {
+        let settings = self.saved_settings(position_id)?;
+        self.ledger().save_to_workforce(
+            &SaveAgent {
+                position_id: position_id.to_owned(),
+                settings,
             },
             OWNER,
         )?;
+        self.forget_settings(&[position_id.to_owned()], &[]);
+        self.snapshot()
+    }
+
+    /// Delete an agent in the Workforce for good.
+    pub fn delete_saved_agent(&self, saved_id: &str) -> Result<OrgSnapshot> {
+        self.ledger().delete_saved_agent(saved_id, OWNER)?;
         self.snapshot()
     }
 
@@ -748,12 +989,35 @@ impl Workforce {
             let m = m.trim();
             (!m.is_empty()).then(|| m.to_owned())
         });
+        let specialty = input.specialty_id.as_deref().map(|s| {
+            let s = s.trim();
+            (!s.is_empty()).then(|| s.to_owned())
+        });
+        // A newly fixed AI tool must be one every rule over the agent uses.
+        if let Some(Some((runtime_id, _))) = &runtime {
+            let current = self.ledger().position(id)?.ok_or_else(|| {
+                WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
+                    "position {id}"
+                )))
+            })?;
+            self.refuse_never_used(
+                &NewPosition {
+                    title: input.title.clone().unwrap_or(current.title),
+                    role_id: current.role_id,
+                    runtime_id: Some(runtime_id.clone()),
+                    model: model.clone().unwrap_or(current.model),
+                    ..NewPosition::default()
+                },
+                Seat::Position(id),
+            )?;
+        }
         self.ledger().update_position(
             id,
             &PositionPatch {
                 title: input.title.clone(),
                 runtime,
                 model,
+                specialty,
             },
             OWNER,
         )?;
@@ -763,12 +1027,293 @@ impl Workforce {
     /// Make a position report to `reports_to` (`None`: the owner).
     pub fn move_position(&self, id: &str, reports_to: Option<&str>) -> Result<OrgSnapshot> {
         self.ledger().move_position(id, reports_to, OWNER)?;
+        // In another department, another department's rule may give it another effort.
+        self.refresh_open_efforts();
         self.snapshot()
     }
 
     pub fn archive_position(&self, id: &str) -> Result<OrgSnapshot> {
         self.ledger().archive_position(id, OWNER)?;
         self.snapshot()
+    }
+
+    // ---- Bring back and delete for good (ADR-043, ADR-045) -------------------------------------
+
+    pub fn bring_back_position(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger()
+            .bring_back_position(id, &self.providers(), OWNER)?;
+        self.snapshot()
+    }
+
+    pub fn bring_back_project(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger()
+            .bring_back_project(id, &self.providers(), OWNER)?;
+        self.snapshot()
+    }
+
+    pub fn bring_back_department(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger()
+            .bring_back_department(id, &self.providers(), OWNER)?;
+        self.snapshot()
+    }
+
+    /// What deleting `kind` (`position`, `project`, `department`) `id` for good would take
+    /// along, each agent's experience, and the organization's average, for the confirmation.
+    pub fn preview_delete(&self, kind: &str, id: &str) -> Result<DeletionPreview> {
+        let l = self.ledger();
+        let plan = l.deletion_plan(kind, id)?;
+        let records = l.org_records()?;
+        let average = snapshot::average_experience(&records);
+        let name = match kind {
+            "position" => l.position(id)?.map(|p| p.title),
+            "project" => plan.projects.first().map(|p| p.name.clone()),
+            _ => plan.departments.first().map(|d| d.name.clone()),
+        }
+        .unwrap_or_default();
+        let role_name = |role_id: &str| {
+            records
+                .roles
+                .iter()
+                .find(|r| r.id == role_id)
+                .map_or_else(String::new, |r| r.name.clone())
+        };
+        Ok(DeletionPreview {
+            kind: kind.to_owned(),
+            id: id.to_owned(),
+            name,
+            agents: plan
+                .positions
+                .iter()
+                .map(|p| {
+                    let (kept, tasks) = snapshot::experience_counts(&records, p);
+                    DeletionAgent {
+                        position_id: p.id.clone(),
+                        title: p.title.clone(),
+                        role_name: role_name(&p.role_id),
+                        experience: snapshot::experience_info(kept, tasks, average),
+                    }
+                })
+                .collect(),
+            projects: plan.projects.iter().map(|p| p.name.clone()).collect(),
+            departments: plan.departments.iter().map(|d| d.name.clone()).collect(),
+            average_experience: average.shown(),
+        })
+    }
+
+    /// Delete `kind` `id` for good (ADR-043); the agents in `save` move to the Workforce
+    /// instead (ADR-045). Returns the snapshot and what was deleted, so the caller can forget
+    /// settings kept elsewhere (a department's permission limit in Guard).
+    pub fn delete_for_good(
+        &self,
+        kind: &str,
+        id: &str,
+        save: &[String],
+    ) -> Result<(OrgSnapshot, Deleted)> {
+        let mut agents = Vec::new();
+        for position_id in save {
+            agents.push(SaveAgent {
+                position_id: position_id.clone(),
+                settings: self.saved_settings(position_id)?,
+            });
+        }
+        let l = self.ledger();
+        let deleted = match kind {
+            "position" => l.delete_position_for_good(id, &agents, OWNER)?,
+            "project" => l.delete_project_for_good(id, &agents, OWNER)?,
+            "department" => l.delete_department_for_good(id, &agents, OWNER)?,
+            other => {
+                return Err(invalid(format!(
+                    "there is nothing called a {other} to delete"
+                )))
+            }
+        };
+        let mut positions = deleted.positions.clone();
+        positions.extend(deleted.saved.iter().map(|(p, _)| p.clone()));
+        self.forget_settings(&positions, &deleted.departments);
+        Ok((self.snapshot()?, deleted))
+    }
+
+    /// Forget the rules and learning settings of agents and departments that left the chart.
+    fn forget_settings(&self, positions: &[String], departments: &[String]) {
+        if let Err(e) = self.inner.router.forget(positions, departments) {
+            self.notice(format!(
+                "Could not forget the deleted items' model rules: {e}"
+            ));
+        }
+        if let Err(e) = crate::learning::forget(self.ledger(), positions) {
+            self.notice(format!(
+                "Could not forget the deleted agents' learning settings: {e}"
+            ));
+        }
+    }
+
+    // ---- Specialties (ADR-042) ------------------------------------------------------------
+
+    fn specialty_fields(&self, input: &SpecialtyInput) -> Result<SpecialtyFields> {
+        let name = plenipo_ledger::workforce::clean_line("the specialty's name", &input.name, 80)?;
+        let title = match input.title.trim() {
+            "" => String::new(),
+            t => plenipo_ledger::workforce::clean_line("the suggested title", t, 80)?,
+        };
+        let job = clean_job(&input.job)?;
+        if input.suggest.models.len() > plenipo_router::config::MAX_ROLE_MODELS {
+            return Err(invalid("suggest at most 12 models"));
+        }
+        let config = self.inner.router.config()?;
+        let mut models = Vec::new();
+        for id in &input.suggest.models {
+            // A model removed from your list since is dropped: a suggestion changes nothing.
+            if config.model(id).is_some() && !models.contains(id) {
+                models.push(id.clone());
+            }
+        }
+        let mut permissions = Vec::new();
+        for p in &input.suggest.permissions {
+            if !plenipo_liaison::protocol::CAPABILITIES.contains(&p.as_str()) {
+                return Err(invalid(format!("there is no permission named {p:?}")));
+            }
+            if !permissions.contains(p) {
+                permissions.push(p.clone());
+            }
+        }
+        let mut needs = input.suggest.needs.clone();
+        needs.sort();
+        needs.dedup();
+        if let Some(c) = input.suggest.min_context_tokens {
+            if !(1..=plenipo_router::config::MAX_CONTEXT_TOKENS).contains(&c) {
+                return Err(invalid("the context size is out of range"));
+            }
+        }
+        Ok(SpecialtyFields {
+            name,
+            title,
+            metadata: json!({
+                "job": job,
+                "suggest": SpecialtySuggest {
+                    needs,
+                    min_context_tokens: input.suggest.min_context_tokens,
+                    models,
+                    permissions,
+                },
+            }),
+        })
+    }
+
+    /// Add one of the owner's specialties to a role (built-in or the owner's own).
+    pub fn create_specialty(&self, input: &SpecialtyInput) -> Result<OrgSnapshot> {
+        let role_id = input
+            .role_id
+            .as_deref()
+            .ok_or_else(|| invalid("a new specialty belongs to a role"))?;
+        let fields = self.specialty_fields(input)?;
+        self.ledger().create_specialty(role_id, &fields, OWNER)?;
+        self.snapshot()
+    }
+
+    pub fn update_specialty(&self, id: &str, input: &SpecialtyInput) -> Result<OrgSnapshot> {
+        let fields = self.specialty_fields(input)?;
+        self.ledger().update_specialty(id, &fields, OWNER)?;
+        self.snapshot()
+    }
+
+    pub fn remove_specialty(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger().remove_specialty(id, OWNER)?;
+        self.snapshot()
+    }
+
+    // ---- Model, effort, and learning in layers (ADR-041) ------------------------------------
+
+    /// Set the organization's, a department's, or an agent's rule, then let open conversations
+    /// take a new effort from their next task.
+    pub fn set_model_rule(&self, target: &RuleTarget, rule: &ModelRule) -> Result<RoutingSnapshot> {
+        let snapshot = self.inner.router.set_rule(target, rule)?;
+        self.refresh_open_efforts();
+        Ok(snapshot)
+    }
+
+    /// Give every full-time agent's open conversation the effort the rules give it now (ADR-041
+    /// §7: effort alone never hires a new agent). Called after any change to rules or models.
+    pub fn refresh_open_efforts(&self) {
+        if let Err(e) = self.try_refresh_open_efforts() {
+            self.notice(format!(
+                "Could not bring a conversation's effort up to date: {e}"
+            ));
+        }
+    }
+
+    fn try_refresh_open_efforts(&self) -> Result<u32> {
+        // Two changes in a row must not interleave: the later one reads what the earlier wrote.
+        let _one_at_a_time = self
+            .inner
+            .refreshing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let l = self.ledger();
+        let records = l.org_records()?;
+        let view = OrgView::new(&records);
+        let planner = self.inner.router.planner()?;
+        let sessions = l.open_workforce_sessions()?;
+        let mut changed = 0;
+        for p in view.tree_order() {
+            if !view.persistent(p) {
+                continue;
+            }
+            let Some(agent) = records
+                .agents
+                .iter()
+                .find(|a| a.position_id.as_deref() == Some(p.id.as_str()) && a.task_id.is_none())
+            else {
+                continue;
+            };
+            let Some(session) = sessions.iter().find(|s| {
+                s.state == RuntimeSessionState::Open
+                    && s.metadata["workforce"]["agentId"].as_str() == Some(agent.id.as_str())
+            }) else {
+                continue;
+            };
+            let request = crate::directory::request(&view, p, view.project_of(&p.id), &[]);
+            // The model as listed in Settings (the agent's), not the name the AI tool reported
+            // back when the conversation started, which may not match any listed model.
+            let model = if agent.runtime_id.as_deref() == Some(session.runtime.as_str()) {
+                agent.model.as_deref()
+            } else {
+                session.model.as_deref()
+            };
+            let want = planner
+                .effort_now(&request, &session.runtime, model)
+                .map(|e| e.as_str());
+            if session.effort.as_deref() != want {
+                // One conversation that cannot change does not hold the others back.
+                match l.set_session_effort(&session.id, want, OWNER) {
+                    Ok(_) => changed += 1,
+                    Err(e) => self.notice(format!(
+                        "Could not bring {}'s conversation up to its new effort: {e}",
+                        p.title
+                    )),
+                }
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Learning on or off for a role (ADR-041).
+    pub fn set_role_learns(
+        &self,
+        role_id: &str,
+        on: bool,
+    ) -> Result<crate::learning::LearningSnapshot> {
+        crate::learning::set_role_learns(self.ledger(), role_id, on)?;
+        self.learning()
+    }
+
+    /// Learning on or off for one agent, or `None`: it follows its role (ADR-041).
+    pub fn set_agent_learning(
+        &self,
+        position_id: &str,
+        on: Option<bool>,
+    ) -> Result<crate::learning::LearningSnapshot> {
+        crate::learning::set_agent(self.ledger(), position_id, on)?;
+        self.learning()
     }
 
     pub fn assign_oversight(

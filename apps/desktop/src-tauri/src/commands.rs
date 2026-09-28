@@ -531,7 +531,7 @@ pub(crate) fn workforce_error(e: WorkforceError) -> CommandError {
 }
 
 /// Run Workforce work (Ledger reads and writes) off the main thread.
-async fn with_workforce<T: Send + 'static>(
+pub(crate) async fn with_workforce<T: Send + 'static>(
     workforce: &Workforce,
     f: impl FnOnce(&Workforce) -> Result<T, WorkforceError> + Send + 'static,
 ) -> Result<T, CommandError> {
@@ -547,11 +547,11 @@ pub(crate) fn validate_id(what: &str, id: &str) -> Result<(), CommandError> {
     validate_execution_id(id).map_err(|_| CommandError::invalid_input(format!("invalid {what} id")))
 }
 
-fn validate_optional_id(what: &str, id: Option<&str>) -> Result<(), CommandError> {
+pub(crate) fn validate_optional_id(what: &str, id: Option<&str>) -> Result<(), CommandError> {
     id.map_or(Ok(()), |id| validate_id(what, id))
 }
 
-fn bounded(what: &str, value: &str) -> Result<(), CommandError> {
+pub(crate) fn bounded(what: &str, value: &str) -> Result<(), CommandError> {
     if value.len() > MAX_FIELD_BYTES {
         Err(CommandError::invalid_input(format!("{what} is too long")))
     } else {
@@ -559,11 +559,11 @@ fn bounded(what: &str, value: &str) -> Result<(), CommandError> {
     }
 }
 
-fn bounded_optional(what: &str, value: Option<&str>) -> Result<(), CommandError> {
+pub(crate) fn bounded_optional(what: &str, value: Option<&str>) -> Result<(), CommandError> {
     value.map_or(Ok(()), |v| bounded(what, v))
 }
 
-fn validate_runtimes(ids: &[String]) -> Result<(), CommandError> {
+pub(crate) fn validate_runtimes(ids: &[String]) -> Result<(), CommandError> {
     if ids.len() > 16 {
         return Err(CommandError::invalid_input("too many runtimes"));
     }
@@ -573,6 +573,7 @@ fn validate_runtimes(ids: &[String]) -> Result<(), CommandError> {
 fn validate_lead(lead: &LeadInput) -> Result<(), CommandError> {
     validate_id("role", &lead.role_id)?;
     bounded("the title", &lead.title)?;
+    validate_optional_id("saved agent", lead.from_workforce.as_deref())?;
     lead.runtime_id
         .as_deref()
         .map_or(Ok(()), validate_runtime_id)?;
@@ -856,7 +857,7 @@ pub async fn remove_lesson(
 
 /// A role's working instructions: a few short lines in each part (the Workforce checks them
 /// in detail).
-fn validate_job(job: &RoleJob) -> Result<(), CommandError> {
+pub(crate) fn validate_job(job: &RoleJob) -> Result<(), CommandError> {
     for (what, lines) in [
         ("what the role does", &job.duties),
         ("what it hands back", &job.returns),
@@ -895,16 +896,6 @@ pub async fn update_department(
         w.update_department(&department_id, &input)
     })
     .await
-}
-
-/// Delete a department that has no projects (its head position is archived).
-#[tauri::command]
-pub async fn remove_department(
-    workforce: State<'_, Workforce>,
-    department_id: String,
-) -> Result<OrgSnapshot, CommandError> {
-    validate_id("department", &department_id)?;
-    with_workforce(&workforce, move |w| w.remove_department(&department_id)).await
 }
 
 /// Create a project with its coordinator position. The local folder is recorded, never opened.
@@ -1010,6 +1001,7 @@ pub async fn hire_position(
         .as_deref()
         .map_or(Ok(()), validate_runtime_id)?;
     bounded_optional("the model", input.model.as_deref())?;
+    validate_optional_id("specialty", input.specialty_id.as_deref())?;
     with_workforce(&workforce, move |w| w.hire(&input)).await
 }
 
@@ -1046,6 +1038,11 @@ pub async fn update_position(
         validate_runtime_id(r)?;
     }
     bounded_optional("the model", input.model.as_deref())?;
+    // An empty specialty clears it.
+    validate_optional_id(
+        "specialty",
+        input.specialty_id.as_deref().filter(|s| !s.is_empty()),
+    )?;
     with_workforce(&workforce, move |w| w.update_position(&position_id, &input)).await
 }
 
@@ -1119,7 +1116,7 @@ pub async fn give_objective(
 
 // ---- Model policy and routing (Phase 6) --------------------------------------------------------
 
-fn router_error(e: RouterError) -> CommandError {
+pub(crate) fn router_error(e: RouterError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -1150,38 +1147,54 @@ pub async fn get_routing(router: State<'_, Router>) -> Result<RoutingSnapshot, C
 #[tauri::command]
 pub async fn save_model(
     router: State<'_, Router>,
+    workforce: State<'_, Workforce>,
     input: ModelInput,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_optional_id("model", input.id.as_deref())?;
     validate_runtime_id(&input.runtime_id)?;
     bounded_optional("the model name", input.name.as_deref())?;
     bounded("the label", &input.label)?;
-    with_router(&router, move |r| r.save_model(&input)).await
+    let saved = with_router(&router, move |r| r.save_model(&input)).await?;
+    refresh_efforts(&workforce).await;
+    Ok(saved)
+}
+
+/// After a change to models or rules, let open conversations take their new effort from their
+/// next task (ADR-041 §7). Best effort: a problem becomes a notice on the Organization page.
+pub(crate) async fn refresh_efforts(workforce: &Workforce) {
+    let workforce = workforce.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || workforce.refresh_open_efforts()).await;
 }
 
 /// Remove a model the owner added; it leaves every role's list.
 #[tauri::command]
 pub async fn remove_model(
     router: State<'_, Router>,
+    workforce: State<'_, Workforce>,
     model_id: String,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_id("model", &model_id)?;
-    with_router(&router, move |r| r.remove_model(&model_id)).await
+    let saved = with_router(&router, move |r| r.remove_model(&model_id)).await?;
+    refresh_efforts(&workforce).await;
+    Ok(saved)
 }
 
 /// Replace a role's model policy.
 #[tauri::command]
 pub async fn set_role_policy(
     router: State<'_, Router>,
+    workforce: State<'_, Workforce>,
     role_id: String,
     policy: RolePolicy,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_id("role", &role_id)?;
-    for id in &policy.models {
+    for id in policy.models.iter().chain(policy.efforts.keys()) {
         validate_id("model", id)?;
     }
     validate_runtimes(&policy.never_companies)?;
-    with_router(&router, move |r| r.set_policy(&role_id, &policy)).await
+    let saved = with_router(&router, move |r| r.set_policy(&role_id, &policy)).await?;
+    refresh_efforts(&workforce).await;
+    Ok(saved)
 }
 
 /// Choices for every role (what a usage limit does).

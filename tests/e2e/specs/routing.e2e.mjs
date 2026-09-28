@@ -14,14 +14,16 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot,
-  waitUntil,
+  objectiveBox,
   openSettings,
+  screenshot,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -198,8 +200,7 @@ async function preferForSeniorDeveloper(browser, labels, efforts = {}) {
 async function delegate(browser, objective, tool) {
   await nav(browser, "Organization");
   await select(browser, "Website Supervisor");
-  const form = 'form[aria-label="Give an objective"]';
-  await (await browser.$(`${form} textarea`)).setValue(objective);
+  await (await objectiveBox(browser)).setValue(objective);
   await clickButton(browser, "Give objective");
   const worker = "Worker for Senior Developer";
   await waitUntil(
@@ -363,6 +364,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       "Codex",
     );
     await select(browser, "Senior Developer");
+    await detailsTab(browser, "AI model");
     await waitForText(
       browser,
       DETAILS,
@@ -423,7 +425,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(
       browser,
       trail,
-      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort (Senior Developer's setting for it).",
+      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort, from Senior Developer's rule.",
     );
     await screenshot(browser, "routing-trail");
   });
@@ -438,9 +440,8 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     ]);
     await nav(browser, "Organization");
     await select(browser, "Website Supervisor");
-    const form = 'form[aria-label="Give an objective"]';
     await (
-      await browser.$(`${form} textarea`)
+      await objectiveBox(browser)
     ).setValue("Once more [handoff:role:Senior Developer+usage-limit]");
     await clickButton(browser, "Give objective");
     await waitForNode(browser, "Website Supervisor, Idle", 30_000);

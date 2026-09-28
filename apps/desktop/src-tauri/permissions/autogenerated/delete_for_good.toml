@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-for-good"
+description = "Enables the delete_for_good command without any pre-configured scope."
+commands.allow = ["delete_for_good"]
+
+[[permission]]
+identifier = "deny-delete-for-good"
+description = "Denies the delete_for_good command without any pre-configured scope."
+commands.deny = ["delete_for_good"]

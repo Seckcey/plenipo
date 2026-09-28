@@ -16,6 +16,6 @@ pub mod limits;
 mod service;
 
 pub use dto::*;
-pub use engine::{route, RouteInput, ToolState};
+pub use engine::{route, DepartmentRule, RouteInput, ToolState};
 pub use error::{Result, RouterError};
 pub use service::{Planner, RouteRequest, Router, SETTING};

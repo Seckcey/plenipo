@@ -1,7 +1,16 @@
 # ADR-041: Model, effort, and learning set in layers — organization, department, role, agent
 
-- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
-- **Date:** 2026-09-28
+- **Status:** Accepted (by the owner, 2026-09-27, as recommended)
+- **As built (v1.10.0):** as written, with two notes.
+  - **A fixed AI tool that a rule never uses is refused when you save it** (hiring, a new
+    department's or project's lead, hiring from your Workforce, or changing an agent), with the
+    rule named. An agent fixed on it before the rule was set shows it cannot start, and why. A
+    conversation it already has open carries on until you change the agent or the rule.
+  - **Settings → AI models shows each rule's choices, not each rule's next worker.** What an
+    agent's next worker gets, and which rule decided, shows on each role's line in that table and
+    in each agent's details (the AI model tab). See the
+    [Phase 17 acceptance report](../phases/phase-17-acceptance-report.md), deviations.
+- **Date:** 2026-09-27
 - **Phase:** 17
 - **Amends:** ADR-011 (the Router: model choices and routing) §5, §9, §11, and §15; ADR-024
   (workers learn from their work), its one switch
@@ -84,7 +93,7 @@ What the code does today (v1.9.0, read at `b199e5d`):
    organization → the model's own setting.** A fixed agent's AI tool and model win over every
    list. Its effort still comes from the layers, its own first.
 
-4. **Never-use lists add up; they are not "closest wins".** The owner chose this (2026-09-28). This is the one place this record
+4. **Never-use lists add up; they are not "closest wins".** The owner chose this (2026-09-27). This is the one place this record
    departs from the plan's words. If "closest wins" applied here, a department that said "never
    use OpenAI" would silently allow a company the whole organization had ruled out. "Never" has
    to mean never. So:

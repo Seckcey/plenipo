@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-delete-for-good"
+description = "Enables the preview_delete_for_good command without any pre-configured scope."
+commands.allow = ["preview_delete_for_good"]
+
+[[permission]]
+identifier = "deny-preview-delete-for-good"
+description = "Denies the preview_delete_for_good command without any pre-configured scope."
+commands.deny = ["preview_delete_for_good"]

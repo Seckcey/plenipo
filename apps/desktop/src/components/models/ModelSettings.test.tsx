@@ -16,6 +16,7 @@ vi.mock("../../api/commands", async (importOriginal) => {
     saveModel: vi.fn(),
     removeModel: vi.fn(),
     setRolePolicy: vi.fn(),
+    setModelRule: vi.fn(),
     setRoutingOptions: vi.fn(),
     clearUsageLimit: vi.fn(),
   };
@@ -34,6 +35,7 @@ beforeEach(() => {
     api.saveModel,
     api.removeModel,
     api.setRolePolicy,
+    api.setModelRule,
     api.setRoutingOptions,
     api.clearUsageLimit,
   ]) {
@@ -53,6 +55,46 @@ afterEach(() => {
 const rowOf = (name: string) => screen.getByRole("row", { name: new RegExp(`^${name}`) });
 
 describe("Settings → AI models", () => {
+  it("sets model and effort rules for the organization and a department (ADR-041)", async () => {
+    render(<ModelSettings />);
+    const user = userEvent.setup();
+    expect(
+      await screen.findByRole("heading", { name: "Model and effort rules" }),
+    ).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("button", { name: "Change the rule for The whole organization" }),
+    );
+    const org = screen.getByRole("form", { name: "Rule for The whole organization" });
+    // The organization's rule is emptied, never removed.
+    expect(within(org).queryByRole("button", { name: "Remove rule" })).toBeNull();
+    await user.selectOptions(
+      within(org).getByRole("combobox", { name: "Effort for any other model" }),
+      "High effort",
+    );
+    await user.click(within(org).getByRole("button", { name: "Save rule" }));
+    expect(api.setModelRule).toHaveBeenCalledWith(
+      { layer: "organization" },
+      { models: [], efforts: {}, effort: "high", neverCompanies: [] },
+    );
+    await user.click(screen.getByRole("button", { name: "Change the rule for Engineering" }));
+    const eng = screen.getByRole("form", { name: "Rule for Engineering" });
+    await user.selectOptions(
+      within(eng).getByRole("combobox", { name: "Add a model to the list" }),
+      "Opus (Claude Code)",
+    );
+    // AI companies never to use add up across the rules.
+    const openai = within(eng).getByRole("checkbox", { name: "OpenAI" });
+    expect(openai).toHaveAccessibleDescription(
+      "Never used for this work, even when another rule lists them: these add up.",
+    );
+    await user.click(openai);
+    await user.click(within(eng).getByRole("button", { name: "Save rule" }));
+    expect(api.setModelRule).toHaveBeenLastCalledWith(
+      { layer: "department", id: "d-eng" },
+      { models: ["m-opus"], efforts: {}, effort: null, neverCompanies: ["openai"] },
+    );
+  });
+
   it("shows where each role's next worker goes and why", async () => {
     render(<ModelSettings />);
     const dev = await screen.findByRole("row", { name: /^Senior Developer/ });
@@ -121,6 +163,7 @@ describe("Settings → AI models", () => {
       cost: "any",
       crossCompany: "prefer",
       efforts: { "m-codex": "high" },
+      effort: null,
     });
     await waitFor(() =>
       expect(

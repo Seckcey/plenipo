@@ -3,18 +3,27 @@
 //!
 //! Order of work:
 //!
-//! 1. **Candidates.** The role's models in its order (first choice, then the fallback order);
-//!    without a list, every registered model, cheapest or dearest first as the role prefers.
+//! 0. **Layers** (ADR-041): the agent's own rule, its role's choices, its department's rule, and
+//!    the organization's, closest first. The closest layer that sets something wins; AI
+//!    companies never to use add up.
+//! 1. **Candidates.** The closest layer's models in its order (first choice, then the backups);
+//!    without a list anywhere, every registered model, cheapest or dearest first as the role
+//!    prefers.
 //! 2. **Cross-company review.** When the worker reviews work done by some AI companies and the
 //!    role prefers another company, models from other companies go first; when it requires
 //!    one, models from the same companies are skipped.
-//! 3. **Checks, per model:** its AI tool exists; its company is not on the role's never-use
-//!    list; the project allows the tool; it can do what the role needs and takes enough
+//! 3. **Checks, per model:** its AI tool exists; its company is on no layer's never-use list;
+//!    the project allows the tool; it can do what the role needs and takes enough
 //!    context; the tool is installed and signed in with a subscription (API-key sign-ins are
 //!    refused: pay-per-use billing is off); the tool is not at a usage limit.
 //! 4. **Usage limits.** With [`LimitBehavior::Wait`], once a model is skipped for a usage limit,
 //!    models from other companies are skipped too: work waits rather than switching company.
 //! 5. The first model that passes is chosen. Every model gets a verdict and a note.
+//! 6. **Effort:** from the closest layer that sets one the chosen model takes (its effort for
+//!    that model, else its effort for any model); else the model's own setting; else the AI
+//!    tool's default. The reason names the layer.
+
+use std::collections::BTreeMap;
 
 use plenipo_runtime::agent::{AgentRuntimeInfo, AuthState, Effort, InstallState};
 
@@ -28,12 +37,28 @@ pub struct ToolState {
     pub limit: Option<UsageLimit>,
 }
 
+/// A department's rule, with what the reason calls it.
+#[derive(Debug, Clone, Copy)]
+pub struct DepartmentRule<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub rule: &'a ModelRule,
+}
+
 /// Everything one decision depends on.
 #[derive(Debug, Clone, Copy)]
 pub struct RouteInput<'a> {
     /// The role's name, for the explanation.
     pub role: &'a str,
+    /// The role's ID (`""` when unknown).
+    pub role_id: &'a str,
     pub policy: &'a RolePolicy,
+    /// The agent's own rule, and its position's ID (ADR-041).
+    pub agent: Option<(&'a str, &'a ModelRule)>,
+    /// Its department's rule.
+    pub department: Option<DepartmentRule<'a>>,
+    /// The organization's rule.
+    pub organization: Option<&'a ModelRule>,
     pub models: &'a [ModelInfo],
     pub tools: &'a [ToolState],
     /// When the work belongs to a project: its name and allowed runtimes.
@@ -120,16 +145,169 @@ fn ordinal(n: u32) -> String {
     }
 }
 
+/// One layer of model and effort choices, as the engine reads it (ADR-041).
+#[derive(Debug, Clone)]
+pub struct Layer<'a> {
+    pub source: RuleSource,
+    pub models: &'a [String],
+    pub efforts: &'a BTreeMap<String, Effort>,
+    pub effort: Option<Effort>,
+    pub never: &'a [String],
+}
+
+/// The layers of `input`, closest first: the agent, its role, its department, the organization.
+pub fn layers<'a>(input: &RouteInput<'a>) -> Vec<Layer<'a>> {
+    let mut out = Vec::new();
+    if let Some((position_id, rule)) = input.agent {
+        out.push(Layer {
+            source: RuleSource {
+                layer: RuleLayer::Agent,
+                name: "this agent".into(),
+                id: Some(position_id.to_owned()),
+            },
+            models: &rule.models,
+            efforts: &rule.efforts,
+            effort: rule.effort,
+            never: &rule.never_companies,
+        });
+    }
+    out.push(Layer {
+        source: RuleSource {
+            layer: RuleLayer::Role,
+            name: input.role.to_owned(),
+            id: (!input.role_id.is_empty()).then(|| input.role_id.to_owned()),
+        },
+        models: &input.policy.models,
+        efforts: &input.policy.efforts,
+        effort: input.policy.effort,
+        never: &input.policy.never_companies,
+    });
+    if let Some(d) = input.department {
+        out.push(Layer {
+            source: RuleSource {
+                layer: RuleLayer::Department,
+                name: format!("the {} department", d.name),
+                id: Some(d.id.to_owned()),
+            },
+            models: &d.rule.models,
+            efforts: &d.rule.efforts,
+            effort: d.rule.effort,
+            never: &d.rule.never_companies,
+        });
+    }
+    if let Some(rule) = input.organization {
+        out.push(Layer {
+            source: RuleSource {
+                layer: RuleLayer::Organization,
+                name: "the organization".into(),
+                id: None,
+            },
+            models: &rule.models,
+            efforts: &rule.efforts,
+            effort: rule.effort,
+            never: &rule.never_companies,
+        });
+    }
+    out
+}
+
+/// "the Development department's", "this agent's", "Senior Developer's".
+fn possessive(source: &RuleSource) -> String {
+    format!("{}'s", source.name)
+}
+
+/// The closest layer that never uses `company`, by name.
+pub fn never_by(layers: &[Layer<'_>], company: &str) -> Option<String> {
+    layers
+        .iter()
+        .find(|l| l.never.iter().any(|c| c == company))
+        .map(|l| l.source.name.clone())
+}
+
+/// The effort for model `model_id` (`""` for a model not in the owner's list): from the closest
+/// layer that sets one it takes, else its own setting. Also the first level set for it that it
+/// does not take, and by whom, to say so.
+pub fn effort_for(
+    layers: &[Layer<'_>],
+    model_id: &str,
+    model_effort: Option<Effort>,
+    levels: &[Effort],
+) -> (
+    Option<Effort>,
+    Option<RuleSource>,
+    Option<(Effort, RuleSource)>,
+) {
+    let mut passed = None;
+    for l in layers {
+        let own = (!model_id.is_empty())
+            .then(|| l.efforts.get(model_id).copied())
+            .flatten();
+        for e in [own, l.effort].into_iter().flatten() {
+            if levels.contains(&e) {
+                return (Some(e), Some(l.source.clone()), passed);
+            }
+            if passed.is_none() {
+                passed = Some((e, l.source.clone()));
+            }
+        }
+    }
+    match model_effort.filter(|e| levels.contains(e)) {
+        Some(e) => (
+            Some(e),
+            Some(RuleSource {
+                layer: RuleLayer::Model,
+                name: "the model".into(),
+                id: (!model_id.is_empty()).then(|| model_id.to_owned()),
+            }),
+            passed,
+        ),
+        None => (None, None, passed),
+    }
+}
+
+/// " It runs at high effort, from the Development department's rule." and, when a closer level
+/// did not work with the model, why it was passed over.
+pub fn effort_words(
+    effort: Option<Effort>,
+    from: Option<&RuleSource>,
+    passed: Option<&(Effort, RuleSource)>,
+    label: &str,
+) -> String {
+    let mut out = String::new();
+    if let (Some(e), Some(src)) = (effort, from) {
+        let whose = match src.layer {
+            RuleLayer::Agent => "this agent's own setting".to_owned(),
+            RuleLayer::Model | RuleLayer::Fixed => "the model's own setting".to_owned(),
+            _ => format!("{} rule", possessive(src)),
+        };
+        out.push_str(&format!(" It runs at {} effort, from {whose}.", e.label()));
+    }
+    if let Some((e, src)) = passed {
+        let set_by = match src.layer {
+            RuleLayer::Agent => "this agent's own setting".to_owned(),
+            _ => format!("{} rule", possessive(src)),
+        };
+        let mut level = e.label().to_owned();
+        if let Some(first) = level.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        out.push_str(&format!(
+            " {level} effort, from {set_by}, does not work with {label}."
+        ));
+    }
+    out
+}
+
 pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     let policy = input.policy;
+    let layers = layers(input);
     let tool = |id: &str| input.tools.iter().find(|t| t.info.id == id);
     let company = |m: &ModelInfo| tool(&m.runtime_id).map(|t| t.info.provider.as_str());
 
-    // 1. Candidates.
-    let listed = !policy.models.is_empty();
-    let mut candidates: Vec<Candidate<'_>> = if listed {
-        policy
-            .models
+    // 1. Candidates: the closest layer's list, else the whole registry.
+    let listing = layers.iter().find(|l| !l.models.is_empty());
+    let mut candidates: Vec<Candidate<'_>> = if let Some(l) = listing {
+        l.models
             .iter()
             .zip(1..)
             .map(|(id, rank)| Candidate {
@@ -182,6 +360,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     // 3–5. Checks.
     let mut notes: Vec<CandidateNote> = Vec::new();
     let mut chosen: Option<(RouteChoice, Option<u32>)> = None;
+    let mut effort_from: Option<RuleSource> = None;
+    let mut effort_passed: Option<(Effort, RuleSource)> = None;
     // The company whose usage limit work is waiting for (LimitBehavior::Wait).
     let mut waiting: Option<(&str, String)> = None;
     for c in &candidates {
@@ -218,8 +398,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             continue;
         };
         let info = &t.info;
-        let skip = if policy.never_companies.contains(&info.provider) {
-            Some(format!("{} never uses {}", input.role, info.provider_label))
+        let skip = if let Some(who) = never_by(&layers, &info.provider) {
+            Some(format!("{who} never uses {}", info.provider_label))
         } else if let Some((name, _)) = input
             .project
             .filter(|(_, allowed)| !allowed.contains(&info.id))
@@ -266,16 +446,10 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             Some(why) => note(CandidateVerdict::Skipped, why),
             None => {
                 note(CandidateVerdict::Chosen, String::new());
-                // The role's effort for this model, else the model's; only a level the model (or,
-                // for a model the AI tool does not list, the AI tool) accepts.
+                // Only a level the model (or, for a model the AI tool does not list, the AI
+                // tool) takes.
                 let levels = info.capabilities.effort_levels_for(m.name.as_deref());
-                let accepted = |e: &Effort| levels.contains(e);
-                let effort = policy
-                    .efforts
-                    .get(&m.id)
-                    .copied()
-                    .filter(accepted)
-                    .or(m.effort.filter(accepted));
+                let (effort, from, passed) = effort_for(&layers, &m.id, m.effort, levels);
                 chosen = Some((
                     RouteChoice {
                         model_id: m.id.clone(),
@@ -288,6 +462,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                     },
                     c.rank,
                 ));
+                effort_from = from;
+                effort_passed = passed;
             }
         }
     }
@@ -299,15 +475,13 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         .find(|n| n.verdict == CandidateVerdict::Skipped);
     match chosen {
         Some((choice, rank)) => {
+            let whose =
+                listing.map_or_else(|| format!("{}'s", input.role), |l| possessive(&l.source));
             let mut reason = match rank {
-                Some(1) => format!(
-                    "{} is {}'s first choice and is ready.",
-                    choice.label, input.role
-                ),
+                Some(1) => format!("{} is {whose} first choice and is ready.", choice.label),
                 Some(n) => format!(
-                    "{} is {}'s {} choice: {}.",
+                    "{} is {whose} {} choice: {}.",
                     choice.label,
-                    input.role,
                     ordinal(n),
                     first_skip.map_or_else(String::new, skipped)
                 ),
@@ -328,14 +502,12 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                     s
                 }
             };
-            if let Some(effort) = choice.effort {
-                let whose = if policy.efforts.contains_key(&choice.model_id) {
-                    format!("{}'s setting for it", input.role)
-                } else {
-                    "its setting".into()
-                };
-                reason.push_str(&format!(" It runs at {} effort ({whose}).", effort.label()));
-            }
+            reason.push_str(&effort_words(
+                choice.effort,
+                effort_from.as_ref(),
+                effort_passed.as_ref(),
+                &choice.label,
+            ));
             if cross != CrossCompany::Off {
                 let other = !reviewed.iter().any(|(c, _)| *c == choice.company);
                 if other {
@@ -356,6 +528,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 rank,
                 candidates: notes,
                 fixed: false,
+                model_from: listing.map(|l| l.source.clone()),
+                effort_from,
             }
         }
         None => {
@@ -394,6 +568,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 rank: None,
                 candidates: notes,
                 fixed: false,
+                model_from: None,
+                effort_from: None,
             }
         }
     }
@@ -496,7 +672,11 @@ mod tests {
     ) -> RouteDecision {
         route(&RouteInput {
             role: "Senior Developer",
+            role_id: "dev",
             policy,
+            agent: None,
+            department: None,
+            organization: None,
             models: &w.models,
             tools: &w.tools,
             project,
@@ -558,10 +738,12 @@ mod tests {
         let d = decide(&w, &prefer(&["opus"]));
         assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::Low));
         assert!(
-            d.reason.ends_with("It runs at low effort (its setting)."),
+            d.reason
+                .ends_with("It runs at low effort, from the model's own setting."),
             "{}",
             d.reason
         );
+        assert_eq!(d.effort_from.as_ref().unwrap().layer, RuleLayer::Model);
         // The role's setting for that model wins.
         let mut policy = prefer(&["opus"]);
         policy.efforts.insert("opus".into(), Effort::High);
@@ -569,22 +751,35 @@ mod tests {
         assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::High));
         assert!(
             d.reason
-                .ends_with("It runs at high effort (Senior Developer's setting for it)."),
+                .ends_with("It runs at high effort, from Senior Developer's rule."),
             "{}",
             d.reason
         );
-        // A level the AI tool does not accept is never passed on.
+        assert_eq!(d.effort_from.as_ref().unwrap().layer, RuleLayer::Role);
+        // A level the AI tool does not accept is never passed on, and the reason says so.
         policy.efforts.insert("opus".into(), Effort::Max);
-        assert_eq!(
-            decide(&w, &policy).choice.unwrap().effort,
-            Some(Effort::Low)
+        let d = decide(&w, &policy);
+        assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::Low));
+        assert!(
+            d.reason.ends_with(
+                "It runs at low effort, from the model's own setting. Max effort, from Senior \
+                 Developer's rule, does not work with Opus (Alpha Code)."
+            ),
+            "{}",
+            d.reason
         );
         // Nor one the model has no setting for (the AI tool lists Sonnet without effort levels).
         let mut sonnet = prefer(&["sonnet"]);
         sonnet.efforts.insert("sonnet".into(), Effort::High);
         let d = decide(&w, &sonnet);
         assert_eq!(d.choice.as_ref().unwrap().effort, None);
-        assert!(!d.reason.contains("effort"), "{}", d.reason);
+        assert!(d.effort_from.is_none());
+        assert!(
+            d.reason
+                .contains("High effort, from Senior Developer's rule, does not work"),
+            "{}",
+            d.reason
+        );
     }
 
     #[test]
@@ -881,5 +1076,146 @@ mod tests {
         assert_eq!(model_label(&m, &w.tools), "Alpha Code (default model)");
         m.label = "Fast".into();
         assert_eq!(model_label(&m, &w.tools), "Fast (Alpha Code)");
+    }
+
+    fn decide_layers(
+        w: &World,
+        agent: Option<&ModelRule>,
+        policy: &RolePolicy,
+        department: Option<&ModelRule>,
+        organization: Option<&ModelRule>,
+    ) -> RouteDecision {
+        route(&RouteInput {
+            role: "Senior Developer",
+            role_id: "dev",
+            policy,
+            agent: agent.map(|r| ("pos-1", r)),
+            department: department.map(|rule| DepartmentRule {
+                id: "d1",
+                name: "Development",
+                rule,
+            }),
+            organization,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed: &[],
+            on_limit: LimitBehavior::Wait,
+            now: NOW,
+        })
+    }
+
+    fn rule(models: &[&str], effort: Option<Effort>) -> ModelRule {
+        ModelRule {
+            models: models.iter().map(|m| (*m).to_owned()).collect(),
+            effort,
+            ..ModelRule::default()
+        }
+    }
+
+    /// ADR-041: the organization, a department, a role, and one agent each set model and effort;
+    /// the closest wins, and the reason names the layer that decided.
+    #[test]
+    fn each_layer_sets_model_and_effort_and_the_closest_wins() {
+        let w = world();
+        let none = RolePolicy::default();
+        let org = rule(&["opus"], Some(Effort::High));
+        let d = decide_layers(&w, None, &none, None, Some(&org));
+        assert_eq!(chosen(&d), Some("opus"));
+        assert_eq!(
+            d.reason,
+            "Opus (Alpha Code) is the organization's first choice and is ready. It runs at high \
+             effort, from the organization's rule."
+        );
+        assert_eq!(
+            d.model_from.as_ref().unwrap().layer,
+            RuleLayer::Organization
+        );
+        assert_eq!(
+            d.effort_from.as_ref().unwrap().layer,
+            RuleLayer::Organization
+        );
+        // The department's rule wins over the organization's.
+        let dept = rule(&["gpt"], Some(Effort::Low));
+        let d = decide_layers(&w, None, &none, Some(&dept), Some(&org));
+        assert_eq!(chosen(&d), Some("gpt"));
+        assert_eq!(
+            d.reason,
+            "GPT (Beta CLI) is the Development department's first choice and is ready. It runs at \
+             low effort, from the Development department's rule."
+        );
+        assert_eq!(
+            d.model_from.as_ref().map(|s| (s.layer, s.id.as_deref())),
+            Some((RuleLayer::Department, Some("d1")))
+        );
+        // A role's own list is closer than the department's; the department still sets effort.
+        let role = prefer(&["opus"]);
+        let d = decide_layers(&w, None, &role, Some(&dept), Some(&org));
+        assert_eq!(chosen(&d), Some("opus"));
+        assert!(
+            d.reason
+                .starts_with("Opus (Alpha Code) is Senior Developer's first choice")
+                && d.reason
+                    .ends_with("It runs at low effort, from the Development department's rule."),
+            "{}",
+            d.reason
+        );
+        // One agent's own effort wins over every layer.
+        let agent = rule(&[], Some(Effort::High));
+        let d = decide_layers(&w, Some(&agent), &role, Some(&dept), Some(&org));
+        assert_eq!(d.choice.as_ref().unwrap().effort, Some(Effort::High));
+        assert!(
+            d.reason
+                .ends_with("It runs at high effort, from this agent's own setting."),
+            "{}",
+            d.reason
+        );
+        assert_eq!(d.effort_from.as_ref().unwrap().layer, RuleLayer::Agent);
+        // And its own list wins over its role's.
+        let agent = rule(&["gpt"], None);
+        let d = decide_layers(&w, Some(&agent), &role, Some(&dept), Some(&org));
+        assert_eq!(chosen(&d), Some("gpt"));
+        assert!(d
+            .reason
+            .starts_with("GPT (Beta CLI) is this agent's first choice"));
+        // A layer's effort for one model wins over its effort for any model.
+        let mut org_both = rule(&["opus"], Some(Effort::High));
+        org_both.efforts.insert("opus".into(), Effort::Low);
+        let d = decide_layers(&w, None, &none, None, Some(&org_both));
+        assert_eq!(d.choice.unwrap().effort, Some(Effort::Low));
+    }
+
+    /// ADR-041 §4: AI companies never to use add up; a closer layer cannot lift a ban.
+    #[test]
+    fn never_used_companies_add_up_across_layers() {
+        let w = world();
+        let org = ModelRule {
+            never_companies: vec!["bolt".into()],
+            ..ModelRule::default()
+        };
+        let role = prefer(&["gpt", "opus"]);
+        let d = decide_layers(&w, None, &role, None, Some(&org));
+        assert_eq!(chosen(&d), Some("opus"));
+        assert_eq!(d.candidates[0].note, "the organization never uses BOLT");
+        // An agent whose own rule never mentions BOLT still cannot use it.
+        let agent = rule(&["gpt"], None);
+        let d = decide_layers(&w, Some(&agent), &role, None, Some(&org));
+        assert_eq!(chosen(&d), None);
+        assert!(
+            d.reason.contains("the organization never uses BOLT"),
+            "{}",
+            d.reason
+        );
+        // Bans from several layers all hold.
+        let dept = ModelRule {
+            never_companies: vec!["acme".into()],
+            ..ModelRule::default()
+        };
+        let d = decide_layers(&w, None, &role, Some(&dept), Some(&org));
+        assert_eq!(chosen(&d), None);
+        assert_eq!(
+            d.candidates[1].note,
+            "the Development department never uses ACME"
+        );
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-role-learns"
+description = "Enables the set_role_learns command without any pre-configured scope."
+commands.allow = ["set_role_learns"]
+
+[[permission]]
+identifier = "deny-set-role-learns"
+description = "Denies the set_role_learns command without any pre-configured scope."
+commands.deny = ["set_role_learns"]

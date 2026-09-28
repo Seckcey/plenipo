@@ -5,4 +5,4 @@ import type { TokenUsage } from "./TokenUsage";
 /**
  * One normalized piece of agent activity.
  */
-export type AgentEvent = { "type": "sessionStarted", providerSessionId: string | null, model: string | null, } | { "type": "textDelta", text: string, } | { "type": "message", text: string, } | { "type": "reasoning", text: string, } | { "type": "toolUse", tool: string, summary: string, } | { "type": "toolResult", tool: string | null, isError: boolean, summary: string, } | { "type": "notice", level: NoticeLevel, text: string, } | { "type": "usage", usage: TokenUsage, };
+export type AgentEvent = { "type": "sessionStarted", providerSessionId: string | null, model: string | null, } | { "type": "textDelta", text: string, } | { "type": "message", text: string, } | { "type": "reasoning", text: string, } | { "type": "toolUse", tool: string, summary: string, } | { "type": "toolResult", tool: string | null, isError: boolean, summary: string, } | { "type": "notice", level: NoticeLevel, text: string, } | { "type": "usage", usage: TokenUsage, } | { "type": "memoryShortened", detail: string, };

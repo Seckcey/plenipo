@@ -1,17 +1,40 @@
 //! What members of the organization and their workers are told about themselves, their job,
 //! and their team (written into their instructions by Liaison, ADR-009 §5). Every role's working
 //! instructions (ADR-019) go in: what it is responsible for, what it hands back, what it must
-//! not do, and when to ask its lead for help.
+//! not do, and when to ask its lead for help. A position's specialty adds its own lines to each
+//! part (ADR-042).
 
-use plenipo_ledger::{OversightKind, Position, Role, RoleType};
+use plenipo_ledger::{OversightKind, Position, Role, RoleType, Specialty};
 
+use crate::dto::RoleJob;
 use crate::templates::job_of;
 use crate::view::{OrgView, TeamMember};
 
-/// The role's working instructions, addressed to its worker (ADR-019). `lead` names who it asks
-/// for help: "Website Supervisor (your lead)" or "the owner".
-pub fn job_text(role: &Role, lead: &str) -> String {
-    let job = job_of(role);
+/// What a specialty adds to its role's working instructions.
+pub fn specialty_job(specialty: &Specialty) -> RoleJob {
+    serde_json::from_value(specialty.metadata["job"].clone()).unwrap_or_default()
+}
+
+/// "Senior Developer (Database)", or the role's name alone.
+pub fn role_with_specialty(role: &str, specialty: Option<&Specialty>) -> String {
+    match specialty {
+        Some(s) => format!("{role} ({})", s.name),
+        None => role.to_owned(),
+    }
+}
+
+/// The role's working instructions, addressed to its worker (ADR-019), with its specialty's lines
+/// after the role's own (ADR-042). `lead` names who it asks for help: "Website Supervisor (your
+/// lead)" or "the owner".
+pub fn job_text(role: &Role, specialty: Option<&Specialty>, lead: &str) -> String {
+    let mut job = job_of(role);
+    if let Some(extra) = specialty.map(specialty_job) {
+        job.duties.extend(extra.duties);
+        job.returns.extend(extra.returns);
+        job.limits.extend(extra.limits);
+        job.ask_lead.extend(extra.ask_lead);
+    }
+    let who = role_with_specialty(&role.name, specialty);
     let mut s = String::new();
     let mut list = |title: String, items: &[String]| {
         let items: Vec<&str> = items
@@ -30,7 +53,7 @@ pub fn job_text(role: &Role, lead: &str) -> String {
             s.push('\n');
         }
     };
-    list(format!("Your job as {}", role.name), &job.duties);
+    list(format!("Your job as {who}"), &job.duties);
     list("What you hand back".into(), &job.returns);
     list("What you must not do".into(), &job.limits);
     list(format!("Ask {lead} for help when"), &job.ask_lead);
@@ -86,8 +109,12 @@ fn alone_text(kind: RoleType, has_team: bool) -> &'static str {
     }
 }
 
-fn role_name<'a>(view: &OrgView<'a>, p: &Position) -> &'a str {
-    view.role(p).map_or("team member", |r| r.name.as_str())
+/// "Senior Developer (Database)", or "team member" for a position without a role.
+fn role_name(view: &OrgView<'_>, p: &Position) -> String {
+    view.role(p).map_or_else(
+        || "team member".to_owned(),
+        |r| role_with_specialty(&r.name, view.specialty(p)),
+    )
 }
 
 /// How a lead of leads (a VP, a manager) works with the full-time members on its team (Phase 8,
@@ -141,7 +168,7 @@ pub fn member_identity(view: &OrgView<'_>, org: &str, me: &Position, has_team: b
     }
     if let Some(role) = view.role(me) {
         s.push('\n');
-        s.push_str(&job_text(role, &lead_label(view, me)));
+        s.push_str(&job_text(role, view.specialty(me), &lead_label(view, me)));
     }
     let kind = view.kind(me);
     let team = view.team(&me.id);
@@ -219,7 +246,7 @@ pub fn worker_identity(
             None => "the owner".into(),
         };
         s.push('\n');
-        s.push_str(&job_text(role, &lead));
+        s.push_str(&job_text(role, view.specialty(position), &lead));
     }
     match sees_images {
         Some(true) => s.push_str("\nYour AI model is marked as able to see images."),
@@ -267,12 +294,30 @@ pub fn member_label(view: &OrgView<'_>, tool: Option<&str>, m: &TeamMember<'_>) 
     }
     let base = match tool {
         Some(tool) => format!("{} on {tool}", role_name(view, m.position)),
-        None => role_name(view, m.position).to_owned(),
+        None => role_name(view, m.position),
     };
     match m.oversight {
         Some(o) => format!("{base}, your team's {}", o.kind.label()),
         None => format!("{base}, a new worker for each request"),
     }
+}
+
+/// Who a full-time member is, in one line, for the short reminder that stands in for its full
+/// instructions once its conversation has them (ADR-044): "You are Website Supervisor, the
+/// Supervisor of the Website project in Acme."
+pub fn member_reminder(view: &OrgView<'_>, org: &str, me: &Position) -> String {
+    let mut s = format!("You are {}, the {}", me.title, role_name(view, me));
+    if let Some(p) = view.coordinates(&me.id) {
+        s.push_str(&format!(" of the {} project", p.name));
+    } else if let Some(d) = view.heads(&me.id) {
+        s.push_str(&format!(" of the {} department", d.name));
+    } else if let Some(p) = view.project_of(&me.id) {
+        s.push_str(&format!(" on the {} project", p.name));
+    } else if let Some(d) = view.department_of(&me.id) {
+        s.push_str(&format!(" of the {} department", d.name));
+    }
+    s.push_str(&format!(" in {org}."));
+    s
 }
 
 #[cfg(test)]
@@ -315,6 +360,8 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             archived_at: None,
+            specialty_id: None,
+            deleted_at: None,
         }
     }
 
@@ -347,6 +394,8 @@ mod tests {
                 metadata: json!({}),
                 created_at: 0,
                 head_position_id: Some("vp".into()),
+                archived_at: None,
+                deleted_at: None,
             }],
             projects: vec![Project {
                 id: "web".into(),
@@ -362,11 +411,16 @@ mod tests {
                 capability_profile: None,
                 status: "active".into(),
                 branch_per_objective: true,
+                archived_at: None,
+                deleted_at: None,
             }],
             positions,
             agents: vec![],
             oversight: vec![],
             former_agents: HashMap::new(),
+            specialties: vec![],
+            saved_agents: vec![],
+            experience: HashMap::new(),
         }
     }
 
@@ -515,5 +569,64 @@ mod tests {
         let view = OrgView::new(&records);
         let text = worker_identity(&view, "Acme", view.position("bk").unwrap(), None, None);
         assert!(text.contains("Your job as Bookkeeper:\n- keep the books"));
+    }
+
+    /// ADR-042: a specialty's lines reach the worker's instructions, after its role's; a
+    /// position without one gets its role alone.
+    #[test]
+    fn a_specialtys_lines_reach_the_workers_instructions() {
+        let mut records = records();
+        let senior = records
+            .roles
+            .iter()
+            .find(|r| r.name == "Senior Developer")
+            .unwrap()
+            .id
+            .clone();
+        records.specialties.push(plenipo_ledger::Specialty {
+            id: "db".into(),
+            role_id: senior.clone(),
+            name: "Database".into(),
+            title: "Database Developer".into(),
+            metadata: json!({ "job": {
+                "duties": ["design tables and the steps that move data to a new layout"],
+                "limits": ["never delete or rewrite real data"],
+                "askLead": ["a change would lose existing data"],
+            } }),
+            created_at: 0,
+            updated_at: 0,
+            removed_at: None,
+        });
+        let mut dba = position("dba", "Database Developer", "Senior Developer", Some("sup"));
+        dba.specialty_id = Some("db".into());
+        records.positions.push(dba);
+        let view = OrgView::new(&records);
+        let with = worker_identity(&view, "Acme", view.position("dba").unwrap(), None, None);
+        assert!(
+            with.contains("You are working as Database Developer (Senior Developer (Database))")
+        );
+        assert!(with.contains("Your job as Senior Developer (Database):"));
+        let duties = with.split("What you hand back").next().unwrap();
+        assert!(duties.contains("- implement the change you are given"));
+        assert!(duties.contains("- design tables and the steps that move data to a new layout"));
+        assert!(with.contains("What you must not do:"));
+        assert!(with.contains("- never delete or rewrite real data"));
+        assert!(with.contains("- a change would lose existing data"));
+        // The same role without a specialty: the role alone.
+        let without = worker_identity(
+            &view,
+            "Acme",
+            view.position("w-Senior Developer").unwrap(),
+            None,
+            None,
+        );
+        assert!(without.contains("Your job as Senior Developer:"));
+        assert!(!without.contains("design tables"));
+        // A removed specialty no longer adds its lines.
+        records.specialties[0].removed_at = Some(1);
+        let view = OrgView::new(&records);
+        let removed = worker_identity(&view, "Acme", view.position("dba").unwrap(), None, None);
+        assert!(removed.contains("Your job as Senior Developer:"));
+        assert!(!removed.contains("design tables"));
     }
 }

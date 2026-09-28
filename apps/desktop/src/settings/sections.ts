@@ -34,7 +34,7 @@ export const SETTINGS_SECTIONS: readonly {
     id: "aiModels",
     label: "AI models",
     icon: "list",
-    lead: "The models each role's workers use: a first choice, and backups tried in order.",
+    lead: "The models and effort your agents use: rules for the organization, departments, roles, and agents, each with a first choice and backups tried in order.",
   },
   {
     id: "permissions",

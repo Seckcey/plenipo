@@ -33,7 +33,10 @@ export function organizationCards(
     .filter((d) => d.active)
     .map((d) => {
       const head = lead(org, d.headPositionId);
-      const projects = d.projectIds.length;
+      // Projects on the chart (not archived or deleted for good), as on the Home page.
+      const projects = d.projectIds.filter(
+        (id) => org.projects.find((p) => p.id === id)?.active,
+      ).length;
       return {
         scope: { kind: "department", id: d.id } satisfies ActivityScope,
         card: {

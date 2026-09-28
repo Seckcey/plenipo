@@ -44,6 +44,8 @@ const lesson = (patch: Partial<Lesson> = {}): Lesson => ({
 const snapshot = (patch: Partial<LearningSnapshot> = {}): LearningSnapshot => ({
   enabled: true,
   autoRoles: [],
+  offRoles: [],
+  agents: {},
   waiting: [lesson()],
   kept: [lesson({ id: "lesson-0", state: "kept", text: "Sign in first.", fromWeb: false })],
   ...patch,

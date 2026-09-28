@@ -13,6 +13,9 @@ export function affectsOrganization(eventType: string): boolean {
     eventType.startsWith("liaison.") ||
     eventType.startsWith("session.") ||
     eventType.startsWith("router.") ||
+    // Learning in layers and kept lessons (experience) show on each agent (Phase 17).
+    eventType.startsWith("learning.") ||
+    eventType.startsWith("lesson.") ||
     eventType === "agent.result"
   );
 }

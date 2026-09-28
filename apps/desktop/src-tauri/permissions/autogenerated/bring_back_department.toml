@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bring-back-department"
+description = "Enables the bring_back_department command without any pre-configured scope."
+commands.allow = ["bring_back_department"]
+
+[[permission]]
+identifier = "deny-bring-back-department"
+description = "Denies the bring_back_department command without any pre-configured scope."
+commands.deny = ["bring_back_department"]

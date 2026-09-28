@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hire-from-workforce"
+description = "Enables the hire_from_workforce command without any pre-configured scope."
+commands.allow = ["hire_from_workforce"]
+
+[[permission]]
+identifier = "deny-hire-from-workforce"
+description = "Denies the hire_from_workforce command without any pre-configured scope."
+commands.deny = ["hire_from_workforce"]

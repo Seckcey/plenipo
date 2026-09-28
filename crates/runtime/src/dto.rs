@@ -87,6 +87,79 @@ pub struct AgentAttribution {
     /// The provider's own session/thread ID once known.
     pub provider_session_id: Option<String>,
     pub usage: Option<TokenUsage>,
+    /// The size of what Plenipo sent with this step (ADR-044), kept with its usage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<PromptSize>,
+}
+
+/// What Plenipo's message with a step was (ADR-044, prompts sized to the job): Liaison's full
+/// instructions, a short reminder of them, the replies to the worker's requests, or the objective
+/// alone (no Liaison message).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum BriefKind {
+    Full,
+    Reminder,
+    Replies,
+    Plain,
+}
+
+/// Why a step carried the full instructions, or a short reminder (ADR-044 §2–§3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum BriefWhy {
+    /// The conversation starts.
+    First,
+    /// The first task in this conversation since Plenipo started again.
+    AfterRestart,
+    /// The AI tool shortened its memory of the conversation.
+    MemoryShortened,
+    /// Every 10th objective in the same conversation.
+    EveryTenth,
+    /// The objective, with the context handed with it, is large.
+    LargeJob,
+    /// The instructions changed since they were last sent.
+    Changed,
+    /// The message has no short form.
+    NoReminder,
+    /// A routine task: the conversation already has the instructions.
+    Routine,
+}
+
+/// The note about Plenipo's tools placed before a step's message: in full, as a short reminder,
+/// or none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum NoteKind {
+    Full,
+    Reminder,
+    None,
+}
+
+/// The size of what Plenipo sent with one step (ADR-044 §1). Sizes only: the text itself is
+/// never kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PromptSize {
+    /// The whole prompt, the permissions note included (bytes).
+    pub bytes: u32,
+    /// Plenipo's own text: the whole prompt less what it only passed along (the objective from
+    /// the owner or a lead, context from another worker, replies).
+    pub own_bytes: u32,
+    pub brief: BriefKind,
+    /// Why the full instructions or a short reminder went out; none for replies or a plain
+    /// objective.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub why: Option<BriefWhy>,
+    /// What Plenipo's own text would have been with the full message and the full note.
+    pub full_own_bytes: u32,
+    pub note: NoteKind,
 }
 
 /// Token counts reported by a provider for one turn.
