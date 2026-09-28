@@ -804,3 +804,83 @@ async fn a_task_handed_to_a_full_time_members_conversation_carries_a_short_remin
         "{text}"
     );
 }
+
+/// The VP's task's two requests to the Supervisor: the task it was given, then the one that
+/// passes that task's result back by its ID (`[handoff-pass:…]`).
+fn handed_twice(h: &H, parent: &str) -> (Task, Task) {
+    let children = h.ledger.child_tasks(parent).unwrap();
+    assert_eq!(children.len(), 2, "{children:#?}");
+    let (check, fix): (Vec<Task>, Vec<Task>) = children
+        .into_iter()
+        .partition(|c| c.objective == "Check this result again");
+    assert_eq!((check.len(), fix.len()), (1, 1));
+    (fix[0].clone(), check[0].clone())
+}
+
+/// ADR-044 §4.12-§4.13: a reply shows its task's full ID, so a lead can pass the result on by
+/// it; a result passed back to the conversation that wrote it is named there, not pasted again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_result_passed_back_to_the_conversation_that_wrote_it_is_named_not_pasted() {
+    let h = harness_with(chain).await;
+    let (_, task) = h
+        .objective(
+            None,
+            "Plan the launch {{handoff:role:Website Supervisor|Fix the login page.}} \
+             [handoff-pass:role:Website Supervisor]",
+        )
+        .await;
+    let (fix, check) = handed_twice(&h, &task);
+    assert_eq!(fix.objective, "Fix the login page.");
+    // Both ran in the Supervisor's own conversation.
+    assert_eq!(check.metadata["sessionId"], fix.metadata["sessionId"]);
+    // The VP read the first task's ID from its reply and passed its result on by it; Liaison
+    // accepted it, and the Supervisor was told it wrote that result itself.
+    let text = h.text(&check.id);
+    assert!(
+        text.contains(&format!(
+            "context: \"- Task {} (your result): you wrote it earlier in this conversation.\"",
+            fix.id
+        )),
+        "{text}"
+    );
+    let size = h.step_sizes(&check.id)[0];
+    assert_eq!(
+        (size.brief, size.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+    // Nothing of the earlier result was pasted: only the task and the first line of the VP's
+    // objective were passed along.
+    let passed = size.bytes - size.own_bytes;
+    let expected = "Check this result again".len()
+        + "Plan the launch {{handoff:role:Website Supervisor|Fix the login page.}} \
+           [handoff-pass:role:Website Supervisor]"
+            .len();
+    assert_eq!(passed as usize, expected, "{size:?}");
+}
+
+/// ADR-044 §4.13: after the AI tool shortens its memory of the conversation, a result it
+/// wrote earlier is pasted into it again, with the full instructions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_shortened_memory_a_result_is_pasted_again() {
+    let h = harness_with(chain).await;
+    let (_, task) = h
+        .objective(
+            None,
+            "Plan the launch {{handoff:role:Website Supervisor|Fix the login page. [compact]}} \
+             [handoff-pass:role:Website Supervisor]",
+        )
+        .await;
+    let (fix, check) = handed_twice(&h, &task);
+    assert_eq!(check.metadata["sessionId"], fix.metadata["sessionId"]);
+    let text = h.text(&check.id);
+    assert!(
+        text.contains("context: \"Turn 1: you asked \\\"Fix the login page. [compact]\\\""),
+        "{text}"
+    );
+    assert!(!text.contains("earlier in this conversation"), "{text}");
+    let size = h.step_sizes(&check.id)[0];
+    assert_eq!(
+        (size.brief, size.why),
+        (BriefKind::Full, Some(BriefWhy::MemoryShortened))
+    );
+}

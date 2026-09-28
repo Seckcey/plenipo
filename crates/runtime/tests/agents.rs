@@ -1786,7 +1786,15 @@ async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instruction
             (BriefKind::Full, Some(BriefWhy::First))
         );
         briefed_turn(&h, &id, briefed("two", 7)).await;
+        // What was sent so far is still in the conversation: its mark holds (ADR-044 §4.13).
+        let mark = h.rt.memory_mark(&id);
+        assert!(mark.is_some(), "{runtime}");
         briefed_turn(&h, &id, briefed("three [compact]", 7)).await;
+        let moved = h.rt.memory_mark(&id);
+        assert!(
+            moved.is_some() && moved != mark,
+            "{runtime}: {mark:?} {moved:?}"
+        );
         let detail = h.rt.session(&id).await.unwrap();
         let shortened: Vec<AgentEvent> = h
             .store
@@ -1808,6 +1816,7 @@ async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instruction
             (BriefKind::Reminder, Some(BriefWhy::Routine)),
             "{runtime}"
         );
+        assert_eq!(h.rt.memory_mark(&id), moved, "{runtime}");
     }
 }
 
@@ -1855,6 +1864,9 @@ async fn briefed_session(h: &H, runtime: &str, objective: &str) -> String {
 async fn routine_objectives_get_a_short_reminder_and_the_rest_the_full_instructions() {
     let h = harness();
     let id = briefed_session(&h, "codex", "one").await;
+    // Codex does not say when it shortens its memory: Plenipo cannot tell what the
+    // conversation still has, so saved records are pasted again every time (ADR-044 §4.13).
+    assert_eq!(h.rt.memory_mark(&id), None);
     let routine = briefed_turn(&h, &id, briefed("two", 7)).await[0];
     assert_eq!(
         (routine.brief, routine.why),
@@ -1941,6 +1953,9 @@ async fn after_a_restart_the_next_task_gets_the_full_instructions() {
     let before = briefed_turn(&h, &id, briefed("two", 7)).await[0];
     assert_eq!(before.brief, BriefKind::Reminder);
     let rt = restarted(&h);
+    // Nothing is known of the conversation after a restart.
+    assert_eq!(rt.memory_mark(&id), None);
+    assert!(h.rt.memory_mark(&id).is_some());
     rt.resume_session_with(&id, briefed("three", 7))
         .await
         .unwrap();

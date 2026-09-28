@@ -181,6 +181,10 @@ pub struct TurnEnd {
     pub step: u32,
     pub execution_id: Option<String>,
     pub result: TurnResult,
+    /// The conversation's mark ([`AgentRuntime::memory_mark`]) when its AI tool kept all of it
+    /// through this step — so what the step was sent is still in it (ADR-044); `None` when the
+    /// AI tool shortened its memory meanwhile, or the conversation changed.
+    pub memory_mark: Option<u64>,
 }
 
 /// What happens to a turn whose step ended.
@@ -1526,7 +1530,8 @@ impl AgentRuntime {
             message,
         } = launch;
         // What goes out depends on what the conversation already has (ADR-044).
-        let (known, mark) = self.conversation_at_launch(&session.id, &request);
+        let (known, mark) =
+            self.conversation_at_launch(&session.id, &request, adapter.reports_memory_shortened());
         let standing = match (&request.session, &known) {
             (ProviderSession::New { .. }, _) => Standing::New,
             (_, None) => Standing::Unknown,
@@ -1686,13 +1691,28 @@ impl AgentRuntime {
 
     // ---- What each conversation has (ADR-044) ----------------------------------------------
 
+    /// A number that stays the same while the AI tool of the session's conversation keeps all
+    /// of it, and changes when it shortens its memory or a new conversation starts (ADR-044).
+    /// Callers compare it to tell whether what they sent earlier is still in the conversation.
+    /// `None` when that cannot be told: nothing was sent to it since Plenipo started, or its AI
+    /// tool does not say when it shortens its memory.
+    pub fn memory_mark(&self, session_id: &str) -> Option<u64> {
+        self.lock()
+            .conversations
+            .get(session_id)
+            .filter(|c| c.heard())
+            .map(|c| c.mark)
+    }
+
     /// What is known of the conversation a step is about to run in: nothing for a new provider
     /// conversation, or one the runtime has sent nothing to since Plenipo started. Keeps track
-    /// of it from now on; returns the conversation's mark as the step launches.
+    /// of it from now on (`watched`: its AI tool says when it shortens its memory); returns the
+    /// conversation's mark as the step launches.
     fn conversation_at_launch(
         &self,
         session_id: &str,
         request: &TurnRequest,
+        watched: bool,
     ) -> (Option<Conversation>, u64) {
         let resumed = match &request.session {
             ProviderSession::Resume { id } => Some(id.clone()),
@@ -1716,6 +1736,7 @@ impl AgentRuntime {
                     Conversation {
                         provider: resumed,
                         mark,
+                        watched,
                         ..Conversation::default()
                     },
                 );
@@ -1727,14 +1748,14 @@ impl AgentRuntime {
     /// The AI tool confirmed its conversation: another one than before starts over.
     fn conversation_bound(&self, session_id: &str, provider: &str) {
         let mut state = self.lock();
-        let another = match state.conversations.get_mut(session_id) {
+        let (another, watched) = match state.conversations.get_mut(session_id) {
             None => return,
             Some(c) => match c.provider.as_deref() {
                 None => {
                     c.provider = Some(provider.to_owned());
-                    false
+                    (false, c.watched)
                 }
-                Some(p) => p != provider,
+                Some(p) => (p != provider, c.watched),
             },
         };
         if another {
@@ -1744,6 +1765,7 @@ impl AgentRuntime {
                 Conversation {
                     provider: Some(provider.to_owned()),
                     mark,
+                    watched,
                     ..Conversation::default()
                 },
             );
@@ -2201,12 +2223,16 @@ impl TurnContext {
         // The hook (if any) decides whether the turn finishes or waits to continue.
         let disposition = match runtime.hook() {
             Some(hook) => {
+                let memory_mark = runtime
+                    .memory_mark(&self.session.id)
+                    .filter(|m| *m == self.mark);
                 let end = TurnEnd {
                     session: self.session.clone(),
                     task_id: self.task_id.clone(),
                     step: self.step,
                     execution_id: self.execution_id.clone(),
                     result: result.clone(),
+                    memory_mark,
                 };
                 tokio::task::spawn_blocking(move || hook.turn_ended(&end))
                     .await

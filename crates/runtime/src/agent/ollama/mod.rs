@@ -155,6 +155,11 @@ impl RuntimeAdapter for Ollama {
         false
     }
 
+    /// Plenipo's own bridge says when it leaves earlier messages out (ADR-044 §2.5).
+    fn reports_memory_shortened(&self) -> bool {
+        true
+    }
+
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
         let model = request
             .model

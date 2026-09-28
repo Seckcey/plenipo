@@ -37,13 +37,19 @@
 //!   `[handoff-caps:DEST]` — a request asking for a capability;
 //!   `[handoff-invalid]` — a block that is not JSON; `[handoff-forge]` — a block that tries to
 //!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
-//!   objective (tool markers inside it are the worker's, not the requester's).
+//!   objective (tool markers inside it are the worker's, not the requester's);
+//!   `[handoff-pass:DEST]` — once the first replies come, one request to DEST that passes the
+//!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
+//!   once per conversation.
 //!
 //! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
 //! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
 //! Supervisor hand on to the Developer).
 //!
-//! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
+//! A worker given replies answers `Turn N: received K replies: …` with each reply's first line
+//! (the task ID each reply shows is left out). A worker given a handoff request answers `Turn N:
+//! you asked "TASK"; context: "…"` with the first line of its first context block — or the line
+//! naming a saved record it was given earlier in its conversation (ADR-044 §4.13).
 //!
 //! Scripts (Phase 8): with `script.json` in the state folder — an object from a position's
 //! title to a list of steps — a worker whose instructions name that position (its identity
@@ -248,19 +254,23 @@ enum Mode {
     Plain,
     /// The owner's objective with Liaison's instructions.
     Root,
-    /// A handoff request; its first context block's first line and whether Plenipo gave it
-    /// tools.
+    /// A handoff request; its first context block's first line (or the line naming a saved
+    /// record the conversation already has) and whether Plenipo gave it tools.
     Worker {
         context: Option<String>,
         granted: bool,
     },
-    /// Replies to earlier requests: one line per reply.
-    Replies(Vec<String>),
+    /// Replies to earlier requests: one line per reply, and the task ID each reply shows.
+    Replies {
+        items: Vec<String>,
+        tasks: Vec<String>,
+    },
 }
 
 /// The prompt's mode and the text that counts: the objective (or the whole plain prompt).
 fn view(prompt: &str) -> (Mode, String) {
     if prompt.starts_with(REPLIES_HEADER) {
+        let mut tasks = Vec::new();
         let items: Vec<String> = prompt
             .split("\n## Reply ")
             .skip(1)
@@ -268,6 +278,17 @@ fn view(prompt: &str) -> (Mode, String) {
                 let mut lines = section.lines();
                 let header = lines.next().unwrap_or("");
                 let who = header.split_once("— ").map_or(header, |(_, w)| w).trim();
+                // "Senior Developer, task <ID>: completed" (ADR-044 §4.12).
+                let who = match who
+                    .split_once(", task ")
+                    .and_then(|(name, rest)| Some((name, rest.split_once(": ")?)))
+                {
+                    Some((name, (task, outcome))) => {
+                        tasks.push(task.to_owned());
+                        format!("{name}: {outcome}")
+                    }
+                    None => who.to_owned(),
+                };
                 let body: Vec<&str> = lines.collect();
                 let first = match body.iter().position(|l| l.starts_with("--- begin reply")) {
                     Some(i) => body.get(i + 1).copied().unwrap_or(""),
@@ -281,20 +302,29 @@ fn view(prompt: &str) -> (Mode, String) {
             })
             .collect();
         let said = format!("{} replies", items.len());
-        return (Mode::Replies(items), said);
+        return (Mode::Replies { items, tasks }, said);
     }
     if prompt.starts_with(REQUEST_HEADER) {
+        // A labeled request (ADR-044 §4.11): "Task: …" up to "Done when: …".
         let objective = prompt
-            .split_once("## Objective\n")
-            .and_then(|(_, rest)| rest.split_once("\n\n## Acceptance criteria"))
+            .split_once("\nTask: ")
+            .and_then(|(_, rest)| rest.split_once("\nDone when: "))
             .map_or("", |(o, _)| o)
             .trim()
             .to_owned();
-        let context = prompt
-            .lines()
-            .skip_while(|l| !l.starts_with("--- begin context"))
-            .nth(1)
-            .map(str::to_owned);
+        let mut lines = prompt.lines();
+        let mut context = None;
+        while let Some(line) = lines.next() {
+            if line.starts_with("--- begin context") {
+                context = lines.next().map(str::to_owned);
+                break;
+            }
+            // A saved record the conversation already has, named instead of pasted.
+            if line.starts_with("- Task ") && line.ends_with("earlier in this conversation.") {
+                context = Some(line.to_owned());
+                break;
+            }
+        }
         // Permissions come with Plenipo's tools note (set aside before this), never with
         // the request; the caller fills this in.
         return (
@@ -447,11 +477,25 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
             ),
             handoff_blocks(said, n),
         ),
-        Mode::Replies(items) => {
+        Mode::Replies { items, tasks } => {
             let always: String = markers(first, "handoff-always")
                 .iter()
                 .map(|d| format!("[handoff-always:{d}]"))
                 .collect();
+            let mut blocks = handoff_blocks(&always, n);
+            // The first replies of the conversation: pass the first one's result on by its ID.
+            if previous == Some(first) {
+                let own = outside_braces(first);
+                for dest in markers(&own, "handoff-pass") {
+                    if let Some(task) = tasks.first() {
+                        blocks.push(handoff_block(&json!({
+                            "to": dest,
+                            "objective": "Check this result again",
+                            "context": [{ "kind": "task", "taskId": task }],
+                        })));
+                    }
+                }
+            }
             (
                 format!(
                     "Turn {n}: received {} repl{}: {}.",
@@ -459,7 +503,7 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                     if items.len() == 1 { "y" } else { "ies" },
                     items.join("; ")
                 ),
-                handoff_blocks(&always, n),
+                blocks,
             )
         }
     };

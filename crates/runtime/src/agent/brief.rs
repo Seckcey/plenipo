@@ -92,6 +92,18 @@ pub(crate) struct Conversation {
     pub mark: u64,
     /// How much of its context the AI tool last reported in use (ACP), to tell when it drops.
     pub context_used: Option<u64>,
+    /// The AI tool says when it shortens its memory ([`RuntimeAdapter::reports_memory_shortened`]).
+    ///
+    /// [`RuntimeAdapter::reports_memory_shortened`]: super::RuntimeAdapter::reports_memory_shortened
+    pub watched: bool,
+}
+
+impl Conversation {
+    /// Whether Plenipo would hear of the AI tool shortening its memory of this conversation:
+    /// its own notice, or a drop in the context it reports in use.
+    pub fn heard(&self) -> bool {
+        self.watched || self.context_used.is_some()
+    }
 }
 
 impl Conversation {
@@ -149,11 +161,11 @@ fn why_full(brief: &BriefInput, standing: Standing<'_>) -> Option<BriefWhy> {
         Standing::Unknown => return Some(BriefWhy::AfterRestart),
         Standing::Known(c) => c,
     };
-    if known.brief.is_none() {
+    if known.shortened {
+        Some(BriefWhy::MemoryShortened)
+    } else if known.brief.is_none() {
         // The first full instructions never arrived (that step did not finish).
         Some(BriefWhy::First)
-    } else if known.shortened {
-        Some(BriefWhy::MemoryShortened)
     } else if known.brief != Some(brief.hash) {
         Some(BriefWhy::Changed)
     } else if brief.large {
@@ -373,6 +385,15 @@ mod tests {
         };
         assert_eq!(
             sent(brief(7), Standing::Known(&shortened)),
+            (Full, BriefWhy::MemoryShortened)
+        );
+        // Shortened during the very first step: that is the reason given.
+        let shortened_first = Conversation {
+            shortened: true,
+            ..Conversation::default()
+        };
+        assert_eq!(
+            sent(brief(7), Standing::Known(&shortened_first)),
             (Full, BriefWhy::MemoryShortened)
         );
         assert_eq!(

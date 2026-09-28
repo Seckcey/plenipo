@@ -136,6 +136,11 @@ impl RuntimeAdapter for ClaudeCode {
         true
     }
 
+    /// Its `compact_boundary` notice (ADR-044 §2.5).
+    fn reports_memory_shortened(&self) -> bool {
+        true
+    }
+
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
         let mut args: Vec<String> = [
             "-p",

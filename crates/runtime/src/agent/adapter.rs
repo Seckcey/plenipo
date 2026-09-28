@@ -251,6 +251,14 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         Vec::new()
     }
     fn parser(&self, request: &TurnRequest) -> Box<dyn TurnParser>;
+    /// Whether the AI tool always says, in what Plenipo reads, when it shortens its memory of a
+    /// conversation ([`AgentEvent::MemoryShortened`], ADR-044 §2.5). Without that, Plenipo cannot
+    /// tell whether something it sent earlier is still in the conversation, so it pastes saved
+    /// records again rather than naming them. An AI tool that reports the context it has in use
+    /// is heard once it does (a drop means a shortened memory), even when this is false.
+    fn reports_memory_shortened(&self) -> bool {
+        false
+    }
 }
 
 /// Proxy and certificate settings every runtime may need on managed networks.
