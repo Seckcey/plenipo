@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Environment, LedgerEvent } from "@plenipo/types";
+import type { AccountAction, Environment, LedgerEvent } from "@plenipo/types";
 import { useElementSize, useStoredState } from "@plenipo/ui";
 
 import { getControlStatus, getTaskTimeline } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
-import { TerminalContext, type TerminalApi } from "./context";
+import { TerminalContext, type AiToolRefusal, type TerminalApi } from "./context";
 import {
+  aiToolTitle,
   codeTabId,
   DEFAULT_PANEL,
+  isBusyRefusal,
   isPanelState,
   openedAt,
   PANEL_KEY,
@@ -27,7 +29,9 @@ import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
  * when Plenipo starts, then each server event as it is committed. A tab opens by itself when a
  * worker connects to a server, and stays readable after it disconnects, until the owner closes
  * it. Watch tabs for code (Phase 18, ADR-055) open when the owner presses Watch on an agent: one
- * per agent, until closed.
+ * per agent, until closed. An AI tool's sign-in and sign-out tabs (Phase 19, ADR-058) open from
+ * its card on the AI tools page; the page learns when their program ends, and when Plenipo would
+ * not open one because a task was using the tool.
  */
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [panel, setPanel] = useStoredState<PanelState>(PANEL_KEY, DEFAULT_PANEL, isPanelState);
@@ -40,7 +44,15 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [codes, setCodes] = useState<CodeTab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [unseen, setUnseen] = useState(0);
+  const [signInEnded, setSignInEnded] = useState<Record<string, number>>({});
+  const [signInRefused, setSignInRefused] = useState<Record<string, AiToolRefusal>>({});
   const counter = useRef(0);
+  // The owner's tabs whose program ended (or never started), and the tabs open now.
+  const endedTabs = useRef(new Set<string>());
+  const ownersRef = useRef<OwnerTab[]>([]);
+  useEffect(() => {
+    ownersRef.current = owners;
+  }, [owners]);
   // The latest values, for the Ledger feed's callback (it outlives each render).
   const watchesRef = useRef<WatchTab[]>([]);
   const panelRef = useRef(panel);
@@ -162,11 +174,38 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     (tab: Omit<OwnerTab, "id" | "kind" | "openedAt">) => {
       counter.current += 1;
       const id = `owner-${counter.current}`;
-      setOwners((all) => [...all, { ...tab, kind: "owner", id, openedAt: Date.now() }]);
+      const added: OwnerTab = { ...tab, kind: "owner", id, openedAt: Date.now() };
+      // Known at once (a second press before the next render finds it).
+      ownersRef.current = [...ownersRef.current, added];
+      setOwners((all) => [...all, added]);
       setActive(id);
       show();
     },
     [show],
+  );
+
+  /** An AI tool's sign-in or sign-out tab: opened, or the one still running that command. */
+  const openAiTool = useCallback(
+    (runtimeId: string, label: string, action: AccountAction) => {
+      const running = ownersRef.current.find(
+        (t) =>
+          t.place.kind === "aiTool" &&
+          t.place.runtimeId === runtimeId &&
+          t.place.action === action &&
+          !endedTabs.current.has(t.id),
+      );
+      if (running) {
+        setActive(running.id);
+        show();
+        return;
+      }
+      openOwner({
+        place: { kind: "aiTool", runtimeId, action },
+        title: aiToolTitle(label, action),
+        environment: null,
+      });
+    },
+    [openOwner, show],
   );
 
   /** An agent's Watch tab for code: opened, or the one already open (renamed if it was). */
@@ -210,6 +249,29 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     [tabs],
   );
 
+  /** A terminal's program ended: for a sign-in tab, the AI tools page shows "Checking…". */
+  const tabEnded = useCallback((tab: OwnerTab) => {
+    endedTabs.current.add(tab.id);
+    if (tab.place.kind !== "aiTool") return;
+    const { runtimeId } = tab.place;
+    setSignInEnded((all) => ({ ...all, [runtimeId]: Date.now() }));
+  }, []);
+
+  /**
+   * A terminal could not open. A sign-in tab refused because a task is using the AI tool closes:
+   * the AI tools page waits until the tool is free, then opens it again.
+   */
+  const tabFailed = useCallback(
+    (tab: OwnerTab, message: string) => {
+      endedTabs.current.add(tab.id);
+      if (tab.place.kind !== "aiTool" || !isBusyRefusal(message)) return;
+      const { runtimeId, action } = tab.place;
+      setSignInRefused((all) => ({ ...all, [runtimeId]: { action, message, at: Date.now() } }));
+      close(tab.id);
+    },
+    [close],
+  );
+
   const api: TerminalApi = {
     panel,
     size,
@@ -235,6 +297,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     openServer: (serverId: string, name: string, environment: Environment) =>
       openOwner({ place: { kind: "server", serverId }, title: name, environment }),
     openWatch,
+    openAiTool,
+    signInEnded,
+    signInRefused,
+    tabEnded,
+    tabFailed,
     close,
     unseen,
     measure: setArea,

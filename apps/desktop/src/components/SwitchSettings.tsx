@@ -1,10 +1,11 @@
-import { useId, type ReactNode } from "react";
-import type { PermissionsSnapshot, Switches } from "@plenipo/types";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import type { AiToolsPage, PermissionsSnapshot, Switches } from "@plenipo/types";
 import { Switch } from "@plenipo/ui";
 
-import { setSwitches } from "../api/commands";
+import { getAiTools, setAiToolsAutoUpdate, setSwitches, toCommandError } from "../api/commands";
 import { usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
+import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 
 /**
  * One on/off switch: the library's switch (a button with the switch role and its name), with
@@ -47,6 +48,57 @@ export function Toggle({
 }
 
 type Key = keyof Switches;
+
+/**
+ * Update AI tools by themselves (ADR-059 §8): the same setting as the switch on the AI tools
+ * page. Off to start with.
+ */
+function AiToolsUpdateSwitch() {
+  const [page, setPage] = useState<AiToolsPage | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { pending, error, run } = useRun<AiToolsPage>(setPage);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(getAiTools)
+      .then(
+        (p) => {
+          if (live) setPage(p);
+        },
+        (reason: unknown) => {
+          if (live) setLoadError(toCommandError(reason).message);
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!page) {
+    return (
+      <p className={loadError ? "form-error" : "muted"}>
+        {loadError
+          ? `Couldn't read ${AUTO_UPDATE_LABEL}: ${loadError}`
+          : `Loading ${AUTO_UPDATE_LABEL}…`}
+      </p>
+    );
+  }
+  return (
+    <>
+      <Toggle
+        label={AUTO_UPDATE_LABEL}
+        hint={AUTO_UPDATE_HINT}
+        checked={page.autoUpdate}
+        disabled={pending}
+        onChange={(on) => void run(() => setAiToolsAutoUpdate(on))}
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
 
 /**
  * Settings → Switches (ADR-023): turn whole features on or off, and choose what workers may do on
@@ -138,6 +190,10 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
           disabled={pending}
           onChange={flip("screenshots")}
         />
+      </section>
+      <section aria-labelledby="switches-ai-tools">
+        <h3 id="switches-ai-tools">AI tools</h3>
+        <AiToolsUpdateSwitch />
       </section>
       <p className="muted switches__always">
         Always on, with no switch: workers never type passwords or secrets and never try a CAPTCHA

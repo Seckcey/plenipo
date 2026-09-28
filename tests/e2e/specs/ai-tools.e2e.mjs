@@ -48,6 +48,8 @@ const PAGE = 'ul[aria-label="AI tools"]';
 const PANEL = 'section[aria-label="Terminal"]';
 const card = (label) => `li[aria-label="${label} AI tool"]`;
 const NEW_TASK = 'form[aria-label="New task"]';
+const ALL_EVENTS = 'ol[aria-label="All events"]';
+const AUTO_UPDATE = '//button[@role="switch"][@aria-label="Update AI tools by themselves"]';
 
 const textOf = (browser, selector) =>
   browser.execute((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ") ?? "", selector);
@@ -82,7 +84,8 @@ async function cardButton(browser, label, name) {
   return button;
 }
 
-const pressOnCard = async (browser, label, name) => (await cardButton(browser, label, name)).click();
+const pressOnCard = async (browser, label, name) =>
+  (await cardButton(browser, label, name)).click();
 
 /** Show one of a card's tabs: Overview, Usage, or Models. */
 async function cardTab(browser, label, tab) {
@@ -140,7 +143,8 @@ async function type(browser, keys) {
   }
 }
 
-const screenText = (browser) => textOf(browser, `${PANEL} .terminal-panel__tab:not([hidden]) .xterm-rows`);
+const screenText = (browser) =>
+  textOf(browser, `${PANEL} .terminal-panel__tab:not([hidden]) .xterm-rows`);
 
 describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
   let app;
@@ -150,7 +154,8 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     setState("auth", "subscription");
     releases = createServer((req, res) => {
       const body = PUBLISHED[decodeURIComponent((req.url ?? "/").split("?")[0])];
-      if (body) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+      if (body)
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
       else res.writeHead(404).end();
     });
     await new Promise((done) => releases.listen(RELEASES_PORT, "127.0.0.1", done));
@@ -171,7 +176,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     assert.match(codex, /Subscription/);
     // The paid-key switch is shown, and cannot be turned on before spending caps (Phase 16).
     const paid = await browser.$(
-      `//li[@aria-label="Codex AI tool"]//*[@role="switch" or @type="checkbox"][ancestor-or-self::*[contains(., "Paid AI key")]]`,
+      '//li[@aria-label="Codex AI tool"]//button[@role="switch"][@aria-label="Paid AI key (pay per use)"]',
     );
     await paid.waitForExist({ timeout: 10_000 });
     assert.equal(await paid.isEnabled(), false, "the paid-key switch is locked");
@@ -222,8 +227,11 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
 
     // The Activity trail says what happened, never who signed in.
     await nav(browser, "Activity");
-    await waitForText(browser, "main", "You opened Codex's sign-in");
-    await waitForText(browser, "main", "Codex: signed in");
+    await clickButton(browser, "All events");
+    await waitForText(browser, ALL_EVENTS, "You opened Codex's sign-in");
+    await waitForText(browser, ALL_EVENTS, "Codex: signed out");
+    await waitForText(browser, ALL_EVENTS, "Codex: signed in");
+    assert.doesNotMatch(await textOf(browser, ALL_EVENTS), /ABCD-1234|owner@example\.com/);
   });
 
   it("shows this week's usage for Claude Code by model, and how much of the plan is left", async () => {
@@ -302,31 +310,48 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     // The new model can be chosen, marked, in the model menus.
     await openSettings(browser, "AI models");
     await clickButton(browser, "Add a model");
-    const menu = await browser.$(
-      `//form[@aria-label="Add a model"]//label[.//span[normalize-space()="Model"]]//select`,
+    const form = '//form[@aria-label="Add a model"]';
+    await (await browser.$(form)).waitForExist({ timeout: 10_000 });
+    await (
+      await browser.$(`${form}//label[.//span[normalize-space()="AI tool"]]//select`)
+    ).selectByVisibleText("Grok");
+    const MENU = `${form}//label[.//span[normalize-space()="Model"]]//select`;
+    const options = () =>
+      browser.execute((xpath) => {
+        const el = document.evaluate(
+          xpath,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null,
+        ).singleNodeValue;
+        return el ? [...el.options].map((o) => o.textContent) : [];
+      }, MENU);
+    await waitUntil(
+      async () => (await options()).includes("grok-5 — new, not checked yet"),
+      "grok-5 offered as new in the menu",
     );
-    await menu.waitForExist({ timeout: 10_000 });
-    const options = await browser.execute((el) => [...el.options].map((o) => o.textContent), menu);
-    assert.ok(
-      options.includes("grok-5 — new, not checked yet"),
-      `grok-5 offered: ${options.join(", ")}`,
-    );
-    await clickButton(browser, "Cancel");
+    await (await browser.$(MENU)).selectByAttribute("value", "grok-5");
+    assert.equal(await (await browser.$(MENU)).getValue(), "grok-5", "the new model is chosen");
+    await screenshot(browser, "ai-tools-new-model-menu");
+    await (await browser.$(`${form}//button[normalize-space()="Cancel"]`)).click();
   });
 
   it("an update waits while a task uses Grok, and a failed one leaves the old version working", async () => {
     const { browser } = app;
     setState("newest-grok", "1.2.0");
     setState("update-grok", "fail");
+    const updates = () => (readState("update-log") ?? "").split("\n").filter(Boolean).length;
+    const before = updates();
     await startTask(browser, "Grok", "Take a while [delay:15000]");
     await openAiTools(browser);
     await clickButton(browser, "Check for new versions");
     await pressOnCard(browser, "Grok", "Update to 1.2.0");
     // The update never starts while the task runs; it waits.
-    await waitForText(browser, card("Grok"), "Waiting: 1 task");
+    await waitForText(browser, card("Grok"), "Waiting: 1 task is using Grok");
     await showCard(browser, "Grok");
     await screenshot(browser, "ai-tools-update-waiting");
-    assert.doesNotMatch(readState("update-log") ?? "", /1\.2\.0|^grok update$[\s\S]*^grok update$/m);
+    assert.equal(updates(), before, "Grok's update command has not run");
     // When the task ends, the update runs, fails, and the old version still works.
     await waitForText(browser, card("Grok"), "your old version (1.1.0) still works", 60_000);
     await waitForText(browser, card("Grok"), "Installed 1.1.0");
@@ -338,14 +363,15 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
   it("the switch to update AI tools by themselves is off to begin with, here and in Settings", async () => {
     const { browser } = app;
     await openAiTools(browser);
-    const toggle = await browser.$('//*[@role="switch"][contains(@aria-label, "Update AI tools by themselves") or ancestor::label[contains(., "Update AI tools by themselves")]]');
+    const toggle = await browser.$(AUTO_UPDATE);
     await toggle.waitForExist({ timeout: 10_000 });
     assert.equal(await toggle.getAttribute("aria-checked"), "false");
     await toggle.click();
     await waitUntil(async () => (await toggle.getAttribute("aria-checked")) === "true", "on");
     await openSettings(browser, "Switches");
     await waitForText(browser, "main", "Update AI tools by themselves");
-    const same = await browser.$('//main//*[@role="switch"][contains(@aria-label, "Update AI tools by themselves") or ancestor::label[contains(., "Update AI tools by themselves")]]');
+    const same = await browser.$(AUTO_UPDATE);
+    await same.waitForExist({ timeout: 10_000 });
     assert.equal(await same.getAttribute("aria-checked"), "true", "one setting, two places");
     await screenshot(browser, "ai-tools-switch-in-settings");
     await same.click();

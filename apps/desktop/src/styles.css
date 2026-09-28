@@ -1269,6 +1269,90 @@ body {
   margin: 0;
 }
 
+/* ---- The AI tools page (Phase 19): one full-width card per AI tool ---------------------------- */
+
+.ai-tools {
+  display: grid;
+  gap: var(--ui-space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A card another page went straight to takes the keyboard; its own outline is the panel's. */
+.ai-tools > li:focus {
+  outline: none;
+}
+
+.ai-tools > li:focus-visible {
+  border-radius: var(--ui-radius-lg);
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.ai-tools__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-4);
+  margin-bottom: var(--ui-space-3);
+}
+
+.ai-tool__panel {
+  margin-top: var(--ui-space-5);
+}
+
+.ai-tool__facts {
+  gap: var(--ui-space-5) var(--ui-space-6);
+}
+
+.ai-tool__block {
+  display: grid;
+  gap: var(--ui-space-3);
+  justify-items: start;
+}
+
+.ai-tool__block p {
+  margin: 0;
+}
+
+.ai-tool__block code,
+.ai-tool__facts code {
+  font-family: var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.ai-tool__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-4);
+}
+
+.ai-tool__waiting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.ai-tool__list {
+  display: grid;
+  gap: var(--ui-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-tool__usage h3 {
+  margin: var(--ui-space-6) 0 var(--ui-space-3);
+  font-size: var(--ui-font-md);
+}
+
+/* Wide tables scroll on their own in a narrow window. */
+.ai-tool__table {
+  overflow-x: auto;
+}
+
 .card__row {
   display: flex;
   justify-content: space-between;

@@ -199,7 +199,8 @@ describe("Workers view", () => {
     await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Hi");
     expect(within(form).getByRole("button", { name: "Start task" })).toBeDisabled();
     await user.click(within(form).getByRole("button", { name: "Open AI tools" }));
-    expect(openRuntimes).toHaveBeenCalled();
+    // At Codex's card (Phase 19).
+    expect(openRuntimes).toHaveBeenCalledWith("codex");
   });
 
   it("shows refusals from Core", async () => {

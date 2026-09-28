@@ -2,6 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cancelAiToolUpdate,
+  checkAiTool,
+  checkAiToolVersions,
+  getAiTools,
+  getAiToolUsage,
+  setAiToolPayment,
+  setAiToolsAutoUpdate,
+  updateAiTool,
   archiveDepartment,
   bringBack,
   deleteForGood,
@@ -164,6 +172,32 @@ describe("command client", () => {
     await saveSecret({ name: "Token", programs: [], value: "v" });
     expect(mockedInvoke).toHaveBeenLastCalledWith("save_secret", {
       input: { name: "Token", programs: [], value: "v" },
+    });
+  });
+
+  it("sends the AI tools page's commands by tool ID (Phase 19)", async () => {
+    mockedInvoke.mockResolvedValue({});
+    await getAiTools();
+    expect(mockedInvoke).toHaveBeenLastCalledWith("get_ai_tools", undefined);
+    await checkAiTool("codex");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("check_ai_tool", { runtimeId: "codex" });
+    await checkAiToolVersions();
+    expect(mockedInvoke).toHaveBeenLastCalledWith("check_ai_tool_versions", undefined);
+    await getAiToolUsage("kimi", [1, 2, 3]);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("get_ai_tool_usage", {
+      runtimeId: "kimi",
+      dayStarts: [1, 2, 3],
+    });
+    await updateAiTool("grok");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("update_ai_tool", { runtimeId: "grok" });
+    await cancelAiToolUpdate("grok");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("cancel_ai_tool_update", { runtimeId: "grok" });
+    await setAiToolsAutoUpdate(true);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("set_ai_tools_auto_update", { on: true });
+    await setAiToolPayment("codex", "subscription");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("set_ai_tool_payment", {
+      runtimeId: "codex",
+      method: "subscription",
     });
   });
 });

@@ -71,7 +71,8 @@ export function WorkersView({
   selectedSessionId: string | null;
   onSelectSession: (id: string | null) => void;
   onShowExecution: (executionId: string) => void;
-  onOpenRuntimes: () => void;
+  /** Opens the AI tools page, at that AI tool's card. */
+  onOpenRuntimes: (runtimeId?: string) => void;
   /** Show an organization position (for sessions that work for one). */
   onOpenPosition?: (positionId: string) => void;
   /** Opens a worker's page (Phase 12). */
@@ -242,7 +243,7 @@ export function WorkersView({
         {hint && chosen && (
           <p className="hint" role="note">
             <strong>{chosen.label} is not ready.</strong> {hint}{" "}
-            <button type="button" className="link" onClick={onOpenRuntimes}>
+            <button type="button" className="link" onClick={() => onOpenRuntimes(chosen.id)}>
               Open AI tools
             </button>{" "}
             <button

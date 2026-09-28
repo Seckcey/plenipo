@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
 import * as events from "../../api/events";
+import { modelGroups } from "../../routing/format";
 import { sampleRouting } from "../../test/routingFixtures";
 import { ModelSettings } from "./ModelSettings";
 
@@ -27,6 +28,7 @@ vi.mock("../../api/events", () => ({
 }));
 
 const api = vi.mocked(commands);
+const go = vi.fn();
 let emitLedger: (event: LedgerEvent) => void = () => undefined;
 
 beforeEach(() => {
@@ -56,7 +58,7 @@ const rowOf = (name: string) => screen.getByRole("row", { name: new RegExp(`^${n
 
 describe("Settings → AI models", () => {
   it("sets model and effort rules for the organization and a department (ADR-041)", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     expect(
       await screen.findByRole("heading", { name: "Model and effort rules" }),
@@ -96,7 +98,7 @@ describe("Settings → AI models", () => {
   });
 
   it("shows where each role's next worker goes and why", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const dev = await screen.findByRole("row", { name: /^Senior Developer/ });
     expect(within(dev).getByText("Opus (Claude Code)")).toBeInTheDocument();
     expect(
@@ -105,16 +107,29 @@ describe("Settings → AI models", () => {
     const designer = rowOf("Designer");
     expect(within(designer).getByText("None right now")).toBeInTheDocument();
     expect(within(designer).getByText(/not marked as able to make images/)).toBeInTheDocument();
-    // The AI tools, with a usage limit and the way to try again.
-    const codex = screen.getByRole("row", { name: /^Codex OpenAI/ });
-    expect(within(codex).getByText("Not now")).toBeInTheDocument();
-    await userEvent.setup().click(within(codex).getByRole("button", { name: "Try again now" }));
-    expect(api.clearUsageLimit).toHaveBeenCalledWith("codex");
     expect(screen.getByText(/Pay-per-use API billing: Off/)).toBeInTheDocument();
   });
 
+  it("links to the AI tools page, where the usage limits moved (Phase 19)", async () => {
+    render(<ModelSettings go={go} />);
+    const section = (await screen.findByRole("heading", { name: "AI tools" })).closest("section")!;
+    expect(
+      within(section).getByText("Usage limits, sign-in, and updates are on the AI tools page."),
+    ).toBeInTheDocument();
+    // The old table of AI tools and their usage limits is gone.
+    expect(within(section).queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("row", { name: /^Codex OpenAI/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again now" })).toBeNull();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open the AI tools page" }));
+    expect(go).toHaveBeenCalledWith({ view: "runtimes", id: null });
+    // What a usage limit does stays here.
+    expect(
+      screen.getByRole("heading", { name: "When an AI tool reaches its usage limit" }),
+    ).toBeInTheDocument();
+  });
+
   it("changes a role's model choices: order, requirements, and companies", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(
       await screen.findByRole("button", { name: "Change Senior Developer's model choices" }),
@@ -177,7 +192,7 @@ describe("Settings → AI models", () => {
       kind: "invalidInput",
       message: "a model is listed twice",
     });
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(
       await screen.findByRole("button", { name: "Change Designer's model choices" }),
@@ -188,7 +203,7 @@ describe("Settings → AI models", () => {
   });
 
   it("adds, edits, and removes models, including one seen in use", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add to your models" }));
     let dialog = screen.getByRole("dialog", { name: "Add a model" });
@@ -229,7 +244,7 @@ describe("Settings → AI models", () => {
   });
 
   it("adds a model from a menu of the AI tool's models, or by a typed name", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add a model" }));
     const dialog = screen.getByRole("dialog", { name: "Add a model" });
@@ -317,8 +332,59 @@ describe("Settings → AI models", () => {
     );
   });
 
+  it("offers a model the AI tool reported as new, not checked yet; choosing it works like a typed name (Phase 19)", async () => {
+    const routing = sampleRouting();
+    routing.tools = routing.tools.map((t) =>
+      t.runtimeId === "codex"
+        ? { ...t, newModels: [{ name: "gpt-6-terra", label: "GPT-6-Terra", effortLevels: [] }] }
+        : t,
+    );
+    // In the AI tool's own group, after the models Plenipo checked.
+    expect(modelGroups(routing, "codex")).toEqual([
+      {
+        label: "Codex's models",
+        options: [
+          { name: "gpt-6-sol", label: "gpt-6-sol" },
+          { name: "gpt-6-luna", label: "gpt-6-luna" },
+          { name: "gpt-6-terra", label: "gpt-6-terra — new, not checked yet" },
+        ],
+      },
+    ]);
+    api.getRouting.mockResolvedValue(routing);
+    render(<ModelSettings go={go} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add a model" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a model" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "AI tool" }), "codex");
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    expect(
+      within(model)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([
+      "The AI tool's default (already in your list)",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-6-terra — new, not checked yet",
+      "Type another name…",
+    ]);
+    await user.selectOptions(model, "gpt-6-terra — new, not checked yet");
+    expect(model).toHaveValue("gpt-6-terra");
+    // Chosen from the menu, not typed.
+    expect(
+      within(dialog).queryByRole("textbox", { name: /Model name the AI tool accepts/ }),
+    ).toBeNull();
+    expect(within(dialog).getByRole("textbox", { name: "Your name for it" })).toHaveValue(
+      "GPT-6-Terra",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Add model" }));
+    expect(api.saveModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtimeId: "codex", name: "gpt-6-terra", label: "GPT-6-Terra" }),
+    );
+  });
+
   it("chooses what a usage limit does, and follows the Ledger", async () => {
-    render(<ModelSettings />);
+    render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     const wait = await screen.findByRole("radio", { name: /Wait for the limit to reset/ });
     expect(wait).toBeChecked();

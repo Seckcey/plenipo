@@ -38,6 +38,8 @@ export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo
           { name: "sonnet", label: "Sonnet", effortLevels: MAX },
           { name: "haiku", label: "Haiku", effortLevels: [] },
         ],
+  newModels: [],
+  unlistedModels: [],
   ...patch,
 });
 

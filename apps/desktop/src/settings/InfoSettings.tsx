@@ -40,7 +40,10 @@ const TONE: Record<ReturnType<typeof runtimeStatus>["tone"], Status> = {
   muted: "offline",
 };
 
-/** Settings → AI tools: each AI tool, whether it is installed and signed in, and the rules. */
+/**
+ * Settings → AI tools: each AI tool, whether it is installed and signed in (each opens its card on
+ * the AI tools page), and the rules.
+ */
 export function AiToolsSettings({ go }: { go: Go }) {
   const { state, refresh } = useAgents();
   const [checking, setChecking] = useState(false);
@@ -66,6 +69,8 @@ export function AiToolsSettings({ go }: { go: Go }) {
         : (notReadyHint(r) ?? r.providerLabel),
       status: { status: TONE[status.tone], label: status.text },
       meta: r.installation.version ?? undefined,
+      // Its card on the AI tools page: sign in, usage, and updates.
+      onOpen: () => go({ view: "runtimes", id: r.id }),
     };
   });
   return (

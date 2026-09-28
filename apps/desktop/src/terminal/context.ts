@@ -1,7 +1,16 @@
 import { createContext } from "react";
-import type { Environment } from "@plenipo/types";
+import type { AccountAction, Environment } from "@plenipo/types";
 
-import type { PanelState, TerminalTab } from "./panel";
+import type { OwnerTab, PanelState, TerminalTab } from "./panel";
+
+/** An AI tool's sign-in or sign-out tab that Plenipo would not open while a task used the tool. */
+export interface AiToolRefusal {
+  action: AccountAction;
+  /** Plenipo's words ("1 task is using Codex. Plenipo waits until it finishes."). */
+  message: string;
+  /** When it was refused (ms). */
+  at: number;
+}
 
 export interface TerminalApi {
   panel: PanelState;
@@ -24,6 +33,22 @@ export interface TerminalApi {
    * already open, and shows the panel.
    */
   openWatch: (positionId: string, title: string) => void;
+  /**
+   * An AI tool's sign-in or sign-out tab (Phase 19, ADR-058): it runs that tool's own command,
+   * from a fixed list, and the panel shows. `label` is the tool's name ("Codex"). A tab already
+   * running the same command is shown instead of a second one.
+   */
+  openAiTool: (runtimeId: string, label: string, action: AccountAction) => void;
+  /** When each AI tool's sign-in or sign-out tab last ended (ms), by runtime ID. */
+  signInEnded: Readonly<Record<string, number>>;
+  /**
+   * The last sign-in or sign-out tab refused because a task was using the AI tool, by runtime ID
+   * (that tab closes by itself: the AI tools page waits, then opens it again).
+   */
+  signInRefused: Readonly<Record<string, AiToolRefusal>>;
+  /** The panel's own: one of the owner's terminals ended, or could not open. */
+  tabEnded: (tab: OwnerTab) => void;
+  tabFailed: (tab: OwnerTab, message: string) => void;
   close: (id: string) => void;
   /** Watch tabs that opened while the owner looked elsewhere. */
   unseen: number;

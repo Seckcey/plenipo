@@ -24,6 +24,9 @@ import type {
   AgentOverview,
   AgentRuntimeInfo,
   AgentSession,
+  AiToolsPage,
+  AiToolUsage,
+  PaymentMethod,
   AgentSessionDetail,
   AppInfo,
   BackupInfo,
@@ -1014,4 +1017,52 @@ export function checkForUpdates(): Promise<UpdateStatus> {
  * and the installer opens the new version. */
 export function installUpdate(stopWork: boolean): Promise<UpdateStatus> {
   return call<UpdateStatus>("install_update", { stopWork });
+}
+
+// ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ---------------------------------------
+
+/** Each AI tool's newest version, update, plan left, and how it is paid for, and the switch. */
+export function getAiTools(): Promise<AiToolsPage> {
+  return call<AiToolsPage>("get_ai_tools");
+}
+
+/** Check one AI tool again: its version, sign-in, models, and (where it reports it) plan. */
+export function checkAiTool(runtimeId: string): Promise<AiToolsPage> {
+  return call<AiToolsPage>("check_ai_tool", { runtimeId });
+}
+
+/** Look for each AI tool's newest version now. */
+export function checkAiToolVersions(): Promise<AiToolsPage> {
+  return call<AiToolsPage>("check_ai_tool_versions");
+}
+
+/**
+ * An AI tool's usage, day by day: `dayStarts` are the days' starts, in order (midnight on this
+ * computer), and the last one ends the last day. At most 60 days.
+ */
+export function getAiToolUsage(runtimeId: string, dayStarts: number[]): Promise<AiToolUsage> {
+  return call<AiToolUsage>("get_ai_tool_usage", { runtimeId, dayStarts });
+}
+
+/** Update an AI tool with its own update command. It waits while a task is using the tool. */
+export function updateAiTool(runtimeId: string): Promise<AiToolsPage> {
+  return call<AiToolsPage>("update_ai_tool", { runtimeId });
+}
+
+/** Stop an update that is still waiting for its AI tool to be free. */
+export function cancelAiToolUpdate(runtimeId: string): Promise<AiToolsPage> {
+  return call<AiToolsPage>("cancel_ai_tool_update", { runtimeId });
+}
+
+/** The switch: update AI tools by themselves, or ask first (the default). */
+export function setAiToolsAutoUpdate(on: boolean): Promise<AiToolsPage> {
+  return call<AiToolsPage>("set_ai_tools_auto_update", { on });
+}
+
+/**
+ * How an AI tool is paid for. Only `subscription` is accepted until spending caps exist
+ * (Phase 16); the page never asks for a paid key.
+ */
+export function setAiToolPayment(runtimeId: string, method: PaymentMethod): Promise<AiToolsPage> {
+  return call<AiToolsPage>("set_ai_tool_payment", { runtimeId, method });
 }

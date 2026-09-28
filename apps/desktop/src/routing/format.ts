@@ -56,8 +56,9 @@ export interface ModelGroup {
 
 /**
  * The model names to offer for `runtimeId`, after "the AI tool's default": the models the tool
- * itself offers, then (with `yours`) the owner's models, then the names it reported running. Each
- * name appears once.
+ * itself offers (those it reported that Plenipo has not checked last, marked "new, not checked
+ * yet", ADR-060 §5), then (with `yours`) the owner's models, then the names it reported running.
+ * Each name appears once. Choosing a new model gives the AI tool that name, as a typed one would.
  */
 export function modelGroups(
   snapshot: RoutingSnapshot | null,
@@ -72,10 +73,13 @@ export function modelGroups(
     options: options.filter((o) => !shown.has(o.name) && shown.add(o.name)),
   });
   const groups = [
-    group(
-      `${tool?.label ?? "The AI tool"}'s models`,
-      (tool?.knownModels ?? []).map((k) => ({ name: k.name, label: k.name })),
-    ),
+    group(`${tool?.label ?? "The AI tool"}'s models`, [
+      ...(tool?.knownModels ?? []).map((k) => ({ name: k.name, label: k.name })),
+      ...(tool?.newModels ?? []).map((k) => ({
+        name: k.name,
+        label: `${k.name} — new, not checked yet`,
+      })),
+    ]),
     group(
       "Your models",
       yours

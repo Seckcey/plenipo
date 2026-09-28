@@ -228,6 +228,10 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
           const item = { ...u } as AgentActivity;
           return { ...state, activity: { ...state.activity, [u.taskId]: cap([...list, item]) } };
         }
+        // How much of a plan an AI tool reported used (ADR-060 §3): the AI tools page reads it
+        // from its own command, so nothing here changes.
+        case "plan":
+          return state;
       }
     }
   }

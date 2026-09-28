@@ -129,6 +129,7 @@ function tabLabel(tab: TerminalTab, writing: boolean, name: string) {
 
 function closeLabel(tab: TerminalTab, name: string): string {
   if (tab.kind === "code") return `Close Watch for ${name}`;
+  if (tab.kind === "owner" && tab.place.kind === "aiTool") return `Close ${tab.title}`;
   return tab.kind === "owner"
     ? `Close the terminal on ${tab.place.kind === "thisPc" ? "this PC" : tab.title}`
     : `Close ${watchTitle(tab.watch)}`;
@@ -430,6 +431,8 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                     theme={theme}
                     focusToken={focusToken}
                     onLeave={toTabs}
+                    onEnded={() => t.tabEnded(tab)}
+                    onFailed={(message) => t.tabFailed(tab, message)}
                   />
                 ) : tab.kind === "code" ? (
                   <CodeWatchView

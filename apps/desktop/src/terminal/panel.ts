@@ -3,7 +3,7 @@
  * right, and its size. Kept on this computer, so it comes back the same after a restart.
  */
 
-import type { Environment, TerminalPlace } from "@plenipo/types";
+import type { AccountAction, Environment, TerminalPlace } from "@plenipo/types";
 
 import type { WatchTab } from "./watch";
 
@@ -55,6 +55,19 @@ export interface OwnerTab {
   title: string;
   environment: Environment | null;
   openedAt: number;
+}
+
+/** An AI tool's sign-in or sign-out tab's name: "Sign in · Codex" (ADR-058). */
+export function aiToolTitle(label: string, action: AccountAction): string {
+  return `${action === "signIn" ? "Sign in" : "Sign out"} · ${label}`;
+}
+
+/**
+ * Plenipo would not open an AI tool's sign-in or sign-out tab because a task is using the tool
+ * ("1 task is using Codex. Plenipo waits until it finishes.").
+ */
+export function isBusyRefusal(message: string): boolean {
+  return /\btasks? (?:is|are) using\b/.test(message);
 }
 
 export interface WatchEntry {

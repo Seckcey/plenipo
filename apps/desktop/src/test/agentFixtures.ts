@@ -30,6 +30,12 @@ export const runtime = (id: string, ready = true): AgentRuntimeInfo => ({
   loginHint: "Run the login command.",
   ready,
   checkedAt: 1,
+  checkedVersion: "1.0.0",
+  account: {
+    signIn: id === "codex" ? "codex login" : "claude auth login",
+    signOut: id === "codex" ? "codex logout" : "claude auth logout",
+  },
+  reportedModels: null,
 });
 
 export const session = (id: string, patch: Partial<AgentSession> = {}): AgentSession => ({
