@@ -90,6 +90,13 @@ export function describeEvent(e: LedgerEvent): string {
       }`;
     case "artifact.recorded":
       return `Artifact recorded: ${str(p.path) ?? str(p.uri) ?? ""}`;
+    // Your tile (Phase 18, ADR-056): which parts changed, never the picture or the words.
+    case "owner.profile_changed": {
+      const parts = Array.isArray(p.changed)
+        ? p.changed.map((x) => OWNER_PART[String(x)] ?? String(x))
+        : [];
+      return parts.length > 0 ? `You changed your ${parts.join(", ")}` : "You saved your tile";
+    }
   }
   const agent = describeAgentEvent(e.eventType, p);
   if (agent !== null) return agent;
@@ -121,6 +128,13 @@ export function describeEvent(e: LedgerEvent): string {
   }
   return e.eventType;
 }
+
+const OWNER_PART: Record<string, string> = {
+  status: "status",
+  mood: "mood",
+  message: "message",
+  picture: "picture",
+};
 
 const RECOVERY_WORDS: Record<string, string> = {
   crash: "Plenipo closed unexpectedly",
@@ -637,6 +651,17 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
       return name ? `Role changed: ${name}` : "A role's model choices or permissions changed";
     case "org.settings_changed":
       return "Organization settings changed";
+    // Move or lend (Phase 18, ADR-054).
+    case "org.agent_lent":
+      return `${title} lent to ${str(p.to) ?? "another"}'s team${
+        str(p.project) ? ` (${str(p.project)})` : ""
+      }${p.until === "objective" ? " for one objective" : " until you send it home"}`;
+    case "org.agent_joined_objective":
+      return `${title} took work from the team it is lent to`;
+    case "org.agent_going_home":
+      return `${title} goes home after the task it is on`;
+    case "org.agent_returned":
+      return `${title} is home from ${str(p.to) ?? "another"}'s team${why}`;
   }
   return null;
 }

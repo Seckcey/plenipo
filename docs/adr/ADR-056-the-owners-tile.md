@@ -84,3 +84,11 @@ setting). Windows notices (Phase 12) have their own settings; nothing pauses the
 - **Status set automatically from the mouse and keyboard.** Not chosen: the plan asks for a light
   you set, and watching your mouse and keyboard is not needed for it.
 - **Emoji only for mood.** Rejected: a face alone can be misread; each mood also has a word.
+
+## As built (v1.11.0)
+
+Built as written. The status light has its own shape for each status as well as its color, and
+its word is always there. The window shrinks the picture to at most 256 × 256 and, when the
+PNG would be over 256 KB, tries smaller sizes before giving up with a plain reason. Your tile on
+the canvas is named for screen readers with your status, mood, and message ("You, President:
+Busy, feeling Great, “Feeling great!”").

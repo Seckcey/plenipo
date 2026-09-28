@@ -187,3 +187,18 @@ What the code does today (v1.10.0, read at `c5d1a71`):
   touch.
 - **Let the owner type in the tab.** Rejected: one writer per working copy (ADR-016); editing
   project files is Phase 21, with its own rules.
+
+## As built (v1.11.0)
+
+Built as written, with these details:
+
+- **A change Plenipo will not show** (§11): while an AI tool writes a change to a file Guard
+  would not show — a blocked file, git's own folder, or anything outside the working copy — the
+  tab lists it as "A change Plenipo will not show", with no text; if Guard then refuses it, it
+  shows as **refused**, with the file and why.
+- The tab is named **Watch · {the agent}**. Its **Stop** stops the worker's conversation, as
+  Cancel does on the Workers page; it is off when there is nothing to stop.
+- **Watch a worker** in the terminal panel's **New** menu lists the agents working now, from the
+  same live view the canvas reads.
+- On-call agents: an agent's tab lists the changes of all its workers in its latest objective,
+  labeled "Task 1", "Task 2" when more than one worker changed files.

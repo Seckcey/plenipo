@@ -148,3 +148,13 @@ What the code does today (v1.10.0, read at `c5d1a71`):
   experience would split in two.
 - **Keep reading the project from the conversation.** Rejected: it gives a moved agent the wrong
   permission limit.
+
+## As built (v1.11.0)
+
+Built as written. The drop menu lists **Move here** first, then the two ways to lend (only for an
+on-call agent that can be lent there), then the oversight choices. A lent agent's badge sits on
+its tile's corner; choosing it offers **Send home** and a way to show the team it helps. Its
+Team tab says where it helps and until when, with **Send home**; a lead's Team tab lists the
+agents lent to its team. The canvas explains a refusal before the drop (a full-time agent, one
+already lent, a lead's own team); the Ledger still decides, with the checks above, and its
+reason is what you see if the two ever disagree.

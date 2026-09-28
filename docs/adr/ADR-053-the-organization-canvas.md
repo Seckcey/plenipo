@@ -224,3 +224,24 @@ What the code does today (v1.10.0, read at `c5d1a71`):
   deleting for good happens from the drawer, after a question.
 - **Guess where data is from the AI tool's own output.** Rejected: only Guard's own records say
   for certain which folder, server, or website a worker touched.
+
+## As built (v1.11.0)
+
+Built as written, with these small differences, each to keep the canvas calm and the other
+screens working:
+
+- **Line ends show for the selected agent** (§7), not also while pointing at one: moving the
+  pointer from a tile to its line end would otherwise hide the handle on the way. Select an agent,
+  then drag a round end; or press Enter on it to choose from a list.
+- **The legend starts hidden** (§15) and Plenipo remembers once you show it, so it never covers
+  part of the canvas unasked. The first-time tour points to it.
+- **Where is a switch in the toolbar** (§18), off until you turn it on; while it is on, the rows
+  get more room so each working tile's "where" line fits under it. Hand-offs moving along the
+  lines (§17) show whether it is on or not.
+- **Badges** (§15): lent, fixed AI tool ("Fixed"), specialty, and experienced (a star, with its
+  word for screen readers); the plan's "new worker" is the live worker tile.
+- **Fitting leaves the toolbar's strip clear**, so no tile sits under the toolbar after Fit to
+  screen.
+- The keyboard: V, H, and A choose the pointer's mode; the space bar moves the view while held;
+  Alt and the arrow keys move the selected tile. The **?** button opens the guide (there is no
+  "?" key).
