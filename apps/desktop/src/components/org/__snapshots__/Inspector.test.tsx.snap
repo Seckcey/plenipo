@@ -1,0 +1,116 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`The properties panel > has six tabs, and every option on every tab says what it does 1`] = `
+"a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
+a full-time agent › Overview › Give objective — Its agent starts on it now, in its first conversation.
+a full-time agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
+a full-time agent › Job › Add your own specialty — Write a specialty of your own for the VP role.
+a full-time agent › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
+a full-time agent › Job › VP agents learn — On or off for every VP agent without a setting of its own.
+a full-time agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a full-time agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+a full-time agent › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
+a full-time agent › AI model › Model — The model this AI tool runs for this agent.
+a full-time agent › AI model › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
+a full-time agent › AI model › Effort — How hard the model thinks before it answers. Changing it never hires a new agent.
+a full-time agent › AI model › Give it its own rule — Models, efforts, and AI companies for this agent alone; its rule comes before all others.
+a full-time agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
+a full-time agent › Team › Move to report to — Its whole team moves with it.
+a full-time agent › Team › Move — Makes it report to the one chosen above.
+a full-time agent › Manage › Title — Unique within its team; teammates hand work to each other by title.
+a full-time agent › Manage › Rename — Keeps the new title. Its agent and conversation stay.
+a full-time agent › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
+a full-time agent › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
+a full-time agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+an on-call agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
+an on-call agent › Job › Specialty — Adds lines for one area of work to its instructions. Changing it never hires a new agent.
+an on-call agent › Job › Add your own specialty — Write a specialty of your own for the Senior Developer role.
+an on-call agent › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
+an on-call agent › Job › Senior Developer agents learn — On or off for every Senior Developer agent without a setting of its own.
+an on-call agent › Job › Remove — Remove takes a lesson out of the instructions of Senior Developer's later workers.
+an on-call agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+an on-call agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+an on-call agent › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
+an on-call agent › AI model › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
+an on-call agent › AI model › Effort — How hard the model thinks before it answers. Changing it never hires a new agent.
+an on-call agent › AI model › Give it its own rule — Models, efforts, and AI companies for this agent alone; its rule comes before all others.
+an on-call agent › AI model (its own rule) › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+an on-call agent › AI model (its own rule) › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
+an on-call agent › AI model (its own rule) › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
+an on-call agent › AI model (its own rule) › Effort — How hard the model thinks before it answers. Changing it never hires a new agent.
+an on-call agent › AI model (its own rule) › Effort for Opus (Claude Code) — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
+an on-call agent › AI model (its own rule) › Move Opus (Claude Code) up — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
+an on-call agent › AI model (its own rule) › Move Opus (Claude Code) down — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
+an on-call agent › AI model (its own rule) › Take Opus (Claude Code) off the list — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
+an on-call agent › AI model (its own rule) › Add a model to the list — Adds a model from your list (Settings → AI models) at the end.
+an on-call agent › AI model (its own rule) › Effort for any other model — How hard a model thinks when this rule does not name it above. A model that does not take this level keeps its own.
+an on-call agent › AI model (its own rule) › Anthropic — Never used for this work, even when another rule lists them: these add up.
+an on-call agent › AI model (its own rule) › OpenAI — Never used for this work, even when another rule lists them: these add up.
+an on-call agent › AI model (its own rule) › Save rule — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
+an on-call agent › AI model (its own rule) › Cancel — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
+an on-call agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
+an on-call agent › Team › Move to report to — It joins the chosen lead's team.
+an on-call agent › Team › Move — Makes it report to the one chosen above.
+an on-call agent › Team › Assign as — What it checks for the team: its work, its testing, or its safety.
+an on-call agent › Team › Of the team led by — The lead whose team hands it work to check.
+an on-call agent › Team › Assign — It stays where it is and joins that team's list of who checks the work.
+an on-call agent › Manage › Title — Unique within its team; teammates hand work to each other by title.
+an on-call agent › Manage › Rename — Keeps the new title. Its agent and conversation stay.
+an on-call agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+a manager › Overview › Objective for Engineering Manager — Say what it should get done. It can hand parts of it to its team.
+a manager › Overview › Give objective — Its agent starts on it now, in its first conversation.
+a manager › Overview › Open its page — Its work, history, and permissions on a page of its own.
+a manager › Job › Add your own specialty — Write a specialty of your own for the Manager role.
+a manager › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
+a manager › Job › Manager agents learn — On or off for every Manager agent without a setting of its own.
+a manager › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a manager › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+a manager › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
+a manager › AI model › Model — The model this AI tool runs for this agent.
+a manager › AI model › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
+a manager › AI model › Effort — How hard the model thinks before it answers. Changing it never hires a new agent.
+a manager › AI model › Give it its own rule — Models, efforts, and AI companies for this agent alone; its rule comes before all others.
+a manager › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
+a manager › Team › Move to report to — Its whole team moves with it.
+a manager › Team › Move — Makes it report to the one chosen above.
+a manager › Team › Open the department's page — Its projects, people, and history on a page of its own.
+a manager › Team › Edit department — Change its name, description, or whether it takes new projects.
+a manager › Team › New project — Start a project in this department, with its supervisor.
+a manager › Team › Archive department — Archives the department with its projects and people. You can bring it back.
+a manager › Manage › Title — Unique within its team; teammates hand work to each other by title.
+a manager › Manage › Rename — Keeps the new title. Its agent and conversation stay.
+a manager › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
+a manager › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
+a supervisor › Overview › Objective for Website Supervisor — Say what it should get done. It can hand parts of it to its team.
+a supervisor › Overview › Give objective — Its agent starts on it now, in its first conversation.
+a supervisor › Overview › Open its page — Its work, history, and permissions on a page of its own.
+a supervisor › Job › Add your own specialty — Write a specialty of your own for the Supervisor role.
+a supervisor › Job › This agent learns — Whether it writes down lessons from its work and gets its role's kept lessons.
+a supervisor › Job › Supervisor agents learn — On or off for every Supervisor agent without a setting of its own.
+a supervisor › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+a supervisor › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+a supervisor › AI model › AI tool — Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent.
+a supervisor › AI model › Model — The model this AI tool runs for this agent.
+a supervisor › AI model › Save AI tool and model — Keeps the AI tool and model chosen above for this agent.
+a supervisor › AI model › Effort — How hard the model thinks before it answers. Changing it never hires a new agent.
+a supervisor › AI model › Give it its own rule — Models, efforts, and AI companies for this agent alone; its rule comes before all others.
+a supervisor › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
+a supervisor › Team › Move to report to — Its whole team moves with it.
+a supervisor › Team › Move — Makes it report to the one chosen above.
+a supervisor › Team › End — End stops the assignment; the team no longer hands it work to check.
+a supervisor › Team › Open the project's page — Its objectives, pull requests, and history on a page of its own.
+a supervisor › Team › Edit project — Change its folder, repository, allowed AI tools, or permission limit.
+a supervisor › Team › Archive project — Archives the project with its whole team. You can bring it back.
+a supervisor › Manage › Title — Unique within its team; teammates hand work to each other by title.
+a supervisor › Manage › Rename — Keeps the new title. Its agent and conversation stay.
+a supervisor › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
+a supervisor › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
+an archived agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
+an archived agent › Job › Researcher agents learn — On or off for every Researcher agent without a setting of its own.
+an archived agent › Job › Learn on its own — On: this role's lessons are kept without asking you (lessons from tasks that used websites or your screen still ask).
+an archived agent › AI model › See every rule — Settings → AI models: the rules for the organization, departments, roles, and agents.
+an archived agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
+an archived agent › Manage › Bring back — Puts it back where it was, with all its settings. A full-time position gets a new agent.
+an archived agent › Manage › Save to my Workforce — Keeps it with its settings, experience, and lessons, to hire again into any team.
+an archived agent › Manage › Delete for good… — Asks first. It cannot be undone; a short record keeps its name on older work."
+`;

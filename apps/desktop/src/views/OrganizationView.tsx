@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -18,31 +19,46 @@ import type { OrgSnapshot, OversightRole, PositionInfo } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
 import {
+  archiveDepartment,
   archivePosition,
   archiveProject,
   assignOversight,
+  bringBack,
   createDepartment,
   createProject,
   createRole,
+  createSpecialty,
+  deleteForGood,
+  deleteSavedAgent,
   updateRole,
   endOversight,
   fillPosition,
   giveObjective,
+  hireFromWorkforce,
   hirePosition,
   movePosition,
-  removeDepartment,
+  removeSpecialty,
   renameOrganization,
+  saveToWorkforce,
   toCommandError,
   updateDepartment,
   updatePosition,
   updateProject,
+  updateSpecialty,
   vacatePosition,
+  type ArchivedKind,
 } from "../api/commands";
-import { Directory } from "../components/org/Directory";
+import { Directory, type DirectoryActions } from "../components/org/Directory";
 import { DropMenu, type DropChoice } from "../components/org/DropMenu";
 import { Glyph } from "../components/org/Glyph";
 import { HirePalette } from "../components/org/HirePalette";
 import { Inspector, type InspectorActions } from "../components/org/Inspector";
+import { usePanelWidth } from "../components/org/inspector/panel";
+import {
+  DeleteForGoodDialog,
+  HireFromWorkforceDialog,
+  SpecialtyDialog,
+} from "../components/org/OwnerControlDialogs";
 import { ConfirmDialog, Modal } from "../components/org/Modal";
 import type { Go } from "../components/views";
 import {
@@ -77,16 +93,17 @@ const MODE_KEY = "plenipo.orgMode";
 const COLLAPSED_KEY = "plenipo.orgCollapsed";
 const OVERSIGHT_KEY = "plenipo.orgOversight";
 const PALETTE_KEY = "plenipo.orgPalette";
-/** The details panel's width; it floats over the right of the canvas (matches the CSS). */
-const PANEL_WIDTH = 360;
 
 type Mode = "topology" | "list";
 
 type Dialog =
   | { kind: "hire"; roleId: string | null; reportsTo?: string | null }
-  | { kind: "newDepartment"; reportsTo: string | null }
+  | { kind: "newDepartment"; reportsTo: string | null; fromWorkforce?: string }
   | { kind: "editDepartment"; id: string }
-  | { kind: "newProject"; departmentId: string | null }
+  | { kind: "newProject"; departmentId: string | null; fromWorkforce?: string }
+  | { kind: "deleteForGood"; target: ArchivedKind; id: string }
+  | { kind: "hireSaved"; savedId: string }
+  | { kind: "specialty"; roleId: string; specialtyId?: string }
   | { kind: "editProject"; id: string }
   | { kind: "role" }
   | { kind: "editRole"; id: string }
@@ -185,6 +202,7 @@ export function OrganizationView({
   const [drop, setDrop] = useState<Drop | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
+  const [panelWidth, setPanelWidth] = usePanelWidth();
 
   const setMode = (next: Mode) => {
     setModeState(next);
@@ -280,9 +298,24 @@ export function OrganizationView({
     [run, toast],
   );
 
+  /** Run a change that answers with something other than the organization; then reload it. */
+  const change = useCallback(
+    async (work: () => Promise<unknown>): Promise<string | null> => {
+      try {
+        await work();
+        void reload();
+        return null;
+      } catch (reason) {
+        return toCommandError(reason).message;
+      }
+    },
+    [reload],
+  );
+
   const actions: InspectorActions = useMemo(
     () => ({
       run,
+      change,
       giveObjective: async (positionId, objective) => {
         try {
           await giveObjective(positionId, objective);
@@ -299,8 +332,14 @@ export function OrganizationView({
       editRole: (id) => setDialog({ kind: "editRole", id }),
       editDepartment: (id) => setDialog({ kind: "editDepartment", id }),
       editProject: (id) => setDialog({ kind: "editProject", id }),
+      newSpecialty: (roleId) => setDialog({ kind: "specialty", roleId }),
+      editSpecialty: (specialtyId) => {
+        const role = snapshot?.roles.find((r) => r.specialties.some((x) => x.id === specialtyId));
+        if (role) setDialog({ kind: "specialty", roleId: role.id, specialtyId });
+      },
       rename: () => setDialog({ kind: "rename" }),
       confirm: (request) => setDialog({ kind: "confirm", ...request }),
+      deleteForGood: (target, id) => setDialog({ kind: "deleteForGood", target, id }),
       openSession: onOpenSession,
       openTask: onOpenTask,
       openPage: onOpenPage,
@@ -312,11 +351,38 @@ export function OrganizationView({
         archive: archivePosition,
         assign: assignOversight,
         endOversight,
-        removeDepartment,
+        archiveDepartment,
         archiveProject,
+        bringBack,
+        saveToWorkforce,
       },
     }),
-    [run, reload, onOpenSession, onOpenTask, onOpenPage],
+    [run, change, reload, onOpenSession, onOpenTask, onOpenPage, snapshot],
+  );
+
+  const directoryActions: DirectoryActions = useMemo(
+    () => ({
+      bringBack: (kind, id, name) =>
+        void runWithToast(() => bringBack(kind, id), `Brought back ${name}.`),
+      deleteForGood: (target, id) => setDialog({ kind: "deleteForGood", target, id }),
+      saveToWorkforce: (id, title) =>
+        void runWithToast(() => saveToWorkforce(id), `Saved ${title} to your Workforce.`),
+      hireSaved: (saved) => setDialog({ kind: "hireSaved", savedId: saved.id }),
+      deleteSaved: (saved) =>
+        setDialog({
+          kind: "confirm",
+          title: `Delete ${saved.title} for good?`,
+          message: (
+            <p>
+              It leaves your Workforce and cannot be hired again. This cannot be undone. The lessons
+              its role keeps stay with the role.
+            </p>
+          ),
+          confirmLabel: "Delete for good",
+          work: () => deleteSavedAgent(saved.id),
+        }),
+    }),
+    [runWithToast],
   );
 
   // ---- Drag and drop -------------------------------------------------------------------------
@@ -491,6 +557,14 @@ export function OrganizationView({
     dialog?.kind === "editProject" ? snapshot.projects.find((p) => p.id === dialog.id) : undefined;
   const editingRole =
     dialog?.kind === "editRole" ? snapshot.roles.find((r) => r.id === dialog.id) : undefined;
+  const savedForHire =
+    dialog?.kind === "hireSaved"
+      ? snapshot.workforce.find((w) => w.id === dialog.savedId)
+      : undefined;
+  const editingSpecialty =
+    dialog?.kind === "specialty" && dialog.specialtyId
+      ? snapshot.roles.flatMap((r) => r.specialties).find((x) => x.id === dialog.specialtyId)
+      : undefined;
 
   return (
     <section className="org" aria-labelledby="org-title">
@@ -564,7 +638,10 @@ export function OrganizationView({
         </div>
       )}
 
-      <div className={`org__body org__body--${mode}${selectedExists ? " has-inspector" : ""}`}>
+      <div
+        className={`org__body org__body--${mode}${selectedExists ? " has-inspector" : ""}`}
+        style={{ "--inspector-width": `${panelWidth}px` } as CSSProperties}
+      >
         {mode === "topology" && (
           <HirePalette
             snapshot={snapshot}
@@ -602,7 +679,7 @@ export function OrganizationView({
             dropRefusal={dropRefusal}
             onDrop={onDrop}
             describeDrag={describeDrag}
-            insetRight={selectedExists ? PANEL_WIDTH : 0}
+            insetRight={selectedExists ? panelWidth : 0}
           >
             {empty && (
               <div className="topology__empty" data-canvas-ui>
@@ -641,7 +718,13 @@ export function OrganizationView({
             )}
           </TopologyCanvas>
         ) : (
-          <Directory snapshot={snapshot} query={query} selectedId={selectedId} onSelect={reveal} />
+          <Directory
+            snapshot={snapshot}
+            query={query}
+            selectedId={selectedId}
+            onSelect={reveal}
+            actions={directoryActions}
+          />
         )}
         {selectedExists && selectedId && (
           <Inspector
@@ -651,6 +734,8 @@ export function OrganizationView({
             actions={actions}
             onSelect={reveal}
             onClose={() => setSelected(null)}
+            width={panelWidth}
+            onWidth={setPanelWidth}
           />
         )}
       </div>
@@ -684,12 +769,16 @@ export function OrganizationView({
           {...(dialog.reportsTo !== undefined ? { reportsTo: dialog.reportsTo } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => hirePosition(input), `Hired ${input.title}.`)}
+          onHireSaved={(savedId, reportsTo, title) =>
+            submit(() => hireFromWorkforce(savedId, reportsTo, title), `Hired ${title}.`)
+          }
         />
       )}
       {dialog?.kind === "newDepartment" && (
         <NewDepartmentDialog
           snapshot={snapshot}
           reportsTo={dialog.reportsTo}
+          {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createDepartment(input), `Created ${input.name}.`)}
         />
@@ -707,6 +796,7 @@ export function OrganizationView({
         <NewProjectDialog
           snapshot={snapshot}
           departmentId={dialog.departmentId}
+          {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createProject(input), `Created ${input.name}.`)}
         />
@@ -742,6 +832,59 @@ export function OrganizationView({
           name={snapshot.name}
           onCancel={closeDialog}
           onSubmit={(name) => submit(() => renameOrganization(name))}
+        />
+      )}
+      {dialog?.kind === "deleteForGood" && (
+        <DeleteForGoodDialog
+          kind={dialog.target}
+          id={dialog.id}
+          onCancel={closeDialog}
+          onDelete={(save) =>
+            submit(
+              () => deleteForGood(dialog.target, dialog.id, save),
+              save.length > 0
+                ? `Deleted for good; ${save.length} saved to your Workforce.`
+                : "Deleted for good.",
+            )
+          }
+        />
+      )}
+      {savedForHire && (
+        <HireFromWorkforceDialog
+          snapshot={snapshot}
+          saved={savedForHire}
+          onCancel={closeDialog}
+          onSubmit={(reportsTo, title) =>
+            submit(() => hireFromWorkforce(savedForHire.id, reportsTo, title), `Hired ${title}.`)
+          }
+          onNewDepartment={(fromWorkforce) =>
+            setDialog({ kind: "newDepartment", reportsTo: null, fromWorkforce })
+          }
+          onNewProject={(fromWorkforce) =>
+            setDialog({ kind: "newProject", departmentId: null, fromWorkforce })
+          }
+        />
+      )}
+      {dialog?.kind === "specialty" && (
+        <SpecialtyDialog
+          snapshot={snapshot}
+          roleId={dialog.roleId}
+          specialty={editingSpecialty}
+          onCancel={closeDialog}
+          onSubmit={(input) =>
+            editingSpecialty
+              ? submit(() => updateSpecialty(editingSpecialty.id, input), `Saved ${input.name}.`)
+              : submit(() => createSpecialty(input), `Added the ${input.name} specialty.`)
+          }
+          onRemove={
+            editingSpecialty
+              ? () =>
+                  submit(
+                    () => removeSpecialty(editingSpecialty.id),
+                    `Removed the ${editingSpecialty.name} specialty.`,
+                  )
+              : undefined
+          }
         />
       )}
       {dialog?.kind === "confirm" && (

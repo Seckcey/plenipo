@@ -81,7 +81,8 @@ export function DepartmentPage({
   const manager = rankName(t, "departmentManager");
   const head = headId ? org.positions.find((p) => p.id === headId) : undefined;
   const positions = departmentPositions(org, id);
-  const projects = org.projects.filter((p) => p.departmentId === id);
+  // A project deleted for good leaves every list (its short record still names old work).
+  const projects = org.projects.filter((p) => p.departmentId === id && !p.deleted);
   const busy = positions.filter(isBusy);
   const working = workingRows(org, go, positions);
   const queue = work.value ? taskRows(queueOf(work.value), go, now) : [];
@@ -120,7 +121,16 @@ export function DepartmentPage({
               <StatusPill status="offline" label={`No ${manager} yet`} />
             )
           ) : (
-            <StatusPill status="offline" label="Inactive" />
+            <StatusPill
+              status="offline"
+              label={
+                department.deleted
+                  ? "Deleted for good"
+                  : department.archivedAt !== null
+                    ? "Archived"
+                    : "Inactive"
+              }
+            />
           )
         }
         onBack={onBack}

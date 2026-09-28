@@ -233,15 +233,16 @@ describe("Organization view", () => {
     expect(
       within(details).getByText("Automatic: Senior Developer model choices"),
     ).toBeInTheDocument();
+    // Why this model, on the AI model tab.
+    await user.click(within(details).getByRole("tab", { name: "AI model" }));
     expect(within(details).getByTestId("route-reason")).toHaveTextContent(
       "Opus (Claude Code) was skipped because Claude Code is not signed in",
     );
     expect(within(details).getByText(/Claude Code is not signed in$/)).toBeInTheDocument();
     // Fix it to Codex with a named model.
-    await user.click(within(details).getByText("Edit title or AI model"));
-    const form = within(details).getByRole("form", { name: "Edit position" });
+    const form = within(details).getByRole("form", { name: "AI tool and model" });
     const tool = within(form).getByRole("combobox", { name: "AI tool" });
-    expect(tool).toHaveDisplayValue("Automatic (the role's model choices)");
+    expect(tool).toHaveDisplayValue("Automatic (the rules pick)");
     await user.selectOptions(tool, "codex");
     // A name Codex does not list: type it.
     await user.selectOptions(
@@ -252,7 +253,7 @@ describe("Organization view", () => {
       within(form).getByRole("textbox", { name: /Model name the AI tool accepts/ }),
       "gpt-x",
     );
-    await user.click(within(form).getByRole("button", { name: "Save changes" }));
+    await user.click(within(form).getByRole("button", { name: "Save AI tool and model" }));
     expect(api.updatePosition).toHaveBeenCalledWith("p-dev", {
       runtimeId: "codex",
       model: "gpt-x",
@@ -266,6 +267,7 @@ describe("Organization view", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Website Supervisor, / }));
     const details = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
+    await user.click(within(details).getByRole("tab", { name: "Manage" }));
     await user.click(within(details).getByRole("button", { name: "Hire into team" }));
     const dialog = screen.getByRole("dialog", { name: "Hire" });
     await user.selectOptions(
@@ -481,12 +483,13 @@ describe("Organization view", () => {
     // A built-in role shows its instructions and cannot be edited.
     await user.click(screen.getByRole("button", { name: /^Senior Developer, / }));
     const details = screen.getByRole("complementary", { name: "Details: Senior Developer" });
+    await user.click(within(details).getByRole("tab", { name: "Job" }));
     expect(within(details).getByText("What the Senior Developer role does")).toBeInTheDocument();
     expect(within(details).getByText("Stay in the project folder")).toBeInTheDocument();
     expect(within(details).queryByRole("button", { name: "Edit role" })).toBeNull();
     // Your own roles are listed on the organization, and editing keeps rank and staffing.
     await user.click(screen.getByRole("button", { name: `${org.name}, organization` }));
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Edit Scout" }));
     const edit = screen.getByRole("dialog", { name: "Edit role: Scout" });
     expect(within(edit).queryByRole("combobox", { name: "Rank" })).toBeNull();
     const returns = within(edit).getByRole("textbox", { name: /^What it hands back/ });

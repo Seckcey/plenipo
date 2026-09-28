@@ -118,7 +118,7 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | without asking you (on your allowed websites)                               | auto-approve, bypass approval                                          |
 | a check that a person is using a website (CAPTCHA, said once)               | CAPTCHA challenge, bot check, human verification                       |
 | Hand me checks (you solve it; the worker waits)                             | CAPTCHA hand-off, human-in-the-loop                                    |
-| lesson / what it has learned                                                | memory, learned knowledge, experience                                  |
+| lesson / what it has learned                                                | agent memory (for lessons), learned knowledge                          |
 | Keep / Discard (a lesson)                                                   | accept / reject, persist                                               |
 | Learn on its own (a role)                                                   | auto-accept lessons, autonomous learning                               |
 | Worker learning                                                             | continual learning, agent memory                                       |
@@ -185,6 +185,21 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | log files (what Plenipo did, kept to five)                                  | log rotation, trace output                                             |
 | diagnostics file (one file to send when something went wrong)               | support bundle, diagnostics bundle, crash dump                         |
 | Reset to starting settings                                                  | factory reset, reset config                                            |
+| rule (models and effort: the organization's, a department's, a role's)      | layer, policy layer, precedence                                        |
+| its own rule (one agent's); the closest rule wins                           | cascade, inheritance, override chain                                   |
+| effort for any other model                                                  | default effort, fallback effort                                        |
+| AI companies never to use (they add up across the rules)                    | provider denylist, blocked providers                                   |
+| specialty (a role's area of work: Senior Developer (Database))              | sub-role, variant, role profile                                        |
+| Archived (the list) / Archive / Bring back                                  | restore (an agent), unarchive, soft delete                             |
+| Delete for good                                                             | purge, hard delete, permanent delete                                   |
+| short record (what stays in the Ledger after Delete for good)               | tombstone                                                              |
+| Experience (a score: how much an agent has learned and done)                | XP, rating                                                             |
+| experienced (above your organization's average experience)                  | senior agent, high performer                                           |
+| Workforce (agents you saved to hire again) / Save to my Workforce           | talent pool, bench, agent library                                      |
+| full instructions / short reminder (what a worker is sent with a task)      | full brief, system prompt, context re-injection                        |
+| shortened its memory (an AI tool left out older parts of a conversation)    | compaction, context compaction                                         |
+| prompt size (how much Plenipo sent, in bytes)                               | payload size, token overhead                                           |
+| tabs (of the details: Overview, Job, AI model, Work, Team, Manage)          | panes, property sheet                                                  |
 
 ## Where technical words may stay
 

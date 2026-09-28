@@ -1,90 +1,29 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type {
-  CandidateNote,
-  OrgSnapshot,
-  OversightRole,
-  PositionInfo,
-  PositionPatchInput,
-  TaskBrief,
-  WorkView,
-  WorkerInfo,
-  RoleInfo,
-  RoleJob,
-} from "@plenipo/types";
+/**
+ * The properties panel (Phase 17): the details of whatever is selected on the Organization page.
+ * An agent's details come in six tabs — Overview, Job, AI model, Work, Team, and Manage — and
+ * every option has a line under it saying what it does. The panel can be widened from its edge.
+ */
+import { useState, type ReactNode } from "react";
+import type { OrgSnapshot, PositionInfo, WorkerInfo } from "@plenipo/types";
+import { ResizeHandle, StatusPill, Tabs } from "@plenipo/ui";
 
-import { Button, StatusPill, Tabs } from "@plenipo/ui";
-
-import { getWork, toCommandError } from "../../api/commands";
-import { TASK_STATE_LABEL } from "../../ledger/format";
-import { choiceLabel } from "../../routing/format";
-import { useRoutingOnce } from "../../routing/useRouting";
-import { ModelPicker } from "../models/ModelPicker";
-import { PILL_TONE, TASK_TONE } from "../tones";
-import type { Go } from "../views";
 import { POSITION_STATUS } from "../../org/cards";
-import {
-  OVERSIGHT_LABEL,
-  OVERSIGHT_NOUN,
-  STAFFING_LABEL,
-  STATUS_LABEL,
-  WORKER_STATE_LABEL,
-  ago,
-  plural,
-  runtimeLabel,
-  runtimeReady,
-} from "../../org/format";
+import { STATUS_LABEL, WORKER_STATE_LABEL, ago, runtimeLabel } from "../../org/format";
 import { ORG_ID, OWNER_ID } from "../../org/layout";
 import { workerStatus } from "../../org/nodes";
-import {
-  canTakeObjective,
-  moveChoices,
-  oversightOrder,
-  oversightRefusal,
-  positionMap,
-} from "../../org/rules";
-import { rankName, roleLabel, titlesOf, withArticle } from "../../org/titles";
-import { RoleLessons } from "../../learning/Lessons";
-import { useLearning } from "../../learning/useLearning";
-import { Glyph } from "./Glyph";
+import { rankName, titlesOf, withArticle } from "../../org/titles";
+import { PILL_TONE } from "../tones";
+import { JobTab } from "./inspector/JobTab";
+import { ManageTab } from "./inspector/ManageTab";
+import { ModelTab } from "./inspector/ModelTab";
+import { OverviewTab } from "./inspector/OverviewTab";
+import { Fact, ItemLink, Option, Options, Section } from "./inspector/parts";
+import { TeamTab } from "./inspector/TeamTab";
+import { PANEL_MAX, PANEL_MIN, PANEL_TABS, type PanelTab } from "./inspector/panel";
+import type { InspectorActions } from "./inspector/types";
+import { WorkTab } from "./inspector/WorkTab";
 
-const MAX_OBJECTIVE = 20_000;
-const OWNER_VALUE = "__owner__";
-
-/** What the inspector can ask the Organization view to do. */
-export interface InspectorActions {
-  /** Run a change; resolves with the refusal to show, or `null` once applied. */
-  run: (work: () => Promise<OrgSnapshot>) => Promise<string | null>;
-  giveObjective: (positionId: string, objective: string) => Promise<string | null>;
-  hire: (reportsTo: string | null) => void;
-  newDepartment: (reportsTo: string | null) => void;
-  newProject: (departmentId: string | null) => void;
-  newRole: () => void;
-  editDepartment: (id: string) => void;
-  editProject: (id: string) => void;
-  editRole: (id: string) => void;
-  rename: () => void;
-  confirm: (request: {
-    title: string;
-    message: ReactNode;
-    confirmLabel: string;
-    work: () => Promise<OrgSnapshot>;
-  }) => void;
-  openSession: (sessionId: string) => void;
-  openTask: (taskId: string) => void;
-  /** Opens the page of a position, department, or project (Phase 12). */
-  openPage?: Go | undefined;
-  api: {
-    fill: (id: string) => Promise<OrgSnapshot>;
-    vacate: (id: string) => Promise<OrgSnapshot>;
-    update: (id: string, patch: PositionPatchInput) => Promise<OrgSnapshot>;
-    move: (id: string, reportsTo: string | null) => Promise<OrgSnapshot>;
-    archive: (id: string) => Promise<OrgSnapshot>;
-    assign: (overseer: string, target: string, role: OversightRole) => Promise<OrgSnapshot>;
-    endOversight: (id: string) => Promise<OrgSnapshot>;
-    removeDepartment: (id: string) => Promise<OrgSnapshot>;
-    archiveProject: (id: string) => Promise<OrgSnapshot>;
-  };
-}
+export type { InspectorActions } from "./inspector/types";
 
 interface Props {
   snapshot: OrgSnapshot;
@@ -93,9 +32,22 @@ interface Props {
   actions: InspectorActions;
   onSelect: (id: string) => void;
   onClose: () => void;
+  width: number;
+  onWidth: (next: number) => void;
 }
 
-export function Inspector({ snapshot, selectedId, revision, actions, onSelect, onClose }: Props) {
+export function Inspector({
+  snapshot,
+  selectedId,
+  revision,
+  actions,
+  onSelect,
+  onClose,
+  width,
+  onWidth,
+}: Props) {
+  // The tab stays while you select other agents, and starts at Overview when the panel opens.
+  const [tab, setTab] = useState<PanelTab>("overview");
   const position = snapshot.positions.find((p) => p.id === selectedId) ?? null;
   const worker = findWorker(snapshot, selectedId);
   let heading: string;
@@ -116,6 +68,8 @@ export function Inspector({ snapshot, selectedId, revision, actions, onSelect, o
         revision={revision}
         actions={actions}
         onSelect={onSelect}
+        tab={tab}
+        onTab={setTab}
       />
     );
   } else if (worker) {
@@ -135,15 +89,21 @@ export function Inspector({ snapshot, selectedId, revision, actions, onSelect, o
   }
   return (
     <aside className="inspector" aria-label={`Details: ${heading}`}>
+      <ResizeHandle
+        label="Widen or narrow the details"
+        value={width}
+        min={PANEL_MIN}
+        max={PANEL_MAX}
+        edge="left"
+        onChange={onWidth}
+      />
       <header className="inspector__header">
         <h2>{heading}</h2>
         <button type="button" className="modal__close" aria-label="Close details" onClick={onClose}>
           ×
         </button>
       </header>
-      <div className="inspector__body" data-canvas-scroll>
-        {body}
-      </div>
+      {body}
     </aside>
   );
 }
@@ -161,79 +121,64 @@ function findWorker(
   return null;
 }
 
-const JOB_HEADINGS: [keyof RoleJob, string][] = [
-  ["duties", "Its job"],
-  ["returns", "What it hands back"],
-  ["limits", "What it must not do"],
-  ["askLead", "When it asks its lead for help"],
-];
-
-/** What the position's role does: its description and working instructions (ADR-019). */
-function RoleJobSection({ role, onEdit }: { role: RoleInfo; onEdit: (id: string) => void }) {
-  const learning = useLearning();
-  const lists = JOB_HEADINGS.filter(([k]) => role.job[k].length > 0);
-  return (
-    <Section title={`What the ${role.name} role does`}>
-      {role.description && <p className="muted">{role.description}</p>}
-      {lists.length > 0 && (
-        <details className="inspector__job">
-          <summary>Working instructions</summary>
-          {lists.map(([k, heading]) => (
-            <div key={k}>
-              <h4>{heading}</h4>
-              <ul className="inspector__list">
-                {role.job[k].map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </details>
-      )}
-      {!role.template && (
-        <div className="actions">
-          <Button variant="quiet" size="sm" onClick={() => onEdit(role.id)}>
-            Edit role
-          </Button>
-        </div>
-      )}
-      <RoleLessons learning={learning} roleId={role.id} roleName={role.name} />
-    </Section>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="inspector__section">
-      <h3>{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function Refusal({ error }: { error: string | null }) {
-  return error ? (
-    <p className="form-error" role="alert">
-      {error}
-    </p>
-  ) : null;
-}
-
-function useRun(actions: InspectorActions) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const go = async (work: () => Promise<OrgSnapshot>) => {
-    setPending(true);
-    setError(null);
-    const failure = await actions.run(work);
-    setPending(false);
-    setError(failure);
-    return failure === null;
+/** An agent's details, in tabs. */
+function PositionPanel({
+  p,
+  snapshot,
+  revision,
+  actions,
+  onSelect,
+  tab,
+  onTab,
+}: {
+  p: PositionInfo;
+  snapshot: OrgSnapshot;
+  revision: number;
+  actions: InspectorActions;
+  onSelect: (id: string) => void;
+  tab: PanelTab;
+  onTab: (tab: PanelTab) => void;
+}) {
+  const content: Record<PanelTab, () => ReactNode> = {
+    overview: () => <OverviewTab p={p} snapshot={snapshot} actions={actions} onSelect={onSelect} />,
+    job: () => <JobTab p={p} snapshot={snapshot} actions={actions} />,
+    model: () => <ModelTab p={p} snapshot={snapshot} actions={actions} />,
+    work: () => (
+      <WorkTab
+        p={p}
+        snapshot={snapshot}
+        revision={revision}
+        actions={actions}
+        onSelect={onSelect}
+      />
+    ),
+    team: () => <TeamTab p={p} snapshot={snapshot} actions={actions} onSelect={onSelect} />,
+    manage: () => <ManageTab p={p} snapshot={snapshot} actions={actions} />,
   };
-  return { pending, error, go, setError };
+  return (
+    <>
+      <Tabs<PanelTab>
+        label="Details"
+        idPrefix="details"
+        className="inspector__tabs"
+        value={tab}
+        onChange={onTab}
+        tabs={PANEL_TABS}
+      />
+      <div
+        className="inspector__body"
+        role="tabpanel"
+        id={`details-panel-${tab}`}
+        aria-labelledby={`details-tab-${tab}`}
+        data-canvas-scroll
+      >
+        {content[tab]()}
+      </div>
+    </>
+  );
 }
 
-// ---- Owner and organization ----------------------------------------------------------------
+// ---- You and the organization ---------------------------------------------------------------
 
 function OwnerPanel({
   snapshot,
@@ -247,7 +192,7 @@ function OwnerPanel({
   const reports = snapshot.positions.filter((p) => p.active && p.reportsTo === null);
   const t = titlesOf(snapshot);
   return (
-    <>
+    <div className="inspector__body" data-canvas-scroll>
       <p className="muted">
         You run this organization as its {rankName(t, "owner")}. {rankName(t, "superintendent", 2)}{" "}
         and {rankName(t, "departmentManager", 2)} report to you; give them objectives and they hand
@@ -260,24 +205,27 @@ function OwnerPanel({
           <ul className="inspector__list">
             {reports.map((p) => (
               <li key={p.id}>
-                <button type="button" className="link" onClick={() => onSelect(p.id)}>
-                  {p.title}
-                </button>{" "}
+                <ItemLink onClick={() => onSelect(p.id)}>{p.title}</ItemLink>{" "}
                 <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
               </li>
             ))}
           </ul>
         )}
       </Section>
-      <div className="actions">
-        <Button variant="primary" size="sm" onClick={() => actions.hire(null)}>
-          Hire {withArticle(rankName(t, "superintendent"))}
-        </Button>
-        <Button variant="quiet" size="sm" onClick={() => actions.newDepartment(null)}>
-          New department
-        </Button>
-      </div>
-    </>
+      <Options>
+        <Option
+          label={`Hire ${withArticle(rankName(t, "superintendent"))}`}
+          variant="primary"
+          hint="A full-time leader who reports to you and runs departments for you."
+          onClick={() => actions.hire(null)}
+        />
+        <Option
+          label="New department"
+          hint="A department with its manager, reporting to you."
+          onClick={() => actions.newDepartment(null)}
+        />
+      </Options>
+    </div>
   );
 }
 
@@ -289,16 +237,20 @@ function OrganizationPanel({
   actions: InspectorActions;
 }) {
   const s = snapshot.stats;
+  const ownRoles = snapshot.roles.filter((r) => !r.template);
+  const ownSpecialties = snapshot.roles.flatMap((r) =>
+    r.specialties.filter((x) => !x.builtIn).map((x) => ({ ...x, roleName: r.name })),
+  );
   return (
-    <>
-      <div className="actions">
-        <Button variant="quiet" size="sm" onClick={actions.rename}>
-          Rename
-        </Button>
-        <Button variant="quiet" size="sm" onClick={actions.newRole}>
-          New role
-        </Button>
-      </div>
+    <div className="inspector__body" data-canvas-scroll>
+      <Options>
+        <Option label="Rename" hint="Change the organization's name." onClick={actions.rename} />
+        <Option
+          label="New role"
+          hint="A role of your own, with its job in your words."
+          onClick={actions.newRole}
+        />
+      </Options>
       <dl className="facts facts--compact">
         <Fact label="Departments" value={s.departments} />
         <Fact label="Projects" value={s.projects} />
@@ -311,20 +263,35 @@ function OrganizationPanel({
         <Fact label="Queued" value={s.queued} />
         <Fact label="Done (24 h)" value={s.completed24h} />
         <Fact label="Failed (24 h)" value={s.failed24h} />
+        <Fact label="Average experience" value={snapshot.averageExperience} />
       </dl>
-      {snapshot.roles.some((r) => !r.template) && (
+      {ownRoles.length > 0 && (
         <Section title="Roles you created">
           <ul className="inspector__list">
-            {snapshot.roles
-              .filter((r) => !r.template)
-              .map((r) => (
-                <li key={r.id}>
-                  {r.name}{" "}
-                  <button type="button" className="link" onClick={() => actions.editRole(r.id)}>
-                    Edit
-                  </button>
-                </li>
-              ))}
+            {ownRoles.map((r) => (
+              <li key={r.id}>
+                <Option
+                  label={`Edit ${r.name}`}
+                  hint="Change what the role does; its agents get the new instructions."
+                  onClick={() => actions.editRole(r.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {ownSpecialties.length > 0 && (
+        <Section title="Specialties you created">
+          <ul className="inspector__list">
+            {ownSpecialties.map((x) => (
+              <li key={x.id}>
+                <Option
+                  label={`Edit ${x.name} (${x.roleName})`}
+                  hint="Change its lines, or remove it once no agent on the chart has it."
+                  onClick={() => actions.editSpecialty(x.id)}
+                />
+              </li>
+            ))}
           </ul>
         </Section>
       )}
@@ -350,841 +317,11 @@ function OrganizationPanel({
           </ul>
         </Section>
       )}
-    </>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
     </div>
   );
 }
 
-// ---- Positions ------------------------------------------------------------------------------
-
-function PositionPanel({
-  p,
-  snapshot,
-  revision,
-  actions,
-  onSelect,
-}: {
-  p: PositionInfo;
-  snapshot: OrgSnapshot;
-  revision: number;
-  actions: InspectorActions;
-  onSelect: (id: string) => void;
-}) {
-  const byId = positionMap(snapshot);
-  const supervisor = p.reportsTo ? byId.get(p.reportsTo) : null;
-  const department = snapshot.departments.find((d) => d.id === p.departmentId) ?? null;
-  const project = snapshot.projects.find((x) => x.id === p.projectId) ?? null;
-  const role = snapshot.roles.find((r) => r.id === p.roleId);
-  const t = titlesOf(snapshot);
-  const status = useRun(actions);
-
-  return (
-    <>
-      <div className="inspector__identity">
-        <span className={`topo-node__glyph topo-node__glyph--${p.kind}`}>
-          <Glyph name={role?.glyph ?? "worker"} size={20} />
-        </span>
-        <div>
-          <div>
-            {role ? roleLabel(t, role) : p.roleName} · {STAFFING_LABEL[p.staffing]}
-          </div>
-          <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
-          {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
-        </div>
-      </div>
-      {actions.openPage && (
-        <div className="actions">
-          <Button
-            size="sm"
-            variant="quiet"
-            icon="chevronRight"
-            onClick={() => actions.openPage?.({ view: "worker", id: p.id })}
-          >
-            Open its page
-          </Button>
-        </div>
-      )}
-
-      {!p.active ? (
-        <p className="muted">
-          Archived {p.archivedAt ? ago(p.archivedAt) : ""}. Its history remains in the Ledger.
-        </p>
-      ) : (
-        <>
-          {p.staffing === "persistent" && <ObjectivePanel p={p} actions={actions} />}
-          {p.staffing === "onDemand" && (
-            <p className="muted inspector__note">
-              On call: its team&apos;s lead hands it tasks, and a new worker is brought in for each
-              one.
-            </p>
-          )}
-        </>
-      )}
-
-      <dl className="kv">
-        <dt>Reports to</dt>
-        <dd>
-          {supervisor ? (
-            <button type="button" className="link" onClick={() => onSelect(supervisor.id)}>
-              {supervisor.title}
-            </button>
-          ) : (
-            `You (${rankName(t, "owner")})`
-          )}
-        </dd>
-        <dt>Rank</dt>
-        <dd>{rankName(t, p.kind)}</dd>
-        <dt>AI tool</dt>
-        <dd>
-          {p.runtimeId ? runtimeLabel(snapshot, p.runtimeId) : "None available now"}{" "}
-          {p.runtimeId && !runtimeReady(snapshot, p.runtimeId) && (
-            <StatusPill status={PILL_TONE.warn} label="Not ready" />
-          )}
-        </dd>
-        <dt>Model</dt>
-        <dd>{p.runtimeId ? (p.model ?? "The AI tool's default") : "—"}</dd>
-        <dt>Chosen by</dt>
-        <dd>
-          {p.automatic
-            ? `Automatic: ${role?.name ?? p.roleName} model choices`
-            : "You (fixed for this position)"}
-        </dd>
-        <dt>Department</dt>
-        <dd>{department?.name ?? "—"}</dd>
-        <dt>Project</dt>
-        <dd>{project?.name ?? "—"}</dd>
-        {p.agent && (
-          <>
-            <dt>Agent</dt>
-            <dd>
-              Hired {ago(p.agent.hiredAt)}
-              {p.agent.sessionId && (
-                <>
-                  {" "}
-                  ·{" "}
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => actions.openSession(p.agent?.sessionId ?? "")}
-                  >
-                    Open conversation
-                  </button>
-                </>
-              )}
-            </dd>
-          </>
-        )}
-        {(p.history.retired > 0 || p.history.failed > 0) && (
-          <>
-            <dt>Former agents</dt>
-            <dd>
-              {p.history.retired} retired
-              {p.history.failed > 0 && ` · ${p.history.failed} failed`}
-            </dd>
-          </>
-        )}
-      </dl>
-
-      {p.active && p.route && <RouteSection p={p} snapshot={snapshot} />}
-
-      {role && <RoleJobSection role={role} onEdit={actions.editRole} />}
-
-      {p.currentTask && (
-        <Section title="Current objective">
-          <TaskRow task={p.currentTask} onOpen={actions.openTask} />
-        </Section>
-      )}
-
-      {p.staffing === "onDemand" && p.active && (
-        <Section title={`Live workers (${p.workers.length})`}>
-          {p.workers.length === 0 ? (
-            <p className="muted">
-              None right now. Workers appear here while they work and leave when done.
-            </p>
-          ) : (
-            <ul className="inspector__list">
-              {p.workers.map((w) => (
-                <li key={w.agentId} className="inspector__worker">
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => onSelect(`worker:${w.agentId}`)}
-                  >
-                    {w.objective || "(no objective)"}
-                  </button>
-                  <StatusPill
-                    status={POSITION_STATUS[workerStatus(w.state)]}
-                    label={WORKER_STATE_LABEL[w.state]}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-      )}
-
-      {p.active && (
-        <OversightPanel p={p} snapshot={snapshot} actions={actions} onSelect={onSelect} />
-      )}
-
-      <WorkPanel positionId={p.id} revision={revision} onOpen={actions.openTask} />
-
-      {p.headsDepartmentId && department && (
-        <Section title={`Department: ${department.name}`}>
-          {department.description && <p className="muted">{department.description}</p>}
-          <p className="muted">
-            {plural(department.projectIds.length, "project")}
-            {department.active ? "" : " · inactive"}
-          </p>
-          <div className="actions">
-            {actions.openPage && (
-              <Button
-                size="sm"
-                variant="quiet"
-                icon="chevronRight"
-                onClick={() => actions.openPage?.({ view: "department", id: department.id })}
-              >
-                Open the department's page
-              </Button>
-            )}
-            <Button variant="quiet" size="sm" onClick={() => actions.editDepartment(department.id)}>
-              Edit department
-            </Button>
-            <Button variant="quiet" size="sm" onClick={() => actions.newProject(department.id)}>
-              New project
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() =>
-                actions.confirm({
-                  title: `Remove ${department.name}?`,
-                  message: (
-                    <p>
-                      The department is deleted and {p.title} is archived. A department with
-                      projects cannot be removed; archive its projects first.
-                    </p>
-                  ),
-                  confirmLabel: "Remove department",
-                  work: () => actions.api.removeDepartment(department.id),
-                })
-              }
-            >
-              Remove department
-            </Button>
-          </div>
-        </Section>
-      )}
-
-      {p.coordinatesProjectId && project && (
-        <Section title={`Project: ${project.name}`}>
-          {project.description && <p className="muted">{project.description}</p>}
-          <dl className="kv">
-            <dt>Allowed AI tools</dt>
-            <dd>
-              {project.allowedRuntimes.length === 0
-                ? "None — its team cannot take work"
-                : project.allowedRuntimes.map((r) => runtimeLabel(snapshot, r)).join(", ")}
-            </dd>
-            {project.repositoryUrl && (
-              <>
-                <dt>Repository</dt>
-                <dd>{project.repositoryUrl}</dd>
-              </>
-            )}
-            <dt>Folder</dt>
-            <dd>
-              {project.localPath ? (
-                <span className="path">{project.localPath}</span>
-              ) : (
-                "None — its workers get no file, program, or git tools"
-              )}
-            </dd>
-            <dt>Permission limit</dt>
-            <dd>{project.capabilityProfile ?? "No limit"}</dd>
-          </dl>
-          {actions.openPage && !project.active && (
-            <div className="actions">
-              <Button
-                size="sm"
-                variant="quiet"
-                icon="chevronRight"
-                onClick={() => actions.openPage?.({ view: "project", id: project.id })}
-              >
-                Open the project's page
-              </Button>
-            </div>
-          )}
-          {project.active && (
-            <div className="actions">
-              {actions.openPage && (
-                <Button
-                  size="sm"
-                  variant="quiet"
-                  icon="chevronRight"
-                  onClick={() => actions.openPage?.({ view: "project", id: project.id })}
-                >
-                  Open the project's page
-                </Button>
-              )}
-              <Button variant="quiet" size="sm" onClick={() => actions.editProject(project.id)}>
-                Edit project
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() =>
-                  actions.confirm({
-                    title: `Archive ${project.name}?`,
-                    message: (
-                      <p>
-                        The project and its whole team are archived: {p.title} and every position
-                        under it. This is refused while any of them has unfinished work. History
-                        remains in the Ledger.
-                      </p>
-                    ),
-                    confirmLabel: "Archive project",
-                    work: () => actions.api.archiveProject(project.id),
-                  })
-                }
-              >
-                Archive project
-              </Button>
-            </div>
-          )}
-        </Section>
-      )}
-
-      {p.active && (
-        <ManagePanel
-          key={`${p.title}|${p.automatic ? "auto" : `${p.runtimeId}|${p.model ?? ""}`}`}
-          p={p}
-          snapshot={snapshot}
-          actions={actions}
-          run={status}
-        />
-      )}
-    </>
-  );
-}
-
-function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorActions }) {
-  const [objective, setObjective] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
-  if (!p.agent) {
-    return (
-      <p className="hint">
-        {p.title} is vacant. Hire an agent into it (below) to give it objectives.
-      </p>
-    );
-  }
-  const busy = p.status === "working" || p.status === "waiting";
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setPending(true);
-    setError(null);
-    const failure = await actions.giveObjective(p.id, objective);
-    setPending(false);
-    setError(failure);
-    if (failure === null) {
-      setObjective("");
-      setSent(true);
-    }
-  };
-  return (
-    <form
-      className="inspector__objective"
-      aria-label="Give an objective"
-      onSubmit={(e) => void submit(e)}
-    >
-      <label className="field">
-        <span>Objective for {p.title}</span>
-        <textarea
-          value={objective}
-          rows={3}
-          maxLength={MAX_OBJECTIVE}
-          placeholder={
-            canTakeObjective(p) ? "What should it get done? It can hand work to its team." : ""
-          }
-          onChange={(e) => {
-            setObjective(e.target.value);
-            setSent(false);
-          }}
-        />
-      </label>
-      {busy && <p className="muted">Busy with its current objective; wait until it finishes.</p>}
-      {sent && (
-        <p className="status status--ok" role="status">
-          Objective given. Follow it here or in Workers.
-        </p>
-      )}
-      <Refusal error={error} />
-      <Button type="submit" variant="primary" disabled={pending || busy || objective.trim() === ""}>
-        {pending ? "Sending…" : "Give objective"}
-      </Button>
-      <p className="muted inspector__note">
-        {p.agent.sessionId ? "Continues its conversation." : "Starts its first conversation."}
-      </p>
-    </form>
-  );
-}
-
-function OversightPanel({
-  p,
-  snapshot,
-  actions,
-  onSelect,
-}: {
-  p: PositionInfo;
-  snapshot: OrgSnapshot;
-  actions: InspectorActions;
-  onSelect: (id: string) => void;
-}) {
-  const byId = positionMap(snapshot);
-  const oversees = snapshot.oversight.filter((o) => o.overseerId === p.id);
-  const overseenBy = snapshot.oversight.filter((o) => o.targetId === p.id);
-  const glyph = snapshot.roles.find((r) => r.id === p.roleId)?.glyph ?? "";
-  const order = oversightOrder(glyph);
-  const [role, setRole] = useState<OversightRole>(order[0] ?? "review");
-  const targets = snapshot.positions.filter(
-    (t) => t.active && oversightRefusal(snapshot, p, t, role) === null,
-  );
-  const [target, setTarget] = useState("");
-  const { pending, error, go } = useRun(actions);
-  const chosen = targets.find((t) => t.id === target) ?? targets[0] ?? null;
-  const title = (id: string) => byId.get(id)?.title ?? "a former position";
-
-  const end = (id: string) => void go(() => actions.api.endOversight(id));
-  if (p.staffing === "persistent" && overseenBy.length === 0 && oversees.length === 0) {
-    return null;
-  }
-  return (
-    <Section title="Oversight">
-      {oversees.length > 0 && (
-        <ul className="inspector__list">
-          {oversees.map((o) => (
-            <li key={o.id}>
-              {OVERSIGHT_LABEL[o.role]} for{" "}
-              <button type="button" className="link" onClick={() => onSelect(o.targetId)}>
-                {title(o.targetId)}
-              </button>
-              &apos;s team{" "}
-              <Button variant="quiet" size="sm" disabled={pending} onClick={() => end(o.id)}>
-                End
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {overseenBy.length > 0 && (
-        <ul className="inspector__list">
-          {overseenBy.map((o) => (
-            <li key={o.id}>
-              <button type="button" className="link" onClick={() => onSelect(o.overseerId)}>
-                {title(o.overseerId)}
-              </button>{" "}
-              is this team&apos;s {OVERSIGHT_NOUN[o.role]}{" "}
-              <Button variant="quiet" size="sm" disabled={pending} onClick={() => end(o.id)}>
-                End
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {p.staffing === "onDemand" && (
-        <form
-          className="inspector__assign"
-          aria-label="Assign oversight"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (chosen) void go(() => actions.api.assign(p.id, chosen.id, role));
-          }}
-        >
-          <label className="field">
-            <span>Assign as</span>
-            <select value={role} onChange={(e) => setRole(e.target.value as OversightRole)}>
-              {order.map((r) => (
-                <option key={r} value={r}>
-                  {OVERSIGHT_LABEL[r]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Of the team led by</span>
-            <select
-              value={chosen?.id ?? ""}
-              onChange={(e) => setTarget(e.target.value)}
-              disabled={targets.length === 0}
-            >
-              {targets.length === 0 && <option value="">No team to oversee</option>}
-              {targets.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button type="submit" variant="primary" size="sm" disabled={pending || !chosen}>
-            Assign
-          </Button>
-        </form>
-      )}
-      <Refusal error={error} />
-    </Section>
-  );
-}
-
-function ManagePanel({
-  p,
-  snapshot,
-  actions,
-  run,
-}: {
-  p: PositionInfo;
-  snapshot: OrgSnapshot;
-  actions: InspectorActions;
-  run: ReturnType<typeof useRun>;
-}) {
-  const byId = positionMap(snapshot);
-  const t = titlesOf(snapshot);
-  const choices = moveChoices(snapshot, p);
-  const [moveTo, setMoveTo] = useState<string>("");
-  const [title, setTitle] = useState(p.title);
-  // "" means automatic: the role's model choices pick the AI tool and model.
-  const fixedRuntime = p.automatic ? "" : (p.runtimeId ?? "");
-  const fixedModel = p.automatic ? "" : (p.model ?? "");
-  const [runtimeId, setRuntimeId] = useState(fixedRuntime);
-  const [model, setModel] = useState(fixedModel);
-  const routing = useRoutingOnce();
-  const { pending, error, go } = run;
-  const leads = p.staffing === "persistent";
-  const automatic = runtimeId === "";
-
-  const save = (e: FormEvent) => {
-    e.preventDefault();
-    const patch: PositionPatchInput = {};
-    if (title.trim() !== p.title) patch.title = title.trim();
-    if (runtimeId !== fixedRuntime) patch.runtimeId = runtimeId;
-    if (!automatic && model.trim() !== fixedModel) patch.model = model.trim();
-    if (Object.keys(patch).length > 0) void go(() => actions.api.update(p.id, patch));
-  };
-  const replacesAgent =
-    p.agent !== null && (runtimeId !== fixedRuntime || (!automatic && model.trim() !== fixedModel));
-
-  return (
-    <Section title="Manage">
-      <div className="actions">
-        {leads && (
-          <Button variant="primary" size="sm" onClick={() => actions.hire(p.id)}>
-            Hire into team
-          </Button>
-        )}
-        {leads && p.agent === null && (
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={pending}
-            onClick={() => void go(() => actions.api.fill(p.id))}
-          >
-            Hire an agent
-          </Button>
-        )}
-        {leads && p.agent !== null && (
-          <Button
-            variant="quiet"
-            size="sm"
-            onClick={() =>
-              actions.confirm({
-                title: `Let ${p.title}'s agent go?`,
-                message: (
-                  <p>
-                    The position stays, vacant; its agent retires and its conversation ends. Its
-                    history remains in the Ledger. This is refused while it has unfinished work.
-                  </p>
-                ),
-                confirmLabel: "Let agent go",
-                work: () => actions.api.vacate(p.id),
-              })
-            }
-          >
-            Let agent go
-          </Button>
-        )}
-        {!p.headsDepartmentId && !p.coordinatesProjectId && (
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() =>
-              actions.confirm({
-                title: `Archive ${p.title}?`,
-                message: (
-                  <p>
-                    The position is archived and its agent retires; oversight assignments end. It
-                    must not lead anyone or have unfinished work. History remains in the Ledger.
-                  </p>
-                ),
-                confirmLabel: "Archive position",
-                work: () => actions.api.archive(p.id),
-              })
-            }
-          >
-            Archive
-          </Button>
-        )}
-      </div>
-
-      <form
-        className="inspector__move"
-        aria-label="Change who it reports to"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const to = moveTo === OWNER_VALUE ? null : moveTo;
-          if (moveTo) void go(() => actions.api.move(p.id, to));
-        }}
-      >
-        <label className="field">
-          <span>Move to report to</span>
-          <select
-            value={moveTo}
-            onChange={(e) => setMoveTo(e.target.value)}
-            disabled={choices.length === 0}
-          >
-            <option value="">
-              {choices.length === 0 ? "No other position fits" : "Choose who it reports to…"}
-            </option>
-            {choices.map((id) =>
-              id === null ? (
-                <option key={OWNER_VALUE} value={OWNER_VALUE}>
-                  You ({rankName(t, "owner")})
-                </option>
-              ) : (
-                <option key={id} value={id}>
-                  {byId.get(id)?.title ?? id}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
-        <Button type="submit" variant="primary" size="sm" disabled={pending || moveTo === ""}>
-          Move
-        </Button>
-      </form>
-
-      <details className="advanced">
-        <summary>Edit title or AI model</summary>
-        <form aria-label="Edit position" onSubmit={save}>
-          <label className="field">
-            <span>Title</span>
-            <input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>AI tool</span>
-            <select
-              value={runtimeId}
-              onChange={(e) => {
-                setRuntimeId(e.target.value);
-                setModel(e.target.value === fixedRuntime ? fixedModel : "");
-              }}
-            >
-              <option value="">Automatic (the role&apos;s model choices)</option>
-              {snapshot.runtimes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                  {r.ready ? "" : " (not ready)"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {automatic ? (
-            <p className="hint">
-              Plenipo picks the AI tool and model from {p.roleName}&apos;s model choices in Settings
-              → AI models, and says why.
-            </p>
-          ) : (
-            <ModelPicker
-              routing={routing}
-              runtimeId={runtimeId}
-              value={model}
-              onChange={setModel}
-            />
-          )}
-          {replacesAgent && (
-            <p className="hint">
-              Changing the AI tool or model hires a new agent for this position; the current one
-              retires and its conversation ends.
-            </p>
-          )}
-          <Button type="submit" variant="primary" size="sm" disabled={pending}>
-            Save changes
-          </Button>
-        </form>
-      </details>
-      <Refusal error={error} />
-    </Section>
-  );
-}
-
-// ---- Work -----------------------------------------------------------------------------------
-
-type WorkTab = "running" | "waiting" | "queued" | "recent" | "team";
-const WORK_TABS: { id: WorkTab; label: string }[] = [
-  { id: "running", label: "Running" },
-  { id: "waiting", label: "Waiting" },
-  { id: "queued", label: "Queued" },
-  { id: "recent", label: "Recent" },
-  { id: "team", label: "Team" },
-];
-
-function WorkPanel({
-  positionId,
-  revision,
-  onOpen,
-}: {
-  positionId: string;
-  revision: number;
-  onOpen: (taskId: string) => void;
-}) {
-  const [work, setWork] = useState<WorkView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<WorkTab>("running");
-  useEffect(() => {
-    let cancelled = false;
-    const t = setTimeout(() => {
-      getWork(positionId)
-        .then((w) => {
-          if (!cancelled) {
-            setWork(w);
-            setError(null);
-          }
-        })
-        .catch((reason: unknown) => {
-          if (!cancelled) setError(toCommandError(reason).message);
-        });
-    }, 100);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [positionId, revision]);
-
-  const current = work && work.positionId === positionId ? work : null;
-  const list: TaskBrief[] = current ? current[tab] : [];
-  return (
-    <Section title="Work">
-      <Tabs<WorkTab>
-        label="Work"
-        value={tab}
-        onChange={setTab}
-        tabs={WORK_TABS.map((t) => {
-          const count = current ? current[t.id].length : 0;
-          return { value: t.id, label: count > 0 ? `${t.label} (${count})` : t.label };
-        })}
-      />
-      <div role="tabpanel" aria-label={`${tab} work`}>
-        {error ? (
-          <p className="form-error">{error}</p>
-        ) : !current ? (
-          <p className="muted">Loading…</p>
-        ) : list.length === 0 ? (
-          <p className="muted">Nothing here.</p>
-        ) : (
-          <ul className="inspector__tasks">
-            {list.map((t) => (
-              <li key={t.id}>
-                <TaskRow task={t} onOpen={onOpen} showOwner={tab === "team"} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </Section>
-  );
-}
-
-function TaskRow({
-  task,
-  onOpen,
-  showOwner = false,
-}: {
-  task: TaskBrief;
-  onOpen: (taskId: string) => void;
-  showOwner?: boolean;
-}) {
-  return (
-    <div className="inspector__task">
-      <button type="button" className="link" onClick={() => onOpen(task.id)}>
-        {task.objective || "(no objective)"}
-      </button>
-      <StatusPill status={TASK_TONE[task.state]} label={TASK_STATE_LABEL[task.state]} />
-      <span className="muted inspector__task-meta">
-        {showOwner && task.positionTitle ? `${task.positionTitle} · ` : ""}
-        {ago(task.completedAt ?? task.startedAt ?? task.createdAt)}
-      </span>
-    </div>
-  );
-}
-
-// ---- Routing (Phase 6) ----------------------------------------------------------------------
-
-const VERDICT_TEXT: Record<CandidateNote["verdict"], string> = {
-  chosen: "chosen",
-  skipped: "skipped",
-  notNeeded: "not needed",
-};
-
-/** Where the position's next worker (or a new agent) goes, and why. */
-function RouteSection({ p, snapshot }: { p: PositionInfo; snapshot: OrgSnapshot }) {
-  const route = p.route;
-  if (!route) return null;
-  const persistent = p.staffing === "persistent";
-  const conversation =
-    persistent && p.agent?.sessionId && p.agent.runtimeId ? p.agent.runtimeId : null;
-  return (
-    <Section title={persistent ? "Why this AI model" : "Why the next worker gets this model"}>
-      {conversation && p.automatic && (
-        <p className="muted inspector__note">
-          Its conversation stays on {runtimeLabel(snapshot, conversation)}. A new agent for this
-          position would get: {route.choice ? choiceLabel(route.choice) : "no model now"}.
-        </p>
-      )}
-      <p
-        className={route.choice ? "inspector__reason" : "inspector__detail"}
-        data-testid="route-reason"
-      >
-        {route.reason}
-      </p>
-      {route.candidates.length > 1 && (
-        <details className="advanced">
-          <summary>Every model considered</summary>
-          <ul className="inspector__list">
-            {route.candidates.map((c) => (
-              <li key={c.modelId}>
-                <strong>{c.label}</strong>: {VERDICT_TEXT[c.verdict]}
-                {c.note ? ` — ${c.note}` : ""}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {p.automatic && (
-        <p className="muted inspector__note">Change the model choices in Settings → AI models.</p>
-      )}
-    </Section>
-  );
-}
-
-// ---- Workers --------------------------------------------------------------------------------
+// ---- Workers ----------------------------------------------------------------------------------
 
 function WorkerPanel({
   worker,
@@ -1200,7 +337,7 @@ function WorkerPanel({
   onSelect: (id: string) => void;
 }) {
   return (
-    <>
+    <div className="inspector__body" data-canvas-scroll>
       <p className="inspector__objective-text">{worker.objective || "(no objective)"}</p>
       <StatusPill
         status={POSITION_STATUS[workerStatus(worker.state)]}
@@ -1209,9 +346,7 @@ function WorkerPanel({
       <dl className="kv">
         <dt>Position</dt>
         <dd>
-          <button type="button" className="link" onClick={() => onSelect(position.id)}>
-            {position.title}
-          </button>
+          <ItemLink onClick={() => onSelect(position.id)}>{position.title}</ItemLink>
         </dd>
         <dt>AI tool</dt>
         <dd>
@@ -1237,20 +372,20 @@ function WorkerPanel({
         On-call worker: it leaves the organization when its task is done; its history stays in the
         Ledger.
       </p>
-      <div className="actions">
-        <Button variant="quiet" size="sm" onClick={() => actions.openTask(worker.taskId)}>
-          Open task
-        </Button>
+      <Options>
+        <Option
+          label="Open task"
+          hint="The task it is doing, with its steps and answer."
+          onClick={() => actions.openTask(worker.taskId)}
+        />
         {worker.sessionId && (
-          <Button
-            variant="quiet"
-            size="sm"
+          <Option
+            label="Open conversation"
+            hint="What the worker and its lead said."
             onClick={() => actions.openSession(worker.sessionId ?? "")}
-          >
-            Open conversation
-          </Button>
+          />
         )}
-      </div>
-    </>
+      </Options>
+    </div>
   );
 }

@@ -78,12 +78,15 @@ export function Switch({
   label,
   disabled,
   showState = true,
+  describedBy,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
   showState?: boolean;
+  /** The ID of the line that says what it does. */
+  describedBy?: string | undefined;
 }) {
   return (
     <button
@@ -91,6 +94,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       className={cx("ui-switch", checked && "ui-switch--on")}
       onClick={() => onChange(!checked)}
