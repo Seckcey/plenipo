@@ -1941,3 +1941,195 @@ async fn git_tools_keep_blocked_files_out_of_gits_hands() {
         ]
     );
 }
+
+// ---- Limits on asking (B6) ----------------------------------------------------------------------
+
+/// What a worker is told when it asks again while three of its requests wait for the owner.
+const THREE_WAITING: &str = "Plenipo is waiting for the owner's answer to 3 earlier requests. \
+                             Wait for those before asking again.";
+/// What a worker is told when it asked for approval more than ten times in a minute.
+const TOO_MANY: &str = "Plenipo got too many requests for approval in a short time. Wait a \
+                        minute before asking again.";
+
+impl H {
+    /// A grant for `position`'s worker on a fresh running task, opened the way the AI tool
+    /// runtime opens one, so a test can make the worker's tool calls itself (`Broker::call`),
+    /// several at a time; the fake AI tool makes its calls one after another. The worker must
+    /// have worked once (its conversation holds its position). Returns the task and grant IDs;
+    /// the test closes the grant with `ToolProvider::close`.
+    async fn direct_grant(&self, position: &str) -> (String, String) {
+        use plenipo_runtime::agent::{StepInfo, ToolProvider};
+        let overview = self.rt.overview().await.unwrap();
+        let session = overview
+            .sessions
+            .iter()
+            .find(|s| s.metadata["workforce"]["positionId"].as_str() == Some(position))
+            .expect("the worker's conversation");
+        let task = self
+            .ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "calls made by the test".into(),
+                    priority: 2,
+                    ..plenipo_ledger::NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        self.ledger
+            .transition_task(&task.id, TaskState::Running, "w", None)
+            .unwrap();
+        let tools = ToolProvider::open(
+            &self.broker,
+            &StepInfo {
+                session,
+                task_id: &task.id,
+                step: 1,
+                ai_tool: "Codex",
+                takes_tools: true,
+            },
+        )
+        .expect("the worker gets tools");
+        (task.id, tools.grant_id)
+    }
+
+    /// A `run_command` of `grant`'s worker that needs approval, made on its own task.
+    fn ask_to_run(&self, grant: &str) -> tokio::task::JoinHandle<plenipo_capabilities::CallResult> {
+        let (broker, grant) = (self.broker.clone(), grant.to_owned());
+        tokio::spawn(async move {
+            broker
+                .call(
+                    &grant,
+                    "run_command",
+                    serde_json::json!({ "program": "git", "args": ["--version"] }),
+                )
+                .await
+        })
+    }
+
+    /// Wait until exactly `n` approval requests wait for the owner.
+    async fn cards_waiting(&self, n: usize) {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let waiting = self.broker.approvals().unwrap().pending.len();
+            if waiting == n {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{waiting} approval requests wait, not {n}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+}
+
+/// B6: three of a worker's requests may wait for the owner at once. A fourth call that needs
+/// approval is refused at once, in plain words, makes no card, and is recorded once a minute;
+/// once the owner answers one of the three, the next call asks again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fourth_request_for_approval_waits_for_the_first_three() {
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness().await;
+    h.set_commands(&[]);
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    let three: Vec<_> = (0..3).map(|_| h.ask_to_run(&grant)).collect();
+    h.cards_waiting(3).await;
+    // The fourth: refused at once, with the words, and no fourth card.
+    let fourth = h.ask_to_run(&grant).await.unwrap();
+    assert!(fourth.is_error, "{}", fourth.text);
+    assert_eq!(fourth.text, THREE_WAITING);
+    assert_eq!(h.broker.approvals().unwrap().pending.len(), 3);
+    assert_eq!(h.events(&task, "approval.requested").len(), 3);
+    let limited = h.events(&task, "guard.approvals_limited");
+    assert_eq!(limited.len(), 1, "{limited:#?}");
+    assert_eq!(limited[0]["worker"], "Backend Developer");
+    assert_eq!(limited[0]["tool"], "run_command");
+    assert_eq!(limited[0]["summary"], "run git --version");
+    assert_eq!(limited[0]["limit"], "waiting");
+    assert_eq!(limited[0]["waiting"], 3);
+    assert_eq!(limited[0]["reason"], THREE_WAITING);
+    // A fifth in the same minute: refused the same way, and not recorded a second time.
+    let fifth = h.ask_to_run(&grant).await.unwrap();
+    assert_eq!(fifth.text, THREE_WAITING);
+    assert_eq!(h.events(&task, "guard.approvals_limited").len(), 1);
+    assert_eq!(h.events(&task, "approval.requested").len(), 3);
+    // The owner answers one: the next call asks again.
+    let card = h.pending().await;
+    h.broker.resolve_approval(&card.id, false, "owner").unwrap();
+    h.cards_waiting(2).await;
+    let sixth = h.ask_to_run(&grant);
+    h.cards_waiting(3).await;
+    assert_eq!(h.events(&task, "approval.requested").len(), 4);
+    // The step ends: the cards left expire, and every call comes back with its answer.
+    ToolProvider::close(&h.broker, &grant);
+    let mut answers = Vec::new();
+    for call in three.into_iter().chain([sixth]) {
+        let r = call.await.unwrap();
+        assert!(r.is_error, "{}", r.text);
+        answers.push(r.text);
+    }
+    assert_eq!(
+        answers
+            .iter()
+            .filter(|t| t.contains("Not done: the owner did not approve it"))
+            .count(),
+        1,
+        "{answers:#?}"
+    );
+    assert_eq!(
+        answers
+            .iter()
+            .filter(|t| t.contains("Not done: the owner did not answer in time"))
+            .count(),
+        3,
+        "{answers:#?}"
+    );
+    assert!(h.broker.approvals().unwrap().pending.is_empty());
+    let closed = &h.events(&task, "guard.grant_closed")[0];
+    assert_eq!(closed["asked"], 4, "{closed}");
+}
+
+/// B6: a worker may make ten approval cards a minute. The eleventh call that needs approval in
+/// that minute is refused at once, in plain words, and makes no card.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn too_many_requests_for_approval_in_a_minute_are_refused() {
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness().await;
+    h.set_commands(&[]);
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    // Ten cards, each answered as it appears: all well within a minute.
+    for _ in 0..10 {
+        let call = h.ask_to_run(&grant);
+        let card = h.pending().await;
+        h.broker.resolve_approval(&card.id, false, "owner").unwrap();
+        let r = call.await.unwrap();
+        assert!(
+            r.text.contains("Not done: the owner did not approve it"),
+            "{}",
+            r.text
+        );
+    }
+    let eleventh = h.ask_to_run(&grant).await.unwrap();
+    assert!(eleventh.is_error, "{}", eleventh.text);
+    assert_eq!(eleventh.text, TOO_MANY);
+    assert!(h.broker.approvals().unwrap().pending.is_empty());
+    assert_eq!(h.events(&task, "approval.requested").len(), 10);
+    let limited = h.events(&task, "guard.approvals_limited");
+    assert_eq!(limited.len(), 1, "{limited:#?}");
+    assert_eq!(limited[0]["limit"], "minute");
+    assert_eq!(limited[0]["reason"], TOO_MANY);
+    ToolProvider::close(&h.broker, &grant);
+    assert_eq!(h.events(&task, "guard.grant_closed")[0]["asked"], 10);
+}

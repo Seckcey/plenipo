@@ -231,6 +231,16 @@ describe("describeEvent (Phase 7 permissions)", () => {
     expect(describeEvent(event("tool_server.ticket_unchecked", { worker: "Reviewer" }))).toBe(
       "Plenipo could not check which program connected to Reviewer's tools on this computer, so it let it through",
     );
+    expect(
+      describeEvent(
+        event("guard.approvals_limited", { worker: "Reviewer", limit: "waiting", waiting: 3 }),
+      ),
+    ).toBe(
+      "Blocked: Reviewer asked for your approval again while 3 of its requests were waiting for you",
+    );
+    expect(
+      describeEvent(event("guard.approvals_limited", { worker: "Reviewer", limit: "minute" })),
+    ).toBe("Blocked: Reviewer asked for your approval too many times in one minute");
     expect(sourceLabel("guard")).toBe("Guard");
   });
 

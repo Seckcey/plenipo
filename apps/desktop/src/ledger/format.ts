@@ -198,6 +198,14 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
     }
     case "tool_server.ticket_unchecked":
       return `Plenipo could not check which program connected to ${worker}'s tools on this computer, so it let it through`;
+    case "guard.approvals_limited":
+      // B6: the worker asked again while its earlier requests still wait, or asked too often;
+      // Plenipo refused that call and made no card.
+      return p.limit === "minute"
+        ? `Blocked: ${worker} asked for your approval too many times in one minute`
+        : `Blocked: ${worker} asked for your approval again while ${Number(
+            p.waiting ?? 0,
+          )} of its requests were waiting for you`;
     case "guard.denied":
       return `Blocked: ${worker} tried to ${str(p.summary) ?? "do something"} — ${brief(p.reason, 240)}`;
     case "capability.used":

@@ -538,7 +538,11 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   `awaitingApproval` in one transaction, and back to `running` when it is answered. It expires
   after the approval window (default 10 minutes), and approvals left pending at shutdown are
   expired at startup. The UI shows a banner on every page, a sidebar count, and a card with
-  exactly what will run.
+  exactly what will run. A worker may have at most 3 requests waiting at once and make at most
+  10 approval cards a minute: a call past either limit is refused at once with no card, the
+  worker is told to wait, and the refusal is recorded (`guard.approvals_limited`) at most once
+  a minute; the tool server works on at most 4 of a connection's requests at a time, the rest
+  waiting their turn in arrival order.
 - **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
   calls; a settings change applies to the next call.
 - **Logging and redaction.** Every call is `capability.used`, `guard.denied`, or `approval.*`.

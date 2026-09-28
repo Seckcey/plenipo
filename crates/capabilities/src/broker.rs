@@ -5,11 +5,11 @@
 //! are now, sent to the owner for approval when Guard says so, carried out by Plenipo,
 //! recorded in the Ledger, and returned to the worker with secrets hidden.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use plenipo_guard::engine::{doing, Request, Scope};
 use plenipo_guard::redact::Redactor;
@@ -75,6 +75,14 @@ const SECRETS_KEPT: &str = "(Plenipo gives a stored secret only to the installed
 /// The notice where this computer offers no way to tell which program connects (ADR-034).
 const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
                                 a worker's tools, so a copied tool ticket cannot be refused.";
+/// How many of one worker's approval requests may wait for the owner at once (B6, limits on
+/// asking). A call that would add a fourth is refused until one is answered.
+pub const MAX_PENDING_APPROVALS: usize = 3;
+/// How many approval cards one worker's grant may make in a minute (B6). A call that would add
+/// an eleventh is refused until the minute has passed.
+pub const MAX_APPROVALS_A_MINUTE: usize = 10;
+/// The minute the limits on asking count over, and how often a refused ask is recorded.
+const ASK_MINUTE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct BrokerConfig {
@@ -158,6 +166,95 @@ impl CallResult {
     }
 }
 
+/// A grant's limits on asking the owner (B6): at most [`MAX_PENDING_APPROVALS`] requests
+/// waiting at once and at most [`MAX_APPROVALS_A_MINUTE`] new cards a minute, so a worker — or
+/// text that drives it — cannot bury the one request that matters under look-alike cards, nor
+/// load the Ledger and the Approvals page with them. A refused ask is recorded at most once a
+/// minute per grant.
+#[derive(Default)]
+struct AskLimits {
+    /// Cards being made now: checked and given a place, not yet among the grant's `pending`.
+    opening: usize,
+    /// When each card of the last minute was made, oldest first.
+    made: VecDeque<Instant>,
+    /// When a refusal was last recorded.
+    recorded: Option<Instant>,
+}
+
+/// Why an ask was refused before any card was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Limited {
+    /// That many of the grant's requests already wait for the owner.
+    Waiting(usize),
+    /// Too many cards were made in the last minute.
+    Minute,
+}
+
+impl Limited {
+    /// What the worker is told.
+    fn words(self) -> String {
+        match self {
+            Self::Waiting(n) => format!(
+                "Plenipo is waiting for the owner's answer to {n} earlier requests. Wait for \
+                 those before asking again."
+            ),
+            Self::Minute => "Plenipo got too many requests for approval in a short time. Wait a \
+                             minute before asking again."
+                .into(),
+        }
+    }
+
+    /// The limit's name in the Ledger.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Waiting(_) => "waiting",
+            Self::Minute => "minute",
+        }
+    }
+}
+
+impl AskLimits {
+    /// Whether a new card may be made at `now`, with `waiting` of the grant's requests waiting
+    /// for the owner. When it may, a place is held for it until [`AskLimits::placed`].
+    fn reserve(&mut self, now: Instant, waiting: usize) -> std::result::Result<(), Limited> {
+        while self
+            .made
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= ASK_MINUTE)
+        {
+            self.made.pop_front();
+        }
+        let waiting = waiting + self.opening;
+        if waiting >= MAX_PENDING_APPROVALS {
+            return Err(Limited::Waiting(waiting));
+        }
+        if self.made.len() >= MAX_APPROVALS_A_MINUTE {
+            return Err(Limited::Minute);
+        }
+        self.made.push_back(now);
+        self.opening += 1;
+        Ok(())
+    }
+
+    /// The card a place was held for is made (and counted among the waiting ones), or could
+    /// not be made.
+    fn placed(&mut self) {
+        self.opening = self.opening.saturating_sub(1);
+    }
+
+    /// Whether a refusal at `now` is to be recorded: once a minute at most.
+    fn record(&mut self, now: Instant) -> bool {
+        if self
+            .recorded
+            .is_some_and(|t| now.duration_since(t) < ASK_MINUTE)
+        {
+            return false;
+        }
+        self.recorded = Some(now);
+        true
+    }
+}
+
 struct Grant {
     id: String,
     ticket: String,
@@ -180,6 +277,8 @@ struct Grant {
     revoked: bool,
     running: HashSet<String>,
     pending: HashSet<String>,
+    /// Its limits on asking the owner (B6).
+    asks: AskLimits,
     used: u32,
     blocked: u32,
     asked: u32,
@@ -375,6 +474,14 @@ struct Refused {
     layer: Layer,
     reason: String,
     summary: String,
+}
+
+/// Why a call that needs the owner's approval got no card.
+enum NotAsked {
+    /// One of the grant's limits on asking (B6): what the worker is told.
+    Limited(String),
+    /// The card could not be made.
+    Failed(String),
 }
 
 /// What became of a connection presenting a ticket (ADR-034).
@@ -853,6 +960,7 @@ impl Broker {
             revoked: false,
             running: HashSet::new(),
             pending: HashSet::new(),
+            asks: AskLimits::default(),
             used: 0,
             blocked: 0,
             asked: 0,
@@ -1675,7 +1783,8 @@ impl Broker {
                             prepared.summary
                         ));
                     }
-                    Err(e) => return CallResult::error(format!("Not done: {e}")),
+                    Err(NotAsked::Limited(words)) => return CallResult::error(words),
+                    Err(NotAsked::Failed(e)) => return CallResult::error(format!("Not done: {e}")),
                 }
                 // Revoked while waiting?
                 if self.state().grants.get(grant_id).is_none_or(|g| g.revoked) {
@@ -1852,7 +1961,42 @@ impl Broker {
         detail: &str,
         decision: &Decision,
         minutes: u32,
-    ) -> std::result::Result<(String, ApprovalState), String> {
+    ) -> std::result::Result<(String, ApprovalState), NotAsked> {
+        // The grant's limits on asking (B6), checked and a place held in one step, so calls
+        // made at the same time cannot slip past them together. A refused call gets no card;
+        // the refusal is recorded once a minute at most.
+        let at = Instant::now();
+        let limited = {
+            let mut s = self.state();
+            s.grants.get_mut(grant_id).and_then(|g| {
+                let waiting = g.pending.len();
+                g.asks
+                    .reserve(at, waiting)
+                    .err()
+                    .map(|why| (why, waiting + g.asks.opening, g.asks.record(at)))
+            })
+        };
+        if let Some((why, waiting, record)) = limited {
+            let words = why.words();
+            if record {
+                let _ = self.ledger().append_event(NewEvent {
+                    task_id: Some(task_id.into()),
+                    source: GUARD.into(),
+                    event_type: "guard.approvals_limited".into(),
+                    payload: json!({
+                        "grantId": grant_id,
+                        "worker": worker,
+                        "tool": tool.name,
+                        "summary": self.redact(&prepared.summary),
+                        "limit": why.name(),
+                        "waiting": waiting,
+                        "reason": words,
+                    }),
+                    ..NewEvent::default()
+                });
+            }
+            return Err(NotAsked::Limited(words));
+        }
         let now = plenipo_ledger::now_ms();
         let wait = self.inner.config.approval_minute * minutes;
         let expires_at = now + wait.as_millis() as u64;
@@ -1880,21 +2024,29 @@ impl Broker {
             "address": prepared.server.as_ref().map(|p| p.server.address()),
         });
         let (tx, rx) = oneshot::channel();
-        let approval = self
-            .ledger()
-            .request_action_approval(
-                task_id,
-                prepared.capability.id(),
-                &payload,
-                expires_at,
-                &format!("agent:{runtime_id}"),
-            )
-            .map_err(|e| format!("the approval could not be requested: {e}"))?;
+        let approval = match self.ledger().request_action_approval(
+            task_id,
+            prepared.capability.id(),
+            &payload,
+            expires_at,
+            &format!("agent:{runtime_id}"),
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                if let Some(g) = self.state().grants.get_mut(grant_id) {
+                    g.asks.placed();
+                }
+                return Err(NotAsked::Failed(format!(
+                    "the approval could not be requested: {e}"
+                )));
+            }
+        };
         {
             let mut s = self.state();
             s.waiters.insert(approval.id.clone(), tx);
             if let Some(g) = s.grants.get_mut(grant_id) {
                 g.asked += 1;
+                g.asks.placed();
                 g.pending.insert(approval.id.clone());
             } else {
                 drop(s);
@@ -3300,6 +3452,70 @@ fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B6: three of a grant's requests may wait for the owner at once. A place held for a card
+    /// being made counts as waiting, and a fourth is refused with the count.
+    #[test]
+    fn at_most_three_approval_requests_wait_at_once() {
+        let mut limits = AskLimits::default();
+        let now = Instant::now();
+        for waiting in 0..MAX_PENDING_APPROVALS {
+            assert_eq!(limits.reserve(now, waiting), Ok(()));
+            limits.placed();
+        }
+        assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
+        // One answered: the next may ask, and its place counts until its card is made.
+        assert_eq!(limits.reserve(now, 2), Ok(()));
+        assert_eq!(limits.reserve(now, 2), Err(Limited::Waiting(3)));
+        limits.placed();
+        assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
+        assert_eq!(limits.reserve(now, 0), Ok(()));
+    }
+
+    /// B6: ten cards a minute. The eleventh waits until the oldest card is a minute old, and a
+    /// refused ask is not a card.
+    #[test]
+    fn at_most_ten_approval_cards_a_minute() {
+        let mut limits = AskLimits::default();
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        for i in 0..MAX_APPROVALS_A_MINUTE {
+            assert_eq!(limits.reserve(at(i as u64), 0), Ok(()));
+            limits.placed();
+        }
+        assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(60), 0), Ok(()));
+        limits.placed();
+        assert_eq!(limits.reserve(at(60), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(61), 0), Ok(()));
+    }
+
+    /// B6: a refused ask is recorded once a minute per grant.
+    #[test]
+    fn a_refused_ask_is_recorded_once_a_minute() {
+        let mut limits = AskLimits::default();
+        let start = Instant::now();
+        assert!(limits.record(start));
+        assert!(!limits.record(start + Duration::from_secs(59)));
+        assert!(limits.record(start + Duration::from_secs(60)));
+        assert!(!limits.record(start + Duration::from_secs(61)));
+    }
+
+    /// B6: what a refused worker is told, in plain words.
+    #[test]
+    fn a_refused_ask_is_told_in_plain_words() {
+        assert_eq!(
+            Limited::Waiting(3).words(),
+            "Plenipo is waiting for the owner's answer to 3 earlier requests. Wait for those \
+             before asking again."
+        );
+        assert_eq!(
+            Limited::Minute.words(),
+            "Plenipo got too many requests for approval in a short time. Wait a minute before \
+             asking again."
+        );
+    }
 
     fn secret(name: &str, var: &str, programs: &[&str]) -> SecretInfo {
         SecretInfo {
