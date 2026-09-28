@@ -102,6 +102,24 @@ records what was changed and how it was checked, in plain words, without the att
 - [ ] B10 · GitHub Actions pinned by commit, Dependabot
 - [ ] B11 · Signing only from main and release tags, behind the owner's approval (ADR-051)
 
+## Advisories: closing out
+
+The sweep's findings live in the repository's private security advisories (**Security →
+Advisories**). Plenipo's GitHub connection here cannot change advisories, so the owner closes each
+one once its fix is on `main` (open the draft advisory → **Close advisory**; or on the PC:
+`gh api -X PATCH repos/Seckcey/plenipo/security-advisories/<GHSA id> -f state=closed`).
+
+| Advisory            | Findings | Fixed by              | Close it        |
+| ------------------- | -------- | --------------------- | --------------- |
+| GHSA-m2rr-m89h-jp56 | A1       | PR #69 (merged)       | now             |
+| GHSA-87xq-h83r-hmpg | A2       | PR #69 (merged)       | now             |
+| GHSA-gv7h-v8h5-m9c9 | A3       | PR #69 (merged)       | now             |
+| GHSA-4f58-pwvq-9vmf | A4       | PR #69 (merged)       | now             |
+| GHSA-2fq6-vq5f-685h | B1–B6    | PR #74 (merged)       | now             |
+| GHSA-phg2-6j94-84g9 | B7–B9    | PR #76 (in progress)  | after it merges |
+| GHSA-2hxf-v9c3-44q2 | B10–B11  | PR #76 (in progress)  | after it merges |
+| GHSA-c86x-xcxc-pgf6 | C        | Group C (not started) | later           |
+
 ## Checks
 
 - [x] `pnpm check`, `cargo fmt --all -- --check`,
