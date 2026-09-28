@@ -48,6 +48,7 @@ export type { RuntimesUpdate } from "./generated/RuntimesUpdate";
 // The AI tools page (Phase 19, ADR-058 to ADR-060).
 export type { AccountAction } from "./generated/AccountAction";
 export type { AccountCommands } from "./generated/AccountCommands";
+export type { HoldFor } from "./generated/HoldFor";
 export type { ReportedModels } from "./generated/ReportedModels";
 export type { PlanWindow } from "./generated/PlanWindow";
 export type { PlanReport } from "./generated/PlanReport";

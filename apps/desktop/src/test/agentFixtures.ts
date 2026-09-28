@@ -36,6 +36,7 @@ export const runtime = (id: string, ready = true): AgentRuntimeInfo => ({
     signOut: id === "codex" ? "codex logout" : "claude auth logout",
   },
   reportedModels: null,
+  held: null,
 });
 
 export const session = (id: string, patch: Partial<AgentSession> = {}): AgentSession => ({

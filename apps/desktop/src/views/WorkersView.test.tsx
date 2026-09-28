@@ -203,6 +203,35 @@ describe("Workers view", () => {
     expect(openRuntimes).toHaveBeenCalledWith("codex");
   });
 
+  it("says a new task waits while its AI tool is being updated, and still lets it start (Phase 19)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [{ ...runtime("claude-code"), held: "update" }, runtime("codex")],
+      sessions: [],
+      notices: [],
+    });
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    expect(await within(form).findByRole("status")).toHaveTextContent(
+      "Waiting: Claude Code is being updated. A new task starts on it when that's done.",
+    );
+    await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Hi");
+    expect(within(form).getByRole("button", { name: "Start task" })).toBeEnabled();
+    // Its sign-in tab open: it waits a while at most.
+    act(() =>
+      emit({
+        kind: "runtimes",
+        runtimes: [{ ...runtime("claude-code"), held: "signIn" }, runtime("codex")],
+      }),
+    );
+    expect(within(form).getByRole("status")).toHaveTextContent(
+      "Claude Code's sign-in tab is open. A new task waits until it closes, or 10 minutes at most.",
+    );
+    // Free again: nothing more is said.
+    act(() => emit({ kind: "runtimes", runtimes: [runtime("claude-code"), runtime("codex")] }));
+    expect(within(form).queryByRole("status")).toBeNull();
+  });
+
   it("shows refusals from Core", async () => {
     api.startAgentSession.mockRejectedValue(
       new commands.PlenipoCommandError("invalidInput", "Claude Code is not signed in."),

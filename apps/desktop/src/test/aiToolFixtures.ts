@@ -103,6 +103,7 @@ export function aiRuntime(
     checkedVersion: version,
     account: { signIn: f.signIn, signOut: f.signOut },
     reportedModels: null,
+    held: null,
     ...patch,
   };
 }

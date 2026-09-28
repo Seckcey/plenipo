@@ -110,6 +110,21 @@ export function runtimeStatus(r: AgentRuntimeInfo): {
   return { text: AUTH_LABEL[r.auth.state], tone: "warn" };
 }
 
+/**
+ * Why a new task on an AI tool waits for now (Phase 19): it is being updated (ADR-059 §4), or
+ * its sign-in tab is open (ADR-058 §5). `null` when nothing holds it.
+ */
+export function heldNote(r: AgentRuntimeInfo): string | null {
+  switch (r.held) {
+    case "update":
+      return `Waiting: ${r.label} is being updated. A new task starts on it when that's done.`;
+    case "signIn":
+      return `${r.label}'s sign-in tab is open. A new task waits until it closes, or 10 minutes at most.`;
+    default:
+      return null;
+  }
+}
+
 /** Why an AI tool cannot take work, with what to do about it. `null` when ready. */
 export function notReadyHint(r: AgentRuntimeInfo): string | null {
   if (r.ready) return null;

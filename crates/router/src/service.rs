@@ -722,6 +722,7 @@ mod tests {
             checked_version: String::new(),
             account: Default::default(),
             reported_models: None,
+            held: None,
         }
     }
 

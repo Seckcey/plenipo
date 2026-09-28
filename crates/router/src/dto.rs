@@ -484,6 +484,7 @@ mod reported_models_tests {
             checked_version: "1.0.41".into(),
             account: AccountCommands::default(),
             reported_models: reported,
+            held: None,
         }
     }
 

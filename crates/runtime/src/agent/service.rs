@@ -662,7 +662,15 @@ impl AgentRuntime {
     // ---- Detection ----------------------------------------------------------------------
 
     pub fn runtimes(&self) -> Vec<AgentRuntimeInfo> {
-        self.lock().runtimes.clone()
+        let state = self.lock();
+        state
+            .runtimes
+            .iter()
+            .map(|r| AgentRuntimeInfo {
+                held: state.holds.get(&r.id).map(|h| h.reason()),
+                ..r.clone()
+            })
+            .collect()
     }
 
     /// Detect installation, version, and sign-in for every runtime (in parallel).
@@ -935,19 +943,24 @@ impl AgentRuntime {
             return Err(NotFree::Tasks(tasks));
         }
         if let Some(held) = state.holds.get(runtime_id) {
-            return Err(NotFree::Held(if held.update > 0 {
-                HoldFor::Update
-            } else {
-                HoldFor::SignIn
-            }));
+            return Err(NotFree::Held(held.reason()));
         }
         let holds = state.holds.entry(runtime_id.to_owned()).or_default();
         *holds.count(reason) += 1;
+        drop(state);
+        self.holds_shown();
         Ok(RuntimeHold {
             runtime: self.clone(),
             runtime_id: runtime_id.to_owned(),
             reason,
         })
+    }
+
+    /// Tell the screen which AI tools are held now: a new task on one says it waits.
+    fn holds_shown(&self) {
+        self.inner.sink.emit(AgentUpdate::Runtimes(RuntimesUpdate {
+            runtimes: self.runtimes(),
+        }));
     }
 
     /// Whether `runtime_id` is held now.
@@ -967,6 +980,7 @@ impl AgentRuntime {
             }
         }
         self.inner.holds_changed.notify_waiters();
+        self.holds_shown();
     }
 
     /// Wait while `runtime_id` is held — while it updates, until the update and its checks are
@@ -1171,17 +1185,16 @@ impl AgentRuntime {
     /// Keep the models `runtime_id` reported (a check, or the list saved in the Ledger when
     /// Plenipo starts), and tell the screen.
     pub fn set_reported_models(&self, runtime_id: &str, models: ReportedModels) {
-        let runtimes = {
+        {
             let mut state = self.lock();
             let Some(slot) = state.runtimes.iter_mut().find(|r| r.id == runtime_id) else {
                 return;
             };
             slot.reported_models = Some(models);
-            state.runtimes.clone()
-        };
-        self.inner
-            .sink
-            .emit(AgentUpdate::Runtimes(RuntimesUpdate { runtimes }));
+        }
+        self.inner.sink.emit(AgentUpdate::Runtimes(RuntimesUpdate {
+            runtimes: self.runtimes(),
+        }));
     }
 
     /// Give `runtime_id` no tasks, and say why (`Some`), or give it tasks again (`None`): an
@@ -1213,9 +1226,10 @@ impl AgentRuntime {
     pub async fn overview(&self) -> Result<AgentOverview, RuntimeError> {
         let sessions = self.with_store(|s| s.sessions(200)).await?;
         let sessions = sessions.into_iter().map(|s| self.with_active(s)).collect();
+        let runtimes = self.runtimes();
         let state = self.lock();
         Ok(AgentOverview {
-            runtimes: state.runtimes.clone(),
+            runtimes,
             sessions,
             notices: state.notices.clone(),
         })
@@ -2271,17 +2285,6 @@ fn first_message(input: TurnInput) -> StepMessage {
     }
 }
 
-/// Why an AI tool is held, which decides how long a task that would start waits for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HoldFor {
-    /// The owner's sign-in or sign-out tab (ADR-058 §5): a task waits
-    /// [`AgentConfig::hold_wait`] at most, so a tab left open does not stop the work for good.
-    SignIn,
-    /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
-    /// starts on the new version, or on the old one if the update failed.
-    Update,
-}
-
 /// Why an AI tool could not be held ([`AgentRuntime::hold_if_free`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotFree {
@@ -2299,6 +2302,15 @@ struct Holds {
 }
 
 impl Holds {
+    /// Why the tool is held: an update, when there is one.
+    fn reason(self) -> HoldFor {
+        if self.update > 0 {
+            HoldFor::Update
+        } else {
+            HoldFor::SignIn
+        }
+    }
+
     fn count(&mut self, reason: HoldFor) -> &mut u32 {
         match reason {
             HoldFor::SignIn => &mut self.sign_in,
@@ -2873,6 +2885,7 @@ fn checking(adapter: &dyn RuntimeAdapter) -> AgentRuntimeInfo {
             sign_out: account_words(adapter, AccountAction::SignOut),
         },
         reported_models: None,
+        held: None,
     }
 }
 

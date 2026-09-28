@@ -192,9 +192,25 @@ pub struct AgentRuntimeInfo {
     pub account: AccountCommands,
     /// The models the AI tool last reported itself, when it has a list (ADR-060 §5).
     pub reported_models: Option<ReportedModels>,
+    /// Why new tasks on it wait for now: its sign-in tab is open, or it is being updated.
+    pub held: Option<HoldFor>,
 }
 
 // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------
+
+/// Why an AI tool is held — no new task starts on it for now — which decides how long a task
+/// that would start waits for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum HoldFor {
+    /// The owner's sign-in or sign-out tab (ADR-058 §5): a task waits a while at most (ten
+    /// minutes), so a tab left open does not stop the work for good.
+    SignIn,
+    /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
+    /// starts on the new version, or on the old one if the update failed.
+    Update,
+}
 
 /// Signing in to, or out of, an AI tool, in a terminal tab that runs the tool's own command
 /// (ADR-058). Reconnect is signing in again.

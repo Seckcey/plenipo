@@ -13,6 +13,7 @@ import {
   describeActivity,
   describePrompt,
   describeUsage,
+  heldNote,
   notReadyHint,
   OUTCOME_LABEL,
   outcomeTone,
@@ -240,6 +241,11 @@ export function WorkersView({
           )}
         </details>
 
+        {chosen && heldNote(chosen) && (
+          <p className="hint" role="status">
+            {heldNote(chosen)}
+          </p>
+        )}
         {hint && chosen && (
           <p className="hint" role="note">
             <strong>{chosen.label} is not ready.</strong> {hint}{" "}

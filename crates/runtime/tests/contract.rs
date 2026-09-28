@@ -695,6 +695,18 @@ async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
     // Held (a sign-in or an update): a task that would start waits, then runs.
     let hold = fakes.rt.hold_if_free("codex", HoldFor::Update).unwrap();
     assert!(fakes.rt.held("codex"));
+    // The screen is told why new tasks on Codex wait.
+    let held = |id: &str| {
+        fakes
+            .rt
+            .runtimes()
+            .into_iter()
+            .find(|r| r.id == id)
+            .unwrap()
+            .held
+    };
+    assert_eq!(held("codex"), Some(HoldFor::Update));
+    assert_eq!(held("grok"), None);
     // One at a time: no sign-in tab while it updates, and no second update.
     assert_eq!(
         fakes.rt.hold_if_free("codex", HoldFor::SignIn).unwrap_err(),
@@ -717,6 +729,7 @@ async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
         .unwrap();
     assert_eq!(detail.session.runtime_id, "codex");
     assert!(!fakes.rt.held("codex"));
+    assert_eq!(held("codex"), None);
 
     // A task using a tool: the tool is not held, and the task is named.
     let rt = fakes.rt.clone();
