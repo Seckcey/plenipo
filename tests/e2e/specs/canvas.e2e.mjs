@@ -333,10 +333,11 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await fit(browser);
     await screenshot(browser, "lent");
 
-    // Its Team tab says where it helps, and until when.
+    // Its Team tab says where it helps, and until when. (Section titles show in capitals, so
+    // the check reads the sentence under the title.)
     await select(browser, "Security Auditor");
     await detailsTab(browser, "Team");
-    await waitForText(browser, DETAILS, "Lent to another team");
+    await waitForText(browser, DETAILS, "Helping Campaign Supervisor's team");
     await waitForText(browser, DETAILS, "for its next objective");
     await screenshot(browser, "lent-team-tab");
 
@@ -356,7 +357,7 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await select(browser, "Security Auditor");
     await detailsTab(browser, "Team");
     await waitForText(browser, DETAILS, "Development Manager");
-    assert.ok(!(await textOf(browser, DETAILS)).includes("Lent to another team"));
+    assert.ok(!(await textOf(browser, DETAILS)).includes("Helping Campaign Supervisor's team"));
   });
 
   it("rewires a line by its end, and archives with the trash can (Undo, and the drawer)", async () => {
