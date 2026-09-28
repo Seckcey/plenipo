@@ -59,9 +59,14 @@ pub fn start_daily(tools: AiTools) {
         .name("plenipo-ai-tools-daily".into())
         .spawn(move || {
             std::thread::sleep(FIRST_LOOK);
+            // When Plenipo starts, each AI tool's models (ADR-060 §5), unless the daily look
+            // just asked for them.
+            if !tauri::async_runtime::block_on(tools.daily()) {
+                tauri::async_runtime::block_on(tools.check_models());
+            }
             loop {
-                tauri::async_runtime::block_on(tools.daily());
                 std::thread::sleep(EVERY);
+                tauri::async_runtime::block_on(tools.daily());
             }
         });
 }

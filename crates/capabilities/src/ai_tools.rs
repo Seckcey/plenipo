@@ -968,11 +968,27 @@ impl AiTools {
     }
 
     /// The daily job (every hour, the look at most once a day): look for new versions, refresh
-    /// models and plans, and — with the switch on — update.
-    pub async fn daily(&self) {
+    /// models and plans, and — with the switch on — update. Whether it looked.
+    pub async fn daily(&self) -> bool {
         let last = self.stored().last_looked_at.unwrap_or(0);
         if now().saturating_sub(last) >= LOOK_EVERY_MS {
             self.look_for_new_versions(UpdateBy::Automatic).await;
+            return true;
+        }
+        false
+    }
+
+    /// Ask each installed AI tool for its models (and plan), as when Plenipo starts (ADR-060 §5).
+    /// Never a tool whose check leaves a trace in its own history (Kimi).
+    pub async fn check_models(&self) {
+        for adapter in plenipo_runtime::agent::builtin_adapters() {
+            let id = adapter.id();
+            let installed = self
+                .info(id)
+                .is_some_and(|i| i.installation.state == InstallState::Installed);
+            if installed && !adapter.status_check_leaves_a_trace() {
+                self.status_check(id).await;
+            }
         }
     }
 
