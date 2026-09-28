@@ -84,8 +84,8 @@ const openLinkedQuestion = () => {
 window.addEventListener("hashchange", openLinkedQuestion);
 openLinkedQuestion();
 
-// Load the larger React Flow island only after an explicit request. The static
-// example and the rest of the page work even when its scripts cannot load.
+// Open the sample on page entry. The static example remains readable while it
+// loads and when scripts fail; returning to it never starts another automatic load.
 const startDemo = document.getElementById("start-demo");
 const stopDemo = document.getElementById("stop-demo");
 const demoRoot = document.getElementById("demo-root");
@@ -94,19 +94,24 @@ const loadStatus = document.getElementById("demo-load-status");
 let unmountDemo;
 let demoStyle;
 let failedDemoLoads = 0;
+let demoState = "static";
 startDemo.hidden = false;
 const showFallback = (message) => {
+  demoState = "static";
   demoRoot.hidden = true;
   fallback.hidden = false;
   stopDemo.hidden = true;
-  startDemo.disabled = false;
+  startDemo.setAttribute("aria-disabled", "false");
   startDemo.textContent = "Explore the interactive demo";
   loadStatus.textContent = message;
 };
-startDemo.addEventListener("click", async () => {
-  // Reserve the expanded scene during the click, before a slow bundle arrives.
+const openDemo = async (focus = false) => {
+  if (demoState !== "static") return;
+  demoState = "loading";
+  // Reserve the expanded scene before a slow bundle arrives.
   fallback.parentElement.dataset.demoOpen = "true";
-  startDemo.disabled = true;
+  // Keep the control focusable while loading; demoState blocks repeat activation.
+  startDemo.setAttribute("aria-disabled", "true");
   startDemo.textContent = "Opening the sample team…";
   loadStatus.textContent = "Loading the interactive sample. No AI tools are being connected.";
   try {
@@ -130,9 +135,11 @@ startDemo.addEventListener("click", async () => {
     unmountDemo = mountDemo(
       demoRoot,
       () => {
+        demoState = "ready";
+        const focusDemo = focus && document.activeElement === startDemo;
         fallback.hidden = true;
         stopDemo.hidden = false;
-        demoRoot.querySelector('[role="tab"]')?.focus({ preventScroll: true });
+        if (focusDemo) demoRoot.querySelector('[role="tab"]')?.focus({ preventScroll: true });
       },
       () =>
         showFallback(
@@ -145,7 +152,8 @@ startDemo.addEventListener("click", async () => {
       "The interactive example could not load. You can retry, or read the sample below.",
     );
   }
-});
+};
+startDemo.addEventListener("click", () => void openDemo(true));
 stopDemo.addEventListener("click", () => {
   unmountDemo?.();
   unmountDemo = undefined;
@@ -153,3 +161,4 @@ stopDemo.addEventListener("click", () => {
   showFallback("Illustrated sample. No real AI runs, sign-in, or saved changes.");
   startDemo.focus({ preventScroll: true });
 });
+void openDemo();

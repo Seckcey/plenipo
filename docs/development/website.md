@@ -13,12 +13,18 @@ as of September 28, 2026. See the [release receipt](website-releases/2026-09-28-
 for actual source/image identity, public acceptance, and retained rollback. Its installer metadata
 remains v1.6.0. Later main-branch version templating is not included in that deployment.
 
-The hero and download links render without JavaScript. A small loader in `main.js` starts the
-React/React Flow island only when the visitor chooses **Explore the interactive demo**. Its
+The hero and download links render without JavaScript. In the corrected source, a small loader in
+`main.js` starts the React/React Flow island immediately on page entry, without a click, scroll,
+or idle gate. The deployed `155ad42` release above still requires a click until the correction is
+released and its production receipt is recorded. The loader's
 content-hashed JS and CSS are built with esbuild and served from the same origin. A readable
 HTML example remains available without JavaScript, after a load/render failure, and through
 **Return to the static example**. No desktop modules, commands, provider calls, storage, or
 customer data are used. The permanent disclosure identifies it as a sample with no real AI.
+Automatic mounting does not focus the sample or scroll the page. Retry/reactivation focuses it
+only if the visitor is still on its button. Pending/ready loads reject duplicate starts; returning
+to static stays static until explicitly reopened. Network transfer still takes time, so the
+readable example and loading status remain visible until the sample is ready.
 
 `apps/website/src/sample.ts` owns the fictional team, conversations, and activity. `Demo.tsx`
 owns the map/list view, selected-person panel, story tabs, session switch, sample approval,
@@ -51,7 +57,10 @@ budgets of 180,000 bytes of JS and 12,000 bytes of CSS. These are build-compress
 network or speed guarantees. React Flow exceeds the earlier native-module proposal's 80 KB
 target; the owner's explicit React Flow choice replaces that architecture. Measure actual
 HTTP transfer sizes and interaction behavior as recorded in [acceptance](website-validation.md).
-No demo JS/CSS is requested before activation, and only the currently needed Pip pose loads.
+The corrected source requests demo JS/CSS on page entry; only the currently needed Pip pose loads.
+Earlier click-activation measurements describe the initial implementation, not initial-page cost
+after this correction. See the [automatic-entry acceptance record](../phases/website-autostart-acceptance.md)
+for fresh-navigation measurements and fallback checks.
 
 ## Content and search
 
