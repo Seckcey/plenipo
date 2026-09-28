@@ -383,8 +383,9 @@ fn route(
              }, 700)</script>",
         )),
         // A page that hides the owner's sign once (it should be put back); one that removes it
-        // again and again (it should be stopped); and one whose own dialog and top-most widget
-        // are simply in front of it (an ordinary page: nothing to stop).
+        // again and again (it should be stopped); and one whose own dialog, top-most widget, and
+        // zoom on its root are simply there (an ordinary page: nothing to stop, and the sign
+        // keeps its size).
         ("GET", "/sign-hide-once") => ok(page(
             "Hide once",
             "<p id=out>Waiting</p><script>setTimeout(() => { const s = \
@@ -405,14 +406,16 @@ fn route(
         )),
         ("GET", "/sign-under-dialog") => ok(page(
             "Dialog in front",
-            "<dialog id=d><p>Cookies?</p><button type=button id=ok>OK</button></dialog>\
+            "<style>html { zoom: 0.5 } body { zoom: 2 }</style>\
+             <dialog id=d><p>Cookies?</p><button type=button id=ok>OK</button></dialog>\
              <div id=widget style=\"position:fixed;right:0;bottom:0;width:200px;height:120px;\
              z-index:2147483647;background:#ddd\">Chat with us</div>\
              <p id=out>Waiting</p><script>document.getElementById('d').showModal(); \
              setTimeout(() => { const s = document.querySelector('plenipo-sign'); \
              document.getElementById('out').textContent = 'Sign: ' + (s && s.isConnected && \
              getComputedStyle(s).display === 'block' ? 'shown' : 'gone') + ', dialog: ' + \
-             (document.getElementById('d').open ? 'open' : 'closed'); }, 900)</script>",
+             (document.getElementById('d').open ? 'open' : 'closed') + ', size: ' + \
+             (s && Math.abs(s.currentCSSZoom - 1) < 0.01 ? 'full' : 'shrunk'); }, 900)</script>",
         )),
         ("GET", "/secret-field") => ok(page(
             "Account",

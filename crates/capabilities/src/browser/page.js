@@ -375,10 +375,21 @@
     }
     return !hasPopover(host) || host.matches(":popover-open");
   };
+  // A `zoom` on the page's root reaches even the top layer: the sign takes the opposite zoom, so
+  // it keeps its size (an ordinary page style, never counted against the page).
+  const signUnzoom = (host) => {
+    const root = document.documentElement;
+    const rootZoom = (root && root.currentCSSZoom) || 1;
+    const want = rootZoom > 0 ? String(1 / rootZoom) : "1";
+    if (host.style.getPropertyValue("zoom") !== want) {
+      host.style.setProperty("zoom", want, "important");
+    }
+  };
   // The host as Plenipo made it: its styles, no other attributes, under the page's root (the
   // root of the moment: a page may replace it), and shown as a popover.
   const signDress = (host) => {
     host.style.cssText = SIGN_STYLE;
+    signUnzoom(host);
     for (const name of host.getAttributeNames()) {
       if (name !== "style" && name !== "popover") host.removeAttribute(name);
     }
@@ -428,6 +439,7 @@
     if (!overlay || signGivenUp) return;
     const host = overlay.host;
     asOurs(() => {
+      signUnzoom(host);
       if (host.isConnected && host.nextSibling) document.documentElement.appendChild(host);
       if (hasPopover(host) && host.matches(":popover-open")) {
         const above = document.querySelector(":modal, :fullscreen, :popover-open");

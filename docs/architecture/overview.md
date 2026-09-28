@@ -704,7 +704,8 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   override (`SIGN_STYLE`, each `!important`) and shows it as a manual popover in the browser's
   top layer, above every z-index and untouched by the page's DOM order or a style on its root;
   every 400 ms it is kept last under the root and above any dialog or popover the page opened
-  later (`signTick`, never counted against the page). It watches the host (a `MutationObserver`
+  later, and given the opposite of a `zoom` on the page's root, which reaches even the top layer
+  (`signTick`, never counted against the page). It watches the host (a `MutationObserver`
   and the popover's `toggle`) and puts the sign back when the page removes, restyles, hides, or
   closes it (`signRestore`); the helper's own writes are not counted. A page that does so more
   than five times is reported once (`Signal::SignFought`) and the helper stops restoring;

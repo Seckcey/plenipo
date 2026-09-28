@@ -1885,9 +1885,9 @@ async fn the_owners_sign_survives_the_page_and_a_page_that_keeps_fighting_it_is_
         "{stopped:?}"
     );
 
-    // An ordinary page with its own dialog open and a widget at the very top of the stacking
-    // order: nothing of the page's was touched, so the worker keeps the browser, and the sign
-    // stays up in front (the browser's top layer).
+    // An ordinary page with its own dialog open, a widget at the very top of the stacking order,
+    // and a zoom on its root: nothing of the page's was touched, so the worker keeps the browser,
+    // and the sign stays up in front (the browser's top layer), at its own size.
     let (task, text) = h
         .run(
             "Web Assistant",
@@ -1899,7 +1899,7 @@ async fn the_owners_sign_survives_the_page_and_a_page_that_keeps_fighting_it_is_
         )
         .await;
     assert!(
-        text.contains("Sign: shown, dialog: open"),
+        text.contains("Sign: shown, dialog: open, size: full"),
         "the sign is up under a dialog: {text}"
     );
     assert!(
