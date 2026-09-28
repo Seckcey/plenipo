@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::commands::{first_match, rule_matches, CommandLine};
 use crate::config::GuardConfig;
+use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, ConnectionVerdict};
 use crate::dto::*;
 use crate::paths::blocked_by;
 use crate::registry::Capability;
@@ -21,6 +22,9 @@ use crate::websites::{self, Site, SiteVerdict};
 pub struct Scope {
     pub role_id: String,
     pub role_name: String,
+    /// The agent (its position), when known: a connection's own line for it wins over its
+    /// role's (ADR-062 §3).
+    pub position_id: Option<String>,
     pub project: Option<ScopeProject>,
     pub department: Option<ScopeUnit>,
 }
@@ -84,6 +88,8 @@ pub fn doing(c: Capability) -> &'static str {
         Capability::BrowserAutomate => "using websites",
         Capability::ComputerObserve => "seeing the screen",
         Capability::ComputerControl => "using the mouse and keyboard",
+        Capability::ConnectionsRead => "reading through this connection",
+        Capability::ConnectionsWrite => "writing through this connection",
         Capability::McpInvoke => "using add-on tools",
         Capability::NetworkLocal => "reaching local services",
         Capability::ProcessManage => "managing running programs",
@@ -117,9 +123,69 @@ pub fn level_for(config: &GuardConfig, scope: &Scope, c: Capability) -> LevelFor
         verdict: verdict_of(role_level),
         note: role_note.clone(),
     });
-    let mut level = role_level;
-    let mut layer = Layer::Role;
-    let mut reason = role_note;
+    narrowed(config, scope, c, role_level, Layer::Role, role_note, checks)
+}
+
+/// The level `scope` has for `c` (`connections.read` or `connections.write`) through
+/// `connection`: the connection's **Who may use it** list grants — the agent's own line, else its
+/// role's (ADR-062 §3); the project's and the department's limits can only narrow it.
+pub fn level_for_connection(
+    config: &GuardConfig,
+    scope: &Scope,
+    connection: &Connection,
+    c: Capability,
+) -> LevelFor {
+    let what = doing(c);
+    let name = connection.label();
+    let role = format!("the {} role", scope.role_name);
+    let (level, note) = match connection.line_for(scope.position_id.as_deref(), &scope.role_id) {
+        None => (
+            Level::Blocked,
+            format!("{name}'s Who may use it list does not include this agent or {role}"),
+        ),
+        Some(line) => {
+            let whose = match line.who {
+                connections::Who::Agent { .. } => "this agent".to_owned(),
+                connections::Who::Role { .. } => role,
+            };
+            let l = match (line.level, c) {
+                (_, Capability::ConnectionsRead) => Level::Allowed,
+                (AccessLevel::ReadWrite, Capability::ConnectionsWrite) => Level::Allowed,
+                _ => Level::Blocked,
+            };
+            (
+                l,
+                format!(
+                    "{name}'s Who may use it list gives {whose} {}, which {}",
+                    line.level.words(),
+                    says(l, what)
+                ),
+            )
+        }
+    };
+    let checks = vec![Check {
+        layer: Layer::Role,
+        verdict: verdict_of(level),
+        note: note.clone(),
+    }];
+    narrowed(config, scope, c, level, Layer::Role, note, checks)
+}
+
+/// A worker's level after the project's and department's limits and the owner's switches,
+/// starting from what its grant gives (`granted`, decided by `granted_by`, `because` …).
+fn narrowed(
+    config: &GuardConfig,
+    scope: &Scope,
+    c: Capability,
+    granted: Level,
+    granted_by: Layer,
+    because: String,
+    mut checks: Vec<Check>,
+) -> LevelFor {
+    let what = doing(c);
+    let mut level = granted;
+    let mut layer = granted_by;
+    let mut reason = because;
 
     let mut limit =
         |layer_kind: Layer, owner: String, set_id: Option<&str>, checks: &mut Vec<Check>| {
@@ -237,6 +303,8 @@ pub struct Request<'a> {
     pub site: Option<SiteCheck<'a>>,
     /// The server it uses (Phase 11), checked against the owner's settings for that server.
     pub server: Option<ServerCheck<'a>>,
+    /// The connection it uses (Phase 20), checked against the owner's settings for it.
+    pub connection: Option<ConnectionCheck<'a>>,
 }
 
 /// A website an action opens or acts on.
@@ -350,6 +418,30 @@ pub fn evaluate(
             }
         }
     }
+    // A connection (Phase 20): connected, and the part on at a level that allows the tool.
+    let mut connection_sensitive = None;
+    let mut connection_all_listed = false;
+    if let Some(check) = &request.connection {
+        match connections::check(check) {
+            ConnectionVerdict::Deny { layer, reason } => {
+                return decision(
+                    Verdict::Deny,
+                    layer,
+                    format!("Blocked: {reason}."),
+                    risk,
+                    None,
+                    checks,
+                )
+            }
+            ConnectionVerdict::Go {
+                sensitive,
+                all_listed,
+            } => {
+                connection_sensitive = sensitive;
+                connection_all_listed = all_listed;
+            }
+        }
+    }
     if request.writes_git_dir {
         return decision(
             Verdict::Deny,
@@ -443,6 +535,7 @@ pub fn evaluate(
         .or_else(|| server_sensitive.first().copied());
     let found = request
         .inherent
+        .or(connection_sensitive)
         .or(server_found)
         .or_else(|| {
             request
@@ -450,24 +543,40 @@ pub fn evaluate(
                 .and_then(|c| sensitive::command(c, request.workspace))
         })
         .or_else(|| request.script.and_then(sensitive::script));
-    // The owner's website switches (ADR-023): on a website on the allowed list, sending, buying,
-    // or signing in may go ahead without asking. A kind set to blocked stays blocked, and the
-    // role's own "ask me" level still asks (below).
+    // The owner's switches (ADR-023): on a website on the allowed list, sending, buying, or
+    // signing in may go ahead without asking; through a connection, only sending, and only when
+    // every recipient is on the connection's list (ADR-062 §5) — money never goes ahead without
+    // asking there. A kind set to blocked stays blocked, and the role's own "ask me" level still
+    // asks (below).
+    let on_allowed_site = request.capability == Capability::BrowserAutomate && site_allowed;
+    let to_listed_recipients = |kind: SensitiveKind| {
+        request.capability == Capability::ConnectionsWrite
+            && kind == SensitiveKind::Outbound
+            && connection_all_listed
+    };
     let without_asking = |kind: SensitiveKind| {
-        request.capability == Capability::BrowserAutomate
-            && site_allowed
+        (on_allowed_site || to_listed_recipients(kind))
             && config.sensitive_rule(kind) == SensitiveRule::Ask
             && config.switches.without_asking(kind) == Some(true)
     };
     if let Some((kind, because)) = found.filter(|(kind, _)| without_asking(*kind)) {
-        checks.push(Check {
-            layer: Layer::Risk,
-            verdict: Verdict::Allow,
-            note: format!(
+        let note = if to_listed_recipients(kind) {
+            format!(
+                "{because} ({}); you let workers send to the addresses on this connection's list \
+                 without asking (Settings → Switches and Settings → Connections)",
+                kind.label()
+            )
+        } else {
+            format!(
                 "{because} ({}); you let workers do this on your allowed websites without asking \
                  (Settings → Switches)",
                 kind.label()
-            ),
+            )
+        };
+        checks.push(Check {
+            layer: Layer::Risk,
+            verdict: Verdict::Allow,
+            note,
         });
     }
     if let Some((kind, because)) = found.filter(|(kind, _)| !without_asking(*kind)) {
@@ -609,7 +718,10 @@ pub fn evaluate(
     checks.push(Check {
         layer: Layer::Target,
         verdict: Verdict::Allow,
-        note: "inside the project folder".into(),
+        note: match &request.connection {
+            Some(c) => format!("through {}", c.connection.label()),
+            None => "inside the project folder".into(),
+        },
     });
     decision(
         Verdict::Allow,
@@ -652,6 +764,7 @@ mod tests {
                 id: "d".into(),
                 name: "Development".into(),
             }),
+            ..Scope::default()
         }
     }
 
@@ -673,7 +786,163 @@ mod tests {
             workspace: Path::new("/w"),
             site: None,
             server: None,
+            connection: None,
         }
+    }
+
+    /// Microsoft 365, connected: Mail at Full access, Calendar at Read only; the Documentation
+    /// Writer role may read and write, and one agent in it may only read.
+    fn microsoft() -> Connection {
+        use crate::connections::{Access, AccountKind, ConnectionState, Part, PartLevel, Service};
+        let mut m = Connection::new("microsoft365", Service::Microsoft365);
+        m.state = ConnectionState::Connected;
+        m.account_kind = Some(AccountKind::Work);
+        m.parts.insert(Part::Mail, PartLevel::FullAccess);
+        m.access = vec![
+            Access {
+                who: connections::Who::Role {
+                    id: "writer".into(),
+                },
+                level: AccessLevel::ReadWrite,
+            },
+            Access {
+                who: connections::Who::Agent {
+                    id: "pos-read".into(),
+                },
+                level: AccessLevel::ReadOnly,
+            },
+        ];
+        m.send_list = vec!["@8westit.com".into()];
+        m
+    }
+
+    fn writer(position: &str, limit: Option<&str>) -> Scope {
+        Scope {
+            role_id: "writer".into(),
+            role_name: "Documentation Writer".into(),
+            position_id: Some(position.into()),
+            project: Some(ScopeProject {
+                id: "p".into(),
+                name: "Website".into(),
+                limit: limit.map(str::to_owned),
+                folder: None,
+            }),
+            ..Scope::default()
+        }
+    }
+
+    fn connection_eval(
+        c: &GuardConfig,
+        s: &Scope,
+        m: &Connection,
+        kind: crate::connections::ToolKind,
+        to: &[String],
+    ) -> Decision {
+        use crate::connections::{Part, ToolKind};
+        let capability = if kind == ToolKind::Read {
+            Capability::ConnectionsRead
+        } else {
+            Capability::ConnectionsWrite
+        };
+        let now = level_for_connection(c, s, m, capability);
+        let mut r = request(capability, &[], None);
+        r.summary = "send the reply";
+        r.connection = Some(ConnectionCheck {
+            connection: m,
+            part: Part::Mail,
+            kind,
+            recipients: to,
+        });
+        evaluate(
+            c,
+            &r,
+            &now,
+            GrantState {
+                level: now.level,
+                revoked: false,
+            },
+        )
+    }
+
+    /// ADR-062 §3: the connection's list grants — the agent's own line, else its role's — and a
+    /// project's limit only narrows it.
+    #[test]
+    fn a_connections_list_grants_and_limits_narrow() {
+        use crate::connections::ToolKind;
+        let c = config();
+        let m = microsoft();
+        let d = connection_eval(&c, &writer("pos-1", None), &m, ToolKind::Read, &[]);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        let d = connection_eval(&c, &writer("pos-1", None), &m, ToolKind::Write, &[]);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        // The agent's own line (Read only) wins over its role's.
+        let d = connection_eval(&c, &writer("pos-read", None), &m, ToolKind::Write, &[]);
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(
+            d.reason.contains("gives this agent Read only"),
+            "{}",
+            d.reason
+        );
+        // A role not on the list gets nothing, whatever its permission set.
+        let dev = Scope {
+            position_id: Some("pos-dev".into()),
+            ..scope("dev", None)
+        };
+        let d = connection_eval(&c, &dev, &m, ToolKind::Read, &[]);
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(d.reason.contains("Who may use it"), "{}", d.reason);
+        // A project limited to a set without Connections: none there.
+        let d = connection_eval(
+            &c,
+            &writer("pos-1", Some("developer")),
+            &m,
+            ToolKind::Read,
+            &[],
+        );
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert_eq!(d.layer, Layer::Project);
+    }
+
+    /// ADR-062 §5: sending asks — unless the switch is on and every recipient is listed; the
+    /// owner's Blocked rule and an "ask" limit still win; deleting asks; paying always asks.
+    #[test]
+    fn sending_asks_unless_switched_on_for_listed_recipients_and_paying_always_asks() {
+        use crate::connections::ToolKind;
+        let mut c = config();
+        let m = microsoft();
+        let s = writer("pos-1", None);
+        let team = vec!["frankie@8westit.com".to_owned()];
+        let outside = vec!["frankie@8westit.com".to_owned(), "x@evil.test".to_owned()];
+        let d = connection_eval(&c, &s, &m, ToolKind::Send, &team);
+        assert_eq!(d.verdict, Verdict::Ask);
+        assert_eq!(d.sensitive, Some(SensitiveKind::Outbound));
+        c.switches.send_without_asking = true;
+        let d = connection_eval(&c, &s, &m, ToolKind::Send, &team);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        assert!(d
+            .checks
+            .iter()
+            .any(|k| k.note.contains("this connection's list")));
+        // One recipient off the list: it asks.
+        let d = connection_eval(&c, &s, &m, ToolKind::Send, &outside);
+        assert_eq!(d.verdict, Verdict::Ask);
+        // Sending set to Blocked: never.
+        c.set_sensitive(SensitiveKind::Outbound, SensitiveRule::Block);
+        let d = connection_eval(&c, &s, &m, ToolKind::Send, &team);
+        assert_eq!(d.verdict, Verdict::Deny);
+        c.set_sensitive(SensitiveKind::Outbound, SensitiveRule::Ask);
+        // Deleting asks.
+        let d = connection_eval(&c, &s, &m, ToolKind::Delete, &[]);
+        assert_eq!(d.verdict, Verdict::Ask);
+        assert_eq!(d.sensitive, Some(SensitiveKind::CloudDelete));
+        // Paying always asks, even with "Buying and paying (without asking)" on.
+        c.switches.buy_without_asking = true;
+        let d = connection_eval(&c, &s, &m, ToolKind::Pay, &team);
+        assert_eq!(d.verdict, Verdict::Ask);
+        assert_eq!(d.sensitive, Some(SensitiveKind::Payment));
+        // A draft stays in the owner's account: no question.
+        let d = connection_eval(&c, &s, &m, ToolKind::Write, &[]);
+        assert_eq!(d.verdict, Verdict::Allow);
     }
 
     fn eval(c: &GuardConfig, s: &Scope, r: &Request<'_>) -> Decision {

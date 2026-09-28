@@ -143,7 +143,7 @@ impl Guard {
 
     /// Change the configuration in one Ledger transaction, recording `event` with the payload
     /// `change` returns (`None`: nothing to record, nothing written).
-    fn update<T>(
+    pub(crate) fn update<T>(
         &self,
         event: &str,
         actor: &str,
@@ -618,6 +618,7 @@ pub fn scope_in(
     Some(Scope {
         role_id: role.id.clone(),
         role_name: role.name.clone(),
+        position_id: Some(position.id.clone()),
         project: project.map(|p| ScopeProject {
             id: p.id.clone(),
             name: p.name.clone(),
@@ -845,7 +846,7 @@ mod tests {
         g.remove_secret(&s.id).unwrap();
         g.remove_set(&set.id).unwrap();
         let settings = g.settings().unwrap();
-        assert_eq!(settings.capabilities.len(), 16);
+        assert_eq!(settings.capabilities.len(), 18);
         assert!(settings
             .websites
             .blocked

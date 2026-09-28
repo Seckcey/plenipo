@@ -140,7 +140,7 @@ impl SensitiveKind {
             Self::Dns => "Changing DNS",
             Self::Credentials => "Changing passwords, keys, or other credentials",
             Self::Database => "Deleting or wiping database data",
-            Self::CloudDelete => "Deleting cloud resources",
+            Self::CloudDelete => "Deleting online: cloud resources, mail, files, messages",
             Self::Payment => "Money: buying, payments, refunds, payouts",
             Self::Outbound => "Sending or publishing outside this computer",
             Self::Privilege => "Running as administrator",
@@ -157,14 +157,18 @@ impl SensitiveKind {
             Self::Dns => "aws route53, az network dns, Set-DnsServerResourceRecord",
             Self::Credentials => "passwd, gh auth, aws iam create-access-key, docker login",
             Self::Database => "DROP TABLE, TRUNCATE, redis-cli flushall, prisma migrate reset",
-            Self::CloudDelete => "aws … delete, az … delete, terraform destroy, kubectl delete",
+            Self::CloudDelete => {
+                "aws … delete, az … delete, terraform destroy, kubectl delete; replacing or \
+                 deleting a file through a Connection"
+            }
             Self::Payment => {
                 "stripe refunds create, payouts, charges; Buy now, Place order, Pay, or Checkout \
-                 on a website"
+                 on a website; refunds and invoices through a Connection (these always ask)"
             }
             Self::Outbound => {
                 "git push, npm publish, docker push, gh pr create, sending email; submitting a \
-                 form or sending a message on a website"
+                 form or sending a message on a website; sending mail, a chat message, or an \
+                 invitation through a Connection"
             }
             Self::Privilege => "sudo, runas, Start-Process -Verb RunAs",
             Self::OutsideWorkspace => "rm, del, or move with a path outside the project folder",

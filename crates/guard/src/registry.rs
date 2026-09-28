@@ -35,6 +35,10 @@ pub enum Capability {
     ComputerObserve,
     #[serde(rename = "computer.control")]
     ComputerControl,
+    #[serde(rename = "connections.read")]
+    ConnectionsRead,
+    #[serde(rename = "connections.write")]
+    ConnectionsWrite,
     #[serde(rename = "mcp.invoke")]
     McpInvoke,
     #[serde(rename = "network.local")]
@@ -57,7 +61,7 @@ pub struct Info {
     pub arrives: Option<&'static str>,
 }
 
-const REGISTRY: [Info; 16] = [
+const REGISTRY: [Info; 18] = [
     Info {
         capability: Capability::FilesystemRead,
         id: "filesystem.read",
@@ -171,6 +175,27 @@ const REGISTRY: [Info; 16] = [
         arrives: None,
     },
     Info {
+        capability: Capability::ConnectionsRead,
+        id: "connections.read",
+        label: "Read through Connections",
+        description: "Read mail, calendars, files, and messages through the Connections a worker \
+                      may use. Who may use each connection is chosen in Settings → Connections; \
+                      in a project's or department's limit, this is the most it allows.",
+        tools: true,
+        arrives: None,
+    },
+    Info {
+        capability: Capability::ConnectionsWrite,
+        id: "connections.write",
+        label: "Write through Connections",
+        description: "Draft, add, and change things through the Connections a worker may use. \
+                      Sending, deleting, and paying still ask you first. Who may use each \
+                      connection is chosen in Settings → Connections; in a project's or \
+                      department's limit, this is the most it allows.",
+        tools: true,
+        arrives: None,
+    },
+    Info {
         capability: Capability::McpInvoke,
         id: "mcp.invoke",
         label: "Use add-on tools",
@@ -197,7 +222,7 @@ const REGISTRY: [Info; 16] = [
 ];
 
 impl Capability {
-    pub const ALL: [Capability; 16] = [
+    pub const ALL: [Capability; 18] = [
         Self::FilesystemRead,
         Self::FilesystemWrite,
         Self::ShellExec,
@@ -211,6 +236,8 @@ impl Capability {
         Self::BrowserAutomate,
         Self::ComputerObserve,
         Self::ComputerControl,
+        Self::ConnectionsRead,
+        Self::ConnectionsWrite,
         Self::McpInvoke,
         Self::NetworkLocal,
         Self::ProcessManage,
@@ -239,6 +266,12 @@ impl Capability {
     /// Plenipo has tools for it in this version.
     pub fn has_tools(self) -> bool {
         self.info().tools
+    }
+
+    /// Given through a connection's own list, not a role's permission set (Phase 20, ADR-062
+    /// §3): its tools and a worker's level for them are worked out per connection.
+    pub fn is_connection(self) -> bool {
+        matches!(self, Self::ConnectionsRead | Self::ConnectionsWrite)
     }
 
     /// Uses the project folder (so it needs one).
@@ -283,6 +316,8 @@ mod tests {
             "browser.automate",
             "computer.observe",
             "computer.control",
+            "connections.read",
+            "connections.write",
             "mcp.invoke",
             "network.local",
             "process.manage",
