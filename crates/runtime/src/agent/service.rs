@@ -26,7 +26,10 @@ use crate::agent::adapter::{
     cap, first_line, FileRequest, ProcessEnd, ProviderSession, RuntimeAdapter, TurnParser,
     TurnRequest, MAX_EVENT_TEXT,
 };
-use crate::agent::brief::{BriefInput, Conversation, Standing, StepMessage};
+use crate::agent::brief::{
+    note_in_full, text_hash, BriefInput, Conversation, Delivery, Standing, StepMessage,
+    NOTE_REMINDER,
+};
 use crate::agent::discovery::{locate, run_probe, runtime_env, HostEnv, Located};
 use crate::agent::dto::*;
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
@@ -1530,7 +1533,6 @@ impl AgentRuntime {
             (_, Some(c)) => Standing::Known(c),
         };
         let out = message.outgoing(standing);
-        let sent_full = out.kind == BriefKind::Full;
         // Plenipo's tools for this step (Phase 7), when the worker has permissions and its AI
         // tool can use them.
         let takes_tools = adapter.accepts_tools();
@@ -1551,14 +1553,24 @@ impl AgentRuntime {
                     .await
             }
         };
-        // What goes out, and its size (ADR-044): sizes only, never the text.
+        // The permissions note in full, or a short one that keeps the safety rules in view, and
+        // what goes out and its size (ADR-044): sizes only, never the text.
+        let note_hash = note.as_deref().map(text_hash);
+        let full_note = note
+            .as_deref()
+            .is_some_and(|n| note_in_full(standing, out.kind == BriefKind::Full, n));
         let (prompt, size) = match &note {
-            Some(note) => (
+            Some(note) if full_note => (
                 with_note(note, &out.text),
                 out.size(Some(note), NoteKind::Full, Some(note)),
             ),
+            Some(note) => (
+                with_note(NOTE_REMINDER, &out.text),
+                out.size(Some(NOTE_REMINDER), NoteKind::Reminder, Some(note)),
+            ),
             None => (out.text.clone(), out.size(None, NoteKind::None, None)),
         };
+        let delivery = out.delivery(note_hash.filter(|_| full_note));
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));
         let session_id = session.id.clone();
@@ -1630,7 +1642,7 @@ impl AgentRuntime {
             input: input.map(|(tx, _)| tx),
             size,
             mark,
-            sent_full,
+            delivery,
             context_used: None,
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
@@ -1738,24 +1750,25 @@ impl AgentRuntime {
         }
     }
 
-    /// The AI tool shortened its memory of the conversation: its next step gets everything in
-    /// full (ADR-044 §2.5).
+    /// The AI tool shortened its memory of the conversation: its next step gets the full
+    /// instructions and the full permissions note (ADR-044 §2.5).
     fn memory_shortened(&self, session_id: &str) {
         let mut state = self.lock();
         let mark = state.next_mark();
         if let Some(c) = state.conversations.get_mut(session_id) {
             c.shortened = true;
+            c.note = None;
             c.mark = mark;
         }
     }
 
-    /// A step ended. `full_delivered`: it carried the full instructions and finished, so the
-    /// conversation has them — unless the AI tool shortened its memory meanwhile.
+    /// A step that launched at `mark` ended; `delivered` is what the conversation now has, when
+    /// the step finished.
     fn step_finished(
         &self,
         session_id: &str,
         mark: u64,
-        full_delivered: bool,
+        delivered: Option<Delivery>,
         context_used: Option<u64>,
     ) {
         let mut state = self.lock();
@@ -1765,8 +1778,8 @@ impl AgentRuntime {
         if context_used.is_some() {
             c.context_used = context_used;
         }
-        if full_delivered && c.mark == mark {
-            c.shortened = false;
+        if let Some(sent) = delivered {
+            c.delivered(mark, &sent);
         }
     }
 
@@ -1898,8 +1911,8 @@ struct TurnContext {
     /// The conversation's mark when the step launched: if it changed, the AI tool may have lost
     /// part of what the step was sent.
     mark: u64,
-    /// The step carried Liaison's full instructions.
-    sent_full: bool,
+    /// What the conversation keeps once the step is done (ADR-044).
+    delivery: Delivery,
     /// How much of its context the AI tool reported in use by the end of the step.
     context_used: Option<u64>,
 }
@@ -2159,10 +2172,12 @@ impl TurnContext {
             None => result,
         };
         result.prompt = Some(self.size);
+        // Only a finished step counts as delivered: a failed one may never have reached the AI
+        // tool, and the next one sends the same again.
         runtime.step_finished(
             &self.session.id,
             self.mark,
-            self.sent_full && result.outcome == TurnOutcome::Completed,
+            (result.outcome == TurnOutcome::Completed).then_some(self.delivery),
             self.context_used,
         );
         if let Some(id) = &self.execution_id {
@@ -2467,11 +2482,13 @@ pub fn validate_prompt(prompt: &str) -> Result<String, RuntimeError> {
 /// A brief's messages are prompts, and what they pass along is part of them.
 fn validate_brief(brief: BriefInput) -> Result<BriefInput, RuntimeError> {
     validate_prompt(&brief.full)?;
+    let over = |passed: usize, text: &str| passed > text.len();
+    let mut too_much = over(brief.passed_bytes, &brief.full);
     if let Some(reminder) = &brief.reminder {
         validate_prompt(reminder)?;
+        too_much |= over(brief.reminder_passed_bytes, reminder);
     }
-    let reminder_len = brief.reminder.as_ref().map_or(0, String::len);
-    if brief.passed_bytes > brief.full.len() || brief.reminder_passed_bytes > reminder_len {
+    if too_much {
         return Err(RuntimeError::InvalidInput(
             "a brief cannot pass along more than it holds".into(),
         ));

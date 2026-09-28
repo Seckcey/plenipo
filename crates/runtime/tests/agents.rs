@@ -10,11 +10,12 @@ use std::time::{Duration, Instant};
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
     AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HostEnv, InstallState,
-    MemorySessionStore, SessionStart, SessionState, SessionStore, StepNote, TurnDisposition,
-    TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
+    MemorySessionStore, SessionStart, SessionState, SessionStore, StepInfo, StepNote, StepTools,
+    ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask,
+    STEP_SEQ,
 };
 use plenipo_runtime::{
-    BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore,
+    BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore, NoteKind,
     ProfileRegistry, PromptSize, RuntimeError, RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
@@ -1802,6 +1803,287 @@ async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instruction
         );
         // Once sent, the full instructions are what the conversation has again.
         let after = briefed_turn(&h, &id, briefed("five", 7)).await;
-        assert_ne!(after[0].why, Some(BriefWhy::MemoryShortened), "{runtime}");
+        assert_eq!(
+            (after[0].brief, after[0].why),
+            (BriefKind::Reminder, Some(BriefWhy::Routine)),
+            "{runtime}"
+        );
+    }
+}
+
+/// What the fake AI tool received in a provider conversation: each message (without Plenipo's
+/// tools note) and its whole size.
+fn received(h: &H, provider_session: &str) -> (Vec<String>, Vec<u32>) {
+    let file = h
+        .state()
+        .join("sessions")
+        .join(format!("{provider_session}.json"));
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let strings = |key: &str| -> Vec<serde_json::Value> { v[key].as_array().unwrap().clone() };
+    (
+        strings("prompts")
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect(),
+        strings("sizes")
+            .iter()
+            .map(|s| u32::try_from(s.as_u64().unwrap()).unwrap())
+            .collect(),
+    )
+}
+
+async fn briefed_session(h: &H, runtime: &str, objective: &str) -> String {
+    let started =
+        h.rt.start_session_with(
+            SessionStart {
+                runtime_id: runtime.into(),
+                ..SessionStart::default()
+            },
+            briefed(objective, 7),
+        )
+        .await
+        .unwrap();
+    settled(&h.rt, &started.session.id, 1).await;
+    started.session.id
+}
+
+/// ADR-044 §2–§3: a routine objective gets a short reminder; the first one, changed
+/// instructions, a large job, the 10th objective after the full instructions, and a message
+/// without a short form get the full instructions.
+#[tokio::test]
+async fn routine_objectives_get_a_short_reminder_and_the_rest_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "codex", "one").await;
+    let routine = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(
+        (routine.brief, routine.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+    assert!(routine.own_bytes < routine.full_own_bytes, "{routine:?}");
+    // What the AI tool really received: the reminder, then the objective.
+    let provider =
+        h.rt.session(&id)
+            .await
+            .unwrap()
+            .session
+            .provider_session_id
+            .unwrap();
+    let (prompts, sizes) = received(&h, &provider);
+    assert!(
+        prompts[0].starts_with("[instructions]\nWho you are"),
+        "{prompts:?}"
+    );
+    assert_eq!(
+        prompts[1],
+        "[instructions]\nThey still apply.\n[end]\n\ntwo"
+    );
+    assert_eq!(sizes[1], routine.bytes, "the recorded size is what arrived");
+
+    let why = |sizes: Vec<PromptSize>| (sizes[0].brief, sizes[0].why.unwrap());
+    assert_eq!(
+        why(briefed_turn(&h, &id, briefed("new team", 8)).await),
+        (BriefKind::Full, BriefWhy::Changed)
+    );
+    let mut large = briefed("a large job", 8);
+    if let Some(b) = large.brief.as_mut() {
+        b.large = true;
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, large).await),
+        (BriefKind::Full, BriefWhy::LargeJob)
+    );
+    // Nine reminders, then the 10th objective after the full instructions gets them again.
+    for n in 1..=9 {
+        let (kind, _) = why(briefed_turn(&h, &id, briefed(&format!("routine {n}"), 8)).await);
+        assert_eq!(kind, BriefKind::Reminder, "routine {n}");
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, briefed("the tenth", 8)).await),
+        (BriefKind::Full, BriefWhy::EveryTenth)
+    );
+    let mut plain = briefed("no short form", 8);
+    if let Some(b) = plain.brief.as_mut() {
+        b.reminder = None;
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, plain).await),
+        (BriefKind::Full, BriefWhy::NoReminder)
+    );
+    // An objective without a brief is sent as it is.
+    let bare = briefed_turn(&h, &id, TurnInput::owner("just this")).await[0];
+    assert_eq!((bare.brief, bare.why), (BriefKind::Plain, None));
+    assert_eq!(bare.own_bytes, 0, "the owner's objective alone");
+}
+
+/// Plenipo started again: a new runtime over the same records, with the same AI tools.
+fn restarted(h: &H) -> AgentRuntime {
+    let home = h.dir.path().join("home");
+    let mut config = AgentConfig::new(h.dir.path().join("workspaces"));
+    config.extra_env = vec![(HOME_VAR.into(), home.display().to_string())];
+    config.turn_timeout = Duration::from_secs(120);
+    AgentRuntime::new(
+        config,
+        builtin_adapters(),
+        h.sup.clone(),
+        h.store.clone(),
+        h.updates.clone(),
+        HostEnv::new(Some(h.bin().into_os_string()), Some(home), None),
+    )
+}
+
+/// ADR-044 §2.4: after Plenipo starts again it cannot know what the AI tool kept, so the next
+/// task gets the full instructions.
+#[tokio::test]
+async fn after_a_restart_the_next_task_gets_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "claude-code", "one").await;
+    let before = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(before.brief, BriefKind::Reminder);
+    let rt = restarted(&h);
+    rt.resume_session_with(&id, briefed("three", 7))
+        .await
+        .unwrap();
+    let detail = settled(&rt, &id, 3).await;
+    let after = detail.turns[2].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(
+        (after.brief, after.why),
+        (BriefKind::Full, Some(BriefWhy::AfterRestart))
+    );
+    rt.resume_session_with(&id, briefed("four", 7))
+        .await
+        .unwrap();
+    let detail = settled(&rt, &id, 4).await;
+    let next = detail.turns[3].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(next.brief, BriefKind::Reminder);
+}
+
+/// Gives every step a permissions note that a test can change.
+struct Notes(Mutex<String>);
+
+impl ToolProvider for Notes {
+    fn open(&self, _: &StepInfo<'_>) -> Option<StepTools> {
+        None
+    }
+
+    fn note_without_tools(&self, _: &StepInfo<'_>) -> Option<String> {
+        Some(self.0.lock().unwrap().clone())
+    }
+
+    fn close(&self, _: &str) {}
+}
+
+/// ADR-044 §3: the permissions note goes out in full the first time, with the full
+/// instructions, when it changed, and after a shortened memory; otherwise a short note that
+/// keeps the safety rules in view — also for the step that delivers replies.
+#[tokio::test]
+async fn the_permissions_note_goes_out_in_full_only_when_needed() {
+    let h = harness();
+    // As long as a real note: longer than the short one that stands in for it.
+    let note_text = |what: &str| {
+        format!(
+            "You can use Plenipo's tools for the Website project. You may: {what}. Every use is \
+             checked and recorded.\n"
+        )
+        .repeat(4)
+    };
+    let notes = Arc::new(Notes(Mutex::new(note_text(
+        "reading files; changing files",
+    ))));
+    h.rt.set_tools(notes.clone());
+    with_hook(&h);
+    let id = briefed_session(&h, "claude-code", "one").await;
+    let first = h.rt.session(&id).await.unwrap().turns[0].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(first.note, NoteKind::Full);
+    let second = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(
+        (second.brief, second.note),
+        (BriefKind::Reminder, NoteKind::Reminder)
+    );
+    // The short note is shorter, and the size says what the full one would have been.
+    assert!(second.own_bytes < second.full_own_bytes, "{second:?}");
+
+    // A step that delivers replies carries the short note too.
+    h.rt.resume_session_with(&id, briefed("plan it [wait]", 7))
+        .await
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 3, |t| t.waiting).await;
+    let task = detail.turns[2].task_id.clone();
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&id)
+        .await
+        .unwrap()
+        .session
+        .waiting_task_id
+        .is_none()
+    {
+        assert!(Instant::now() < deadline, "the turn never waited");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let note = StepNote {
+        reason: "replies arrived".into(),
+        data: serde_json::Value::Null,
+        passed_bytes: "the replies".len(),
+    };
+    h.rt.continue_turn(&id, &task, "the replies", note)
+        .await
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 3, |t| t.result.is_some()).await;
+    let replies = detail.turns[2].steps[1]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(
+        (replies.brief, replies.note, replies.why),
+        (BriefKind::Replies, NoteKind::Reminder, None)
+    );
+
+    // New permissions: the note goes out in full, though the instructions are a reminder.
+    *notes.0.lock().unwrap() = note_text("reading files");
+    let changed = briefed_turn(&h, &id, briefed("four", 7)).await[0];
+    assert_eq!(
+        (changed.brief, changed.note),
+        (BriefKind::Reminder, NoteKind::Full)
+    );
+    let same = briefed_turn(&h, &id, briefed("five", 7)).await[0];
+    assert_eq!(same.note, NoteKind::Reminder);
+    // After the AI tool shortened its memory, everything goes out in full.
+    briefed_turn(&h, &id, briefed("six [compact]", 7)).await;
+    let after = briefed_turn(&h, &id, briefed("seven", 7)).await[0];
+    assert_eq!((after.brief, after.note), (BriefKind::Full, NoteKind::Full));
+    // What arrived is what was recorded, note included.
+    let provider =
+        h.rt.session(&id)
+            .await
+            .unwrap()
+            .session
+            .provider_session_id
+            .unwrap();
+    let (_, sizes) = received(&h, &provider);
+    assert_eq!(sizes[1], second.bytes);
+    // A note no longer than the short one always goes out as it is.
+    *notes.0.lock().unwrap() = "You have no Plenipo tools in this task.".into();
+    for objective in ["eight", "nine"] {
+        let size = briefed_turn(&h, &id, briefed(objective, 7)).await[0];
+        assert_eq!(size.note, NoteKind::Full, "{objective}");
     }
 }
