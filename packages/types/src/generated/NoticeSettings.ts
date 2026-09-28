@@ -5,6 +5,10 @@
  */
 export type NoticeSettings = { approvals: boolean, checks: boolean, problems: boolean, finished: boolean, lessons: boolean, 
 /**
+ * Plenipo itself: it closed unexpectedly, or a new version is ready (Phase 13).
+ */
+plenipo: boolean, 
+/**
  * Only while Plenipo's window is not in front.
  */
 onlyWhenAway: boolean, };

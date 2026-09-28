@@ -75,7 +75,7 @@ pub fn create<R: Runtime>(
     let latest = Arc::new(std::sync::Mutex::new(ControlStatus::default()));
     broker.set_control_listener(Arc::new(move |status: &ControlStatus| {
         if let Err(e) = handle.emit(CONTROL_EVENT, status) {
-            eprintln!("[plenipo] failed to emit control event: {e}");
+            log::warn!("failed to emit control event: {e}");
         }
         *latest.lock().unwrap_or_else(|p| p.into_inner()) = status.clone();
         let (app, latest) = (handle.clone(), Arc::clone(&latest));
@@ -92,6 +92,6 @@ pub fn create<R: Runtime>(
 /// notice says so).
 pub fn start(broker: &Broker) {
     if let Err(e) = tauri::async_runtime::block_on(broker.start()) {
-        eprintln!("[plenipo] tool server unavailable: {e}");
+        log::warn!("tool server unavailable: {e}");
     }
 }

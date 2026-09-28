@@ -15,6 +15,7 @@ path = "tests/support/fake_agent.rs"
 test = false
 
 [dependencies]
+log = "0.4"
 plenipo-ledger = { path = "../ledger" }
 plenipo-liaison = { path = "../liaison" }
 plenipo-router = { path = "../router" }

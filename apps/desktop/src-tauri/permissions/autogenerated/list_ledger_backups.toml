@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-ledger-backups"
+description = "Enables the list_ledger_backups command without any pre-configured scope."
+commands.allow = ["list_ledger_backups"]
+
+[[permission]]
+identifier = "deny-list-ledger-backups"
+description = "Denies the list_ledger_backups command without any pre-configured scope."
+commands.deny = ["list_ledger_backups"]

@@ -110,6 +110,21 @@
     "allow-open-terminal",
     "allow-write-terminal",
     "allow-resize-terminal",
-    "allow-close-terminal"
+    "allow-close-terminal",
+    "allow-get-recovery-status",
+    "allow-run-again",
+    "allow-dismiss-recovery",
+    "allow-dismiss-window-recovery",
+    "allow-window-alive",
+    "allow-reset-settings",
+    "allow-get-start-and-close",
+    "allow-set-start-and-close",
+    "allow-list-ledger-backups",
+    "allow-restore-ledger-backup",
+    "allow-cancel-ledger-restore",
+    "allow-save-diagnostics-file",
+    "allow-get-update-status",
+    "allow-check-for-updates",
+    "allow-install-update"
   ]
 }

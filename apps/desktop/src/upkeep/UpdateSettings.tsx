@@ -1,0 +1,182 @@
+import { useEffect, useState } from "react";
+import type { UpdateStatus } from "@plenipo/types";
+import { Button, ErrorState, LoadingState, PropertyList, StatusPill } from "@plenipo/ui";
+
+import { checkForUpdates, getUpdateStatus, installUpdate, toCommandError } from "../api/commands";
+import type { Go } from "../components/views";
+import { useLive } from "../pages/useLive";
+import { when } from "../pages/words";
+import { updateLine } from "./words";
+import { useShown } from "./useShown";
+
+/** How often the update state is read again (it lives in Plenipo, not only in the Ledger). */
+const LOOK_AGAIN_MS = 60_000;
+
+function useUpdates() {
+  const live = useLive<UpdateStatus>(
+    "updates",
+    () => getUpdateStatus(),
+    (e) => e.eventType.startsWith("plenipo.update"),
+  );
+  // A check that finds a version already announced writes nothing new to the Ledger (after a
+  // restart, say): look again now and then, and when the window comes to the front.
+  const { reload } = live;
+  useEffect(() => {
+    const timer = setInterval(reload, LOOK_AGAIN_MS);
+    window.addEventListener("focus", reload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", reload);
+    };
+  }, [reload]);
+  return live;
+}
+
+/**
+ * The top bar's "Update ready" mark (ADR-038): shown only when a newer version is ready. It
+ * opens Settings → Updates; nothing installs until you say so there.
+ */
+export function UpdateMark({ go }: { go: Go }) {
+  const live = useUpdates();
+  const s = live.value;
+  if (!s || s.state !== "available" || !s.available) return null;
+  return (
+    <button
+      type="button"
+      className="shell__update"
+      aria-label={`Update ready: Plenipo ${s.available.version}. Open Settings → Updates.`}
+      title={`Plenipo ${s.available.version} is ready to install`}
+      onClick={() => go({ view: "settings", id: "updates" })}
+    >
+      <StatusPill status="pending" label="Update ready" />
+    </button>
+  );
+}
+
+/**
+ * Settings → Updates (ADR-038): this version, when Plenipo last checked, Check now, and a
+ * newer version's notes with Install now. Checking is always on (once a day); installing only
+ * when you say so, and only a version 8 West signed.
+ */
+export function UpdateSettings() {
+  const live = useUpdates();
+  const [current, setShown] = useShown(live);
+  const [busy, setBusy] = useState<"check" | "install" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** Installing would stop running work: ask first. */
+  const [confirm, setConfirm] = useState<string | null>(null);
+
+  if (live.status === "loading") return <LoadingState label="Loading updates" />;
+  const s = current;
+  if (!s) {
+    return <ErrorState title="Couldn't load updates" message={live.error} onRetry={live.reload} />;
+  }
+
+  const check = async () => {
+    setBusy("check");
+    setError(null);
+    try {
+      setShown(await checkForUpdates());
+      live.reload();
+    } catch (reason) {
+      setError(toCommandError(reason).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const install = async (stopWork: boolean) => {
+    setBusy("install");
+    setError(null);
+    setConfirm(null);
+    try {
+      setShown(await installUpdate(stopWork));
+    } catch (reason) {
+      const message = toCommandError(reason).message;
+      if (!stopWork && message.startsWith("Work is running")) setConfirm(message);
+      else setError(message);
+      live.reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="settings-section__body settings-updates">
+      <PropertyList
+        items={[
+          { label: "This version", value: s.version },
+          { label: "Newest version", value: updateLine(s) },
+          {
+            label: "Last checked",
+            value: s.lastCheckedAt ? when(s.lastCheckedAt) : "Not yet",
+          },
+        ]}
+      />
+      <div className="settings-section__actions">
+        <Button size="sm" icon="refresh" disabled={busy !== null} onClick={() => void check()}>
+          {busy === "check" ? "Checking…" : "Check now"}
+        </Button>
+      </div>
+      {s.available && (
+        <section aria-labelledby="updates-new" className="settings-updates__new">
+          <h3 id="updates-new">What&apos;s new in Plenipo {s.available.version}</h3>
+          {s.available.notes ? (
+            <pre className="settings-updates__notes">{s.available.notes}</pre>
+          ) : (
+            <p className="muted">No notes came with it.</p>
+          )}
+          {s.canInstall && (
+            <div className="settings-section__actions">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={busy !== null}
+                onClick={() => void install(false)}
+              >
+                {busy === "install" ? "Installing…" : "Install now"}
+              </Button>
+            </div>
+          )}
+          {confirm && (
+            <div className="notice-box" role="note">
+              <p>
+                <strong>Work is running.</strong> Installing stops it, the same way Quit does, and
+                records how it ended. Plenipo then installs the update and opens again.
+              </p>
+              <div className="settings-section__actions">
+                <Button size="sm" variant="primary" onClick={() => void install(true)}>
+                  Stop the work and install
+                </Button>
+                <Button size="sm" onClick={() => setConfirm(null)}>
+                  Not now
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+      {s.message && s.state !== "failed" && <p className="muted">{s.message}</p>}
+      {error && (
+        <p className="status status--error" role="alert">
+          {error}
+        </p>
+      )}
+      <h3>How updates work</h3>
+      <ul className="settings">
+        <li>
+          Plenipo checks GitHub for a new version a few minutes after it starts, then once a day,
+          for Free and Pro alike. The check sends nothing about you or your work.
+        </li>
+        <li>
+          Nothing is downloaded or installed until you choose <strong>Install now</strong>. Plenipo
+          installs only a version signed by 8 West, and backs up the Ledger first.
+        </li>
+        <li>
+          To go back to an older version, run its installer from {s.releasesPage}. Your Ledger and
+          settings are kept; Diagnostics can restore the backup made before an update.
+        </li>
+      </ul>
+    </div>
+  );
+}

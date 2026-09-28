@@ -39,6 +39,9 @@ pub enum NoticeKind {
     Finished,
     /// A worker learned something for the owner to keep or discard.
     Lessons,
+    /// Plenipo itself: it recovered from closing unexpectedly, or a new version is ready
+    /// (Phase 13).
+    Plenipo,
 }
 
 /// The owner's choices for pop-up notices (Settings → Notifications).
@@ -51,6 +54,8 @@ pub struct NoticeSettings {
     pub problems: bool,
     pub finished: bool,
     pub lessons: bool,
+    /// Plenipo itself: it closed unexpectedly, or a new version is ready (Phase 13).
+    pub plenipo: bool,
     /// Only while Plenipo's window is not in front.
     pub only_when_away: bool,
 }
@@ -63,6 +68,7 @@ impl Default for NoticeSettings {
             problems: true,
             finished: true,
             lessons: true,
+            plenipo: true,
             only_when_away: true,
         }
     }
@@ -77,6 +83,7 @@ impl NoticeSettings {
             NoticeKind::Problems => self.problems,
             NoticeKind::Finished => self.finished,
             NoticeKind::Lessons => self.lessons,
+            NoticeKind::Plenipo => self.plenipo,
         }
     }
 }
@@ -109,6 +116,8 @@ pub fn may_notify(event_type: &str) -> bool {
             | "ssh.host_key_changed"
             | "agent.result"
             | "lesson.added"
+            | "plenipo.recovered"
+            | "plenipo.update_available"
     )
 }
 
@@ -132,6 +141,28 @@ fn capitalized(s: &str) -> String {
     chars.next().map_or_else(String::new, |c| {
         c.to_uppercase().collect::<String>() + chars.as_str()
     })
+}
+
+/// Plenipo started again after an unclean end (Phase 13): what happened and what stopped.
+fn recovered_notice(p: &Value) -> Notice {
+    let title = match text(p, "cause") {
+        Some("windowsRestart") => "Windows closed Plenipo while it was running",
+        Some("layoutChange") => "Plenipo was stopped while updating the Ledger",
+        Some("crash") => "Plenipo closed unexpectedly",
+        _ => "Plenipo did not close normally",
+    };
+    let stopped = p["stoppedTasks"].as_array().map_or(0, Vec::len);
+    let programs = p["stoppedPrograms"].as_u64().unwrap_or(0);
+    let body = match stopped {
+        0 if programs == 1 => "1 program that was running was stopped.".to_owned(),
+        0 if programs > 1 => format!("{programs} programs that were running were stopped."),
+        0 => "Nothing was running. Plenipo is running again.".to_owned(),
+        1 => "1 task was stopped. Open Plenipo to run it again or leave it stopped.".to_owned(),
+        n => {
+            format!("{n} tasks were stopped. Open Plenipo to run them again or leave them stopped.")
+        }
+    };
+    Notice::new(NoticeKind::Plenipo, title, body)
 }
 
 /// "shop.example" from "https://shop.example/cart".
@@ -181,6 +212,15 @@ impl Ledger {
                     text(p, "server").unwrap_or("a server")
                 ),
             )),
+            "plenipo.recovered" => Some(recovered_notice(p)),
+            "plenipo.update_available" => text(p, "version").map(|v| {
+                Notice::new(
+                    NoticeKind::Plenipo,
+                    format!("Plenipo {v} is ready to install"),
+                    "Install it from Settings → Updates when you are ready. Nothing changes \
+                     until you do.",
+                )
+            }),
             "agent.result" => {
                 let name = tool(event.source.strip_prefix("agent:").unwrap_or(&event.source));
                 match text(p, "outcome") {
@@ -345,6 +385,7 @@ pub fn combine(mut notices: Vec<Notice>) -> Option<Notice> {
             NoticeKind::Problems => format!("{n} problems need you"),
             NoticeKind::Finished => format!("{n} objectives are finished"),
             NoticeKind::Lessons => format!("Workers learned {n} things"),
+            NoticeKind::Plenipo => format!("{n} things about Plenipo itself"),
         }
     } else {
         format!("{n} things need you")
@@ -354,7 +395,7 @@ pub fn combine(mut notices: Vec<Notice>) -> Option<Notice> {
         .iter()
         .take(MAX_LISTED)
         .map(|x| {
-            if same && kind != NoticeKind::Problems {
+            if same && !matches!(kind, NoticeKind::Problems | NoticeKind::Plenipo) {
                 line(x.body.lines().next().unwrap_or(""))
             } else {
                 line(&x.title)
@@ -658,5 +699,53 @@ mod tests {
         assert_eq!(line(&long).chars().count(), MAX_LINE);
         assert_eq!(host("https://a.example:8443/x?y"), Some("a.example:8443"));
         assert_eq!(capitalized("git push"), "Git push");
+    }
+
+    #[test]
+    fn plenipo_says_when_it_recovered_and_when_a_new_version_is_ready() {
+        let l = ledger();
+        let tool = |id: &str| id.to_owned();
+        let recovered = l
+            .append_event(crate::NewEvent {
+                source: "plenipo".into(),
+                event_type: "plenipo.recovered".into(),
+                payload: json!({ "cause": "windowsRestart", "stoppedTasks": ["a", "b"] }),
+                ..crate::NewEvent::default()
+            })
+            .unwrap();
+        assert!(may_notify(&recovered.event_type));
+        let n = l.notice_for(&recovered, &tool).unwrap().unwrap();
+        assert_eq!(n.kind, NoticeKind::Plenipo);
+        assert_eq!(n.title, "Windows closed Plenipo while it was running");
+        assert!(n.body.starts_with("2 tasks were stopped."), "{}", n.body);
+        // No task, but a program was running: it says so, not "nothing".
+        let program = l
+            .append_event(crate::NewEvent {
+                source: "plenipo".into(),
+                event_type: "plenipo.recovered".into(),
+                payload: json!({ "cause": "crash", "stoppedTasks": [], "stoppedPrograms": 1 }),
+                ..crate::NewEvent::default()
+            })
+            .unwrap();
+        let n = l.notice_for(&program, &tool).unwrap().unwrap();
+        assert_eq!(n.body, "1 program that was running was stopped.");
+        let ready = l
+            .append_event(crate::NewEvent {
+                source: "plenipo".into(),
+                event_type: "plenipo.update_available".into(),
+                payload: json!({ "version": "1.10.0" }),
+                ..crate::NewEvent::default()
+            })
+            .unwrap();
+        let n = l.notice_for(&ready, &tool).unwrap().unwrap();
+        assert_eq!(n.title, "Plenipo 1.10.0 is ready to install");
+        // The owner can turn these off like any other kind.
+        let mut settings = NoticeSettings::default();
+        assert!(settings.wants(NoticeKind::Plenipo));
+        settings.plenipo = false;
+        assert!(!settings.wants(NoticeKind::Plenipo));
+        // Settings kept by 1.8.0 (without the new choice) read with it on.
+        let old: NoticeSettings = serde_json::from_value(json!({ "approvals": false })).unwrap();
+        assert!(old.plenipo && !old.approvals);
     }
 }

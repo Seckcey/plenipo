@@ -5,9 +5,15 @@
 //! `packages/types` are generated from this crate and cannot drift silently.
 
 pub mod dto;
+pub mod upkeep;
 
 pub use dto::{
     AppInfo, BuildProfile, CommandError, CommandErrorKind, LocalPath, SyntheticTaskAction,
+};
+pub use upkeep::{
+    AvailableUpdate, CloseWindow, DiagnosticsFile, Recovery, RecoveryCause, RecoveryStatus,
+    SettingsProblem, StartAndClose, StartAndCloseInput, StoppedTask, UpdateState, UpdateStatus,
+    WindowRecovery,
 };
 
 /// Human-facing product name.

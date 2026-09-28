@@ -58,7 +58,7 @@ Use a role with read-only permissions for that first run.
 
 > **Release status — checked September 27, 2026:**
 > [v1.6.0](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0) is the latest published installer.
-> The main branch contains v1.8.0 development work. A merged version bump is not a published release.
+> The main branch contains v1.9.0 development work. A merged version bump is not a published release.
 
 ## What you can do
 
@@ -113,6 +113,10 @@ use their own working copies and branches. Titles can be personalized without ch
 The published v1.6.0 app has **no license check or edition limits**. The proposed Free/Pro split,
 including subscription pricing and business departments, is a plan for a future release.
 See [Free and Pro](docs/editions.md) for the full proposal. AI provider subscriptions are separate.
+
+From v1.9.0, every copy (Free and Pro alike) checks Plenipo's GitHub Releases once a day for a
+new version and tells you when one is ready. The check sends nothing about you or your work, and
+nothing installs until you choose **Install now** ([ADR-038](docs/adr/ADR-038-updates.md), updates).
 
 Plenipo is **source-available under the [Elastic License 2.0](LICENSE)**. Read the license for
 its permissions and restrictions and [CONTRIBUTING.md](CONTRIBUTING.md#how-contributions-are-licensed)
@@ -237,6 +241,22 @@ Further crates from the plan are added when the phase that needs them begins —
 ## What's new
 
 The entries below describe development milestones. See [GitHub Releases](https://github.com/Seckcey/plenipo/releases) for published installers.
+
+<details>
+<summary><strong>v1.9.0 — Installs, updates, and recovers cleanly</strong> (Phase 13)</summary>
+
+Plenipo lives in the tray: closing the window keeps the work going (Settings → **Start and close**
+has the choices, and **Start Plenipo with Windows**, off to begin with). Opening it again shows the
+one already running. If Plenipo or Windows stops unexpectedly, the next start says what happened
+and which tasks stopped, with **Run again** or **Leave stopped**. The Ledger is backed up every day
+and before each new version; Diagnostics can **Restore** a backup and **Save a diagnostics file**.
+Plenipo checks for a new version once a day and installs it only when you choose **Install now**,
+and only if 8 West signed it. Uninstalling keeps your data unless you tick the box to delete it.
+
+[Release notes](docs/releases/v1.9.0.md) · [ADR-037](docs/adr/ADR-037-background-work.md)
+(background work) · [ADR-038](docs/adr/ADR-038-updates.md) (updates)
+
+</details>
 
 <details>
 <summary><strong>v1.8.0 — Home, a page for everything, your terminal, and notices</strong> (Phase 12)</summary>

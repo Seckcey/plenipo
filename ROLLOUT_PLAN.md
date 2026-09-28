@@ -23,7 +23,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 
 | Order | Phase | What | State |
 |---|---|---|---|
-| 1 | 13 | Windows service, installer, updates, and recovery | Built (v1.9.0, pull request #70) |
+| 1 | 13 | Windows service, installer, updates, and recovery | Delivered (v1.9.0) |
 | 2 | 17 | The owner's control over workers | Next |
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Planned |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Planned |
@@ -37,7 +37,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, and 12 are delivered.
+Phases 0–8, 10, 11, 12A, 12, and 13 are delivered.
 
 ---
 
@@ -1472,6 +1472,8 @@ Core workflows stable.
 ---
 
 # Phase 13 — Windows Service, Installer, Updates, and Recovery
+
+**Status: delivered in v1.9.0** (checklist and acceptance report in `docs/phases/phase-13-*`). Decisions: ADR-037 (background work, accepted) and ADR-038 (updates, accepted). The background work stays in the one Plenipo program, which lives in the tray (no separate Windows service): closing the window hides it while work is going (the owner can choose "always keep" or "quit"), a second launch opens the first, Start with Windows is a switch (off to begin with), and a window that stops responding is reloaded or reopened while the work goes on. After a crash, a Windows restart, or an interrupted Ledger layout change, the next start says what happened, lists the tasks that stopped, and offers Run again or Leave stopped. The Ledger is backed up every day, before a new version first uses it, and before an update; Diagnostics restores a backup and saves a diagnostics file; log files rotate. Plenipo checks GitHub once a day for a new version (Free and Pro, always on), and installs one only when the owner says so, only if it is signed with 8 West's updater key for the version it claims. The installer asks Plenipo to quit cleanly, keeps your data when uninstalling unless you tick "Also delete my Plenipo data", and is tested on GitHub's Windows machine (install, upgrade from 1.8.0, back and forward, an update, uninstall, what is left). A real Windows restart and a real update from GitHub are checked by the owner on Windows.
 
 ## Goal
 

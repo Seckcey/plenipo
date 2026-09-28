@@ -1,6 +1,6 @@
 {
   "name": "plenipo",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "description": "Plenipo — local-first desktop AI workforce orchestration platform.",
@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "pnpm --filter @plenipo/desktop tauri dev",
     "build": "pnpm --filter @plenipo/desktop tauri build",
-    "lint": "eslint . --max-warnings 0 && node --test scripts/colors.test.mjs && node scripts/check-colors.mjs",
+    "lint": "eslint . --max-warnings 0 && node --test scripts/colors.test.mjs scripts/update-manifest.test.mjs && node scripts/check-colors.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",

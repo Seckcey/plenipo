@@ -24,7 +24,7 @@ struct TauriAgentSink<R: Runtime> {
 impl<R: Runtime> AgentSink for TauriAgentSink<R> {
     fn emit(&self, update: AgentUpdate) {
         if let Err(e) = self.app.emit_to("main", AGENT_EVENT, &update) {
-            eprintln!("[plenipo] failed to emit agent update: {e}");
+            log::warn!("failed to emit agent update: {e}");
         }
     }
 }

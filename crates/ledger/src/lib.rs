@@ -6,6 +6,7 @@
 //! complete and ordered. See ADR-006.
 
 mod activity;
+pub mod backups;
 pub mod dto;
 pub mod error;
 mod events;
@@ -31,6 +32,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, ErrorCode};
 
 pub use activity::{MAX_ACTIVITY_BUCKETS, MAX_ACTIVITY_RANGE_MS, MAX_ACTIVITY_SCOPES};
+pub use backups::{BackupKind, LedgerBackup, LedgerBackups, RestoreOutcome};
 pub use dto::*;
 pub use error::{LedgerError, Result};
 pub use lessons::{clean_lesson, MAX_LESSONS_PER_TASK, MAX_LESSON_CHARS};
@@ -228,6 +230,19 @@ fn begin_immediate(conn: &Connection) -> Result<()> {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// One setting read straight from the Ledger file at `db_path`, read-only: no layout change, no
+/// repair, no refusal of a newer layout. For the uninstaller, which must find the secrets Plenipo
+/// kept even when the Ledger is from a newer Plenipo or cannot be opened normally.
+pub fn setting_in_file(db_path: &Path, key: &str) -> Result<Option<serde_json::Value>> {
+    let conn = Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let text: Option<String> = rusqlite::OptionalExtension::optional(conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [key],
+        |r| r.get(0),
+    ))?;
+    Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
 }
 
 pub(crate) fn backups_dir(db_path: &Path) -> PathBuf {

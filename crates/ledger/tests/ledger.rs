@@ -674,3 +674,350 @@ fn integrity_check_reports_ok() {
     assert_eq!(report.messages, ["ok"]);
     assert_eq!(l.status().unwrap().last_integrity_check.unwrap(), report);
 }
+
+// ---- Backups by kind, restore, interrupted migration (Phase 13) ----------------------------
+
+use plenipo_ledger::backups::{self, BackupKind};
+
+#[test]
+fn backups_of_each_kind_are_listed_newest_first_and_kept_to_their_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = Ledger::open(&db_path(dir.path())).unwrap();
+    new_task(&l, "kept");
+    for _ in 0..9 {
+        l.backup_of_kind(BackupKind::Daily, None).unwrap();
+    }
+    l.backup_of_kind(BackupKind::BeforeUpgrade, Some("1.8.0"))
+        .unwrap();
+    // A later millisecond, so "newest first" has one answer.
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    let manual = l.backup(None).unwrap();
+    let list = l.backups().unwrap();
+    // Seven days of daily backups, the upgrade one, and the manual one.
+    let count = |k| list.iter().filter(|b| b.kind == k).count();
+    assert_eq!(count(BackupKind::Daily), 7);
+    assert_eq!(count(BackupKind::BeforeUpgrade), 1);
+    assert_eq!(count(BackupKind::Manual), 1);
+    assert!(list.windows(2).all(|w| w[0].created_at >= w[1].created_at));
+    let newest = &list[0];
+    assert_eq!(newest.kind, BackupKind::Manual);
+    assert!(manual.path.ends_with(&newest.name));
+    let upgrade = list
+        .iter()
+        .find(|b| b.kind == BackupKind::BeforeUpgrade)
+        .unwrap();
+    assert_eq!(upgrade.version.as_deref(), Some("1.8.0"));
+    assert!(list.iter().all(|b| b.restorable && b.problem.is_none()));
+    assert!(list
+        .iter()
+        .all(|b| b.schema_version == Some(migrate::latest(MIGRATIONS))));
+    // A temporary Ledger has none, and cannot make one.
+    let temp = Ledger::open_in_memory().unwrap();
+    assert!(temp.backups().unwrap().is_empty());
+    assert!(temp.backup_of_kind(BackupKind::Daily, None).is_err());
+}
+
+#[test]
+fn a_restore_happens_at_the_next_start_and_keeps_the_ledger_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let (before, after, backup_name) = {
+        let l = Ledger::open(&path).unwrap();
+        let before = new_task(&l, "before the backup");
+        let info = l.backup_of_kind(BackupKind::Daily, None).unwrap();
+        let after = new_task(&l, "after the backup");
+        let name = Path::new(&info.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        (before.id, after.id, name)
+    };
+    // Asking checks the backup and leaves a request; nothing changes yet.
+    let asked = backups::request_restore(&path, &backup_name).unwrap();
+    assert_eq!(asked.name, backup_name);
+    assert_eq!(
+        backups::pending_restore(&path).as_deref(),
+        Some(&*backup_name)
+    );
+    {
+        let l = Ledger::open(&path).unwrap();
+        assert!(
+            l.task(&after).unwrap().is_some(),
+            "not restored until the next start"
+        );
+    }
+    // The next start restores it before opening.
+    let outcome = backups::apply_pending_restore(&path).expect("a restore was asked for");
+    assert_eq!(outcome.restored.as_ref().unwrap().name, backup_name);
+    let kept = outcome
+        .kept_as
+        .clone()
+        .expect("the Ledger as it was is kept");
+    assert!(kept.starts_with("before-restore-"), "{kept}");
+    assert!(outcome.message.contains("restored"), "{}", outcome.message);
+    assert!(backups::pending_restore(&path).is_none(), "done once");
+    assert!(backups::apply_pending_restore(&path).is_none());
+    let l = Ledger::open(&path).unwrap();
+    assert!(l.task(&before).unwrap().is_some());
+    assert!(l.task(&after).unwrap().is_none(), "later work is set aside");
+    assert!(l.integrity_check().unwrap().ok);
+    // …and kept: the "before restore" backup still has it, so the restore can be undone.
+    let list = l.backups().unwrap();
+    let undo = list.iter().find(|b| b.name == kept).unwrap();
+    assert_eq!(undo.kind, BackupKind::BeforeRestore);
+    let old = Ledger::open(&l.backups_dir().unwrap().join(&kept)).unwrap();
+    assert!(old.task(&after).unwrap().is_some());
+}
+
+#[test]
+fn the_oldest_before_restore_backup_can_itself_be_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let name_of = |info: &plenipo_ledger::BackupInfo| {
+        Path::new(&info.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    // Three "before a restore" backups (the most kept), the oldest with the first task.
+    let (first, oldest) = {
+        let l = Ledger::open(&path).unwrap();
+        let first = new_task(&l, "in the oldest");
+        let oldest = name_of(&l.backup_of_kind(BackupKind::BeforeRestore, None).unwrap());
+        for n in 0..2 {
+            std::thread::sleep(std::time::Duration::from_millis(3));
+            new_task(&l, &format!("later {n}"));
+            l.backup_of_kind(BackupKind::BeforeRestore, None).unwrap();
+        }
+        (first.id, oldest)
+    };
+    backups::request_restore(&path, &oldest).unwrap();
+    // Restoring keeps the Ledger as it is (a fourth), and must not delete the one it restores.
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    assert_eq!(
+        outcome.restored.as_ref().map(|b| b.name.as_str()),
+        Some(oldest.as_str()),
+        "{}",
+        outcome.message
+    );
+    let l = Ledger::open(&path).unwrap();
+    assert!(l.task(&first).unwrap().is_some());
+    assert_eq!(
+        l.list_tasks(100).unwrap().len(),
+        1,
+        "only what the oldest had"
+    );
+    let kinds: Vec<_> = l
+        .backups()
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.kind == BackupKind::BeforeRestore)
+        .collect();
+    assert_eq!(kinds.len(), 4, "the newest three, and the one restored");
+    assert!(
+        kinds.iter().any(|b| b.name == oldest),
+        "the restored one is kept"
+    );
+}
+
+#[test]
+fn a_restore_keeps_what_was_only_in_the_write_ahead_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let name = {
+        let l = Ledger::open(&path).unwrap();
+        let info = l.backup_of_kind(BackupKind::Daily, None).unwrap();
+        Path::new(&info.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    backups::request_restore(&path, &name).unwrap();
+    // Work written after the backup, still open (so still in the write-ahead log) as the
+    // restore starts, as when Plenipo stopped the hard way.
+    let l = Ledger::open(&path).unwrap();
+    let late = new_task(&l, "written just before the restore");
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    drop(l);
+    let kept = outcome.kept_as.clone().expect("kept first");
+    let old = Ledger::open(&dir.path().join("ledger").join("backups").join(&kept)).unwrap();
+    assert!(
+        old.task(&late.id).unwrap().is_some(),
+        "the Ledger as it was, with its latest work, is kept: {}",
+        outcome.message
+    );
+}
+
+#[test]
+fn a_restore_that_cannot_be_done_leaves_the_ledger_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let (task, name) = {
+        let l = Ledger::open(&path).unwrap();
+        let t = new_task(&l, "stays");
+        let info = l.backup_of_kind(BackupKind::Daily, None).unwrap();
+        (
+            t.id,
+            Path::new(&info.path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        )
+    };
+    // Names that are not backups, or reach outside the folder, are refused when asked.
+    for bad in [
+        "../plenipo.db",
+        "plenipo.db",
+        "C:/Windows/evil.db",
+        "nope.db",
+    ] {
+        assert!(backups::request_restore(&path, bad).is_err(), "{bad}");
+    }
+    // A backup that went missing after it was asked for.
+    backups::request_restore(&path, &name).unwrap();
+    let backups_dir = path.parent().unwrap().join("backups");
+    std::fs::remove_file(backups_dir.join(&name)).unwrap();
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    assert!(outcome.restored.is_none());
+    assert!(
+        outcome.message.contains("was not restored"),
+        "{}",
+        outcome.message
+    );
+    assert!(outcome.message.contains("not changed"));
+    // A damaged request.
+    std::fs::write(path.with_file_name(backups::RESTORE_REQUEST), b"{not json").unwrap();
+    let outcome = backups::apply_pending_restore(&path).unwrap();
+    assert!(outcome.restored.is_none());
+    assert!(outcome.message.contains("damaged"), "{}", outcome.message);
+    // A damaged backup is refused when asked for.
+    let broken = backups_dir.join("daily-backup-1790000000000.db");
+    std::fs::write(&broken, b"this is not a database").unwrap();
+    let err = backups::request_restore(&path, "daily-backup-1790000000000.db").unwrap_err();
+    assert!(err.to_string().contains("cannot be restored"), "{err}");
+    let listed = backups::list_backups(&backups_dir).unwrap();
+    let shown = listed
+        .iter()
+        .find(|b| b.name == "daily-backup-1790000000000.db")
+        .unwrap();
+    assert!(!shown.restorable);
+    assert!(shown.problem.as_deref().unwrap().contains("cannot be read"));
+    // The Ledger is as it was.
+    let l = Ledger::open(&path).unwrap();
+    assert!(l.task(&task).unwrap().is_some());
+    assert!(l.status().unwrap().notices.is_empty());
+}
+
+#[test]
+fn a_backup_from_a_newer_plenipo_is_listed_but_cannot_be_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let newer_dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    Ledger::open(&path).unwrap();
+    // A newer Plenipo's Ledger, backed up.
+    let newer = Ledger::open_with(&db_path(newer_dir.path()), &with_next()).unwrap();
+    let info = newer.backup_of_kind(BackupKind::Daily, None).unwrap();
+    let name = Path::new(&info.path).file_name().unwrap().to_owned();
+    std::fs::copy(
+        &info.path,
+        path.parent().unwrap().join("backups").join(&name),
+    )
+    .or_else(|_| {
+        std::fs::create_dir_all(path.parent().unwrap().join("backups")).and_then(|()| {
+            std::fs::copy(
+                &info.path,
+                path.parent().unwrap().join("backups").join(&name),
+            )
+        })
+    })
+    .unwrap();
+    let l = Ledger::open(&path).unwrap();
+    let listed = l.backups().unwrap();
+    let b = listed
+        .iter()
+        .find(|b| b.name == name.to_string_lossy())
+        .unwrap();
+    assert!(!b.restorable);
+    assert_eq!(b.schema_version, Some(NEXT.version));
+    assert!(b
+        .problem
+        .as_deref()
+        .unwrap()
+        .contains("newer version of Plenipo"));
+    assert!(backups::request_restore(&path, &b.name).is_err());
+}
+
+/// The Ledger's layout change stopped halfway (Plenipo killed mid-migration): the unfinished
+/// step is undone by SQLite, nothing committed is lost, and the change runs again next time,
+/// with a backup from before it.
+#[test]
+fn an_interrupted_layout_change_is_undone_and_done_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = db_path(dir.path());
+    let current = migrate::latest(MIGRATIONS);
+    let task_id = {
+        let l = Ledger::open(&path).unwrap();
+        new_task(&l, "made before the layout change").id
+    };
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_ledger-writer"))
+        .arg("migrate")
+        .arg(&path)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    assert_eq!(lines.next().unwrap().unwrap(), "migrating");
+    // Wait until the backup before the change is made, so the change itself is under way.
+    let backups_dir = path.parent().unwrap().join("backups");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let made = backups::list_backups(&backups_dir)
+            .unwrap()
+            .into_iter()
+            .any(|b| b.kind == BackupKind::BeforeMigration && b.restorable);
+        if made {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no backup before the change"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    child.kill().unwrap(); // mid-migration: no clean shutdown
+    child.wait().unwrap();
+
+    // This version opens it at the layout it had: the half-done change left nothing behind.
+    let l = Ledger::open(&path).unwrap();
+    assert_eq!(l.schema_version().unwrap(), current);
+    assert!(l.status().unwrap().notices.is_empty(), "nothing to repair");
+    assert!(l.task(&task_id).unwrap().is_some());
+    assert!(l.integrity_check().unwrap().ok);
+    drop(l);
+    let conn = Connection::open(&path).unwrap();
+    let leftover: Option<String> = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE name = 'slow_migration_filler'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    assert!(leftover.is_none(), "the unfinished step was undone");
+    drop(conn);
+    // The next version runs its change again, with a new backup from before it.
+    let l = Ledger::open_with(&path, &with_next()).unwrap();
+    assert_eq!(l.schema_version().unwrap(), NEXT.version);
+    assert!(l.task(&task_id).unwrap().is_some());
+    let before = l
+        .backups()
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.kind == BackupKind::BeforeMigration)
+        .count();
+    assert_eq!(before, 2, "one backup per attempt");
+}
