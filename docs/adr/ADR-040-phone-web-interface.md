@@ -36,8 +36,9 @@ interface only: no phone app.
      runs on the PC.
    - A request from the web interface travels: web interface → a signed-in connection to
      Plenipo on the PC → Guard → organization/router → the AI tool on the PC.
-   - Nothing reaches a shell, the terminal, files, the screen, the browser, secrets, or
-     Settings from the web interface.
+   - Nothing reaches a shell, the terminal, files, the screen, the browser, or secrets from the
+     web interface, and nothing there widens what workers may do or who may connect
+     (permissions, switches, Guard's rules, adding a device, turning phone access on).
    - Using Plenipo from another device is off until the owner turns it on, on the PC, and the
      owner can turn it off there at any time.
 5. **The owner's answers (2026-09-27):**
@@ -47,10 +48,18 @@ interface only: no phone app.
      so the relay cannot read the work, answer an approval, or make up a request. Milepost keeps
      working as before, and the relay change is made and approved in the relay's own repository.
      The relay's address and sign-in are kept out of this repository.
-   - **Notices when the page is closed:** yes, by web push through the relay. A notice says only
-     that something needs the owner, never the work. On an iPhone the page is added to the Home
-     Screen first (Apple allows web push only then).
+   - **Notices when the page is closed:** yes, by web push through the relay. A notice says in
+     one short line what needs the owner, encrypted for the owner's phone alone; a choice on the
+     phone shows only "Something needs you" on the lock screen. On an iPhone the page is added to
+     the Home Screen first (Apple allows web push only then).
    - **Edition:** Pro only (ADR-021). On Free, nothing connects to the relay.
+   - **Approve and allow from the phone, at the very least, and as much else as is safe:** the
+     owner approves, refuses, and allows both in the web interface and right from a notice (on
+     Android the notice has the buttons; on an iPhone, as far as we know today, one tap opens that
+     approval). The phone confirms it is the owner first. Everything else that is safe works from
+     the phone too: every page to read, sending objectives, stopping work, Stop all, Allow again,
+     and Run again. So that a notice can say what it is asking, its short line is encrypted for
+     the owner's phone alone; the relay and the push service cannot read it.
      Phase 14's own record settles the rest (how pairing works, how the phone proves it is the
      owner, and how the relay change is tested).
 

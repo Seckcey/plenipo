@@ -1543,11 +1543,11 @@ Core product behavior stable.
 
 # Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch
 
-**Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides. It reaches the PC through the relay 8 West already runs for Milepost, it can send notices to a phone even when the page is closed, and it is a **Pro** feature.
+**Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides. It reaches the PC through the relay 8 West already runs for Milepost, it can send notices to a phone even when the page is closed, the owner can **approve and allow right from a notice** as well as in the web interface, and it is a **Pro** feature. The phone does as much as it safely can.
 
 ## Goal
 
-Let the owner see and steer Plenipo from a phone or another device, while the work, the permissions, and the records stay on the owner's PC.
+Let the owner do as much as possible from a phone or another device, and at the very least approve and allow from a notice and from the web interface, while the work, the permissions, and the records stay on the owner's PC.
 
 ## Deliverables
 
@@ -1555,11 +1555,11 @@ Let the owner see and steer Plenipo from a phone or another device, while the wo
 - the phone reaches the PC through **8 West's relay, the one Milepost already uses** (on Linode). Plenipo on the PC connects out to the relay, so nothing is opened on the PC or the router. The relay only passes messages along: what the phone and the PC say to each other is encrypted end to end, so the relay cannot read the work, answer an approval, or make up a request. Milepost keeps working as before (the relay change is approved by the owner in the relay's own repository). The relay's address and sign-in never go into this repository.
 - pairing a device from the PC: a one-time code (or QR code) the PC shows, or the owner's 8 West account (Phase 22, which comes first in the order of work); the phase's ADR chooses. Each paired device has a name, shows in Settings, and can be removed; a lost phone is cut off from the PC in one step
 - signing in: every request is signed in, sessions end on their own, and removing a device ends its sessions at once
-- what is going on: Home's status (what is working, what is waiting, what is stuck), departments and projects, and each task's summary
-- approvals: see what waits for the owner and approve or refuse it; the phone confirms it is the owner first (its passcode, face, or fingerprint, through a passkey)
-- approvals the owner keeps on the PC only (for example, Production servers): a local setting, and each one shows in the web interface as "approve on your PC"
-- sending an objective to a manager, as the owner would on the PC
-- notices on the phone, **even when the page is closed** (web push, sent through the relay): a notice says only that something needs the owner (for example "An approval is waiting"), never the work itself. On an iPhone, the page is added to the Home Screen first; the web interface shows how
+- **approve and allow from the phone, at the very least:** everything that waits for the owner on the Approvals page (Approve or Refuse an approval card; Keep or Discard a lesson) and **Allow again** after Stop all, in the web interface **and right from the notice**. On Android the notice has the buttons; on an iPhone, as far as we know today, a web page's notice has no buttons, so one tap opens that approval with its buttons (the phase checks what each phone allows). The phone confirms it is the owner first (its passcode, face, or fingerprint); the phase's ADR settles how that works from a notice. An approval already answered on the PC shows as answered, and answering twice changes nothing
+- approvals the owner keeps on the PC only (for example, Production servers): a local setting, none to begin with, and each one shows on the phone as "approve on your PC"
+- **as much else as can be done safely**, the same as on the PC: every page to read (Home, the organization, projects, workers, tasks and their conversations, Activity, AI tools, Diagnostics); send an objective to a manager; stop a task, **Stop all**, and **Allow again**; **Run again** or **Leave stopped** after an unexpected stop; and the web interface's own choices (its notices and theme)
+- **what stays on the PC only:** the terminal and any shell, files, the screen and Plenipo's browser, secrets, and anything that widens what workers may do or who may connect (permissions, switches, Guard's rules, adding a device, turning phone access on)
+- notices on the phone, **even when the page is closed** (web push, sent through the relay), each with a short line saying what needs the owner (for example "Approve: git push to Website"). The line is encrypted so only the owner's phone can read it, not the relay, Apple, or Google; a choice on the phone shows only "Something needs you" on the lock screen instead. On an iPhone, the page is added to the Home Screen first; the web interface shows how
 - a switch on the PC, off to begin with: Settings → Switches → use Plenipo from another device; turning it off cuts every device off at once
 - **Pro only** (ADR-021): on Free, the switch says it comes with Pro and nothing connects to the relay
 - when the PC cannot be reached, the web interface says so in plain words and changes nothing
@@ -1573,9 +1573,9 @@ A request from another device flows:
 
 web interface -> signed-in Plenipo connection on the PC -> Guard -> organization/router -> AI tool on the PC
 
-The connection offers a short, fixed list of requests (the deliverables above). It does not reuse the desktop window's commands, which stay the main window's alone.
+The connection offers a fixed list of requests (the deliverables above), each checked by Guard. It does not reuse the desktop window's commands, which stay the main window's alone.
 
-Never expose a shell, the terminal, files, the screen, the browser, secrets, or Settings through the web interface.
+Never expose a shell, the terminal, files, the screen, the browser, secrets, or the settings that widen what workers may do or who may connect through the web interface.
 
 ## Tests
 
@@ -1586,19 +1586,22 @@ Never expose a shell, the terminal, files, the screen, the browser, secrets, or 
 - replay protection (a copied request is refused)
 - too many wrong tries (the connection slows down, then refuses)
 - sending an objective from another device
-- answering an approval from another device, after the phone confirms it is the owner
+- approving, refusing, and allowing from the web interface, after the phone confirms it is the owner
+- approving, refusing, and allowing right from a notice (Android), and one tap from a notice to that approval (iPhone)
+- an approval answered on the PC first, then on the phone (and the other way round): the first answer counts, the second changes nothing
 - an approval kept "on the PC only" cannot be answered from another device
+- stop a task, Stop all, Allow again, Run again, and Leave stopped from another device
 - PC offline, and connection lost part way through
 - the relay cannot read a request, answer one, or make one up, and a request replayed through the relay is refused
-- a notice on a closed page says only that something needs the owner, never the work
+- a notice's words can be read only on the owner's phone (not by the relay or the push service), and the lock-screen choice shows only "Something needs you"
 - Free edition: nothing connects to the relay, and the switch says it comes with Pro
 - the owner turns the switch off on the PC while a device is connected
-- the web interface cannot start an AI tool, run a program, or reach a shell, the terminal, files, the screen, the browser, secrets, or Settings
+- the web interface cannot start an AI tool, run a program, reach a shell, the terminal, files, the screen, the browser, or secrets, or change permissions, switches, Guard's rules, or paired devices
 - the web interface on a phone-sized screen, in both themes, from the keyboard, with no errors
 
 ## Acceptance Criteria
 
-From a phone, the owner can see what Plenipo is doing, answer an approval, and send an objective, while Guard on the PC decides each request and the Ledger records it. Turning the switch off on the PC cuts every device off at once.
+From a phone, the owner can see what Plenipo is doing, approve, refuse, and allow both in the web interface and right from a notice, and send an objective, while Guard on the PC decides each request and the Ledger records it. Turning the switch off on the PC cuts every device off at once.
 
 ## Dependencies
 
