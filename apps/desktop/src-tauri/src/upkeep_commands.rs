@@ -552,10 +552,13 @@ async fn install<R: Runtime>(
                  the work that was running was stopped. Plenipo restarts now."
             );
             updates.install_failed(&ledger, message.clone());
-            if let Ok(data) = app.path().app_local_data_dir() {
-                start_close::show_after_restart(&data);
+            // (Not in a launch test, which reports the failure and ends instead.)
+            if !app.try_state::<SmokeTest>().is_some_and(|s| s.is_enabled()) {
+                if let Ok(data) = app.path().app_local_data_dir() {
+                    start_close::show_after_restart(&data);
+                }
+                app.request_restart();
             }
-            app.request_restart();
             Err(CommandError::internal(message))
         }
     }
@@ -675,25 +678,31 @@ pub fn smoke_ready<R: Runtime>(app: &AppHandle<R>, smoke: &SmokeTest) {
                 }
             });
         }
+        // The outcome is what happens: 0 once the installer was started (the install quits with
+        // 0), 2 when no update was found or it could not be installed (with the reason in the
+        // report).
         Scenario::Update if count == 1 => {
-            smoke.record(EXIT_READY);
             let (app, smoke) = (app.clone(), smoke.clone());
             tauri::async_runtime::spawn(async move {
                 let updates = Arc::clone(&app.state::<Arc<Updates>>());
                 let guard = app.state::<Guard>().inner().clone();
                 let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
                 let status = updates.check_now(&guard, &ledger).await;
-                write_report(&app, &smoke, json!({ "stage": "checked" }));
-                if status.state == UpdateState::Available {
-                    if let Err(e) = install(&app, true).await {
-                        write_report(
-                            &app,
-                            &smoke,
-                            json!({ "stage": "failed", "error": e.message }),
-                        );
-                        app.exit(2);
-                    }
-                } else {
+                if status.state != UpdateState::Available {
+                    let why = status.message.unwrap_or_else(|| "no newer version".into());
+                    write_report(&app, &smoke, json!({ "stage": "notFound", "error": why }));
+                    smoke.record(2);
+                    app.exit(2);
+                    return;
+                }
+                write_report(&app, &smoke, json!({ "stage": "installing" }));
+                if let Err(e) = install(&app, true).await {
+                    write_report(
+                        &app,
+                        &smoke,
+                        json!({ "stage": "failed", "error": e.message }),
+                    );
+                    smoke.record(2);
                     app.exit(2);
                 }
             });

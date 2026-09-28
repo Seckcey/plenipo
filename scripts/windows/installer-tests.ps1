@@ -290,10 +290,16 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $UpdatesDir 'latest.json') -Encoding utf8NoBOM
 $server = Start-Process -FilePath 'python' -ArgumentList '-m', 'http.server', "$UpdatePort", '--bind', '127.0.0.1', '--directory', $UpdatesDir -PassThru -WindowStyle Hidden
 try {
-  Start-Sleep -Seconds 2
+  # The stand-in for GitHub Releases answers before Plenipo asks it.
+  Wait-Until {
+    try {
+      (Invoke-WebRequest -Uri "http://127.0.0.1:$UpdatePort/latest.json" -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200
+    } catch { $false }
+  } 60 'the test update server'
   $p = Start-Plenipo -Scenario 'update' -NoWait
   Check ($p.WaitForExit(200000)) 'Plenipo stops its work and quits to install'
-  Check ($p.ExitCode -eq 0) "it handed over to the installer (exit $($p.ExitCode))"
+  $stage = (Read-Report).extra
+  Check ($p.ExitCode -eq 0) "it handed over to the installer (exit $($p.ExitCode); $($stage.stage) $($stage.error))"
   # The installer Plenipo downloaded runs on its own, then opens Plenipo again. It opens it
   # through Windows' desktop (as the signed-in person, not as administrator), which a CI machine
   # may not have: then that last step is the owner's check.
