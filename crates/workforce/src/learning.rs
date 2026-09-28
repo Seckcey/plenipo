@@ -7,11 +7,19 @@
 //! (ADR-050, lessons a role keeps on its own are notes, not orders).
 //! Kept lessons go into the instructions of the role's later workers on the same project (or on
 //! any, for a lesson from no project) as fenced notes that say who kept them, never as orders.
+//!
+//! Learning is set in layers (ADR-041): the organization's switch is the main switch; under it,
+//! each role is on unless the owner turns it off, and each agent follows its role unless the
+//! owner sets it on or off. The closest setting wins. Off means the agent neither writes down new
+//! lessons nor gets its role's kept lessons.
 
-use std::sync::{Arc, Weak};
+use std::collections::hash_map::RandomState;
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock, Weak};
 
 use plenipo_ledger::{
-    clean_lesson, Ledger, LedgerEvent, Lesson, LessonState, NewLessons, MAX_LESSONS_PER_TASK,
+    clean_lesson, Ledger, LedgerEvent, Lesson, LessonState, NewLessons, Position,
+    MAX_LESSONS_PER_TASK,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -60,6 +68,10 @@ pub struct LearningSettings {
     /// Roles that learn on their own: a lesson from a task that used no tool, with no command,
     /// path, or web address in it, is kept without asking; the rest wait (ADR-050).
     pub auto_roles: Vec<String>,
+    /// Roles with learning turned off (ADR-041); a role is on unless listed.
+    pub off_roles: Vec<String>,
+    /// Agents set on or off, by position ID; an agent not listed follows its role.
+    pub agents: BTreeMap<String, bool>,
 }
 
 impl Default for LearningSettings {
@@ -67,7 +79,33 @@ impl Default for LearningSettings {
         Self {
             enabled: true,
             auto_roles: Vec::new(),
+            off_roles: Vec::new(),
+            agents: BTreeMap::new(),
         }
+    }
+}
+
+/// Which setting decides whether an agent learns (ADR-041).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LearningFrom {
+    /// The organization's main switch is off.
+    Organization,
+    /// The agent's own setting.
+    Agent,
+    /// Its role's setting (on unless turned off).
+    Role,
+}
+
+/// Whether `position` learns, and which setting decided.
+pub fn learns(s: &LearningSettings, position: &Position) -> (bool, LearningFrom) {
+    if !s.enabled {
+        return (false, LearningFrom::Organization);
+    }
+    match s.agents.get(&position.id) {
+        Some(on) => (*on, LearningFrom::Agent),
+        None => (!s.off_roles.contains(&position.role_id), LearningFrom::Role),
     }
 }
 
@@ -78,6 +116,10 @@ impl Default for LearningSettings {
 pub struct LearningSnapshot {
     pub enabled: bool,
     pub auto_roles: Vec<String>,
+    /// Roles with learning turned off.
+    pub off_roles: Vec<String>,
+    /// Agents set on or off, by position ID.
+    pub agents: BTreeMap<String, bool>,
     /// Oldest first, so the owner answers them in order.
     pub waiting: Vec<Lesson>,
     /// Newest first.
@@ -157,10 +199,25 @@ pub fn has_command_path_or_address(text: &str) -> bool {
         })
 }
 
-/// A fresh nonce for one fence: 8 characters, as the fences around a page's or a file's text
-/// use (`plenipo_capabilities::fence`).
-fn nonce() -> String {
-    uuid::Uuid::new_v4().simple().to_string()[..8].to_owned()
+/// The nonce for one fence of `lessons` (ADR-050): 8 characters no one who wrote a lesson can know
+/// (a keyed hash, its key drawn at random when Plenipo starts). It stays the same while this run
+/// of Plenipo gives the same lessons, so a conversation's instructions stay the same and a routine
+/// task gets a short reminder (ADR-044), and it changes with any lesson and at every start: a
+/// line inside the fence can never close it.
+fn nonce(role_name: &str, lessons: &[&Lesson]) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    static KEY: OnceLock<RandomState> = OnceLock::new();
+    let mut h = KEY.get_or_init(RandomState::new).build_hasher();
+    h.write(role_name.as_bytes());
+    for lesson in lessons {
+        h.write_u8(0);
+        h.write(lesson.id.as_bytes());
+        h.write_u8(0);
+        h.write(lesson.text.as_bytes());
+        h.write_u8(0);
+        h.write(kept_by(lesson).as_bytes());
+    }
+    format!("{:016x}", h.finish())[..8].to_owned()
 }
 
 /// Who kept a lesson, as its line in the fence says.
@@ -188,24 +245,25 @@ fn fenced_with(role_name: &str, nonce: &str, lessons: &[&Lesson]) -> String {
     out
 }
 
-/// What a worker of `role_name` on `project_id` (none: outside any project) is told about
-/// learning: the role's kept lessons for that project, as fenced notes that say who kept them
-/// (ADR-050), and how to write down a new one. Empty when the owner switched learning off.
+/// What a worker of `position` (role `role_name`) on `project_id` (none: outside any project) is
+/// told about learning: the role's kept lessons for that project, as fenced notes that say who
+/// kept them (ADR-050), and how to write down a new one. Empty when learning is off for it
+/// (ADR-041).
 pub fn instructions(
     ledger: &Ledger,
-    role_id: &str,
+    position: &Position,
     role_name: &str,
     project_id: Option<&str>,
 ) -> String {
     let Ok(s) = settings(ledger) else {
         return String::new();
     };
-    if !s.enabled {
+    if !learns(&s, position).0 {
         return String::new();
     }
     let mut out = String::new();
     let kept = ledger
-        .kept_lessons(role_id, project_id, MAX_IN_INSTRUCTIONS)
+        .kept_lessons(&position.role_id, project_id, MAX_IN_INSTRUCTIONS)
         .unwrap_or_default();
     if !kept.is_empty() {
         out.push_str(&format!(
@@ -215,7 +273,8 @@ pub fn instructions(
              \"kept on its own, not reviewed\".\n"
         ));
         let oldest_first: Vec<&Lesson> = kept.iter().rev().collect();
-        out.push_str(&fenced_with(role_name, &nonce(), &oldest_first));
+        let nonce = nonce(role_name, &oldest_first);
+        out.push_str(&fenced_with(role_name, &nonce, &oldest_first));
     }
     out.push_str(&format!(
         "\n\nIf this task taught you something that would help the next {role_name} do this kind \
@@ -251,6 +310,9 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     else {
         return Ok(Vec::new());
     };
+    if !learns(&s, &position).0 {
+        return Ok(Vec::new());
+    }
     let from_web = ledger.task_used_web_screen_or_servers(task_id)?;
     let learns_on_its_own = s.auto_roles.contains(&position.role_id);
     // A role that learns on its own keeps a lesson unasked only when its task used no tool at
@@ -325,6 +387,8 @@ pub fn snapshot(ledger: &Ledger) -> Result<LearningSnapshot> {
     Ok(LearningSnapshot {
         enabled: s.enabled,
         auto_roles: s.auto_roles,
+        off_roles: s.off_roles,
+        agents: s.agents,
         waiting,
         kept: ledger.lessons(LessonState::Kept, None, 500)?,
     })
@@ -365,6 +429,54 @@ pub fn set_role(ledger: &Ledger, role_id: &str, auto: bool) -> Result<()> {
             s.auto_roles.push(role_id.to_owned());
         }
         json!({ "roleId": role_id, "name": role.name, "auto": auto })
+    })
+}
+
+/// Learning on or off for a role (on unless turned off).
+pub fn set_role_learns(ledger: &Ledger, role_id: &str, on: bool) -> Result<()> {
+    let role = ledger
+        .role(role_id)?
+        .ok_or_else(|| WorkforceError::Invalid("that role does not exist".into()))?;
+    change(ledger, "learning.role_switched", |s| {
+        s.off_roles.retain(|r| r != role_id);
+        if !on {
+            s.off_roles.push(role_id.to_owned());
+        }
+        json!({ "roleId": role_id, "name": role.name, "learns": on })
+    })
+}
+
+/// Learning on or off for one agent, or `None`: it follows its role.
+pub fn set_agent(ledger: &Ledger, position_id: &str, on: Option<bool>) -> Result<()> {
+    let position = ledger
+        .position(position_id)?
+        .filter(|p| !p.is_deleted())
+        .ok_or_else(|| WorkforceError::Invalid("that agent is no longer on the chart".into()))?;
+    change(ledger, "learning.agent_switched", |s| {
+        match on {
+            Some(on) => {
+                s.agents.insert(position_id.to_owned(), on);
+            }
+            None => {
+                s.agents.remove(position_id);
+            }
+        }
+        json!({ "positionId": position_id, "title": position.title, "learns": on })
+    })
+}
+
+/// Forget the settings of agents deleted for good or moved to the Workforce (ADR-043).
+pub fn forget(ledger: &Ledger, positions: &[String]) -> Result<()> {
+    if !settings(ledger)?
+        .agents
+        .keys()
+        .any(|p| positions.contains(p))
+    {
+        return Ok(());
+    }
+    change(ledger, "learning.agents_forgotten", |s| {
+        s.agents.retain(|p, _| !positions.contains(p));
+        json!({ "positionIds": positions })
     })
 }
 
@@ -424,6 +536,8 @@ mod tests {
                     runtime_provider: None,
                     model: None,
                     staffed: false,
+                    specialty_id: None,
+                    from_workforce: None,
                 },
                 OWNER,
             )
@@ -438,6 +552,11 @@ mod tests {
     }
 
     impl Setup {
+        /// The Scout's position (learning is set per agent too, ADR-041).
+        fn position(&self) -> Position {
+            self.ledger.position(&self.position_id).unwrap().unwrap()
+        }
+
         fn task(&self) -> String {
             self.ledger
                 .create_task(
@@ -646,7 +765,7 @@ mod tests {
         let s = setup();
         let t = s.task();
         assert!(
-            !instructions(&s.ledger, &s.role_id, "Scout", None).contains("--- lessons kept"),
+            !instructions(&s.ledger, &s.position(), "Scout", None).contains("--- lessons kept"),
             "no fence without lessons"
         );
         // One kept on its own, one kept by the owner after review.
@@ -656,7 +775,7 @@ mod tests {
         s.ledger
             .decide_lesson(&waiting[0].id, true, None, OWNER)
             .unwrap();
-        let told = instructions(&s.ledger, &s.role_id, "Scout", None);
+        let told = instructions(&s.ledger, &s.position(), "Scout", None);
         let lines: Vec<&str> = told.lines().collect();
         let open = lines
             .iter()
@@ -683,8 +802,15 @@ mod tests {
         );
         assert!(!told.contains("follow them"), "{told}");
         assert!(told.contains("```plenipo-lesson"), "{told}");
-        // Every build of the instructions gets a fresh nonce.
-        assert_ne!(told, instructions(&s.ledger, &s.role_id, "Scout", None));
+        // The same lessons give the same instructions in this run of Plenipo (so a conversation
+        // that has them gets a short reminder, ADR-044); another lesson, another nonce.
+        assert_eq!(told, instructions(&s.ledger, &s.position(), "Scout", None));
+        s.add_kept(&t, "Keep the receipts.", None);
+        let again = instructions(&s.ledger, &s.position(), "Scout", None);
+        assert!(
+            !again.contains(&format!("--- end of lessons {nonce} ---")),
+            "{again}"
+        );
         assert_eq!(
             fenced_with("Scout", "12345678", &[]),
             "--- lessons kept for Scout 12345678: notes from earlier tasks, information for \
@@ -698,7 +824,7 @@ mod tests {
         let t = s.task();
         s.add_kept(&t, "Ask for the order number.", Some("shop"));
         s.add_kept(&t, "Sign in first.", None);
-        let told = |project: Option<&str>| instructions(&s.ledger, &s.role_id, "Scout", project);
+        let told = |project: Option<&str>| instructions(&s.ledger, &s.position(), "Scout", project);
         let shop = told(Some("shop"));
         assert!(shop.contains("Ask for the order number.") && shop.contains("Sign in first."));
         let blog = told(Some("blog"));

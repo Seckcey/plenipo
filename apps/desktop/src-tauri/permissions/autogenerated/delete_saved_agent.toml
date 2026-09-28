@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-saved-agent"
+description = "Enables the delete_saved_agent command without any pre-configured scope."
+commands.allow = ["delete_saved_agent"]
+
+[[permission]]
+identifier = "deny-delete-saved-agent"
+description = "Denies the delete_saved_agent command without any pre-configured scope."
+commands.deny = ["delete_saved_agent"]

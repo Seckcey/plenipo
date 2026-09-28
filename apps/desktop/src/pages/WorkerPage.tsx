@@ -168,7 +168,18 @@ export function WorkerPage({
         kicker={rankName(t, p.kind)}
         title={p.title}
         lead={`${p.roleName} · ${STAFFING_LABEL[p.staffing]}`}
-        status={<StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />}
+        status={
+          <StatusPill
+            status={POSITION_STATUS[p.status]}
+            label={
+              p.inWorkforce
+                ? "In your Workforce"
+                : p.deleted
+                  ? "Deleted for good"
+                  : STATUS_LABEL[p.status]
+            }
+          />
+        }
         onBack={onBack}
         actions={
           <>

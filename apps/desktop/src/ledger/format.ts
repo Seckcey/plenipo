@@ -221,8 +221,22 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
       return "Usage-limit setting changed";
     case "router.limit_cleared":
       return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;
+    case "router.rule_changed":
+      return p.layer === "organization"
+        ? "The organization's model and effort rule changed"
+        : p.layer === "department"
+          ? `The ${str(p.name) ?? "a"} department's model and effort rule changed`
+          : `${str(p.name) ?? "An agent"}'s own model and effort rule changed`;
+    case "router.rules_forgotten":
+      return "Rules of things deleted for good were removed";
   }
   return null;
+}
+
+/** " with Website, Shop" — names in a list, or nothing. */
+function names(list: unknown, lead: string): string {
+  const all = Array.isArray(list) ? list.map(String).filter((x) => x !== "") : [];
+  return all.length > 0 ? `${lead}${all.join(", ")}` : "";
 }
 
 /** Phase 7: permissions given, used, blocked, and revoked, and the owner's settings. */
@@ -344,6 +358,18 @@ function describeLearningEvent(type: string, p: Record<string, unknown>): string
       return p.auto === true
         ? `${str(p.name) ?? "A role"} now learns on its own`
         : `${str(p.name) ?? "A role"}'s lessons now wait for you`;
+    case "learning.role_switched":
+      return p.learns === false
+        ? `${str(p.name) ?? "A role"}'s agents stop learning`
+        : `${str(p.name) ?? "A role"}'s agents learn again`;
+    case "learning.agent_switched":
+      return p.learns === null || p.learns === undefined
+        ? `${str(p.title) ?? "An agent"} learns like its role`
+        : p.learns === false
+          ? `${str(p.title) ?? "An agent"} stops learning`
+          : `${str(p.title) ?? "An agent"} always learns`;
+    case "learning.agents_forgotten":
+      return "Learning settings of agents deleted for good were removed";
   }
   return null;
 }
@@ -564,7 +590,35 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
     case "org.department_updated":
       return `Department updated: ${name}`;
     case "org.department_deleted":
-      return `Department removed: ${name}`;
+      return p.forGood === true
+        ? `Department deleted for good: ${name}${names(p.projects, " with ")}`
+        : `Department removed: ${name}`;
+    case "org.department_archived":
+      return `Department archived with everything in it: ${name}`;
+    case "org.department_restored":
+      return `Department brought back: ${name}`;
+    case "org.project_restored":
+      return `Project brought back with its team: ${name}`;
+    case "org.project_deleted":
+      return `Project deleted for good: ${name}`;
+    case "org.position_restored":
+      return `Brought back: ${title}`;
+    case "org.position_deleted":
+      return `Deleted for good: ${title}${str(p.role) ? ` (${str(p.role)})` : ""}`;
+    case "org.oversight_not_restored":
+      return "A reviewer, QA, or security assignment did not come back (the other side is not on the chart)";
+    case "org.agent_saved":
+      return `Saved to your Workforce: ${title}`;
+    case "org.agent_hired_from_workforce":
+      return `Hired from your Workforce: ${title}`;
+    case "org.saved_agent_deleted":
+      return `Deleted for good from your Workforce: ${title}`;
+    case "org.specialty_created":
+      return `Specialty added${str(p.role) ? ` to ${str(p.role)}` : ""}: ${name}`;
+    case "org.specialty_updated":
+      return `Specialty changed: ${name}`;
+    case "org.specialty_removed":
+      return `Specialty removed: ${name}`;
     case "org.project_created":
       return `Project created: ${name}`;
     case "org.project_updated":
@@ -639,6 +693,8 @@ function describeAgentEvent(type: string, p: Record<string, unknown>): string | 
       return `Tool result${p.isError === true ? " (error)" : ""}: ${brief(p.summary)}`;
     case "agent.notice":
       return `Notice: ${brief(p.text)}`;
+    case "agent.memory_shortened":
+      return brief(p.detail) || "The AI tool shortened its memory of this conversation";
     case "agent.result": {
       const outcome = str(p.outcome);
       const label =
@@ -651,6 +707,10 @@ function describeAgentEvent(type: string, p: Record<string, unknown>): string | 
       return `Worker conversation linked to provider session ${str(p.providerSessionId) ?? "?"}`;
     case "session.closed":
       return "Worker conversation closed";
+    case "session.effort_changed":
+      return str(p.effort)
+        ? `The conversation's next tasks run at ${str(p.effort) === "xhigh" ? "extra high" : str(p.effort)} effort`
+        : "The conversation's next tasks run at the AI tool's default effort";
   }
   return null;
 }

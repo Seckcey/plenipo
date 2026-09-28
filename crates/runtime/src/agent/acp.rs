@@ -161,6 +161,9 @@ pub struct AcpTurn {
     unwritten: Vec<(String, Vec<String>)>,
     /// The worker's activity already says its files are closed.
     files_refused_noted: bool,
+    /// How much of its context the tool last reported in use (`usage_update`), in this
+    /// connection or — given by the runtime — at the end of the conversation's previous step.
+    context_used: Option<u64>,
 }
 
 impl AcpTurn {
@@ -182,6 +185,7 @@ impl AcpTurn {
             next_file: 0,
             unwritten: Vec::new(),
             files_refused_noted: false,
+            context_used: None,
         }
     }
 
@@ -730,12 +734,35 @@ impl AcpTurn {
         }
     }
 
+    /// The tool says how much of its context is in use (Kimi does, right after each prompt's
+    /// answer): less than half of its previous report means it shortened its memory of the
+    /// conversation (ADR-044 §2.5).
+    fn context_reported(&mut self, update: &Value) -> Parsed {
+        let Some(used) = update.get("used").and_then(Value::as_u64) else {
+            return Parsed::none();
+        };
+        match self.context_used.replace(used) {
+            Some(before) if used < before / 2 => Parsed::one(AgentEvent::MemoryShortened {
+                detail: format!(
+                    "{} shortened its memory of this conversation: it holds less of it than \
+                     before.",
+                    self.label()
+                ),
+            }),
+            _ => Parsed::none(),
+        }
+    }
+
     fn update(&mut self, params: &Value) -> Parsed {
         let update = params.get("update").unwrap_or(&Value::Null);
         let kind = update
             .get("sessionUpdate")
             .and_then(Value::as_str)
             .unwrap_or("");
+        if kind == "usage_update" {
+            // Also after the prompt's answer, where the tool sends it.
+            return self.context_reported(update);
+        }
         if self.phase != Phase::Prompting {
             // History replayed while a conversation loads, the tool's answers to the settings,
             // or noise before the prompt.
@@ -791,8 +818,7 @@ impl AcpTurn {
             | "user_message_chunk"
             | "plan"
             | "available_commands_update"
-            | "session_info_update"
-            | "usage_update" => {}
+            | "session_info_update" => {}
             _ => self.state.unknown += 1,
         }
         parsed
@@ -945,6 +971,14 @@ impl TurnParser for AcpTurn {
 
     fn stderr(&mut self, text: &str) {
         self.state.stderr(text);
+    }
+
+    fn context_used(&self) -> Option<u64> {
+        self.context_used
+    }
+
+    fn set_context_used(&mut self, previous: Option<u64>) {
+        self.context_used = previous;
     }
 
     fn finish(&mut self, end: &ProcessEnd) -> TurnResult {
@@ -1791,5 +1825,44 @@ mod tests {
         t.line(&answer(PROMPT, json!({ "stopReason": "end_turn" })), false);
         let r = t.finish(&end(ExecutionState::Succeeded, Some(0)));
         assert_eq!(r.ignored_lines, 4);
+    }
+
+    /// ADR-044 §2.5: context in use that drops below half of the previous report means the
+    /// tool shortened its memory — against the conversation's previous step, or within one.
+    #[test]
+    fn a_drop_in_context_in_use_means_a_shortened_memory() {
+        let usage = |used: u64| {
+            notify(json!({ "sessionUpdate": "usage_update", "used": used,
+                                                "size": 1_048_576 }))
+        };
+        let shortened =
+            |p: &Parsed| matches!(p.events.as_slice(), [AgentEvent::MemoryShortened { .. }]);
+
+        // The previous step's report comes from the runtime; the tool reports after the answer.
+        let mut t = prompting(false);
+        assert_eq!(t.context_used(), None);
+        t.set_context_used(Some(40_000));
+        t.line(&answer(PROMPT, json!({ "stopReason": "end_turn" })), false);
+        let p = t.line(&usage(12_000), false);
+        assert!(shortened(&p), "{p:?}");
+        let text = match &p.events[0] {
+            AgentEvent::MemoryShortened { detail } => detail.clone(),
+            _ => unreachable!(),
+        };
+        assert!(text.starts_with("Grok shortened its memory"), "{text}");
+        assert_eq!(t.context_used(), Some(12_000), "kept for the next step");
+
+        // Growing, or dropping by less than half, is no sign.
+        let mut t = prompting(false);
+        t.set_context_used(Some(40_000));
+        assert!(!shortened(&t.line(&usage(21_000), false)));
+        assert!(!shortened(&t.line(&usage(30_000), false)));
+        // Twice in one task: the second report is compared with the first.
+        assert!(shortened(&t.line(&usage(9_000), false)));
+        // Nothing to compare with: nothing to say.
+        let mut t = prompting(false);
+        assert!(!shortened(&t.line(&usage(10), false)));
+        let r = t.finish(&end(ExecutionState::Succeeded, Some(0)));
+        assert_eq!(r.ignored_lines, 0);
     }
 }

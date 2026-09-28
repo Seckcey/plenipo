@@ -1,5 +1,12 @@
 // Router DTO fixtures for tests.
-import type { Effort, RoleInfo, RolePolicy, RoutingSnapshot, ToolInfo } from "@plenipo/types";
+import type {
+  Effort,
+  ModelRule,
+  RoleInfo,
+  RolePolicy,
+  RoutingSnapshot,
+  ToolInfo,
+} from "@plenipo/types";
 
 import { ROLES } from "./orgFixtures";
 
@@ -42,7 +49,16 @@ const empty: RolePolicy = {
   cost: "any",
   crossCompany: "off",
   efforts: {},
+  effort: null,
 };
+
+/** A rule that sets nothing. */
+export const emptyRule = (): ModelRule => ({
+  models: [],
+  efforts: {},
+  effort: null,
+  neverCompanies: [],
+});
 
 /** Two built-in defaults and the owner's "Opus"; Senior Developer prefers Opus, then Codex. */
 export function sampleRouting(): RoutingSnapshot {
@@ -123,6 +139,8 @@ export function sampleRouting(): RoutingSnapshot {
               rank: 1,
               candidates: [],
               fixed: false,
+              modelFrom: { layer: "role", name: "Senior Developer", id: r.id },
+              effortFrom: null,
             },
           )
         : view(
@@ -135,9 +153,17 @@ export function sampleRouting(): RoutingSnapshot {
               rank: null,
               candidates: [],
               fixed: false,
+              modelFrom: null,
+              effortFrom: null,
             },
           ),
     ),
+    organization: emptyRule(),
+    departments: [
+      { departmentId: "d-eng", name: "Engineering", rule: emptyRule() },
+      { departmentId: "d-mkt", name: "Marketing", rule: emptyRule() },
+    ],
+    agents: [],
     seen: [
       {
         runtimeId: "claude-code",

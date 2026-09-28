@@ -14,7 +14,7 @@ use plenipo_runtime::agent::{
 };
 use plenipo_runtime::store::Loaded;
 use plenipo_runtime::{
-    AgentAttribution, ExecutionRecord, ExecutionState, ExecutionStore, TokenUsage,
+    AgentAttribution, ExecutionRecord, ExecutionState, ExecutionStore, PromptSize, TokenUsage,
 };
 use serde_json::{json, Value};
 
@@ -89,10 +89,14 @@ pub fn to_row(r: &ExecutionRecord) -> ExecutionRow {
         detail: r.detail.clone(),
         started_at: r.started_at,
         ended_at: r.ended_at,
-        usage_metadata: agent.map_or(
-            Value::Null,
-            |a| json!({ "providerSessionId": a.provider_session_id, "usage": a.usage }),
-        ),
+        usage_metadata: agent.map_or(Value::Null, |a| {
+            let mut meta = json!({ "providerSessionId": a.provider_session_id, "usage": a.usage });
+            // The size of what Plenipo sent with the step (ADR-044): numbers only.
+            if let Some(prompt) = &a.prompt {
+                meta["prompt"] = json!(prompt);
+            }
+            meta
+        }),
     }
 }
 
@@ -114,6 +118,9 @@ fn to_attribution(row: &ExecutionRow) -> Option<Box<AgentAttribution>> {
         usage: meta
             .get("usage")
             .and_then(|u| serde_json::from_value::<TokenUsage>(u.clone()).ok()),
+        prompt: meta
+            .get("prompt")
+            .and_then(|p| serde_json::from_value::<PromptSize>(p.clone()).ok()),
     }))
 }
 
@@ -547,10 +554,24 @@ mod tests {
                 cached_input_tokens: 2,
                 output_tokens: 5,
             }),
+            prompt: Some(PromptSize {
+                bytes: 3_000,
+                own_bytes: 2_900,
+                brief: plenipo_runtime::BriefKind::Full,
+                why: Some(plenipo_runtime::BriefWhy::First),
+                full_own_bytes: 2_900,
+                note: plenipo_runtime::NoteKind::Full,
+            }),
         }));
         store.save(&r).unwrap();
         assert_eq!(store.load(10).records, [r]);
         let row = ledger.execution("e2").unwrap().unwrap();
+        // The step's size is kept with its usage: numbers only (ADR-044).
+        assert_eq!(
+            row.usage_metadata["prompt"],
+            json!({ "bytes": 3000, "ownBytes": 2900, "brief": "full", "why": "first",
+                    "fullOwnBytes": 2900, "note": "full" })
+        );
         assert_eq!(row.runtime, "claude-code");
         assert_eq!(row.provider.as_deref(), Some("anthropic"));
         assert_eq!(row.task_id.as_deref(), Some(task.id.as_str()));
@@ -591,6 +612,7 @@ mod tests {
             usage: None,
             duration_ms: Some(10),
             ignored_lines: 0,
+            prompt: None,
         }
     }
 

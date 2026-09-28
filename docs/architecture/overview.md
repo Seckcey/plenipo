@@ -163,7 +163,6 @@ Workforce commands (Phase 5). Every change returns the organization as it is aft
 | `update_role`             | `roleId`, `input` (`RoleUpdate`)        | `OrgSnapshot`        | Change a role you created: name, what it does, and its working instructions (ADR-019); built-in roles refused   |
 | `create_department`       | `input` (`DepartmentInput`)             | `OrgSnapshot`        | A department with its head position (and agent, unless left vacant)                                             |
 | `update_department`       | `departmentId`, `input`                 | `OrgSnapshot`        | Name, description, active                                                                                       |
-| `remove_department`       | `departmentId`                          | `OrgSnapshot`        | Delete a department without projects; its head position is archived                                             |
 | `create_project`          | `input` (`ProjectInput`)                | `OrgSnapshot`        | A project in a department with its coordinator; allowed runtimes, recorded path/profile                         |
 | `update_project`          | `projectId`, `input`                    | `OrgSnapshot`        | Settings (allowed runtimes are checked against every position under the project)                                |
 | `archive_project`         | `projectId`                             | `OrgSnapshot`        | Archive the project and its whole team (refused while any of it has unfinished work)                            |
@@ -176,6 +175,27 @@ Workforce commands (Phase 5). Every change returns the organization as it is aft
 | `assign_oversight`        | `overseerId`, `targetId`, `role`        | `OrgSnapshot`        | Make an on-demand position a lead's team reviewer, QA evaluator, or security auditor                            |
 | `end_oversight`           | `oversightId`                           | `OrgSnapshot`        | End an oversight assignment                                                                                     |
 | `give_objective`          | `positionId`, `objective`, `projectId?` | `AgentSessionDetail` | Give a staffed persistent position's agent an objective (for a project its team runs); Core chooses its session |
+
+The owner's control over workers (Phase 17: ADR-041 to ADR-043, ADR-045). The main window's
+alone, like every command above; a refused change rejects with the reason.
+
+| Command                   | Input                               | Returns            | Purpose                                                                                                                            |
+| ------------------------- | ----------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `set_model_rule`          | `target`, `rule` (`ModelRule`)      | `RoutingSnapshot`  | The organization's, a department's, or an agent's model and effort rule; open conversations take a new effort from their next task |
+| `set_role_learns`         | `roleId`, `learns`                  | `LearningSnapshot` | Learning on or off for a role (under Worker learning, the main switch)                                                             |
+| `set_agent_learning`      | `positionId`, `learns?`             | `LearningSnapshot` | Learning on or off for one agent (`null`: it follows its role)                                                                     |
+| `create_specialty`        | `input` (`SpecialtyInput`)          | `OrgSnapshot`      | One of the owner's own specialties on a role                                                                                       |
+| `update_specialty`        | `specialtyId`, `input`              | `OrgSnapshot`      | Change one of the owner's specialties (built-in ones refused)                                                                      |
+| `remove_specialty`        | `specialtyId`                       | `OrgSnapshot`      | Remove one of the owner's specialties; agents that had it keep its name on record                                                  |
+| `archive_department`      | `departmentId`                      | `OrgSnapshot`      | Archive a department with everything in it (refused while any of it has unfinished work)                                           |
+| `bring_back_position`     | `positionId`                        | `OrgSnapshot`      | Bring an archived agent back as it was (one archived with its project or department comes back with it)                            |
+| `bring_back_project`      | `projectId`                         | `OrgSnapshot`      | Bring an archived project back with its team                                                                                       |
+| `bring_back_department`   | `departmentId`                      | `OrgSnapshot`      | Bring an archived department back with its projects and teams                                                                      |
+| `preview_delete_for_good` | `kind`, `id`                        | `DeletionPreview`  | What deleting for good would take along, each agent's experience, and the average                                                  |
+| `delete_for_good`         | `kind`, `id`, `save` (position IDs) | `OrgSnapshot`      | Delete an archived item for good, keeping a short record; the agents in `save` go to the Workforce                                 |
+| `save_to_workforce`       | `positionId`                        | `OrgSnapshot`      | Save an archived agent to the Workforce on its own                                                                                 |
+| `hire_from_workforce`     | `savedId`, `reportsTo?`, `title?`   | `OrgSnapshot`      | Hire a saved agent into a team again, with its settings, experience, and lessons                                                   |
+| `delete_saved_agent`      | `savedId`                           | `OrgSnapshot`      | Delete an agent in the Workforce for good                                                                                          |
 
 Router commands (Phase 6). Every change returns the model settings as they are afterwards
 (`RoutingSnapshot`); a refused change rejects with the reason and changes nothing.

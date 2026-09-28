@@ -155,42 +155,51 @@ export function OrganizationSettings({ go }: { go: Go }) {
   const t = titlesOf(snapshot);
   const lead = (org: OrgSnapshot, id: string | null) =>
     id ? org.positions.find((p) => p.id === id) : undefined;
-  const departments: RowItem[] = snapshot.departments.map((d) => {
-    const head = lead(snapshot, d.headPositionId);
-    return {
-      id: d.id,
-      title: d.name,
-      detail: [
-        head
-          ? `${rankName(t, "departmentManager")}: ${head.title}`
-          : `No ${rankName(t, "departmentManager")} yet`,
-        count(d.projectIds.length, "project"),
-      ].join(" · "),
-      status: !d.active
-        ? { status: "offline", label: "Inactive" }
-        : head
-          ? { status: POSITION_STATUS[head.status], label: STATUS_LABEL[head.status] }
-          : undefined,
-      onOpen: () => go({ view: "department", id: d.id }),
-    };
-  });
-  const projects: RowItem[] = snapshot.projects.map((p) => {
-    const head = lead(snapshot, p.coordinatorPositionId);
-    const department = snapshot.departments.find((d) => d.id === p.departmentId);
-    return {
-      id: p.id,
-      title: p.name,
-      detail: [
-        department?.name ?? "No department",
-        head
-          ? `${rankName(t, "projectCoordinator")}: ${head.title}`
-          : `No ${rankName(t, "projectCoordinator")} yet`,
-        p.localPath ? "has a project folder" : "no project folder",
-      ].join(" · "),
-      status: p.active ? undefined : { status: "offline", label: "Archived" },
-      onOpen: () => go({ view: "project", id: p.id }),
-    };
-  });
+  const departments: RowItem[] = snapshot.departments
+    .filter((d) => !d.deleted)
+    .map((d) => {
+      const head = lead(snapshot, d.headPositionId);
+      return {
+        id: d.id,
+        title: d.name,
+        detail: [
+          head
+            ? `${rankName(t, "departmentManager")}: ${head.title}`
+            : `No ${rankName(t, "departmentManager")} yet`,
+          // A project deleted for good is only a short record: not counted.
+          count(
+            d.projectIds.filter((id) => snapshot.projects.some((x) => x.id === id && !x.deleted))
+              .length,
+            "project",
+          ),
+        ].join(" · "),
+        status: !d.active
+          ? { status: "offline", label: d.archivedAt !== null ? "Archived" : "Inactive" }
+          : head
+            ? { status: POSITION_STATUS[head.status], label: STATUS_LABEL[head.status] }
+            : undefined,
+        onOpen: () => go({ view: "department", id: d.id }),
+      };
+    });
+  const projects: RowItem[] = snapshot.projects
+    .filter((p) => !p.deleted)
+    .map((p) => {
+      const head = lead(snapshot, p.coordinatorPositionId);
+      const department = snapshot.departments.find((d) => d.id === p.departmentId);
+      return {
+        id: p.id,
+        title: p.name,
+        detail: [
+          department?.name ?? "No department",
+          head
+            ? `${rankName(t, "projectCoordinator")}: ${head.title}`
+            : `No ${rankName(t, "projectCoordinator")} yet`,
+          p.localPath ? "has a project folder" : "no project folder",
+        ].join(" · "),
+        status: p.active ? undefined : { status: "offline", label: "Archived" },
+        onOpen: () => go({ view: "project", id: p.id }),
+      };
+    });
   return (
     <div className="settings-section__body">
       <div className="settings-section__actions">

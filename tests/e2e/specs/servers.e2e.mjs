@@ -17,14 +17,16 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
+  objectiveBox,
   openSettings,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -176,9 +178,8 @@ const onShop = (program, args = []) => tool("ssh_run", { server: "Shop", program
 async function delegate(browser, objective, work) {
   await nav(browser, "Organization");
   await select(browser, "Servers Supervisor");
-  const form = 'form[aria-label="Give an objective"]';
   await (
-    await browser.$(`${form} textarea`)
+    await objectiveBox(browser)
   ).setValue(`${objective} {{handoff:role:Operations Engineer|${work.join(" ")}}}`);
   await clickButton(browser, "Give objective");
 }
@@ -309,6 +310,7 @@ describe("Phase 11 servers: settings, production approvals, the sign, and server
     await submit(browser, 'form[aria-label="Hire"]');
     await waitForNode(browser, "Operations Engineer,");
     await select(browser, "Operations Engineer");
+    await detailsTab(browser, "Job");
     await waitForText(browser, DETAILS, "Looks after the servers you set up");
   });
 

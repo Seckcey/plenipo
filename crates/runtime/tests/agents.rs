@@ -9,13 +9,14 @@ use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, Bridge, Effort, HostEnv, InstallState, MemorySessionStore,
-    SessionStart, SessionState, SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook,
-    TurnInput, TurnOutcome, TurnRef, TurnTask, STEP_SEQ,
+    AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HostEnv, InstallState,
+    MemorySessionStore, SessionStart, SessionState, SessionStore, StepInfo, StepNote, StepTools,
+    ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask,
+    STEP_SEQ,
 };
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, ExecutionState, MetadataStore, ProfileRegistry, RuntimeError,
-    RuntimeEvent, Supervisor, SupervisorConfig,
+    BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore, NoteKind,
+    ProfileRegistry, PromptSize, RuntimeError, RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
 const RUNTIMES: [&str; 4] = ["claude-code", "codex", "grok", "kimi"];
@@ -1242,6 +1243,7 @@ async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
         let note = StepNote {
             reason: "replies arrived".into(),
             data: serde_json::json!({ "deliver": ["r-1"] }),
+            passed_bytes: 0,
         };
         h.rt.continue_turn(&id, &task, "here are the replies", note.clone())
             .await
@@ -1445,6 +1447,7 @@ async fn sessions_start_with_a_chosen_id_metadata_and_prompt() {
             TurnInput {
                 objective: "the recorded objective".into(),
                 prompt: Some("the prompt that is sent".into()),
+                brief: None,
                 task: TurnTask::New {
                     requested_by: "agent:tester".into(),
                     metadata: serde_json::json!({ "extra": 1 }),
@@ -1540,6 +1543,7 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
         TurnInput {
             objective: "review this".into(),
             prompt: Some("Please review this".into()),
+            brief: None,
             task: TurnTask::Existing {
                 task_id: "t-adopt".into(),
             },
@@ -1561,6 +1565,7 @@ async fn a_recorded_task_can_be_adopted_as_a_turn() {
             TurnInput {
                 objective: "again".into(),
                 prompt: None,
+                brief: None,
                 task: TurnTask::Existing {
                     task_id: "t-adopt".into(),
                 },
@@ -1711,4 +1716,450 @@ async fn kimi_runs_only_the_subscription_models() {
     );
     // Refused before any conversation was opened.
     assert!(h.last_acp().get("method").is_none());
+}
+
+// ---- Prompts sized to the job (ADR-044) --------------------------------------------------------
+
+/// Liaison's message for `objective`: the full instructions (`hash` names them), and a short
+/// reminder instead of them.
+fn briefed(objective: &str, hash: u64) -> TurnInput {
+    let full = format!("[instructions]\nWho you are, your job, your team.\n[end]\n\n{objective}");
+    let reminder = format!("[instructions]\nThey still apply.\n[end]\n\n{objective}");
+    TurnInput {
+        objective: objective.into(),
+        prompt: None,
+        brief: Some(BriefInput {
+            full,
+            reminder: Some(reminder),
+            passed_bytes: objective.len(),
+            reminder_passed_bytes: objective.len(),
+            hash,
+            large: false,
+        }),
+        task: TurnTask::New {
+            requested_by: "owner".into(),
+            metadata: serde_json::Value::Null,
+            project_id: None,
+        },
+    }
+}
+
+/// Give a session its next briefed objective and wait for it; returns its step sizes.
+async fn briefed_turn(h: &H, id: &str, input: TurnInput) -> Vec<PromptSize> {
+    let turns = h.rt.session(id).await.unwrap().turns.len();
+    h.rt.resume_session_with(id, input).await.unwrap();
+    let detail = settled(&h.rt, id, turns + 1).await;
+    detail.turns[turns]
+        .steps
+        .iter()
+        .map(|s| s.result.as_ref().unwrap().prompt.expect("a size"))
+        .collect()
+}
+
+/// ADR-044 §2.5: every AI tool that says it shortened its memory is heard — Claude Code's
+/// "compacted" notice, a drop in the context Grok and Kimi report in use, the Ollama bridge
+/// leaving earlier messages out — and the next task gets the full instructions again.
+#[tokio::test]
+async fn a_shortened_memory_is_heard_and_the_next_task_gets_the_full_instructions() {
+    for runtime in ["claude-code", "grok", "kimi", "ollama"] {
+        let h = harness();
+        let started =
+            h.rt.start_session_with(
+                SessionStart {
+                    runtime_id: runtime.into(),
+                    ..SessionStart::default()
+                },
+                briefed("one", 7),
+            )
+            .await
+            .unwrap();
+        let id = started.session.id.clone();
+        let detail = settled(&h.rt, &id, 1).await;
+        let first = detail.turns[0].steps[0]
+            .result
+            .clone()
+            .unwrap()
+            .prompt
+            .unwrap();
+        assert_eq!(
+            (first.brief, first.why),
+            (BriefKind::Full, Some(BriefWhy::First))
+        );
+        briefed_turn(&h, &id, briefed("two", 7)).await;
+        // What was sent so far is still in the conversation: its mark holds (ADR-044 §4.13).
+        // Records are named by ID only where the AI tool itself says when it shortens its
+        // memory: Grok and Kimi report the context in use only after each answer, which can miss
+        // a shortening in the middle of a step, so their records are pasted, as for Codex.
+        let names_records = matches!(runtime, "claude-code" | "ollama");
+        let mark = h.rt.memory_mark(&id);
+        assert_eq!(mark.is_some(), names_records, "{runtime}");
+        briefed_turn(&h, &id, briefed("three [compact]", 7)).await;
+        let moved = h.rt.memory_mark(&id);
+        if names_records {
+            assert!(
+                moved.is_some() && moved != mark,
+                "{runtime}: {mark:?} {moved:?}"
+            );
+        } else {
+            assert_eq!(moved, None, "{runtime}");
+        }
+        let detail = h.rt.session(&id).await.unwrap();
+        let shortened: Vec<AgentEvent> = h
+            .store
+            .activity(&detail.turns[2].task_id)
+            .into_iter()
+            .filter(|e| matches!(e, AgentEvent::MemoryShortened { .. }))
+            .collect();
+        assert_eq!(shortened.len(), 1, "{runtime}: {shortened:?}");
+        let next = briefed_turn(&h, &id, briefed("four", 7)).await;
+        assert_eq!(
+            (next[0].brief, next[0].why),
+            (BriefKind::Full, Some(BriefWhy::MemoryShortened)),
+            "{runtime}"
+        );
+        // Once sent, the full instructions are what the conversation has again.
+        let after = briefed_turn(&h, &id, briefed("five", 7)).await;
+        assert_eq!(
+            (after[0].brief, after[0].why),
+            (BriefKind::Reminder, Some(BriefWhy::Routine)),
+            "{runtime}"
+        );
+        assert_eq!(h.rt.memory_mark(&id), moved, "{runtime}");
+    }
+}
+
+/// ADR-044 §2: a task that sent other instructions in full and then did not finish leaves them
+/// in doubt; the next task sends its instructions in full, even when they are the earlier ones.
+#[tokio::test]
+async fn instructions_a_failed_task_sent_go_out_in_full_again() {
+    let h = harness();
+    let id = briefed_session(&h, "claude-code", "one").await;
+    // Changed instructions go out in full, and the task stops at a usage limit.
+    let failed = briefed_turn(&h, &id, briefed("two [usage-limit]", 8)).await[0];
+    assert_eq!(
+        (failed.brief, failed.why),
+        (BriefKind::Full, Some(BriefWhy::Changed))
+    );
+    // Back to the first instructions: the AI tool may have either, so they go out in full.
+    let back = briefed_turn(&h, &id, briefed("three", 7)).await[0];
+    assert_eq!(
+        (back.brief, back.why),
+        (BriefKind::Full, Some(BriefWhy::Changed))
+    );
+    let after = briefed_turn(&h, &id, briefed("four", 7)).await[0];
+    assert_eq!(
+        (after.brief, after.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+}
+
+/// ADR-044 §2.5: when the Ollama bridge would have to leave the start of a conversation out of
+/// the next task, Plenipo knows before it sends it, and the task goes out with the full
+/// instructions instead of a reminder of what the model would no longer see.
+#[tokio::test]
+async fn an_ollama_conversation_too_long_to_send_whole_gets_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "ollama", "one").await;
+    let routine = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(routine.brief, BriefKind::Reminder);
+    // The conversation the bridge keeps grows past what it sends at once.
+    let session = h.rt.session(&id).await.unwrap().session;
+    let provider = session.provider_session_id.unwrap();
+    let history = serde_json::json!({ "model": "m", "messages": [
+        { "role": "user", "content": "x".repeat(450_000) },
+        { "role": "assistant", "content": "ok" },
+    ]});
+    std::fs::write(
+        Path::new(&session.working_dir).join(format!(".plenipo-ollama-{provider}.json")),
+        history.to_string(),
+    )
+    .unwrap();
+    let next = briefed_turn(&h, &id, briefed("three", 7)).await[0];
+    assert_eq!(
+        (next.brief, next.why),
+        (BriefKind::Full, Some(BriefWhy::MemoryShortened))
+    );
+}
+
+/// What the fake AI tool received in a provider conversation: each message (without Plenipo's
+/// tools note) and its whole size.
+fn received(h: &H, provider_session: &str) -> (Vec<String>, Vec<u32>) {
+    let file = h
+        .state()
+        .join("sessions")
+        .join(format!("{provider_session}.json"));
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let strings = |key: &str| -> Vec<serde_json::Value> { v[key].as_array().unwrap().clone() };
+    (
+        strings("prompts")
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect(),
+        strings("sizes")
+            .iter()
+            .map(|s| u32::try_from(s.as_u64().unwrap()).unwrap())
+            .collect(),
+    )
+}
+
+async fn briefed_session(h: &H, runtime: &str, objective: &str) -> String {
+    let started =
+        h.rt.start_session_with(
+            SessionStart {
+                runtime_id: runtime.into(),
+                ..SessionStart::default()
+            },
+            briefed(objective, 7),
+        )
+        .await
+        .unwrap();
+    settled(&h.rt, &started.session.id, 1).await;
+    started.session.id
+}
+
+/// ADR-044 §2–§3: a routine objective gets a short reminder; the first one, changed
+/// instructions, a large job, the 10th objective after the full instructions, and a message
+/// without a short form get the full instructions.
+#[tokio::test]
+async fn routine_objectives_get_a_short_reminder_and_the_rest_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "codex", "one").await;
+    // Codex does not say when it shortens its memory: Plenipo cannot tell what the
+    // conversation still has, so saved records are pasted again every time (ADR-044 §4.13).
+    assert_eq!(h.rt.memory_mark(&id), None);
+    let routine = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(
+        (routine.brief, routine.why),
+        (BriefKind::Reminder, Some(BriefWhy::Routine))
+    );
+    assert!(routine.own_bytes < routine.full_own_bytes, "{routine:?}");
+    // What the AI tool really received: the reminder, then the objective.
+    let provider =
+        h.rt.session(&id)
+            .await
+            .unwrap()
+            .session
+            .provider_session_id
+            .unwrap();
+    let (prompts, sizes) = received(&h, &provider);
+    assert!(
+        prompts[0].starts_with("[instructions]\nWho you are"),
+        "{prompts:?}"
+    );
+    assert_eq!(
+        prompts[1],
+        "[instructions]\nThey still apply.\n[end]\n\ntwo"
+    );
+    assert_eq!(sizes[1], routine.bytes, "the recorded size is what arrived");
+
+    let why = |sizes: Vec<PromptSize>| (sizes[0].brief, sizes[0].why.unwrap());
+    assert_eq!(
+        why(briefed_turn(&h, &id, briefed("new team", 8)).await),
+        (BriefKind::Full, BriefWhy::Changed)
+    );
+    let mut large = briefed("a large job", 8);
+    if let Some(b) = large.brief.as_mut() {
+        b.large = true;
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, large).await),
+        (BriefKind::Full, BriefWhy::LargeJob)
+    );
+    // Nine reminders, then the 10th objective after the full instructions gets them again.
+    for n in 1..=9 {
+        let (kind, _) = why(briefed_turn(&h, &id, briefed(&format!("routine {n}"), 8)).await);
+        assert_eq!(kind, BriefKind::Reminder, "routine {n}");
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, briefed("the tenth", 8)).await),
+        (BriefKind::Full, BriefWhy::EveryTenth)
+    );
+    let mut plain = briefed("no short form", 8);
+    if let Some(b) = plain.brief.as_mut() {
+        b.reminder = None;
+    }
+    assert_eq!(
+        why(briefed_turn(&h, &id, plain).await),
+        (BriefKind::Full, BriefWhy::NoReminder)
+    );
+    // An objective without a brief is sent as it is.
+    let bare = briefed_turn(&h, &id, TurnInput::owner("just this")).await[0];
+    assert_eq!((bare.brief, bare.why), (BriefKind::Plain, None));
+    assert_eq!(bare.own_bytes, 0, "the owner's objective alone");
+}
+
+/// Plenipo started again: a new runtime over the same records, with the same AI tools.
+fn restarted(h: &H) -> AgentRuntime {
+    let home = h.dir.path().join("home");
+    let mut config = AgentConfig::new(h.dir.path().join("workspaces"));
+    config.extra_env = vec![(HOME_VAR.into(), home.display().to_string())];
+    config.turn_timeout = Duration::from_secs(120);
+    AgentRuntime::new(
+        config,
+        builtin_adapters(),
+        h.sup.clone(),
+        h.store.clone(),
+        h.updates.clone(),
+        HostEnv::new(Some(h.bin().into_os_string()), Some(home), None),
+    )
+}
+
+/// ADR-044 §2.4: after Plenipo starts again it cannot know what the AI tool kept, so the next
+/// task gets the full instructions.
+#[tokio::test]
+async fn after_a_restart_the_next_task_gets_the_full_instructions() {
+    let h = harness();
+    let id = briefed_session(&h, "claude-code", "one").await;
+    let before = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(before.brief, BriefKind::Reminder);
+    let rt = restarted(&h);
+    // Nothing is known of the conversation after a restart.
+    assert_eq!(rt.memory_mark(&id), None);
+    assert!(h.rt.memory_mark(&id).is_some());
+    rt.resume_session_with(&id, briefed("three", 7))
+        .await
+        .unwrap();
+    let detail = settled(&rt, &id, 3).await;
+    let after = detail.turns[2].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(
+        (after.brief, after.why),
+        (BriefKind::Full, Some(BriefWhy::AfterRestart))
+    );
+    rt.resume_session_with(&id, briefed("four", 7))
+        .await
+        .unwrap();
+    let detail = settled(&rt, &id, 4).await;
+    let next = detail.turns[3].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(next.brief, BriefKind::Reminder);
+}
+
+/// Gives every step a permissions note that a test can change.
+struct Notes(Mutex<String>);
+
+impl ToolProvider for Notes {
+    fn open(&self, _: &StepInfo<'_>) -> Option<StepTools> {
+        None
+    }
+
+    fn note_without_tools(&self, _: &StepInfo<'_>) -> Option<String> {
+        Some(self.0.lock().unwrap().clone())
+    }
+
+    fn close(&self, _: &str) {}
+}
+
+/// ADR-044 §3: the permissions note goes out in full the first time, with the full
+/// instructions, when it changed, and after a shortened memory; otherwise a short note that
+/// keeps the safety rules in view — also for the step that delivers replies.
+#[tokio::test]
+async fn the_permissions_note_goes_out_in_full_only_when_needed() {
+    let h = harness();
+    // As long as a real note: longer than the short one that stands in for it.
+    let note_text = |what: &str| {
+        format!(
+            "You can use Plenipo's tools for the Website project. You may: {what}. Every use is \
+             checked and recorded.\n"
+        )
+        .repeat(4)
+    };
+    let notes = Arc::new(Notes(Mutex::new(note_text(
+        "reading files; changing files",
+    ))));
+    h.rt.set_tools(notes.clone());
+    with_hook(&h);
+    let id = briefed_session(&h, "claude-code", "one").await;
+    let first = h.rt.session(&id).await.unwrap().turns[0].steps[0]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(first.note, NoteKind::Full);
+    let second = briefed_turn(&h, &id, briefed("two", 7)).await[0];
+    assert_eq!(
+        (second.brief, second.note),
+        (BriefKind::Reminder, NoteKind::Reminder)
+    );
+    // The short note is shorter, and the size says what the full one would have been.
+    assert!(second.own_bytes < second.full_own_bytes, "{second:?}");
+
+    // A step that delivers replies carries the short note too.
+    h.rt.resume_session_with(&id, briefed("plan it [wait]", 7))
+        .await
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 3, |t| t.waiting).await;
+    let task = detail.turns[2].task_id.clone();
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&id)
+        .await
+        .unwrap()
+        .session
+        .waiting_task_id
+        .is_none()
+    {
+        assert!(Instant::now() < deadline, "the turn never waited");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let note = StepNote {
+        reason: "replies arrived".into(),
+        data: serde_json::Value::Null,
+        passed_bytes: "the replies".len(),
+    };
+    h.rt.continue_turn(&id, &task, "the replies", note)
+        .await
+        .unwrap();
+    let detail = turn_where(&h.rt, &id, 3, |t| t.result.is_some()).await;
+    let replies = detail.turns[2].steps[1]
+        .result
+        .clone()
+        .unwrap()
+        .prompt
+        .unwrap();
+    assert_eq!(
+        (replies.brief, replies.note, replies.why),
+        (BriefKind::Replies, NoteKind::Reminder, None)
+    );
+
+    // New permissions: the note goes out in full, though the instructions are a reminder.
+    *notes.0.lock().unwrap() = note_text("reading files");
+    let changed = briefed_turn(&h, &id, briefed("four", 7)).await[0];
+    assert_eq!(
+        (changed.brief, changed.note),
+        (BriefKind::Reminder, NoteKind::Full)
+    );
+    let same = briefed_turn(&h, &id, briefed("five", 7)).await[0];
+    assert_eq!(same.note, NoteKind::Reminder);
+    // After the AI tool shortened its memory, everything goes out in full.
+    briefed_turn(&h, &id, briefed("six [compact]", 7)).await;
+    let after = briefed_turn(&h, &id, briefed("seven", 7)).await[0];
+    assert_eq!((after.brief, after.note), (BriefKind::Full, NoteKind::Full));
+    // What arrived is what was recorded, note included.
+    let provider =
+        h.rt.session(&id)
+            .await
+            .unwrap()
+            .session
+            .provider_session_id
+            .unwrap();
+    let (_, sizes) = received(&h, &provider);
+    assert_eq!(sizes[1], second.bytes);
+    // A note no longer than the short one always goes out as it is.
+    *notes.0.lock().unwrap() = "You have no Plenipo tools in this task.".into();
+    for objective in ["eight", "nine"] {
+        let size = briefed_turn(&h, &id, briefed(objective, 7)).await[0];
+        assert_eq!(size.note, NoteKind::Full, "{objective}");
+    }
 }

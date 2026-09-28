@@ -14,7 +14,7 @@ use plenipo_runtime::agent::SessionStart;
 use serde_json::{json, Value};
 
 use crate::conversation;
-use crate::prompt::{member_identity, member_label, worker_identity};
+use crate::prompt::{member_identity, member_label, member_reminder, worker_identity};
 use crate::service::org_name;
 use crate::view::{OrgView, TeamMember};
 
@@ -68,10 +68,11 @@ impl WorkforceDirectory {
 }
 
 /// What the position's role has learned, for a worker on `project_id`, and how to write down a
-/// lesson (ADR-024; ADR-050: notes in a fence, from this project or from none).
+/// lesson (ADR-024; ADR-050: notes in a fence, from this project or from none), unless learning
+/// is off for it (ADR-041).
 fn learned(ledger: &Ledger, view: &OrgView<'_>, p: &Position, project_id: Option<&str>) -> String {
     view.role(p).map_or_else(String::new, |r| {
-        crate::learning::instructions(ledger, &r.id, &r.name, project_id)
+        crate::learning::instructions(ledger, p, &r.name, project_id)
     })
 }
 
@@ -80,22 +81,43 @@ pub(crate) fn allowed(project: Option<&Project>, runtime_id: &str) -> bool {
     project.is_none_or(|p| p.allowed_runtimes.iter().any(|r| r == runtime_id))
 }
 
-/// Where a new worker of `position` would go now, and why: the owner's fixed choice, or its
-/// role's model policy within `project`'s AI tools. `reviewed`: the runtimes whose work it
-/// would review.
+/// What a decision about `position` depends on: its role, its own rule, its department's rule
+/// (ADR-041), `project`'s AI tools, and `reviewed`, the runtimes whose work it would review.
+pub(crate) fn request<'a>(
+    view: &OrgView<'a>,
+    position: &'a Position,
+    project: Option<&'a Project>,
+    reviewed: &'a [String],
+) -> RouteRequest<'a> {
+    RouteRequest {
+        role_id: &position.role_id,
+        position_id: Some(&position.id),
+        department: view
+            .department_of(&position.id)
+            .map(|d| (d.id.as_str(), d.name.as_str())),
+        project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
+        reviewed,
+    }
+}
+
+/// Where a new worker of `position` would go now, and why: the owner's fixed choice, or the
+/// closest rule's models within `project`'s AI tools (ADR-041).
 pub(crate) fn decide(
     planner: &Planner,
+    view: &OrgView<'_>,
     position: &Position,
     project: Option<&Project>,
     reviewed: &[String],
 ) -> RouteDecision {
+    let request = request(view, position, project, reviewed);
     match &position.runtime_id {
-        Some(runtime) => planner.fixed(&position.title, runtime, position.model.as_deref()),
-        None => planner.route(&RouteRequest {
-            role_id: &position.role_id,
-            project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
-            reviewed,
-        }),
+        Some(runtime) => planner.fixed(
+            &request,
+            &position.title,
+            runtime,
+            position.model.as_deref(),
+        ),
+        None => planner.route(&request),
     }
 }
 
@@ -186,7 +208,7 @@ impl Directory for WorkforceDirectory {
                         ready,
                     };
                 }
-                let decision = decide(&planner, m.position, project, &[]);
+                let decision = decide(&planner, &view, m.position, project, &[]);
                 let ready = decision.choice.as_ref().is_some_and(|c| {
                     allowed(project, &c.runtime_id) && planner.unavailable(&c.runtime_id).is_none()
                 });
@@ -213,6 +235,9 @@ impl Directory for WorkforceDirectory {
         } + &learned(&self.ledger, &view, me, workforce["projectId"].as_str());
         Some(Team {
             identity,
+            reminder: view
+                .persistent(me)
+                .then(|| member_reminder(&view, &name, me)),
             members: destinations,
         })
     }
@@ -245,7 +270,7 @@ impl Directory for WorkforceDirectory {
         // The work is the lead's team's: its project, and that project's runtimes, apply
         // (also to an overseer from outside the project).
         let project = view.project_of(&lead.id);
-        let decision = decide(&planner, target, project, reviewed);
+        let decision = decide(&planner, &view, target, project, reviewed);
         let Some(choice) = decision.choice.clone() else {
             return Err(format!(
                 "{} cannot take work now: {} The owner can change this in Plenipo's settings",

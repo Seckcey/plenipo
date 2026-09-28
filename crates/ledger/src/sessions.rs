@@ -203,6 +203,41 @@ impl Ledger {
         })
     }
 
+    /// Change the effort an open conversation's next tasks run at (ADR-041 §7: effort alone never
+    /// hires a new agent). Records `session.effort_changed`; the same level changes nothing.
+    pub fn set_session_effort(
+        &self,
+        id: &str,
+        effort: Option<&str>,
+        actor: &str,
+    ) -> Result<RuntimeSession> {
+        self.write(|tx, out| {
+            let current = require(tx, id)?;
+            if current.effort.as_deref() == effort {
+                return Ok(current);
+            }
+            if current.state == RuntimeSessionState::Closed {
+                return Err(LedgerError::InvalidInput(
+                    "that conversation has ended".into(),
+                ));
+            }
+            tx.execute(
+                "UPDATE runtime_sessions SET effort = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, effort, crate::now_ms() as i64],
+            )?;
+            out.push(events::insert(
+                tx,
+                session_event(
+                    id,
+                    actor,
+                    "session.effort_changed",
+                    json!({ "from": current.effort, "effort": effort }),
+                ),
+            )?);
+            require(tx, id)
+        })
+    }
+
     /// Close a session (`session.closed`). Closing a closed session changes nothing.
     pub fn close_runtime_session(&self, id: &str, actor: &str) -> Result<RuntimeSession> {
         self.write(|tx, out| {

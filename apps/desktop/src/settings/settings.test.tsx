@@ -101,7 +101,14 @@ beforeEach(() => {
   api.getAgentOverview.mockResolvedValue({ runtimes: [], sessions: [], notices: [] });
   api.getOrganization.mockResolvedValue(sampleOrganization());
   api.getPermissions.mockResolvedValue(samplePermissions());
-  api.getLearning.mockResolvedValue({ enabled: true, autoRoles: [], waiting: [], kept: [] });
+  api.getLearning.mockResolvedValue({
+    enabled: true,
+    autoRoles: [],
+    offRoles: [],
+    agents: {},
+    waiting: [],
+    kept: [],
+  });
   // The choices are kept, as the Ledger keeps them.
   let kept = notices;
   api.getNoticeSettings.mockImplementation(() => Promise.resolve(kept));

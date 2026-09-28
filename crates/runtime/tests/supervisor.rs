@@ -852,6 +852,7 @@ async fn annotate_updates_agent_attribution_and_persists_it() {
         model: None,
         provider_session_id: None,
         usage: None,
+        prompt: None,
     }));
     let started = h.sup.launch(s).await.unwrap();
     let updated = h

@@ -31,13 +31,19 @@ import { usePermissionSets } from "../../guard/usePermissions";
 import { useRoutingOnce } from "../../routing/useRouting";
 import { ModelPicker } from "../models/ModelPicker";
 import { PILL_TONE } from "../tones";
+import {
+  EMPTY_JOB,
+  JOB_FIELDS,
+  MAX_OBJECTIVE_FIELD,
+  OWNER_VALUE,
+  jobLines,
+  positionChoiceLabel,
+  useSubmit,
+} from "./dialogHelpers";
 import { Modal } from "./Modal";
 
 /** Resolves with the refusal to show, or `null` once done. */
-type Submit<T> = (input: T) => Promise<string | null>;
-
-const OWNER_VALUE = "__owner__";
-const MAX_OBJECTIVE_FIELD = 4000;
+export type Submit<T> = (input: T) => Promise<string | null>;
 
 function runtimeChoiceLabel(snapshot: OrgSnapshot, id: string): string {
   const r = snapshot.runtimes.find((x) => x.id === id);
@@ -51,13 +57,6 @@ function projectOf(snapshot: OrgSnapshot, positionId: string | null): ProjectInf
   return snapshot.projects.find((p) => p.id === projectId) ?? null;
 }
 
-/** "Website Supervisor", or "Engineering Lead — Manager" when the title does not say its rank
- * (a worker's role, for workers). */
-function positionChoiceLabel(t: TitleSet, p: PositionInfo): string {
-  const label = p.kind === "worker" ? p.roleName : rankName(t, p.kind);
-  return p.title === label || p.title.endsWith(` ${label}`) ? p.title : `${p.title} — ${label}`;
-}
-
 /** "Full-time: one agent holds it and keeps its conversation." */
 const STAFFING_HINT: Record<Staffing, string> = {
   persistent: "Full-time: one agent holds it and keeps its conversation.",
@@ -68,20 +67,7 @@ function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function useSubmit() {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = async (work: () => Promise<string | null>) => {
-    setPending(true);
-    setError(null);
-    const failure = await work();
-    setPending(false);
-    setError(failure);
-  };
-  return { pending, error, run };
-}
-
-function FormError({ error }: { error: string | null }) {
+export function FormError({ error }: { error: string | null }) {
   return error ? (
     <p className="form-error" role="alert">
       {error}
@@ -89,7 +75,7 @@ function FormError({ error }: { error: string | null }) {
   ) : null;
 }
 
-function Footer({
+export function Footer({
   pending,
   label,
   disabled = false,
@@ -112,7 +98,7 @@ function Footer({
   );
 }
 
-function Field({
+export function Field({
   label,
   hint,
   children,
@@ -191,6 +177,7 @@ export function HireDialog({
   reportsTo: initialSupervisor,
   onCancel,
   onSubmit,
+  onHireSaved,
 }: {
   snapshot: OrgSnapshot;
   roleId: string | null;
@@ -198,6 +185,12 @@ export function HireDialog({
   reportsTo?: string | null;
   onCancel: () => void;
   onSubmit: Submit<HireInput>;
+  /** Hire an agent from your Workforce instead (ADR-045). */
+  onHireSaved?: (
+    savedId: string,
+    reportsTo: string | null,
+    title: string,
+  ) => Promise<string | null>;
 }) {
   const roles = hireableRoles(snapshot);
   const byId = positionMap(snapshot);
@@ -223,8 +216,14 @@ export function HireDialog({
   const [runtimeId, setRuntimeId] = useState("");
   const [model, setModel] = useState("");
   const [vacant, setVacant] = useState(false);
+  const [specialtyId, setSpecialtyId] = useState("");
+  const [savedId, setSavedId] = useState("");
   const { pending, error, run } = useSubmit();
   const routing = useRoutingOnce();
+  const hireable = new Set(roles.map((r) => r.id));
+  const savedAgents = snapshot.workforce.filter((w) => hireable.has(w.roleId));
+  const saved = savedAgents.find((w) => w.id === savedId) ?? null;
+  const specialties = role?.specialties ?? [];
 
   const choices = role ? supervisorChoices(snapshot, role) : [];
   const wantedRefusal =
@@ -235,10 +234,27 @@ export function HireDialog({
   const changeRole = (id: string) => {
     const next = roles.find((r) => r.id === id) ?? null;
     setRoleId(id);
+    setSpecialtyId("");
     if (!titleEdited) setTitle(next?.name ?? "");
     const supervisor = pickSupervisor(next, reportsTo);
     changeSupervisor(supervisor);
     if (next?.staffing !== "persistent") setVacant(false);
+  };
+  const changeSpecialty = (id: string) => {
+    setSpecialtyId(id);
+    const chosen = specialties.find((x) => x.id === id);
+    if (!titleEdited) setTitle(chosen?.title || role?.name || "");
+  };
+  const changeSaved = (id: string) => {
+    setSavedId(id);
+    const next = savedAgents.find((w) => w.id === id);
+    if (next) {
+      changeRole(next.roleId);
+      setTitle(next.title);
+      setTitleEdited(false);
+    } else if (!titleEdited) {
+      setTitle(role?.name ?? "");
+    }
   };
   const changeSupervisor = (id: string | null) => {
     setReportsTo(id);
@@ -252,22 +268,49 @@ export function HireDialog({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!role) return;
+    if (saved && onHireSaved) {
+      void run(() => onHireSaved(saved.id, reportsTo, title.trim()));
+      return;
+    }
     const input: HireInput = withRuntime(
       { roleId: role.id, title: title.trim(), reportsTo },
       runtimeId,
       model,
     );
-    void run(() => onSubmit(vacant ? { ...input, vacant: true } : input));
+    const withSpecialty = specialtyId ? { ...input, specialtyId } : input;
+    void run(() => onSubmit(vacant ? { ...withSpecialty, vacant: true } : withSpecialty));
   };
 
   return (
     <Modal title="Hire" onClose={onCancel}>
       <form className="modal__body" aria-label="Hire" onSubmit={submit}>
+        {onHireSaved && savedAgents.length > 0 && (
+          <Field
+            label="Who"
+            hint="An agent from your Workforce comes with its settings, experience, and lessons."
+          >
+            <select value={savedId} onChange={(e) => changeSaved(e.target.value)}>
+              <option value="">A new agent</option>
+              <optgroup label="From my Workforce">
+                {savedAgents.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.title} — {w.roleName}, experience {w.experience.score}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </Field>
+        )}
         <Field
           label="Role"
           hint={role ? `${role.description} ${STAFFING_HINT[role.staffing]}` : undefined}
         >
-          <select value={roleId} onChange={(e) => changeRole(e.target.value)} required>
+          <select
+            value={roleId}
+            onChange={(e) => changeRole(e.target.value)}
+            disabled={saved !== null}
+            required
+          >
             <optgroup label="Leadership">
               {roles
                 .filter((r) => r.kind === "superintendent")
@@ -289,6 +332,22 @@ export function HireDialog({
             </optgroup>
           </select>
         </Field>
+        {!saved && specialties.length > 0 && (
+          <Field
+            label="Specialty"
+            hint="Adds lines for one area of work to its instructions, and suggests a title."
+          >
+            <select value={specialtyId} onChange={(e) => changeSpecialty(e.target.value)}>
+              <option value="">None: the {role?.name} role&apos;s job alone</option>
+              {specialties.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                  {x.builtIn ? "" : " (yours)"}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field
           label="Title"
           hint="Unique within its team; team members hand work to each other by title."
@@ -333,19 +392,21 @@ export function HireDialog({
             {withArticle(rankName(t, "superintendent"))} or create a department first.
           </p>
         )}
-        <RuntimeField
-          snapshot={snapshot}
-          value={runtimeId}
-          onChange={(id) => {
-            setRuntimeId(id);
-            setModel("");
-          }}
-          project={project}
-        />
-        {runtimeId !== "" && (
+        {!saved && (
+          <RuntimeField
+            snapshot={snapshot}
+            value={runtimeId}
+            onChange={(id) => {
+              setRuntimeId(id);
+              setModel("");
+            }}
+            project={project}
+          />
+        )}
+        {!saved && runtimeId !== "" && (
           <ModelPicker routing={routing} runtimeId={runtimeId} value={model} onChange={setModel} />
         )}
-        {role?.staffing === "persistent" && (
+        {!saved && role?.staffing === "persistent" && (
           <label className="check">
             <input type="checkbox" checked={vacant} onChange={(e) => setVacant(e.target.checked)} />
             <span>
@@ -390,11 +451,51 @@ function LeadFields({
   const roles = leadRoles(snapshot, kind);
   const t = titlesOf(snapshot);
   const routing = useRoutingOnce();
+  const kindRoles = new Set(roles.map((r) => r.id));
+  const savedAgents = snapshot.workforce.filter((w) => kindRoles.has(w.roleId));
+  const saved = savedAgents.find((w) => w.id === lead.fromWorkforce) ?? null;
   return (
     <fieldset className="fieldset">
       <legend>{what}</legend>
+      {savedAgents.length > 0 && (
+        <Field
+          label="Who"
+          hint="An agent from your Workforce comes with its settings, experience, and lessons."
+        >
+          <select
+            value={lead.fromWorkforce}
+            onChange={(e) => {
+              const next = savedAgents.find((w) => w.id === e.target.value);
+              onChange(
+                next
+                  ? {
+                      fromWorkforce: next.id,
+                      roleId: next.roleId,
+                      title: next.title,
+                      titleEdited: true,
+                    }
+                  : { fromWorkforce: "" },
+              );
+            }}
+          >
+            <option value="">A new agent</option>
+            <optgroup label="From my Workforce">
+              {savedAgents.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.title} — experience {w.experience.score}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </Field>
+      )}
       <Field label="Role">
-        <select value={lead.roleId} onChange={(e) => onChange({ roleId: e.target.value })} required>
+        <select
+          value={lead.roleId}
+          onChange={(e) => onChange({ roleId: e.target.value })}
+          disabled={saved !== null}
+          required
+        >
           {roles.map((r) => (
             <option key={r.id} value={r.id}>
               {roleLabel(t, r)}
@@ -410,13 +511,15 @@ function LeadFields({
           onChange={(e) => onChange({ title: e.target.value, titleEdited: true })}
         />
       </Field>
-      <RuntimeField
-        snapshot={snapshot}
-        value={lead.runtimeId}
-        onChange={(runtimeId) => onChange({ runtimeId, model: "" })}
-        project={project}
-      />
-      {lead.runtimeId !== "" && (
+      {!saved && (
+        <RuntimeField
+          snapshot={snapshot}
+          value={lead.runtimeId}
+          onChange={(runtimeId) => onChange({ runtimeId, model: "" })}
+          project={project}
+        />
+      )}
+      {!saved && lead.runtimeId !== "" && (
         <ModelPicker
           routing={routing}
           runtimeId={lead.runtimeId}
@@ -424,17 +527,19 @@ function LeadFields({
           onChange={(model) => onChange({ model })}
         />
       )}
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={lead.vacant}
-          onChange={(e) => onChange({ vacant: e.target.checked })}
-        />
-        <span>
-          Leave vacant
-          <span className="check__hint">Create the position now and hire its agent later.</span>
-        </span>
-      </label>
+      {!saved && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={lead.vacant}
+            onChange={(e) => onChange({ vacant: e.target.checked })}
+          />
+          <span>
+            Leave vacant
+            <span className="check__hint">Create the position now and hire its agent later.</span>
+          </span>
+        </label>
+      )}
     </fieldset>
   );
 }
@@ -446,22 +551,35 @@ interface LeadState {
   runtimeId: string;
   model: string;
   vacant: boolean;
+  /** An agent from your Workforce ("" : a new agent). */
+  fromWorkforce: string;
 }
 
-function newLead(snapshot: OrgSnapshot, kind: PositionKind): LeadState {
+function newLead(snapshot: OrgSnapshot, kind: PositionKind, fromWorkforce = ""): LeadState {
   const roles = leadRoles(snapshot, kind);
   const role = roles.find((r) => r.template) ?? roles[0];
+  const saved = snapshot.workforce.find(
+    (w) => w.id === fromWorkforce && roles.some((r) => r.id === w.roleId),
+  );
   return {
-    roleId: role?.id ?? "",
-    title: "",
-    titleEdited: false,
+    roleId: saved?.roleId ?? role?.id ?? "",
+    title: saved?.title ?? "",
+    titleEdited: saved !== undefined,
     runtimeId: "",
     model: "",
     vacant: false,
+    fromWorkforce: saved?.id ?? "",
   };
 }
 
 function leadInput(lead: LeadState, fallbackTitle: string): LeadInput {
+  if (lead.fromWorkforce) {
+    return {
+      roleId: lead.roleId,
+      title: (lead.title || fallbackTitle).trim(),
+      fromWorkforce: lead.fromWorkforce,
+    };
+  }
   const input: LeadInput = withRuntime(
     {
       roleId: lead.roleId,
@@ -476,11 +594,14 @@ function leadInput(lead: LeadState, fallbackTitle: string): LeadInput {
 export function NewDepartmentDialog({
   snapshot,
   reportsTo: initialSupervisor = null,
+  fromWorkforce = "",
   onCancel,
   onSubmit,
 }: {
   snapshot: OrgSnapshot;
   reportsTo?: string | null;
+  /** Its manager comes from your Workforce (ADR-045). */
+  fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<DepartmentInput>;
 }) {
@@ -492,7 +613,7 @@ export function NewDepartmentDialog({
   const [reportsTo, setReportsTo] = useState<string | null>(
     superintendents.some((p) => p.id === initialSupervisor) ? initialSupervisor : null,
   );
-  const [lead, setLead] = useState(() => newLead(snapshot, "departmentManager"));
+  const [lead, setLead] = useState(() => newLead(snapshot, "departmentManager", fromWorkforce));
   const { pending, error, run } = useSubmit();
   const fallbackTitle = `${name.trim() || "Department"} Manager`;
   const shownLead = lead.titleEdited ? lead : { ...lead, title: fallbackTitle };
@@ -742,11 +863,14 @@ function ProjectSettingsFields({
 export function NewProjectDialog({
   snapshot,
   departmentId: initialDepartment = null,
+  fromWorkforce = "",
   onCancel,
   onSubmit,
 }: {
   snapshot: OrgSnapshot;
   departmentId?: string | null;
+  /** Its supervisor comes from your Workforce (ADR-045). */
+  fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<ProjectInput>;
 }) {
@@ -764,7 +888,7 @@ export function NewProjectDialog({
     capabilityProfile: "",
     branchPerObjective: true,
   });
-  const [lead, setLead] = useState(() => newLead(snapshot, "projectCoordinator"));
+  const [lead, setLead] = useState(() => newLead(snapshot, "projectCoordinator", fromWorkforce));
   const { pending, error, run } = useSubmit();
   const t = titlesOf(snapshot);
   const supervisor = rankName(t, "projectCoordinator");
@@ -783,6 +907,9 @@ export function NewProjectDialog({
     active: true,
     branchPerObjective: settings.branchPerObjective,
     createdAt: 0,
+    archivedAt: null,
+    archivedWith: null,
+    deleted: false,
   };
 
   const submit = (e: FormEvent) => {
@@ -977,37 +1104,6 @@ export function SetUpDevelopmentDialog({
 }
 
 // ---- Roles ----------------------------------------------------------------------------------
-
-const JOB_FIELDS: { key: keyof RoleJob; label: string; hint: string }[] = [
-  {
-    key: "duties",
-    label: "Its job",
-    hint: "What it is responsible for, one item per line.",
-  },
-  {
-    key: "returns",
-    label: "What it hands back",
-    hint: "What its lead gets when it is done, one item per line.",
-  },
-  {
-    key: "limits",
-    label: "What it must not do",
-    hint: "Its limits, one item per line. Its permission set still decides what it can do.",
-  },
-  {
-    key: "askLead",
-    label: "When it asks its lead for help",
-    hint: "One situation per line.",
-  },
-];
-
-const EMPTY_JOB: RoleJob = { duties: [], returns: [], limits: [], askLead: [] };
-
-const jobLines = (text: string) =>
-  text
-    .split("\n")
-    .map((l) => l.replace(/^\s*[-*•]\s*/, "").trim())
-    .filter((l) => l !== "");
 
 /**
  * A new role, or a change to one you created (built-in roles keep their instructions). Its

@@ -16,11 +16,12 @@ import {
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
+  objectiveBox,
   openSettings,
   pictureShown,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -711,9 +712,7 @@ describe("Phase 12A: design system (real app)", () => {
     await submit(browser, 'form[aria-label="New project"]');
     answer("Ordered the week's stock.");
     await selectNode(browser, "Shop Supervisor");
-    await (
-      await browser.$('form[aria-label="Give an objective"] textarea')
-    ).setValue("Order this week's stock.");
+    await (await objectiveBox(browser)).setValue("Order this week's stock.");
     await clickButton(browser, "Give objective");
 
     await openGallery(browser);

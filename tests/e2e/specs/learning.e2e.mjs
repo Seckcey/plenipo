@@ -11,14 +11,16 @@ import { after, before, describe, it } from "node:test";
 
 import {
   clickButton,
+  detailsTab,
   installFakeTools,
   launch,
   makeHome,
   nav,
-  screenshot as save,
-  waitUntil,
+  objectiveBox,
   openSettings,
+  screenshot as save,
   waitForShell,
+  waitUntil,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -153,9 +155,7 @@ describe("v1.4 Switches and learning (real app, fake CLIs)", () => {
     await submit(browser, 'form[aria-label="New project"]');
     answer("Planned.\n```plenipo-lesson\n- Check the supplier's price list before ordering.\n```");
     await select(browser, "Shop Supervisor");
-    await (
-      await browser.$('form[aria-label="Give an objective"] textarea')
-    ).setValue("Plan this week's orders.");
+    await (await objectiveBox(browser)).setValue("Plan this week's orders.");
     await clickButton(browser, "Give objective");
     // The sidebar counts it, and the Approvals page shows it.
     await waitUntil(
@@ -179,6 +179,7 @@ describe("v1.4 Switches and learning (real app, fake CLIs)", () => {
     const { browser } = app;
     await nav(browser, "Organization");
     await select(browser, "Shop Supervisor");
+    await detailsTab(browser, "Job");
     await waitForText(browser, DETAILS, "What it has learned");
     await waitForText(browser, DETAILS, "Check the supplier's current price list before ordering.");
     assert.equal(await switchState(browser, "Learn on its own"), "false");

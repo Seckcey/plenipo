@@ -4,4 +4,12 @@ export type DepartmentInfo = { id: string, name: string, description: string, ac
 /**
  * Projects of the department (active and archived).
  */
-projectIds: Array<string>, createdAt: number, };
+projectIds: Array<string>, createdAt: number, 
+/**
+ * Archived with everything in it (ADR-043).
+ */
+archivedAt: number | null, 
+/**
+ * Deleted for good: a short record that still names it.
+ */
+deleted: boolean, };

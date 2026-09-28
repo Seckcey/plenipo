@@ -1,12 +1,14 @@
 import type {
   AgentEvent,
   AgentRuntimeInfo,
+  AgentTurn,
   AuthState,
   HandoffOutcome,
   HandoffState,
   InstallState,
   TokenUsage,
   TurnOutcome,
+  TurnResult,
 } from "@plenipo/types";
 
 export const OUTCOME_LABEL: Record<TurnOutcome, string> = {
@@ -123,6 +125,56 @@ export function describeUsage(u: TokenUsage): string {
   return `${u.inputTokens.toLocaleString()} in${cached} · ${u.outputTokens.toLocaleString()} out`;
 }
 
+/** The size of what Plenipo sent with one step of a task (ADR-044). */
+export type PromptSize = NonNullable<TurnResult["prompt"]>;
+
+/** What a task's first message carried with it, in plain words. */
+const PROMPT_KIND: Record<PromptSize["brief"], string | null> = {
+  full: "full instructions",
+  reminder: "a short reminder",
+  replies: "replies",
+  plain: null,
+};
+
+/**
+ * A task's tokens, added up over its steps like its sizes (`describePrompt`): the final
+ * result's alone for older tasks, or when no step reported any.
+ */
+export function turnUsage(turn: AgentTurn): TokenUsage | null {
+  const reported = turn.steps.flatMap((s) => (s.result?.usage ? [s.result.usage] : []));
+  if (reported.length === 0) return turn.result?.usage ?? null;
+  return reported.reduce((sum, u) => ({
+    inputTokens: sum.inputTokens + u.inputTokens,
+    cachedInputTokens: sum.cachedInputTokens + u.cachedInputTokens,
+    outputTokens: sum.outputTokens + u.outputTokens,
+  }));
+}
+
+/** The sizes recorded for a task's steps, in order (the final result's alone for older tasks). */
+export function turnPromptSizes(turn: AgentTurn): PromptSize[] {
+  const sizes = turn.steps.flatMap((s) => (s.result?.prompt ? [s.result.prompt] : []));
+  if (sizes.length > 0) return sizes;
+  return turn.result?.prompt ? [turn.result.prompt] : [];
+}
+
+/**
+ * How much of Plenipo's own text went with a task, shown beside its token counts (ADR-044):
+ * "Plenipo's own text: 0.4 KB (a short reminder)". The steps' sizes are added up; `null` when
+ * nothing was recorded or Plenipo added nothing of its own.
+ */
+export function describePrompt(sizes: PromptSize[]): string | null {
+  const first = sizes[0];
+  const own = sizes.reduce((sum, s) => sum + s.ownBytes, 0);
+  if (!first || own === 0) return null;
+  const size = `${Math.max(0.1, own / 1024).toFixed(1)} KB`;
+  const kinds = [PROMPT_KIND[first.brief], sizes.length > 1 ? "then replies" : null].filter(
+    (k): k is string => k !== null,
+  );
+  return kinds.length > 0
+    ? `Plenipo's own text: ${size} (${kinds.join(", ")})`
+    : `Plenipo's own text: ${size}`;
+}
+
 /** Short label + text for one activity event. */
 export function describeActivity(e: AgentEvent): {
   label: string;
@@ -162,5 +214,7 @@ export function describeActivity(e: AgentEvent): {
       };
     case "usage":
       return { label: "Usage", text: describeUsage(e.usage) };
+    case "memoryShortened":
+      return { label: "Memory", text: e.detail };
   }
 }

@@ -2,7 +2,7 @@
 //! data values; no vendor appears in a type.
 
 use plenipo_ledger::TaskState;
-use plenipo_router::RouteDecision;
+use plenipo_router::{ModelFeature, ModelRule, RouteDecision};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -96,6 +96,96 @@ pub struct RoleInfo {
     pub default_capabilities: Vec<String>,
     /// Its working instructions (ADR-019), written into every worker's instructions.
     pub job: RoleJob,
+    /// Its specialties in use (ADR-042), by name.
+    pub specialties: Vec<SpecialtyInfo>,
+    /// Learning on for this role's agents unless turned off (ADR-041).
+    pub learns: bool,
+    /// Its lessons are kept without asking (ADR-024).
+    pub learns_on_its_own: bool,
+}
+
+/// What a specialty suggests (ADR-042). Suggestions never change anything by themselves.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export)]
+pub struct SpecialtySuggest {
+    /// What a model should be able to do.
+    pub needs: Vec<ModelFeature>,
+    /// The smallest context size, in tokens.
+    pub min_context_tokens: Option<u32>,
+    /// Models from the owner's list, in order (the owner's own specialties only).
+    pub models: Vec<String>,
+    /// Permissions its work usually needs (the plan's names, e.g. `ssh.connect`).
+    pub permissions: Vec<String>,
+}
+
+/// A specialty of a role (ADR-042).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SpecialtyInfo {
+    pub id: String,
+    pub role_id: String,
+    pub name: String,
+    /// The title suggested for a new position with it.
+    pub title: String,
+    /// Plenipo's own (its lines cannot be changed).
+    pub built_in: bool,
+    /// The lines it adds to its role's working instructions.
+    pub job: RoleJob,
+    pub suggest: SpecialtySuggest,
+}
+
+/// The owner's specialty: a new one (with `roleId`) or changes to one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct SpecialtyInput {
+    /// Creating only: the role it belongs to.
+    #[ts(optional)]
+    pub role_id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub job: RoleJob,
+    #[serde(default)]
+    pub suggest: SpecialtySuggest,
+}
+
+/// How much an agent has learned and done (ADR-045): 10 for each lesson it wrote that the owner
+/// keeps, 1 for each task it finished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ExperienceInfo {
+    pub score: u32,
+    pub kept_lessons: u32,
+    pub tasks_done: u32,
+    /// Above the organization's average.
+    pub experienced: bool,
+}
+
+/// Whether an agent learns, and which setting decided (ADR-041).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LearningInfo {
+    pub learns: bool,
+    pub from: crate::learning::LearningFrom,
+    /// The agent's own setting (`None`: it follows its role).
+    pub own: Option<bool>,
+}
+
+/// What an archived item was archived with (ADR-043).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ArchivedWith {
+    /// `project` or `department`.
+    pub kind: String,
+    pub id: String,
+    pub name: String,
 }
 
 /// A role's working instructions (ADR-019): what it is responsible for, what it hands back,
@@ -123,6 +213,11 @@ pub struct DepartmentInfo {
     pub project_ids: Vec<String>,
     #[ts(type = "number")]
     pub created_at: u64,
+    /// Archived with everything in it (ADR-043).
+    #[ts(type = "number | null")]
+    pub archived_at: Option<u64>,
+    /// Deleted for good: a short record that still names it.
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -148,6 +243,12 @@ pub struct ProjectInfo {
     pub branch_per_objective: bool,
     #[ts(type = "number")]
     pub created_at: u64,
+    #[ts(type = "number | null")]
+    pub archived_at: Option<u64>,
+    /// Archived with its department (ADR-043).
+    pub archived_with: Option<ArchivedWith>,
+    /// Deleted for good: a short record that still names it.
+    pub deleted: bool,
 }
 
 /// The agent holding a persistent position.
@@ -277,6 +378,21 @@ pub struct PositionInfo {
     pub created_at: u64,
     #[ts(type = "number | null")]
     pub archived_at: Option<u64>,
+    /// Its specialty (ADR-042): its ID and name (the name stays when it was removed).
+    pub specialty_id: Option<String>,
+    pub specialty: Option<String>,
+    /// How much it has learned and done (ADR-045).
+    pub experience: ExperienceInfo,
+    /// Whether it learns, and why (ADR-041).
+    pub learning: LearningInfo,
+    /// Its own model and effort rule (ADR-041), when it has one.
+    pub own_rule: Option<ModelRule>,
+    /// What it was archived with (ADR-043).
+    pub archived_with: Option<ArchivedWith>,
+    /// Deleted for good: a short record that still names it (ADR-043).
+    pub deleted: bool,
+    /// Moved to the owner's Workforce (ADR-045).
+    pub in_workforce: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -331,8 +447,13 @@ pub struct OrgSnapshot {
     pub roles: Vec<RoleInfo>,
     pub departments: Vec<DepartmentInfo>,
     pub projects: Vec<ProjectInfo>,
-    /// Active positions first (in tree order), then archived ones.
+    /// Active positions first (in tree order), then archived ones, then the short records of
+    /// deleted ones (so older work still names them).
     pub positions: Vec<PositionInfo>,
+    /// The agents the owner saved to hire again (ADR-045), most recent first.
+    pub workforce: Vec<SavedAgentInfo>,
+    /// The organization's average experience, over agents that finished a task (ADR-045).
+    pub average_experience: u32,
     pub oversight: Vec<OversightInfo>,
     pub stats: OrgStats,
     pub runtimes: Vec<RuntimeBrief>,
@@ -359,6 +480,62 @@ pub struct WorkView {
 
 // ---- Inputs ------------------------------------------------------------------------------
 
+/// An agent in the Workforce (ADR-045).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SavedAgentInfo {
+    pub id: String,
+    pub title: String,
+    pub role_id: String,
+    pub role_name: String,
+    pub specialty_id: Option<String>,
+    pub specialty: Option<String>,
+    pub experience: ExperienceInfo,
+    /// Where it worked (projects and departments), nearest first.
+    pub places: Vec<String>,
+    #[ts(type = "number | null")]
+    pub first_worked: Option<u64>,
+    #[ts(type = "number | null")]
+    pub last_worked: Option<u64>,
+    /// The lessons it wrote that the owner kept.
+    pub lessons: Vec<String>,
+    /// A fixed AI tool and model, when it had one.
+    pub runtime_id: Option<String>,
+    pub model: Option<String>,
+    #[ts(type = "number")]
+    pub saved_at: u64,
+}
+
+/// What deleting something for good would take along (ADR-043, ADR-045), for the confirmation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DeletionPreview {
+    /// `position`, `project`, or `department`.
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+    /// Every agent that goes, parents first.
+    pub agents: Vec<DeletionAgent>,
+    /// Projects that go (by name).
+    pub projects: Vec<String>,
+    /// Departments that go (by name).
+    pub departments: Vec<String>,
+    pub average_experience: u32,
+}
+
+/// An agent a deletion takes along.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DeletionAgent {
+    pub position_id: String,
+    pub title: String,
+    pub role_name: String,
+    pub experience: ExperienceInfo,
+}
+
 /// Hire a new position (and, for a persistent one, its agent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -377,6 +554,10 @@ pub struct HireInput {
     /// Leave a persistent position vacant (hire later).
     #[ts(optional)]
     pub vacant: Option<bool>,
+    /// One of the role's specialties (ADR-042).
+    #[serde(default)]
+    #[ts(optional)]
+    pub specialty_id: Option<String>,
 }
 
 /// The head of a new department, or the coordinator of a new project.
@@ -393,6 +574,11 @@ pub struct LeadInput {
     pub model: Option<String>,
     #[ts(optional)]
     pub vacant: Option<bool>,
+    /// An agent from the owner's Workforce with this role (ADR-045): its title, AI settings,
+    /// specialty, and experience come with it.
+    #[serde(default)]
+    #[ts(optional)]
+    pub from_workforce: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -449,6 +635,10 @@ pub struct PositionPatchInput {
     /// An empty string clears the model.
     #[ts(optional)]
     pub model: Option<String>,
+    /// One of its role's specialties; an empty string clears it (ADR-042).
+    #[serde(default)]
+    #[ts(optional)]
+    pub specialty_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

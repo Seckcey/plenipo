@@ -273,7 +273,17 @@ impl Guard {
             .filter(|p| p.status == "active" && p.capability_profile.as_deref() == Some(id))
             .map(|p| p.name)
             .collect();
+        let departments: std::collections::HashSet<String> = self
+            .ledger()
+            .list_departments()?
+            .into_iter()
+            .filter(|d| d.deleted_at.is_none())
+            .map(|d| d.id)
+            .collect();
         self.update("guard.set_removed", OWNER, |c| {
+            // A department deleted for good took its limit along (ADR-043 §10), even if
+            // forgetting it failed then: it does not keep a set in use.
+            c.departments.retain(|d, _| departments.contains(d));
             let set = c.remove_set(id, &projects)?;
             Ok(Some((json!({ "id": set.id, "name": set.name }), ())))
         })?;
@@ -298,11 +308,12 @@ impl Guard {
     }
 
     pub fn assign_department(&self, department_id: &str, set_id: Option<&str>) -> Result<()> {
+        // A department deleted for good can lose its limit, never gain one.
         let department = self
             .ledger()
             .list_departments()?
             .into_iter()
-            .find(|d| d.id == department_id)
+            .find(|d| d.id == department_id && (set_id.is_none() || d.deleted_at.is_none()))
             .ok_or_else(|| GuardError::Invalid("that department no longer exists".into()))?;
         self.update("guard.department_limited", OWNER, |c| {
             c.assign_department(&department.id, set_id)?;
@@ -852,5 +863,30 @@ mod tests {
             .roles
             .iter()
             .any(|r| r.role_name == "Code Reviewer"));
+    }
+
+    #[test]
+    fn a_department_deleted_for_good_holds_no_permission_set() {
+        let l = ledger();
+        let g = Guard::new(l.clone());
+        let set = g
+            .save_set(&PermissionSetInput {
+                name: "Narrow".into(),
+                ..PermissionSetInput::default()
+            })
+            .unwrap();
+        let d = l.create_department("Sales", "", None, "owner").unwrap();
+        g.assign_department(&d.id, Some(&set.id)).unwrap();
+        l.archive_department(&d.id, "owner").unwrap();
+        l.delete_department_for_good(&d.id, &[], "owner").unwrap();
+        // Deleted for good, it can lose its limit but never gain one.
+        let refused = g.assign_department(&d.id, Some(&set.id)).unwrap_err();
+        assert!(
+            refused.to_string().contains("no longer exists"),
+            "{refused}"
+        );
+        // The limit it left behind does not keep the set in use.
+        g.remove_set(&set.id).unwrap();
+        assert!(g.config().unwrap().departments.is_empty());
     }
 }

@@ -5,7 +5,7 @@
 //! lists. The owner can add roles with instructions of their own; nothing about departments or
 //! projects is seeded.
 
-use plenipo_ledger::{Role, RoleTemplate, RoleType};
+use plenipo_ledger::{Role, RoleTemplate, RoleType, SpecialtyTemplate};
 use plenipo_router::{CostPreference, CrossCompany, ModelFeature, RolePolicy};
 use serde_json::{json, Value};
 
@@ -646,6 +646,388 @@ pub fn template_policies() -> Vec<(&'static str, RolePolicy)> {
     ]
 }
 
+/// A built-in specialty (ADR-042): its own lines for each part of its role's working
+/// instructions, and what it suggests. Suggested models say what a model should be able to do,
+/// never a model's name (ADR-011); suggested permissions use the plan's names and never grant
+/// anything.
+struct Specialty {
+    role: &'static str,
+    name: &'static str,
+    title: &'static str,
+    job: Job,
+    needs: &'static [ModelFeature],
+    min_context_tokens: Option<u32>,
+    permissions: &'static [&'static str],
+}
+
+const NO_LINES: &[&str] = &[];
+
+const fn lines(
+    duties: &'static [&'static str],
+    returns: &'static [&'static str],
+    limits: &'static [&'static str],
+    ask_lead: &'static [&'static str],
+) -> Job {
+    Job {
+        duties,
+        returns,
+        limits,
+        ask_lead,
+    }
+}
+
+const WRITES_CODE: &[&str] = &[
+    "filesystem.read",
+    "filesystem.write",
+    "shell.exec",
+    "git.write",
+];
+
+/// The plan's built-in specialties (Phase 17). "Authorized penetration testing", which the plan
+/// also lists under Security Auditor, is not built in: the owner can add it as their own.
+const SPECIALTIES: &[Specialty] = &[
+    Specialty {
+        role: "Senior Developer",
+        name: "Front-end",
+        title: "Front-end Developer",
+        job: lines(
+            &[
+                "build and fix what people see and use: pages, screens, and their styles",
+                "check your change in a browser at phone and desktop widths when you can",
+            ],
+            NO_LINES,
+            &["keep the project's existing look and building blocks unless the task says otherwise"],
+            NO_LINES,
+        ),
+        needs: &[ModelFeature::Vision],
+        min_context_tokens: None,
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "Back-end",
+        title: "Back-end Developer",
+        job: lines(
+            &[
+                "build and fix the services and web addresses (APIs) other programs call",
+                "handle errors and bad input, and add tests for them",
+            ],
+            NO_LINES,
+            &["do not change how stored data is laid out without saying so in your answer"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "Database",
+        title: "Database Developer",
+        job: lines(
+            &[
+                "design and change databases: tables, indexes, and the steps that move data to a \
+                 new layout (migrations)",
+                "write queries that stay fast as the data grows",
+            ],
+            NO_LINES,
+            &["never delete or rewrite real data: work on test data or a copy"],
+            &["a change would lose or rewrite existing data"],
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "UX/UI",
+        title: "UX/UI Developer",
+        job: lines(
+            &[
+                "make screens easy to use: clear words, a sensible order, and keyboard and \
+                 screen-reader access",
+                "check layouts at different sizes and in light and dark themes",
+            ],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[ModelFeature::Vision],
+        min_context_tokens: None,
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "Mobile",
+        title: "Mobile Developer",
+        job: lines(
+            &[
+                "build and fix apps and pages for phones and tablets",
+                "check small screens, touch targets, and slow connections",
+            ],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "DevOps",
+        title: "DevOps Engineer",
+        job: lines(
+            &[
+                "build and fix how the project is built, tested, and delivered: scripts, \
+                 pipelines, and setup files",
+                "keep builds repeatable, and keep secrets out of files and logs",
+            ],
+            NO_LINES,
+            &["never change a live system or deliver a release unless the task says so and the \
+               owner approved it"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &[
+            "filesystem.read",
+            "filesystem.write",
+            "shell.exec",
+            "git.write",
+            "ssh.connect",
+        ],
+    },
+    Specialty {
+        role: "Senior Developer",
+        name: "Data",
+        title: "Data Engineer",
+        job: lines(
+            &[
+                "collect, clean, and move data between systems, and build reports from it",
+                "check results against the source, and say how you checked",
+            ],
+            NO_LINES,
+            &["never change or delete the source data"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: Some(200_000),
+        permissions: WRITES_CODE,
+    },
+    Specialty {
+        role: "Designer",
+        name: "Brand",
+        title: "Brand Designer",
+        job: lines(
+            &["design logos, colors, type, and the rules for using them"],
+            &["the files, and a short note on how to use them"],
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "filesystem.write"],
+    },
+    Specialty {
+        role: "Designer",
+        name: "Web",
+        title: "Web Designer",
+        job: lines(
+            &["design page layouts and images for websites, sized for phones and desktops"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "filesystem.write"],
+    },
+    Specialty {
+        role: "Designer",
+        name: "Product",
+        title: "Product Designer",
+        job: lines(
+            &["design screens and the steps people take through an app"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "filesystem.write"],
+    },
+    Specialty {
+        role: "Security Auditor",
+        name: "Code review",
+        title: "Security Code Reviewer",
+        job: lines(
+            &["read code for security holes: unsafe handling of input, secrets in code, missing \
+               access checks, and risky dependencies"],
+            &["each finding with its file, how serious it is, and a fix"],
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "git.read"],
+    },
+    Specialty {
+        role: "Security Auditor",
+        name: "Compliance",
+        title: "Compliance Auditor",
+        job: lines(
+            &["check settings and records against the standard or checklist the task names, and \
+               list the gaps with evidence"],
+            NO_LINES,
+            &["do not give legal advice: say what a lawyer or an auditor should confirm"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["filesystem.read"],
+    },
+    Specialty {
+        role: "Operations Engineer",
+        name: "Windows servers",
+        title: "Windows Server Engineer",
+        job: lines(
+            &["look after Windows servers: services, updates, event logs, disks, and scheduled \
+               tasks"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["ssh.connect", "powershell.exec"],
+    },
+    Specialty {
+        role: "Operations Engineer",
+        name: "Linux servers",
+        title: "Linux Server Engineer",
+        job: lines(
+            &["look after Linux servers: services, packages, logs, and disks"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["ssh.connect"],
+    },
+    Specialty {
+        role: "Operations Engineer",
+        name: "Networking",
+        title: "Network Engineer",
+        job: lines(
+            &["check and write down network settings: addresses, DNS, firewalls, and the \
+               connections between systems"],
+            NO_LINES,
+            &["change nothing that could cut off a server or a network unless the task says so \
+               and the owner approved it"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["ssh.connect"],
+    },
+    Specialty {
+        role: "Operations Engineer",
+        name: "Microsoft 365 administration",
+        title: "Microsoft 365 Administrator",
+        job: lines(
+            &["look after Microsoft 365: users, licenses, mailboxes, and sharing settings, as the \
+               task asks"],
+            NO_LINES,
+            &["never remove users or data, or change who can sign in, without the owner's \
+               approval"],
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &[],
+    },
+    Specialty {
+        role: "Researcher",
+        name: "Market",
+        title: "Market Researcher",
+        job: lines(
+            &["find and compare companies, products, prices, and customers"],
+            &["a short summary, with a source for every claim"],
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["browser.navigate"],
+    },
+    Specialty {
+        role: "Researcher",
+        name: "Technical",
+        title: "Technical Researcher",
+        job: lines(
+            &["compare tools, libraries, and ways of doing things, and test claims when you can"],
+            &["a short recommendation, with sources"],
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["browser.navigate"],
+    },
+    Specialty {
+        role: "Documentation Writer",
+        name: "User guides",
+        title: "User Guide Writer",
+        job: lines(
+            &["write step-by-step guides for the people who use the product, in plain words"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "filesystem.write", "git.write"],
+    },
+    Specialty {
+        role: "Documentation Writer",
+        name: "API documentation",
+        title: "API Writer",
+        job: lines(
+            &["document how other programs use the product: each web address or function, what it \
+               takes, and what it returns, with examples"],
+            NO_LINES,
+            NO_LINES,
+            NO_LINES,
+        ),
+        needs: &[],
+        min_context_tokens: None,
+        permissions: &["filesystem.read", "filesystem.write", "git.write"],
+    },
+];
+
+/// The built-in specialties, seeded and kept up to date at every start (ADR-042).
+pub fn specialty_templates() -> Vec<SpecialtyTemplate> {
+    SPECIALTIES
+        .iter()
+        .map(|s| SpecialtyTemplate {
+            role: s.role,
+            name: s.name,
+            title: s.title,
+            metadata: json!({
+                "job": s.job.dto(),
+                "suggest": {
+                    "needs": s.needs,
+                    "minContextTokens": s.min_context_tokens,
+                    "models": [],
+                    "permissions": s.permissions,
+                },
+            }),
+        })
+        .collect()
+}
+
 /// The glyph for a role without one (custom roles).
 pub fn default_glyph(role_type: RoleType) -> &'static str {
     match role_type {
@@ -711,6 +1093,40 @@ mod tests {
         // Every starting policy belongs to a template.
         for (name, _) in template_policies() {
             assert!(all.iter().any(|r| r.name == name), "{name}");
+        }
+        // Every built-in specialty belongs to a built-in role, has a unique name there, says
+        // what it does, and suggests only the plan's permissions (ADR-042).
+        let specialties = specialty_templates();
+        for s in &specialties {
+            assert!(all.iter().any(|r| r.name == s.role), "{}", s.name);
+            assert!(!s.metadata["job"]["duties"].as_array().unwrap().is_empty());
+            for c in s.metadata["suggest"]["permissions"].as_array().unwrap() {
+                assert!(
+                    plenipo_liaison::protocol::CAPABILITIES.contains(&c.as_str().unwrap()),
+                    "{c}"
+                );
+            }
+            assert_eq!(
+                specialties
+                    .iter()
+                    .filter(|o| o.role == s.role && o.name.eq_ignore_ascii_case(s.name))
+                    .count(),
+                1
+            );
+        }
+        for (role, count) in [
+            ("Senior Developer", 7),
+            ("Designer", 3),
+            ("Operations Engineer", 4),
+            ("Researcher", 2),
+            ("Documentation Writer", 2),
+            ("Security Auditor", 2),
+        ] {
+            assert_eq!(
+                specialties.iter().filter(|s| s.role == role).count(),
+                count,
+                "{role}"
+            );
         }
         // Capability names are from the plan's list (what the role asks for; Guard grants
         // permissions from the owner's permission sets, Phase 7).

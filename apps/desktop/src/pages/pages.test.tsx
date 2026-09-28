@@ -69,7 +69,7 @@ function approvals(pending = [approval()]): Approvals {
 
 function learning(waiting: Lesson[] = []): Learning {
   return {
-    snapshot: { enabled: true, autoRoles: [], waiting, kept: [] },
+    snapshot: { enabled: true, autoRoles: [], offRoles: [], agents: {}, waiting, kept: [] },
     error: null,
     reload: vi.fn(() => Promise.resolve()),
     apply: vi.fn(),
@@ -374,6 +374,8 @@ describe("A worker's page", () => {
       rank: 1,
       candidates: [],
       fixed: false,
+      modelFrom: null,
+      effortFrom: null,
     };
     web.agent = { ...web.agent!, sessionId: "session-web" };
     api.getOrganization.mockResolvedValue(org);

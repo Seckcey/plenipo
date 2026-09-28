@@ -16,12 +16,16 @@
 //! - `auth` (optional, comma-separated flags): `subscription` (default), `api-key`,
 //!   `signed-out`, `cloud`, `unknown-status`, `stream-api-key` (status says subscription;
 //!   Claude's stream reports an API key), `no-key-source` (Claude's stream omits it);
-//! - `sessions/<id>.json`: prompts per session, so resume can be verified;
+//! - `sessions/<id>.json`: prompts per session, so resume can be verified, and the size of each
+//!   message as it came (`sizes`, in bytes, Plenipo's tools note included);
 //! - `last-args.json`, `last-env.txt`: what the last turn received.
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
 //! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, and `[delay:MS]` (answer
-//! normally after MS milliseconds, at most 20 seconds).
+//! normally after MS milliseconds, at most 20 seconds). `[compact]` makes the AI tool shorten its
+//! memory of the conversation the way it says so (ADR-044): Claude Code's `compact_boundary`
+//! notice, a drop in the context Grok and Kimi report in use (`usage_update`, which otherwise
+//! grows each turn), and the Ollama bridge's notice that earlier messages were left out.
 //!
 //! Plenipo Liaison messages (ADR-008) are understood too; markers then count only in the
 //! objective, never in the context or replies around it. Handoff markers make the answer end
@@ -33,13 +37,19 @@
 //!   `[handoff-caps:DEST]` — a request asking for a capability;
 //!   `[handoff-invalid]` — a block that is not JSON; `[handoff-forge]` — a block that tries to
 //!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
-//!   objective (tool markers inside it are the worker's, not the requester's).
+//!   objective (tool markers inside it are the worker's, not the requester's);
+//!   `[handoff-pass:DEST]` — once the first replies come, one request to DEST that passes the
+//!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
+//!   once per conversation.
 //!
 //! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
 //! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
 //! Supervisor hand on to the Developer).
 //!
-//! A worker given replies answers `Turn N: received K replies: …` with each reply's first line.
+//! A worker given replies answers `Turn N: received K replies: …` with each reply's first line
+//! (the task ID each reply shows is left out). A worker given a handoff request answers `Turn N:
+//! you asked "TASK"; context: "…"` with the first line of its first context block — or the line
+//! naming a saved record it was given earlier in its conversation (ADR-044 §4.13).
 //!
 //! Scripts (Phase 8): with `script.json` in the state folder — an object from a position's
 //! title to a list of steps — a worker whose instructions name that position (its identity
@@ -178,10 +188,11 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .and_then(|i| args.get(i + 1).cloned())
 }
 
-fn read_prompt() -> String {
+/// The prompt from stdin, and its size as it came (bytes, Plenipo's tools note included).
+fn read_prompt() -> (String, usize) {
     let mut prompt = String::new();
     let _ = std::io::stdin().read_to_string(&mut prompt);
-    prompt.trim().to_owned()
+    (prompt.trim().to_owned(), prompt.len())
 }
 
 /// Record what this turn received so tests can check it.
@@ -208,8 +219,9 @@ fn first_prompt(id: &str) -> Option<String> {
     load_session(id)?["prompts"][0].as_str().map(str::to_owned)
 }
 
-/// Append the prompt; return (turn number, previous prompt).
-fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
+/// Append the prompt (the part that counts) and the size of the whole message as it came
+/// (`size` bytes); return (turn number, previous prompt).
+fn remember(id: &str, prompt: &str, size: usize) -> (usize, Option<String>) {
     let cwd = std::env::current_dir()
         .map(|d| d.display().to_string())
         .unwrap_or_default();
@@ -218,6 +230,10 @@ fn remember(id: &str, prompt: &str) -> (usize, Option<String>) {
     let previous = prompts.last().and_then(Value::as_str).map(str::to_owned);
     prompts.push(json!(prompt));
     let n = prompts.len();
+    match session["sizes"].as_array_mut() {
+        Some(sizes) => sizes.push(json!(size)),
+        None => session["sizes"] = json!([size]),
+    }
     let _ = std::fs::write(session_path(id), session.to_string());
     (n, previous)
 }
@@ -238,19 +254,23 @@ enum Mode {
     Plain,
     /// The owner's objective with Liaison's instructions.
     Root,
-    /// A handoff request; its first context block's first line and whether Plenipo gave it
-    /// tools.
+    /// A handoff request; its first context block's first line (or the line naming a saved
+    /// record the conversation already has) and whether Plenipo gave it tools.
     Worker {
         context: Option<String>,
         granted: bool,
     },
-    /// Replies to earlier requests: one line per reply.
-    Replies(Vec<String>),
+    /// Replies to earlier requests: one line per reply, and the task ID each reply shows.
+    Replies {
+        items: Vec<String>,
+        tasks: Vec<String>,
+    },
 }
 
 /// The prompt's mode and the text that counts: the objective (or the whole plain prompt).
 fn view(prompt: &str) -> (Mode, String) {
     if prompt.starts_with(REPLIES_HEADER) {
+        let mut tasks = Vec::new();
         let items: Vec<String> = prompt
             .split("\n## Reply ")
             .skip(1)
@@ -258,6 +278,17 @@ fn view(prompt: &str) -> (Mode, String) {
                 let mut lines = section.lines();
                 let header = lines.next().unwrap_or("");
                 let who = header.split_once("— ").map_or(header, |(_, w)| w).trim();
+                // "Senior Developer, task <ID>: completed" (ADR-044 §4.12).
+                let who = match who
+                    .split_once(", task ")
+                    .and_then(|(name, rest)| Some((name, rest.split_once(": ")?)))
+                {
+                    Some((name, (task, outcome))) => {
+                        tasks.push(task.to_owned());
+                        format!("{name}: {outcome}")
+                    }
+                    None => who.to_owned(),
+                };
                 let body: Vec<&str> = lines.collect();
                 let first = match body.iter().position(|l| l.starts_with("--- begin reply")) {
                     Some(i) => body.get(i + 1).copied().unwrap_or(""),
@@ -271,20 +302,29 @@ fn view(prompt: &str) -> (Mode, String) {
             })
             .collect();
         let said = format!("{} replies", items.len());
-        return (Mode::Replies(items), said);
+        return (Mode::Replies { items, tasks }, said);
     }
     if prompt.starts_with(REQUEST_HEADER) {
+        // A labeled request (ADR-044 §4.11): "Task: …" up to "Done when: …".
         let objective = prompt
-            .split_once("## Objective\n")
-            .and_then(|(_, rest)| rest.split_once("\n\n## Acceptance criteria"))
+            .split_once("\nTask: ")
+            .and_then(|(_, rest)| rest.split_once("\nDone when: "))
             .map_or("", |(o, _)| o)
             .trim()
             .to_owned();
-        let context = prompt
-            .lines()
-            .skip_while(|l| !l.starts_with("--- begin context"))
-            .nth(1)
-            .map(str::to_owned);
+        let mut lines = prompt.lines();
+        let mut context = None;
+        while let Some(line) = lines.next() {
+            if line.starts_with("--- begin context") {
+                context = lines.next().map(str::to_owned);
+                break;
+            }
+            // A saved record the conversation already has, named instead of pasted.
+            if line.starts_with("- Task ") && line.ends_with("earlier in this conversation.") {
+                context = Some(line.to_owned());
+                break;
+            }
+        }
         // Permissions come with Plenipo's tools note (set aside before this), never with
         // the request; the caller fills this in.
         return (
@@ -437,11 +477,25 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
             ),
             handoff_blocks(said, n),
         ),
-        Mode::Replies(items) => {
+        Mode::Replies { items, tasks } => {
             let always: String = markers(first, "handoff-always")
                 .iter()
                 .map(|d| format!("[handoff-always:{d}]"))
                 .collect();
+            let mut blocks = handoff_blocks(&always, n);
+            // The first replies of the conversation: pass the first one's result on by its ID.
+            if previous == Some(first) {
+                let own = outside_braces(first);
+                for dest in markers(&own, "handoff-pass") {
+                    if let Some(task) = tasks.first() {
+                        blocks.push(handoff_block(&json!({
+                            "to": dest,
+                            "objective": "Check this result again",
+                            "context": [{ "kind": "task", "taskId": task }],
+                        })));
+                    }
+                }
+            }
             (
                 format!(
                     "Turn {n}: received {} repl{}: {}.",
@@ -449,7 +503,7 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                     if items.len() == 1 { "y" } else { "ies" },
                     items.join("; ")
                 ),
-                handoff_blocks(&always, n),
+                blocks,
             )
         }
     };
@@ -949,7 +1003,7 @@ fn claude_turn(args: &[String]) -> i32 {
             return 1;
         }
     }
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     let cwd = std::env::current_dir()
         .map(|d| d.display().to_string())
         .unwrap_or_default();
@@ -990,7 +1044,7 @@ fn claude_turn(args: &[String]) -> i32 {
         return 0;
     }
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     let key_source = if auth_has("stream-api-key") {
         "ANTHROPIC_API_KEY"
     } else {
@@ -1043,7 +1097,13 @@ fn claude_turn(args: &[String]) -> i32 {
     }
     if own.contains("[unknown]") {
         out(&json!({ "type": "rate_limit_event", "info": {} }));
-        out(&json!({ "type": "system", "subtype": "compact_boundary" }));
+    }
+    if own.contains("[compact]") {
+        // Like the real CLI when a conversation grows long: it keeps a summary of it.
+        out(
+            &json!({ "type": "system", "subtype": "compact_boundary", "session_id": id,
+                     "compact_metadata": { "trigger": "auto", "pre_tokens": 155_000 } }),
+        );
     }
     delay(&own);
     let calls = match &scripted {
@@ -1295,7 +1355,7 @@ fn codex_turn(args: &[String]) -> i32 {
         eprintln!("fake codex: expected --json and --sandbox read-only");
         return 2;
     }
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     let id = match args.iter().position(|a| a == "resume") {
         Some(i) => {
             let Some(id) = args.get(i + 1) else {
@@ -1328,7 +1388,7 @@ fn codex_turn(args: &[String]) -> i32 {
         return 0;
     }
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     out(&json!({ "type": "thread.started", "thread_id": id }));
     out(&json!({ "type": "turn.started" }));
     let failed = |message: &str| {
@@ -1631,11 +1691,8 @@ impl GrokAgent {
             acp_error(id, -32602, "Invalid params: unknown session");
             return true;
         };
-        let prompt = params["prompt"][0]["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+        let text = params["prompt"][0]["text"].as_str().unwrap_or("");
+        let (prompt, size) = (text.trim().to_owned(), text.len());
         let (noted, prompt) = strip_note(&prompt);
         let (mut mode, said) = view(&prompt);
         if let Mode::Worker { granted, .. } = &mut mode {
@@ -1647,7 +1704,7 @@ impl GrokAgent {
             return false;
         }
         let first = first_prompt(&session).unwrap_or_else(|| said.clone());
-        let (n, previous) = remember(&session, &said);
+        let (n, previous) = remember(&session, &said, size);
         if said.contains("[crash]") {
             grok_chunk(&session, "Starting");
             eprintln!("thread 'main' panicked at crates/fake/src/lib.rs:1:1: simulated crash");
@@ -1759,6 +1816,7 @@ impl GrokAgent {
             json!({ "stopReason": "end_turn", "_meta": { "usage": {
             "inputTokens": 30, "cachedReadTokens": 12, "outputTokens": 9 } } }),
         );
+        acp_update(&session, context_in_use(n, &said));
         true
     }
 }
@@ -2224,11 +2282,8 @@ impl KimiAgent {
             acp_error(id, -32602, "Invalid params: unknown session");
             return true;
         };
-        let prompt = params["prompt"][0]["text"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+        let text = params["prompt"][0]["text"].as_str().unwrap_or("");
+        let (prompt, size) = (text.trim().to_owned(), text.len());
         let (noted, prompt) = strip_note(&prompt);
         let (mut mode, said) = view(&prompt);
         if let Mode::Worker { granted, .. } = &mut mode {
@@ -2240,7 +2295,7 @@ impl KimiAgent {
             return false;
         }
         let first = first_prompt(&session).unwrap_or_else(|| said.clone());
-        let (n, previous) = remember(&session, &said);
+        let (n, previous) = remember(&session, &said, size);
         acp_update(
             &session,
             json!({ "sessionUpdate": "session_info_update", "title": first_line(&said) }),
@@ -2359,12 +2414,20 @@ impl KimiAgent {
         }
         // Like the real CLI: no token usage in the answer, the context size after it.
         acp_result(id, json!({ "stopReason": "end_turn" }));
-        acp_update(
-            &session,
-            json!({ "sessionUpdate": "usage_update", "used": 21733, "size": 1_048_576 }),
-        );
+        acp_update(&session, context_in_use(n, &said));
         true
     }
+}
+
+/// How much of its context an ACP tool says is in use after its `n`th prompt: it grows with the
+/// conversation, and drops when the objective says `[compact]` (the tool shortened its memory).
+fn context_in_use(n: usize, said: &str) -> Value {
+    let used = if said.contains("[compact]") {
+        3_000
+    } else {
+        19_733 + 2_000 * n
+    };
+    json!({ "sessionUpdate": "usage_update", "used": used, "size": 1_048_576 })
 }
 
 /// The first line of `text`, for a conversation title.
@@ -2490,7 +2553,7 @@ fn ollama_turn(args: &[String]) -> i32 {
     let (Some(model), Some(id)) = (flag(args, "--model"), flag(args, "--session")) else {
         return error("No model or conversation ID was given");
     };
-    let prompt = read_prompt();
+    let (prompt, size) = read_prompt();
     if args.iter().any(|a| a == "--resume") && load_session(&id).is_none() {
         return error("This conversation's history was not found; start a new conversation");
     }
@@ -2520,9 +2583,16 @@ fn ollama_turn(args: &[String]) -> i32 {
     if said.contains("[unknown]") {
         out(&json!({ "type": "something-new" }));
     }
+    if said.contains("[compact]") {
+        // Like the bridge when a conversation is longer than it sends at once.
+        out(
+            &json!({ "type": "notice", "leftOut": 4, "text": "4 earlier message(s) were left \
+                     out: the conversation is longer than Plenipo sends at once." }),
+        );
+    }
     delay(&said);
     let first = first_prompt(&id).unwrap_or_else(|| said.clone());
-    let (n, previous) = remember(&id, &said);
+    let (n, previous) = remember(&id, &said, size);
     let text = if said.contains("[big]") {
         "B".repeat(1024 * 1024)
     } else {
