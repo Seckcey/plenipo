@@ -49,9 +49,11 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod git_tools;
+pub mod live;
 mod operate;
 pub(crate) mod servers;
 mod terminals;
+mod watching;
 
 use git_tools::{GitLook, Stopped};
 use operate::{CallContext, ControlWork, DesktopUse};
@@ -373,6 +375,8 @@ struct State {
     /// Approval ID → the grant whose call waits for it, so the grant's count of waiting
     /// requests moves with the owner's answer (B6).
     askers: HashMap<String, String>,
+    /// Task ID → what its worker touched last, and when (the canvas's live view, Phase 18).
+    touched: HashMap<String, (crate::dto::Touching, u64)>,
 }
 
 struct Inner {
@@ -392,6 +396,8 @@ struct Inner {
     making: Mutex<()>,
     /// Plenipo's browser (Phase 10).
     browser: Browser,
+    /// The file changes Watch shows while Plenipo runs (Phase 18, ADR-055).
+    watch: crate::watch::WatchHub,
     /// The screen, mouse, and keyboard (Phase 10; tests use a stand-in).
     desktop: RwLock<Arc<dyn Desktop>>,
     /// Who uses the browser or the desktop now; the owner's stop and take-over.
@@ -662,6 +668,7 @@ impl Broker {
                 git: Git::find(config.workspaces_dir.join(".no-hooks")),
                 making: Mutex::new(()),
                 browser: Browser::new(config.browser.clone(), supervisor_for_browser),
+                watch: crate::watch::WatchHub::default(),
                 desktop: RwLock::new(Arc::new(SystemDesktop)),
                 control: ControlCenter::default(),
                 evidence: Evidence::new(config.screenshots_dir.clone()),
@@ -798,8 +805,23 @@ impl Broker {
 
     // ---- Grants -----------------------------------------------------------------------------
 
+    /// The organization record of the work a step does: its task's, which names the team the
+    /// task belongs to now (a moved or lent agent's, ADR-054 §9); else its conversation's.
+    fn workforce_of(&self, step: &StepInfo<'_>) -> Value {
+        let session = &step.session.metadata["workforce"];
+        let task = self
+            .ledger()
+            .task(step.task_id)
+            .ok()
+            .flatten()
+            .map(|t| t.metadata["workforce"].clone())
+            .filter(|w| w["positionId"].is_string() && w["positionId"] == session["positionId"]);
+        task.unwrap_or_else(|| session.clone())
+    }
+
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
-        let workforce = &step.session.metadata["workforce"];
+        let workforce = self.workforce_of(step);
+        let workforce = &workforce;
         let Some(scope) = self.inner.guard.scope_for(workforce)? else {
             return Ok(None);
         };
@@ -1592,6 +1614,13 @@ impl Broker {
             Ok(a) => a,
             Err(e) => return CallResult::error(format!("{}: {e}", tool.name)),
         };
+        // Watch (Phase 18, ADR-055): a file change, and the file as the worker named it.
+        let asked_path = match &action {
+            Action::Write { path, .. } | Action::Edit { path, .. } => Some(path.clone()),
+            _ => None,
+        };
+        // Who makes it, taken now: a step that ends while this call waits still settles it.
+        let watcher = asked_path.as_ref().and_then(|_| self.who(grant_id));
         let config = match self.inner.guard.config() {
             Ok(c) => c,
             Err(e) => {
@@ -1655,11 +1684,18 @@ impl Broker {
                     sensitive: None,
                     checks: Vec::new(),
                 };
+                if let Some(path) = &asked_path {
+                    self.watch_refused_named(watcher.as_ref(), path, &decision.reason);
+                }
                 return self.deny(
                     grant_id, &task_id, &worker, tool, &r.summary, "", &decision, None,
                 );
             }
         };
+        // The changed file, inside the working copy (Watch).
+        let watched = asked_path
+            .as_ref()
+            .and_then(|_| prepared.files.first().map(|f| f.rel.clone()));
         // A git tool: what git would stage, show, record, or send is checked against the
         // blocked-files list first, by Plenipo's own git (`git_tools`).
         if let Some(look) = prepared.git.take() {
@@ -1781,19 +1817,35 @@ impl Broker {
         let mut approval_id = None;
         match decision.verdict {
             Verdict::Deny => {
+                // A refused change keeps its file, its size, and why — none of its text (the
+                // owner's choice, ADR-055 §13).
+                let refused_detail = match &prepared.work {
+                    Work::Edit(r, _, new, _) => format!(
+                        "{} (an edit of {} characters)",
+                        r.shown(),
+                        new.chars().count()
+                    ),
+                    _ => prepared.detail.clone(),
+                };
+                if let Some(path) = &watched {
+                    self.watch_refused(watcher.as_ref(), path, &decision.reason);
+                }
                 return self.deny(
                     grant_id,
                     &task_id,
                     &worker,
                     tool,
                     &prepared.summary,
-                    &prepared.detail,
+                    &refused_detail,
                     &decision,
                     prepared.server.as_ref().map(|s| s.server.name.as_str()),
-                )
+                );
             }
             Verdict::Ask => {
                 let minutes = config.options.approval_minutes;
+                if let Some(path) = &watched {
+                    self.watch_waiting(watcher.as_ref(), path);
+                }
                 match self
                     .ask(
                         grant_id,
@@ -1815,17 +1867,41 @@ impl Broker {
                             ApprovalState::Rejected => "the owner did not approve it",
                             _ => "the owner did not answer in time",
                         };
+                        if let Some(path) = &watched {
+                            self.watch_refused(
+                                watcher.as_ref(),
+                                path,
+                                &format!("Not approved: {why}"),
+                            );
+                        }
                         return CallResult::error(format!(
                             "Not done: {why} ({}). Do not try to do this another way; say in \
                              your answer what you needed and why.",
                             prepared.summary
                         ));
                     }
-                    Err(NotAsked::Limited(words)) => return CallResult::error(words),
-                    Err(NotAsked::Failed(e)) => return CallResult::error(format!("Not done: {e}")),
+                    Err(NotAsked::Limited(words)) => {
+                        if let Some(path) = &watched {
+                            self.watch_not_saved(watcher.as_ref(), path, &words);
+                        }
+                        return CallResult::error(words);
+                    }
+                    Err(NotAsked::Failed(e)) => {
+                        if let Some(path) = &watched {
+                            self.watch_not_saved(watcher.as_ref(), path, &e.to_string());
+                        }
+                        return CallResult::error(format!("Not done: {e}"));
+                    }
                 }
                 // Revoked while waiting?
                 if self.state().grants.get(grant_id).is_none_or(|g| g.revoked) {
+                    if let Some(path) = &watched {
+                        self.watch_refused(
+                            watcher.as_ref(),
+                            path,
+                            "Not done: this worker's permissions were revoked",
+                        );
+                    }
                     return CallResult::error("Not done: this worker's permissions were revoked.");
                 }
                 // An approved website stays approved for the rest of this step (Phase 10).
@@ -1849,7 +1925,55 @@ impl Broker {
         let mut images = Vec::new();
         let mut evidence = (None, None);
         let mut server_facts = Value::Null;
+        // What it touches, for the canvas's live view (Phase 18).
+        let touches = live::touched_by(&prepared, scope.project.as_ref().map(|p| p.name.as_str()));
+        let mut change = Value::Null;
         let (outcome, execution) = match prepared.work {
+            // A file change Watch shows (Phase 18, ADR-055): the file before and after.
+            // The change and Watch's look at it (secrets hidden, lines compared) are done off the
+            // async threads: a large file takes a while.
+            Work::Write(file, content) if watched.is_some() => {
+                let rel = file.rel.clone();
+                let broker = self.clone();
+                let who = watcher.clone();
+                let done = tokio::task::spawn_blocking(move || {
+                    let (text, written) = crate::files::write_watched(&file, &content)?;
+                    Ok((text, broker.watch_saved(who.as_ref(), &file.rel, written)))
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("the work stopped unexpectedly: {e}")));
+                match done {
+                    Ok((text, record)) => {
+                        change = record.unwrap_or_default();
+                        (Ok(text), None)
+                    }
+                    Err(why) => {
+                        self.watch_not_saved(watcher.as_ref(), &rel, &why);
+                        (Err(why), None)
+                    }
+                }
+            }
+            Work::Edit(file, old, new, all) if watched.is_some() => {
+                let rel = file.rel.clone();
+                let broker = self.clone();
+                let who = watcher.clone();
+                let done = tokio::task::spawn_blocking(move || {
+                    let (text, written) = crate::files::edit_watched(&file, &old, &new, all)?;
+                    Ok((text, broker.watch_saved(who.as_ref(), &file.rel, written)))
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("the work stopped unexpectedly: {e}")));
+                match done {
+                    Ok((text, record)) => {
+                        change = record.unwrap_or_default();
+                        (Ok(text), None)
+                    }
+                    Err(why) => {
+                        self.watch_not_saved(watcher.as_ref(), &rel, &why);
+                        (Err(why), None)
+                    }
+                }
+            }
             Work::Ssh(work) => {
                 let who = Caller {
                     grant_id,
@@ -1906,6 +2030,9 @@ impl Broker {
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.used += 1;
         }
+        if let (true, Some(t)) = (ok, touches) {
+            self.note_touched(&task_id, t);
+        }
         // A pull request opened is recorded with its link (Phase 8).
         let pull_request = (ok && tool.name == "github_pr_create")
             .then(|| crate::github::pull_request_link(&text))
@@ -1932,6 +2059,8 @@ impl Broker {
                 "url": evidence.1.as_deref().map(safe_address),
                 "server": server_facts,
                 "fileRequest": file_request,
+                // A saved file change: its file and line counts, never its text (ADR-055).
+                "change": change,
             }),
             ..NewEvent::default()
         });
@@ -2689,7 +2818,20 @@ impl ToolProvider for Broker {
     }
 
     fn close(&self, grant_id: &str) {
+        let session = self
+            .state()
+            .grants
+            .get(grant_id)
+            .map(|g| g.session_id.clone());
         self.end_grant(grant_id);
+        // Changes still being written in the step were never sent (Watch, ADR-055).
+        if let Some(session) = session {
+            self.watch().step_ended(&session);
+        }
+    }
+
+    fn preview_write(&self, grant_id: &str, preview: plenipo_runtime::agent::WritePreview) {
+        self.preview(grant_id, preview);
     }
 
     fn file_access(&self, grant_id: &str, access: FileAccess) -> Pending<FileAnswer> {
@@ -2708,7 +2850,7 @@ impl ToolProvider for Broker {
         let scope = self
             .inner
             .guard
-            .scope_for(&step.session.metadata["workforce"])
+            .scope_for(&self.workforce_of(step))
             .ok()??;
         let config = self.inner.guard.config().ok()?;
         let levels = levels_for(&config, &scope);

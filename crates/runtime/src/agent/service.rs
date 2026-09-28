@@ -2007,6 +2007,12 @@ impl TurnContext {
             for request in parsed.files {
                 self.file_request(request, &answers_tx);
             }
+            // Changes being written go to the tool provider, which checks them (ADR-055).
+            if let (Some(grant), Some(provider)) = (&self.grant, self.runtime.tool_provider()) {
+                for preview in parsed.previews {
+                    provider.preview_write(grant, preview);
+                }
+            }
             for event in parsed.events {
                 self.event(event).await;
             }

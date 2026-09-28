@@ -212,17 +212,34 @@ pub fn worker_identity(
         position.title,
         role_name(view, position)
     );
-    if let Some(lead) = position
-        .reports_to
-        .as_deref()
-        .and_then(|b| view.position(b))
-    {
-        s.push_str(&format!(", on the team of {}", lead.title));
-    }
-    if let Some(p) = view.project_of(&position.id) {
-        s.push_str(&format!(", project {}", p.name));
-    } else if let Some(d) = view.department_of(&position.id) {
-        s.push_str(&format!(", {} department", d.name));
+    let lent = view
+        .loan(&position.id)
+        .and_then(|l| view.position(&l.to_lead_id).map(|lead| (l, lead)));
+    if let Some((loan, lead)) = lent {
+        // Lent to another team (ADR-054): it works for that team, under its project's rules.
+        s.push_str(&format!(", lent to the team of {}", lead.title));
+        if let Some(p) = view.project_of(&lead.id) {
+            s.push_str(&format!(", project {}", p.name));
+        } else if let Some(d) = view.department_of(&lead.id) {
+            s.push_str(&format!(", {} department", d.name));
+        }
+        s.push_str(match loan.until {
+            plenipo_ledger::LoanUntil::Objective => ", for one objective",
+            plenipo_ledger::LoanUntil::Returned => ", until the owner sends you home",
+        });
+    } else {
+        if let Some(lead) = position
+            .reports_to
+            .as_deref()
+            .and_then(|b| view.position(b))
+        {
+            s.push_str(&format!(", on the team of {}", lead.title));
+        }
+        if let Some(p) = view.project_of(&position.id) {
+            s.push_str(&format!(", project {}", p.name));
+        } else if let Some(d) = view.department_of(&position.id) {
+            s.push_str(&format!(", {} department", d.name));
+        }
     }
     s.push('.');
     if let Some((lead, kind)) = serving {
@@ -237,11 +254,12 @@ pub fn worker_identity(
         s.push('.');
     }
     if let Some(role) = view.role(position) {
-        let lead = match position
-            .reports_to
-            .as_deref()
-            .and_then(|b| view.position(b))
-        {
+        let lead = match lent.map(|(_, lead)| lead).or_else(|| {
+            position
+                .reports_to
+                .as_deref()
+                .and_then(|b| view.position(b))
+        }) {
             Some(lead) => format!("{} (your lead)", lead.title),
             None => "the owner".into(),
         };
@@ -296,9 +314,24 @@ pub fn member_label(view: &OrgView<'_>, tool: Option<&str>, m: &TeamMember<'_>) 
         Some(tool) => format!("{} on {tool}", role_name(view, m.position)),
         None => role_name(view, m.position),
     };
-    match m.oversight {
-        Some(o) => format!("{base}, your team's {}", o.kind.label()),
-        None => format!("{base}, a new worker for each request"),
+    match (m.oversight, m.lent) {
+        (Some(o), _) => format!("{base}, your team's {}", o.kind.label()),
+        (None, Some(loan)) => {
+            let home = loan
+                .from_lead_id
+                .as_deref()
+                .and_then(|l| view.position(l))
+                .map_or_else(
+                    || "another team".to_owned(),
+                    |l| format!("{}'s team", l.title),
+                );
+            let until = match loan.until {
+                plenipo_ledger::LoanUntil::Objective => "for one objective",
+                plenipo_ledger::LoanUntil::Returned => "until the owner sends it home",
+            };
+            format!("{base}, lent to your team from {home} {until}, a new worker for each request")
+        }
+        (None, None) => format!("{base}, a new worker for each request"),
     }
 }
 
@@ -421,6 +454,7 @@ mod tests {
             specialties: vec![],
             saved_agents: vec![],
             experience: HashMap::new(),
+            loans: vec![],
         }
     }
 

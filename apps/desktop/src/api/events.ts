@@ -2,7 +2,15 @@
 // This is the ONLY module that calls `listen` (enforced by ESLint).
 
 import { listen } from "@tauri-apps/api/event";
-import type { AgentUpdate, ControlStatus, LedgerEvent, RuntimeEvent } from "@plenipo/types";
+import type {
+  AgentUpdate,
+  ControlStatus,
+  LedgerEvent,
+  RuntimeEvent,
+  WatchUpdate,
+} from "@plenipo/types";
+
+import { watchChanges } from "./commands";
 
 export const RUNTIME_EVENT = "plenipo://runtime";
 export const LEDGER_EVENT = "plenipo://ledger";
@@ -35,4 +43,12 @@ export async function subscribeControl(
   handler: (status: ControlStatus) => void,
 ): Promise<() => void> {
   return listen<ControlStatus>(CONTROL_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * Subscribe to Watch (Phase 18): each file change a worker is writing, saved, or refused. It
+ * comes through the main window's own channel, not an event (ADR-055).
+ */
+export async function subscribeWatch(handler: (update: WatchUpdate) => void): Promise<() => void> {
+  return watchChanges(handler);
 }

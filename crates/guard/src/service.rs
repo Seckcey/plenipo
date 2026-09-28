@@ -489,9 +489,9 @@ impl Guard {
 
     // ---- Reading ----------------------------------------------------------------------------
 
-    /// The scope of an organization member's work, from its session's `workforce` metadata
-    /// (`positionId`, and `projectId` for the project the work belongs to). `None` when it is
-    /// not an organization member's.
+    /// The scope of an organization member's work, from its task's `workforce` record
+    /// (`positionId`; `projectId` and `departmentId`, the team the work belongs to — ADR-054
+    /// §9). `None` when it is not an organization member's.
     pub fn scope_for(&self, workforce: &Value) -> Result<Option<Scope>> {
         let Some(position_id) = workforce["positionId"].as_str() else {
             return Ok(None);
@@ -501,6 +501,7 @@ impl Guard {
             &records,
             position_id,
             workforce["projectId"].as_str(),
+            workforce["departmentId"].as_str(),
         ))
     }
 
@@ -598,18 +599,21 @@ fn project_problem(config: &GuardConfig, p: &plenipo_ledger::Project) -> Option<
     }
 }
 
-/// The scope of `position_id`'s work (`project_id`: the project the work belongs to).
+/// The scope of `position_id`'s work (`project_id` and `department_id`: the team the work
+/// belongs to). The department is the project's; for a team with no project (a Manager's), the
+/// one the work names (an agent lent to it, ADR-054); otherwise the position's own.
 pub fn scope_in(
     records: &OrgRecords,
     position_id: &str,
     project_id: Option<&str>,
+    department_id: Option<&str>,
 ) -> Option<Scope> {
     let position = records.positions.iter().find(|p| p.id == position_id)?;
     let role = records.roles.iter().find(|r| r.id == position.role_id)?;
     let project = project_id.and_then(|id| records.projects.iter().find(|p| p.id == id));
-    let department = project
-        .and_then(|p| p.department_id.as_deref())
-        .and_then(|d| records.departments.iter().find(|x| x.id == d))
+    let named = |id: Option<&str>| id.and_then(|d| records.departments.iter().find(|x| x.id == d));
+    let department = named(project.and_then(|p| p.department_id.as_deref()))
+        .or_else(|| named(department_id))
         .or_else(|| department_of(records, position_id));
     Some(Scope {
         role_id: role.id.clone(),

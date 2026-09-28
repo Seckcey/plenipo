@@ -225,7 +225,11 @@ describe("Phase 5 organization (real app, fake CLIs)", () => {
     await screenshot(browser, "home-empty");
     await nav(browser, "Organization");
     await waitForText(browser, MAP, "Build your organization");
-    assert.deepEqual(await nodes(browser), ["You, President", "Organization, organization"]);
+    // Your tile says your status once it is read ("You, President: Available").
+    const [you, org, ...rest] = await nodes(browser);
+    assert.match(you ?? "", /^You, President(: Available)?$/);
+    assert.equal(org, "Organization, organization");
+    assert.deepEqual(rest, []);
     await screenshot(browser, "org-empty");
 
     await clickButton(browser, "Rename");

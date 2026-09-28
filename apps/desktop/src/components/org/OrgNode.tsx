@@ -12,7 +12,9 @@ import {
 } from "../../org/format";
 import type { LayoutNode } from "../../org/layout";
 import { nodeLabel, workerStatus, type DropState, type NodeContext } from "../../org/nodes";
+import { statusSymbol, type SymbolKey } from "../../org/symbols";
 import { rankName, titlesOf } from "../../org/titles";
+import { OwnerFace, OwnerStatusLine } from "../../owner/OwnerFace";
 import { Glyph } from "./Glyph";
 
 interface Props {
@@ -59,6 +61,7 @@ export const OrgNode = memo(function OrgNode({
       className={classes}
       data-node-id={node.id}
       data-status={status ?? undefined}
+      data-symbol={tileSymbol(node)}
       aria-label={nodeLabel(node, ctx)}
       aria-current={selected ? "true" : undefined}
       title={node.kind === "position" ? (node.position.statusDetail ?? undefined) : undefined}
@@ -71,6 +74,20 @@ export const OrgNode = memo(function OrgNode({
   );
 });
 
+/** The legend's mark for a tile (ADR-053 §15). */
+function tileSymbol(node: LayoutNode): SymbolKey {
+  switch (node.kind) {
+    case "owner":
+      return "tile-owner";
+    case "organization":
+      return "tile-organization";
+    case "worker":
+      return "tile-worker";
+    case "position":
+      return node.position.staffing === "persistent" ? "tile-full-time" : "tile-on-call";
+  }
+}
+
 function nodeStatus(node: LayoutNode): PositionStatus | null {
   if (node.kind === "position") return node.position.status;
   if (node.kind === "worker") return workerStatus(node.worker.state);
@@ -82,12 +99,13 @@ function NodeBody({ node, ctx, now }: { node: LayoutNode; ctx: NodeContext; now:
     case "owner":
       return (
         <>
-          <span className="topo-node__glyph topo-node__glyph--owner">
-            <Glyph name="owner" size={20} />
+          <span className="topo-node__glyph topo-node__glyph--owner topo-node__glyph--face">
+            <OwnerFace profile={ctx.owner} size={40} />
           </span>
           <span className="topo-node__body">
             <span className="topo-node__title">You</span>
             <span className="topo-node__meta">{rankName(titlesOf(ctx.snapshot), "owner")}</span>
+            <OwnerStatusLine profile={ctx.owner} className="topo-node__owner" />
           </span>
         </>
       );
@@ -163,6 +181,34 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
         <span className="topo-node__foot">
           <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
           <span className="topo-node__runtime">{positionToolLabel(ctx.snapshot, p)}</span>
+          {!p.automatic && p.runtimeId !== null && (
+            <span
+              className="topo-badge topo-badge--fixed"
+              data-symbol="badge-fixed-tool"
+              title="You chose its AI tool"
+            >
+              Fixed
+            </span>
+          )}
+          {p.specialty && (
+            <span
+              className="topo-badge topo-badge--specialty"
+              data-symbol="badge-specialty"
+              title={`Specialty: ${p.specialty}`}
+            >
+              {p.specialty}
+            </span>
+          )}
+          {p.experience.experienced && (
+            <span
+              className="topo-badge topo-badge--experienced"
+              data-symbol="badge-experienced"
+              title="Experienced: has learned and done more than your organization's average"
+            >
+              <span aria-hidden="true">★</span>
+              <span className="visually-hidden">Experienced</span>
+            </span>
+          )}
           {p.staffing === "onDemand" && live > 0 && (
             <span className="topo-node__count">{plural(live, "live worker")}</span>
           )}
@@ -170,7 +216,11 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
             <span className="topo-node__count">{p.counts.queued} queued</span>
           )}
           {oversees.map((o) => (
-            <span key={o.id} className={`topo-badge topo-badge--${o.role}`}>
+            <span
+              key={o.id}
+              className={`topo-badge topo-badge--${o.role}`}
+              data-symbol="badge-oversees"
+            >
               {OVERSIGHT_CHIP[o.role]} → {ctx.title(o.targetId)}
             </span>
           ))}
@@ -178,6 +228,7 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
             <span
               key={o.id}
               className={`topo-badge topo-badge--${o.role}`}
+              data-symbol="badge-oversees"
               title={`${ctx.title(o.overseerId)} oversees this team`}
             >
               {OVERSIGHT_CHIP[o.role]}
@@ -191,7 +242,7 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
 
 export function StatusPill({ status, label }: { status: PositionStatus; label: string }) {
   return (
-    <span className="topo-status" data-status={status}>
+    <span className="topo-status" data-status={status} data-symbol={statusSymbol(status)}>
       <span className="topo-status__dot" aria-hidden="true" />
       {label}
     </span>

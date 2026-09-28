@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import * as events from "../api/events";
-import { initialCamera, worldToScreen } from "../org/camera";
+import { TOOLBAR_ROOM, forInset, initialCamera, uncovered, worldToScreen } from "../org/camera";
 import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
@@ -35,11 +35,20 @@ vi.mock("../api/commands", async (importOriginal) => {
     assignOversight: vi.fn(),
     endOversight: vi.fn(),
     giveObjective: vi.fn(),
+    getLiveView: vi.fn(() => Promise.resolve({ workers: [], handoffs: [], at: 0 })),
+    placeTiles: vi.fn(() => Promise.resolve()),
+    tidyUp: vi.fn(() => Promise.resolve([])),
+    lendAgent: vi.fn(),
+    sendHome: vi.fn(),
+    retargetOversight: vi.fn(),
+    bringBack: vi.fn(),
+    archiveDepartment: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
   subscribeLedgerEvents: vi.fn(),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeControl: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -67,8 +76,9 @@ function screenPoint(snapshot: OrgSnapshot, id: string): { clientX: number; clie
   const node = layout.byId.get(id);
   if (!node) throw new Error(`no node ${id}`);
   const view = { w: 960, h: 640 };
+  // The first view leaves the toolbar's strip along the top clear.
   const [x, y] = worldToScreen(
-    initialCamera(layout.bounds, view),
+    forInset(initialCamera(layout.bounds, uncovered(view, 0, TOOLBAR_ROOM)), 0, TOOLBAR_ROOM),
     view,
     node.x + node.w / 2,
     node.y + node.h / 2,
@@ -97,11 +107,16 @@ function release(to: { clientX: number; clientY: number }) {
 
 beforeEach(() => {
   sessionStorage.clear();
+  // The first-time tour has been seen (it has its own test).
+  localStorage.setItem("plenipo.canvasTour", "seen");
   api.getWork.mockImplementation((id) => Promise.resolve(noWork(id ?? null)));
   api.getRouting.mockResolvedValue(sampleRouting());
+  // Every listener hears each event (the organization and the live view both listen).
+  const listeners = new Set<(event: LedgerEvent) => void>();
+  emitLedger = (event) => listeners.forEach((l) => l(event));
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
-    emitLedger = handler;
-    return Promise.resolve(() => undefined);
+    listeners.add(handler);
+    return Promise.resolve(() => listeners.delete(handler));
   });
 });
 
@@ -315,9 +330,11 @@ describe("Organization view", () => {
     const items = within(menu)
       .getAllByRole("menuitem")
       .map((i) => i.textContent);
-    // Its specialty comes first after reporting.
-    expect(items[0]).toMatch(/^Report to Campaign Supervisor/);
-    expect(items[1]).toMatch(/^Security auditor for Campaign Supervisor's team/);
+    // Move here first, then lending it (on call), then its specialty first among oversight.
+    expect(items[0]).toMatch(/^Move hereReports to Campaign Supervisor for good/);
+    expect(items[1]).toMatch(/^Lend for one objective/);
+    expect(items[2]).toMatch(/^Lend until I send it home/);
+    expect(items[3]).toMatch(/^Security auditor for Campaign Supervisor's team/);
     const user = userEvent.setup();
     await user.click(within(menu).getByRole("menuitem", { name: /^Security auditor/ }));
     expect(api.assignOversight).toHaveBeenCalledWith("p-sec", "p-camp", "security");
@@ -327,9 +344,7 @@ describe("Organization view", () => {
 
     drag(auditor, screenPoint(org, "p-sec"), target);
     release(target);
-    await user.click(
-      await screen.findByRole("menuitem", { name: /^Report to Campaign Supervisor/ }),
-    );
+    await user.click(await screen.findByRole("menuitem", { name: /^Move here/ }));
     expect(api.movePosition).toHaveBeenCalledWith("p-sec", "p-camp");
   });
 
@@ -362,7 +377,7 @@ describe("Organization view", () => {
     );
     drag(developer, screenPoint(org, "p-dev"), screenPoint(org, "p-camp"));
     release(screenPoint(org, "p-camp"));
-    await userEvent.setup().click(await screen.findByRole("menuitem", { name: /^Report to/ }));
+    await userEvent.setup().click(await screen.findByRole("menuitem", { name: /^Move here/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("does not allow the codex AI tool");
   });
 
@@ -588,8 +603,8 @@ describe("Organization view", () => {
     const before = zoom.textContent;
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
     await waitFor(() => expect(zoom.textContent).not.toBe(before));
-    await user.click(screen.getByRole("button", { name: "Show oversight links" }));
-    expect(screen.getByRole("button", { name: "Show oversight links" })).toHaveAttribute(
+    await user.click(screen.getByRole("button", { name: "Oversight lines" }));
+    expect(screen.getByRole("button", { name: "Oversight lines" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );

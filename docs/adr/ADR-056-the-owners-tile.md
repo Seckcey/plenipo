@@ -1,6 +1,6 @@
 # ADR-056: The owner's tile — your picture, status, mood, and message
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §3 (Phase 18: "the owner's own tile (avatar,
@@ -84,3 +84,15 @@ setting). Windows notices (Phase 12) have their own settings; nothing pauses the
 - **Status set automatically from the mouse and keyboard.** Not chosen: the plan asks for a light
   you set, and watching your mouse and keyboard is not needed for it.
 - **Emoji only for mood.** Rejected: a face alone can be misread; each mood also has a word.
+
+## As built (v1.11.0)
+
+Built as written. The status light has its own shape for each status as well as its color, and
+its word is always there. The window shrinks the picture to at most 256 × 256 and, when the
+PNG would be over 256 KB, tries smaller sizes before giving up with a plain reason. Your tile on
+the canvas is named for screen readers with your status, mood, and message ("You, President:
+Busy, feeling Great, “Feeling great!”").
+
+The notices that wait during Do not disturb come as one pop-up when you turn it off ("3 things
+need you", with the first few listed), so none is lost; at most 200 wait, and they wait only
+while Plenipo runs (the bell keeps the full count either way).

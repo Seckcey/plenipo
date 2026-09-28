@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { LedgerEvent, ServersSnapshot, TerminalSettings } from "@plenipo/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { LedgerEvent, OrgSnapshot, ServersSnapshot, TerminalSettings } from "@plenipo/types";
 import {
   Button,
   CountBadge,
@@ -15,8 +15,9 @@ import {
   type ThemeName,
 } from "@plenipo/ui";
 
-import { getServers, getTerminalSettings } from "../api/commands";
+import { getLiveView, getOrganization, getServers, getTerminalSettings } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { CodeWatchView } from "./CodeWatchView";
 import { OwnerTerminal } from "./OwnerTerminal";
 import { PANEL_MIN, TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
@@ -24,6 +25,62 @@ import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
 
 const HERE = "this-pc";
+/** "Watch a worker" choices in the New menu (ADR-055 §1): `watch:<positionId>`. */
+const WATCH_PREFIX = "watch:";
+const NOBODY = "watch-nobody";
+
+/** An agent working now, for "Watch a worker" (or one with a Watch tab open). */
+interface Working {
+  positionId: string;
+  title: string;
+}
+
+/** Each position's team, in words: "Website Supervisor's team", or "reports to you". */
+function teamsOf(org: OrgSnapshot): Map<string, string> {
+  const titles = new Map(org.positions.map((p) => [p.id, p.title]));
+  const teams = new Map<string, string>();
+  for (const p of org.positions) {
+    const lead = p.reportsTo === null ? undefined : titles.get(p.reportsTo);
+    teams.set(p.id, p.reportsTo === null ? "reports to you" : lead ? `${lead}'s team` : "");
+  }
+  return teams;
+}
+
+/**
+ * The name to show for each agent. A title is unique only within a team, so when two agents
+ * share one, each gets its team: "Senior Developer (Website Supervisor's team)"; when that is not
+ * known or not enough, a number. `missing`: the agents whose team is needed and not known yet.
+ */
+function nameAgents(
+  agents: readonly Working[],
+  teams: ReadonlyMap<string, string>,
+): { names: Map<string, string>; missing: string[] } {
+  const byTitle = new Map<string, string[]>();
+  for (const a of agents) {
+    const ids = byTitle.get(a.title) ?? [];
+    if (!ids.includes(a.positionId)) ids.push(a.positionId);
+    byTitle.set(a.title, ids);
+  }
+  const names = new Map<string, string>();
+  const missing: string[] = [];
+  for (const [title, ids] of byTitle) {
+    if (ids.length === 1) {
+      names.set(ids[0] ?? "", title);
+      continue;
+    }
+    const withTeam = ids.map((id) => {
+      const team = teams.get(id);
+      if (team === undefined) missing.push(id);
+      return team ? `${title} (${team})` : title;
+    });
+    const distinct = new Set(withTeam).size === withTeam.length;
+    ids.forEach((id, i) => {
+      const name = withTeam[i] ?? title;
+      names.set(id, distinct ? name : `${name} (${i + 1})`);
+    });
+  }
+  return { names, missing };
+}
 
 /** Settings changes that change the New terminal list: servers, the switches, the shell. */
 function changesTheList(e: LedgerEvent): boolean {
@@ -34,7 +91,21 @@ function changesTheList(e: LedgerEvent): boolean {
   );
 }
 
-function tabLabel(tab: TerminalTab) {
+/** Events after which who is working may have changed. */
+function changesWhoWorks(e: LedgerEvent): boolean {
+  return e.eventType === "task.state_changed" || e.eventType.startsWith("guard.grant");
+}
+
+/** `name`: a Watch tab's agent, as it is named in the panel. */
+function tabLabel(tab: TerminalTab, writing: boolean, name: string) {
+  if (tab.kind === "code") {
+    return (
+      <>
+        Watch · {name}
+        {writing && <StatusDot status="pending" label="being written" />}
+      </>
+    );
+  }
   if (tab.kind === "owner") {
     return (
       <>
@@ -56,7 +127,8 @@ function tabLabel(tab: TerminalTab) {
   );
 }
 
-function closeLabel(tab: TerminalTab): string {
+function closeLabel(tab: TerminalTab, name: string): string {
+  if (tab.kind === "code") return `Close Watch for ${name}`;
   return tab.kind === "owner"
     ? `Close the terminal on ${tab.place.kind === "thisPc" ? "this PC" : tab.title}`
     : `Close ${watchTitle(tab.watch)}`;
@@ -72,7 +144,21 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const t = useTerminal();
   const [servers, setServers] = useState<ServersSnapshot | null>(null);
   const [settings, setSettings] = useState<TerminalSettings | null>(null);
+  const [working, setWorking] = useState<Working[]>([]);
+  // Each position's team, read from the organization only when two agents share a title.
+  const [teams, setTeams] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [focusToken, setFocusToken] = useState(0);
+  // The Watch tabs for code where a worker is writing a change now (a mark on the tab).
+  const [writing, setWriting] = useState<ReadonlySet<string>>(() => new Set());
+  const onWriting = useCallback((id: string, now: boolean) => {
+    setWriting((all) => {
+      if (all.has(id) === now) return all;
+      const next = new Set(all);
+      if (now) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   // A tab chosen with the mouse puts the keyboard in its terminal; one chosen with the arrow
   // keys keeps it in the list of tabs.
   const pointer = useRef(false);
@@ -114,9 +200,22 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
       getTerminalSettings()
         .then((s) => live && setSettings(s))
         .catch(() => undefined);
+      // The agents working now, for "Watch a worker" (from the live view: nothing new is read).
+      getLiveView()
+        .then((v) => {
+          if (!live) return;
+          const seen = new Map<string, Working>();
+          for (const w of v.workers) {
+            if (w.positionId && !seen.has(w.positionId)) {
+              seen.set(w.positionId, { positionId: w.positionId, title: w.worker });
+            }
+          }
+          setWorking([...seen.values()].sort((a, b) => a.title.localeCompare(b.title)));
+        })
+        .catch(() => undefined);
     };
     void subscribeLedgerEvents((e) => {
-      if (!live || timer || !changesTheList(e)) return;
+      if (!live || timer || !(changesTheList(e) || changesWhoWorks(e))) return;
       timer = setTimeout(() => {
         timer = null;
         if (live) refresh();
@@ -138,6 +237,47 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
     };
   }, [open]);
 
+  // The agents in "Watch a worker" and in the Watch tabs, named so that no two look the same.
+  const { names, missing } = nameAgents(
+    [
+      ...working,
+      ...t.tabs.flatMap((tab) =>
+        tab.kind === "code" ? [{ positionId: tab.positionId, title: tab.title }] : [],
+      ),
+    ],
+    teams,
+  );
+  const nameOf = (positionId: string, title: string) => names.get(positionId) ?? title;
+  const missingKey = [...missing].sort().join(" ");
+  useEffect(() => {
+    if (!missingKey) return;
+    let live = true;
+    getOrganization()
+      .then((org) => {
+        if (live) setTeams(teamsOf(org));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [missingKey]);
+
+  const watchItems: MenuItem[] =
+    working.length === 0
+      ? [
+          {
+            id: NOBODY,
+            label: "Watch a worker (nobody is working now)",
+            icon: "file",
+            disabled: true,
+          },
+        ]
+      : working.map((w) => ({
+          id: `${WATCH_PREFIX}${w.positionId}`,
+          label: `Watch ${nameOf(w.positionId, w.title)}`,
+          icon: "file",
+          hint: "Read-only",
+        }));
   const items: MenuItem[] = [
     {
       id: HERE,
@@ -159,10 +299,16 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
         hint: v.server.environment === "production" ? "PRODUCTION" : undefined,
       };
     }),
+    ...watchItems,
   ];
 
   const pick = (id: string) => {
     setFocusToken((n) => n + 1);
+    if (id.startsWith(WATCH_PREFIX)) {
+      const w = working.find((x) => `${WATCH_PREFIX}${x.positionId}` === id);
+      if (w) t.openWatch(w.positionId, w.title);
+      return;
+    }
     if (id === HERE) {
       t.openHere();
       return;
@@ -206,12 +352,15 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                   if (pointer.current) setFocusToken((n) => n + 1);
                 }}
                 idPrefix="terminal"
-                tabs={t.tabs.map((tab) => ({
-                  value: tab.id,
-                  label: tabLabel(tab),
-                  onClose: () => t.close(tab.id),
-                  closeLabel: closeLabel(tab),
-                }))}
+                tabs={t.tabs.map((tab) => {
+                  const name = tab.kind === "code" ? nameOf(tab.positionId, tab.title) : "";
+                  return {
+                    value: tab.id,
+                    label: tabLabel(tab, writing.has(tab.id), name),
+                    onClose: () => t.close(tab.id),
+                    closeLabel: closeLabel(tab, name),
+                  };
+                })}
               />
             </div>
           ) : (
@@ -281,6 +430,11 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                     theme={theme}
                     focusToken={focusToken}
                     onLeave={toTabs}
+                  />
+                ) : tab.kind === "code" ? (
+                  <CodeWatchView
+                    tab={{ ...tab, title: nameOf(tab.positionId, tab.title) }}
+                    onWriting={onWriting}
                   />
                 ) : (
                   <WatchView tab={tab.watch} />

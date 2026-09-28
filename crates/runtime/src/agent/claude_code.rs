@@ -19,6 +19,9 @@ use crate::agent::dto::{
     AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, RuntimeCapabilities,
     TurnOutcome, TurnResult,
 };
+use crate::agent::preview::{
+    plenipo_write_tool, preview_of, PreviewPace, WriteTool, MAX_PREVIEW_JSON,
+};
 use crate::dto::TokenUsage;
 
 pub const ID: &str = "claude-code";
@@ -205,6 +208,8 @@ impl RuntimeAdapter for ClaudeCode {
             expected,
             billing_confirmed: request.billing_confirmed,
             init_seen: false,
+            writing: std::collections::HashMap::new(),
+            pace: PreviewPace::default(),
         })
     }
 }
@@ -322,6 +327,10 @@ struct Parser {
     /// The sign-in check confirmed a subscription before the turn.
     billing_confirmed: bool,
     init_seen: bool,
+    /// Plenipo file changes the model is writing now, by content block (Watch, ADR-055): the
+    /// tool call's ID, which change, and its arguments so far.
+    writing: std::collections::HashMap<u64, (String, WriteTool, String)>,
+    pace: PreviewPace,
 }
 
 impl Parser {
@@ -382,6 +391,71 @@ impl Parser {
                 self.state.stop = Some(stop.clone());
                 parsed.stop = Some(stop);
             }
+        }
+        parsed
+    }
+
+    /// A Plenipo file change the model is still writing (Watch, ADR-055): Claude Code streams
+    /// each tool call's arguments (`--include-partial-messages`) as `input_json_delta` pieces
+    /// between `content_block_start` and `content_block_stop`.
+    fn tool_input(&mut self, v: &Value) -> Parsed {
+        let event = v.get("event").unwrap_or(&Value::Null);
+        let index = event.get("index").and_then(Value::as_u64);
+        let mut parsed = Parsed::none();
+        match (event.get("type").and_then(Value::as_str), index) {
+            // A new message: no block of an earlier one is still being written.
+            (Some("message_start" | "message_stop"), _) => self.writing.clear(),
+            (Some("content_block_start"), Some(index)) => {
+                // Whatever this block is, an earlier block at the same place is over.
+                self.writing.remove(&index);
+                let block = event.get("content_block").unwrap_or(&Value::Null);
+                if block.get("type").and_then(Value::as_str) == Some("tool_use") {
+                    if let Some(tool) = block
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .and_then(plenipo_write_tool)
+                    {
+                        let id = block
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map_or_else(|| format!("block-{index}"), |id| cap(id, 128));
+                        self.writing.insert(index, (id, tool, String::new()));
+                    }
+                }
+            }
+            (Some("content_block_delta"), Some(index)) => {
+                let piece = event
+                    .pointer("/delta/partial_json")
+                    .and_then(Value::as_str)
+                    .filter(|_| {
+                        event.pointer("/delta/type").and_then(Value::as_str)
+                            == Some("input_json_delta")
+                    });
+                if let (Some(piece), Some((id, tool, json))) = (piece, self.writing.get_mut(&index))
+                {
+                    if json.len() < MAX_PREVIEW_JSON {
+                        json.push_str(piece);
+                    }
+                    // Read the arguments so far only when a preview may be due (reading them
+                    // on every piece would grow with the square of their size).
+                    if self.pace.ready(id) {
+                        if let Some(p) = preview_of(id, *tool, json, false) {
+                            if self.pace.due(&p) {
+                                parsed.previews.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+            (Some("content_block_stop"), Some(index)) => {
+                if let Some((id, tool, json)) = self.writing.remove(&index) {
+                    if let Some(p) = preview_of(&id, tool, &json, true) {
+                        self.pace.due(&p);
+                        parsed.previews.push(p);
+                    }
+                }
+            }
+            _ => {}
         }
         parsed
     }
@@ -505,7 +579,7 @@ impl TurnParser for Parser {
                     (Some("content_block_delta"), Some("text_delta"), Some(t)) => {
                         Parsed::one(AgentEvent::TextDelta { text: t.to_owned() })
                     }
-                    _ => Parsed::none(),
+                    _ => self.tool_input(&v),
                 }
             }
             Some("assistant") => self.assistant(&v),
@@ -767,6 +841,68 @@ mod tests {
         assert_eq!(r.model.as_deref(), Some("model-x"));
         assert_eq!(r.duration_ms, Some(42));
         assert_eq!(r.ignored_lines, 1, "unknown event counted, not fatal");
+    }
+
+    /// ADR-055: a Plenipo file change streamed while the model writes it becomes previews — the
+    /// path once complete, the text so far, and the end — and other tool calls do not.
+    #[test]
+    fn a_file_change_being_written_becomes_previews() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let init = json!({"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","model":"m","apiKeySource":"none","tools":[]});
+        p.line(&init.to_string(), false);
+        let start = |index: u64, name: &str| {
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":index,
+                "content_block":{"type":"tool_use","id":format!("toolu_{index}"),"name":name,"input":{}}}})
+        };
+        let delta = |index: u64, piece: &str| {
+            json!({"type":"stream_event","event":{"type":"content_block_delta","index":index,
+                "delta":{"type":"input_json_delta","partial_json":piece}}})
+        };
+        let stop = |index: u64| json!({"type":"stream_event","event":{"type":"content_block_stop","index":index}});
+        let mut previews = Vec::new();
+        for line in [
+            start(1, "mcp__plenipo__write_file"),
+            start(2, "mcp__plenipo__read_file"),
+            delta(1, "{\"path\": \"src/a"),
+            delta(2, "{\"path\": \"secret"),
+            delta(1, ".rs\", \"content\": \"fn main"),
+            delta(1, "() {}\\n\"}"),
+            stop(1),
+            stop(2),
+        ] {
+            let parsed = p.line(&line.to_string(), false);
+            assert!(parsed.events.is_empty(), "previews are not activity");
+            previews.extend(parsed.previews);
+        }
+        assert!(
+            previews.iter().all(|x| x.call == "toolu_1"),
+            "{previews:#?}"
+        );
+        let last = previews.last().unwrap();
+        assert!(last.done);
+        assert_eq!(last.tool, WriteTool::Write);
+        assert_eq!(last.path.as_deref(), Some("src/a.rs"));
+        assert_eq!(last.text, "fn main() {}\n");
+        assert!(previews.iter().any(|x| !x.done && x.path.is_some()));
+
+        // A block left open (a stream cut off) is forgotten when a new message starts, so
+        // another tool's arguments at the same place never join it.
+        let message = json!({"type":"stream_event","event":{"type":"message_start"}});
+        let mut later = Vec::new();
+        for line in [
+            start(3, "mcp__plenipo__write_file"),
+            delta(3, "{\"path\": \"src/b.rs\", \"content\": \"x"),
+            message,
+            start(3, "mcp__plenipo__read_file"),
+            delta(3, "{\"path\": \"other.txt\"}"),
+            stop(3),
+        ] {
+            later.extend(p.line(&line.to_string(), false).previews);
+        }
+        assert!(
+            later.iter().all(|x| !x.text.contains("other") && !x.done),
+            "{later:#?}"
+        );
     }
 
     /// ADR-044 §2.5: Claude Code's "compacted" notice tells Plenipo it shortened its memory.

@@ -104,6 +104,11 @@ pub trait ToolProvider: Send + Sync + 'static {
         let _ = (grant_id, access);
         Box::pin(async { Err("Plenipo cannot open files for this worker.".to_owned()) })
     }
+    /// A change the AI tool of the step holding `grant_id` is still writing (Phase 18, ADR-055):
+    /// shown in Watch only if the step's permissions let it change that file. Default: ignored.
+    fn preview_write(&self, grant_id: &str, preview: crate::agent::preview::WritePreview) {
+        let _ = (grant_id, preview);
+    }
 }
 
 /// Hides secrets in text before it is shown or recorded (installed by the capability broker).

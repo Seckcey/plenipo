@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-watch-change"
+description = "Enables the get_watch_change command without any pre-configured scope."
+commands.allow = ["get_watch_change"]
+
+[[permission]]
+identifier = "deny-get-watch-change"
+description = "Denies the get_watch_change command without any pre-configured scope."
+commands.deny = ["get_watch_change"]

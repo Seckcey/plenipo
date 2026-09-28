@@ -3,21 +3,87 @@
 //! secrets with the broker's filter, and secret values live in the operating system's
 //! protected storage (Windows Credential Manager) under the app's identifier.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use plenipo_capabilities::browser::BrowserConfig;
 use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::watch::WatchUpdate;
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, OsSecretStore, SecretStore};
 use plenipo_guard::Guard;
 use plenipo_ledger::Ledger;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
 
 /// Tauri event name carrying [`ControlStatus`] to every window (Phase 10).
 pub const CONTROL_EVENT: &str = "plenipo://control";
+/// At most this many windows' pages hear Watch at once; a page that reloaded without saying
+/// goodbye is the oldest, and goes first.
+pub const MAX_WATCH_SUBSCRIBERS: usize = 32;
+
+/// Who hears Watch's updates (Phase 18, ADR-055): each is a channel the main window opened with
+/// `subscribe_watch`, which no other window or web page may call. Not an event: a page listening
+/// to every event would hear an event sent to the main window too.
+#[derive(Clone, Default)]
+pub struct WatchSubscribers(Arc<Mutex<Subscribers>>);
+
+#[derive(Default)]
+struct Subscribers {
+    next: u32,
+    channels: BTreeMap<u32, Channel<WatchUpdate>>,
+}
+
+impl WatchSubscribers {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Subscribers> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Send Watch's updates to `channel` from now on; returns the number that stops them.
+    pub fn add(&self, channel: Channel<WatchUpdate>) -> u32 {
+        let mut s = self.lock();
+        s.next = s.next.wrapping_add(1);
+        let id = s.next;
+        s.channels.insert(id, channel);
+        while s.channels.len() > MAX_WATCH_SUBSCRIBERS {
+            s.channels.pop_first();
+        }
+        id
+    }
+
+    /// Stop sending to the channel `id` names; whether it was there.
+    pub fn remove(&self, id: u32) -> bool {
+        self.lock().channels.remove(&id).is_some()
+    }
+
+    /// How many channels hear Watch now.
+    pub fn len(&self) -> usize {
+        self.lock().channels.len()
+    }
+
+    /// Whether no channel hears Watch now.
+    pub fn is_empty(&self) -> bool {
+        self.lock().channels.is_empty()
+    }
+
+    /// Send `update` to every channel; one that cannot take it any more is forgotten.
+    pub fn send(&self, update: &WatchUpdate) {
+        let mut s = self.lock();
+        s.channels
+            .retain(|_, channel| match channel.send(update.clone()) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("a window stopped hearing Watch: {e}");
+                    false
+                }
+            });
+    }
+}
 
 /// Create Guard and the broker, and give the agent runtime its tools and secret filter.
 /// Never fails; problems become notices on the Permissions page.
@@ -85,6 +151,14 @@ pub fn create<R: Runtime>(
             crate::indicator::update(&app, &status);
         });
     }));
+    // Watch (Phase 18, ADR-055): the file changes a worker makes, to the main window's own
+    // channels only — never the sign window or a web page.
+    let subscribers = WatchSubscribers::default();
+    let hearing = subscribers.clone();
+    broker
+        .watch()
+        .set_listener(Arc::new(move |update: &WatchUpdate| hearing.send(update)));
+    app.manage(subscribers);
     (guard, broker)
 }
 

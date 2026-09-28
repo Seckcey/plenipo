@@ -4135,7 +4135,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plenipo-capabilities"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "base64 0.22.1",
  "dunce",
@@ -4160,6 +4160,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "similar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4174,7 +4175,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-core"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4184,7 +4185,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-desktop"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "chrono",
  "log",
@@ -4212,7 +4213,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-guard"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "dunce",
  "plenipo-ledger",
@@ -4228,7 +4229,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-ledger"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "rusqlite",
  "serde",
@@ -4241,7 +4242,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-liaison"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "dunce",
  "plenipo-ledger",
@@ -4257,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-router"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "plenipo-ledger",
  "plenipo-runtime",
@@ -4270,7 +4271,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-runtime"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "dunce",
  "libc",
@@ -4288,13 +4289,15 @@ dependencies = [
 
 [[package]]
 name = "plenipo-workforce"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
+ "base64 0.22.1",
  "log",
  "plenipo-ledger",
  "plenipo-liaison",
  "plenipo-router",
  "plenipo-runtime",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -5491,6 +5494,12 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siphasher"

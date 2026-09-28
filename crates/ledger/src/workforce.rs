@@ -21,11 +21,14 @@ use crate::rows::{json as parse_json, metadata_text, opt_u64, parse_enum, u64_of
 use crate::Ledger;
 
 mod archive;
+mod canvas;
 mod experience;
+pub(crate) mod loans;
 mod saved;
 mod specialties;
 
 pub use archive::{DeletionPlan, Providers};
+pub use canvas::{MAX_COORDINATE, MAX_PLACES, ORGANIZATION_TILE, OWNER_TILE};
 
 pub(crate) const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_id, model, state, \
     sort_key, metadata, created_at, updated_at, archived_at, specialty_id, deleted_at";
@@ -345,6 +348,8 @@ struct Org {
     coordinators: HashMap<String, Project>,
     /// Active oversight assignments.
     oversight: Vec<Oversight>,
+    /// Loans in effect (ADR-054).
+    loans: Vec<Loan>,
 }
 
 impl Org {
@@ -394,6 +399,7 @@ impl Org {
             heads,
             coordinators,
             oversight,
+            loans: loans::active_loans(c)?,
         })
     }
 
@@ -506,14 +512,16 @@ impl Org {
             .map_or_else(|| "The owner".to_owned(), |p| p.title.clone())
     }
 
-    /// `title` must not be the title of another member of `lead`'s team (its reports and its
-    /// overseers), `me` excepted.
+    /// `title` must not be the title of another member of `lead`'s team (its reports, its
+    /// overseers, and the agents lent to it), `me` excepted.
     fn check_title(&self, title: &str, lead: Option<&str>, me: Option<&str>) -> Result<()> {
         let key = title.to_lowercase();
         let overseers = lead.map(|l| self.overseers(l)).unwrap_or_default();
+        let lent_in = lead.map(|l| self.lent_to(l)).unwrap_or_default();
         let clash = self
             .reports(lead)
             .chain(overseers)
+            .chain(lent_in)
             .find(|p| Some(p.id.as_str()) != me && p.title.to_lowercase() == key);
         match clash {
             Some(p) => Err(invalid(format!(
@@ -871,6 +879,12 @@ fn insert_oversight(
     if overseer_id == target_id {
         return Err(invalid("a position cannot oversee its own team"));
     }
+    if org.loan_of(overseer_id).is_some() {
+        return Err(invalid(format!(
+            "{} is lent to another team; send it home first",
+            overseer.title
+        )));
+    }
     if org.role_of(overseer)?.persistent {
         return Err(invalid(format!(
             "{} is a full-time position; for now only on-call positions can be assigned \
@@ -953,6 +967,7 @@ fn archive(
     reason: &str,
     actor: &str,
 ) -> Result<()> {
+    loans::end_loans_on_archive(tx, out, position, actor)?;
     let staffed = retire_incumbent(tx, out, position, reason, actor)?.is_some();
     let mut ended = Vec::new();
     for o in org
@@ -1078,6 +1093,8 @@ pub(crate) fn insert_worker(
     if worker.role_id != position.role_id {
         return Err(invalid("a worker's role must be its position's role"));
     }
+    // A lent agent takes work only from the team it helps, and for one objective (ADR-054).
+    loans::join_loan(tx, out, &position, named["leadId"].as_str(), task_id, actor)?;
     let runtime_id = clean_runtime_id(&worker.runtime_id)?;
     let model = clean_optional_model(worker.model.as_deref())?;
     let now = now();
@@ -1218,6 +1235,7 @@ impl Ledger {
                     saved::saved_row,
                 )?,
                 experience: experience::counts(c)?,
+                loans: loans::active_loans(c)?,
             })
         })
     }
@@ -1976,6 +1994,10 @@ impl Ledger {
                     for o in org.oversight.iter().filter(|o| o.overseer_id == id) {
                         org.check_title(title, Some(&o.target_id), Some(id))?;
                     }
+                    // Lent: the team it helps finds it by title too (ADR-054 §3).
+                    if let Some(loan) = org.loan_of(id) {
+                        org.check_title(title, Some(&loan.to_lead_id), Some(id))?;
+                    }
                     changes.insert("title".into(), json!(title));
                 }
             }
@@ -1994,6 +2016,14 @@ impl Ledger {
             }
             if let Some(r) = &new_runtime {
                 Org::check_runtime(org.project_of(id), r.as_deref(), &position.title)?;
+                // Lent: the project it works in now must allow it too (ADR-054 §3, §5).
+                if let Some(loan) = org.loan_of(id) {
+                    Org::check_runtime(
+                        org.project_of(&loan.to_lead_id),
+                        r.as_deref(),
+                        &position.title,
+                    )?;
+                }
                 changes.insert("runtimeId".into(), json!(r));
                 changes.insert("automatic".into(), json!(r.is_none()));
             }
@@ -2052,6 +2082,12 @@ impl Ledger {
             let position = org.position(tx, id)?.clone();
             if position.reports_to.as_deref() == to {
                 return Ok(position);
+            }
+            if org.loan_of(id).is_some() {
+                return Err(invalid(format!(
+                    "{} is lent to another team; send it home first",
+                    position.title
+                )));
             }
             let role = org.role_of(&position)?;
             org.check_supervisor(tx, role, Some(id), to)?;
@@ -2157,6 +2193,12 @@ impl Ledger {
                     reports.join(", ")
                 )));
             }
+            if org.loan_of(id).is_some() {
+                return Err(invalid(format!(
+                    "{} is lent to another team; send it home first",
+                    position.title
+                )));
+            }
             refuse_if_busy(tx, position, "archiving it")?;
             archive(tx, out, &org, position, None, "position archived", actor)?;
             get_position(tx, id)
@@ -2199,6 +2241,40 @@ impl Ledger {
                 [id],
                 oversight_row,
             )?)
+        })
+    }
+
+    /// Move one end of an oversight assignment (ADR-053 §8): another on-call position takes it
+    /// over (`overseer_id`), or it oversees another team (`target_id`). The old assignment ends
+    /// and the new one is made in one transaction, with every rule of a new assignment checked.
+    pub fn retarget_oversight(
+        &self,
+        id: &str,
+        overseer_id: Option<&str>,
+        target_id: Option<&str>,
+        actor: &str,
+    ) -> Result<Oversight> {
+        self.write(|tx, out| {
+            let o = tx
+                .query_row(
+                    &format!("SELECT {OVERSIGHT_COLS} FROM oversight WHERE id = ?1"),
+                    [id],
+                    oversight_row,
+                )
+                .optional()?
+                .ok_or_else(|| LedgerError::NotFound(format!("oversight assignment {id}")))?;
+            if !o.active {
+                return Err(invalid("that assignment has ended"));
+            }
+            let overseer = overseer_id.unwrap_or(&o.overseer_id).to_owned();
+            let target = target_id.unwrap_or(&o.target_id).to_owned();
+            if overseer == o.overseer_id && target == o.target_id {
+                return Err(invalid("drop the end of the line on another agent"));
+            }
+            end_oversight_row(tx, out, &o, "assignment moved", actor)?;
+            // The rules see the organization without the old assignment.
+            let org = Org::load(tx)?;
+            insert_oversight(tx, out, &org, o.kind, &overseer, &target, actor)
         })
     }
 

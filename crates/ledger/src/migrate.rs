@@ -92,6 +92,12 @@ pub const MIGRATIONS: &[Migration] = &[
         up: include_str!("../migrations/0010_owner_control.up.sql"),
         down: include_str!("../migrations/0010_owner_control.down.sql"),
     },
+    Migration {
+        version: 11,
+        name: "canvas_and_loans",
+        up: include_str!("../migrations/0011_canvas_and_loans.up.sql"),
+        down: include_str!("../migrations/0011_canvas_and_loans.down.sql"),
+    },
 ];
 
 /// Highest version in `migrations` (0 if none).

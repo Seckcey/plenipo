@@ -28,6 +28,7 @@ pub mod terminal;
 pub mod tools;
 pub mod updates;
 pub mod vault;
+pub mod watch;
 pub mod worktrees;
 
 pub use broker::{Broker, BrokerConfig, CallResult};

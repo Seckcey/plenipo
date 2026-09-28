@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-owner-profile"
+description = "Enables the set_owner_profile command without any pre-configured scope."
+commands.allow = ["set_owner_profile"]
+
+[[permission]]
+identifier = "deny-set-owner-profile"
+description = "Denies the set_owner_profile command without any pre-configured scope."
+commands.deny = ["set_owner_profile"]

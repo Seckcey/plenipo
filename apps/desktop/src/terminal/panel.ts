@@ -63,4 +63,28 @@ export interface WatchEntry {
   watch: WatchTab;
 }
 
-export type TerminalTab = OwnerTab | WatchEntry;
+/**
+ * A Watch tab for code (Phase 18, ADR-055): what one agent's workers change in its objective,
+ * read-only. One tab per agent; it stays, and readable, until the owner closes it.
+ */
+export interface CodeTab {
+  kind: "code";
+  /** `code:` and the agent's position ID. */
+  id: string;
+  positionId: string;
+  /** The agent's title ("Senior Developer"). */
+  title: string;
+  openedAt: number;
+}
+
+/** The ID of an agent's Watch tab for code. */
+export function codeTabId(positionId: string): string {
+  return `code:${positionId}`;
+}
+
+export type TerminalTab = OwnerTab | WatchEntry | CodeTab;
+
+/** When a tab opened (tabs are shown in that order). */
+export function openedAt(tab: TerminalTab): number {
+  return tab.kind === "watch" ? tab.watch.openedAt : tab.openedAt;
+}

@@ -44,6 +44,7 @@ use crate::agent::adapter::{
     TurnParser, TurnState, MAX_EVENT_TEXT,
 };
 use crate::agent::dto::{AgentEvent, NoticeLevel, TurnOutcome, TurnResult};
+use crate::agent::preview::{preview_of, PreviewPace, WriteTool};
 use crate::agent::tools::{FileAccess, FileAnswer, ToolServer};
 use crate::dto::TokenUsage;
 
@@ -164,6 +165,8 @@ pub struct AcpTurn {
     /// How much of its context the tool last reported in use (`usage_update`), in this
     /// connection or — given by the runtime — at the end of the conversation's previous step.
     context_used: Option<u64>,
+    /// How often a file change being written is shown (Watch, ADR-055).
+    pace: PreviewPace,
 }
 
 impl AcpTurn {
@@ -186,6 +189,7 @@ impl AcpTurn {
             unwritten: Vec::new(),
             files_refused_noted: false,
             context_used: None,
+            pace: PreviewPace::default(),
         }
     }
 
@@ -824,6 +828,53 @@ impl AcpTurn {
         parsed
     }
 
+    /// Which file change a tool call is, when it writes files through Plenipo: Plenipo's own
+    /// `write_file` or `edit_file`, or — for an AI tool whose file writes come to Plenipo
+    /// (ADR-027) — its own tool that changes files (kind `edit`).
+    fn write_tool(&self, call: &Call) -> Option<WriteTool> {
+        let title = call.title.as_deref().unwrap_or("").to_lowercase();
+        if title.contains("write_file") {
+            return Some(WriteTool::Write);
+        }
+        if title.contains("edit_file") {
+            return Some(WriteTool::Edit);
+        }
+        if !self.task.file_access || call.kind.as_deref() != Some("edit") {
+            return None;
+        }
+        Some(if title.starts_with("edit") || title.contains("replace") {
+            WriteTool::Edit
+        } else {
+            WriteTool::Write
+        })
+    }
+
+    /// A file change the AI tool is still writing (Watch, ADR-055): Kimi's `tool_call_update`
+    /// notes marked `in_progress` carry the call's arguments so far, and at last its whole
+    /// `rawInput`.
+    fn call_preview(&mut self, id: &str, update: &Value) -> Parsed {
+        let mut parsed = Parsed::none();
+        let Some(tool) = self.calls.get(id).and_then(|c| self.write_tool(c)) else {
+            return parsed;
+        };
+        let (json, done) = match update.get("rawInput").filter(|v| v.is_object()) {
+            Some(raw) => (raw.to_string(), true),
+            None => match update
+                .pointer("/content/0/content/text")
+                .and_then(Value::as_str)
+            {
+                Some(text) => (text.to_owned(), false),
+                None => return parsed,
+            },
+        };
+        if let Some(p) = preview_of(id, tool, &json, done) {
+            if self.pace.due(&p) {
+                parsed.previews.push(p);
+            }
+        }
+        parsed
+    }
+
     fn call_updated(&mut self, update: &Value) -> Parsed {
         let id = update.get("toolCallId").and_then(Value::as_str);
         if let Some(call) = id.and_then(|id| self.calls.get_mut(id)) {
@@ -836,6 +887,11 @@ impl AcpTurn {
             }
         }
         let status = update.get("status").and_then(Value::as_str);
+        if status == Some("in_progress") {
+            if let Some(id) = id {
+                return self.call_preview(id, update);
+            }
+        }
         if !matches!(status, Some("completed" | "failed")) {
             return Parsed::none();
         }

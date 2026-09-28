@@ -7,6 +7,7 @@ import type { ProjectInfo } from "./ProjectInfo";
 import type { RoleInfo } from "./RoleInfo";
 import type { RuntimeBrief } from "./RuntimeBrief";
 import type { SavedAgentInfo } from "./SavedAgentInfo";
+import type { TilePlace } from "./TilePlace";
 import type { TitleTheme } from "./TitleTheme";
 
 /**
@@ -29,4 +30,9 @@ workforce: Array<SavedAgentInfo>,
 /**
  * The organization's average experience, over agents that finished a task (ADR-045).
  */
-averageExperience: number, oversight: Array<OversightInfo>, stats: OrgStats, runtimes: Array<RuntimeBrief>, notices: Array<string>, generatedAt: number, };
+averageExperience: number, oversight: Array<OversightInfo>, stats: OrgStats, runtimes: Array<RuntimeBrief>, notices: Array<string>, 
+/**
+ * The tiles the owner placed by hand on the canvas (ADR-053); the rest follow the automatic
+ * layout.
+ */
+places: Array<TilePlace>, generatedAt: number, };

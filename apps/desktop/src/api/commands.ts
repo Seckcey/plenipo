@@ -4,6 +4,14 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  LiveView,
+  LoanUntil,
+  OwnerProfile,
+  OwnerProfileInput,
+  TilePlace,
+  WatchFileView,
+  WatchUpdate,
+  WatchView,
   DiagnosticsFile,
   LedgerBackups,
   RecoveryStatus,
@@ -435,6 +443,91 @@ export function hireFromWorkforce(
 /** Delete an agent in your Workforce for good. */
 export function deleteSavedAgent(savedId: string): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("delete_saved_agent", { savedId });
+}
+
+// ---- The organization canvas (Phase 18, ADR-053) --------------------------------------------
+
+/** Save where you put these tiles (a whole team moved at once). */
+export function placeTiles(places: TilePlace[]): Promise<void> {
+  return call<void>("place_tiles", { places });
+}
+
+/** Tidy up: forget every place; resolves with them, for Undo. */
+export function tidyUp(): Promise<TilePlace[]> {
+  return call<TilePlace[]>("tidy_up");
+}
+
+/** Move one end of an oversight line: another overseer, or another team. */
+export function retargetOversight(
+  oversightId: string,
+  to: { overseerId: string } | { targetId: string },
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("retarget_oversight", {
+    oversightId,
+    overseerId: "overseerId" in to ? to.overseerId : null,
+    targetId: "targetId" in to ? to.targetId : null,
+  });
+}
+
+/** Who is working where now, what each touched last, and recent hand-offs. */
+export function getLiveView(): Promise<LiveView> {
+  return call<LiveView>("get_live_view");
+}
+
+// ---- Move or lend (Phase 18, ADR-054) -------------------------------------------------------
+
+/** Lend an on-call agent to another team's lead. */
+export function lendAgent(
+  positionId: string,
+  toLeadId: string,
+  until: LoanUntil,
+): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("lend_agent", { positionId, toLeadId, until });
+}
+
+/** Send a lent agent home: now, or when its task ends. */
+export function sendHome(positionId: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("send_home", { positionId });
+}
+
+// ---- Watch (Phase 18, ADR-055) — read-only --------------------------------------------------
+
+/** The files an agent's workers changed in its latest objective. */
+export function getWatch(positionId: string): Promise<WatchView> {
+  return call<WatchView>("get_watch", { positionId });
+}
+
+/** One change's file, its lines marked; `null` when Plenipo no longer has it. */
+export function getWatchChange(changeId: string): Promise<WatchFileView | null> {
+  return call<WatchFileView | null>("get_watch_change", { changeId });
+}
+
+/**
+ * Hear each file change a worker is writing, saved, or refused, through a channel only this
+ * window hears (never an event, which another window could listen to). Resolves with the
+ * function that stops it.
+ */
+export async function watchChanges(onUpdate: (update: WatchUpdate) => void): Promise<() => void> {
+  const updates = new Channel<WatchUpdate>();
+  let hearing = true;
+  updates.onmessage = (update) => {
+    if (hearing) onUpdate(update);
+  };
+  const subscription = await call<number>("subscribe_watch", { channel: updates });
+  return () => {
+    hearing = false;
+    void call<void>("unsubscribe_watch", { subscription }).catch(() => undefined);
+  };
+}
+
+// ---- The owner's tile (Phase 18, ADR-056) ---------------------------------------------------
+
+export function getOwnerProfile(): Promise<OwnerProfile> {
+  return call<OwnerProfile>("get_owner_profile");
+}
+
+export function setOwnerProfile(input: OwnerProfileInput): Promise<OwnerProfile> {
+  return call<OwnerProfile>("set_owner_profile", { input });
 }
 
 // ---- Specialties (Phase 17, ADR-042) --------------------------------------------------------

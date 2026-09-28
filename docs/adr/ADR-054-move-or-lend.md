@@ -1,6 +1,6 @@
 # ADR-054: Move or lend an agent to another team
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §2.2 — "dropping an agent on another team moves
@@ -148,3 +148,18 @@ What the code does today (v1.10.0, read at `c5d1a71`):
   experience would split in two.
 - **Keep reading the project from the conversation.** Rejected: it gives a moved agent the wrong
   permission limit.
+
+## As built (v1.11.0)
+
+Built as written. The drop menu lists **Move here** first, then the two ways to lend (only for an
+on-call agent that can be lent there), then the oversight choices. A lent agent's badge sits on
+its tile's corner; choosing it offers **Send home** and a way to show the team it helps. Its
+Team tab says where it helps and until when, with **Send home**; a lead's Team tab lists the
+agents lent to its team. The canvas explains a refusal before the drop (a full-time agent, one
+already lent, a lead's own team); the Ledger still decides, with the checks above, and its
+reason is what you see if the two ever disagree. Without a mouse, an on-call agent's Team tab has **Lend to another team**: choose
+the team's lead and for how long, then **Lend**.
+
+While an agent is lent, a change to its title or AI tool is checked against the rules of the
+team it helps, and a loan "for one objective" still brings it home when a job joins that
+objective only after the objective has ended.

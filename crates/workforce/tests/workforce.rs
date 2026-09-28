@@ -1057,6 +1057,40 @@ async fn plan_orphan_prevention() {
 
 // ---- Routing -------------------------------------------------------------------------------
 
+/// A member lent to another team (ADR-054) is named as the reason only when nobody on the team
+/// answers to the name: two reviewers still here make "address one by its title" the reason.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_member_lent_away_does_not_hide_the_useful_reason() {
+    let h = harness().await;
+    let o = h.development();
+    h.hire("Code Reviewer", "Reviewer A", &o.coordinator, "claude-code");
+    h.hire("Code Reviewer", "Reviewer B", &o.coordinator, "claude-code");
+    let away = h.hire("Code Reviewer", "Reviewer C", &o.coordinator, "claude-code");
+    h.ledger
+        .lend_position(&away, &o.head, plenipo_ledger::LoanUntil::Returned, "owner")
+        .unwrap();
+    let root = h
+        .objective(&o.coordinator, "Check it [handoff:role:Code Reviewer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let reasons = h.rejections(&root);
+    assert!(
+        reasons[0].contains("several members of your team have the role \"Code Reviewer\"")
+            && !reasons[0].contains("lent"),
+        "{reasons:?}"
+    );
+    // Asked by its own title, the lent member's absence is the reason.
+    let root = h
+        .objective(&o.coordinator, "Check it [handoff:role:Reviewer C]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let reasons = h.rejections(&root);
+    assert!(
+        reasons[0].contains("Reviewer C is lent to Development Manager's team"),
+        "{reasons:?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn requests_outside_the_team_are_refused_and_explained() {
     let h = harness().await;

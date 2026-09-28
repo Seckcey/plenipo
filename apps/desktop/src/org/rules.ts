@@ -69,6 +69,7 @@ export function moveRefusal(
   to: string | null,
 ): string | null {
   if (!position.active) return `${position.title} has been archived.`;
+  if (position.loan) return lentAway(position);
   if (to === position.reportsTo) {
     return to === null ? "Already reports to you." : "Already reports there.";
   }
@@ -138,6 +139,7 @@ export function oversightRefusal(
   if (overseer.id === target.id) return "A position cannot oversee its own team.";
   if (!overseer.active || !target.active)
     return "Archived positions cannot oversee or be overseen.";
+  if (overseer.loan) return lentAway(overseer);
   if (overseer.staffing === "persistent") {
     return `${overseer.title} is a full-time position; for now only on-call positions review, QA, or audit a team.`;
   }
@@ -173,4 +175,68 @@ export function canTakeObjective(p: PositionInfo): boolean {
 export function defaultRuntime(snapshot: OrgSnapshot, allowed: string[] | null): string {
   const pool = snapshot.runtimes.filter((r) => allowed === null || allowed.includes(r.id));
   return (pool.find((r) => r.ready) ?? pool[0] ?? snapshot.runtimes[0])?.id ?? "";
+}
+
+/** "Security Auditor is lent to Shop Supervisor's team; send it home first." */
+function lentAway(p: PositionInfo): string {
+  return `${p.title} is lent to ${p.loan?.to ?? "another"}'s team; send it home first.`;
+}
+
+/**
+ * Why `position` cannot be lent to `lead`'s team (ADR-054 §2–§3); `null` when it can. The
+ * Ledger also checks that nothing it has is unfinished, its title, and the AI tools there.
+ */
+export function lendRefusal(
+  snapshot: OrgSnapshot,
+  position: PositionInfo,
+  lead: PositionInfo,
+): string | null {
+  if (!position.active) return `${position.title} has been archived.`;
+  if (position.staffing === "persistent") {
+    return `${position.title} is a full-time position: move it instead of lending it.`;
+  }
+  if (position.loan) return `${position.title} is already lent; send it home first.`;
+  if (!lead.active) return `${lead.title} has been archived.`;
+  if (lead.staffing !== "persistent") {
+    return `${lead.title} is an on-call position and has no team to lend to.`;
+  }
+  if (position.reportsTo === lead.id)
+    return `${position.title} is already on ${lead.title}'s team.`;
+  if (snapshot.oversight.some((o) => o.overseerId === position.id && o.targetId === lead.id)) {
+    return `${position.title} already oversees ${lead.title}'s team.`;
+  }
+  return null;
+}
+
+/** What dropping `position` on the trash can archives (ADR-053 §9–§10). */
+export type TrashTarget =
+  | { kind: "position"; id: string }
+  | { kind: "project"; id: string; name: string }
+  | { kind: "department"; id: string; name: string };
+
+/** What the trash can would archive for `position`, or why it cannot. */
+export function trashTarget(
+  snapshot: OrgSnapshot,
+  position: PositionInfo,
+): TrashTarget | { refused: string } {
+  if (!position.active) return { refused: `${position.title} has been archived.` };
+  if (position.loan) return { refused: lentAway(position) };
+  if (position.coordinatesProjectId) {
+    const project = snapshot.projects.find((p) => p.id === position.coordinatesProjectId);
+    if (project) return { kind: "project", id: project.id, name: project.name };
+  }
+  if (position.headsDepartmentId) {
+    const department = snapshot.departments.find((d) => d.id === position.headsDepartmentId);
+    if (department) return { kind: "department", id: department.id, name: department.name };
+  }
+  if (snapshot.positions.some((p) => p.active && p.reportsTo === position.id)) {
+    const t = titlesOf(snapshot);
+    return {
+      refused:
+        position.kind === "superintendent"
+          ? `${position.title} leads departments: archive each department first (drop its ${rankName(t, "departmentManager")} here).`
+          : `${position.title} leads a team: move or archive its team first.`,
+    };
+  }
+  return { kind: "position", id: position.id };
 }

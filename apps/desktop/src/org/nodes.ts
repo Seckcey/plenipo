@@ -1,4 +1,6 @@
-import type { OrgSnapshot, OversightInfo, PositionStatus } from "@plenipo/types";
+import type { OrgSnapshot, OversightInfo, OwnerProfile, PositionStatus } from "@plenipo/types";
+
+import { describeOwner } from "../owner/words";
 
 import { STATUS_LABEL, WORKER_STATE_LABEL } from "./format";
 import type { LayoutNode } from "./layout";
@@ -14,9 +16,11 @@ export interface NodeContext {
   oversees: (positionId: string) => OversightInfo[];
   /** Oversight assignments over a lead's team. */
   overseenBy: (positionId: string) => OversightInfo[];
+  /** Your picture, status, mood, and message (ADR-056); `null` until loaded. */
+  owner: OwnerProfile | null;
 }
 
-export function nodeContext(snapshot: OrgSnapshot): NodeContext {
+export function nodeContext(snapshot: OrgSnapshot, owner: OwnerProfile | null = null): NodeContext {
   const glyphs = new Map(snapshot.roles.map((r) => [r.id, r.glyph]));
   const runtimes = new Map(snapshot.runtimes.map((r) => [r.id, r.label]));
   const titles = new Map(snapshot.positions.map((p) => [p.id, p.title]));
@@ -27,6 +31,7 @@ export function nodeContext(snapshot: OrgSnapshot): NodeContext {
     title: (id) => titles.get(id) ?? "a former position",
     oversees: (id) => snapshot.oversight.filter((o) => o.overseerId === id),
     overseenBy: (id) => snapshot.oversight.filter((o) => o.targetId === id),
+    owner,
   };
 }
 
@@ -42,8 +47,10 @@ export function workerStatus(state: string): PositionStatus {
 
 export function nodeLabel(node: LayoutNode, ctx: NodeContext): string {
   switch (node.kind) {
-    case "owner":
-      return `You, ${rankName(titlesOf(ctx.snapshot), "owner")}`;
+    case "owner": {
+      const you = `You, ${rankName(titlesOf(ctx.snapshot), "owner")}`;
+      return ctx.owner ? `${you}: ${describeOwner(ctx.owner)}` : you;
+    }
     case "organization":
       return `${ctx.snapshot.name}, organization`;
     case "position": {

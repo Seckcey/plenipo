@@ -2174,3 +2174,323 @@ async fn too_many_requests_for_approval_in_a_minute_are_refused() {
     ToolProvider::close(&h.broker, &grant);
     assert_eq!(h.events(&task, "guard.grant_closed")[0]["asked"], 10);
 }
+
+/// Phase 18 (ADR-053 §17–§19): the canvas's live view reads Guard's own record — what each
+/// worker in a step touched last (a folder in its working copy; nothing it was refused) — and
+/// Liaison's hand-offs, from the member that asked to the one that took it and back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_live_view_shows_what_a_worker_touches_and_the_handoffs() {
+    use plenipo_capabilities::Touching;
+    use plenipo_runtime::agent::ToolProvider;
+    let h = harness().await;
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+
+    // The answer went back from the developer to the supervisor.
+    let live = h.broker.live_view();
+    assert!(
+        live.handoffs.iter().any(|x| x.kind == "answered"
+            && x.from_position_id.as_deref() == Some(h.developer.as_str())
+            && x.to_position_id.as_deref() == Some(h.supervisor.as_str())),
+        "{:#?}",
+        live.handoffs
+    );
+
+    let (task_id, grant) = h.direct_grant(&h.developer).await;
+    let worker = |grant: &str| {
+        h.broker
+            .live_view()
+            .workers
+            .into_iter()
+            .find(|w| w.grant_id == grant)
+            .expect("the worker in its step")
+    };
+    let now = worker(&grant);
+    assert_eq!(now.task_id, task_id);
+    assert_eq!(now.position_id.as_deref(), Some(h.developer.as_str()));
+    assert_eq!(now.runs_on, None, "only its AI company's cloud");
+    assert_eq!(now.touching, None, "nothing touched yet");
+
+    let wrote = h
+        .broker
+        .call(
+            &grant,
+            "write_file",
+            serde_json::json!({ "path": "src/pages/new.txt", "content": "hello\n" }),
+        )
+        .await;
+    assert!(!wrote.is_error, "{}", wrote.text);
+    assert_eq!(
+        worker(&grant).touching,
+        Some(Touching::Folder {
+            project: Some("Website".into()),
+            folder: "src/pages".into()
+        })
+    );
+    // A call Guard refuses touches nothing.
+    let refused = h
+        .broker
+        .call(&grant, "read_file", serde_json::json!({ "path": ".env" }))
+        .await;
+    assert!(refused.is_error);
+    assert_eq!(
+        worker(&grant).touching,
+        Some(Touching::Folder {
+            project: Some("Website".into()),
+            folder: "src/pages".into()
+        })
+    );
+    ToolProvider::close(&h.broker, &grant);
+    assert!(h
+        .broker
+        .live_view()
+        .workers
+        .iter()
+        .all(|w| w.grant_id != grant));
+}
+
+// ---- Watch (Phase 18, ADR-055) ----------------------------------------------------------------
+
+type Updates = Arc<std::sync::Mutex<Vec<plenipo_capabilities::watch::WatchUpdate>>>;
+
+fn watching(h: &H) -> Updates {
+    let seen: Updates = Arc::default();
+    let log = Arc::clone(&seen);
+    h.broker
+        .watch()
+        .set_listener(Arc::new(move |u| log.lock().unwrap().push(u.clone())));
+    seen
+}
+
+/// Watch: each `write_file`, `edit_file`, and ACP write appears in order with the right file and
+/// lines; a large file shows a summary; a refused change keeps no text anywhere; the Ledger keeps
+/// each saved change's record without its contents.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
+    use plenipo_capabilities::watch::{ChangeKind, LineMark, WatchState};
+    let h = harness().await;
+    let seen = watching(&h);
+    // A large file in the folder, which the worker edits a little.
+    std::fs::write(
+        h.folder.join("big.txt"),
+        format!("{}\nend\n", "x".repeat(300 * 1024)),
+    )
+    .unwrap();
+    let work = [
+        tool("write_file", serde_json::json!({ "path": "src/new.txt", "content": "alpha\nbeta\n" })),
+        tool("edit_file", serde_json::json!({ "path": "src/app.txt", "oldText": "version = 1", "newText": "version = 2" })),
+        tool("edit_file", serde_json::json!({ "path": ".env", "oldText": "DATABASE_URL", "newText": "REFUSED_WORDS_42" })),
+        tool("edit_file", serde_json::json!({ "path": "big.txt", "oldText": "end", "newText": "END" })),
+    ]
+    .join(" ");
+    let task = h.objective(&handoff("Backend Developer", &work)).await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    h.finished(&task).await;
+
+    let updates = seen.lock().unwrap().clone();
+    let order: Vec<(String, WatchState)> = updates
+        .iter()
+        .map(|u| (u.change.path.clone(), u.change.state))
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            ("src/new.txt".to_owned(), WatchState::Saved),
+            ("src/app.txt".to_owned(), WatchState::Saved),
+            (".env".to_owned(), WatchState::Refused),
+            ("big.txt".to_owned(), WatchState::Saved),
+        ],
+        "in order, each as it landed"
+    );
+    let file = |path: &str| {
+        let u = updates.iter().find(|u| u.change.path == path).unwrap();
+        h.broker.watch_change(&u.change.id).unwrap()
+    };
+    let created = file("src/new.txt");
+    assert_eq!(created.change.kind, Some(ChangeKind::Created));
+    assert_eq!(created.change.worker, "Backend Developer");
+    assert_eq!(
+        created.change.position_id.as_deref(),
+        Some(h.developer.as_str())
+    );
+    assert!(created.lines.iter().all(|l| l.mark == Some(LineMark::New)));
+    assert_eq!(created.lines.len(), 2);
+    let edited = file("src/app.txt");
+    assert_eq!(edited.change.kind, Some(ChangeKind::Changed));
+    assert_eq!((edited.change.added, edited.change.removed), (1, 1));
+    assert_eq!(edited.lines[0].text, "version = 2");
+    assert_eq!(edited.lines[0].mark, Some(LineMark::Changed));
+    let refused = file(".env");
+    assert!(refused
+        .change
+        .reason
+        .as_deref()
+        .unwrap()
+        .contains("blocked file"));
+    assert!(refused.lines.is_empty() && refused.writing.is_none());
+    let large = file("big.txt");
+    let summary = large.change.summary.as_deref().unwrap();
+    assert!(summary.starts_with("Large file: 301 KB"), "{summary}");
+    assert!(summary.contains("1 line added, 1 removed"), "{summary}");
+    assert!(large.lines.is_empty(), "a summary, not its contents");
+
+    // The refused text is nowhere: not in Watch, not in the Ledger's record of the refusal.
+    assert!(updates
+        .iter()
+        .all(|u| !format!("{u:?}").contains("REFUSED_WORDS_42")));
+    let denied = h.events(&child.id, "guard.denied");
+    assert_eq!(denied.len(), 1);
+    assert_eq!(denied[0]["detail"], ".env (an edit of 16 characters)");
+    assert!(!denied[0].to_string().contains("REFUSED_WORDS_42"));
+    // Each saved change's record: the file and its line counts, never its contents.
+    let used = h.events(&child.id, "capability.used");
+    let record = used
+        .iter()
+        .find(|u| u["change"]["path"] == "src/new.txt")
+        .unwrap();
+    assert_eq!(record["change"]["kind"], "created");
+    assert_eq!(record["change"]["added"], 2);
+    assert!(!record["change"].to_string().contains("alpha"));
+
+    // The Watch tab's list: each file of the objective once, newest first.
+    let view = h.broker.watch_view(&h.developer);
+    let paths: Vec<&str> = view.changes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, vec!["big.txt", ".env", "src/app.txt", "src/new.txt"]);
+    assert!(!view.from_the_record, "every file is still in memory");
+
+    // After a restart, the record lists the saved files again (the refused one was never
+    // saved), for this agent only: its lead's own list has none of them.
+    let restarted = Broker::new(
+        h.guard.clone(),
+        Supervisor::new(
+            SupervisorConfig::default(),
+            ExecutablePolicy::default(),
+            ProfileRegistry::default(),
+            Arc::new(LedgerExecutionStore(Arc::clone(&h.ledger))),
+            Arc::new(NoOutput),
+            vec![],
+        ),
+        Arc::new(MemorySecretStore::default()),
+        BrokerConfig::new(PathBuf::from("relay"), h.dir.path().join("tickets-watch")),
+    );
+    let after = restarted.watch_view(&h.developer);
+    assert!(after.from_the_record);
+    let mut paths: Vec<&str> = after.changes.iter().map(|c| c.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, vec!["big.txt", "src/app.txt", "src/new.txt"]);
+    assert!(after
+        .changes
+        .iter()
+        .all(|c| c.state == WatchState::Saved
+            && c.position_id.as_deref() == Some(h.developer.as_str())));
+    assert!(restarted.watch_view(&h.supervisor).changes.is_empty());
+
+    // An ACP write (Kimi) shows the same way.
+    h.workforce
+        .hire(&HireInput {
+            role_id: h.role("Senior Developer"),
+            title: "Kimi Developer".into(),
+            reports_to: Some(h.supervisor.clone()),
+            runtime_id: Some("kimi".into()),
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap();
+    let notes = h.folder.join("notes.txt");
+    let task = h
+        .objective(&handoff(
+            "Kimi Developer",
+            &format!("[own-write:{}|hello from kimi]", notes.display()),
+        ))
+        .await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    h.finished(&task).await;
+    let kimi = seen.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(kimi.change.path, "notes.txt");
+    assert_eq!(kimi.change.state, WatchState::Saved);
+    assert_eq!(kimi.change.worker, "Kimi Developer");
+    let lines = h.broker.watch_change(&kimi.change.id).unwrap().lines;
+    assert_eq!(lines[0].text, "hello from kimi");
+}
+
+/// Watch: a change streamed while the model writes it shows as being written, then saved; one
+/// to a file Guard refuses shows its name only, then refused, and never saved or its text.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_streamed_change_shows_being_written_then_saved_and_a_refused_one_never_saved() {
+    use plenipo_capabilities::watch::{WatchState, HIDDEN};
+    let h = harness().await;
+    h.workforce
+        .hire(&HireInput {
+            role_id: h.role("Senior Developer"),
+            title: "Claude Developer".into(),
+            reports_to: Some(h.supervisor.clone()),
+            runtime_id: Some("claude-code".into()),
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap();
+    let seen = watching(&h);
+    let work = format!(
+        "[stream-writes:30] {} {}",
+        tool(
+            "write_file",
+            serde_json::json!({ "path": "src/stream.txt", "content": "line one\nline two\nline three\n" })
+        ),
+        tool(
+            "write_file",
+            serde_json::json!({ "path": ".env", "content": "TOKEN=streamed-secret-99" })
+        ),
+    );
+    let task = h.objective(&handoff("Claude Developer", &work)).await;
+    let child = h.child(&task).await;
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);
+    h.finished(&task).await;
+
+    let updates = seen.lock().unwrap().clone();
+    let of = |path: &str| -> Vec<_> {
+        updates
+            .iter()
+            .filter(|u| u.change.path == path)
+            .cloned()
+            .collect()
+    };
+    let stream = of("src/stream.txt");
+    let writing: Vec<_> = stream
+        .iter()
+        .filter(|u| u.change.state == WatchState::Writing)
+        .collect();
+    assert!(!writing.is_empty(), "seen while being written: {stream:#?}");
+    assert!(writing.iter().all(
+        |u| "line one\nline two\nline three\n".starts_with(u.writing.as_deref().unwrap_or(""))
+    ));
+    let last = stream.last().unwrap();
+    assert_eq!(last.change.state, WatchState::Saved);
+    assert!(
+        stream.iter().all(|u| u.change.id == last.change.id),
+        "one change, from being written to saved"
+    );
+    assert_eq!(
+        h.broker.watch_change(&last.change.id).unwrap().writing,
+        None,
+        "the preview is gone once saved"
+    );
+
+    let env = of(".env");
+    assert!(!env.is_empty());
+    assert!(env
+        .iter()
+        .all(|u| u.writing.is_none() && u.change.state != WatchState::Saved));
+    assert_eq!(env[0].change.summary.as_deref(), Some(HIDDEN));
+    assert_eq!(env.last().unwrap().change.state, WatchState::Refused);
+    assert!(updates
+        .iter()
+        .all(|u| !format!("{u:?}").contains("streamed-secret-99")));
+}

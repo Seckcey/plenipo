@@ -151,6 +151,271 @@ body {
   display: none;
 }
 
+/* ---- Your tile: picture, status, mood, and message (Phase 18, ADR-056) ------------------- */
+
+/* A status light has its own shape as well as its color: Available ●, Busy ■, Away ◐,
+   Do not disturb ⊖. Its word is always beside it or its name. */
+.owner-light {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: var(--ui-dot-size);
+  height: var(--ui-dot-size);
+  border-radius: 50%;
+  background: var(--ui-ok);
+}
+
+.owner-light--busy {
+  border-radius: 1px;
+  background: var(--ui-error);
+}
+
+.owner-light--away {
+  background: linear-gradient(90deg, var(--ui-warn) 50%, transparent 50%);
+  box-shadow: inset 0 0 0 1.5px var(--ui-warn);
+}
+
+.owner-light--doNotDisturb {
+  background: var(--ui-error);
+}
+
+.owner-light--doNotDisturb::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 1px);
+  right: 18%;
+  left: 18%;
+  height: 2px;
+  background: var(--ui-surface);
+}
+
+/* Your picture, or the owner glyph, in a circle; the light sits in its corner. */
+.owner-face {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--owner-face-size, 32px);
+  height: var(--owner-face-size, 32px);
+}
+
+.owner-face__picture,
+.owner-face__glyph {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.owner-face__picture {
+  display: block;
+  object-fit: cover;
+}
+
+.owner-face__glyph {
+  display: grid;
+  place-items: center;
+  background: var(--ui-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--ui-border-strong);
+  color: var(--ui-text-primary);
+}
+
+.owner-face__light {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  outline: 2px solid var(--ui-surface);
+}
+
+/* Status, mood, and message on your tile. */
+.owner-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-1) var(--ui-space-4);
+  min-width: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.owner-status__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  white-space: nowrap;
+}
+
+.owner-status__face {
+  line-height: 1;
+}
+
+.owner-status__message {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The top bar's button and its panel. */
+.owner-button {
+  position: relative;
+  display: inline-flex;
+}
+
+.owner-button__open {
+  border-radius: 50%;
+}
+
+.owner-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + var(--ui-space-2));
+  right: 0;
+  width: min(360px, calc(100vw - var(--ui-space-9)));
+  max-height: calc(100vh - var(--ui-topbar-height) - var(--ui-space-6));
+  overflow: auto;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-elevation-3);
+  color: var(--ui-text-primary);
+}
+
+.owner-panel__form {
+  display: grid;
+  gap: var(--ui-space-5);
+  padding: var(--ui-space-5) var(--ui-space-6) 0;
+}
+
+.owner-panel__title {
+  margin: 0;
+  font-size: var(--ui-font-lg);
+}
+
+/* "Reading your details…", or why they could not be read (Save is off meanwhile). */
+.owner-panel__loading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.owner-panel__loading p {
+  margin: 0;
+}
+
+.owner-panel__group {
+  display: grid;
+  gap: var(--ui-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.owner-panel__group legend,
+.owner-panel__message label {
+  margin-bottom: var(--ui-space-2);
+  padding: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.owner-panel__picture {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-5);
+}
+
+.owner-panel__picture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.owner-panel__note,
+.owner-panel__hint,
+.owner-panel__count {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.owner-panel__hint {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-left: 3px solid var(--ui-error);
+  background: var(--ui-surface);
+  color: var(--ui-text-secondary);
+}
+
+.owner-panel__choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+}
+
+.owner-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  min-height: var(--ui-control-height);
+  padding: 0 var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  cursor: pointer;
+}
+
+.owner-choice:has(input:checked) {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.owner-choice input {
+  margin: 0;
+  accent-color: var(--ui-accent);
+}
+
+.owner-choice__face {
+  line-height: 1;
+}
+
+.owner-panel__message input {
+  height: var(--ui-control-height);
+  padding: 0 var(--ui-space-4);
+  border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-md);
+  background-color: var(--ui-surface-sunken);
+  color: var(--ui-text-primary);
+  font: inherit;
+}
+
+.owner-panel__message input::placeholder {
+  color: var(--ui-text-muted);
+}
+
+.owner-panel__count {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.owner-panel .form-error {
+  margin: 0;
+}
+
+.owner-panel__footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-4) 0 var(--ui-space-5);
+  background: var(--ui-surface-raised);
+}
+
 .terminal-watch {
   display: flex;
   flex: 1;
@@ -179,6 +444,266 @@ body {
 
 .terminal-watch__log {
   flex: 1;
+}
+
+/* Watch tabs for code (Phase 18, ADR-055): the files a worker touched, and the chosen file with
+   its new and changed lines marked by a tint, a bar, and a sign ("+", "~"), never color alone. */
+.code-watch {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.code-watch__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-5);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.code-watch__who {
+  font-weight: var(--ui-weight-semibold);
+}
+
+.code-watch__note {
+  flex: 1;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.code-watch__empty {
+  flex: 1;
+  padding: var(--ui-space-5) var(--ui-space-7);
+  overflow: auto;
+}
+
+.code-watch__main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-panel--right .code-watch__main {
+  flex-direction: column;
+}
+
+.code-watch__files {
+  flex: 0 0 260px;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--ui-border);
+}
+
+.terminal-panel--right .code-watch__files {
+  flex: 0 0 auto;
+  max-height: 35%;
+  border-right: 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.code-watch__list {
+  margin: 0;
+  padding: var(--ui-space-2);
+  list-style: none;
+}
+
+.code-watch__file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  width: 100%;
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-watch__file:hover {
+  background: var(--ui-surface-raised);
+}
+
+.code-watch__file--shown {
+  border-left-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.code-watch__file-name {
+  overflow: hidden;
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-sm);
+  font-weight: var(--ui-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-watch__file-folder {
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-watch__meta,
+.code-watch__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2) var(--ui-space-4);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.code-watch__counts {
+  font-family: var(--ui-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.code-watch__added {
+  color: var(--ui-ok-text);
+}
+
+.code-watch__taken {
+  color: var(--ui-error-text);
+}
+
+.code-watch__view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ui-space-3);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--ui-space-3) var(--ui-space-5);
+}
+
+.code-watch__path {
+  overflow-wrap: anywhere;
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-sm);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.code-watch__legend {
+  display: inline-flex;
+  gap: var(--ui-space-3);
+  margin-left: auto;
+}
+
+.code-watch__key {
+  padding: 0 var(--ui-space-2);
+  border-left: 3px solid;
+  font-family: var(--ui-font-mono);
+}
+
+.code-watch__key--new {
+  border-left-color: var(--ui-ok);
+  background: var(--ui-ok-soft);
+  color: var(--ui-ok-text);
+}
+
+.code-watch__key--changed {
+  border-left-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+}
+
+.code-watch__summary,
+.code-watch__reason {
+  margin: 0;
+  color: var(--ui-text-secondary);
+}
+
+.code-watch__reason {
+  color: var(--ui-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The file: positioned, so a line's offset is measured from it (to scroll to the change). */
+.code-watch__code {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface);
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-sm);
+  line-height: var(--ui-leading-base);
+}
+
+.code-watch__code:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+
+.code-watch__line,
+.code-watch__removed {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  border-left: 3px solid transparent;
+}
+
+.code-watch__num {
+  flex: 0 0 auto;
+  min-width: 4.5ch;
+  padding: 0 var(--ui-space-3);
+  color: var(--ui-text-muted);
+  text-align: right;
+  user-select: none;
+}
+
+.code-watch__mark {
+  flex: 0 0 2ch;
+  font-weight: var(--ui-weight-semibold);
+  user-select: none;
+}
+
+.code-watch__text {
+  padding-right: var(--ui-space-5);
+  white-space: pre;
+}
+
+.code-watch__line--new {
+  border-left-color: var(--ui-ok);
+  background: var(--ui-ok-soft);
+}
+
+.code-watch__line--new .code-watch__mark {
+  color: var(--ui-ok-text);
+}
+
+.code-watch__line--changed {
+  border-left-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.code-watch__line--changed .code-watch__mark {
+  color: var(--ui-accent);
+}
+
+.code-watch__removed {
+  border-left-color: var(--ui-error);
+  background: var(--ui-error-soft);
+  color: var(--ui-error-text);
+  font-style: italic;
+}
+
+.code-watch__removed .code-watch__text {
+  white-space: nowrap;
 }
 
 .shell__footer {
@@ -1838,89 +2363,467 @@ body {
   transform: translateY(-50%);
 }
 
-/* Canvas chrome */
+/* Lent lines, hand-offs, line ends, and "where" (Phase 18, ADR-053, ADR-054). */
+.topo-lent__path {
+  fill: none;
+  stroke: var(--ui-rank-supervisor);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 10 7;
+  opacity: 0.85;
+}
 
-.topology__controls {
+.topo-lent__path.is-highlighted {
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.topo-chip--lent {
+  border-color: var(--ui-rank-supervisor);
+  color: var(--ui-rank-supervisor);
+}
+
+.topo-handoff__path {
+  fill: none;
+  stroke: var(--ui-map-link-flow);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 6;
+  opacity: 0.6;
+}
+
+.topo-handoff__arrow {
+  fill: var(--ui-accent);
+  stroke: var(--ui-map-canvas);
+  stroke-width: 1;
+}
+
+.topo-handoff--answered .topo-handoff__arrow {
+  fill: var(--ui-ok-text);
+}
+
+.topo-chip--handoff {
+  border-style: dashed;
+}
+
+.topo-chip--answered {
+  border-color: var(--ui-ok-text);
+  color: var(--ui-ok-text);
+}
+
+.topo-handle {
   position: absolute;
-  bottom: 14px;
-  left: 14px;
-  display: flex;
-  flex-direction: column;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 2px solid var(--ui-accent);
+  border-radius: 50%;
+  background: var(--ui-map-canvas);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 25%, transparent);
+  cursor: grab;
+  transform: translate(-50%, -50%);
+}
+
+.topo-handle:hover,
+.topo-handle:focus-visible {
+  background: var(--ui-accent-fill);
+  outline: none;
+}
+
+.topo-handle--sample {
+  width: 14px;
+  height: 14px;
+}
+
+.topo-lent-badge,
+.topo-watch {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px;
+  max-width: 180px;
+  background: var(--ui-map-chip);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.topo-lent-badge {
+  transform: translate(-100%, -50%);
+}
+
+.topo-badge--lent {
+  color: var(--ui-rank-supervisor);
+}
+
+.topo-watch {
+  padding: 1px 8px;
+  border: 1px solid var(--ui-map-link);
+  border-radius: 999px;
+  color: var(--ui-map-link);
+  font-size: var(--ui-font-xs);
+  transform: translate(-100%, -50%);
+}
+
+.topo-watch:hover,
+.topo-watch:focus-visible,
+.topo-lent-badge:hover,
+.topo-lent-badge:focus-visible {
+  background: var(--ui-accent-soft);
+  outline: none;
+}
+
+.topo-badge--fixed {
+  color: var(--ui-text-secondary);
+}
+
+.topo-badge--specialty {
+  color: var(--ui-rank-manager);
+}
+
+.topo-badge--experienced {
+  color: var(--ui-warn-text);
+}
+
+.topo-where {
+  position: absolute;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  max-height: 34px;
+  overflow: hidden;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  line-height: 16px;
+  pointer-events: none;
+}
+
+.topo-where__part {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topo-node__glyph--face {
+  width: 44px;
+  height: 44px;
+  background: transparent;
+}
+
+.topo-node__owner {
+  margin-top: 2px;
+  font-size: var(--ui-font-xs);
+}
+
+/* Canvas chrome */
+
+.topology--pan,
+.topology--pan .topo-node {
+  cursor: grab;
+}
+
+.topology--arrange .topo-node {
+  cursor: move;
+}
+
+/* The toolbar (Phase 18, ADR-053 §12). It wraps rather than go under the details panel, whose
+   width the canvas sets as --canvas-inset. */
+.canvas-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100% - 28px - var(--canvas-inset, 0px));
+  padding: 4px;
   border: 1px solid var(--ui-border);
   border-radius: 12px;
   background: var(--ui-surface-overlay);
+  box-shadow: 0 6px 18px -10px var(--ui-shadow);
   cursor: default;
 }
 
-.topology__control {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
+.canvas-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  border-right: 1px solid var(--ui-border);
+}
+
+.canvas-toolbar__group:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.canvas-toolbar__zoom {
+  min-width: 42px;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.canvas-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--ui-text-primary);
+  font-size: var(--ui-font-sm);
   cursor: pointer;
 }
 
-.topology__control:hover {
+.canvas-tool:hover:not(:disabled) {
   background: var(--ui-accent-soft);
   color: var(--ui-map-link);
 }
 
+.canvas-tool:disabled {
+  color: var(--ui-text-muted);
+  cursor: default;
+}
+
+.canvas-tool:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
 /* On: a filled, outlined button (a shape, not only a color). */
-.topology__control[aria-pressed="true"] {
+.canvas-tool[aria-pressed="true"],
+.canvas-tool[aria-expanded="true"] {
   background: var(--ui-accent-soft);
   box-shadow: inset 0 0 0 1px var(--ui-accent);
   color: var(--ui-accent);
 }
 
-.topology__control[aria-pressed="false"] {
-  color: var(--ui-text-secondary);
-}
-
-.topology__zoom {
-  padding: 2px 0;
-  color: var(--ui-text-secondary);
+.canvas-tool__count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ui-accent-fill);
+  color: var(--ui-on-accent);
   font-size: var(--ui-font-xs);
-  font-variant-numeric: tabular-nums;
+  line-height: 16px;
 }
 
-.topology__legend {
+.canvas-tool--trash.is-drop-target {
+  box-shadow: inset 0 0 0 2px var(--ui-ok-text);
+  color: var(--ui-ok-text);
+}
+
+.canvas-tool--trash.is-drop-refused {
+  box-shadow: inset 0 0 0 2px var(--ui-error-text);
+  color: var(--ui-error-text);
+}
+
+/* Panels over the canvas: filters, the legend, the guide, the Archived drawer (never under the
+   details panel). */
+.canvas-panel {
   position: absolute;
-  top: 12px;
+  top: 58px;
   left: 14px;
-  display: flex;
-  gap: 14px;
-  padding: 4px 12px;
+  z-index: 4;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  width: min(340px, calc(100% - 28px - var(--canvas-inset, 0px)));
+  max-height: calc(100% - 76px);
+  padding: 12px 14px;
+  overflow: auto;
   border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-surface);
+  box-shadow: 0 16px 36px -16px var(--ui-shadow);
+  cursor: default;
+  user-select: text;
+}
+
+.canvas-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canvas-panel__head h2 {
+  margin: 0;
+  font-size: var(--ui-font-md);
+}
+
+.canvas-panel__note {
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.canvas-panel--legend {
+  top: auto;
+  bottom: 14px;
+  z-index: 2;
+  width: min(360px, calc(100% - 28px - var(--canvas-inset, 0px)));
+  max-height: 44%;
+}
+
+.canvas-panel--archived {
+  width: min(620px, calc(100% - 28px - var(--canvas-inset, 0px)));
+}
+
+.canvas-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+
+.canvas-filter-note {
+  position: absolute;
+  top: 58px;
+  left: 14px;
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid var(--ui-accent);
   border-radius: 999px;
   background: var(--ui-surface-overlay);
+  font-size: var(--ui-font-sm);
+}
+
+.legend-group h3 {
+  margin: 4px 0 6px;
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.legend-group ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend-group li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: var(--ui-font-sm);
+  line-height: 1.35;
+}
+
+.legend-group__sample {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  min-height: 20px;
+}
+
+.legend-sample {
+  position: static;
+  transform: none;
   pointer-events: none;
 }
 
-.topology__legend-item::before {
-  content: "";
-  display: inline-block;
-  width: 18px;
-  margin-right: 6px;
-  border-top: 2px solid var(--ui-map-link);
-  vertical-align: middle;
+.legend-sample.topo-node {
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
 }
 
-.topology__legend-item--worker::before {
-  border-top-style: dashed;
+.legend-sample.topo-chip,
+.legend-sample.topo-badge {
+  max-width: 48px;
+  padding: 0 4px;
+  font-size: 10px;
 }
 
-.topology__legend-item--oversight::before {
-  border-top: 2px dotted var(--ui-role-qa);
+.legend-sample--line path {
+  fill: none;
+}
+
+.legend-sample--where {
+  color: var(--ui-text-secondary);
+}
+
+.legend-sample.topo-handle,
+.legend-sample.topo-toggle {
+  position: static;
+  display: inline-grid;
+}
+
+.canvas-help {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--ui-font-sm);
+  line-height: 1.45;
+}
+
+.canvas-tour {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  width: min(400px, calc(100% - 28px));
+  padding: 14px 16px;
+  border: 1px solid var(--ui-accent);
+  border-radius: 14px;
+  background: var(--ui-surface);
+  box-shadow: 0 18px 40px -16px var(--ui-shadow);
+  cursor: default;
+  transform: translateX(-50%);
+}
+
+.canvas-tour h2 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  font-size: var(--ui-font-md);
+}
+
+.canvas-tour p {
+  margin: 0;
+  font-size: var(--ui-font-sm);
+  line-height: 1.45;
+}
+
+.canvas-tour__step {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.canvas-tour__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .topology__minimap {
@@ -2452,6 +3355,19 @@ body {
   color: var(--ui-error-text);
 }
 
+.toast__action {
+  margin-left: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ui-accent);
+  font: inherit;
+  font-weight: var(--ui-weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 /* Directory */
 
 .directory {
@@ -2512,6 +3428,10 @@ body {
   .topo-link__flow,
   .topo-status__dot {
     animation: none !important;
+  }
+
+  .topo-handoff__path {
+    stroke-dasharray: none;
   }
 
   .topo-node {

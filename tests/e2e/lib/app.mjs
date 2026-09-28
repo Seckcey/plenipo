@@ -213,9 +213,13 @@ export async function nav(browser, label) {
   await (await browser.$(`//nav//button[.//span[normalize-space()="${label}"]]`)).click();
 }
 
-/** The app has drawn its frame: the left strip, with Plenipo's logo at its top. */
-export const waitForShell = (browser, timeoutMs) =>
-  waitUntil(
+/**
+ * The app has drawn its frame: the left strip, with Plenipo's logo at its top. The canvas's
+ * first-time tour is marked as seen, so it does not cover the canvas in the other tests (the
+ * canvas test shows it on purpose).
+ */
+export const waitForShell = async (browser, timeoutMs) => {
+  await waitUntil(
     () =>
       browser.execute(
         () =>
@@ -226,6 +230,8 @@ export const waitForShell = (browser, timeoutMs) =>
     "Plenipo's frame",
     timeoutMs,
   );
+  await browser.execute(() => localStorage.setItem("plenipo.canvasTour", "seen"));
+};
 
 /**
  * Open a section of Settings (Phase 12: one section at a time, from the list on the left), e.g.

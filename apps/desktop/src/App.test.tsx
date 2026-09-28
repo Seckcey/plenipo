@@ -58,6 +58,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     dismissRecovery: vi.fn(),
     windowAlive: vi.fn(),
     getUpdateStatus: vi.fn(),
+    getOwnerProfile: vi.fn(),
   };
 });
 vi.mock("./api/events", () => ({
@@ -137,6 +138,12 @@ beforeEach(() => {
   api.getRecoveryStatus.mockResolvedValue(NO_RECOVERY);
   api.windowAlive.mockResolvedValue(undefined);
   api.getUpdateStatus.mockResolvedValue(upToDate());
+  api.getOwnerProfile.mockResolvedValue({
+    status: "busy",
+    mood: "focused",
+    message: "Heads down",
+    picture: null,
+  });
   api.getActivity.mockImplementation((scopes, from, to, buckets = 96) =>
     Promise.resolve(
       scopes.map(() => ({
@@ -228,6 +235,15 @@ describe("App shell", () => {
     await waitFor(() => expect(api.frontendReady).toHaveBeenCalledTimes(1));
   });
 
+  it("shows your picture and status in the top bar (ADR-056)", async () => {
+    render(<App />);
+    const you = await screen.findByRole("button", {
+      name: "You: Busy, feeling Focused — change your picture, status, mood, and message",
+    });
+    await userEvent.setup().click(you);
+    expect(screen.getByRole("dialog", { name: "You" })).toBeInTheDocument();
+  });
+
   it("opens each view at its top", async () => {
     render(<App />);
     const user = userEvent.setup();
@@ -294,7 +310,7 @@ describe("App shell", () => {
     expect(api.getOrganization).toHaveBeenCalled();
     const map = screen.getByRole("region", { name: "Organization topology" });
     expect(
-      within(map).getAllByRole("button", { name: /^You, President$|, organization$/ }),
+      within(map).getAllByRole("button", { name: /^You, President(: .+)?$|, organization$/ }),
     ).toHaveLength(2);
     for (const name of ["Development", "Sales", "Marketing", "Westy"]) {
       expect(screen.queryByText(new RegExp(name))).not.toBeInTheDocument();

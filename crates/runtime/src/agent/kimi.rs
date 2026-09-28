@@ -648,6 +648,39 @@ mod tests {
         assert_eq!(reply[0], json!({ "jsonrpc": "2.0", "id": 9, "result": {} }));
     }
 
+    /// ADR-055: Kimi's real program streams its Write tool's arguments while it writes them
+    /// (`tool_call_update`, `in_progress`); they become previews of the change being written,
+    /// and its reads never do.
+    #[test]
+    fn kimis_recorded_write_streams_as_a_change_being_written() {
+        let request = TurnRequest {
+            tools: Some(server()),
+            ..TurnRequest::default()
+        };
+        let (mut parser, _) = configured(&request);
+        let recorded = fixture(&format!("acp/{ROUND_4}.agent.jsonl"));
+        let mut previews = Vec::new();
+        for line in recorded.lines().skip(2) {
+            let v: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+            if v["method"] != "session/update" {
+                continue;
+            }
+            previews.extend(parser.line(line, false).previews);
+        }
+        assert!(!previews.is_empty(), "the recorded write was seen");
+        assert!(
+            previews
+                .iter()
+                .all(|p| p.path.as_deref().is_none_or(|x| x == "test4.txt")),
+            "only the write, never a read: {previews:#?}"
+        );
+        let last = previews.last().unwrap();
+        assert!(last.done);
+        assert_eq!(last.tool, crate::agent::WriteTool::Write);
+        assert_eq!(last.path.as_deref(), Some("test4.txt"));
+        assert_eq!(last.text, "hi\n");
+    }
+
     #[test]
     fn without_permissions_every_file_request_is_refused_here() {
         let (mut parser, _) = configured(&TurnRequest::default());

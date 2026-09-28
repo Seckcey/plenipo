@@ -118,6 +118,7 @@ export const position = (
     archivedWith: null,
     deleted: false,
     inWorkforce: false,
+    loan: null,
     ...patch,
   };
 };
@@ -200,10 +201,11 @@ export function emptyOrganization(): OrgSnapshot {
     oversight: [],
     stats: stats([], 0, 0),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true },
-      { id: "codex", label: "Codex", ready: false },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
     ],
     notices: [],
+    places: [],
     generatedAt: T0,
   };
 }
@@ -307,10 +309,11 @@ export function sampleOrganization(): OrgSnapshot {
     oversight,
     stats: stats(positions, 2, 2),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true },
-      { id: "codex", label: "Codex", ready: false },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
     ],
     notices: [],
+    places: [],
     generatedAt: T0,
   };
 }

@@ -4,6 +4,10 @@
  * role onto a position, reorganize by dragging a position onto another, and assign reviewers,
  * QA evaluators, and security auditors the same way. Everything comes from the Workforce engine;
  * nothing is hard-coded here.
+ *
+ * Phase 18 (ADR-053, ADR-054): the toolbar, tiles placed by hand (Tidy up, with Undo), Move here
+ * or Lend, the trash can (with Undo) and the Archived drawer, rewiring by line ends, filters, the
+ * legend, the live view, and a first-time tour.
  */
 import {
   useCallback,
@@ -15,8 +19,8 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import type { OrgSnapshot, OversightRole, PositionInfo } from "@plenipo/types";
-import { Button } from "@plenipo/ui";
+import type { OrgSnapshot, OversightRole, PositionInfo, TilePlace } from "@plenipo/types";
+import { Button, type MenuItem } from "@plenipo/ui";
 
 import {
   archiveDepartment,
@@ -36,9 +40,12 @@ import {
   giveObjective,
   hireFromWorkforce,
   hirePosition,
+  lendAgent,
   movePosition,
   removeSpecialty,
   renameOrganization,
+  retargetOversight,
+  sendHome,
   saveToWorkforce,
   toCommandError,
   updateDepartment,
@@ -48,6 +55,14 @@ import {
   vacatePosition,
   type ArchivedKind,
 } from "../api/commands";
+import {
+  ArchivedDrawer,
+  CanvasToolbar,
+  CanvasTour,
+  FiltersPanel,
+  HelpPanel,
+  LegendPanel,
+} from "../components/org/CanvasPanels";
 import { Directory, type DirectoryActions } from "../components/org/Directory";
 import { DropMenu, type DropChoice } from "../components/org/DropMenu";
 import { Glyph } from "../components/org/Glyph";
@@ -70,30 +85,58 @@ import {
   RoleDialog,
 } from "../components/org/OrgDialogs";
 import {
+  TRASH,
   TopologyCanvas,
+  type ArrangeMove,
   type CanvasHandle,
   type DragPayload,
+  type LineEnd,
 } from "../components/org/TopologyCanvas";
-import { vpRoleId } from "../org/control";
+import { mergePlaces, movedPlaces } from "../org/arrange";
+import { archivedCount, vpRoleId } from "../org/control";
+import {
+  NO_FILTERS,
+  filtersActive,
+  isCanvasFilters,
+  visibleTiles,
+  FILTER_KEYS,
+  type CanvasFilters,
+} from "../org/filters";
 import { OVERSIGHT_LABEL, OVERSIGHT_NOUN, plural } from "../org/format";
-import { ORG_ID, OWNER_ID, ancestorsOf, layoutOrganization } from "../org/layout";
+import { ORG_ID, OWNER_ID, WHERE_ROW_GAP, ancestorsOf, layoutOrganization } from "../org/layout";
+import { handoffMarks, whereLines } from "../org/live";
 import { nodeContext } from "../org/nodes";
 import {
   hireRefusal,
+  lendRefusal,
+  moveChoices,
   moveRefusal,
   oversightOrder,
   oversightRefusal,
   positionMap,
+  trashTarget,
 } from "../org/rules";
 import { searchMatches } from "../org/search";
 import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
+import { LEGEND_KEY, TOUR_KEY, readFlag, writeFlag, type PointerMode } from "../org/tour";
+import { useLiveView, useReducedMotion } from "../org/useLiveView";
 import { useOrganization } from "../org/useOrganization";
+import { usePlaces } from "../org/usePlaces";
+import { useOwnerProfile } from "../owner/context";
+import { useOpenWatch } from "../terminal/useTerminal";
 
 const SELECTED_KEY = "plenipo.orgSelected";
 const MODE_KEY = "plenipo.orgMode";
 const COLLAPSED_KEY = "plenipo.orgCollapsed";
 const OVERSIGHT_KEY = "plenipo.orgOversight";
 const PALETTE_KEY = "plenipo.orgPalette";
+const POINTER_KEY = "plenipo.orgPointer";
+const FILTERS_KEY = "plenipo.orgFilters";
+const WHERE_KEY = "plenipo.orgWhere";
+/** How long a note with Undo stays. */
+const UNDO_MS = 10_000;
+/** The most targets a line end's menu lists. */
+const MAX_LINE_CHOICES = 40;
 
 type Mode = "topology" | "list";
 
@@ -115,6 +158,8 @@ type Dialog =
       message: ReactNode;
       confirmLabel: string;
       work: () => Promise<OrgSnapshot>;
+      /** A note once done, with Undo (the trash can). */
+      done?: { text: string; undo: () => Promise<OrgSnapshot>; undone: string };
     };
 
 interface Drop {
@@ -128,7 +173,10 @@ interface Toast {
   id: number;
   text: string;
   tone: "ok" | "error";
+  action?: { label: string; run: () => void };
 }
+
+type Panel = "filters" | "help" | "archived" | null;
 
 function read(key: string): string | null {
   try {
@@ -160,6 +208,20 @@ function expanded(snapshot: OrgSnapshot, collapsed: Set<string>, id: string): Se
 function supervisorOf(byId: Map<string, PositionInfo>, target: string): string | null | undefined {
   if (target === OWNER_ID || target === ORG_ID) return null;
   return byId.has(target) ? target : undefined;
+}
+
+function readFilters(): CanvasFilters {
+  try {
+    const v = JSON.parse(read(FILTERS_KEY) ?? "null") as unknown;
+    return isCanvasFilters(v) ? v : NO_FILTERS;
+  } catch {
+    return NO_FILTERS;
+  }
+}
+
+function readPointer(): PointerMode {
+  const v = read(POINTER_KEY);
+  return v === "pan" || v === "arrange" ? v : "select";
 }
 
 function readCollapsed(): Set<string> {
@@ -204,6 +266,17 @@ export function OrganizationView({
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const [panelWidth, setPanelWidth] = usePanelWidth();
+  const [pointer, setPointerState] = useState<PointerMode>(readPointer);
+  const [filters, setFiltersState] = useState<CanvasFilters>(readFilters);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY) === "shown");
+  const [whereOn, setWhereOn] = useState(() => read(WHERE_KEY) === "on");
+  const [touring, setTouring] = useState(() => readFlag(TOUR_KEY) !== "seen");
+  /** Tiles following the pointer while they are arranged (not saved yet). */
+  const [preview, setPreview] = useState<TilePlace[] | null>(null);
+  const { profile: owner } = useOwnerProfile();
+  const openWatch = useOpenWatch();
+  const reducedMotion = useReducedMotion();
 
   const setMode = (next: Mode) => {
     setModeState(next);
@@ -215,20 +288,85 @@ export function OrganizationView({
   useEffect(() => write(SELECTED_KEY, selectedId), [selectedId]);
   useEffect(() => write(COLLAPSED_KEY, JSON.stringify([...collapsed])), [collapsed]);
 
-  const toast = useCallback((text: string, tone: Toast["tone"] = "ok") => {
-    const id = ++toastId.current;
-    setToasts((list) => [...list.slice(-2), { id, text, tone }]);
-    setTimeout(
-      () => setToasts((list) => list.filter((t) => t.id !== id)),
-      tone === "error" ? 9000 : 4000,
-    );
-  }, []);
-
-  const layout = useMemo(
-    () => (snapshot ? layoutOrganization(snapshot, collapsed) : null),
-    [snapshot, collapsed],
+  const toast = useCallback(
+    (text: string, tone: Toast["tone"] = "ok", action?: Toast["action"]) => {
+      const id = ++toastId.current;
+      setToasts((list) => [...list.slice(-2), { id, text, tone, ...(action ? { action } : {}) }]);
+      setTimeout(
+        () => setToasts((list) => list.filter((t) => t.id !== id)),
+        action ? UNDO_MS : tone === "error" ? 9000 : 4000,
+      );
+    },
+    [],
   );
-  const ctx = useMemo(() => (snapshot ? nodeContext(snapshot) : null), [snapshot]);
+  const toastError = useCallback((message: string) => toast(message, "error"), [toast]);
+  const { places, place, tidy } = usePlaces(snapshot, toastError);
+
+  const setPointer = (next: PointerMode) => {
+    setPointerState(next);
+    write(POINTER_KEY, next);
+  };
+  const setFilters = useCallback((next: CanvasFilters) => {
+    setFiltersState(next);
+    write(FILTERS_KEY, filtersActive(next) ? JSON.stringify(next) : null);
+  }, []);
+  const toggleLegend = () => {
+    setLegendOpen((open) => {
+      writeFlag(LEGEND_KEY, open ? "hidden" : "shown");
+      return !open;
+    });
+  };
+  const toggleWhere = () => {
+    setWhereOn((on) => {
+      write(WHERE_KEY, on ? null : "on");
+      return !on;
+    });
+  };
+  const endTour = () => {
+    writeFlag(TOUR_KEY, "seen");
+    setTouring(false);
+  };
+
+  const filtered = useMemo(
+    () => (snapshot ? visibleTiles(snapshot, filters) : null),
+    [snapshot, filters],
+  );
+  const layoutOptions = useMemo(
+    () => ({
+      places,
+      shown: filtered?.shown ?? null,
+      ...(whereOn ? { rowGap: WHERE_ROW_GAP } : {}),
+    }),
+    [places, filtered, whereOn],
+  );
+  /** The canvas as saved, before any tile following the pointer. */
+  const settled = useMemo(
+    () => (snapshot ? layoutOrganization(snapshot, collapsed, layoutOptions) : null),
+    [snapshot, collapsed, layoutOptions],
+  );
+  const layout = useMemo(
+    () =>
+      snapshot && preview
+        ? layoutOrganization(snapshot, collapsed, {
+            ...layoutOptions,
+            places: mergePlaces(places, preview),
+          })
+        : settled,
+    [snapshot, collapsed, layoutOptions, places, preview, settled],
+  );
+  const ctx = useMemo(() => (snapshot ? nodeContext(snapshot, owner) : null), [snapshot, owner]);
+  const liveView = useLiveView(mode === "topology" && snapshot !== null);
+  const canvasLive = useMemo(
+    () =>
+      snapshot && layout && liveView
+        ? {
+            where: whereOn ? whereLines(snapshot, liveView) : null,
+            handoffs: handoffMarks(layout, liveView),
+            reducedMotion,
+          }
+        : null,
+    [snapshot, layout, liveView, whereOn, reducedMotion],
+  );
   const titles = titleSet(snapshot?.titles);
   const matchList = useMemo(
     () => (snapshot ? searchMatches(snapshot, query) : null),
@@ -242,9 +380,18 @@ export function OrganizationView({
       if (!snapshot) return;
       const next = expanded(snapshot, collapsed, id);
       if (next) updateCollapsed(next);
+      // An agent the canvas's filters hide: clear them, so the tile chosen is on the canvas.
+      if (
+        mode === "topology" &&
+        filtered &&
+        !filtered.shown.has(id) &&
+        snapshot.positions.some((p) => p.id === id && p.active)
+      ) {
+        setFilters(NO_FILTERS);
+      }
       setSelected(id);
     },
-    [snapshot, collapsed, updateCollapsed, setSelected],
+    [snapshot, collapsed, updateCollapsed, setSelected, mode, filtered, setFilters],
   );
 
   // Arriving from another view with a position to show.
@@ -357,6 +504,8 @@ export function OrganizationView({
         archiveProject,
         bringBack,
         saveToWorkforce,
+        sendHome,
+        lend: lendAgent,
       },
     }),
     [run, change, reload, onOpenSession, onOpenTask, onOpenPage, snapshot],
@@ -394,9 +543,48 @@ export function OrganizationView({
     [snapshot],
   );
 
+  /** Why a line end cannot go to `target`; `null` when it can. */
+  const lineRefusal = useCallback(
+    (line: LineEnd, target: string): string | null => {
+      if (!snapshot) return "Loading…";
+      if (line.kind === "reports") {
+        const moving = byId.get(line.positionId);
+        if (!moving) return "That agent no longer exists.";
+        const to = supervisorOf(byId, target);
+        if (to === undefined) return "Drop the line's end on an agent, or on you.";
+        return moveRefusal(snapshot, moving, to);
+      }
+      const o = snapshot.oversight.find((x) => x.id === line.oversightId);
+      if (!o) return "That line is gone.";
+      const next = byId.get(target);
+      if (!next) return "Drop the line's end on an agent.";
+      const overseer = line.end === "overseer" ? next : byId.get(o.overseerId);
+      const team = line.end === "target" ? next : byId.get(o.targetId);
+      if (!overseer || !team) return "That line is gone.";
+      if (overseer.id === o.overseerId && team.id === o.targetId) return "It is already there.";
+      return oversightRefusal(snapshot, overseer, team, o.role);
+    },
+    [snapshot, byId],
+  );
+
+  /** What the trash can would do with `payload`, or why it cannot. */
+  const trashRefusal = useCallback(
+    (payload: DragPayload): string | null => {
+      if (!snapshot) return "Loading…";
+      if (payload.kind !== "position") return "Only an agent can go in the trash can.";
+      const p = byId.get(payload.positionId);
+      if (!p) return "That agent no longer exists.";
+      const t = trashTarget(snapshot, p);
+      return "refused" in t ? t.refused : null;
+    },
+    [snapshot, byId],
+  );
+
   const dropRefusal = useCallback(
     (payload: DragPayload, target: string): string | null => {
       if (!snapshot) return "Loading…";
+      if (target === TRASH) return trashRefusal(payload);
+      if (payload.kind === "line") return lineRefusal(payload.line, target);
       const to = supervisorOf(byId, target);
       if (to === undefined) return "Workers come and go with their tasks; drop on a position.";
       if (payload.kind === "role") {
@@ -409,6 +597,7 @@ export function OrganizationView({
       const move = moveRefusal(snapshot, moving, to);
       if (move === null) return null;
       const target_ = to ? byId.get(to) : undefined;
+      if (target_ && lendRefusal(snapshot, moving, target_) === null) return null;
       const oversee =
         target_ &&
         (["review", "qa", "security"] as OversightRole[]).some(
@@ -416,12 +605,104 @@ export function OrganizationView({
         );
       return oversee ? null : move;
     },
-    [snapshot, byId],
+    [snapshot, byId, lineRefusal, trashRefusal],
+  );
+
+  /** Archive with the trash can (ADR-053 §9–§10): at once, or after a question for a lead. */
+  const trash = useCallback(
+    (positionId: string) => {
+      if (!snapshot) return;
+      const p = byId.get(positionId);
+      if (!p) return;
+      const t = trashTarget(snapshot, p);
+      if ("refused" in t) {
+        toast(t.refused, "error");
+        return;
+      }
+      if (t.kind === "position") {
+        void (async () => {
+          const failure = await run(() => archivePosition(p.id));
+          if (failure) {
+            toast(failure, "error");
+            return;
+          }
+          if (selectedId === p.id) setSelected(null);
+          const again =
+            p.staffing === "persistent" ? " Bringing it back starts a new conversation." : "";
+          toast(`Archived ${p.title}.${again}`, "ok", {
+            label: "Undo",
+            run: () =>
+              void runWithToast(() => bringBack("position", p.id), `Brought back ${p.title}.`),
+          });
+        })();
+        return;
+      }
+      const project = t.kind === "project";
+      setDialog({
+        kind: "confirm",
+        title: project
+          ? `Archive the ${t.name} project and its team?`
+          : `Archive the ${t.name} department and everything in it?`,
+        message: (
+          <p>
+            {project
+              ? `${p.title} and its team are archived with the project.`
+              : `Its projects, their teams, and ${p.title} are archived with it.`}{" "}
+            Nothing is deleted: Undo, or the Archived drawer, brings it all back.
+          </p>
+        ),
+        confirmLabel: "Archive",
+        work: () => (project ? archiveProject(t.id) : archiveDepartment(t.id)),
+        done: {
+          text: `Archived ${t.name}.`,
+          undo: () => bringBack(t.kind, t.id),
+          undone: `Brought back ${t.name}.`,
+        },
+      });
+    },
+    [snapshot, byId, run, runWithToast, toast, selectedId, setSelected],
+  );
+
+  /** Move a line's end (ADR-053 §8): the same move, or the oversight moved in one step. */
+  const rewire = useCallback(
+    (line: LineEnd, target: string) => {
+      if (!snapshot) return;
+      if (line.kind === "reports") {
+        const moving = byId.get(line.positionId);
+        const to = supervisorOf(byId, target);
+        if (!moving || to === undefined) return;
+        const lead = to ? byId.get(to)?.title : "you";
+        void runWithToast(
+          () => movePosition(moving.id, to),
+          `${moving.title} now reports to ${lead ?? "you"}.`,
+        );
+        return;
+      }
+      const o = snapshot.oversight.find((x) => x.id === line.oversightId);
+      const next = byId.get(target);
+      if (!o || !next) return;
+      const to = line.end === "overseer" ? { overseerId: next.id } : { targetId: next.id };
+      const overseer = line.end === "overseer" ? next.title : ctx?.title(o.overseerId);
+      const team = line.end === "target" ? next.title : ctx?.title(o.targetId);
+      void runWithToast(
+        () => retargetOversight(o.id, to),
+        `${overseer ?? "It"} is now ${team ?? "that"}'s ${OVERSIGHT_NOUN[o.role]}.`,
+      );
+    },
+    [snapshot, byId, runWithToast, ctx],
   );
 
   const onDrop = useCallback(
     (payload: DragPayload, target: string, at: { x: number; y: number }) => {
       if (!snapshot) return;
+      if (target === TRASH) {
+        if (payload.kind === "position") trash(payload.positionId);
+        return;
+      }
+      if (payload.kind === "line") {
+        rewire(payload.line, target);
+        return;
+      }
       const to = supervisorOf(byId, target);
       if (to === undefined) return;
       if (payload.kind === "role") {
@@ -436,14 +717,40 @@ export function OrganizationView({
       if (moveRefusal(snapshot, moving, to) === null) {
         choices.push({
           id: "move",
-          label: `Report to ${lead ? lead.title : `you (${rankName(titles, "owner")})`}`,
-          detail: moving.staffing === "persistent" ? "Its team moves with it" : "Joins this team",
+          label: "Move here",
+          detail: `Reports to ${lead ? lead.title : `you (${rankName(titles, "owner")})`} for good${
+            moving.staffing === "persistent" ? "; its team moves with it" : ""
+          }`,
           run: () =>
             void runWithToast(
               () => movePosition(moving.id, to),
               `${moving.title} now reports to ${leadName}.`,
             ),
         });
+      }
+      if (lead && lendRefusal(snapshot, moving, lead) === null) {
+        choices.push(
+          {
+            id: "lend-objective",
+            label: "Lend for one objective",
+            detail: `Helps ${lead.title}'s team with its next objective, then comes home`,
+            run: () =>
+              void runWithToast(
+                () => lendAgent(moving.id, lead.id, "objective"),
+                `${moving.title} is lent to ${lead.title}'s team for one objective.`,
+              ),
+          },
+          {
+            id: "lend-returned",
+            label: "Lend until I send it home",
+            detail: `Helps ${lead.title}'s team until you choose Send home`,
+            run: () =>
+              void runWithToast(
+                () => lendAgent(moving.id, lead.id, "returned"),
+                `${moving.title} is lent to ${lead.title}'s team until you send it home.`,
+              ),
+          },
+        );
       }
       if (lead) {
         const glyph = snapshot.roles.find((r) => r.id === moving.roleId)?.glyph ?? "";
@@ -469,11 +776,134 @@ export function OrganizationView({
           choices,
         });
     },
-    [snapshot, byId, runWithToast, titles],
+    [snapshot, byId, runWithToast, titles, trash, rewire],
   );
 
+  /** A line end chosen with the keyboard (or a click): every agent it can go to. */
+  const lineMenu = useCallback(
+    (line: LineEnd, at: { x: number; y: number }) => {
+      if (!snapshot) return;
+      const targets: { id: string; label: string }[] = [];
+      if (line.kind === "reports") {
+        const moving = byId.get(line.positionId);
+        if (!moving) return;
+        for (const to of moveChoices(snapshot, moving)) {
+          targets.push({
+            id: to ?? ORG_ID,
+            label: `Report to ${to ? (byId.get(to)?.title ?? "") : `you (${rankName(titles, "owner")})`}`,
+          });
+        }
+      } else {
+        for (const p of snapshot.positions) {
+          if (p.active && lineRefusal(line, p.id) === null) {
+            targets.push({
+              id: p.id,
+              label: line.end === "overseer" ? `Hand it to ${p.title}` : `Check ${p.title}'s team`,
+            });
+          }
+        }
+      }
+      const name =
+        line.kind === "reports"
+          ? `Who ${byId.get(line.positionId)?.title ?? "it"} reports to`
+          : "Move this oversight line";
+      setDrop({
+        title: name,
+        x: at.x,
+        y: at.y,
+        choices:
+          targets.length === 0
+            ? [
+                {
+                  id: "none",
+                  label: "Nowhere else it can go now",
+                  run: () => undefined,
+                },
+              ]
+            : targets.slice(0, MAX_LINE_CHOICES).map((t) => ({
+                id: t.id,
+                label: t.label,
+                run: () => rewire(line, t.id),
+              })),
+      });
+    },
+    [snapshot, byId, titles, lineRefusal, rewire],
+  );
+
+  /** A lent agent's badge: Send home, or show the team it helps. */
+  const lentMenu = useCallback(
+    (positionId: string, at: { x: number; y: number }) => {
+      const p = byId.get(positionId);
+      const loan = p?.loan;
+      if (!p || !loan) return;
+      setDrop({
+        title: `${p.title}: lent to ${loan.to}'s team`,
+        x: at.x,
+        y: at.y,
+        choices: [
+          {
+            id: "home",
+            label: "Send home",
+            detail: loan.goingHome
+              ? "Already going home after this task"
+              : "If it is working, it finishes this task first",
+            run: () =>
+              void (async () => {
+                try {
+                  const next = await sendHome(p.id);
+                  apply(next);
+                  const still = next.positions.find((x) => x.id === p.id)?.loan;
+                  toast(
+                    still ? `${p.title} goes home after the task it is on.` : `${p.title} is home.`,
+                  );
+                } catch (reason) {
+                  toast(toCommandError(reason).message, "error");
+                }
+              })(),
+          },
+          {
+            id: "show",
+            label: `Show ${loan.to}`,
+            run: () => reveal(loan.toLeadId),
+          },
+        ],
+      });
+    },
+    [byId, apply, toast, reveal],
+  );
+
+  /** A tile moved by hand: follow the pointer, then save where it was dropped. */
+  const arrange = useCallback(
+    (move: ArrangeMove | null, final: boolean) => {
+      if (!settled || !move) {
+        setPreview(null);
+        return;
+      }
+      const moved = movedPlaces(settled, move.tileId, move.dx, move.dy, move.alone);
+      if (final) {
+        setPreview(null);
+        if (Math.abs(move.dx) >= 1 || Math.abs(move.dy) >= 1) void place(moved);
+      } else {
+        setPreview(moved);
+      }
+    },
+    [settled, place],
+  );
+
+  const tidyUp = useCallback(() => {
+    void (async () => {
+      const removed = await tidy();
+      if (removed && removed.length > 0) {
+        toast("Tidied up: every tile is back in neat rows.", "ok", {
+          label: "Undo",
+          run: () => void place(removed),
+        });
+      }
+    })();
+  }, [tidy, place, toast]);
+
   const describeDrag = useCallback(
-    (payload: DragPayload) => {
+    (payload: DragPayload, over: string | null) => {
       if (payload.kind === "role") {
         const role = snapshot?.roles.find((r) => r.id === payload.roleId);
         return {
@@ -482,11 +912,29 @@ export function OrganizationView({
           hint: "Release to hire into this team",
         };
       }
+      if (payload.kind === "line") {
+        return {
+          title: payload.line.kind === "reports" ? "Reports to…" : "Oversight line",
+          glyph: "link",
+          hint: "Release to move the line here",
+        };
+      }
       const p = byId.get(payload.positionId);
+      let hint = "Release to choose: move here, lend, or oversee this team";
+      if (over === TRASH && snapshot && p) {
+        // What the trash can does with it (a refusal is shown instead, by the canvas).
+        const t = trashTarget(snapshot, p);
+        if (!("refused" in t)) {
+          hint =
+            t.kind === "position"
+              ? "Release to archive it (with Undo)"
+              : `Release to archive its ${t.kind} (asks first)`;
+        }
+      }
       return {
         title: p?.title ?? "Position",
         glyph: snapshot?.roles.find((r) => r.id === p?.roleId)?.glyph ?? "worker",
-        hint: "Release to choose: report here, or oversee this team",
+        hint,
       };
     },
     [snapshot, byId, titles],
@@ -520,6 +968,24 @@ export function OrganizationView({
     e.preventDefault();
     const first = matchList?.[0];
     if (first) reveal(first);
+  };
+
+  const addItems: MenuItem[] = [
+    { id: "department", label: "A department", icon: "department" },
+    { id: "project", label: "A project", icon: "projects" },
+    { id: "role", label: "A new role", icon: "settings" },
+    { id: "hire", label: "Hire an agent", icon: "user" },
+  ];
+  const add = (id: string) => {
+    if (id === "department") setDialog({ kind: "newDepartment", reportsTo: null });
+    else if (id === "project") setDialog({ kind: "newProject", departmentId: null });
+    else if (id === "role") setDialog({ kind: "role" });
+    else if (id === "hire")
+      setDialog({
+        kind: "hire",
+        roleId: null,
+        ...(selectedId && byId.has(selectedId) ? { reportsTo: selectedId } : {}),
+      });
   };
 
   // ---- Render --------------------------------------------------------------------------------
@@ -675,15 +1141,85 @@ export function OrganizationView({
             ctx={ctx}
             selectedId={selectedId}
             matches={matches}
+            faded={filtered?.faded ?? null}
             showOversight={showOversight}
-            onToggleOversight={toggleOversight}
+            mode={pointer}
+            onMode={setPointer}
+            onArrange={arrange}
+            onLineMenu={lineMenu}
+            onLent={lentMenu}
+            onWatch={
+              openWatch ? (id: string) => openWatch(id, byId.get(id)?.title ?? "Agent") : null
+            }
+            live={canvasLive}
             onSelect={setSelected}
             onToggle={toggle}
             dropRefusal={dropRefusal}
             onDrop={onDrop}
             describeDrag={describeDrag}
             insetRight={selectedExists ? panelWidth : 0}
+            toolbar={
+              <CanvasToolbar
+                mode={pointer}
+                onMode={setPointer}
+                onTidy={tidyUp}
+                canTidy={places.length > 0}
+                filtersOpen={panel === "filters"}
+                filterCount={FILTER_KEYS.filter((k) => filters[k] !== null).length}
+                onFilters={() => setPanel(panel === "filters" ? null : "filters")}
+                legendOpen={legendOpen}
+                onLegend={toggleLegend}
+                whereOn={whereOn}
+                onWhere={toggleWhere}
+                oversightOn={showOversight}
+                onOversight={toggleOversight}
+                addItems={addItems}
+                onAdd={add}
+                trashOpen={panel === "archived"}
+                archived={archivedCount(snapshot)}
+                onTrash={() => setPanel(panel === "archived" ? null : "archived")}
+                helpOpen={panel === "help"}
+                onHelp={() => setPanel(panel === "help" ? null : "help")}
+              />
+            }
           >
+            {filtered && panel !== "filters" && (
+              <div className="canvas-filter-note" data-canvas-ui role="status">
+                Showing {filtered.matched} of {filtered.total} agents
+                <button type="button" className="link" onClick={() => setFilters(NO_FILTERS)}>
+                  Clear filters
+                </button>
+              </div>
+            )}
+            {panel === "filters" && (
+              <FiltersPanel
+                snapshot={snapshot}
+                filters={filters}
+                onChange={setFilters}
+                matched={filtered?.matched ?? null}
+                total={snapshot.positions.filter((p) => p.active).length}
+                onClose={() => setPanel(null)}
+              />
+            )}
+            {panel === "help" && (
+              <HelpPanel
+                onTour={() => {
+                  setPanel(null);
+                  setTouring(true);
+                }}
+                onClose={() => setPanel(null)}
+              />
+            )}
+            {panel === "archived" && (
+              <ArchivedDrawer
+                snapshot={snapshot}
+                actions={directoryActions}
+                onSelect={reveal}
+                onClose={() => setPanel(null)}
+              />
+            )}
+            {legendOpen && <LegendPanel onClose={toggleLegend} />}
+            {touring && !empty && <CanvasTour onDone={endTour} />}
             {empty && (
               <div className="topology__empty" data-canvas-ui>
                 <h2>Build your organization</h2>
@@ -753,6 +1289,18 @@ export function OrganizationView({
             role={t.tone === "error" ? "alert" : "status"}
           >
             {t.text}
+            {t.action && (
+              <button
+                type="button"
+                className="toast__action"
+                onClick={() => {
+                  setToasts((list) => list.filter((x) => x.id !== t.id));
+                  t.action?.run();
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -899,7 +1447,17 @@ export function OrganizationView({
           confirmLabel={dialog.confirmLabel}
           danger
           onCancel={closeDialog}
-          onConfirm={() => submit(dialog.work)}
+          onConfirm={async () => {
+            const failure = await submit(dialog.work);
+            const done = dialog.done;
+            if (failure === null && done) {
+              toast(done.text, "ok", {
+                label: "Undo",
+                run: () => void runWithToast(done.undo, done.undone),
+              });
+            }
+            return failure;
+          }}
         />
       )}
     </section>

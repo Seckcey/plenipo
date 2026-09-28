@@ -1,7 +1,7 @@
 //! Workforce DTOs shared with the frontend (camelCase on the wire). Runtimes and providers are
 //! data values; no vendor appears in a type.
 
-use plenipo_ledger::TaskState;
+use plenipo_ledger::{LoanUntil, TaskState, TilePlace};
 use plenipo_router::{ModelFeature, ModelRule, RouteDecision};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -393,6 +393,27 @@ pub struct PositionInfo {
     pub deleted: bool,
     /// Moved to the owner's Workforce (ADR-045).
     pub in_workforce: bool,
+    /// Lent to another team now (ADR-054).
+    pub loan: Option<LoanInfo>,
+}
+
+/// Where a lent agent is helping (ADR-054).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LoanInfo {
+    /// The lead of the team it helps, and that lead's title ("Shop Supervisor").
+    pub to_lead_id: String,
+    pub to: String,
+    /// That team's project, when it has one.
+    pub project: Option<String>,
+    pub until: LoanUntil,
+    /// The objective it joined (its root task), once that team handed it work.
+    pub objective_task_id: Option<String>,
+    /// Sent home while working: it goes home when its task ends.
+    pub going_home: bool,
+    #[ts(type = "number")]
+    pub since: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -434,10 +455,13 @@ pub struct RuntimeBrief {
     pub id: String,
     pub label: String,
     pub ready: bool,
+    /// The AI company behind it ("Anthropic"), whose cloud its models run in (Phase 18: the
+    /// canvas's "where" and its AI company filter; each model's own maker comes with Phase 16).
+    pub company: String,
 }
 
 /// The whole organization for the canvas and directory.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct OrgSnapshot {
@@ -458,6 +482,9 @@ pub struct OrgSnapshot {
     pub stats: OrgStats,
     pub runtimes: Vec<RuntimeBrief>,
     pub notices: Vec<String>,
+    /// The tiles the owner placed by hand on the canvas (ADR-053); the rest follow the automatic
+    /// layout.
+    pub places: Vec<TilePlace>,
     #[ts(type = "number")]
     pub generated_at: u64,
 }

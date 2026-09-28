@@ -516,4 +516,32 @@ describe("describeEvent (Phase 12 terminal)", () => {
     expect(lasted(3900)).toBe("1 hour 5 minutes");
     expect(lasted(7200)).toBe("2 hours");
   });
+
+  it("says who was lent, came home, and what you changed on your tile (Phase 18)", () => {
+    expect(
+      describeEvent(
+        event("org.agent_lent", {
+          title: "Security Auditor",
+          to: "Campaign Supervisor",
+          project: "Campaign",
+          until: "objective",
+        }),
+      ),
+    ).toBe("Security Auditor lent to Campaign Supervisor's team (Campaign) for one objective");
+    expect(
+      describeEvent(
+        event("org.agent_returned", {
+          title: "Security Auditor",
+          to: "Campaign Supervisor",
+          reason: "its objective is done",
+        }),
+      ),
+    ).toBe("Security Auditor is home from Campaign Supervisor's team (its objective is done)");
+    expect(describeEvent(event("org.agent_going_home", { title: "Security Auditor" }))).toBe(
+      "Security Auditor goes home after the task it is on",
+    );
+    expect(describeEvent(event("owner.profile_changed", { changed: ["status", "picture"] }))).toBe(
+      "You changed your status, picture",
+    );
+  });
 });

@@ -1,6 +1,7 @@
 # ADR-055: Watch — seeing a worker write code as it happens
 
-- **Status:** Proposed (waiting for the owner)
+- **Status:** Accepted (by the owner, 2026-09-28, as recommended; §13, a refused edit's record
+  keeping no text, after an explanation)
 - **Date:** 2026-09-28
 - **Phase:** 18
 - **Carries out:** ADR-039 (the owner's notes) §2.12, "watch a worker write code, live"
@@ -186,3 +187,39 @@ What the code does today (v1.10.0, read at `c5d1a71`):
   touch.
 - **Let the owner type in the tab.** Rejected: one writer per working copy (ADR-016); editing
   project files is Phase 21, with its own rules.
+
+## As built (v1.11.0)
+
+Built as written, with these details:
+
+- **A change Plenipo will not show** (§11): while an AI tool writes a change to a file Guard
+  would not show — a blocked file, git's own folder, or anything outside the working copy — the
+  tab lists it as "A change Plenipo will not show", with no text; if Guard then refuses it, it
+  shows as **refused**, with the file and why.
+- The tab is named **Watch · {the agent}**. Its **Stop** stops the conversation of the task
+  that changed the file on screen ("Stop Task 2" when the list holds several), as Cancel does on
+  the Workers page; it is off, and says why, when that task has nothing left to stop.
+- **Watch a worker** in the terminal panel's **New** menu lists the agents working now, from the
+  same live view the canvas reads.
+- On-call agents: an agent's tab lists the changes of all its workers in its latest objective,
+  labeled "Task 1", "Task 2" when more than one worker changed files.
+- **Only the main window hears it.** Watch's updates travel through a channel the main window
+  opens (`subscribe_watch`, refused to the sign window and to web pages), never as an event: in
+  Tauri a page that listens to every event hears events sent to another window too. The sign
+  window may now only listen to events, not send them. An update over 8 KB waits in Tauri's own
+  channel store until the main window collects it; only Plenipo's own pages run in its windows
+  (their content policy allows nothing else), so nothing else can ask for it.
+- **While a change is being written**, the tab shows only its complete lines (never half a
+  line, which could be the start of a secret the filter cannot recognize yet), and only while
+  Guard still lets the worker change that file. A write that names the same file twice in one
+  call is not shown until it is saved.
+- **Line marks have a time limit** (0.3 s): a change too large or too tangled to compare in that
+  time shows as a summary ("Large file: …"), with its line counts when they are known.
+- **After a restart**, the list shows only the agent's own saved files from its latest
+  objective (read from the Activity trail, without their lines).
+- **Kept by the owner's choice (from Phase 7, unchanged):** an edit keeps up to 200
+  characters of its old and new text, after secrets are hidden, in two Ledger records: the
+  approval's (so the approval card can show what would change, and kept when you refuse it) and
+  the Activity trail's record of an edit that was carried out. Watch adds nothing to either, and
+  a refusal by Guard keeps no text (§13). Asked whether to keep only the file and the size
+  instead, the owner answered "Keep that" (2026-09-28).

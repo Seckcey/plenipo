@@ -92,8 +92,9 @@ pub(crate) fn request<'a>(
     RouteRequest {
         role_id: &position.role_id,
         position_id: Some(&position.id),
+        // The department it works in: the team it is lent to, or its own (ADR-041 §5, ADR-054).
         department: view
-            .department_of(&position.id)
+            .work_department_of(&position.id)
             .map(|d| (d.id.as_str(), d.name.as_str())),
         project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
         reviewed,
@@ -130,6 +131,30 @@ fn sees_images(planner: &Planner, model_id: &str) -> Option<bool> {
         .iter()
         .find(|m| !model_id.is_empty() && m.id == model_id)
         .map(|m| m.features.contains(&ModelFeature::Vision))
+}
+
+/// Why `name` is not on `lead`'s team when it is one of the team's agents lent to another team
+/// (ADR-054).
+fn away(view: &OrgView<'_>, lead: &str, name: &str) -> Option<String> {
+    let wanted = name.trim().to_lowercase();
+    view.reports(Some(lead)).into_iter().find_map(|p| {
+        let named = p.title.to_lowercase() == wanted
+            || view
+                .role(p)
+                .is_some_and(|r| r.name.to_lowercase() == wanted);
+        let loan = view.loan(&p.id).filter(|_| named)?;
+        let to = view
+            .position(&loan.to_lead_id)
+            .map_or("another team", |l| l.title.as_str());
+        let until = match loan.until {
+            plenipo_ledger::LoanUntil::Objective => "until its objective there is done",
+            plenipo_ledger::LoanUntil::Returned => "until the owner sends it home",
+        };
+        Some(format!(
+            "{} is lent to {to}'s team {until}; do this part yourself",
+            p.title
+        ))
+    })
 }
 
 /// The team member `name` refers to: by title, or by role name when that is unambiguous.
@@ -245,7 +270,7 @@ impl Directory for WorkforceDirectory {
     fn place(
         &self,
         workforce: &Value,
-        _requester: &Task,
+        requester: &Task,
         name: &str,
         reviewed: &[String],
     ) -> Result<Placement, String> {
@@ -261,8 +286,45 @@ impl Directory for WorkforceDirectory {
             .lead_of(position_id)
             .ok_or_else(|| format!("{} has no team to hand work to", me.title))?;
         let team = view.team(&lead.id);
-        let member = find(&view, &team, name)?;
+        let member = find(&view, &team, name).map_err(|e| {
+            // Lent away is the reason only when nobody on the team answers to that name (else
+            // `find`'s own reason, such as two members with that role, is the useful one).
+            let wanted = name.trim().to_lowercase();
+            let someone = team.iter().any(|m| {
+                m.position.title.to_lowercase() == wanted
+                    || view
+                        .role(m.position)
+                        .is_some_and(|r| r.name.to_lowercase() == wanted)
+            });
+            if someone {
+                e
+            } else {
+                away(&view, &lead.id, name).unwrap_or(e)
+            }
+        })?;
         let target = member.position;
+        if let Some(loan) = member.lent {
+            // Lent for one objective: only that objective's work (ADR-054).
+            if let Some(joined) = loan.objective_task_id.as_deref() {
+                let objective = self
+                    .ledger
+                    .objective_of(&requester.id)
+                    .map_err(|e| e.to_string())?;
+                if objective != joined {
+                    return Err(format!(
+                        "{} is lent to your team for another objective and goes home when that one is \
+                         done; do this part yourself",
+                        target.title
+                    ));
+                }
+            }
+            if loan.going_home {
+                return Err(format!(
+                    "{} is going home after its current task; do this part yourself",
+                    target.title
+                ));
+            }
+        }
         let planner = self.router.planner().map_err(|e| e.to_string())?;
         if view.persistent(target) {
             return self.place_member(&view, &planner, target);
@@ -294,6 +356,8 @@ impl Directory for WorkforceDirectory {
         }
         let agent_id = uuid::Uuid::new_v4().to_string();
         let project_id = project.map(|p| p.id.clone());
+        // The team's department decides the department permission limit (ADR-054 §9).
+        let department_id = view.department_of(&lead.id).map(|d| d.id.clone());
         let routing = json!(decision);
         Ok(Placement {
             address: format!("role:{}", target.title),
@@ -316,6 +380,8 @@ impl Directory for WorkforceDirectory {
                 "positionId": target.id,
                 "agentId": agent_id,
                 "projectId": project_id,
+                "departmentId": department_id,
+                "leadId": lead.id,
                 "routing": routing,
             }),
             identity: worker_identity(

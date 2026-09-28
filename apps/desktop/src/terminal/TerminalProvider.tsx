@@ -6,12 +6,15 @@ import { getControlStatus, getTaskTimeline } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
 import { TerminalContext, type TerminalApi } from "./context";
 import {
+  codeTabId,
   DEFAULT_PANEL,
   isPanelState,
+  openedAt,
   PANEL_KEY,
   PANEL_MIN,
   panelMax,
   TERMINAL_BUTTON_ID,
+  type CodeTab,
   type OwnerTab,
   type PanelState,
   type TerminalTab,
@@ -23,7 +26,8 @@ import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
  * and where the panel is. Watch tabs come from the Ledger: the workers connected to a server
  * when Plenipo starts, then each server event as it is committed. A tab opens by itself when a
  * worker connects to a server, and stays readable after it disconnects, until the owner closes
- * it.
+ * it. Watch tabs for code (Phase 18, ADR-055) open when the owner presses Watch on an agent: one
+ * per agent, until closed.
  */
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const [panel, setPanel] = useStoredState<PanelState>(PANEL_KEY, DEFAULT_PANEL, isPanelState);
@@ -33,6 +37,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const size = Math.min(panel.size, maxSize);
   const [owners, setOwners] = useState<OwnerTab[]>([]);
   const [watches, setWatches] = useState<WatchTab[]>([]);
+  const [codes, setCodes] = useState<CodeTab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [unseen, setUnseen] = useState(0);
   const counter = useRef(0);
@@ -164,14 +169,30 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     [show],
   );
 
+  /** An agent's Watch tab for code: opened, or the one already open (renamed if it was). */
+  const openWatch = useCallback(
+    (positionId: string, title: string) => {
+      const id = codeTabId(positionId);
+      const now = Date.now();
+      setCodes((all) =>
+        all.some((c) => c.id === id)
+          ? all.map((c) => (c.id === id && c.title !== title ? { ...c, title } : c))
+          : [...all, { kind: "code", id, positionId, title, openedAt: now }],
+      );
+      setActive(id);
+      show();
+    },
+    [show],
+  );
+
   const tabs: TerminalTab[] = useMemo(
     () =>
-      [...owners, ...watches.map((w) => ({ kind: "watch" as const, id: w.id, watch: w }))].sort(
-        (a, b) =>
-          (a.kind === "owner" ? a.openedAt : a.watch.openedAt) -
-          (b.kind === "owner" ? b.openedAt : b.watch.openedAt),
-      ),
-    [owners, watches],
+      [
+        ...owners,
+        ...watches.map((w) => ({ kind: "watch" as const, id: w.id, watch: w })),
+        ...codes,
+      ].sort((a, b) => openedAt(a) - openedAt(b)),
+    [owners, watches, codes],
   );
 
   const close = useCallback(
@@ -179,6 +200,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       const i = tabs.findIndex((t) => t.id === id);
       const next = tabs[i + 1] ?? tabs[i - 1];
       setOwners((all) => all.filter((t) => t.id !== id));
+      setCodes((all) => all.filter((t) => t.id !== id));
       if (watchesRef.current.some((w) => w.id === id)) {
         watchesRef.current = watchesRef.current.filter((w) => w.id !== id);
         setWatches(watchesRef.current);
@@ -212,6 +234,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     openHere: () => openOwner({ place: { kind: "thisPc" }, title: "This PC", environment: null }),
     openServer: (serverId: string, name: string, environment: Environment) =>
       openOwner({ place: { kind: "server", serverId }, title: name, environment }),
+    openWatch,
     close,
     unseen,
     measure: setArea,

@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use plenipo_ledger::workforce::Providers;
 use plenipo_ledger::{
-    Deleted, Ledger, NewPosition, OversightKind, PositionPatch, ProjectSettings, RoleType,
-    RuntimeSessionState, SaveAgent, SpecialtyFields, Task, TaskState,
+    Deleted, Ledger, LoanUntil, NewPosition, OversightKind, PositionPatch, ProjectSettings,
+    RoleType, RuntimeSessionState, SaveAgent, SpecialtyFields, Task, TaskState, TilePlace,
 };
 use plenipo_liaison::Liaison;
 use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
@@ -263,6 +263,7 @@ impl Workforce {
         let sessions = l.open_workforce_sessions()?;
         let planner = self.inner.router.planner()?;
         let learning = crate::learning::settings(l)?;
+        let places = l.canvas_places()?;
         Ok(snapshot::build(&Inputs {
             records: &records,
             open_tasks: &open_tasks,
@@ -273,6 +274,7 @@ impl Workforce {
             name: org_name(l),
             titles: org_titles(l),
             notices: self.notices().clone(),
+            places: &places,
             now,
         }))
     }
@@ -525,7 +527,12 @@ impl Workforce {
         let records = self.ledger().org_records()?;
         let view = OrgView::new(&records);
         let (position_id, department, project) = match seat {
-            Seat::Position(id) => (Some(id), view.department_of(id), view.project_of(id)),
+            // Where it works: a lent agent's department and project are the team it helps.
+            Seat::Position(id) => (
+                Some(id),
+                view.work_department_of(id),
+                view.work_project_of(id),
+            ),
             Seat::Under(Some(lead)) => (None, view.department_of(lead), view.project_of(lead)),
             Seat::Under(None) | Seat::NewDepartment => (None, None, None),
             Seat::NewProject(d) => (None, records.departments.iter().find(|x| x.id == d), None),
@@ -1335,6 +1342,57 @@ impl Workforce {
     pub fn end_oversight(&self, id: &str) -> Result<OrgSnapshot> {
         self.ledger().end_oversight(id, OWNER)?;
         self.snapshot()
+    }
+
+    /// Move one end of an oversight line (ADR-053 §8): another overseer, or another team.
+    pub fn retarget_oversight(
+        &self,
+        id: &str,
+        overseer_id: Option<&str>,
+        target_id: Option<&str>,
+    ) -> Result<OrgSnapshot> {
+        self.ledger()
+            .retarget_oversight(id, overseer_id, target_id, OWNER)?;
+        self.snapshot()
+    }
+
+    // ---- Lending (ADR-054) ----------------------------------------------------------------
+
+    /// Lend on-call position `id` to the team led by `to_lead`.
+    pub fn lend_agent(&self, id: &str, to_lead: &str, until: LoanUntil) -> Result<OrgSnapshot> {
+        self.ledger().lend_position(id, to_lead, until, OWNER)?;
+        self.snapshot()
+    }
+
+    /// Send a lent position home: now, or when its task ends.
+    pub fn send_home(&self, id: &str) -> Result<OrgSnapshot> {
+        self.ledger().send_home(id, OWNER)?;
+        self.snapshot()
+    }
+
+    // ---- The owner's tile (ADR-056) -------------------------------------------------------
+
+    pub fn owner_profile(&self) -> Result<crate::owner::OwnerProfile> {
+        crate::owner::profile(self.ledger())
+    }
+
+    pub fn set_owner_profile(
+        &self,
+        input: &crate::owner::OwnerProfileInput,
+    ) -> Result<crate::owner::OwnerProfile> {
+        crate::owner::set_profile(self.ledger(), input)
+    }
+
+    // ---- The canvas (ADR-053) -------------------------------------------------------------
+
+    /// Save where the owner put these tiles.
+    pub fn place_tiles(&self, places: &[TilePlace]) -> Result<()> {
+        Ok(self.ledger().place_tiles(places)?)
+    }
+
+    /// Tidy up: forget every place (returned for Undo).
+    pub fn tidy_up(&self) -> Result<Vec<TilePlace>> {
+        Ok(self.ledger().tidy_up()?)
     }
 
     // ---- Objectives ---------------------------------------------------------------------

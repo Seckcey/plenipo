@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lend-agent"
+description = "Enables the lend_agent command without any pre-configured scope."
+commands.allow = ["lend_agent"]
+
+[[permission]]
+identifier = "deny-lend-agent"
+description = "Denies the lend_agent command without any pre-configured scope."
+commands.deny = ["lend_agent"]

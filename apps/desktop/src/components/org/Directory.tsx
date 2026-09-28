@@ -278,8 +278,11 @@ export function Directory({
   );
 }
 
-/** Archived departments, projects, and agents: Bring back and Delete for good (ADR-043). */
-function Archived({
+/**
+ * Archived departments, projects, and agents: Bring back and Delete for good (ADR-043). Also the
+ * canvas's Archived drawer (ADR-053 §11): the same rows and buttons.
+ */
+export function Archived({
   snapshot,
   q,
   onSelect,
