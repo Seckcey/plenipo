@@ -71,6 +71,8 @@ const COMMANDS: &[&str] = &[
     "send_home",
     "get_watch",
     "get_watch_change",
+    "subscribe_watch",
+    "unsubscribe_watch",
     "get_owner_profile",
     "set_owner_profile",
     "hire_position",

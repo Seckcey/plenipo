@@ -10,11 +10,12 @@ import type {
   WatchUpdate,
 } from "@plenipo/types";
 
+import { watchChanges } from "./commands";
+
 export const RUNTIME_EVENT = "plenipo://runtime";
 export const LEDGER_EVENT = "plenipo://ledger";
 export const AGENT_EVENT = "plenipo://agents";
 export const CONTROL_EVENT = "plenipo://control";
-export const WATCH_EVENT = "plenipo://watch";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -44,7 +45,10 @@ export async function subscribeControl(
   return listen<ControlStatus>(CONTROL_EVENT, (event) => handler(event.payload));
 }
 
-/** Subscribe to Watch (Phase 18): each file change a worker is writing, saved, or refused. */
+/**
+ * Subscribe to Watch (Phase 18): each file change a worker is writing, saved, or refused. It
+ * comes through the main window's own channel, not an event (ADR-055).
+ */
 export async function subscribeWatch(handler: (update: WatchUpdate) => void): Promise<() => void> {
-  return listen<WatchUpdate>(WATCH_EVENT, (event) => handler(event.payload));
+  return watchChanges(handler);
 }

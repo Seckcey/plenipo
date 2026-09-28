@@ -10,6 +10,7 @@ import type {
   OwnerProfileInput,
   TilePlace,
   WatchFileView,
+  WatchUpdate,
   WatchView,
   DiagnosticsFile,
   LedgerBackups,
@@ -499,6 +500,24 @@ export function getWatch(positionId: string): Promise<WatchView> {
 /** One change's file, its lines marked; `null` when Plenipo no longer has it. */
 export function getWatchChange(changeId: string): Promise<WatchFileView | null> {
   return call<WatchFileView | null>("get_watch_change", { changeId });
+}
+
+/**
+ * Hear each file change a worker is writing, saved, or refused, through a channel only this
+ * window hears (never an event, which another window could listen to). Resolves with the
+ * function that stops it.
+ */
+export async function watchChanges(onUpdate: (update: WatchUpdate) => void): Promise<() => void> {
+  const updates = new Channel<WatchUpdate>();
+  let hearing = true;
+  updates.onmessage = (update) => {
+    if (hearing) onUpdate(update);
+  };
+  const subscription = await call<number>("subscribe_watch", { channel: updates });
+  return () => {
+    hearing = false;
+    void call<void>("unsubscribe_watch", { subscription }).catch(() => undefined);
+  };
 }
 
 // ---- The owner's tile (Phase 18, ADR-056) ---------------------------------------------------

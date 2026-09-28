@@ -73,6 +73,8 @@
     "allow-send-home",
     "allow-get-watch",
     "allow-get-watch-change",
+    "allow-subscribe-watch",
+    "allow-unsubscribe-watch",
     "allow-get-owner-profile",
     "allow-set-owner-profile",
     "allow-hire-position",

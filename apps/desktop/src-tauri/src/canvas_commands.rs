@@ -8,15 +8,17 @@
 //! offers writes to a working copy. The owner's picture arrives already shrunk by the window;
 //! Plenipo never opens a file for it.
 
-use plenipo_capabilities::watch::{WatchFileView, WatchView};
+use plenipo_capabilities::watch::{WatchFileView, WatchUpdate, WatchView};
 use plenipo_capabilities::{Broker, LiveView};
 use plenipo_core::CommandError;
 use plenipo_ledger::workforce::{MAX_PLACES, ORGANIZATION_TILE, OWNER_TILE};
 use plenipo_ledger::{LoanUntil, TilePlace};
 use plenipo_workforce::{OrgSnapshot, OwnerProfile, OwnerProfileInput, Workforce};
+use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::commands::{validate_id, validate_optional_id, with_broker, with_workforce};
+use crate::guard_host::WatchSubscribers;
 
 fn validate_tile(id: &str) -> Result<(), CommandError> {
     if id == OWNER_TILE || id == ORGANIZATION_TILE {
@@ -127,6 +129,26 @@ pub async fn get_watch_change(
 ) -> Result<Option<WatchFileView>, CommandError> {
     validate_id("change", &change_id)?;
     with_broker(&broker, move |b| Ok(b.watch_change(&change_id))).await
+}
+
+/// Hear each file change a worker is writing, saved, or refused, through `channel` (this window's
+/// alone); returns the number that stops it.
+#[tauri::command]
+pub fn subscribe_watch(
+    subscribers: State<'_, WatchSubscribers>,
+    channel: Channel<WatchUpdate>,
+) -> Result<u32, CommandError> {
+    Ok(subscribers.add(channel))
+}
+
+/// Stop hearing Watch through the channel `subscription` names.
+#[tauri::command]
+pub fn unsubscribe_watch(
+    subscribers: State<'_, WatchSubscribers>,
+    subscription: u32,
+) -> Result<(), CommandError> {
+    subscribers.remove(subscription);
+    Ok(())
 }
 
 // ---- The owner's tile (ADR-056) -------------------------------------------------------------

@@ -433,6 +433,8 @@ pub fn configure<R: Runtime>(
             canvas_commands::send_home,
             canvas_commands::get_watch,
             canvas_commands::get_watch_change,
+            canvas_commands::subscribe_watch,
+            canvas_commands::unsubscribe_watch,
             canvas_commands::get_owner_profile,
             canvas_commands::set_owner_profile,
             commands::hire_position,
@@ -3690,7 +3692,7 @@ mod ipc_boundary_tests {
 
     // ---- Phase 18: the canvas, lending, Watch, and the owner's tile ---------------------------
 
-    const PHASE_18: [&str; 10] = [
+    const PHASE_18: [&str; 12] = [
         "place_tiles",
         "tidy_up",
         "retarget_oversight",
@@ -3699,6 +3701,8 @@ mod ipc_boundary_tests {
         "send_home",
         "get_watch",
         "get_watch_change",
+        "subscribe_watch",
+        "unsubscribe_watch",
         "get_owner_profile",
         "set_owner_profile",
     ];
@@ -3708,7 +3712,7 @@ mod ipc_boundary_tests {
         serde_json::json!({
             "places": [], "oversightId": SESSION, "overseerId": SESSION, "targetId": null,
             "positionId": SESSION, "toLeadId": SESSION, "until": "objective",
-            "changeId": SESSION,
+            "changeId": SESSION, "channel": "__CHANNEL__:1", "subscription": 1,
             "input": { "status": "available", "mood": null, "message": "",
                        "picture": { "kind": "keep" } },
         })
@@ -4002,24 +4006,41 @@ mod ipc_boundary_tests {
         assert!(live.workers.is_empty());
     }
 
-    /// Watch's updates reach the main window only, never the sign window or another window.
+    /// Watch's updates reach only the channels the main window opened with `subscribe_watch`
+    /// (the sign window and web pages are refused it); they are never an event, which a page
+    /// listening to every event would hear.
     #[test]
     fn watch_updates_go_to_the_main_window_only() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use tauri::Listener as _;
         let app = app();
         let main = window(&app, "main");
-        let other = window(&app, "untrusted");
         let sign = window(&app, crate::indicator::LABEL);
-        let heard = |w: &tauri::WebviewWindow<MockRuntime>| {
-            let n = Arc::new(AtomicUsize::new(0));
-            let count = Arc::clone(&n);
-            w.listen(guard_host::WATCH_EVENT, move |_| {
-                count.fetch_add(1, Ordering::SeqCst);
-            });
-            n
-        };
-        let (at_main, at_other, at_sign) = (heard(&main), heard(&other), heard(&sign));
+        let subscribers = app.state::<guard_host::WatchSubscribers>().inner().clone();
+        let channel = serde_json::json!({ "channel": "__CHANNEL__:7" });
+        assert!(invoke_json(&sign, "subscribe_watch", channel.clone()).is_err());
+        assert!(subscribers.is_empty());
+        let opened: u32 = body(invoke_json(&main, "subscribe_watch", channel));
+        assert_eq!(subscribers.len(), 1);
+        let _: () = body(invoke_json(
+            &main,
+            "unsubscribe_watch",
+            serde_json::json!({ "subscription": opened }),
+        ));
+        assert!(subscribers.is_empty());
+
+        // What a channel hears; and no event, even to a listener for every window.
+        let heard = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&heard);
+        let mine = subscribers.add(tauri::ipc::Channel::new(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }));
+        let events = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&events);
+        app.listen_any("plenipo://watch", move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
         let broker = app.state::<plenipo_capabilities::Broker>().inner().clone();
         let who = plenipo_capabilities::watch::Who {
             task_id: SESSION.into(),
@@ -4028,19 +4049,31 @@ mod ipc_boundary_tests {
             worker: "Senior Developer".into(),
             objective_task_id: SESSION.into(),
         };
-        broker
-            .watch()
-            .writing(&who, "call-1", "src/app.rs", "fn main() {}");
+        let write = |call: &str| {
+            broker
+                .watch()
+                .writing(&who, call, "src/app.rs", "fn main() {}\n");
+        };
+        write("call-1");
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while at_main.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+        while heard.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(
-            at_main.load(Ordering::SeqCst),
-            1,
-            "the main window hears it"
-        );
-        assert_eq!(at_other.load(Ordering::SeqCst), 0);
-        assert_eq!(at_sign.load(Ordering::SeqCst), 0);
+        assert_eq!(heard.load(Ordering::SeqCst), 1, "the channel hears it");
+        assert_eq!(events.load(Ordering::SeqCst), 0, "no event carries it");
+        // Once it stops, it hears nothing more; a channel that fails is forgotten.
+        assert!(subscribers.remove(mine));
+        subscribers.add(tauri::ipc::Channel::new(|_| {
+            Err(tauri::Error::FailedToReceiveMessage)
+        }));
+        write("call-2");
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(heard.load(Ordering::SeqCst), 1);
+        assert!(subscribers.is_empty());
+        // A page that reloads without saying goodbye leaves its channel: the oldest go first.
+        for _ in 0..guard_host::MAX_WATCH_SUBSCRIBERS + 5 {
+            subscribers.add(tauri::ipc::Channel::new(|_| Ok(())));
+        }
+        assert_eq!(subscribers.len(), guard_host::MAX_WATCH_SUBSCRIBERS);
     }
 }

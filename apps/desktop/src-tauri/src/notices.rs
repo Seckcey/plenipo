@@ -21,6 +21,10 @@ use tauri::{AppHandle, Manager as _, Runtime};
 pub const GATHER: Duration = Duration::from_millis(1500);
 /// How long "Send a test notice" waits for the system to answer.
 const TEST_WAIT: Duration = Duration::from_secs(5);
+/// At most this many notices wait during Do not disturb (the oldest go first); they come as one.
+const MAX_HELD: usize = 200;
+/// Recorded when the owner's status changes: ending Do not disturb shows what waited.
+const OWNER_CHANGED: &str = "owner.profile_changed";
 
 type Show = Arc<dyn Fn(&Notice) -> Result<(), String> + Send + Sync>;
 type InFront = Arc<dyn Fn() -> bool + Send + Sync>;
@@ -120,7 +124,7 @@ pub fn start<R: Runtime>(
 
     let (tx, rx) = mpsc::channel::<LedgerEvent>();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
-        if may_notify(&event.event_type) {
+        if may_notify(&event.event_type) || event.event_type == OWNER_CHANGED {
             let _ = tx.send(event.clone());
         }
     }));
@@ -139,6 +143,8 @@ pub fn start<R: Runtime>(
         .name("plenipo-notices".into())
         .spawn(move || {
             let mut gate = NoticeGate::default();
+            // What waited while the owner was not to be disturbed.
+            let mut held: Vec<Notice> = Vec::new();
             while let Ok(first) = rx.recv() {
                 let mut batch = vec![first];
                 let until = Instant::now() + gather;
@@ -154,7 +160,7 @@ pub fn start<R: Runtime>(
                     break;
                 };
                 let settings = ledger.notice_settings().unwrap_or_default();
-                let notices: Vec<Notice> = batch
+                let mut notices: Vec<Notice> = batch
                     .iter()
                     .filter_map(|e| match ledger.notice_for(e, &label) {
                         Ok(n) => n,
@@ -165,10 +171,21 @@ pub fn start<R: Runtime>(
                     })
                     .filter(|n| settings.wants(n.kind))
                     .collect();
-                // Do not disturb (ADR-056): Windows' pop-ups wait; the bell still counts.
+                // Do not disturb (ADR-056): Windows' pop-ups wait, and come as one when it ends;
+                // the bell still counts them.
                 let quiet = plenipo_workforce::owner::profile(&ledger)
                     .is_ok_and(|p| p.status == plenipo_workforce::OwnerStatus::DoNotDisturb);
-                if notices.is_empty() || quiet || (settings.only_when_away && in_front()) {
+                if quiet {
+                    held.append(&mut notices);
+                    let over = held.len().saturating_sub(MAX_HELD);
+                    held.drain(..over);
+                    continue;
+                }
+                if !held.is_empty() {
+                    held.append(&mut notices);
+                    notices = std::mem::take(&mut held);
+                }
+                if notices.is_empty() || (settings.only_when_away && in_front()) {
                     continue;
                 }
                 if let Some(notice) = gate.pass(notices, plenipo_ledger::now_ms()) {
@@ -299,26 +316,66 @@ mod tests {
             )
             .unwrap();
         };
-        let learned = || {
+        let learned = |text: &str| {
             ledger
                 .append_event(NewEvent {
                     source: "agent:codex".into(),
                     event_type: "lesson.added".into(),
-                    payload: json!({ "worker": "Backend Developer", "text": "Pull first.", "state": "waiting" }),
+                    payload: json!({ "worker": "Backend Developer", "text": text, "state": "waiting" }),
                     ..NewEvent::default()
                 })
                 .unwrap();
         };
+        let asked = |summary: &str| {
+            let task = ledger
+                .create_task(
+                    NewTask {
+                        requested_by: "owner".into(),
+                        objective: "Ship the release".into(),
+                        priority: 2,
+                        ..NewTask::default()
+                    },
+                    "owner",
+                )
+                .unwrap();
+            ledger
+                .transition_task(&task.id, TaskState::Running, "worker", None)
+                .unwrap();
+            ledger
+                .request_action_approval(
+                    &task.id,
+                    "git.write",
+                    &json!({ "worker": "Backend Developer", "summary": summary }),
+                    u64::MAX,
+                    "agent:codex",
+                )
+                .unwrap();
+        };
         status(OwnerStatus::DoNotDisturb);
-        learned();
+        learned("Pull first.");
+        std::thread::sleep(Duration::from_millis(300));
+        asked("git push origin");
         std::thread::sleep(Duration::from_millis(500));
         assert!(
             notices.kept().is_empty(),
             "held while you are not to be disturbed"
         );
+        // Ending it shows what waited, as one notice, and nothing is lost.
         status(OwnerStatus::Busy);
-        learned();
-        assert_eq!(kept_after(&notices, 1).len(), 1, "busy still shows them");
+        let kept = kept_after(&notices, 1);
+        assert_eq!(kept.len(), 1, "{kept:#?}");
+        assert_eq!(kept[0].title, "2 things need you");
+        assert!(kept[0].body.contains("Backend Developer learned something"));
+        assert!(
+            kept[0].body.contains("waiting for your OK"),
+            "{}",
+            kept[0].body
+        );
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(notices.kept().len(), 1, "shown once");
+        // Busy still shows them as they come.
+        learned("Run the tests.");
+        assert_eq!(kept_after(&notices, 2).len(), 2, "busy still shows them");
     }
 
     #[test]
