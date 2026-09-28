@@ -746,6 +746,8 @@ pub struct OrgRecords {
     pub saved_agents: Vec<SavedAgent>,
     /// Per position: what it has done, for its experience (ADR-045).
     pub experience: std::collections::HashMap<String, ExperienceCounts>,
+    /// Agents lent to another team now (Phase 18, ADR-054).
+    pub loans: Vec<Loan>,
 }
 
 /// History of a position's agents that have left the workforce.
@@ -1439,4 +1441,67 @@ pub struct ActivitySeries {
     #[ts(type = "number")]
     pub bucket_ms: u64,
     pub buckets: Vec<ActivityBucket>,
+}
+
+// ---- The organization canvas (Phase 18) ----------------------------------------------------
+
+/// A tile the owner placed by hand on the organization canvas (ADR-053): the owner's tile
+/// (`"owner"`), the organization's (`"organization"`), or a position's (its ID), with its top-left
+/// corner on the canvas.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TilePlace {
+    pub tile_id: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// How long an agent is lent (ADR-054): for one objective of the team it helps, or until the
+/// owner sends it home.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LoanUntil {
+    Objective,
+    Returned,
+}
+
+impl LoanUntil {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Objective => "objective",
+            Self::Returned => "returned",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Objective, Self::Returned]
+            .into_iter()
+            .find(|v| v.as_str() == s)
+    }
+}
+
+/// An on-call agent lent to another team (ADR-054).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Loan {
+    pub id: String,
+    pub position_id: String,
+    /// Its lead at home, when it was lent.
+    pub from_lead_id: Option<String>,
+    /// The lead of the team it helps.
+    pub to_lead_id: String,
+    /// That team's project and department when it was lent.
+    pub to_project_id: Option<String>,
+    pub to_department_id: Option<String>,
+    pub until: LoanUntil,
+    /// The objective it joined (the root task), once that team handed it work.
+    pub objective_task_id: Option<String>,
+    pub active: bool,
+    /// Sent home while working: it goes home when its task ends.
+    pub going_home: bool,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub end_reason: Option<String>,
 }

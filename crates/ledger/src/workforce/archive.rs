@@ -204,7 +204,8 @@ pub(super) fn tombstone_position(c: &Connection, p: &Position, note: &Value) -> 
             json!({ "deleted": note }).to_string()
         ],
     )?;
-    Ok(())
+    // Its tile leaves the canvas for good (ADR-053).
+    super::canvas::forget(c, &p.id)
 }
 
 /// Every position, project, and department that deleting one item for good takes along.

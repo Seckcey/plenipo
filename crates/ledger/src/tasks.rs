@@ -142,6 +142,8 @@ pub(crate) fn transition(
     )?);
     // A worker spawned for this task starts and retires with it (ADR-009 §4).
     crate::workforce::follow_task(tx, out, &task, to, actor)?;
+    // A lent agent goes home when its objective is done (ADR-054).
+    crate::workforce::loans::follow_loans(tx, out, &task, to, actor)?;
     require(tx, id)
 }
 
