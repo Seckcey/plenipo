@@ -2,10 +2,14 @@
 
 The public product site is built from `apps/website` for <https://plenipo.8westit.com>.
 It serves static HTML, CSS, and JavaScript. The homepage includes an optional, self-hosted
-React Flow sample. There are no forms, accounts, tracking scripts, or billing integrations.
+React Flow sample. Repository website code adds no forms, accounts, tracking scripts, or billing
+integrations. The public edge may insert the owner's existing Cloudflare analytics script.
 Plenipo's desktop app and its release workflow are unchanged.
 
 ## Interactive sample
+
+This implementation is available in the branch and isolated review preview. Production remains
+pending a separately authorized release; this document does not establish public deployment.
 
 The hero and download links render without JavaScript. A small loader in `main.js` starts the
 React/React Flow island only when the visitor chooses **Explore the interactive demo**. Its

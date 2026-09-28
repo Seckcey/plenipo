@@ -93,6 +93,7 @@ const fallback = document.getElementById("demo-fallback");
 const loadStatus = document.getElementById("demo-load-status");
 let unmountDemo;
 let demoStyle;
+let failedDemoLoads = 0;
 startDemo.hidden = false;
 const showFallback = (message) => {
   demoRoot.hidden = true;
@@ -119,7 +120,11 @@ startDemo.addEventListener("click", async () => {
       demoStyle.onerror = reject;
       document.head.append(demoStyle);
     });
-    const [{ mountDemo }] = await Promise.all([import(startDemo.dataset.demoModule), styleReady]);
+    // Browsers remember a failed module import. A retry gets a fresh URL for the
+    // same local, content-hashed file instead of replaying that cached failure.
+    const moduleUrl = new URL(startDemo.dataset.demoModule, window.location.href);
+    if (failedDemoLoads) moduleUrl.searchParams.set("retry", String(failedDemoLoads));
+    const [{ mountDemo }] = await Promise.all([import(moduleUrl.href), styleReady]);
     unmountDemo?.();
     demoRoot.hidden = false;
     unmountDemo = mountDemo(
@@ -135,6 +140,7 @@ startDemo.addEventListener("click", async () => {
         ),
     );
   } catch {
+    failedDemoLoads += 1;
     showFallback(
       "The interactive example could not load. You can retry, or read the sample below.",
     );
