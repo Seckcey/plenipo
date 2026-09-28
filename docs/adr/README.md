@@ -51,4 +51,4 @@ architecture must be recorded here.
 | [034](ADR-034-approved-programs-run-as-the-owner.md) | Approved programs run as the owner: tickets bound to the AI tool, safer defaults            | Accepted |
 | [035](ADR-035-network-gate-covers-sockets.md)        | The network gate covers beacons, sends on the page's own, and live connections (amends 020) | Accepted |
 | [036](ADR-036-every-ai-model.md)                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes         | Accepted |
-| [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: selling first, eight new phases, and the order of work (amends 009)      | Accepted |
+| [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)     | Accepted |

@@ -13,7 +13,7 @@
 
 **Added as Phase 16, last, at the owner's direction (2026-09-27):** every AI model worth having — paid AI keys with spending caps, a maker on every model so cross-company review is correct, and more than one route to the same model (ADR-036). It comes after Phase 15 and changes no earlier phase. *Moved up on 2026-09-28: see the order of work below.*
 
-**The owner's notes (2026-09-28), ADR-039:** selling Pro as soon as possible, and eight new phases — the owner's control over workers (17), the organization canvas (18), the AI tools page (19), Connections such as Microsoft 365 and Slack (20), the workspace with panels, windows, files, and more than one organization (21), the 8 West account service for users, billing, email, and licenses (22), Mac and Linux (23), and community (24). A phone app joins Phase 14. The order of work below replaces the order of the phase numbers.
+**The owner's notes (2026-09-28), ADR-039:** eight new phases — the owner's control over workers (17), the organization canvas with watching workers write code as it happens (18), the AI tools page (19), Connections such as Microsoft 365 and Slack (20), the workspace with panels, windows, files, and more than one organization (21), the 8 West account service for users, billing, email, and licenses (22), Mac and Linux (23), and community (24). A phone app joins Phase 14. Selling Pro comes once the app is finished, with Stripe. The order of work below replaces the order of the phase numbers.
 
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
@@ -24,13 +24,13 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | Order | Phase | What | State |
 |---|---|---|---|
 | 1 | 13 | Windows service, installer, updates, and recovery | Built (v1.9.0, pull request #70) |
-| 2 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, billing, email, licenses) | Next: the owner wants to sell Pro as soon as possible |
-| 3 | 17 | The owner's control over workers | Planned |
-| 4 | 18 | The organization canvas | Planned |
-| 5 | 19 | The AI tools page: sign-in, usage, and updates | Planned |
-| 6 | 16 | Every AI model worth having | Planned (ADR-036) |
-| 7 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
-| 8 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
+| 2 | 17 | The owner's control over workers | Next |
+| 3 | 18 | The organization canvas, and watching workers write code as it happens | Planned |
+| 4 | 19 | The AI tools page: sign-in, usage, and updates | Planned |
+| 5 | 16 | Every AI model worth having | Planned (ADR-036) |
+| 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
+| 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
+| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | The remote: CrewOS and a phone app | Planned |
 | 10 | 15 | Additional providers, departments, Windows servers, and Milepost | Planned |
 | 11 | 9 | Sales department on HubSpot | Postponed (ADR-018); after Connections |
@@ -1119,7 +1119,7 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 # Phase 11A — Free and Pro Editions and the License Key
 
-**Next (ADR-039, 2026-09-28):** the owner wants to sell Pro as soon as possible, so this phase comes right after Phase 13. Phase 22 builds the 8 West account service this phase checks in with, in its own repository, alongside it. This phase stays as written: it ships against the written contract and a local test double, so it does not wait for the service.
+**Order (ADR-039, 2026-09-28):** the owner will sell Pro once the app is finished, so this phase comes after Phase 21, eighth in the order of work. Phase 22 builds the 8 West account service this phase checks in with, in its own repository, alongside it. The key format follows what Phase 22's key vault can sign: Ed25519 if it can, otherwise P-256 (ADR-039 §2.14), decided before this phase is built. This phase stays as written: it ships against the written contract and a local test double, so it does not wait for the service.
 
 ## Goal
 
@@ -1782,7 +1782,7 @@ Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. O
 
 # Phase 17 — The Owner's Control Over Workers
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Third in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work.
 
 ## Goal
 
@@ -1849,11 +1849,11 @@ Phase 13 merged. Uses ADR-011 (routing), ADR-019 (working instructions), ADR-024
 
 # Phase 18 — The Organization Canvas
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Fourth in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Third in the order of work.
 
 ## Goal
 
-Make the canvas the easiest way to run the organization: arrange it, rewire it, lend and move agents, archive with a drag, and see at a glance where work, data, and compute are.
+Make the canvas the easiest way to run the organization: arrange it, rewire it, lend and move agents, archive with a drag, and see at a glance where work, data, and compute are. Let the owner **watch a worker write code as it happens**.
 
 ## Deliverables
 
@@ -1870,6 +1870,12 @@ Make the canvas the easiest way to run the organization: arrange it, rewire it, 
   - **where the data is:** the folder, server, or website each worker is touching now
 - **a guide to the canvas:** a short first-time tour and a "?" that explains it
 - **the owner's tile:** an avatar (a picture kept on this PC), a status light (available, busy, away, do not disturb), a mood picker, and a short message such as "Feeling great!" — shown on the canvas and in the top bar. Local only until Phase 24.
+- **watch a worker write code, live** (ADR-039 §2.12):
+  - a **Watch** tab in the bottom panel, beside the terminals and the server watch tabs (ADR-031), and a **Watch** button on any working agent on the canvas and in its properties panel
+  - the file the worker is changing, with new and changed lines highlighted as each change lands, and a list of every file it has touched in this objective (click one to see its changes)
+  - for AI tools that stream a change while writing it, the code appears as it is written, marked **being written — not saved yet**, then **saved**, or **refused** if Guard refused it
+  - follow along automatically, or pin one file
+  - **Stop** stops the worker, as elsewhere; nothing typed in the tab reaches the worker
 
 ## Technical Implementation
 
@@ -1878,6 +1884,10 @@ Make the canvas the easiest way to run the organization: arrange it, rewire it, 
 - **Lending** is a Workforce record (who, from which team, to which team, for what, since when). While lent, an agent takes objectives from the borrowing team and works under the **borrowing project's permission limit**, never its home project's (ADR-039 §2.2). Returning is recorded.
 - **The live view** reads what Plenipo already records (turn events, Liaison handoffs, Guard's grants and calls, server connections, browser use). It invents nothing. Motion respects the system's "reduce motion" setting, and nothing is shown by color alone.
 - **Rewiring by line** uses the same rules as today's drop menu (`org/rules.ts`) and records the same events.
+- **Watching code** reads the file changes Plenipo already carries out for workers: its own `write_file` and `edit_file` tools (Claude Code, Codex, Grok) and ACP's `fs/write_text_file` (Kimi, ADR-027). Each change is published to the watch tab as it is applied, with the file's path inside the working copy and the lines before and after. No new permission: the tab shows only what Plenipo already sees.
+- **Letter-by-letter** comes from AI tools that stream a tool call while the model writes it. Claude Code does, in the stream Plenipo already reads (`--include-partial-messages`); Plenipo uses only its text today. Each other AI tool is checked on its real program in this phase, and the ones that do not stream show each change when it is saved.
+- **Kept and not kept:** the Ledger records each saved change, as it records tool calls now. The letter-by-letter preview is shown, not stored. Large files and binary files show a summary, not their contents.
+- **Read-only:** the Watch tab never writes to a working copy (ADR-016, one writer per working copy).
 
 ## Tests
 
@@ -1889,10 +1899,14 @@ Make the canvas the easiest way to run the organization: arrange it, rewire it, 
 - the live view shows the right place (this PC, a server, an AI company) for a worker in each case
 - reduce motion turns the moving handoffs into still markers
 - the owner's avatar, status, mood, and message are saved and shown
+- Watch: each `write_file`, `edit_file`, and ACP file write by a fake worker appears in the tab in order, with the right file and lines
+- Watch: a streamed change shows as "being written", then "saved"; a change Guard refuses shows as "refused" and never as saved
+- Watch: the tab cannot write to the working copy; Stop stops the worker
+- Watch: a large or binary file shows a summary
 
 ## Acceptance Criteria
 
-The owner rearranges the organization by dragging, rewires two reporting lines by their ends, lends a Security Auditor to another department for one objective and sees it come back, archives an agent with the trash can and brings it back from the drawer, filters the canvas to one department, and can say from the canvas alone which workers are running on this PC, on a server, or in an AI company's cloud, and what each is touching.
+The owner rearranges the organization by dragging, rewires two reporting lines by their ends, lends a Security Auditor to another department for one objective and sees it come back, archives an agent with the trash can and brings it back from the drawer, filters the canvas to one department, and can say from the canvas alone which workers are running on this PC, on a server, or in an AI company's cloud, and what each is touching. While a Senior Developer on Claude Code works on a feature, the owner opens Watch and sees the code appear as it is written, then saved, file by file.
 
 ## Dependencies
 
@@ -1907,7 +1921,7 @@ Phase 17 (specialties, archive, delete for good, the properties panel).
 
 # Phase 19 — The AI Tools Page: Sign-in, Usage, and Updates
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Fourth in the order of work.
 
 ## Goal
 
@@ -1962,7 +1976,7 @@ Phase 12's terminal panel (built). Phase 16 fills in the payment switch.
 
 # Phase 20 — Connections: Microsoft 365, Slack, Google, and More
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Seventh in the order of work. Called **plugins** in the owner's notes; **Connections** on screen.
+**Added at the owner's direction (2026-09-28), ADR-039.** Sixth in the order of work. Called **plugins** in the owner's notes; **Connections** on screen.
 
 ## Goal
 
@@ -2021,7 +2035,7 @@ Phase 7 (Guard), Phase 10 (browser, for sign-in), the Vault. Microsoft app regis
 
 # Phase 21 — Workspace: Panels, Windows, Files, and More Than One Organization
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Eighth in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Seventh in the order of work.
 
 ## Goal
 
@@ -2033,6 +2047,7 @@ Let the owner lay out Plenipo their way: resize, dock, and pop out panels; brows
 - **a file view** in the side and bottom bars: each project's folder and working copies as a tree
 - **open and edit files** in a built-in editor (text and code with highlighting, pictures shown); save; open in another program; drag files onto an objective to attach them
 - **one writer at a time:** a working copy a worker is writing opens read-only, names the worker, and offers **Wait** or **Stop the worker** (ADR-016)
+- **watch in the editor:** a file a worker is writing changes live in the editor, the same way as Phase 18's Watch tab, and the file tree marks the files a worker is changing now
 - **more than one organization:** create, rename, switch, and **open in a new window**; each window belongs to one organization
 
 ## Technical Implementation
@@ -2048,6 +2063,7 @@ Let the owner lay out Plenipo their way: resize, dock, and pop out panels; brows
 - a popped-out window can call only its own commands
 - editing and saving a file records the owner's action; a file outside the known folders cannot be opened
 - a working copy being written by a worker opens read-only; Stop the worker makes it writable
+- a file open in the editor shows a worker's changes as they land, without the owner reopening it
 - two organizations in two windows: work, approvals, and secrets never cross between them
 - switching organizations keeps each one's backups separate
 
@@ -2069,7 +2085,7 @@ Phase 13 (backups per Ledger), Phase 8 (working copies, ADR-016). Phase 11A's ed
 
 # Phase 22 — The 8 West Account Service: Users, Billing, Email, and Licenses
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Second in the order of work, **together with Phase 11A**: the owner wants to sell Pro as soon as possible.
+**Added at the owner's direction (2026-09-28), ADR-039.** Eighth in the order of work, **together with Phase 11A**: selling Pro starts once the app is finished.
 
 ## Goal
 
@@ -2079,8 +2095,10 @@ Build the online service Phase 11A checks in with, so customers can buy Pro, get
 
 - **its own repository** and its own rules (like Milepost, Phase 15); the owner names it
 - **accounts:** sign up, sign in, reset password, delete my account
-- **buying Pro:** checkout on the Plenipo website, monthly ($9) or yearly ($99) as `docs/editions.md` sets
-- **licenses:** a key issued when the payment clears, shown on the account page and emailed; renewals, cancellation at the end of the paid period, and failed payments handled
+- **buying Pro with Stripe:** Stripe Checkout from the Plenipo website, monthly ($9) or yearly ($99) as `docs/editions.md` sets, on a Stripe account the owner creates for Plenipo
+- **Stripe's customer portal:** change the card, see invoices, cancel
+- **licenses:** a key issued when the payment clears, shown on the account page and emailed; renewals, cancellation at the end of the paid period, and failed payments handled, all driven by Stripe's notices (webhooks)
+- **sales tax** worked out and collected by Stripe Tax
 - **the weekly check** Phase 11A defines: the key ID and the app version in, the subscription's state out — nothing else
 - **email:** receipts, the key, renewal and failed-payment notices, sign-in links; sent from 8 West's domain with its email checks set up (SPF, DKIM, DMARC)
 - **an admin page** for 8 West: customers, subscriptions, keys, refunds
@@ -2089,17 +2107,26 @@ Build the online service Phase 11A checks in with, so customers can buy Pro, get
 ## Technical Implementation
 
 - **Collect the least:** name, email, company (optional), plan, key ID, and dates. Card numbers never touch 8 West; the payment company holds them.
-- **Payment company and sales tax** are chosen in this phase's first ADR. ADR-022 already weighed a "merchant of record", a company that sells on 8 West's behalf and handles sales tax. The alternative is Stripe with its tax service.
-- **The signing key:** Phase 11A keeps the license signing key offline, but a service that issues keys on payment must sign them. This phase's ADR settles where signing happens — for example, a cloud key service that signs but never reveals the key — without putting the key in the repository.
+- **Stripe, the standard way** (ADR-039 §2.13):
+  - Checkout for buying, Billing for the subscriptions, and the customer portal for changes and cancelling
+  - Stripe's notices (webhooks), checked for Stripe's signature, drive each license's state: paid, renewed, payment failed, cancelled at the end of the paid period
+  - Stripe retries failed payments and emails the customer. Pro stays on while Stripe retries, and ends only when Stripe gives up
+  - Stripe Tax works out and collects sales tax. Registering where 8 West must collect, and filing, are 8 West's job; Stripe shows where the thresholds are reached
+  - card numbers never touch 8 West
+  - no separate Pro trial: the Free edition is the trial
+- **The signing key lives in a cloud key vault** (ADR-039 §2.14): a service that signs on request but never lets the key out, not even to 8 West. Only the account service may ask it to sign, every signature is logged, and the service's own access to the vault is guarded like the key. Plenipo carries the current public key and one spare, so the key can be replaced with an ordinary update. The vault is chosen with the hosting, and Phase 11A's key format follows it (Ed25519 if the vault signs it, otherwise P-256).
 - **Fail-open:** Phase 11A's rules stand. An outage of this service never takes Pro away from a paying customer.
 - **Hosting, backups, and monitoring** are chosen in this phase's ADR. The service is internet-facing, so it gets a security review before launch.
 
 ## Tests
 
-- buy monthly and yearly in the payment company's test mode; the key is issued, emailed, and accepted by Plenipo
+- buy monthly and yearly in Stripe's test mode; the key is issued, emailed, and accepted by Plenipo
+- a notice that is not signed by Stripe is refused
+- the same Stripe notice sent twice issues one key, not two
+- a key signed by anything but the vault's key is refused by Plenipo; the spare public key works after a key change
 - the weekly check answers active, cancelled (effective at the end of the paid period), and unknown key
 - the check-in accepts only the key ID and the app version
-- a failed payment emails the customer and does not cancel at once
+- a failed payment emails the customer and does not cancel at once; Pro ends only when Stripe stops retrying
 - delete my account removes personal data and keeps what the law requires for tax records
 - sign-in abuse is slowed (rate limits); admin pages need 8 West's sign-in with a second factor
 
@@ -2109,7 +2136,7 @@ A new customer buys Pro on the website, receives the key by email, enters it in 
 
 ## Dependencies
 
-Phase 11A's request and response contract. A payment company account. A domain for sending email.
+Phase 11A's request and response contract. A Stripe account for Plenipo, with Stripe Tax turned on. A domain for sending email. A cloud key vault.
 
 ## Out of Scope
 
