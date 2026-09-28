@@ -1,0 +1,121 @@
+//! Damaged settings (Phase 13, "corrupted config"). Plenipo keeps its settings in the Ledger.
+//! When a settings document cannot be read, Plenipo does not guess: Guard refuses every tool
+//! until it can read the permissions again (it fails closed), and the window says so, with two
+//! ways out — restore a backup of the Ledger from Diagnostics, or reset those settings to their
+//! starting values (after a backup of the Ledger, so nothing is lost).
+
+use plenipo_core::SettingsProblem;
+use plenipo_guard::{Guard, GuardConfig};
+use plenipo_ledger::{BackupKind, Ledger};
+use plenipo_router::config::RoutingConfig;
+use plenipo_router::Router;
+use serde_json::json;
+
+/// The settings a problem can be about.
+pub const GUARD: &str = plenipo_guard::SETTING;
+pub const ROUTING: &str = plenipo_router::SETTING;
+
+/// The settings that cannot be read now.
+pub fn problems(guard: &Guard, router: &Router) -> Vec<SettingsProblem> {
+    let mut out = Vec::new();
+    if let Err(e) = guard.config() {
+        log::error!("the permission settings cannot be read: {e}");
+        out.push(SettingsProblem {
+            key: GUARD.into(),
+            label: "Permissions".into(),
+            message: "Plenipo could not read your permission settings, so no worker can use any \
+                      tool until this is fixed. Restore a backup of the Ledger from Diagnostics, \
+                      or reset permissions to their starting settings."
+                .into(),
+        });
+    }
+    if let Err(e) = router.config() {
+        log::error!("the AI model settings cannot be read: {e}");
+        out.push(SettingsProblem {
+            key: ROUTING.into(),
+            label: "AI models".into(),
+            message: "Plenipo could not read your AI model settings, so it cannot choose a model \
+                      for new work. Restore a backup of the Ledger from Diagnostics, or reset AI \
+                      models to their starting settings."
+                .into(),
+        });
+    }
+    out
+}
+
+/// Reset one damaged settings document to its starting values, after backing up the Ledger
+/// (the damaged document is kept in that backup). Returns the backup's name.
+pub fn reset(ledger: &Ledger, guard: &Guard, key: &str) -> Result<Option<String>, String> {
+    let fresh = match key {
+        GUARD => GuardConfig::with_defaults().to_value(),
+        ROUTING => serde_json::to_value(RoutingConfig::default()).map_err(|e| e.to_string())?,
+        _ => return Err("Those are not settings Plenipo can reset.".into()),
+    };
+    let backup = if ledger.path().is_some() {
+        let info = ledger
+            .backup_of_kind(BackupKind::Manual, None)
+            .map_err(|e| {
+                format!("The Ledger could not be backed up first ({e}); nothing was reset.")
+            })?;
+        crate::backup_host::record(ledger, BackupKind::Manual, &info, "owner");
+        std::path::Path::new(&info.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let event = if key == GUARD {
+        "guard.settings_reset"
+    } else {
+        "routing.settings_reset"
+    };
+    ledger
+        .update_setting(key, event, "owner", |_damaged| {
+            Ok((fresh, json!({ "backup": backup })))
+        })
+        .map_err(|e| e.to_string())?;
+    if key == GUARD {
+        guard
+            .seed_template_roles()
+            .map_err(|e| format!("The built-in roles did not get their permissions back ({e})."))?;
+    }
+    log::warn!("the {key} settings were reset to their starting values");
+    Ok(backup)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn damaged_permissions_are_reported_and_can_be_reset_after_a_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&dir.path().join("ledger").join("plenipo.db")).unwrap());
+        let guard = Guard::new(ledger.clone());
+        let router = Router::with_tools(ledger.clone(), Arc::new(Vec::new));
+        assert!(problems(&guard, &router).is_empty());
+        // The permission settings get damaged (a shape Guard cannot read).
+        ledger
+            .put_setting(GUARD, &json!({ "sets": "not a list" }), "test")
+            .unwrap();
+        let found = problems(&guard, &router);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].key, GUARD);
+        assert!(found[0].message.contains("no worker can use any tool"));
+        // Reset: a backup first, then the starting settings.
+        let backup = reset(&ledger, &guard, GUARD).unwrap().unwrap();
+        assert!(backup.starts_with("plenipo-backup-"));
+        assert!(problems(&guard, &router).is_empty());
+        assert!(guard.config().is_ok());
+        assert!(!ledger
+            .events_of_types(&["guard.settings_reset"], 5)
+            .unwrap()
+            .is_empty());
+        // The damaged document is in the backup.
+        let kept = Ledger::open(&ledger.backups_dir().unwrap().join(&backup)).unwrap();
+        assert_eq!(kept.setting(GUARD).unwrap().unwrap()["sets"], "not a list");
+        // Unknown settings are refused.
+        assert!(reset(&ledger, &guard, "organization").is_err());
+    }
+}

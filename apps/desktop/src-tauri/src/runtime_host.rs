@@ -33,7 +33,7 @@ impl<R: Runtime> EventSink for TauriSink<R> {
     fn emit(&self, event: RuntimeEvent) {
         let lifecycle = matches!(event, RuntimeEvent::Lifecycle(_));
         if let Err(e) = self.app.emit_to("main", RUNTIME_EVENT, &event) {
-            eprintln!("[plenipo] failed to emit runtime event: {e}");
+            log::warn!("failed to emit runtime event: {e}");
         }
         if lifecycle {
             crate::tray::refresh(&self.app);

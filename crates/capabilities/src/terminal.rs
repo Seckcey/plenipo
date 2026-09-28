@@ -392,7 +392,7 @@ pub fn start_local(
                         let _ = done.send(());
                     });
                 if closer.is_ok() && last_output.recv_timeout(LAST_OUTPUT).is_err() {
-                    eprintln!("[plenipo] a terminal's last output did not come; it ends anyway");
+                    log::warn!("a terminal's last output did not come; it ends anyway");
                 }
                 let code = status
                     .as_ref()

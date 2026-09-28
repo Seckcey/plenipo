@@ -63,7 +63,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::runtime_host::Persistence;
-use crate::smoke::{SmokeTest, EXIT_READY};
+use crate::smoke::SmokeTest;
 
 /// Return identity information about the running application.
 #[tauri::command]
@@ -78,9 +78,8 @@ pub fn frontend_ready<R: Runtime>(
     app: AppHandle<R>,
     smoke: State<'_, SmokeTest>,
 ) -> Result<(), CommandError> {
-    if smoke.is_enabled() && smoke.record(EXIT_READY) {
-        eprintln!("[plenipo] smoke test: frontend reported ready; exiting 0");
-        app.exit(EXIT_READY);
+    if smoke.is_enabled() {
+        crate::upkeep_commands::smoke_ready(&app, &smoke);
     }
     Ok(())
 }
@@ -135,7 +134,7 @@ pub fn get_execution_output(
 const OWNER: &str = "owner";
 
 /// Run ledger work off the main thread.
-async fn with_ledger<T: Send + 'static>(
+pub(crate) async fn with_ledger<T: Send + 'static>(
     ledger: &Arc<Ledger>,
     f: impl FnOnce(&Ledger) -> Result<T, LedgerError> + Send + 'static,
 ) -> Result<T, CommandError> {
@@ -146,7 +145,7 @@ async fn with_ledger<T: Send + 'static>(
         .map_err(ledger_error)
 }
 
-fn ledger_error(e: LedgerError) -> CommandError {
+pub(crate) fn ledger_error(e: LedgerError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -154,7 +153,7 @@ fn ledger_error(e: LedgerError) -> CommandError {
     }
 }
 
-fn validate_task_id(id: &str) -> Result<(), CommandError> {
+pub(crate) fn validate_task_id(id: &str) -> Result<(), CommandError> {
     validate_execution_id(id).map_err(|_| CommandError::invalid_input("invalid task id"))
 }
 
@@ -336,7 +335,12 @@ pub async fn run_integrity_check(
 pub async fn create_ledger_backup(
     ledger: State<'_, Arc<Ledger>>,
 ) -> Result<BackupInfo, CommandError> {
-    with_ledger(&ledger, |l| l.backup(None)).await
+    with_ledger(&ledger, |l| {
+        let info = l.backup(None)?;
+        crate::backup_host::record(l, plenipo_ledger::BackupKind::Manual, &info, OWNER);
+        Ok(info)
+    })
+    .await
 }
 
 /// JSON export into the ledger's backups folder (location chosen by Core, not the UI).
@@ -518,7 +522,7 @@ pub async fn get_liaison_overview(
 /// Longest text field accepted at the boundary (bytes); the Ledger enforces the real limits.
 const MAX_FIELD_BYTES: usize = 8_000;
 
-fn workforce_error(e: WorkforceError) -> CommandError {
+pub(crate) fn workforce_error(e: WorkforceError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -539,7 +543,7 @@ async fn with_workforce<T: Send + 'static>(
 }
 
 /// An organization record ID (a UUID).
-fn validate_id(what: &str, id: &str) -> Result<(), CommandError> {
+pub(crate) fn validate_id(what: &str, id: &str) -> Result<(), CommandError> {
     validate_execution_id(id).map_err(|_| CommandError::invalid_input(format!("invalid {what} id")))
 }
 
@@ -704,6 +708,8 @@ pub async fn get_local_paths<R: Runtime>(
                 "Workers' scratch folders",
                 data.join("runtime").join("agent-workspaces"),
             ),
+            ("Plenipo's log files", data.join("logs")),
+            ("Diagnostics files you saved", data.join("diagnostics")),
         ] {
             paths.push(LocalPath {
                 label: label.into(),
@@ -1205,7 +1211,7 @@ const MAX_SECRET_BYTES: usize = 40_000;
 /// Most entries in one list of rules.
 const MAX_RULES: usize = 300;
 
-fn guard_error(e: GuardError) -> CommandError {
+pub(crate) fn guard_error(e: GuardError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -1776,7 +1782,7 @@ pub fn close_terminal(broker: State<'_, Broker>, terminal_id: String) -> Result<
         .map_err(broker_error)
 }
 
-fn app_info_for(version: &str) -> AppInfo {
+pub(crate) fn app_info_for(version: &str) -> AppInfo {
     AppInfo::current(version)
 }
 
@@ -1793,7 +1799,7 @@ fn validate_execution_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
-fn to_command_error(e: RuntimeError) -> CommandError {
+pub(crate) fn to_command_error(e: RuntimeError) -> CommandError {
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {

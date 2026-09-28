@@ -14,6 +14,11 @@ fn main() {
     {
         std::process::exit(code);
     }
+    // Uninstall mode (Phase 13): the uninstaller asks Plenipo to forget the secrets it kept in
+    // Windows Credential Manager, when the owner chose to delete their Plenipo data.
+    if let Some(code) = plenipo_desktop_lib::uninstall::maybe_run_from_args(std::env::args()) {
+        std::process::exit(code);
+    }
     // Diagnostic child mode: harmless scenarios used by the runtime supervisor. Handled
     // before Tauri initializes so no window, tray, or webview is ever created.
     if let Some(code) = plenipo_runtime::diagnostic::maybe_run_from_args(std::env::args()) {

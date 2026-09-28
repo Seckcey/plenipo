@@ -61,3 +61,79 @@ A signature replaces "Unknown publisher" at once. Windows' blue "Windows protect
 can still appear for a new release until enough people have downloaded it; no certificate skips
 that. To speed it up, submit the signed installer at
 [microsoft.com/wdsi](https://www.microsoft.com/wdsi) as a software developer.
+
+## Updates: the updater key (Phase 13, ADR-038)
+
+Plenipo installs an update only when it carries a second signature: the **updater key**'s, over
+the installer and the version it claims. This key is separate from the Azure signing above, and
+only the owner holds it. How to make it once is in
+[ADR-038 (updates), section 6](../adr/ADR-038-updates.md#6-what-the-owner-does-once-the-updater-key).
+It goes in **Settings → Secrets and variables → Actions**:
+
+| Name                                 | Kind     | What                                                      |
+| ------------------------------------ | -------- | --------------------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Secret   | Everything in `plenipo-updater.key` (the private half)    |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Secret   | Its password                                              |
+| `PLENIPO_UPDATER_PUBLIC_KEY`         | Variable | Everything in `plenipo-updater.key.pub` (the public half) |
+
+### Step by step (once, about 10 minutes)
+
+Never paste the key or its password into a chat, an issue, or a file in the repository.
+
+1. **Make the key.** Open PowerShell (Start → type "PowerShell" → Enter) and run:
+
+   ```powershell
+   npx --yes @tauri-apps/cli@2.11.5 signer generate -w "$env:USERPROFILE\.tauri\plenipo-updater.key"
+   ```
+
+   It needs Node.js (the same one used to build Plenipo). It asks for a password twice: make a
+   strong one and save it in your password manager now. You get two files in
+   `C:\Users\<you>\.tauri\`: `plenipo-updater.key` (secret) and `plenipo-updater.key.pub`
+   (not secret). (In the `plenipo` folder after `pnpm install`,
+   `pnpm --filter @plenipo/desktop tauri signer generate -w "$env:USERPROFILE\.tauri\plenipo-updater.key"`
+   does the same.)
+
+2. **Open the page for secrets.** On GitHub, go to **Seckcey/plenipo** → **Settings** (the tab
+   with the gear, top right of the repository) → in the left list, **Secrets and variables** →
+   **Actions**.
+3. **The private key.** On the **Secrets** tab, choose **New repository secret**. Name:
+   `TAURI_SIGNING_PRIVATE_KEY`. For the value, copy the key without showing it on screen:
+
+   ```powershell
+   (Get-Content "$env:USERPROFILE\.tauri\plenipo-updater.key" -Raw).Trim() | Set-Clipboard
+   ```
+
+   Click in the **Secret** box, press Ctrl+V, then **Add secret**.
+
+4. **Its password.** **New repository secret** again. Name: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+   Value: the password from step 1. **Add secret**.
+5. **The public key.** Switch to the **Variables** tab → **New repository variable**. Name:
+   `PLENIPO_UPDATER_PUBLIC_KEY`. Copy the value:
+
+   ```powershell
+   (Get-Content "$env:USERPROFILE\.tauri\plenipo-updater.key.pub" -Raw).Trim() | Set-Clipboard
+   ```
+
+   Paste it, then **Add variable**.
+
+6. **Back it up.** Save `plenipo-updater.key` (the file, or its text) in your password manager
+   next to the password. Losing either means one manual install for everyone.
+7. **Check it.** **Actions** → **Release** → **Run workflow** → pick the branch, tick **Dry run**,
+   **Run workflow**. A green run means the key signs and the check accepts it; it publishes
+   nothing.
+
+The Release workflow builds the public half into Plenipo, signs the installer with the private
+half (`tauri signer sign --app-version`, after the 8 West signature), checks that signature and the
+version in it before publishing, and attaches `Plenipo_<version>_x64-setup.exe.sig` and
+`latest.json` to the release. Each copy of Plenipo reads `latest.json` from the newest release.
+If any of the three is missing, the Release workflow stops before building and says which.
+
+- **Losing the private key or its password:** copies already installed refuse updates signed
+  with a new key, so everyone installs the next version by hand once. Keep a backup in your
+  password manager.
+- **Leaking it:** someone could make an update Plenipo accepts (it would still have to be served
+  from Plenipo's GitHub Releases). Make a new key, replace the three values, and release at once;
+  tell users to install that release by hand.
+- **CI and the E2E tests** make a throwaway key in each run and build a copy that trusts it and
+  looks for updates on `127.0.0.1` only, so they can install a test update. That copy is never a
+  release; its installer (a CI download) is for testing only.

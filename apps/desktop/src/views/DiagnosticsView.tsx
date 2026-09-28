@@ -6,6 +6,7 @@ import { LiaisonPanel } from "../components/LiaisonPanel";
 import { formatTime } from "../runtime/format";
 import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
+import { BackupsPanel, DiagnosticsFileButton } from "../upkeep/BackupsPanel";
 
 export function DiagnosticsView({
   info,
@@ -54,6 +55,11 @@ export function DiagnosticsView({
       )}
 
       <LedgerPanel onTaskCreated={onTaskCreated} />
+
+      <BackupsPanel />
+
+      <h2>Diagnostics file</h2>
+      <DiagnosticsFileButton />
 
       <LiaisonPanel />
 

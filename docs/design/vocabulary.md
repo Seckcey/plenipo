@@ -170,6 +170,21 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | sections (of Settings, the list on the left)                                | settings tabs, navigation pane                                         |
 | About Plenipo                                                               | about dialog                                                           |
 | Pip (Plenipo's helper, the character in the logo)                           | mascot                                                                 |
+| Keep Plenipo in the tray (closing hides the window; the work goes on)       | background daemon, service, minimize to tray                           |
+| Start Plenipo with Windows                                                  | autostart, launch at login, Run key                                    |
+| Start and close (Settings)                                                  | lifecycle settings, startup behavior                                   |
+| Plenipo closed unexpectedly / Windows closed Plenipo (restart, sign-out)    | crash, unclean shutdown, reboot detected                               |
+| Plenipo was stopped while updating the Ledger                               | interrupted migration                                                  |
+| the window stopped responding and was reloaded / opened again               | WebView crash, renderer process failure                                |
+| Run again / Leave stopped (a task Plenipo's closing stopped)                | resume, retry, re-enqueue / discard                                    |
+| update / a new version / Install now                                        | OTA update, patch, updater                                             |
+| Update ready (the top bar)                                                  | update available badge                                                 |
+| signed by 8 West (an update Plenipo trusts)                                 | minisign signature, updater public key                                 |
+| backup (of the Ledger): daily, before a new version, before an update       | snapshot, pre-upgrade/pre-migration dump                               |
+| Restore (a backup) / Restore and restart                                    | rollback DB, recover snapshot                                          |
+| log files (what Plenipo did, kept to five)                                  | log rotation, trace output                                             |
+| diagnostics file (one file to send when something went wrong)               | support bundle, diagnostics bundle, crash dump                         |
+| Reset to starting settings                                                  | factory reset, reset config                                            |
 
 ## Where technical words may stay
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restore-ledger-backup"
+description = "Enables the restore_ledger_backup command without any pre-configured scope."
+commands.allow = ["restore_ledger_backup"]
+
+[[permission]]
+identifier = "deny-restore-ledger-backup"
+description = "Denies the restore_ledger_backup command without any pre-configured scope."
+commands.deny = ["restore_ledger_backup"]

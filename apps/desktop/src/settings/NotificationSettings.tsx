@@ -40,6 +40,11 @@ const KINDS: readonly { key: Kind; label: string; hint: string }[] = [
     label: "Lessons",
     hint: "A worker learned something for you to keep or discard.",
   },
+  {
+    key: "plenipo",
+    label: "Plenipo itself",
+    hint: "Plenipo closed unexpectedly or Windows closed it, or a new version is ready.",
+  },
 ];
 
 /**

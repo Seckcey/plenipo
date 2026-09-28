@@ -95,7 +95,7 @@ pub fn start<R: Runtime>(
                 if let Err(e) = &shown {
                     // Said once: a computer without notices would fill the log otherwise.
                     if !failed_once.swap(true, Ordering::Relaxed) {
-                        eprintln!("[plenipo] the system did not show a notice: {e}");
+                        log::warn!("the system did not show a notice: {e}");
                     }
                 }
                 shown
@@ -159,7 +159,7 @@ pub fn start<R: Runtime>(
                     .filter_map(|e| match ledger.notice_for(e, &label) {
                         Ok(n) => n,
                         Err(err) => {
-                            eprintln!("[plenipo] could not read what an event means: {err}");
+                            log::warn!("could not read what an event means: {err}");
                             None
                         }
                     })
@@ -174,7 +174,7 @@ pub fn start<R: Runtime>(
             }
         });
     if let Err(e) = spawned {
-        eprintln!("[plenipo] notices are unavailable: {e}");
+        log::warn!("notices are unavailable: {e}");
     }
     Notices { show, kept }
 }

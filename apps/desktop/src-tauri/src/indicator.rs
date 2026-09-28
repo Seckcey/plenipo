@@ -51,7 +51,7 @@ pub fn update<R: Runtime>(app: &AppHandle<R>, status: &ControlStatus) {
                         ));
                     }
                 }
-                Err(e) => eprintln!("[plenipo] the control sign could not be shown: {e}"),
+                Err(e) => log::warn!("the control sign could not be shown: {e}"),
             }
         }
         None => {}
