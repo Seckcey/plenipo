@@ -691,8 +691,16 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   from the tab's own `Page.windowOpen`; during a worker's action the worker's tab navigates there
   after the gate's website check (`site_refused`), and the worker is told with its next result.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
-  CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
-  the website's.
+  CAPTCHA more than 3 times (ADR-029). On the desktop, a worker presses only ordinary keys (not
+  F1 or F12), and Ctrl, Shift, or Alt with letters, digits, and the moving keys (`desktop.rs`
+  `allowed`, an allow-list): never the Windows key, the shortcuts that close or switch programs
+  (Alt+F4, Ctrl+W, Ctrl+F4, Ctrl+Q, Alt+Tab, Ctrl+Alt+Tab, Alt+Esc), the system's own screens
+  (Ctrl+Esc, Ctrl+Shift+Esc, Ctrl+Alt+Delete, Alt+Space), a browser's developer tools, or a
+  letter from another alphabet (it goes by the keyboard's layout). Each step is still approved
+  (ADR-049); the list is a second wall. Typed text holds only visible characters, tabs, and line
+  breaks (`desktop::refuse_hidden_characters`: no control characters, no zero-width or
+  right-to-left marks), its line breaks made one kind, at most 500 characters a step, so the
+  card shows all of it. Page text reaches the worker marked as the website's.
 - **Screenshots** (`screens.rs`): after every significant action and before every approval,
   kept in `<app data>/screenshots/<task>/` as a Ledger `screenshot` artifact with its SHA-256,
   linked from `capability.used` and approvals, given to the worker as an MCP image with a
@@ -920,7 +928,12 @@ Decision records: [ADR-037](../adr/ADR-037-background-work.md) (background work)
   tool) or **Leave stopped**. Nothing runs again by itself.
 - **Backups and restore** (Ledger `backups.rs`): kinds told apart by file names (made by you,
   daily, before a new version, before an update, before a layout change, before a restore), each
-  kept to its own number. A daily backup after 10 minutes and then each day, waiting for idle
+  kept to its own number. On Unix the app's data folder (at start) and the Ledger's folder (at
+  every open) are the owner's alone (`0700`), and so, a second wall, are the database, its
+  backups, exports, and a restored copy (`0600`: `crates/ledger/src/owner_only.rs`); a folder
+  that cannot be made so gives a notice, and the Ledger opens anyway. A backup or export into a
+  folder someone chose leaves that folder as it is. On Windows the account's app-data folder is
+  private already, and files have no mode bits, so nothing is set. A daily backup after 10 minutes and then each day, waiting for idle
   (up to two days); one before a new version first uses the Ledger (`backup_host.rs`). A restore
   is a request next to the Ledger, applied at the next start before the Ledger opens; the Ledger
   as it was is kept (`before-restore-*`), and a backup that is damaged or from a newer Plenipo is

@@ -2136,6 +2136,30 @@ async fn computer_use_asks_first_and_never_types_secrets() {
         &json!({ "keys": "win+r", "purpose": "run" }),
     );
     assert!(windows.unwrap_err().contains("Windows key"));
+    // Nor the shortcuts that close or switch programs or open the system's own screens, nor
+    // typed text with a hidden character in it.
+    for keys in [
+        "alt+f4",
+        "alt+tab",
+        "ctrl+esc",
+        "ctrl+shift+esc",
+        "ctrl+w",
+        "ctrl+alt+del",
+    ] {
+        let refused = plenipo_capabilities::tools::parse(
+            plenipo_capabilities::tools::find("screen_keys").unwrap(),
+            &json!({ "keys": keys, "purpose": "tidy up" }),
+        );
+        assert!(
+            refused.unwrap_err().contains("not available to workers"),
+            "{keys}"
+        );
+    }
+    let hidden = plenipo_capabilities::tools::parse(
+        plenipo_capabilities::tools::find("screen_type").unwrap(),
+        &json!({ "text": "ok\u{1b}:q!", "purpose": "fill in a field" }),
+    );
+    assert!(hidden.unwrap_err().contains("hidden character (U+001B)"));
     // Recorded, with the screen after each action.
     let used = h.events(&task.id, "capability.used");
     assert!(used

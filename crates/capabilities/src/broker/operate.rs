@@ -15,7 +15,10 @@
 //!   into), from any click, Enter, or Space (asked before the action; ADR-035).
 //! - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
 //!   CAPTCHA more than 3 times (then it goes to the owner, ADR-029; the worker sees the
-//!   check's checkbox and hears how each try went, ADR-032); the Windows key.
+//!   check's checkbox and hears how each try went, ADR-032). On the desktop, never the Windows
+//!   key or a combination [`crate::desktop`] does not allow (only ordinary keys, and Ctrl,
+//!   Shift, or Alt with letters, digits, and the moving keys), and never typed text with a
+//!   hidden character.
 //! - **Computer use is the last resort:** a worker must ask to take control, with its reason,
 //!   and the owner is asked each time; after that, every click, typing, and key press asks the
 //!   owner again, with the screen on the card (ADR-049). The owner moving the mouse takes
