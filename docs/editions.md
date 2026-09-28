@@ -26,6 +26,7 @@ business departments you can create.
 | Switches in Settings: what workers may use, and when they ask  | Yes            | Yes       |
 | Workers that learn from their work (lessons)                   | No             | Yes       |
 | Your servers over SSH, and the Operations Engineer role        | Yes            | Yes       |
+| Plenipo on your phone, with notices (planned, Phase 14)        | No             | Yes       |
 | Ledger, Activity trail, and screenshots of every step          | Yes            | Yes       |
 | Ranks, titles, and the rest of Personalization                 | Yes            | Yes       |
 | Full source code, and the right to change it for your own use  | Yes            | Yes       |

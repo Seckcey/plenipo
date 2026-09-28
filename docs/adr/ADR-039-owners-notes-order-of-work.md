@@ -1,6 +1,8 @@
 # ADR-039: The owner's notes — eight new phases, watching code being written, and the order of work
 
-- **Status:** Accepted (by the owner, 2026-09-28)
+- **Status:** Accepted (by the owner, 2026-09-28). Amended by ADR-040: Phase 14 is a web interface
+  built from scratch for a phone's browser, with no phone app, and CrewOS leaves the plan (§2.9
+  and the Phase 14 line below are replaced).
 - **Date:** 2026-09-28
 - **Phase:** plan change, after Phase 13 (v1.9.0, pull request #70)
 - **Number:** ADR-037 and ADR-038 are taken by Phase 13's pull request, so this is ADR-039.

@@ -54,3 +54,4 @@ architecture must be recorded here.
 | [037](ADR-037-background-work.md)                    | Background work: Plenipo lives in the tray, and the window comes and goes                   | Accepted |
 | [038](ADR-038-updates.md)                            | Updates from GitHub Releases, signed twice, installed only when you say so                  | Accepted |
 | [039](ADR-039-owners-notes-order-of-work.md)         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)     | Accepted |
+| [040](ADR-040-phone-web-interface.md)                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amends 039)    | Accepted |

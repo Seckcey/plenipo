@@ -13,7 +13,9 @@
 
 **Added as Phase 16, last, at the owner's direction (2026-09-27):** every AI model worth having — paid AI keys with spending caps, a maker on every model so cross-company review is correct, and more than one route to the same model (ADR-036). It comes after Phase 15 and changes no earlier phase. *Moved up on 2026-09-28: see the order of work below.*
 
-**The owner's notes (2026-09-28), ADR-039:** eight new phases — the owner's control over workers (17), the organization canvas with watching workers write code as it happens (18), the AI tools page (19), Connections such as Microsoft 365 and Slack (20), the workspace with panels, windows, files, and more than one organization (21), the 8 West account service for users, billing, email, and licenses (22), Mac and Linux (23), and community (24). A phone app joins Phase 14. Selling Pro comes once the app is finished, with Stripe. The order of work below replaces the order of the phase numbers.
+**The owner's notes (2026-09-28), ADR-039:** eight new phases — the owner's control over workers (17), the organization canvas with watching workers write code as it happens (18), the AI tools page (19), Connections such as Microsoft 365 and Slack (20), the workspace with panels, windows, files, and more than one organization (21), the 8 West account service for users, billing, email, and licenses (22), Mac and Linux (23), and community (24). Selling Pro comes once the app is finished, with Stripe. The order of work below replaces the order of the phase numbers.
+
+**Changed after Phase 13 (v1.9.0), at the owner's direction (2026-09-27):** Phase 14 is Plenipo's own web interface, built from scratch, for using Plenipo from a phone's browser or another device; the work stays on the PC and Guard still decides (ADR-040).
 
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
@@ -31,7 +33,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 6 | 20 | Connections: Microsoft 365, Slack, Google, and more | Planned |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
-| 9 | 14 | The remote: CrewOS and a phone app | Planned |
+| 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
 | 10 | 15 | Additional providers, departments, Windows servers, and Milepost | Planned |
 | 11 | 9 | Sales department on HubSpot | Postponed (ADR-018); after Connections |
 | 12 | 23 | Mac and Linux | Planned |
@@ -76,7 +78,7 @@ Plenipo is not merely another chat client. It is the control plane for an organi
    Sensitive or destructive operations require policy-based approval. Agents do not grant themselves additional authority.
 
 9. **Local-first, remote-capable later**  
-   Desktop Plenipo owns execution. CrewOS may later provide remote visibility and approved remote control, but the browser app must not become the privileged local runtime.
+   Desktop Plenipo owns execution. Plenipo's own web interface (Phase 14) lets the owner see and steer it from a phone, but the browser must not become the privileged local runtime.
 
 10. **No phase advances on optimism**  
     Each phase has explicit acceptance criteria. Complete and verify the current phase before beginning the next.
@@ -112,7 +114,7 @@ Plenipo should evolve into these logical components:
 - **Plenipo Guard** — permissions, approvals, policy enforcement
 - **Plenipo Ledger** — durable tasks, messages, events, executions, audit history
 - **Plenipo Vault** — credential references and protected secrets
-- **Plenipo Integrations** — GitHub, HubSpot (the CRM of the future Sales department), CrewOS, and future business systems
+- **Plenipo Integrations** — GitHub, HubSpot (the CRM of the future Sales department), and future business systems
 
 ### 2.3 Initial organizational model
 
@@ -1539,70 +1541,78 @@ Core product behavior stable.
 
 ---
 
-# Phase 14 — CrewOS Remote Visibility and Approved Remote Control
+# Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch
 
-**Added (ADR-039, 2026-09-28):** a phone app for iPhone and Android joins this phase. A phone cannot run the AI tools, so the phone app is a **remote** for the owner's PC, like CrewOS in a browser: it shows the work, takes objectives, and answers approvals. It pairs through the owner's 8 West account (Phase 22). On screen, both are "the remote".
+**Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides. It reaches the PC through the relay 8 West already runs for Milepost, it can send notices to a phone even when the page is closed, the owner can **approve and allow right from a notice** as well as in the web interface, and it is a **Pro** feature. The phone does as much as it safely can.
 
 ## Goal
 
-Allow remote visibility and bounded command submission without moving privileged execution into the browser.
+Let the owner do as much as possible from a phone or another device, and at the very least approve and allow from a notice and from the web interface, while the work, the permissions, and the records stay on the owner's PC.
 
 ## Deliverables
 
-- secure desktop-to-CrewOS channel
-- device identity
-- authenticated remote status
-- task summaries
-- approval notifications
-- remote objective submission
-- explicit local policy controlling remote actions
-- offline behavior
-- **phone app (iPhone and Android)** on the same channel and rules: status, task summaries, objectives, approvals, and notifications. Built with Tauri 2's mobile targets or as an installable web app, chosen in this phase's ADR.
-- **pairing through the 8 West account** (Phase 22): the desktop app signs in to the owner's account; a phone or browser is added from the PC and can be removed from the PC; a lost phone is cut off from the PC in one step
-- **the phone's own lock** (passcode, face, or fingerprint) before any approval from the phone
-- **approvals the owner keeps on the PC only** (for example, Production servers): a local setting, and each one shows on the phone as "approve on your PC"
+- a web interface built from scratch, made for a phone's screen first, using the design system (ADR-030) and the plain words in `docs/design/vocabulary.md`; it opens in the phone's browser, with no phone app to install
+- the phone reaches the PC through **8 West's relay, the one Milepost already uses** (on Linode). Plenipo on the PC connects out to the relay, so nothing is opened on the PC or the router. The relay only passes messages along: what the phone and the PC say to each other is encrypted end to end, so the relay cannot read the work, answer an approval, or make up a request. Milepost keeps working as before (the relay change is approved by the owner in the relay's own repository). The relay's address and sign-in never go into this repository.
+- pairing a device from the PC: a one-time code (or QR code) the PC shows, or the owner's 8 West account (Phase 22, which comes first in the order of work); the phase's ADR chooses. Each paired device has a name, shows in Settings, and can be removed; a lost phone is cut off from the PC in one step
+- signing in: every request is signed in, sessions end on their own, and removing a device ends its sessions at once
+- **approve and allow from the phone, at the very least:** everything that waits for the owner on the Approvals page (Approve or Refuse an approval card; Keep or Discard a lesson) and **Allow again** after Stop all, in the web interface **and right from the notice**. On Android the notice has the buttons; on an iPhone, as far as we know today, a web page's notice has no buttons, so one tap opens that approval with its buttons (the phase checks what each phone allows). The phone confirms it is the owner first (its passcode, face, or fingerprint); the phase's ADR settles how that works from a notice. An approval already answered on the PC shows as answered, and answering twice changes nothing
+- approvals the owner keeps on the PC only (for example, Production servers): a local setting, none to begin with, and each one shows on the phone as "approve on your PC"
+- **as much else as can be done safely**, the same as on the PC: every page to read (Home, the organization, projects, workers, tasks and their conversations, Activity, AI tools, Diagnostics); send an objective to a manager; stop a task, **Stop all**, and **Allow again**; **Run again** or **Leave stopped** after an unexpected stop; and the web interface's own choices (its notices and theme)
+- **what stays on the PC only:** the terminal and any shell, files, the screen and Plenipo's browser, secrets, and anything that widens what workers may do or who may connect (permissions, switches, Guard's rules, adding a device, turning phone access on)
+- notices on the phone, **even when the page is closed** (web push, sent through the relay), each with a short line saying what needs the owner (for example "Approve: git push to Website"). The line is encrypted so only the owner's phone can read it, not the relay, Apple, or Google; a choice on the phone shows only "Something needs you" on the lock screen instead. On an iPhone, the page is added to the Home Screen first; the web interface shows how
+- a switch on the PC, off to begin with: Settings → Switches → use Plenipo from another device; turning it off cuts every device off at once
+- **Pro only** (ADR-021): on Free, the switch says it comes with Pro and nothing connects to the relay
+- when the PC cannot be reached, the web interface says so in plain words and changes nothing
+- every request from another device goes through Guard and is recorded in the Ledger with the device that sent it
 
 ## Architecture
 
-CrewOS is a remote presentation/control surface.
+The web interface is a presentation and control surface. Plenipo on the owner's PC remains the execution authority (ADR-002).
 
-Plenipo Desktop remains the execution authority on the local machine.
+A request from another device flows:
 
-A remote request should flow:
+web interface -> signed-in Plenipo connection on the PC -> Guard -> organization/router -> AI tool on the PC
 
-CrewOS -> authenticated Plenipo endpoint -> Guard -> organization/router -> local runtime
+The connection offers a fixed list of requests (the deliverables above), each checked by Guard. It does not reuse the desktop window's commands, which stay the main window's alone.
 
-Never expose an unrestricted local shell through CrewOS.
+Never expose a shell, the terminal, files, the screen, the browser, secrets, or the settings that widen what workers may do or who may connect through the web interface.
 
 ## Tests
 
-- authenticated connection
-- invalid device
-- revoked session
-- remote objective creation
-- remote approval
-- desktop offline
-- replay protection
-- connection loss
-- local user disables remote control
-- phone paired from the PC; a phone never paired is refused; a removed phone is refused at once
-- an approval from the phone asks for the phone's own lock first
-- an approval kept "on the PC only" cannot be answered from the phone
-- the phone app never starts an AI tool or runs a program
+- pairing a device, and a wrong or expired pairing code
+- signed-in connection
+- unknown device (never paired)
+- removed device and ended session, refused at once
+- replay protection (a copied request is refused)
+- too many wrong tries (the connection slows down, then refuses)
+- sending an objective from another device
+- approving, refusing, and allowing from the web interface, after the phone confirms it is the owner
+- approving, refusing, and allowing right from a notice (Android), and one tap from a notice to that approval (iPhone)
+- an approval answered on the PC first, then on the phone (and the other way round): the first answer counts, the second changes nothing
+- an approval kept "on the PC only" cannot be answered from another device
+- stop a task, Stop all, Allow again, Run again, and Leave stopped from another device
+- PC offline, and connection lost part way through
+- the relay cannot read a request, answer one, or make one up, and a request replayed through the relay is refused
+- a notice's words can be read only on the owner's phone (not by the relay or the push service), and the lock-screen choice shows only "Something needs you"
+- Free edition: nothing connects to the relay, and the switch says it comes with Pro
+- the owner turns the switch off on the PC while a device is connected
+- the web interface cannot start an AI tool, run a program, reach a shell, the terminal, files, the screen, the browser, or secrets, or change permissions, switches, Guard's rules, or paired devices
+- the web interface on a phone-sized screen, in both themes, from the keyboard, with no errors
 
 ## Acceptance Criteria
 
-The user can remotely view high-level Plenipo state and submit an approved objective while local Guard policies remain authoritative. The same holds from the phone app.
+From a phone, the owner can see what Plenipo is doing, approve, refuse, and allow both in the web interface and right from a notice, and send an objective, while Guard on the PC decides each request and the Ledger records it. Turning the switch off on the PC cuts every device off at once.
 
 ## Dependencies
 
-Installed desktop product stable. The 8 West account service (Phase 22) for pairing.
+Phase 13 (Plenipo installed, living in the tray, and able to start with Windows). Phase 11A (the license key), because this is Pro only. Phase 22 (the 8 West account), if pairing goes through the account. The relay that Milepost uses, with a small change made in its own repository.
 
 ## Out of Scope
 
-- unrestricted remote desktop
-- public unauthenticated endpoints
-- replacing the local UI
+- remote desktop, the screen, the terminal, files, or a shell from another device
+- public endpoints that anyone can reach without signing in
+- replacing the desktop window
+- a phone app (iPhone or Android): the web interface works in any phone's browser
 
 ---
 
@@ -2144,7 +2154,7 @@ Phase 11A's request and response contract. A Stripe account for Plenipo, with St
 
 - anything that reads the owner's work, projects, or Ledger
 - telemetry, analytics, or crash reporting from Plenipo
-- community features (Phase 24) and remote pairing (Phase 14), which build on accounts later
+- community features (Phase 24) and pairing a phone with the web interface (Phase 14), which build on accounts later
 
 ---
 
@@ -2200,7 +2210,7 @@ Phase 13 (installer and updates on Windows as the model). A Mac to test on.
 
 ## Out of Scope
 
-- a full Plenipo on phones: phones are remotes (Phase 14)
+- a full Plenipo on phones: a phone uses the web interface (Phase 14)
 
 ---
 
@@ -2216,13 +2226,13 @@ Let Plenipo owners find each other, talk, and work together — without anyone r
 
 - **public profiles** (opt-in): the owner's avatar, status, mood, and message from Phase 18, through the 8 West account
 - **private messages** between people
-- **linked organizations:** two owners agree to link. One organization can send an objective to the other, and the other owner's Guard and approvals decide it, like a request from the remote (Phase 14)
+- **linked organizations:** two owners agree to link. One organization can send an objective to the other, and the other owner's Guard and approvals decide it, like a request from the web interface (Phase 14)
 - **collaborators:** invite a person into your organization as a viewer, an approver, or a manager. Every action they take is recorded, and the owner stays on top
 - **block, report, and leave,** everywhere
 
 ## Technical Implementation
 
-- Built on the account service (Phase 22) and the remote channel (Phase 14). A collaborator's or a linked organization's request enters Plenipo the same way the remote's does: authenticated, through Guard, never a shell or a file path.
+- Built on the account service (Phase 22) and the web interface's signed-in connection (Phase 14). A collaborator's or a linked organization's request enters Plenipo the same way the web interface's does: authenticated, through Guard, never a shell or a file path.
 - **Other people's words are untrusted input** to the owner's workers (plan §3.1), like email in Phase 20.
 - This phase's ADR decides whether private messages are end-to-end encrypted, how long anything is kept, and how reports are handled and by whom.
 - Terms of service, an age requirement, a moderation process, and the privacy policy are written before launch, with an attorney.
@@ -2241,7 +2251,7 @@ Two owners link their organizations. One sends the other an objective, which run
 
 ## Dependencies
 
-Phase 22 (accounts), Phase 14 (the remote channel), Phase 18 (profiles). An attorney's review of the terms and the privacy policy.
+Phase 22 (accounts), Phase 14 (the web interface's signed-in connection), Phase 18 (profiles). An attorney's review of the terms and the privacy policy.
 
 ## Out of Scope
 
@@ -2359,7 +2369,7 @@ That MVP must allow:
 13. Pause for explicit approval on sensitive operations.
 14. Return a synthesized result to the user.
 
-Do not delay this MVP to implement Sales, CrewOS, advanced browser control, or additional providers.
+Do not delay this MVP to implement Sales, remote access, advanced browser control, or additional providers.
 
 ---
 
