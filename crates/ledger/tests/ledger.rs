@@ -106,8 +106,11 @@ fn upgrading_an_existing_ledger_takes_a_backup_first() {
     let notice = status
         .notices
         .iter()
-        .find(|n| n.contains(&format!("upgraded from version {current}")))
+        .find(|n| n.starts_with("Plenipo updated the Ledger"))
         .unwrap();
+    // Plain words on screen: no layout version or database talk in the sentence.
+    assert!(!notice.contains("schema"), "{notice}");
+    assert!(!notice.contains(&format!("version {current}")), "{notice}");
     let backups: Vec<_> = std::fs::read_dir(path.parent().unwrap().join("backups"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -141,7 +144,7 @@ fn phase2_ledger_upgrades_to_runtime_sessions() {
     assert!(status
         .notices
         .iter()
-        .any(|n| n.contains("upgraded from version 1")));
+        .any(|n| n.starts_with("Plenipo updated the Ledger") && n.contains("pre-migration-v1-")));
     // Phase 2 history is intact, and Phase 2 tasks are not session turns.
     assert_eq!(l.events_for_task(&task_id).unwrap().len(), 2);
     assert!(l.unfinished_session_tasks().unwrap().is_empty());
@@ -202,7 +205,7 @@ fn phase3_ledger_upgrades_to_liaison_messages() {
         .unwrap()
         .notices
         .iter()
-        .any(|n| n.contains("upgraded from version 2")));
+        .any(|n| n.starts_with("Plenipo updated the Ledger") && n.contains("pre-migration-v2-")));
     // Phase 3 sessions and turns are intact and carry no Liaison messages.
     assert_eq!(l.session_tasks(&session_id).unwrap()[0].id, task_id);
     assert_eq!(
@@ -247,7 +250,7 @@ fn phase4_ledger_upgrades_to_the_workforce() {
         .unwrap()
         .notices
         .iter()
-        .any(|n| n.contains("upgraded from version 3")));
+        .any(|n| n.starts_with("Plenipo updated the Ledger") && n.contains("pre-migration-v3-")));
     // Earlier records are intact, with the new columns at their defaults.
     let records = l.org_records().unwrap();
     let dept = records

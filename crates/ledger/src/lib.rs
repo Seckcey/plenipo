@@ -103,9 +103,11 @@ impl Ledger {
         let report = migrate::migrate(&conn, migrations, |from| {
             let info =
                 maintenance::snapshot(&conn, &backup_dir, &format!("pre-migration-v{from}"))?;
+            // The owner sees this once, after an update: plain words (docs/design/vocabulary.md).
+            // The layout version stays in the backup's file name, not in the sentence.
             notices.push(format!(
-                "The ledger schema was upgraded from version {from}. A backup of the previous \
-                 version was saved to {}.",
+                "Plenipo updated the Ledger, where it keeps your activity history, for this \
+                 version. Nothing was lost: a copy of the old Ledger was saved first, in {}.",
                 info.path
             ));
             Ok(())
