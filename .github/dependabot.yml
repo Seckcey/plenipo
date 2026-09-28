@@ -3,7 +3,8 @@
 # and once a week Dependabot opens a pull request for any newer release of an action, an npm
 # package, or a Rust crate, for the owner to review and merge. Minor and patch updates of packages (small version
 # steps that keep things compatible) come as one pull request per kind, so there are fewer to
-# read; each pull request's title starts the way this repository's commits do.
+# read; each pull request's title starts the way this repository's commits do. Major versions of
+# packages are not proposed: they need code changes and are upgraded on purpose.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -18,6 +19,11 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+    ignore:
+      # A new major version changes how a package is used and needs code changes: those are
+      # deliberate upgrades, not weekly chores.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       minor-and-patch:
         patterns: ["*"]
@@ -28,6 +34,11 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+    ignore:
+      # A new major version changes how a package is used and needs code changes: those are
+      # deliberate upgrades, not weekly chores.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       minor-and-patch:
         patterns: ["*"]
