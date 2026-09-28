@@ -43,6 +43,20 @@ const KIND_WORD: Record<ArchivedKind, string> = {
 
 // ---- Delete for good ------------------------------------------------------------------------
 
+/** "Delete the Website project and its 3 agents for good?" */
+function deleteTitle(kind: ArchivedKind, preview: DeletionPreview): string {
+  const n = preview.agents.length;
+  if (kind === "position") {
+    return n > 1
+      ? `Delete ${preview.name} and ${plural(n - 1, "agent")} under it for good?`
+      : `Delete ${preview.name} for good?`;
+  }
+  const item = `the ${preview.name} ${KIND_WORD[kind]}`;
+  return n > 0
+    ? `Delete ${item} and its ${plural(n, "agent")} for good?`
+    : `Delete ${item} for good?`;
+}
+
 /**
  * Ask before deleting an archived agent, project, or department for good. Lists everything that
  * goes; the agents whose experience is above your organization's average start out checked to be
@@ -96,8 +110,15 @@ export function DeleteForGoodDialog({
     void run(() => onDelete(preview.agents.map((a) => a.positionId).filter((a) => save.has(a))));
   };
 
-  const title = preview ? `Delete ${preview.name} for good?` : "Delete for good?";
+  const title = preview ? deleteTitle(kind, preview) : "Delete for good?";
   const deleted = preview ? preview.agents.length - save.size : 0;
+  // What goes along besides the item itself (a department's projects).
+  const going = preview
+    ? [
+        ...(kind === "department" ? [] : preview.departments.map((d) => `the ${d} department`)),
+        ...(kind === "project" ? [] : preview.projects.map((x) => `the ${x} project`)),
+      ]
+    : [];
   return (
     <Modal title={title} onClose={onCancel} wide>
       <form className="modal__body" aria-label="Delete for good" onSubmit={submit}>
@@ -113,16 +134,7 @@ export function DeleteForGoodDialog({
               This cannot be undone. The {KIND_WORD[kind]} leaves every list; a short record stays
               in the Ledger so older work still shows its name. Nothing on your PC is deleted.
             </p>
-            {(preview.projects.length > 0 || preview.departments.length > 0) && (
-              <p>
-                Going with it:{" "}
-                {[
-                  ...preview.departments.map((d) => `the ${d} department`),
-                  ...preview.projects.map((x) => `the ${x} project`),
-                ].join(", ")}
-                .
-              </p>
-            )}
+            {going.length > 0 && <p>Going with it: {going.join(", ")}.</p>}
             {preview.agents.length === 0 ? (
               <p className="muted">No agents go with it.</p>
             ) : (
@@ -157,8 +169,8 @@ export function DeleteForGoodDialog({
               </fieldset>
             )}
             <p className="muted" role="status">
-              {plural(save.size, "agent")} saved to your Workforce; {plural(deleted, "agent")}{" "}
-              deleted for good.
+              Will save {plural(save.size, "agent")} to your Workforce and delete{" "}
+              {plural(deleted, "agent")} for good.
             </p>
           </>
         )}

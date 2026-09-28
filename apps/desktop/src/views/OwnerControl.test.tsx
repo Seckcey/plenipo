@@ -122,6 +122,19 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
       .closest("tr")!;
     expect(designer).toHaveTextContent("with the Q4 Campaign project");
     expect(within(designer).queryByRole("button", { name: "Bring back Designer" })).toBeNull();
+    // It leads no one, so it can still be saved to the Workforce on its own.
+    expect(
+      within(designer).getByRole("button", { name: "Save Designer to my Workforce" }),
+    ).toBeInTheDocument();
+    // Its supervisor leads the project: it goes with the project, not on its own.
+    const supervisor = within(agents)
+      .getByRole("rowheader", { name: /Campaign Supervisor/ })
+      .closest("tr")!;
+    expect(
+      within(supervisor).queryByRole("button", {
+        name: "Save Campaign Supervisor to my Workforce",
+      }),
+    ).toBeNull();
     await user.click(within(projects).getByRole("button", { name: "Bring back Q4 Campaign" }));
     expect(api.bringBack).toHaveBeenCalledWith("project", "pr-camp");
     expect(await screen.findByText("Brought back Q4 Campaign.")).toBeInTheDocument();
@@ -163,9 +176,13 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Archived (5)" }));
     await user.click(screen.getByRole("button", { name: "Delete Q4 Campaign for good" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete Q4 Campaign for good?" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete the Q4 Campaign project and its 3 agents for good?",
+    });
     expect(dialog).toHaveTextContent("This cannot be undone");
     expect(dialog).toHaveTextContent("a short record stays in the Ledger");
+    // The project itself is not listed as going along with itself.
+    expect(dialog).not.toHaveTextContent("Going with it");
     // The experienced ones start out checked.
     const supervisor = within(dialog).getByRole("checkbox", { name: /Campaign Supervisor/ });
     const designer = within(dialog).getByRole("checkbox", { name: /^Designer/ });
@@ -174,7 +191,7 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
     expect(designer).not.toBeChecked();
     expect(writer).toBeChecked();
     expect(within(dialog).getByRole("status")).toHaveTextContent(
-      "2 agents saved to your Workforce; 1 agent deleted for good.",
+      "Will save 2 agents to your Workforce and delete 1 agent for good.",
     );
     await user.click(writer);
     await user.click(within(dialog).getByRole("button", { name: "Delete for good" }));

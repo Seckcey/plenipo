@@ -58,6 +58,12 @@ export function archivedWithLine(p: { archivedWith: PositionInfo["archivedWith"]
   return p.archivedWith ? `with the ${p.archivedWith.name} ${p.archivedWith.kind}` : "on its own";
 }
 
+/** The role a "Hire a VP" button starts with: the built-in VP role, else the first of yours. */
+export function vpRoleId(snapshot: OrgSnapshot): string | null {
+  const vps = snapshot.roles.filter((r) => r.kind === "superintendent");
+  return (vps.find((r) => r.template) ?? vps[0])?.id ?? null;
+}
+
 /** The position's role's specialties (built-in first, then yours). */
 export function specialtiesOf(snapshot: OrgSnapshot, roleId: string): SpecialtyInfo[] {
   const role = snapshot.roles.find((r) => r.id === roleId);

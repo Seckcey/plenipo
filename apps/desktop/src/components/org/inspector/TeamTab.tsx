@@ -94,7 +94,10 @@ function MoveForm({
       onSubmit={(e) => {
         e.preventDefault();
         const to = moveTo === OWNER_VALUE ? null : moveTo;
-        if (moveTo) void go(() => actions.api.move(p.id, to));
+        // Once moved, the choice is where it already reports: start the form over.
+        if (moveTo) {
+          void go(() => actions.api.move(p.id, to)).then((moved) => moved && setMoveTo(""));
+        }
       }}
     >
       <Field

@@ -259,7 +259,11 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
     await waitForText(browser, box, "This cannot be undone");
     const keep = await browser.$(`${box} input[type="checkbox"]`);
     if (!(await keep.isSelected())) await keep.click();
-    await waitForText(browser, box, "1 agent saved to your Workforce; 0 agents deleted for good.");
+    await waitForText(
+      browser,
+      box,
+      "Will save 1 agent to your Workforce and delete 0 agents for good.",
+    );
     await screenshot(browser, "delete-for-good");
     await confirm(browser, "Delete for good");
     await waitForText(browser, ".toasts", "saved to your Workforce");

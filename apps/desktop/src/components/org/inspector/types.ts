@@ -14,7 +14,8 @@ export interface InspectorActions {
    */
   change: (work: () => Promise<unknown>) => Promise<string | null>;
   giveObjective: (positionId: string, objective: string) => Promise<string | null>;
-  hire: (reportsTo: string | null) => void;
+  /** Open the Hire box under `reportsTo` (`null`: you), with `roleId` chosen when given. */
+  hire: (reportsTo: string | null, roleId?: string | null) => void;
   newDepartment: (reportsTo: string | null) => void;
   newProject: (departmentId: string | null) => void;
   newRole: () => void;

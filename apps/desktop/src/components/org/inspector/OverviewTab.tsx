@@ -19,13 +19,33 @@ const MAX_OBJECTIVE = 20_000;
 
 /** "Claude Code · opus · high effort". */
 function modelLine(snapshot: OrgSnapshot, p: PositionInfo): string {
-  if (!p.runtimeId) return "No model can take its work now";
+  if (!p.runtimeId) {
+    return p.active
+      ? "No model can take its work now"
+      : "Automatic: the rules pick one when it is brought back";
+  }
   const effort = p.route?.choice?.effort;
   return [
     runtimeLabel(snapshot, p.runtimeId),
     p.model ?? "the AI tool's default model",
     ...(effort ? [`${EFFORT_LABEL[effort].toLowerCase()} effort`] : []),
   ].join(" · ");
+}
+
+/** Who picked its model (ADR-041): you, its own rule, its department's or the organization's
+ * rule, or else its role's model choices. */
+function chosenBy(p: PositionInfo, roleName: string): string {
+  if (!p.automatic) return "You (fixed for this agent)";
+  const from = p.route?.modelFrom;
+  switch (from?.layer) {
+    case "agent":
+      return "Automatic: its own rule";
+    case "department":
+    case "organization":
+      return `Automatic: ${from.name}'s rule`;
+    default:
+      return `Automatic: ${roleName} model choices`;
+  }
 }
 
 export function OverviewTab({
@@ -101,11 +121,7 @@ export function OverviewTab({
           )}
         </dd>
         <dt>Chosen by</dt>
-        <dd>
-          {p.automatic
-            ? `Automatic: ${role?.name ?? p.roleName} model choices`
-            : "You (fixed for this position)"}
-        </dd>
+        <dd>{chosenBy(p, role?.name ?? p.roleName)}</dd>
         <dt>Department</dt>
         <dd>{department?.name ?? "—"}</dd>
         <dt>Project</dt>

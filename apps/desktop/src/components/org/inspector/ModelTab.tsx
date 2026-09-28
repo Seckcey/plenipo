@@ -27,7 +27,7 @@ import {
   ruleSummary,
   tokens,
 } from "../../../routing/format";
-import { useRoutingOnce } from "../../../routing/useRouting";
+import { useRouting } from "../../../routing/useRouting";
 import { ModelPicker } from "../../models/ModelPicker";
 import { RuleEditor } from "../../models/RuleEditor";
 import { Field, Option, Options, Refusal, Section } from "./parts";
@@ -49,8 +49,10 @@ export function ModelTab({
   snapshot: OrgSnapshot;
   actions: InspectorActions;
 }) {
-  const routing = useRoutingOnce();
+  const { snapshot: routing, error: routingError } = useRouting();
   const run = useRun(actions);
+  // While its own rule is open, the choices that change it wait: saving the rule would undo them.
+  const [editing, setEditing] = useState(false);
   return (
     <>
       <RouteSection p={p} snapshot={snapshot} />
@@ -73,9 +75,19 @@ export function ModelTab({
             routing={routing}
             actions={actions}
           />
-          {routing && <EffortSection p={p} routing={routing} run={run} />}
-          {routing && <OwnRule p={p} routing={routing} run={run} />}
-          {routing && <Suggestions p={p} snapshot={snapshot} routing={routing} run={run} />}
+          {routing ? (
+            <>
+              <EffortSection p={p} routing={routing} run={run} locked={editing} />
+              <OwnRule p={p} routing={routing} run={run} open={editing} onOpen={setEditing} />
+              <Suggestions p={p} snapshot={snapshot} routing={routing} run={run} locked={editing} />
+            </>
+          ) : (
+            <p className={routingError ? "inspector__detail" : "muted"}>
+              {routingError
+                ? `Its effort and rule cannot be shown: the model settings could not be read (${routingError}).`
+                : "Reading the model settings…"}
+            </p>
+          )}
           <Refusal error={run.error} />
         </>
       ) : (
@@ -221,20 +233,32 @@ function EffortSection({
   p,
   routing,
   run,
+  locked,
 }: {
   p: PositionInfo;
   routing: RoutingSnapshot;
   run: Run;
+  /** Its own rule is open below: this waits until it is saved or cancelled. */
+  locked: boolean;
 }) {
-  const own = p.ownRule?.effort ?? null;
-  const model = p.route?.choice ?? null;
+  const rule = p.ownRule ?? emptyRule();
+  const choice = p.route?.choice ?? null;
+  const modelId = choice?.modelId ?? "";
+  // Its own effort for the model it runs: one set for that model comes before its general one.
+  const own = (modelId ? rule.efforts[modelId] : undefined) ?? rule.effort ?? null;
   const levels = p.runtimeId ? effortLevels(routing, p.runtimeId, p.model) : [];
-  const now = model?.effort
-    ? `${EFFORT_LABEL[model.effort].toLowerCase()} effort`
+  const now = choice?.effort
+    ? `${EFFORT_LABEL[choice.effort].toLowerCase()} effort`
     : "no effort set";
+  // "Now" is the rules' answer only when its own setting is not the one deciding.
+  const follow =
+    p.route?.effortFrom?.layer === "agent" ? "Follow the rules" : `Follow the rules (now: ${now})`;
   const save = (effort: Effort | null) => {
-    const rule: ModelRule = { ...(p.ownRule ?? emptyRule()), effort };
-    void run.change(() => setModelRule({ layer: "agent", id: p.id }, rule));
+    // The choice here is its effort for any model, so one set for this model must not win.
+    const efforts = { ...rule.efforts };
+    if (modelId) delete efforts[modelId];
+    const next: ModelRule = { ...rule, efforts, effort };
+    void run.change(() => setModelRule({ layer: "agent", id: p.id }, next));
   };
   return (
     <Section title="Effort">
@@ -254,10 +278,10 @@ function EffortSection({
               id={id}
               aria-describedby={hintId}
               value={own && levels.includes(own) ? own : ""}
-              disabled={run.pending}
+              disabled={run.pending || locked}
               onChange={(e) => save((e.target.value || null) as Effort | null)}
             >
-              <option value="">Follow the rules (now: {now})</option>
+              <option value="">{follow}</option>
               {levels.map((l) => (
                 <option key={l} value={l}>
                   {EFFORT_LABEL[l]} effort
@@ -267,14 +291,29 @@ function EffortSection({
           )}
         </Field>
       )}
+      {locked && levels.length > 0 && (
+        <p className="muted">Save or cancel its own rule below first.</p>
+      )}
     </Section>
   );
 }
 
 /** Its own rule: models in order, efforts, and companies never to use, for this agent alone. */
-function OwnRule({ p, routing, run }: { p: PositionInfo; routing: RoutingSnapshot; run: Run }) {
+function OwnRule({
+  p,
+  routing,
+  run,
+  open,
+  onOpen,
+}: {
+  p: PositionInfo;
+  routing: RoutingSnapshot;
+  run: Run;
+  open: boolean;
+  onOpen: (open: boolean) => void;
+}) {
   const rule = p.ownRule ?? emptyRule();
-  const [open, setOpen] = useState(false);
+  const setOpen = onOpen;
   const save = async (next: ModelRule) => {
     if (await run.change(() => setModelRule({ layer: "agent", id: p.id }, next))) setOpen(false);
   };
@@ -315,11 +354,14 @@ function Suggestions({
   snapshot,
   routing,
   run,
+  locked,
 }: {
   p: PositionInfo;
   snapshot: OrgSnapshot;
   routing: RoutingSnapshot;
   run: Run;
+  /** Its own rule is open: this waits until it is saved or cancelled. */
+  locked: boolean;
 }) {
   const specialty = snapshot.roles
     .find((r) => r.id === p.roleId)
@@ -354,7 +396,7 @@ function Suggestions({
           <Option
             label="Use these models"
             hint="Puts the suggested models first in its own rule. Nothing changes until you choose this."
-            disabled={run.pending}
+            disabled={run.pending || locked}
             onClick={() =>
               void run.change(() =>
                 setModelRule(

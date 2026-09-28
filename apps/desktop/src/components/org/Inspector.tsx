@@ -8,6 +8,7 @@ import type { OrgSnapshot, PositionInfo, WorkerInfo } from "@plenipo/types";
 import { ResizeHandle, StatusPill, Tabs } from "@plenipo/ui";
 
 import { POSITION_STATUS } from "../../org/cards";
+import { vpRoleId } from "../../org/control";
 import { STATUS_LABEL, WORKER_STATE_LABEL, ago, runtimeLabel } from "../../org/format";
 import { ORG_ID, OWNER_ID } from "../../org/layout";
 import { workerStatus } from "../../org/nodes";
@@ -217,7 +218,7 @@ function OwnerPanel({
           label={`Hire ${withArticle(rankName(t, "superintendent"))}`}
           variant="primary"
           hint="A full-time leader who reports to you and runs departments for you."
-          onClick={() => actions.hire(null)}
+          onClick={() => actions.hire(null, vpRoleId(snapshot))}
         />
         <Option
           label="New department"

@@ -74,6 +74,7 @@ import {
   type CanvasHandle,
   type DragPayload,
 } from "../components/org/TopologyCanvas";
+import { vpRoleId } from "../org/control";
 import { OVERSIGHT_LABEL, OVERSIGHT_NOUN, plural } from "../org/format";
 import { ORG_ID, OWNER_ID, ancestorsOf, layoutOrganization } from "../org/layout";
 import { nodeContext } from "../org/nodes";
@@ -303,7 +304,8 @@ export function OrganizationView({
     async (work: () => Promise<unknown>): Promise<string | null> => {
       try {
         await work();
-        void reload();
+        // Wait for the organization as it is now, so the panel never shows the old value.
+        await reload();
         return null;
       } catch (reason) {
         return toCommandError(reason).message;
@@ -325,7 +327,7 @@ export function OrganizationView({
           return toCommandError(reason).message;
         }
       },
-      hire: (reportsTo) => setDialog({ kind: "hire", roleId: null, reportsTo }),
+      hire: (reportsTo, roleId = null) => setDialog({ kind: "hire", roleId, reportsTo }),
       newDepartment: (reportsTo) => setDialog({ kind: "newDepartment", reportsTo }),
       newProject: (departmentId) => setDialog({ kind: "newProject", departmentId }),
       newRole: () => setDialog({ kind: "role" }),
@@ -710,7 +712,9 @@ export function OrganizationView({
                   </Button>
                   <Button
                     variant="quiet"
-                    onClick={() => setDialog({ kind: "hire", roleId: null, reportsTo: null })}
+                    onClick={() =>
+                      setDialog({ kind: "hire", roleId: vpRoleId(snapshot), reportsTo: null })
+                    }
                   >
                     Hire {withArticle(rankName(titles, "superintendent"))}
                   </Button>

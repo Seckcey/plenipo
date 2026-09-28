@@ -332,6 +332,81 @@ describe("The properties panel", () => {
     expect(a.api.update).not.toHaveBeenCalled();
   });
 
+  it("shows the effort set for the model it runs, and waits while its own rule is open", async () => {
+    const user = userEvent.setup();
+    const org = organization();
+    const dev = org.positions.find((p) => p.id === "p-dev")!;
+    dev.ownRule = { models: [], efforts: { "m-opus": "low" }, effort: "high", neverCompanies: [] };
+    dev.route = { ...dev.route!, effortFrom: { layer: "agent", name: "this agent", id: "p-dev" } };
+    show("p-dev", org);
+    await user.click(details().getByRole("tab", { name: "AI model" }));
+    const effort = await screen.findByRole("combobox", { name: "Effort" });
+    // Its effort for Opus comes before its effort for any model.
+    expect(effort).toHaveDisplayValue("Low effort");
+    // Its own setting decides now, so following the rules would change it: no "now".
+    expect(within(effort).getByRole("option", { name: "Follow the rules" })).toBeInTheDocument();
+    // The choice here is for any model, so the one for Opus goes.
+    await user.selectOptions(effort, "Max effort");
+    expect(api.setModelRule).toHaveBeenCalledWith(
+      { layer: "agent", id: "p-dev" },
+      { models: [], efforts: {}, effort: "max", neverCompanies: [] },
+    );
+    // While its own rule is open, the effort waits: saving the rule would undo it.
+    await user.click(screen.getByRole("button", { name: "Change its own rule" }));
+    expect(screen.getByRole("combobox", { name: "Effort" })).toBeDisabled();
+    expect(screen.getByText("Save or cancel its own rule below first.")).toBeInTheDocument();
+  });
+
+  it("says so when the model settings cannot be read", async () => {
+    api.getRouting.mockRejectedValue({ kind: "internal", message: "the Ledger is busy" });
+    const user = userEvent.setup();
+    show("p-dev");
+    await user.click(details().getByRole("tab", { name: "AI model" }));
+    expect(
+      await screen.findByText(/the model settings could not be read \(the Ledger is busy\)/),
+    ).toBeInTheDocument();
+  });
+
+  it("names the rule that chose its model", () => {
+    const org = organization();
+    const dev = org.positions.find((p) => p.id === "p-dev")!;
+    dev.route = {
+      ...dev.route!,
+      modelFrom: { layer: "department", name: "the Engineering department", id: "d-eng" },
+    };
+    show("p-dev", org);
+    expect(screen.getByText("Automatic: the Engineering department's rule")).toBeInTheDocument();
+  });
+
+  it("offers People only to a position that leads a team", async () => {
+    const user = userEvent.setup();
+    show("p-dev");
+    await user.click(details().getByRole("tab", { name: "Manage" }));
+    expect(screen.queryByText("People")).not.toBeInTheDocument();
+    cleanup();
+    show("p-super");
+    await user.click(details().getByRole("tab", { name: "Manage" }));
+    expect(screen.getByText("People")).toBeInTheDocument();
+  });
+
+  it("brings back the department of a supervisor whose project went with it", async () => {
+    const user = userEvent.setup();
+    const org = organization();
+    const project = org.projects.find((x) => x.id === "pr-camp")!;
+    Object.assign(project, {
+      active: false,
+      archivedAt: Date.now() - 60_000,
+      archivedWith: { kind: "department", id: "d-mkt", name: "Marketing" },
+    });
+    const supervisor = org.positions.find((p) => p.id === "p-camp")!;
+    Object.assign(supervisor, { active: false, status: "archived", archivedAt: Date.now() });
+    const { actions: a } = show("p-camp", org);
+    await user.click(details().getByRole("tab", { name: "Manage" }));
+    expect(screen.queryByRole("button", { name: /Bring back the Q4 Campaign project/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Bring back the Marketing department" }));
+    expect(a.api.bringBack).toHaveBeenCalledWith("department", "d-mkt");
+  });
+
   it("chooses a specialty and learning for one agent", async () => {
     const user = userEvent.setup();
     const { actions: a } = show("p-dev");

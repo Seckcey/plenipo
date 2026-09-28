@@ -166,7 +166,12 @@ export function OrganizationSettings({ go }: { go: Go }) {
           head
             ? `${rankName(t, "departmentManager")}: ${head.title}`
             : `No ${rankName(t, "departmentManager")} yet`,
-          count(d.projectIds.length, "project"),
+          // A project deleted for good is only a short record: not counted.
+          count(
+            d.projectIds.filter((id) => snapshot.projects.some((x) => x.id === id && !x.deleted))
+              .length,
+            "project",
+          ),
         ].join(" · "),
         status: !d.active
           ? { status: "offline", label: d.archivedAt !== null ? "Archived" : "Inactive" }

@@ -430,6 +430,14 @@ describe("Organization view", () => {
     ).toBeInTheDocument();
   });
 
+  it("hires a VP with the VP role already chosen", async () => {
+    show(emptyOrganization());
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Hire a VP" }));
+    const dialog = screen.getByRole("dialog", { name: /^Hire/ });
+    expect(within(dialog).getByRole("combobox", { name: /^Role/ })).toHaveValue("r-super");
+  });
+
   it("writes what a role does in plain words, and edits a role you created", async () => {
     const org = sampleOrganization();
     const dev = org.roles.find((r) => r.id === "r-dev")!;

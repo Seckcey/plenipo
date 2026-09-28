@@ -464,24 +464,24 @@ function Archived({
                   </td>
                   <td className="table__actions">
                     {!p.archivedWith && !leads && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          aria-label={`Bring back ${p.title}`}
-                          onClick={() => actions.bringBack("position", p.id, p.title)}
-                        >
-                          Bring back
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          aria-label={`Save ${p.title} to my Workforce`}
-                          onClick={() => actions.saveToWorkforce(p.id, p.title)}
-                        >
-                          Save to my Workforce
-                        </Button>
-                      </>
+                      <Button
+                        size="sm"
+                        variant="quiet"
+                        aria-label={`Bring back ${p.title}`}
+                        onClick={() => actions.bringBack("position", p.id, p.title)}
+                      >
+                        Bring back
+                      </Button>
+                    )}
+                    {!leads && (
+                      <Button
+                        size="sm"
+                        variant="quiet"
+                        aria-label={`Save ${p.title} to my Workforce`}
+                        onClick={() => actions.saveToWorkforce(p.id, p.title)}
+                      >
+                        Save to my Workforce
+                      </Button>
                     )}
                     {!leads && (
                       <Button

@@ -34,46 +34,46 @@ function ActiveManage({ p, actions }: { p: PositionInfo; actions: InspectorActio
   return (
     <>
       <RenameForm key={p.title} p={p} actions={actions} />
-      <Section title="People">
-        <Options>
-          {leads && (
+      {/* An on-call position has no team and no agent of its own. */}
+      {leads && (
+        <Section title="People">
+          <Options>
             <Option
               label="Hire into team"
               variant="primary"
               hint="Add a position to its team: a new agent, or one from your Workforce."
               onClick={() => actions.hire(p.id)}
             />
-          )}
-          {leads && p.agent === null && (
-            <Option
-              label="Hire an agent"
-              variant="primary"
-              disabled={run.pending}
-              hint="Puts an agent in this vacant position so it can take objectives."
-              onClick={() => void run.go(() => actions.api.fill(p.id))}
-            />
-          )}
-          {leads && p.agent !== null && (
-            <Option
-              label="Let agent go"
-              hint="Its agent retires and its conversation ends; the position stays, vacant."
-              onClick={() =>
-                actions.confirm({
-                  title: `Let ${p.title}'s agent go?`,
-                  message: (
-                    <p>
-                      The position stays, vacant; its agent retires and its conversation ends. Its
-                      history remains in the Ledger. This is refused while it has unfinished work.
-                    </p>
-                  ),
-                  confirmLabel: "Let agent go",
-                  work: () => actions.api.vacate(p.id),
-                })
-              }
-            />
-          )}
-        </Options>
-      </Section>
+            {p.agent === null ? (
+              <Option
+                label="Hire an agent"
+                variant="primary"
+                disabled={run.pending}
+                hint="Puts an agent in this vacant position so it can take objectives."
+                onClick={() => void run.go(() => actions.api.fill(p.id))}
+              />
+            ) : (
+              <Option
+                label="Let agent go"
+                hint="Its agent retires and its conversation ends; the position stays, vacant."
+                onClick={() =>
+                  actions.confirm({
+                    title: `Let ${p.title}'s agent go?`,
+                    message: (
+                      <p>
+                        The position stays, vacant; its agent retires and its conversation ends. Its
+                        history remains in the Ledger. This is refused while it has unfinished work.
+                      </p>
+                    ),
+                    confirmLabel: "Let agent go",
+                    work: () => actions.api.vacate(p.id),
+                  })
+                }
+              />
+            )}
+          </Options>
+        </Section>
+      )}
       <Section title="Archive">
         {leadsUnit ? (
           <p className="muted">
@@ -185,12 +185,16 @@ function ArchivedManage({
     : undefined;
 
   if (department || project) {
-    const kind = department ? "department" : "project";
-    const unit = (department ?? project)!;
+    // A project archived with its department comes back (and goes) with the department.
+    const through = project?.archivedWith?.kind === "department" ? project.archivedWith : null;
+    const kind = department || through ? "department" : "project";
+    const unit = department ?? (through ? { id: through.id, name: through.name } : project!);
     return (
       <Section title="Archived">
         <p className="muted">
-          It leads the {unit.name} {kind}, so it comes back and goes with it.
+          {through
+            ? `It leads the ${project!.name} project, archived with the ${unit.name} department, so it comes back and goes with the department.`
+            : `It leads the ${unit.name} ${kind}, so it comes back and goes with it.`}
         </p>
         <Options>
           <Option
