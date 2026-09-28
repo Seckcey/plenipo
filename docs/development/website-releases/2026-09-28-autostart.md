@@ -1,4 +1,4 @@
-# Automatic homepage demo release � September 28, 2026
+# Automatic homepage demo release - September 28, 2026
 
 The owner requested the working demo as soon as the homepage opens. PR [#92](https://github.com/Seckcey/plenipo/pull/92)
 was normally merged and the exact merge deployed to <https://plenipo.8westit.com/>. The demo starts
@@ -77,3 +77,8 @@ not deleted. Runtime evidence lives under
 `build-receipt.json`, `merge-output-parity.json`, `release-record.json`, `runtime-final-check.json`,
 and `evidence/browser-live.json` with screenshots. Preview cleanup evidence remains under
 `/srv/8west/testing/plenipo-autostart-01a0e6d4/cleanup-receipt.json`.
+
+The retained `public-desktop-entry.png` records the initial hero/demo header before interaction.
+`coordinator-working-demo.png` shows the actual map and supervisor details;
+`public-phone-list-visible.png` shows all six list entries after deliberate page scrolling.
+These working-view screenshots are distinct from the no-input entry proofs.
