@@ -50,6 +50,12 @@ overlay archive field is historical; use the source identity and website-input m
 revision. Only acceptance/checklist documentation follows that tested website source, receiving
 focused formatting and link checks. The PR is handed to the coordinator for review and normal merge.
 
+A final fetch found documentation-only main advance `65d6632b06cc1cb2fffe539cfb072eb4f0808bb6`
+(phase-18 design records). It merged cleanly as `149e6c30baf7d1c5c78874000db71b6e9e26615b`.
+Website, application, dependencies, and bindings remained byte-identical to their tested sources;
+the combined documentation received fresh formatting and link checks. This factual receipt is
+the only subsequent edit.
+
 The source uses frozen pnpm installation for repository checks and standalone `npm ci` for the
 website Docker build. Both lockfiles are intentional: the existing Docker context contains only
 `apps/website`. The production image retains its non-root, read-only runtime and security headers.
