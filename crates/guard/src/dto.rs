@@ -170,8 +170,8 @@ impl SensitiveKind {
             Self::OutsideWorkspace => "rm, del, or move with a path outside the project folder",
             Self::SignIn => "a Sign in or Log in button, a form with a password field",
             Self::DesktopControl => {
-                "a worker starting to use the mouse and keyboard (asked each time, with its \
-                 reason)"
+                "a worker starting to use the mouse and keyboard, and each click, typing, and \
+                 key press after that (asked each time, with its reason)"
             }
         }
     }

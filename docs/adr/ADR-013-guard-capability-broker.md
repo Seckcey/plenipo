@@ -191,6 +191,8 @@ file>`; `main()` handles this before Tauri starts, like the diagnostic mode.
   through Guard (its sandbox blocks the rest). Claude Code workers are fully confined.
   Closing this needs Codex's shell turned off (a configuration key this phase does not assume)
   or its app-server with approval callbacks. The owner should confirm on their CLI version.
+  (Closed by [ADR-051 (Codex works through Plenipo's tools)](ADR-051-codex-own-shell.md): every
+  Codex turn runs with its own command tool off.)
 - **An approved program is trusted to behave.** Guard confines what a worker asks for, not what
   an approved program then does: `npm run build` runs the project's own scripts. Operating-system
   sandboxing of those programs (Windows AppContainer, job restrictions) is future work, so keep

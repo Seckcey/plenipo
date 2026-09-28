@@ -89,13 +89,18 @@ records what was changed and how it was checked, in plain words, without the att
       no picture, and a Ledger event records it once a minute.
 - [x] Each fix reviewed by three independent readers; their remaining notes carried into five
       follow-up commits before the push
-- [ ] CI's Windows job green on the pull request
+- [x] CI's Windows job green on the pull request (PR #74, merged)
 
 ### Batch 2 (GHSA-phg2-6j94-84g9)
 
 - [x] B7 · Computer use asks before every click and keystroke (ADR-049)
 - [x] B8 · Lessons a role keeps on its own are notes, not orders (ADR-050)
 - [x] B9 · Codex works through Plenipo's tools: its own command tool is off (ADR-051)
+
+- [x] Each fix reviewed by three independent readers; their remaining notes carried into three
+      follow-up commits (one desktop step at a time while the owner decides; decided lessons drop
+      why they waited; the Codex record says what is true of `apply_patch`)
+- [ ] CI's Windows job green on the pull request (PR #76)
 
 ### Batch 3 (GHSA-2hxf-v9c3-44q2)
 

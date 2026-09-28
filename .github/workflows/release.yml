@@ -43,15 +43,15 @@ jobs:
         run: |
           echo "::error::Run the Release workflow on main (it was started on $GITHUB_REF_NAME)"
           exit 1
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Install Rust toolchain (from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: pnpm install --frozen-lockfile
       - name: Tag matches the product version, and release notes exist
         shell: bash
@@ -199,7 +199,7 @@ jobs:
       # Kept before the check, so a dry run that fails the check still leaves the installer to look at.
       - name: Keep the signed installer (dry run)
         if: inputs.dry_run
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: plenipo-signed-installer-dry-run
           path: |

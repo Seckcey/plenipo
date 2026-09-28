@@ -37,12 +37,17 @@ company policy can pin the switch, and a Codex sub-agent's settings can only swi
 1. **Every Codex turn switches Codex's own commands off.** `turn_args` adds
    `-c features.shell_tool=false -c features.view_image=false` right after
    `--skip-git-repo-check`, before the model, the effort, Plenipo's tool server, and `resume`.
-   The read-only sandbox stays as a second wall; it still refuses the writes of Codex's
-   `apply_patch`, which Plenipo records as a file change either way.
+   The read-only sandbox stays as a second wall: `apply_patch`, Codex's own way to write in its
+   empty workspace, stays on, and the sandbox refuses its writes. Before refusing, Codex compares
+   the patch with the real file, so Codex can still learn, one yes-or-no answer per call, whether
+   a path exists and whether a guessed whole line is in it, never the contents; and Codex says
+   nothing about a refused patch in its output, so Plenipo cannot record it. A small, known gap.
+   Turning `apply_patch` off would take away only Codex's own way to write, which Plenipo does
+   not need; the check of each new Codex version watches for a way to switch it off.
 2. **Codex reads files only through Plenipo's tools.** A worker with permissions gets
-   `read_file`, `search_files`, `run_command`, and the git tools from Plenipo's tool server,
-   where Guard decides, the blocked-files list applies, secrets are hidden, and every use is
-   recorded. A worker without permissions can only answer.
+   `list_directory`, `read_file`, `search_text`, `run_command`, and the git tools from Plenipo's
+   tool server, where Guard decides, the blocked-files list applies, secrets are hidden, and
+   every use is recorded. A worker without permissions can only answer.
 3. **The posture says so.** The AI tools page reads: "Codex's own commands are off: it cannot
    run commands or read files on its own, and its read-only sandbox allows no writes and no
    network. A worker with permissions gets Plenipo's file, program, and git tools, each checked
@@ -60,12 +65,16 @@ company policy can pin the switch, and a Codex sub-agent's settings can only swi
   asks Plenipo's tools for them; a worker without file permissions is told it has none. The task
   itself is unchanged.
 - Plenipo relies on Codex honoring its own documented settings. Plenipo does not pass
-  `--strict-config`, so a later Codex that renamed the keys would only warn in its own log, and
-  the shell would be back. The adapter records the version it was checked against (0.157.1),
-  and the check of each new Codex version must repeat the tool-list check above.
+  `--strict-config`, so a later Codex that renamed the keys would ignore them and say so in its
+  output; Plenipo shows that as a warning on the task, and until the adapter is updated Codex's
+  shell would be back. The adapter records the version it was checked against (0.157.1), and
+  the check of each new Codex version must repeat the tool-list check above.
 - Codex's Windows sandbox is newer than its Linux one, and Plenipo cannot try it from Linux.
   The owner's check that `codex exec --sandbox read-only` refuses a write and a web fetch on
   Windows stands; with the shell off, the sandbox guards only `apply_patch`.
+- If a company policy on the PC pins Codex's `shell_tool` on, Codex refuses to start with
+  Plenipo's setting and the task fails with Codex's own error; Plenipo never runs Codex with its
+  shell on.
 
 ## Alternatives considered
 
@@ -78,6 +87,7 @@ company policy can pin the switch, and a Codex sub-agent's settings can only swi
   shell back. It also rejects any field in the owner's own Codex settings file that this Codex
   version does not know, which would stop Codex workers after an owner's Codex update. Left out;
   the version check carries the duty.
-- **Also switching off `apply_patch`.** It is Codex's file-writing tool; the read-only sandbox
-  already refuses its writes and Plenipo records each attempt as a file change, so this record
-  does not need it.
+- **Also switching off `apply_patch`.** Plenipo would not miss it: a worker writes through
+  Plenipo's tools, and the read-only sandbox refuses its writes. This record does not switch it
+  off; decision 1 names the small gap that leaves, and the check of each new Codex version
+  watches for a setting that closes it.

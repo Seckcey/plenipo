@@ -113,7 +113,7 @@ pub(super) enum ControlWork {
 impl ControlWork {
     /// It clicks, types, presses keys, or scrolls on the desktop: an approval card for it shows
     /// the screen as it is now (ADR-049).
-    fn on_desktop(&self) -> bool {
+    pub(super) fn on_desktop(&self) -> bool {
         matches!(
             self,
             Self::ScreenClick { .. }
@@ -140,6 +140,10 @@ pub(super) struct DesktopUse {
     pub(super) view: Option<(f64, u32, u32)>,
     /// While it has the mouse and keyboard.
     pub(super) control: Option<Arc<Watch>>,
+    /// A step's card waits for the owner's answer: no other desktop step until it is answered,
+    /// so the picture the owner decides from stays the screen as it is (ADR-049, one step at a
+    /// time while the owner decides).
+    pub(super) deciding: bool,
 }
 
 /// A worker's hold on the mouse and keyboard, watched for the owner's hand.
@@ -227,14 +231,20 @@ fn live_connection() -> (SensitiveKind, String) {
 /// before every click and keystroke): Plenipo cannot see what a point on the screen does, so
 /// the owner is asked before every one, with the worker's own words for it. A purpose that
 /// reads like paying, signing in, or sending gives its own reason instead
-/// ([`classify::purpose`]); this is the reason for every other.
-fn desktop_step(worker: &str, what: &str, purpose: &str) -> (SensitiveKind, String) {
+/// ([`classify::purpose`]); this is the reason for every other. `what` names the step and
+/// `each` counts it: ("a click", "each click"). The worker's words are quoted as
+/// [`classify::quotable`] makes them, so they cannot read as Plenipo's own.
+fn desktop_step(
+    worker: &str,
+    (what, each): (&str, &str),
+    purpose: &str,
+) -> (SensitiveKind, String) {
     (
         SensitiveKind::DesktopControl,
         format!(
-            "Plenipo cannot see what {what} on your screen does, so it asks before each one; \
+            "Plenipo cannot see what {what} on your screen does, so it asks before {each}; \
              {worker} says it is to \"{}\"",
-            cap(purpose.trim(), 200)
+            classify::quotable(purpose)
         ),
     )
 }
@@ -928,6 +938,7 @@ impl Broker {
                 purpose,
             } => {
                 let s = format!("click at ({x}, {y}): {purpose}");
+                self.one_step_at_a_time(grant_id, &s)?;
                 let (sx, sy) = self.screen_point(grant_id, x, y, &s)?;
                 let b = match button.as_str() {
                     "right" => Button::Right,
@@ -951,14 +962,15 @@ impl Broker {
                 );
                 // Every click asks (ADR-049): the worker's words give the headline when they
                 // read like paying, signing in, or sending; otherwise they are quoted.
-                p.inherent_owned = Some(
-                    classify::purpose(&purpose)
-                        .unwrap_or_else(|| desktop_step(worker, "a click", &purpose)),
-                );
+                p.inherent_owned =
+                    Some(classify::purpose(&purpose).unwrap_or_else(|| {
+                        desktop_step(worker, ("a click", "each click"), &purpose)
+                    }));
                 p
             }
             Action::ScreenType { text, purpose } => {
                 let s = format!("type on the screen: {purpose}");
+                self.one_step_at_a_time(grant_id, &s)?;
                 self.need_control(grant_id, &s)?;
                 if self.redact(&text) != text {
                     return Err(refuse(
@@ -985,13 +997,15 @@ impl Broker {
                         "a new line presses Enter, which can send or submit something".into(),
                     )
                 } else {
-                    classify::purpose(&purpose)
-                        .unwrap_or_else(|| desktop_step(worker, "typing", &purpose))
+                    classify::purpose(&purpose).unwrap_or_else(|| {
+                        desktop_step(worker, ("typed text", "each typing"), &purpose)
+                    })
                 });
                 p
             }
             Action::ScreenKeys { keys, purpose } => {
                 let s = format!("press {keys}: {purpose}");
+                self.one_step_at_a_time(grant_id, &s)?;
                 self.need_control(grant_id, &s)?;
                 let parts = parse_keys(&keys).map_err(|e| refuse(Layer::Target, e, s.clone()))?;
                 let mut p = base(
@@ -1013,8 +1027,9 @@ impl Broker {
                         "pressing Enter can send or submit something".into(),
                     )
                 } else {
-                    classify::purpose(&purpose)
-                        .unwrap_or_else(|| desktop_step(worker, "a key press", &purpose))
+                    classify::purpose(&purpose).unwrap_or_else(|| {
+                        desktop_step(worker, ("a key press", "each key press"), &purpose)
+                    })
                 });
                 p
             }
@@ -1024,6 +1039,7 @@ impl Broker {
                 purpose,
             } => {
                 let s = format!("scroll the screen: {purpose}");
+                self.one_step_at_a_time(grant_id, &s)?;
                 let at = match at {
                     Some((x, y)) => Some(self.screen_point(grant_id, x, y, &s)?),
                     None => {
@@ -1065,6 +1081,30 @@ impl Broker {
                  asked).",
                 summary,
             ))
+        }
+    }
+
+    /// One desktop step at a time while the owner decides (ADR-049): while a step's card waits,
+    /// the next click, typing, key press, or scroll is refused. A scroll can move the mouse too,
+    /// and the owner decides from the picture of the screen as it was when the card was made.
+    fn one_step_at_a_time(
+        &self,
+        grant_id: &str,
+        summary: &str,
+    ) -> std::result::Result<(), Refused> {
+        let deciding = self
+            .state()
+            .grants
+            .get(grant_id)
+            .is_some_and(|g| g.desktop.deciding);
+        if deciding {
+            Err(refuse(
+                Layer::Grant,
+                "Wait for the owner's answer to the step that is waiting before the next one.",
+                summary,
+            ))
+        } else {
+            Ok(())
         }
     }
 
