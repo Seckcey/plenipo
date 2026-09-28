@@ -10,8 +10,8 @@ modify the desktop rollout phases.
 - [x] Include purposeful Pip tips, light/dark preview, list view, reset, and static fallback.
 - [x] Keep all data fictional and disclose that no real AI runs.
 - [x] Keep desktop code, installer metadata, secondary sites, and production out of scope.
-- [ ] Complete browser, performance, frozen-install, and repository checks.
-- [ ] Deliver the review preview and open PR to the coordinator.
+- [x] Complete browser, performance, frozen-install, and repository checks.
+- [x] Deliver the review preview and open PR to the coordinator.
 
 Build guidance lives in [website operations](../development/website.md); measured results and
 remaining gates belong in [website acceptance](../development/website-validation.md).

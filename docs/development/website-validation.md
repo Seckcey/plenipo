@@ -1,5 +1,111 @@
 # Marketing website acceptance
 
+## Interactive homepage sample — September 28, 2026
+
+The owner selected React Flow and approved the preview's design direction. This website-only
+change adds six fictional organization cards, selectable objectives and conversations, sample
+approval choices and activity, Pip tips, light/dark preview, list/map controls, and reset. No
+AI runs or customer data is used. Production release is separately pending. Existing installer
+metadata remains unchanged; the application source version is not an installer availability claim.
+
+Review captures: [desktop light](../brand/website-evidence/interactive-desktop-light.png),
+[desktop dark](../brand/website-evidence/interactive-desktop-dark.png), and
+[phone](../brand/website-evidence/interactive-phone.png). These show authored sample content;
+the owner's private desktop references are not included in the website or these captures.
+
+### Source and checks
+
+Main advanced during validation. The branch was reconciled against application v1.10.0 at
+`c5d1a719cd5140029a433daddce74d0158a3bb57`, producing combined source
+`606bbd90dd0825064e787f3ba3adaf43afc57b87`. Its transferred archive SHA-256 was
+`43615446d8fe20d7d33cb54bdd7b42ef0adae4dd1822e3af147204ccea801096`.
+
+All five repository-required commands passed on that combined source on Coastline:
+
+- `pnpm check`: versions, formatting, lint, type checks, 304 UI tests, 263 desktop tests,
+  2 website tests, and 9 script tests. Completed 09:21:32 UTC.
+- `cargo fmt --all -- --check` and strict workspace/all-target clippy: passed.
+- `cargo test --workspace --locked`: 1,056 passed, none failed or ignored.
+- `pnpm bindings`: 241 export tests passed; the complete generated-file names and SHA-256
+  hashes were identical before and after. Rust/binding checks completed 09:32:19 UTC.
+
+The later `4dbc4148316fd7dd0dbc861bc6b522e3d950f2cb` change repairs retry after a browser caches
+a failed module import and adds factual documentation and screenshots. It changes no Rust,
+desktop, type-generation, or dependency source. Full `pnpm check` passed again at that exact source
+at 09:34:58 UTC with the same test counts, followed by a successful standalone `npm ci` image build.
+Existing desktop test-environment canvas/React act warnings were non-fatal. The earlier checks
+alone do not establish retry acceptance.
+
+The final browser failure test blocked the hashed demo module, verified readable fallback and an
+enabled retry, restored loading, and successfully mounted the same module with `?retry=1`.
+The successful request transferred 156,660 bytes including response headers. Returning to the
+static sample and a fresh ordinary first load also passed with no normal-run console warnings or
+errors. Temporary network, CPU, media, touch, and viewport emulation are restored after QA.
+
+The healthy isolated preview identifies source `4dbc4148316fd7dd0dbc861bc6b522e3d950f2cb`, image
+`sha256:b5c0de67fcb1a6d91037086e4a097c818d8e179772e8dc887a0e61ec4aa02e99`, and website-input
+manifest digest `daef4a56cd7c8780bdf67b6c318299498caf3928a86ddc9431907c881e1810f0`.
+It had zero restarts, healthy HTTP checks, and a 404 for a missing route. The receipt's older
+overlay archive field is historical; use the source identity and website-input manifest for this
+revision. Only acceptance/checklist documentation follows that tested website source, receiving
+focused formatting and link checks. The PR is handed to the coordinator for review and normal merge.
+
+The source uses frozen pnpm installation for repository checks and standalone `npm ci` for the
+website Docker build. Both lockfiles are intentional: the existing Docker context contains only
+`apps/website`. The production image retains its non-root, read-only runtime and security headers.
+
+### Browser and performance evidence
+
+Chromium checks covered 1440 px desktop and 390/320 px phone widths, with independent coordinator
+inspection at 1265 px. Cards, reporting edges, dragging, keyboard selection/movement, pan/zoom/fit,
+story tabs, conversation selection, both sample decisions, activity, reset, theme, Pip tips,
+static return, and phone touch selection were exercised. Phone list view is the default; no
+horizontal page overflow was observed. Workflow tab keyboard navigation, mobile menu Escape,
+and FAQ expansion remained functional. Reduced-motion emulation produced no active animations.
+With JavaScript disabled, download links and the native expandable sample remained usable.
+Normal interaction runs had no browser warning/error entries; deliberate blocked-resource errors
+are retained separately. This is Chromium coverage, not a claim of every browser or real device.
+
+No demo JS/CSS transfers before explicit activation. The measured demo JavaScript is 156,360 bytes
+gzip (421,935 decoded), CSS 6,291 bytes gzip, and the initial Pip image 13,092 bytes. The five new
+Pip exports total 66,406 bytes. Build tests enforce 180,000-byte JS and 12,000-byte CSS gzip ceilings;
+these are implementation guardrails, not the original research proposal's owner-approved budget.
+
+| Chromium phone measurement                                              | Activation | Long tasks         | Layout shift without recent input |
+| ----------------------------------------------------------------------- | ---------- | ------------------ | --------------------------------- |
+| Full cold run, 4x CPU slowdown, 1.6 Mbps download, 150 ms latency       | 2.930 s    | 63, 89, 57, 133 ms | 0.008704                          |
+| Separate cache-bypassed, fonts-settled activation under the same limits | 1.119 s    | 84 ms              | 0                                 |
+
+The second run isolates demo activation; it does not replace the first cold-page result.
+The original native-module proposal's 80 KB JS and under-50 ms/zero-new-shift aspirations were
+not all met after the owner selected React Flow. The explicit load button, readable static
+fallback, phone list default, and local-only sample bound this tradeoff. These measurements
+are observations from one emulated Chromium environment, not a performance guarantee.
+
+### Test history and resources
+
+Earlier runs are not combined into a false final pass: initial type declarations/event typing
+and an npm lock generated beside pnpm symlinks were corrected; a formatter initially scanned a
+task-local package cache; a 1 GiB container hit Node's automatic heap limit; the archived source
+needed a Git index for repository documentation checks. Cache placement, a 2 GiB container with
+explicit heap limit, a clean standalone npm lock, and a task-local index resolved those setup
+failures. The old-base frontend pass had 304 UI and 240 desktop tests. Old-base Rust was deliberately
+interrupted when main advanced; its log is not acceptance evidence. A separate earlier Rust setup
+run was paused for host resource pressure. The host backup and unrelated applications were preserved.
+
+Evidence is retained outside the repo under the worker's `implementation` artifact directory and
+`/srv/8west/testing/plenipo-interactive-01a0e6d4`: `frontend-reconciled.log`, `rust-reconciled.log`,
+the later final-source log, `performance-phone.json`, `performance-demo-isolated.json`, and preview
+receipts. Test containers are disposable, limited to 2 GiB/1 CPU with one Rust compile job and
+serial tests, and use the shared heavy-check mutex. No desktop Docker was started.
+
+The review preview uses Compose project `plenipo-interactive-01a0e6d4`, loopback port 14382,
+network `10.204.231.0/28`, 64 MiB memory, and no application data volumes. Its reservation is
+`/srv/8west/port-allocations/14382-plenipo-interactive-01a0e6d4.json`; updates hold the persistent
+allocation mutex. The task-owned SSH forward exposes the same loopback port on the desktop.
+Retain this requested review preview until handoff/review completes, then remove only this task's
+preview, network, reservation, and forward. Keep persistent lock files. Production is unchanged.
+
 ## Pip branding update — September 27, 2026
 
 The approved Plenipo logo now appears in the header/footer, with Pip in the welcome/download
