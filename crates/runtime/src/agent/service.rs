@@ -307,9 +307,9 @@ struct State {
     conversations: HashMap<String, Conversation>,
     /// The last conversation mark given out ([`Conversation::mark`]).
     marks: u64,
-    /// AI tools no new task may start on for now, and how many holds each has (ADR-058 §5,
-    /// ADR-059 §4).
-    holds: HashMap<String, u32>,
+    /// AI tools no new task may start on for now, and how many holds of each kind each has
+    /// (ADR-058 §5, ADR-059 §4).
+    holds: HashMap<String, Holds>,
     /// AI tools Plenipo gives no tasks, and why: an update left one that does not answer the way
     /// Plenipo reads it (ADR-059 §6).
     out_of_service: HashMap<String, String>,
@@ -912,18 +912,25 @@ impl AgentRuntime {
     }
 
     /// Hold `runtime_id` — no new task starts on it while the hold is kept — if no task is using
-    /// it now; otherwise the tasks using it. A task that would start meanwhile waits
-    /// ([`AgentConfig::hold_wait`] at most), then goes on.
-    pub fn hold_if_free(&self, runtime_id: &str) -> Result<RuntimeHold, Vec<String>> {
+    /// it now; otherwise the tasks using it. A task that would start meanwhile waits: for a
+    /// sign-in, [`AgentConfig::hold_wait`] at most, then it goes on; for an update, until the
+    /// hold is let go ([`HoldFor`]).
+    pub fn hold_if_free(
+        &self,
+        runtime_id: &str,
+        reason: HoldFor,
+    ) -> Result<RuntimeHold, Vec<String>> {
         let mut state = self.lock();
         let tasks = using(&state, runtime_id);
         if !tasks.is_empty() {
             return Err(tasks);
         }
-        *state.holds.entry(runtime_id.to_owned()).or_default() += 1;
+        let holds = state.holds.entry(runtime_id.to_owned()).or_default();
+        *holds.count(reason) += 1;
         Ok(RuntimeHold {
             runtime: self.clone(),
             runtime_id: runtime_id.to_owned(),
+            reason,
         })
     }
 
@@ -932,12 +939,13 @@ impl AgentRuntime {
         self.lock().holds.contains_key(runtime_id)
     }
 
-    fn release_hold(&self, runtime_id: &str) {
+    fn release_hold(&self, runtime_id: &str, reason: HoldFor) {
         {
             let mut state = self.lock();
-            if let Some(count) = state.holds.get_mut(runtime_id) {
+            if let Some(holds) = state.holds.get_mut(runtime_id) {
+                let count = holds.count(reason);
                 *count = count.saturating_sub(1);
-                if *count == 0 {
+                if *holds == Holds::default() {
                     state.holds.remove(runtime_id);
                 }
             }
@@ -945,25 +953,33 @@ impl AgentRuntime {
         self.inner.holds_changed.notify_waiters();
     }
 
-    /// Wait while `runtime_id` is held (at most [`AgentConfig::hold_wait`]), then mark the
-    /// session's step as using it.
+    /// Wait while `runtime_id` is held — while it updates, until the update and its checks are
+    /// done; while only a sign-in tab holds it, [`AgentConfig::hold_wait`] at most — then mark
+    /// the session's step as using it.
     async fn wait_for_hold(&self, runtime_id: &str, session_id: &str) {
         let deadline = tokio::time::Instant::now() + self.inner.config.hold_wait;
         loop {
             let notified = self.inner.holds_changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            {
+            let updating = {
                 let mut state = self.lock();
-                if !state.holds.contains_key(runtime_id) || tokio::time::Instant::now() >= deadline
-                {
+                let holds = state.holds.get(runtime_id).copied().unwrap_or_default();
+                let past = tokio::time::Instant::now() >= deadline;
+                if holds.update == 0 && (holds.sign_in == 0 || past) {
                     if let Some(active) = state.active.get_mut(session_id) {
                         active.runtime_id = Some(runtime_id.to_owned());
                     }
                     return;
                 }
+                holds.update > 0
+            };
+            if updating {
+                // Each step of an update has its own time limit, so the hold is let go.
+                notified.await;
+            } else {
+                let _ = tokio::time::timeout_at(deadline, notified).await;
             }
-            let _ = tokio::time::timeout_at(deadline, notified).await;
         }
     }
 
@@ -2204,11 +2220,39 @@ fn first_message(input: TurnInput) -> StepMessage {
     }
 }
 
+/// Why an AI tool is held, which decides how long a task that would start waits for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldFor {
+    /// The owner's sign-in or sign-out tab (ADR-058 §5): a task waits
+    /// [`AgentConfig::hold_wait`] at most, so a tab left open does not stop the work for good.
+    SignIn,
+    /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
+    /// starts on the new version, or on the old one if the update failed.
+    Update,
+}
+
+/// How many holds of each kind one AI tool has.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Holds {
+    sign_in: u32,
+    update: u32,
+}
+
+impl Holds {
+    fn count(&mut self, reason: HoldFor) -> &mut u32 {
+        match reason {
+            HoldFor::SignIn => &mut self.sign_in,
+            HoldFor::Update => &mut self.update,
+        }
+    }
+}
+
 /// While kept, no new task starts on one AI tool (ADR-058 §5, ADR-059 §4); dropping it lets
 /// waiting tasks go.
 pub struct RuntimeHold {
     runtime: AgentRuntime,
     runtime_id: String,
+    reason: HoldFor,
 }
 
 impl RuntimeHold {
@@ -2221,13 +2265,14 @@ impl std::fmt::Debug for RuntimeHold {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuntimeHold")
             .field("runtime_id", &self.runtime_id)
+            .field("reason", &self.reason)
             .finish()
     }
 }
 
 impl Drop for RuntimeHold {
     fn drop(&mut self) {
-        self.runtime.release_hold(&self.runtime_id);
+        self.runtime.release_hold(&self.runtime_id, self.reason);
     }
 }
 

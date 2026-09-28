@@ -31,7 +31,7 @@ use plenipo_guard::{AiToolAction, AiToolRequest, OutboundRules, Purpose};
 use plenipo_ledger::NewEvent;
 use plenipo_runtime::agent::adapter::{find_version, NewestVersion, PublishedList, StatusCheck};
 use plenipo_runtime::agent::{
-    AccountAction, AgentRuntime, AgentRuntimeInfo, AuthState, InstallState, PlanReport,
+    AccountAction, AgentRuntime, AgentRuntimeInfo, AuthState, HoldFor, InstallState, PlanReport,
     ReportedModels, RuntimeAdapter,
 };
 use serde::{Deserialize, Serialize};
@@ -521,7 +521,7 @@ impl AiTools {
             AccountAction::SignOut => AiToolAction::SignOut,
         };
         let (hold, tasks_using) = match command {
-            Some(_) => match self.agents().hold_if_free(runtime_id) {
+            Some(_) => match self.agents().hold_if_free(runtime_id, HoldFor::SignIn) {
                 Ok(hold) => (Some(hold), 0),
                 Err(tasks) => (None, tasks.len()),
             },
@@ -1079,7 +1079,7 @@ impl AiTools {
                 lock(&self.inner.live).updates.remove(runtime_id);
                 return;
             }
-            match self.agents().hold_if_free(runtime_id) {
+            match self.agents().hold_if_free(runtime_id, HoldFor::Update) {
                 Ok(hold) => break hold,
                 Err(tasks) => {
                     if now().saturating_sub(started) > WAIT_AT_MOST_MS {

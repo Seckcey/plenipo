@@ -12,7 +12,7 @@ use plenipo_runtime::agent::adapter::{find_version, ProcessEnd};
 use plenipo_runtime::agent::service::validate_model;
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSink, AgentTurn, AgentUpdate,
-    AuthState, Bridge, Effort, HostEnv, InstallState, MemorySessionStore, ProviderSession,
+    AuthState, Bridge, Effort, HoldFor, HostEnv, InstallState, MemorySessionStore, ProviderSession,
     RuntimeAdapter, TurnOutcome, TurnRequest,
 };
 use plenipo_runtime::{
@@ -417,6 +417,11 @@ struct Fakes {
 
 impl Fakes {
     fn new(auth: &str) -> Self {
+        Self::with(auth, |_| {})
+    }
+
+    /// As [`Fakes::new`], with `tweak` applied to the configuration.
+    fn with(auth: &str, tweak: impl FnOnce(&mut AgentConfig)) -> Self {
         let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
         let bin = dir.path().join("bin");
         let home = dir.path().join("home");
@@ -444,6 +449,7 @@ impl Fakes {
             executable: bin.join(exe_name("ollama")),
             args: vec!["--plenipo-ollama".into()],
         });
+        tweak(&mut config);
         let rt = AgentRuntime::new(
             config,
             builtin_adapters(),
@@ -667,7 +673,7 @@ async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
     let fakes = Fakes::new("subscription");
     fakes.rt.refresh().await;
     // Held (a sign-in or an update): a task that would start waits, then runs.
-    let hold = fakes.rt.hold_if_free("codex").unwrap();
+    let hold = fakes.rt.hold_if_free("codex", HoldFor::Update).unwrap();
     assert!(fakes.rt.held("codex"));
     let rt = fakes.rt.clone();
     let started = tokio::spawn(async move { rt.start_session("codex", "hello", None).await });
@@ -691,13 +697,50 @@ async fn a_task_waits_while_its_ai_tool_is_held_and_a_busy_tool_is_not_held() {
         assert!(Instant::now() < deadline, "the task never started");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let busy = fakes.rt.hold_if_free("claude-code").unwrap_err();
+    let busy = fakes
+        .rt
+        .hold_if_free("claude-code", HoldFor::SignIn)
+        .unwrap_err();
     assert_eq!(busy.len(), 1);
     assert!(!fakes.rt.held("claude-code"));
     // Another AI tool is free.
-    assert!(fakes.rt.hold_if_free("grok").is_ok());
+    assert!(fakes.rt.hold_if_free("grok", HoldFor::Update).is_ok());
     let id = slow.await.unwrap().unwrap().session.id;
     fakes.rt.cancel_turn(&id).await.ok();
+}
+
+#[tokio::test]
+async fn a_sign_in_tab_left_open_holds_tasks_a_while_and_an_update_until_it_is_done() {
+    let fakes = Fakes::with("subscription", |c| c.hold_wait = Duration::from_millis(300));
+    fakes.rt.refresh().await;
+    // A sign-in tab left open: a task waits a while, then goes ahead.
+    let tab = fakes.rt.hold_if_free("codex", HoldFor::SignIn).unwrap();
+    let detail = tokio::time::timeout(WAIT, fakes.rt.start_session("codex", "hello", None))
+        .await
+        .expect("the task went ahead after the wait")
+        .unwrap();
+    assert_eq!(detail.session.runtime_id, "codex");
+    drop(tab);
+
+    // An update: the task waits until the update and its checks are done, however long.
+    let update = fakes.rt.hold_if_free("grok", HoldFor::Update).unwrap();
+    let rt = fakes.rt.clone();
+    let started = tokio::spawn(async move { rt.start_session("grok", "hello", None).await });
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert!(!started.is_finished(), "the task waits for the update");
+    assert!(fakes.rt.tasks_using("grok").is_empty());
+    // A sign-in tab opened and closed meanwhile does not let it go.
+    drop(fakes.rt.hold_if_free("grok", HoldFor::SignIn).unwrap());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!started.is_finished());
+    drop(update);
+    let detail = tokio::time::timeout(WAIT, started)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.session.runtime_id, "grok");
+    assert!(!fakes.rt.held("grok"));
 }
 
 #[tokio::test]
