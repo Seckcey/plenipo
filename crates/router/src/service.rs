@@ -8,9 +8,12 @@ use plenipo_ledger::{Ledger, LedgerError};
 use plenipo_runtime::agent::{AgentRuntime, AgentRuntimeInfo};
 use serde_json::{json, Value};
 
-use crate::config::{RoutingConfig, ToolLevels};
+use crate::config::{check_model_effort, RoutingConfig, ToolEfforts, ToolLevels};
 use crate::dto::*;
-use crate::engine::{limit_words, not_ready, route, RouteInput, ToolState};
+use crate::engine::{
+    effort_for, effort_words, layers, limit_words, never_by, not_ready, route, DepartmentRule,
+    RouteInput, ToolState,
+};
 use crate::error::{Result, RouterError};
 use crate::limits;
 
@@ -37,6 +40,10 @@ pub struct Router {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RouteRequest<'a> {
     pub role_id: &'a str,
+    /// The agent (position) the work is for: its own rule applies (ADR-041).
+    pub position_id: Option<&'a str>,
+    /// Its department, by ID and name: the department's rule applies.
+    pub department: Option<(&'a str, &'a str)>,
     /// When the work belongs to a project: its name and allowed runtimes.
     pub project: Option<(&'a str, &'a [String])>,
     /// Runtimes whose work the worker reviews (cross-company review).
@@ -56,23 +63,66 @@ impl Planner {
         self.tools.iter().find(|t| t.info.id == runtime_id)
     }
 
-    /// The model the role's next worker would get, and why.
-    pub fn route(&self, request: &RouteRequest<'_>) -> RouteDecision {
+    fn input<'a>(&'a self, request: &RouteRequest<'a>, policy: &'a RolePolicy) -> RouteInput<'a> {
         let role = self
             .roles
             .get(request.role_id)
             .map_or("This role", String::as_str);
-        let policy = self.config.policy(request.role_id);
-        route(&RouteInput {
+        RouteInput {
             role,
-            policy: &policy,
+            role_id: request.role_id,
+            policy,
+            agent: request
+                .position_id
+                .and_then(|p| self.config.positions.get(p).map(|r| (p, r))),
+            department: request.department.and_then(|(id, name)| {
+                self.config
+                    .departments
+                    .get(id)
+                    .map(|rule| DepartmentRule { id, name, rule })
+            }),
+            organization: Some(&self.config.organization),
             models: &self.config.models,
             tools: &self.tools,
             project: request.project,
             reviewed: request.reviewed,
             on_limit: self.config.options.on_usage_limit,
             now: self.now,
-        })
+        }
+    }
+
+    /// The model the agent's (or the role's) next worker would get, and why.
+    pub fn route(&self, request: &RouteRequest<'_>) -> RouteDecision {
+        let policy = self.config.policy(request.role_id);
+        route(&self.input(request, &policy))
+    }
+
+    /// The effort the layers give an agent's open conversation on `runtime_id` with `model`
+    /// (ADR-041 §7): the same rule as for a fixed agent. `None`: the AI tool's default.
+    pub fn effort_now(
+        &self,
+        request: &RouteRequest<'_>,
+        runtime_id: &str,
+        model: Option<&str>,
+    ) -> Option<plenipo_runtime::agent::Effort> {
+        let listed = self
+            .config
+            .models
+            .iter()
+            .find(|m| m.runtime_id == runtime_id && m.name.as_deref() == model);
+        let levels: Vec<plenipo_runtime::agent::Effort> = self
+            .tool(runtime_id)
+            .map(|t| t.info.capabilities.effort_levels_for(model).to_vec())
+            .unwrap_or_default();
+        let policy = self.config.policy(request.role_id);
+        let input = self.input(request, &policy);
+        effort_for(
+            &layers(&input),
+            listed.map_or("", |m| m.id.as_str()),
+            listed.and_then(|m| m.effort),
+            &levels,
+        )
+        .0
     }
 
     /// Why `runtime_id` cannot take a task now (not ready, or at a usage limit), if it cannot.
@@ -89,11 +139,25 @@ impl Planner {
         })
     }
 
-    /// A decision the owner made on the position: its fixed AI tool and model.
-    pub fn fixed(&self, title: &str, runtime_id: &str, model: Option<&str>) -> RouteDecision {
-        let (runtime_label, company) = self.tool(runtime_id).map_or_else(
-            || (runtime_id.to_owned(), String::new()),
-            |t| (t.info.label.clone(), t.info.provider.clone()),
+    /// A decision the owner made on the position: its fixed AI tool and model. Its effort still
+    /// comes from the layers (its own setting first), and a layer that never uses its AI company
+    /// keeps it from starting (ADR-041 §3–§4).
+    pub fn fixed(
+        &self,
+        request: &RouteRequest<'_>,
+        title: &str,
+        runtime_id: &str,
+        model: Option<&str>,
+    ) -> RouteDecision {
+        let (runtime_label, company, company_label) = self.tool(runtime_id).map_or_else(
+            || (runtime_id.to_owned(), String::new(), String::new()),
+            |t| {
+                (
+                    t.info.label.clone(),
+                    t.info.provider.clone(),
+                    t.info.provider_label.clone(),
+                )
+            },
         );
         let label = match model {
             Some(m) => format!("{m} ({runtime_label})"),
@@ -104,15 +168,48 @@ impl Planner {
             .models
             .iter()
             .find(|m| m.runtime_id == runtime_id && m.name.as_deref() == model);
-        // The model's own effort setting, when it is in the owner's list.
-        let effort = listed.and_then(|m| m.effort).filter(|e| {
-            self.tool(runtime_id)
-                .is_some_and(|t| t.info.capabilities.effort_levels_for(model).contains(e))
-        });
-        let mut reason = format!("You set {title} to always use {label}.");
-        if let Some(e) = effort {
-            reason.push_str(&format!(" It runs at {} effort (its setting).", e.label()));
+        let policy = self.config.policy(request.role_id);
+        let input = self.input(request, &policy);
+        let layers = layers(&input);
+        let fixed_by = RuleSource {
+            layer: RuleLayer::Fixed,
+            name: "you".into(),
+            id: request.position_id.map(str::to_owned),
+        };
+        if let Some(who) = (!company.is_empty())
+            .then(|| never_by(&layers, &company))
+            .flatten()
+        {
+            return RouteDecision {
+                reason: format!(
+                    "You set {title} to always use {label}, but {who} never uses {company_label}. \
+                     Change one of them (Settings → AI models)."
+                ),
+                choice: None,
+                rank: None,
+                candidates: Vec::new(),
+                fixed: true,
+                model_from: Some(fixed_by),
+                effort_from: None,
+            };
         }
+        let levels: Vec<plenipo_runtime::agent::Effort> = self
+            .tool(runtime_id)
+            .map(|t| t.info.capabilities.effort_levels_for(model).to_vec())
+            .unwrap_or_default();
+        let (effort, effort_from, passed) = effort_for(
+            &layers,
+            listed.map_or("", |m| m.id.as_str()),
+            listed.and_then(|m| m.effort),
+            &levels,
+        );
+        let mut reason = format!("You set {title} to always use {label}.");
+        reason.push_str(&effort_words(
+            effort,
+            effort_from.as_ref(),
+            passed.as_ref(),
+            &label,
+        ));
         RouteDecision {
             reason,
             choice: Some(RouteChoice {
@@ -127,6 +224,8 @@ impl Planner {
             rank: None,
             candidates: Vec::new(),
             fixed: true,
+            model_from: Some(fixed_by),
+            effort_from,
         }
     }
 }
@@ -175,12 +274,29 @@ impl Router {
         (self.inner.tools)()
     }
 
-    /// Runtime IDs with the effort levels each accepts.
+    /// Runtime IDs with what each takes: its effort levels and its own models'.
     fn tool_levels(&self) -> ToolLevels {
         self.tools()
             .into_iter()
-            .map(|t| (t.id, t.capabilities.effort_levels))
+            .map(|t| {
+                (
+                    t.id,
+                    ToolEfforts {
+                        label: t.label,
+                        levels: t.capabilities.effort_levels,
+                        models: t.capabilities.known_models,
+                    },
+                )
+            })
             .collect()
+    }
+
+    /// The AI companies this build knows (provider IDs).
+    fn companies(&self) -> Vec<String> {
+        let mut companies: Vec<String> = self.tools().into_iter().map(|t| t.provider).collect();
+        companies.sort();
+        companies.dedup();
+        companies
     }
 
     /// The stored configuration.
@@ -357,6 +473,38 @@ impl Router {
                     })
                 })
                 .collect();
+        let organization = planner.config.organization.clone();
+        let departments = self
+            .ledger()
+            .list_departments()?
+            .into_iter()
+            .filter(|d| d.deleted_at.is_none() && d.archived_at.is_none())
+            .map(|d| DepartmentRuleView {
+                rule: planner
+                    .config
+                    .departments
+                    .get(&d.id)
+                    .cloned()
+                    .unwrap_or_default(),
+                department_id: d.id,
+                name: d.name,
+            })
+            .collect();
+        let mut agents = Vec::new();
+        for (id, rule) in &planner.config.positions {
+            if let Some(p) = self
+                .ledger()
+                .position(id)?
+                .filter(|p| p.state == plenipo_ledger::PositionState::Active)
+            {
+                agents.push(AgentRuleView {
+                    position_id: id.clone(),
+                    title: p.title,
+                    rule: rule.clone(),
+                });
+            }
+        }
+        agents.sort_by(|a, b| a.title.cmp(&b.title));
         let models = planner.config.models.clone();
         let notices = self
             .inner
@@ -368,6 +516,9 @@ impl Router {
             models,
             tools,
             roles,
+            organization,
+            departments,
+            agents,
             seen,
             options: planner.config.options,
             api_billing: false,
@@ -400,8 +551,7 @@ impl Router {
             .ledger()
             .role(role_id)?
             .ok_or_else(|| RouterError::Invalid("that role no longer exists".into()))?;
-        let mut companies: Vec<String> = self.tools().into_iter().map(|t| t.provider).collect();
-        companies.dedup();
+        let companies = self.companies();
         let tools = self.tool_levels();
         self.update("router.policy_changed", OWNER, |c| {
             let policy = c.check_policy(policy, &companies, &tools)?;
@@ -411,6 +561,91 @@ impl Router {
             ))
         })?;
         self.snapshot()
+    }
+
+    /// Set the organization's, a department's, or an agent's rule (ADR-041). An empty rule for a
+    /// department or an agent removes it. A fixed agent's effort must be one its model takes.
+    pub fn set_rule(&self, target: &RuleTarget, rule: &ModelRule) -> Result<RoutingSnapshot> {
+        let companies = self.companies();
+        let tools = self.tool_levels();
+        let (layer, id, name) = match target {
+            RuleTarget::Organization => ("organization", None, "the organization".to_owned()),
+            RuleTarget::Department(id) => {
+                let d = self
+                    .ledger()
+                    .department(id)?
+                    .filter(|d| d.deleted_at.is_none())
+                    .ok_or_else(|| {
+                        RouterError::Invalid("that department no longer exists".into())
+                    })?;
+                ("department", Some(id.clone()), d.name)
+            }
+            RuleTarget::Agent(id) => {
+                let p = self
+                    .ledger()
+                    .position(id)?
+                    .filter(|p| p.state == plenipo_ledger::PositionState::Active)
+                    .ok_or_else(|| {
+                        RouterError::Invalid("that agent is no longer on the chart".into())
+                    })?;
+                if let (Some(runtime), Some(e)) = (&p.runtime_id, rule.effort) {
+                    let label = p
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "Its default model".into());
+                    check_model_effort(e, runtime, p.model.as_deref(), &label, &tools)?;
+                }
+                ("agent", Some(id.clone()), p.title)
+            }
+        };
+        self.update("router.rule_changed", OWNER, |c| {
+            let rule = c.check_rule(rule, &companies, &tools)?;
+            match target {
+                RuleTarget::Organization => c.organization = rule.clone(),
+                RuleTarget::Department(id) => {
+                    if rule.is_empty() {
+                        c.departments.remove(id);
+                    } else {
+                        c.departments.insert(id.clone(), rule.clone());
+                    }
+                }
+                RuleTarget::Agent(id) => {
+                    if rule.is_empty() {
+                        c.positions.remove(id);
+                    } else {
+                        c.positions.insert(id.clone(), rule.clone());
+                    }
+                }
+            }
+            Ok(Some(
+                json!({ "layer": layer, "id": id, "name": name, "rule": rule }),
+            ))
+        })?;
+        self.snapshot()
+    }
+
+    /// Forget the rules of agents and departments deleted for good (ADR-043), or moved to the
+    /// Workforce. Nothing is recorded when there was nothing to forget.
+    pub fn forget(&self, positions: &[String], departments: &[String]) -> Result<()> {
+        self.update("router.rules_forgotten", PLENIPO, |c| {
+            let mut gone = Vec::new();
+            for id in positions {
+                if c.positions.remove(id).is_some() {
+                    gone.push(id.clone());
+                }
+            }
+            for id in departments {
+                if c.departments.remove(id).is_some() {
+                    gone.push(id.clone());
+                }
+            }
+            Ok((!gone.is_empty()).then(|| json!({ "ids": gone })))
+        })
+    }
+
+    /// An agent's own rule, if it has one.
+    pub fn rule_of(&self, position_id: &str) -> Result<Option<ModelRule>> {
+        Ok(self.config()?.positions.get(position_id).cloned())
     }
 
     pub fn set_options(&self, options: RoutingOptions) -> Result<RoutingSnapshot> {
@@ -752,7 +987,12 @@ mod tests {
     fn fixed_positions_and_unavailable_tools_explain_themselves() {
         let (_, router, _) = setup();
         let planner = router.planner().unwrap();
-        let d = planner.fixed("Code Reviewer", "beta", Some("gpt-x"));
+        let d = planner.fixed(
+            &RouteRequest::default(),
+            "Code Reviewer",
+            "beta",
+            Some("gpt-x"),
+        );
         assert!(d.fixed);
         assert_eq!(
             d.reason,
@@ -764,5 +1004,156 @@ mod tests {
             .unavailable("gamma")
             .unwrap()
             .contains("not available"));
+    }
+
+    /// ADR-041: the organization's, a department's, and an agent's rules are saved, checked, and
+    /// recorded; the agent's decision names the layer; a fixed agent's effort must suit its model.
+    #[test]
+    fn rules_for_the_organization_a_department_and_an_agent() {
+        let (ledger, router, dev) = setup();
+        let manager = ledger
+            .ensure_roles(
+                &[RoleTemplate {
+                    name: "Manager",
+                    description: "",
+                    role_type: RoleType::DepartmentManager,
+                    persistent: true,
+                    metadata: Value::Null,
+                    formerly: &[],
+                }],
+                "plenipo",
+            )
+            .unwrap()
+            .into_iter()
+            .find(|r| r.name == "Manager")
+            .unwrap();
+        let (dept, head) = ledger
+            .create_department_with_head(
+                "Development",
+                "",
+                &plenipo_ledger::NewPosition {
+                    title: "Development Manager".into(),
+                    role_id: manager.id.clone(),
+                    runtime_id: Some("beta".into()),
+                    model: Some("quick".into()),
+                    staffed: true,
+                    ..plenipo_ledger::NewPosition::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let s = router.save_model(&model("alpha", "opus", "Opus")).unwrap();
+        let opus = s
+            .models
+            .iter()
+            .find(|m| m.label == "Opus")
+            .unwrap()
+            .id
+            .clone();
+        // The organization.
+        let s = router
+            .set_rule(
+                &RuleTarget::Organization,
+                &ModelRule {
+                    models: vec![opus.clone()],
+                    effort: Some(Effort::High),
+                    ..ModelRule::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(s.organization.models, [opus.as_str()]);
+        let event = ledger.recent_events(1).unwrap().remove(0);
+        assert_eq!(event.event_type, "router.rule_changed");
+        assert_eq!(event.payload["layer"], "organization");
+        let view = s.roles.iter().find(|r| r.role_id == dev).unwrap();
+        assert!(
+            view.next
+                .reason
+                .ends_with("It runs at high effort, from the organization's rule."),
+            "{}",
+            view.next.reason
+        );
+        // A department, then an empty rule removes it.
+        let s = router
+            .set_rule(
+                &RuleTarget::Department(dept.id.clone()),
+                &ModelRule {
+                    effort: Some(Effort::Low),
+                    ..ModelRule::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(s.departments[0].rule.effort, Some(Effort::Low));
+        let planner = router.planner().unwrap();
+        let d = planner.route(&RouteRequest {
+            role_id: &dev,
+            department: Some((&dept.id, "Development")),
+            ..RouteRequest::default()
+        });
+        assert!(
+            d.reason
+                .ends_with("It runs at low effort, from the Development department's rule."),
+            "{}",
+            d.reason
+        );
+        router
+            .set_rule(
+                &RuleTarget::Department(dept.id.clone()),
+                &ModelRule::default(),
+            )
+            .unwrap();
+        assert!(router.config().unwrap().departments.is_empty());
+        // A fixed agent: an effort its model does not take is refused, in plain words.
+        let refused = router
+            .set_rule(
+                &RuleTarget::Agent(head.id.clone()),
+                &ModelRule {
+                    effort: Some(Effort::High),
+                    ..ModelRule::default()
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("quick (Beta CLI) does not take high effort. It takes low"),
+            "{refused}"
+        );
+        router
+            .set_rule(
+                &RuleTarget::Agent(head.id.clone()),
+                &ModelRule {
+                    effort: Some(Effort::Low),
+                    ..ModelRule::default()
+                },
+            )
+            .unwrap();
+        let planner = router.planner().unwrap();
+        let d = planner.fixed(
+            &RouteRequest {
+                role_id: &manager.id,
+                position_id: Some(&head.id),
+                ..RouteRequest::default()
+            },
+            "Development Manager",
+            "beta",
+            Some("quick"),
+        );
+        assert_eq!(d.choice.unwrap().effort, Some(Effort::Low));
+        assert!(d
+            .reason
+            .ends_with("It runs at low effort, from this agent's own setting."));
+        // Unknown departments and agents are refused; forgetting removes an agent's rule.
+        assert!(router
+            .set_rule(
+                &RuleTarget::Department("nope".into()),
+                &ModelRule::default()
+            )
+            .is_err());
+        router.forget(std::slice::from_ref(&head.id), &[]).unwrap();
+        assert!(router.config().unwrap().positions.is_empty());
+        assert_eq!(
+            ledger.recent_events(1).unwrap()[0].event_type,
+            "router.rules_forgotten"
+        );
     }
 }

@@ -20,14 +20,21 @@ use crate::org::{
 use crate::rows::{json as parse_json, metadata_text, opt_u64, parse_enum, u64_of};
 use crate::Ledger;
 
-const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_id, model, state, sort_key, \
-    metadata, created_at, updated_at, archived_at";
+mod archive;
+mod experience;
+mod saved;
+mod specialties;
+
+pub use archive::{DeletionPlan, Providers};
+
+pub(crate) const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_id, model, state, \
+    sort_key, metadata, created_at, updated_at, archived_at, specialty_id, deleted_at";
 
 /// Stored as a position's `runtime_id` when the position is automatic: its role's model policy
 /// chooses the runtime (Phase 6, ADR-011). No runtime may use this ID.
 pub const AUTOMATIC: &str = "auto";
 
-fn position_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Position> {
+pub(crate) fn position_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Position> {
     let runtime: String = r.get(4)?;
     Ok(Position {
         id: r.get(0)?,
@@ -42,6 +49,8 @@ fn position_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Position> {
         created_at: u64_of(r.get(9)?),
         updated_at: u64_of(r.get(10)?),
         archived_at: opt_u64(r.get(11)?),
+        specialty_id: r.get(12)?,
+        deleted_at: opt_u64(r.get(13)?),
     })
 }
 
@@ -289,6 +298,13 @@ fn clean_position(new: &NewPosition) -> Result<NewPosition> {
             .transpose()?,
         model: fixed_model(new.runtime_id.as_deref(), new.model.as_deref())?,
         staffed: new.staffed,
+        specialty_id: new
+            .specialty_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
+        from_workforce: new.from_workforce.clone(),
     })
 }
 
@@ -630,10 +646,11 @@ fn insert_position(
 ) -> Result<Position> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now();
+    let specialty = specialties::check(tx, &new.role_id, new.specialty_id.as_deref())?;
     tx.execute(
         "INSERT INTO positions (id, title, role_id, reports_to, runtime_id, model, state,
-             sort_key, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?8)",
+             sort_key, created_at, updated_at, specialty_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?8, ?9)",
         params![
             id,
             new.title,
@@ -642,7 +659,8 @@ fn insert_position(
             new.runtime_id.as_deref().unwrap_or(AUTOMATIC),
             new.model,
             next_sort_key(tx, reports_to)?,
-            now
+            now,
+            new.specialty_id
         ],
     )
     .map_err(|e| unique(e, "that team already has a member with this title"))?;
@@ -659,8 +677,14 @@ fn insert_position(
             "runtimeId": new.runtime_id,
             "automatic": new.runtime_id.is_none(),
             "model": new.model,
+            "specialtyId": new.specialty_id,
+            "specialty": specialty.as_ref().map(|s| &s.name),
+            "fromWorkforce": new.from_workforce,
         }),
     )?;
+    if let Some(saved_id) = new.from_workforce.as_deref() {
+        saved::adopt(tx, out, saved_id, &id, &new.role_id, &new.title, actor)?;
+    }
     get_position(tx, &id)
 }
 
@@ -815,33 +839,137 @@ fn end_oversight_row(
     )
 }
 
-/// Archive `position` (already checked): retire its incumbent and end its oversight.
+/// Assign `overseer` (an on-demand position) as the reviewer, QA evaluator, or security auditor
+/// of the team led by `target` (a persistent position), with every rule checked.
+fn insert_oversight(
+    tx: &Connection,
+    out: &mut Vec<LedgerEvent>,
+    org: &Org,
+    kind: OversightKind,
+    overseer_id: &str,
+    target_id: &str,
+    actor: &str,
+) -> Result<Oversight> {
+    let overseer = org.position(tx, overseer_id)?;
+    let target = org.position(tx, target_id)?;
+    if overseer_id == target_id {
+        return Err(invalid("a position cannot oversee its own team"));
+    }
+    if org.role_of(overseer)?.persistent {
+        return Err(invalid(format!(
+            "{} is a full-time position; for now only on-call positions can be assigned \
+             to review, QA, or audit a team",
+            overseer.title
+        )));
+    }
+    if !org.role_of(target)?.persistent {
+        return Err(invalid(format!(
+            "{} is an on-call position and has no team to oversee",
+            target.title
+        )));
+    }
+    if overseer.reports_to.as_deref() == Some(target_id) {
+        return Err(invalid(format!(
+            "{} is already on {}'s team",
+            overseer.title, target.title
+        )));
+    }
+    if org
+        .oversight
+        .iter()
+        .any(|o| o.kind == kind && o.overseer_id == overseer_id && o.target_id == target_id)
+    {
+        return Err(invalid(format!(
+            "{} is already the {} for {}'s team",
+            overseer.title,
+            kind.label(),
+            target.title
+        )));
+    }
+    org.check_title(&overseer.title, Some(target_id), Some(overseer_id))?;
+    Org::check_runtime(
+        org.project_of(target_id),
+        overseer.runtime_id.as_deref(),
+        &overseer.title,
+    )?;
+    let id = uuid::Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO oversight (id, kind, overseer_id, target_id, state, created_at)
+         VALUES (?1, ?2, ?3, ?4, 'active', ?5)",
+        params![id, kind.as_str(), overseer_id, target_id, now()],
+    )?;
+    org_event(
+        out,
+        tx,
+        actor,
+        "oversight_assigned",
+        json!({
+            "oversightId": id,
+            "kind": kind,
+            "overseerId": overseer_id,
+            "targetId": target_id,
+            "overseer": overseer.title,
+            "target": target.title,
+        }),
+    )?;
+    Ok(tx.query_row(
+        &format!("SELECT {OVERSIGHT_COLS} FROM oversight WHERE id = ?1"),
+        [&id],
+        oversight_row,
+    )?)
+}
+
+/// What an archived position was archived with (ADR-043): `None` on its own, or the project or
+/// department that took it along, as `{"kind": "project" | "department", "id", "name"}`.
+pub(crate) fn archived_with(kind: &str, id: &str, name: &str) -> Value {
+    json!({ "kind": kind, "id": id, "name": name })
+}
+
+/// Archive `position` (already checked): retire its incumbent and end its oversight, noting in
+/// its record what it was archived with, whether it had an agent, and the assignments that
+/// ended, so it can be brought back as it was (ADR-043).
 fn archive(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
     org: &Org,
     position: &Position,
+    with: Option<&Value>,
     reason: &str,
     actor: &str,
 ) -> Result<()> {
-    retire_incumbent(tx, out, position, reason, actor)?;
+    let staffed = retire_incumbent(tx, out, position, reason, actor)?.is_some();
+    let mut ended = Vec::new();
     for o in org
         .oversight
         .iter()
         .filter(|o| o.overseer_id == position.id || o.target_id == position.id)
     {
         end_oversight_row(tx, out, o, reason, actor)?;
+        ended.push(json!({ "kind": o.kind, "overseerId": o.overseer_id, "targetId": o.target_id }));
     }
+    let note = json!({
+        "with": with,
+        "staffed": staffed,
+        "oversight": ended,
+        "reason": reason,
+    });
     tx.execute(
-        "UPDATE positions SET state = 'archived', archived_at = ?2, updated_at = ?2 WHERE id = ?1",
-        params![position.id, now()],
+        "UPDATE positions SET state = 'archived', archived_at = ?2, updated_at = ?2,
+             metadata = json_set(metadata, '$.archive', json(?3))
+         WHERE id = ?1",
+        params![position.id, now(), note.to_string()],
     )?;
     org_event(
         out,
         tx,
         actor,
         "position_archived",
-        json!({ "positionId": position.id, "title": position.title, "reason": reason }),
+        json!({
+            "positionId": position.id,
+            "title": position.title,
+            "reason": reason,
+            "with": with,
+        }),
     )
 }
 
@@ -1055,6 +1183,25 @@ impl Ledger {
                     oversight_row,
                 )?,
                 former_agents: former,
+                specialties: all(
+                    c,
+                    &format!(
+                        "SELECT {} FROM specialties ORDER BY role_id, lower(name)",
+                        specialties::SPECIALTY_COLS
+                    ),
+                    [],
+                    specialties::specialty_row,
+                )?,
+                saved_agents: all(
+                    c,
+                    &format!(
+                        "SELECT {} FROM saved_agents ORDER BY saved_at DESC, rowid DESC",
+                        saved::SAVED_COLS
+                    ),
+                    [],
+                    saved::saved_row,
+                )?,
+                experience: experience::counts(c)?,
             })
         })
     }
@@ -1375,6 +1522,13 @@ impl Ledger {
         let name = clean_line("the department name", name, 120)?;
         let description = clean_text("the description", description, 2000)?;
         self.write(|tx, out| {
+            let current = archive::get_department(tx, id)?;
+            if current.deleted_at.is_some() || current.archived_at.is_some() {
+                return Err(invalid(format!(
+                    "{} is archived; bring it back first to change it",
+                    current.name
+                )));
+            }
             let n = tx
                 .execute(
                     "UPDATE departments SET name = ?2, description = ?3, status = ?4 WHERE id = ?1",
@@ -1404,58 +1558,6 @@ impl Ledger {
         })
     }
 
-    /// Delete a department that has no projects and whose head has no team: the head position
-    /// is archived (its incumbent retired) in the same transaction.
-    pub fn remove_department(&self, id: &str, actor: &str) -> Result<()> {
-        self.write(|tx, out| {
-            let department = tx
-                .query_row(
-                    &format!("SELECT {DEPT_COLS} FROM departments WHERE id = ?1"),
-                    [id],
-                    dept_row,
-                )
-                .optional()?
-                .ok_or_else(|| LedgerError::NotFound(format!("department {id}")))?;
-            let projects: u32 = tx.query_row(
-                "SELECT COUNT(*) FROM projects WHERE department_id = ?1",
-                [id],
-                |r| r.get(0),
-            )?;
-            if projects > 0 {
-                return Err(invalid(format!(
-                    "{} still has {projects} project{} (archived projects count too); mark the \
-                     department inactive instead",
-                    department.name,
-                    if projects == 1 { "" } else { "s" }
-                )));
-            }
-            let org = Org::load(tx)?;
-            if let Some(head_id) = &department.head_position_id {
-                if let Some(head) = org.positions.get(head_id) {
-                    let reports = org.reports(Some(head_id)).count();
-                    if reports > 0 {
-                        return Err(invalid(format!(
-                            "{} leads {reports} position{}; move or archive {} first",
-                            head.title,
-                            if reports == 1 { "" } else { "s" },
-                            if reports == 1 { "it" } else { "them" }
-                        )));
-                    }
-                    refuse_if_busy(tx, head, "removing the department")?;
-                    archive(tx, out, &org, head, "department removed", actor)?;
-                }
-            }
-            tx.execute("DELETE FROM departments WHERE id = ?1", [id])?;
-            org_event(
-                out,
-                tx,
-                actor,
-                "department_deleted",
-                json!({ "id": id, "name": department.name }),
-            )
-        })
-    }
-
     // ---- Projects -----------------------------------------------------------------------------
 
     /// Create a project in `department_id` with its coordinator position, which reports to the
@@ -1479,6 +1581,12 @@ impl Ledger {
                 )
                 .optional()?
                 .ok_or_else(|| LedgerError::NotFound(format!("department {department_id}")))?;
+            if department.archived_at.is_some() || department.deleted_at.is_some() {
+                return Err(invalid(format!(
+                    "{} is archived; bring it back first to add a project",
+                    department.name
+                )));
+            }
             if department.status != "active" {
                 return Err(invalid(format!("{} is inactive", department.name)));
             }
@@ -1659,15 +1767,19 @@ impl Ledger {
                     refuse_if_busy(tx, p, "archiving the project")?;
                 }
             }
+            let with = archived_with("project", &project.id, &project.name);
             // Deepest first, so no position is ever left reporting to an archived one.
             for pid in team.iter().rev() {
                 if let Some(p) = org.positions.get(pid) {
-                    archive(tx, out, &org, p, "project archived", actor)?;
+                    archive(tx, out, &org, p, Some(&with), "project archived", actor)?;
                 }
             }
+            let note = json!({ "with": null, "positions": team });
             tx.execute(
-                "UPDATE projects SET status = 'archived' WHERE id = ?1",
-                [id],
+                "UPDATE projects SET status = 'archived', archived_at = ?2,
+                     metadata = json_set(metadata, '$.archive', json(?3))
+                 WHERE id = ?1",
+                params![id, now(), note.to_string()],
             )?;
             org_event(
                 out,
@@ -1775,8 +1887,9 @@ impl Ledger {
         })
     }
 
-    /// Rename a position, or change its runtime or model. A staffed persistent position gets a
-    /// new incumbent for a new runtime or model (its conversation starts over).
+    /// Rename a position, or change its runtime, model, or specialty. A staffed persistent
+    /// position gets a new incumbent for a new runtime or model (its conversation starts over);
+    /// a new specialty never hires a new agent (ADR-042).
     pub fn update_position(
         &self,
         id: &str,
@@ -1809,11 +1922,23 @@ impl Ledger {
             .as_ref()
             .map(|m| clean_optional_model(m.as_deref()))
             .transpose()?;
+        let specialty = patch.specialty.as_ref().map(|s| {
+            s.as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        });
         self.write(|tx, out| {
             let org = Org::load(tx)?;
             let position = org.position(tx, id)?.clone();
             let role = org.role_of(&position)?.clone();
             let mut changes = serde_json::Map::new();
+            let new_specialty = specialty.clone().filter(|s| *s != position.specialty_id);
+            if let Some(s) = &new_specialty {
+                let found = specialties::check(tx, &position.role_id, s.as_deref())?;
+                changes.insert("specialtyId".into(), json!(s));
+                changes.insert("specialty".into(), json!(found.map(|f| f.name)));
+            }
             if let Some(title) = &title {
                 if *title != position.title {
                     org.check_title(title, position.reports_to.as_deref(), Some(id))?;
@@ -1854,14 +1979,16 @@ impl Ledger {
                 refuse_if_busy(tx, &position, "changing its AI tool or model")?;
             }
             tx.execute(
-                "UPDATE positions SET title = ?2, runtime_id = ?3, model = ?4, updated_at = ?5
+                "UPDATE positions SET title = ?2, runtime_id = ?3, model = ?4, updated_at = ?5,
+                     specialty_id = ?6
                  WHERE id = ?1",
                 params![
                     id,
                     title.as_ref().unwrap_or(&position.title),
                     runtime_after.as_deref().unwrap_or(AUTOMATIC),
                     new_model.as_ref().unwrap_or(&position.model),
-                    now()
+                    now(),
+                    new_specialty.as_ref().unwrap_or(&position.specialty_id)
                 ],
             )
             .map_err(|e| unique(e, "that team already has a member with this title"))?;
@@ -2000,7 +2127,7 @@ impl Ledger {
                 )));
             }
             refuse_if_busy(tx, position, "archiving it")?;
-            archive(tx, out, &org, position, "position archived", actor)?;
+            archive(tx, out, &org, position, None, "position archived", actor)?;
             get_position(tx, id)
         })
     }
@@ -2018,73 +2145,7 @@ impl Ledger {
     ) -> Result<Oversight> {
         self.write(|tx, out| {
             let org = Org::load(tx)?;
-            let overseer = org.position(tx, overseer_id)?;
-            let target = org.position(tx, target_id)?;
-            if overseer_id == target_id {
-                return Err(invalid("a position cannot oversee its own team"));
-            }
-            if org.role_of(overseer)?.persistent {
-                return Err(invalid(format!(
-                    "{} is a full-time position; for now only on-call positions can be assigned \
-                     to review, QA, or audit a team",
-                    overseer.title
-                )));
-            }
-            if !org.role_of(target)?.persistent {
-                return Err(invalid(format!(
-                    "{} is an on-call position and has no team to oversee",
-                    target.title
-                )));
-            }
-            if overseer.reports_to.as_deref() == Some(target_id) {
-                return Err(invalid(format!(
-                    "{} is already on {}'s team",
-                    overseer.title, target.title
-                )));
-            }
-            if org
-                .oversight
-                .iter()
-                .any(|o| o.kind == kind && o.overseer_id == overseer_id && o.target_id == target_id)
-            {
-                return Err(invalid(format!(
-                    "{} is already the {} for {}'s team",
-                    overseer.title,
-                    kind.label(),
-                    target.title
-                )));
-            }
-            org.check_title(&overseer.title, Some(target_id), Some(overseer_id))?;
-            Org::check_runtime(
-                org.project_of(target_id),
-                overseer.runtime_id.as_deref(),
-                &overseer.title,
-            )?;
-            let id = uuid::Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO oversight (id, kind, overseer_id, target_id, state, created_at)
-                 VALUES (?1, ?2, ?3, ?4, 'active', ?5)",
-                params![id, kind.as_str(), overseer_id, target_id, now()],
-            )?;
-            org_event(
-                out,
-                tx,
-                actor,
-                "oversight_assigned",
-                json!({
-                    "oversightId": id,
-                    "kind": kind,
-                    "overseerId": overseer_id,
-                    "targetId": target_id,
-                    "overseer": overseer.title,
-                    "target": target.title,
-                }),
-            )?;
-            Ok(tx.query_row(
-                &format!("SELECT {OVERSIGHT_COLS} FROM oversight WHERE id = ?1"),
-                [&id],
-                oversight_row,
-            )?)
+            insert_oversight(tx, out, &org, kind, overseer_id, target_id, actor)
         })
     }
 
@@ -2338,6 +2399,7 @@ mod tests {
             runtime_provider: Some("provider".into()),
             model: None,
             staffed: true,
+            ..NewPosition::default()
         }
     }
 
@@ -2794,7 +2856,7 @@ mod tests {
             .unwrap();
         let refused = err(l.archive_position(&staff.id, "owner"));
         assert!(refused.contains("Junior Developer") && refused.contains("without a supervisor"));
-        assert!(err(l.remove_department(&dept.id, "owner")).contains("project"));
+        assert!(err(l.delete_department_for_good(&dept.id, &[], "owner")).contains("not archived"));
 
         // Unfinished work blocks archiving and replacing.
         let busy = l
@@ -2845,14 +2907,15 @@ mod tests {
             "owner"
         ))
         .contains("archived"));
-        // An archived project still counts: mark the department inactive instead.
-        assert!(err(l.remove_department(&dept.id, "owner")).contains("inactive instead"));
+        // A department that is only inactive is not archived, so it cannot be deleted for good.
         let inactive = l
             .update_department_details(&dept.id, "Development", "", false, "owner")
             .unwrap();
         assert_eq!(inactive.status, "inactive");
 
-        // A department without projects can be removed; its head is archived.
+        assert!(err(l.delete_department_for_good(&dept.id, &[], "owner")).contains("not archived"));
+
+        // A department is archived with its manager, then deleted for good: a short record stays.
         let (ops, ops_head) = l
             .create_department_with_head(
                 "Operations",
@@ -2866,12 +2929,21 @@ mod tests {
                 "owner",
             )
             .unwrap();
-        l.remove_department(&ops.id, "owner").unwrap();
-        assert!(l.department(&ops.id).unwrap().is_none());
+        let archived_ops = l.archive_department(&ops.id, "owner").unwrap();
+        assert!(archived_ops.archived_at.is_some());
         assert_eq!(
             l.position(&ops_head.id).unwrap().unwrap().state,
             PositionState::Archived
         );
+        let gone = l.delete_department_for_good(&ops.id, &[], "owner").unwrap();
+        assert_eq!(gone.departments, [ops.id.as_str()]);
+        assert_eq!(gone.positions, [ops_head.id.as_str()]);
+        let short = l.department(&ops.id).unwrap().unwrap();
+        assert!(short.deleted_at.is_some());
+        assert_eq!(short.name, "Operations (deleted)");
+        let head_record = l.position(&ops_head.id).unwrap().unwrap();
+        assert!(head_record.is_deleted());
+        assert_eq!(head_record.title, "Operations Manager");
         let t = types(&l);
         assert!(t.iter().any(|x| x == "org.department_deleted"));
         assert!(t.iter().any(|x| x == "org.project_archived"));
@@ -3127,6 +3199,7 @@ mod tests {
                     title: Some("Cloudline Lead".into()),
                     runtime: Some(Some(("codex".into(), Some("openai".into())))),
                     model: Some(Some("model-x".into())),
+                    ..PositionPatch::default()
                 },
                 "owner",
             )
@@ -3636,5 +3709,126 @@ mod tests {
             ("opus", 2, 2_000)
         );
         assert_eq!(models[1].model, "gpt-x");
+    }
+
+    /// A position deleted for good is a short record: the Ledger refuses to change or remove it
+    /// (ADR-043).
+    #[test]
+    fn a_short_record_never_changes_and_is_never_removed() {
+        let (l, roles) = setup();
+        let (_, _, _, coordinator) = development(&l, &roles);
+        let (dev, _) = l
+            .create_position(
+                &position(
+                    &roles["Senior Developer"],
+                    "Developer",
+                    Some(&coordinator.id),
+                    "codex",
+                ),
+                "owner",
+            )
+            .unwrap();
+        // An archived position changes only by coming back or becoming a short record.
+        l.archive_position(&dev.id, "owner").unwrap();
+        {
+            let c = l.conn();
+            assert!(c
+                .execute("UPDATE positions SET title = 'x' WHERE id = ?1", [&dev.id])
+                .is_err());
+        }
+        l.delete_position_for_good(&dev.id, &[], "owner").unwrap();
+        let c = l.conn();
+        for sql in [
+            "UPDATE positions SET title = 'x' WHERE id = ?1",
+            "UPDATE positions SET state = 'active', archived_at = NULL, deleted_at = NULL
+             WHERE id = ?1",
+            "DELETE FROM positions WHERE id = ?1",
+        ] {
+            assert!(c.execute(sql, [&dev.id]).is_err(), "{sql}");
+        }
+    }
+
+    /// Hiring from the Workforce brings back the lessons its role never had, and never one the
+    /// owner removed (ADR-045).
+    #[test]
+    fn hiring_from_the_workforce_restores_only_lessons_the_role_never_had() {
+        let (l, roles) = setup();
+        let (_, _, _, coordinator) = development(&l, &roles);
+        let (dev, _) = l
+            .create_position(
+                &position(
+                    &roles["Senior Developer"],
+                    "Developer",
+                    Some(&coordinator.id),
+                    "codex",
+                ),
+                "owner",
+            )
+            .unwrap();
+        let task = l
+            .create_task(
+                NewTask {
+                    requested_by: "owner".into(),
+                    objective: "work".into(),
+                    ..NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let removed = l
+            .add_lessons(
+                &NewLessons {
+                    role_id: roles["Senior Developer"].clone(),
+                    task_id: task.id,
+                    position_id: Some(dev.id.clone()),
+                    worker: "Developer".into(),
+                    texts: vec!["Removed by the owner.".into()],
+                    from_web: false,
+                    keep: true,
+                },
+                "plenipo",
+            )
+            .unwrap();
+        l.remove_lesson(&removed[0].id, "owner").unwrap();
+        l.archive_position(&dev.id, "owner").unwrap();
+        let saved = l
+            .save_to_workforce(
+                &SaveAgent {
+                    position_id: dev.id.clone(),
+                    settings: json!({}),
+                },
+                "owner",
+            )
+            .unwrap();
+        // As if it came from another organization: one lesson this role never had.
+        l.conn()
+            .execute(
+                "UPDATE saved_agents SET lessons = ?2 WHERE id = ?1",
+                params![
+                    saved.id,
+                    json!(["Removed by the owner.", "Check the diff twice."]).to_string()
+                ],
+            )
+            .unwrap();
+        l.create_position(
+            &NewPosition {
+                from_workforce: Some(saved.id.clone()),
+                ..position(
+                    &roles["Senior Developer"],
+                    "Developer",
+                    Some(&coordinator.id),
+                    "codex",
+                )
+            },
+            "owner",
+        )
+        .unwrap();
+        let kept: Vec<String> = l
+            .lessons(LessonState::Kept, Some(&roles["Senior Developer"]), 10)
+            .unwrap()
+            .into_iter()
+            .map(|x| x.text)
+            .collect();
+        assert_eq!(kept, ["Check the diff twice."]);
     }
 }

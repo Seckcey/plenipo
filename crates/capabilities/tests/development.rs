@@ -310,6 +310,7 @@ async fn harness_with(branch_per_objective: bool) -> H {
             runtime_id: None,
             model: None,
             vacant: None,
+            specialty_id: None,
         })
         .unwrap();
     for title in [

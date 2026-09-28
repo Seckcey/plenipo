@@ -19,4 +19,8 @@ model?: string,
 /**
  * Leave a persistent position vacant (hire later).
  */
-vacant?: boolean, };
+vacant?: boolean, 
+/**
+ * One of the role's specialties (ADR-042).
+ */
+specialtyId?: string, };

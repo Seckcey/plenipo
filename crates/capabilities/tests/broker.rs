@@ -124,6 +124,7 @@ fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
         runtime_id: Some(runtime.into()),
         model: None,
         vacant: None,
+        from_workforce: None,
     }
 }
 
@@ -271,6 +272,7 @@ async fn harness_on(supervisor_tool: &str) -> H {
                 runtime_id: Some(runtime.into()),
                 model: None,
                 vacant: None,
+                specialty_id: None,
             })
             .unwrap();
         s.positions
@@ -653,6 +655,7 @@ async fn a_kimi_developer_changes_files_only_through_guard() {
             runtime_id: Some("kimi".into()),
             model: None,
             vacant: None,
+            specialty_id: None,
         })
         .unwrap();
     let notes = h.folder.join("notes.txt");

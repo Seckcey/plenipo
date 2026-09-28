@@ -423,7 +423,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(
       browser,
       trail,
-      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort (Senior Developer's setting for it).",
+      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort, from Senior Developer's rule.",
     );
     await screenshot(browser, "routing-trail");
   });

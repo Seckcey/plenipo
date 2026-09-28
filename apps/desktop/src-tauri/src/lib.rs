@@ -13,6 +13,7 @@ pub mod indicator;
 pub mod ledger_host;
 pub mod logs;
 pub mod notices;
+pub mod owner_commands;
 pub mod recovery;
 pub mod runtime_host;
 pub mod settings_health;
@@ -405,10 +406,24 @@ pub fn configure<R: Runtime>(
             commands::create_role,
             commands::create_department,
             commands::update_department,
-            commands::remove_department,
             commands::create_project,
             commands::update_project,
             commands::archive_project,
+            owner_commands::set_model_rule,
+            owner_commands::set_role_learns,
+            owner_commands::set_agent_learning,
+            owner_commands::create_specialty,
+            owner_commands::update_specialty,
+            owner_commands::remove_specialty,
+            owner_commands::archive_department,
+            owner_commands::bring_back_position,
+            owner_commands::bring_back_project,
+            owner_commands::bring_back_department,
+            owner_commands::preview_delete_for_good,
+            owner_commands::delete_for_good,
+            owner_commands::save_to_workforce,
+            owner_commands::hire_from_workforce,
+            owner_commands::delete_saved_agent,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -3254,5 +3269,349 @@ mod ipc_boundary_tests {
                 "{cmd}"
             );
         }
+    }
+
+    // ---- The owner's control over workers (Phase 17) -------------------------------------
+
+    /// The Phase 17 commands (ADR-041, ADR-042, ADR-043, ADR-045): the main window's alone.
+    const OWNER_CONTROL: [&str; 15] = [
+        "set_model_rule",
+        "set_role_learns",
+        "set_agent_learning",
+        "create_specialty",
+        "update_specialty",
+        "remove_specialty",
+        "archive_department",
+        "bring_back_position",
+        "bring_back_project",
+        "bring_back_department",
+        "preview_delete_for_good",
+        "delete_for_good",
+        "save_to_workforce",
+        "hire_from_workforce",
+        "delete_saved_agent",
+    ];
+
+    /// Arguments that fit every Phase 17 command (each takes the ones it names).
+    fn owner_control_args() -> serde_json::Value {
+        serde_json::json!({
+            "target": { "layer": "organization" }, "rule": {},
+            "roleId": SESSION, "learns": true, "positionId": SESSION,
+            "input": { "name": "Databases" }, "specialtyId": SESSION,
+            "departmentId": SESSION, "projectId": SESSION,
+            "kind": "position", "id": SESSION, "save": [],
+            "savedId": SESSION, "reportsTo": null, "title": null,
+        })
+    }
+
+    #[test]
+    fn the_owners_control_over_workers_is_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in OWNER_CONTROL {
+            let args = owner_control_args();
+            // Refused by the permissions (not by the command, which answers with its own kind of
+            // error, as below).
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            // The main window reaches the command itself.
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_phase_17_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        for (cmd, args) in [
+            (
+                "set_model_rule",
+                serde_json::json!({ "target": { "layer": "agent", "id": "../x" }, "rule": {} }),
+            ),
+            (
+                "set_model_rule",
+                serde_json::json!({
+                    "target": { "layer": "organization" },
+                    "rule": { "models": ["x".repeat(500)] },
+                }),
+            ),
+            (
+                // A rule has no room for a command, a path, or a key.
+                "set_model_rule",
+                serde_json::json!({
+                    "target": { "layer": "organization" },
+                    "rule": { "models": [], "command": "/bin/sh", "apiKey": "x" },
+                }),
+            ),
+            (
+                "set_role_learns",
+                serde_json::json!({ "roleId": "", "learns": false }),
+            ),
+            (
+                "create_specialty",
+                serde_json::json!({ "input": { "roleId": SESSION, "name": "" } }),
+            ),
+            (
+                "create_specialty",
+                serde_json::json!({ "input": {
+                    "roleId": SESSION, "name": "Databases", "path": "C:/Windows",
+                }}),
+            ),
+            (
+                "preview_delete_for_good",
+                serde_json::json!({ "kind": "everything", "id": SESSION }),
+            ),
+            (
+                "delete_for_good",
+                serde_json::json!({ "kind": "position", "id": "../../x", "save": [] }),
+            ),
+            (
+                "delete_for_good",
+                serde_json::json!({ "kind": "position", "id": SESSION, "save": ["../x"] }),
+            ),
+            (
+                "hire_from_workforce",
+                serde_json::json!({ "savedId": SESSION, "reportsTo": "..", "title": null }),
+            ),
+        ] {
+            assert!(
+                invoke_json(&main, cmd, args.clone()).is_err(),
+                "{cmd} must refuse {args}"
+            );
+        }
+    }
+
+    #[test]
+    fn archive_bring_back_and_delete_for_good_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Development", "description": "",
+                "head": { "roleId": role_id(&org, "Manager"),
+                          "title": "Development Manager", "runtimeId": "claude-code" },
+            }}),
+        ));
+        let dept = s.departments[0].id.clone();
+        let head = s.departments[0].head_position_id.clone().unwrap();
+        // A Senior Developer with one of the role's specialties.
+        let developer = org
+            .roles
+            .iter()
+            .find(|r| r.name == "Senior Developer")
+            .unwrap();
+        let databases = developer
+            .specialties
+            .iter()
+            .find(|s| s.name == "Database")
+            .expect("a built-in specialty")
+            .id
+            .clone();
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "hire_position",
+            serde_json::json!({ "input": {
+                "roleId": developer.id, "title": "Database Developer", "reportsTo": head,
+                "runtimeId": "claude-code", "specialtyId": databases,
+            }}),
+        ));
+        let dev = s
+            .positions
+            .iter()
+            .find(|p| p.title == "Database Developer")
+            .unwrap();
+        assert_eq!(dev.specialty.as_deref(), Some("Database"));
+        let dev = dev.id.clone();
+        // One of the owner's own specialties.
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_specialty",
+            serde_json::json!({ "input": {
+                "roleId": developer.id, "name": "Payments", "title": "Payments Developer",
+                "job": { "duties": ["Build the checkout."], "returns": [], "limits": [],
+                         "askLead": [] },
+            }}),
+        ));
+        let payments = s
+            .roles
+            .iter()
+            .flat_map(|r| &r.specialties)
+            .find(|x| x.name == "Payments")
+            .unwrap();
+        assert!(!payments.built_in);
+        // Learning in layers.
+        let learning: plenipo_workforce::LearningSnapshot = body(invoke_json(
+            &main,
+            "set_role_learns",
+            serde_json::json!({ "roleId": developer.id, "learns": false }),
+        ));
+        assert_eq!(learning.off_roles, [developer.id.as_str()]);
+        let learning: plenipo_workforce::LearningSnapshot = body(invoke_json(
+            &main,
+            "set_agent_learning",
+            serde_json::json!({ "positionId": dev, "learns": true }),
+        ));
+        assert_eq!(learning.agents.get(&dev), Some(&true));
+        // A department's rule.
+        let routing: plenipo_router::RoutingSnapshot = body(invoke_json(
+            &main,
+            "set_model_rule",
+            serde_json::json!({
+                "target": { "layer": "department", "id": dept },
+                "rule": { "effort": "high" },
+            }),
+        ));
+        let rule = routing
+            .departments
+            .iter()
+            .find(|r| r.department_id == dept)
+            .unwrap();
+        assert_eq!(rule.rule.effort, Some(plenipo_runtime::agent::Effort::High));
+        // Delete for good only after archiving; archive the whole department.
+        let err = invoke_json(
+            &main,
+            "delete_for_good",
+            serde_json::json!({ "kind": "department", "id": dept, "save": [] }),
+        )
+        .expect_err("archive first");
+        assert_eq!(err["kind"], "invalidInput", "{err}");
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "archive_department",
+            serde_json::json!({ "departmentId": dept }),
+        ));
+        assert!(s.departments[0].archived_at.is_some());
+        assert!(s.positions.iter().all(|p| !p.active));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "bring_back_department",
+            serde_json::json!({ "departmentId": dept }),
+        ));
+        assert!(s.departments[0].archived_at.is_none());
+        assert!(s.positions.iter().all(|p| p.active), "all came back");
+        let _: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "archive_department",
+            serde_json::json!({ "departmentId": dept }),
+        ));
+        let preview: plenipo_workforce::DeletionPreview = body(invoke_json(
+            &main,
+            "preview_delete_for_good",
+            serde_json::json!({ "kind": "department", "id": dept }),
+        ));
+        assert_eq!(preview.name, "Development");
+        assert_eq!(preview.agents.len(), 2);
+        // The developer moves to the Workforce; the rest is deleted for good.
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "delete_for_good",
+            serde_json::json!({ "kind": "department", "id": dept, "save": [dev] }),
+        ));
+        assert!(s.departments[0].deleted);
+        assert!(s.positions.iter().all(|p| p.deleted || p.in_workforce));
+        assert_eq!(s.workforce.len(), 1);
+        let saved = s.workforce[0].clone();
+        assert_eq!(saved.title, "Database Developer");
+        assert_eq!(saved.specialty.as_deref(), Some("Database"));
+        // A short record stays in the Ledger.
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let events: Vec<String> = ledger
+            .recent_events(200)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for want in [
+            "org.department_archived",
+            "org.department_restored",
+            "org.department_deleted",
+            "org.agent_saved",
+        ] {
+            assert!(events.iter().any(|e| e == want), "{want}");
+        }
+        // Hire it back from the Workforce into a new department (a worker needs a lead).
+        let err = invoke_json(
+            &main,
+            "hire_from_workforce",
+            serde_json::json!({ "savedId": saved.id, "reportsTo": null, "title": null }),
+        )
+        .expect_err("a worker reports to a lead");
+        assert_eq!(err["kind"], "invalidInput", "{err}");
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "create_department",
+            serde_json::json!({ "input": {
+                "name": "Platform", "description": "",
+                "head": { "roleId": role_id(&org, "Manager"),
+                          "title": "Platform Manager", "runtimeId": "claude-code" },
+            }}),
+        ));
+        let platform = s
+            .departments
+            .iter()
+            .find(|d| d.name == "Platform")
+            .unwrap()
+            .head_position_id
+            .clone();
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "hire_from_workforce",
+            serde_json::json!({ "savedId": saved.id, "reportsTo": platform, "title": null }),
+        ));
+        assert!(s.workforce.is_empty());
+        let back = s
+            .positions
+            .iter()
+            .find(|p| p.active && p.title == "Database Developer")
+            .expect("hired back");
+        assert_eq!(back.specialty.as_deref(), Some("Database"));
+        // Archive it, save it on its own, then delete it from the Workforce.
+        let _: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "archive_position",
+            serde_json::json!({ "positionId": back.id }),
+        ));
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "save_to_workforce",
+            serde_json::json!({ "positionId": back.id }),
+        ));
+        assert_eq!(s.workforce.len(), 1);
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "delete_saved_agent",
+            serde_json::json!({ "savedId": s.workforce[0].id }),
+        ));
+        assert!(s.workforce.is_empty());
+        // The owner's specialty can go once no agent on the chart has it.
+        let s: plenipo_workforce::OrgSnapshot = body(invoke_json(
+            &main,
+            "remove_specialty",
+            serde_json::json!({ "specialtyId": payments.id }),
+        ));
+        assert!(!s
+            .roles
+            .iter()
+            .flat_map(|r| &r.specialties)
+            .any(|x| x.name == "Payments"));
     }
 }

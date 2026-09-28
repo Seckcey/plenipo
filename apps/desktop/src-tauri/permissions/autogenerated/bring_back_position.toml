@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bring-back-position"
+description = "Enables the bring_back_position command without any pre-configured scope."
+commands.allow = ["bring_back_position"]
+
+[[permission]]
+identifier = "deny-bring-back-position"
+description = "Denies the bring_back_position command without any pre-configured scope."
+commands.deny = ["bring_back_position"]

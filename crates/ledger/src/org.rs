@@ -74,10 +74,12 @@ pub(crate) fn dept_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Department> {
         metadata: parse_json(r.get(5)?),
         created_at: u64_of(r.get(6)?),
         head_position_id: r.get(7)?,
+        archived_at: crate::rows::opt_u64(r.get(8)?),
+        deleted_at: crate::rows::opt_u64(r.get(9)?),
     })
 }
-pub(crate) const DEPT_COLS: &str =
-    "id, name, description, manager_role_id, status, metadata, created_at, head_position_id";
+pub(crate) const DEPT_COLS: &str = "id, name, description, manager_role_id, status, metadata, \
+    created_at, head_position_id, archived_at, deleted_at";
 
 pub(crate) fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -94,11 +96,13 @@ pub(crate) fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         capability_profile: r.get(10)?,
         status: r.get(11)?,
         branch_per_objective: r.get::<_, i64>(12)? != 0,
+        archived_at: crate::rows::opt_u64(r.get(13)?),
+        deleted_at: crate::rows::opt_u64(r.get(14)?),
     })
 }
 pub(crate) const PROJECT_COLS: &str = "id, name, local_path, repository_url, department_id, \
     metadata, created_at, description, coordinator_position_id, allowed_runtimes, \
-    capability_profile, status, branch_per_objective";
+    capability_profile, status, branch_per_objective, archived_at, deleted_at";
 
 pub(crate) fn agent_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentInstance> {
     Ok(AgentInstance {

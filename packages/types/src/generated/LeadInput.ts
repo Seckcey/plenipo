@@ -7,4 +7,9 @@ export type LeadInput = { roleId: string, title: string,
 /**
  * A fixed AI tool; absent: automatic.
  */
-runtimeId?: string, model?: string, vacant?: boolean, };
+runtimeId?: string, model?: string, vacant?: boolean, 
+/**
+ * An agent from the owner's Workforce with this role (ADR-045): its title, AI settings,
+ * specialty, and experience come with it.
+ */
+fromWorkforce?: string, };

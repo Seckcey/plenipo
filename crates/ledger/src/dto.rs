@@ -272,6 +272,10 @@ pub struct Department {
     pub created_at: u64,
     /// The position that heads the department (Phase 5).
     pub head_position_id: Option<String>,
+    /// Archived with everything in it (Phase 17, ADR-043).
+    pub archived_at: Option<u64>,
+    /// Deleted for good: only a short record is left (ADR-043).
+    pub deleted_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -297,6 +301,10 @@ pub struct Project {
     /// Each objective gets its own branch and working copy when the folder is a git repository
     /// (Phase 8, ADR-016).
     pub branch_per_objective: bool,
+    /// When it was archived (Phase 17; `None` for a project archived before 1.10.0).
+    pub archived_at: Option<u64>,
+    /// Deleted for good: only a short record is left (ADR-043).
+    pub deleted_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -421,6 +429,18 @@ pub struct Position {
     pub created_at: u64,
     pub updated_at: u64,
     pub archived_at: Option<u64>,
+    /// Its role's specialty, if any (Phase 17, ADR-042).
+    pub specialty_id: Option<String>,
+    /// Deleted for good, or moved to the owner's Workforce: the row is a short record (ADR-043,
+    /// ADR-045).
+    pub deleted_at: Option<u64>,
+}
+
+impl Position {
+    /// Deleted for good (or moved to the Workforce): only its short record is left.
+    pub fn is_deleted(&self) -> bool {
+        self.deleted_at.is_some()
+    }
 }
 
 /// What an oversight assignment makes a position do for a team.
@@ -485,6 +505,11 @@ pub struct NewPosition {
     pub model: Option<String>,
     /// Hire an incumbent now (persistent positions only).
     pub staffed: bool,
+    /// One of its role's specialties (ADR-042).
+    pub specialty_id: Option<String>,
+    /// The agent in the owner's Workforce this position hires again (ADR-045): its experience
+    /// carries on, and it leaves the Workforce.
+    pub from_workforce: Option<String>,
 }
 
 /// Project fields set when a project is created or updated.
@@ -510,6 +535,8 @@ pub struct PositionPatch {
     pub runtime: Option<Option<(String, Option<String>)>>,
     /// `Some(None)` clears the model.
     pub model: Option<Option<String>>,
+    /// One of its role's specialties, or `Some(None)`: none (ADR-042). Never hires a new agent.
+    pub specialty: Option<Option<String>>,
 }
 
 /// A worker to record with a delegated child task (Liaison, ADR-009 §5).
@@ -713,6 +740,12 @@ pub struct OrgRecords {
     pub oversight: Vec<Oversight>,
     /// Per position: agents that have left the workforce (retired, failed).
     pub former_agents: std::collections::HashMap<String, FormerAgents>,
+    /// Every role's specialties, removed ones included (Phase 17, ADR-042).
+    pub specialties: Vec<Specialty>,
+    /// The agents the owner saved to the Workforce (ADR-045).
+    pub saved_agents: Vec<SavedAgent>,
+    /// Per position: what it has done, for its experience (ADR-045).
+    pub experience: std::collections::HashMap<String, ExperienceCounts>,
 }
 
 /// History of a position's agents that have left the workforce.
@@ -721,6 +754,102 @@ pub struct FormerAgents {
     pub retired: u32,
     pub failed: u32,
     pub last_retired_at: Option<u64>,
+}
+
+// ---- Specialties, the Workforce, experience (Phase 17) ------------------------------------
+
+/// A specialty of a role (ADR-042): its own lines for the role's working instructions, and the
+/// models and permissions it suggests. `metadata` holds `job` (the same four lists as a role's),
+/// `suggest` (`needs`, `minContextTokens`, `models`, `permissions`), and `template` (built in).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Specialty {
+    pub id: String,
+    pub role_id: String,
+    pub name: String,
+    /// The title suggested for a new position with it ("Database Developer").
+    pub title: String,
+    pub metadata: Value,
+    pub created_at: u64,
+    pub updated_at: u64,
+    /// Removed by the owner; kept so positions that had it still name it.
+    pub removed_at: Option<u64>,
+}
+
+impl Specialty {
+    /// Seeded and kept up to date by Plenipo.
+    pub fn built_in(&self) -> bool {
+        self.metadata["template"] == true
+    }
+}
+
+/// A built-in specialty, seeded when missing and brought up to date at every start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpecialtyTemplate {
+    /// The built-in role it belongs to, by name.
+    pub role: &'static str,
+    pub name: &'static str,
+    pub title: &'static str,
+    /// `job` and `suggest` (the Ledger adds `template: true`).
+    pub metadata: Value,
+}
+
+/// The owner's specialty, as the owner wrote it (already checked by the caller).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpecialtyFields {
+    pub name: String,
+    pub title: String,
+    /// `job` and `suggest`.
+    pub metadata: Value,
+}
+
+/// An agent the owner saved to the Workforce (ADR-045).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAgent {
+    pub id: String,
+    pub title: String,
+    pub role_id: String,
+    pub specialty_id: Option<String>,
+    /// The position it came from (now a short record).
+    pub from_position: Option<String>,
+    /// Its AI settings and learning setting when saved (`runtimeId`, `runtimeProvider`, `model`,
+    /// `rule`, `learns`), as the Workforce service wrote them.
+    pub settings: Value,
+    /// Its experience when saved: `keptLessons`, `tasksDone`, `firstWorked`, `lastWorked`,
+    /// `places` (where it worked).
+    pub experience: Value,
+    /// Copies of the lessons it wrote that the owner kept.
+    pub lessons: Vec<String>,
+    pub saved_at: u64,
+}
+
+/// What one position has done, from the Ledger (ADR-045): the lessons it wrote that are still
+/// kept, and its tasks that finished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExperienceCounts {
+    pub kept_lessons: u32,
+    pub tasks_done: u32,
+    pub first_task_at: Option<u64>,
+    pub last_task_at: Option<u64>,
+}
+
+/// An agent to save to the Workforce while deleting for good, with the settings the Workforce
+/// service copied for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveAgent {
+    pub position_id: String,
+    pub settings: Value,
+}
+
+/// What a deletion for good removed (and saved), for the caller to tidy settings after.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Deleted {
+    pub positions: Vec<String>,
+    pub projects: Vec<String>,
+    pub departments: Vec<String>,
+    /// Positions moved to the Workforce instead, with their new Workforce IDs.
+    pub saved: Vec<(String, String)>,
 }
 
 // ---- Execution, approval, artifact ----------------------------------------------------

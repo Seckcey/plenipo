@@ -92,6 +92,19 @@ export type { WorkCounts } from "./generated/WorkCounts";
 export type { WorkView } from "./generated/WorkView";
 export type { WorkerInfo } from "./generated/WorkerInfo";
 
+// The owner's control over workers (Phase 17): specialties, archive and delete for good, the
+// Workforce, and learning in layers
+export type { ArchivedWith } from "./generated/ArchivedWith";
+export type { DeletionAgent } from "./generated/DeletionAgent";
+export type { DeletionPreview } from "./generated/DeletionPreview";
+export type { ExperienceInfo } from "./generated/ExperienceInfo";
+export type { LearningFrom } from "./generated/LearningFrom";
+export type { LearningInfo } from "./generated/LearningInfo";
+export type { SavedAgentInfo } from "./generated/SavedAgentInfo";
+export type { SpecialtyInfo } from "./generated/SpecialtyInfo";
+export type { SpecialtyInput } from "./generated/SpecialtyInput";
+export type { SpecialtySuggest } from "./generated/SpecialtySuggest";
+
 // Model policy and routing (Phase 6)
 export type { CandidateNote } from "./generated/CandidateNote";
 export type { CandidateVerdict } from "./generated/CandidateVerdict";
@@ -113,6 +126,13 @@ export type { RoutingOptions } from "./generated/RoutingOptions";
 export type { RoutingSnapshot } from "./generated/RoutingSnapshot";
 export type { ToolInfo } from "./generated/ToolInfo";
 export type { UsageLimit } from "./generated/UsageLimit";
+// Model and effort rules in layers (Phase 17, ADR-041)
+export type { AgentRuleView } from "./generated/AgentRuleView";
+export type { DepartmentRuleView } from "./generated/DepartmentRuleView";
+export type { ModelRule } from "./generated/ModelRule";
+export type { RuleLayer } from "./generated/RuleLayer";
+export type { RuleSource } from "./generated/RuleSource";
+export type { RuleTarget } from "./generated/RuleTarget";
 
 // Guard, the capability broker, approvals, and the Vault (Phase 7)
 export type { ApprovalQueue } from "./generated/ApprovalQueue";

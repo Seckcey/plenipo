@@ -5,10 +5,18 @@
 //! Lessons from a task that used websites or the screen (itself or any task handed on from it)
 //! always wait: a website must not be able to plant one.
 //! Kept lessons go into the instructions of the role's later workers.
+//!
+//! Learning is set in layers (ADR-041): the organization's switch is the main switch; under it,
+//! each role is on unless the owner turns it off, and each agent follows its role unless the
+//! owner sets it on or off. The closest setting wins. Off means the agent neither writes down new
+//! lessons nor gets its role's kept lessons.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 
-use plenipo_ledger::{Ledger, LedgerEvent, Lesson, LessonState, NewLessons, MAX_LESSONS_PER_TASK};
+use plenipo_ledger::{
+    Ledger, LedgerEvent, Lesson, LessonState, NewLessons, Position, MAX_LESSONS_PER_TASK,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
@@ -31,6 +39,10 @@ pub struct LearningSettings {
     /// Roles that learn on their own: their lessons are kept without asking (except lessons
     /// from tasks that used websites or the screen).
     pub auto_roles: Vec<String>,
+    /// Roles with learning turned off (ADR-041); a role is on unless listed.
+    pub off_roles: Vec<String>,
+    /// Agents set on or off, by position ID; an agent not listed follows its role.
+    pub agents: BTreeMap<String, bool>,
 }
 
 impl Default for LearningSettings {
@@ -38,7 +50,33 @@ impl Default for LearningSettings {
         Self {
             enabled: true,
             auto_roles: Vec::new(),
+            off_roles: Vec::new(),
+            agents: BTreeMap::new(),
         }
+    }
+}
+
+/// Which setting decides whether an agent learns (ADR-041).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LearningFrom {
+    /// The organization's main switch is off.
+    Organization,
+    /// The agent's own setting.
+    Agent,
+    /// Its role's setting (on unless turned off).
+    Role,
+}
+
+/// Whether `position` learns, and which setting decided.
+pub fn learns(s: &LearningSettings, position: &Position) -> (bool, LearningFrom) {
+    if !s.enabled {
+        return (false, LearningFrom::Organization);
+    }
+    match s.agents.get(&position.id) {
+        Some(on) => (*on, LearningFrom::Agent),
+        None => (!s.off_roles.contains(&position.role_id), LearningFrom::Role),
     }
 }
 
@@ -49,6 +87,10 @@ impl Default for LearningSettings {
 pub struct LearningSnapshot {
     pub enabled: bool,
     pub auto_roles: Vec<String>,
+    /// Roles with learning turned off.
+    pub off_roles: Vec<String>,
+    /// Agents set on or off, by position ID.
+    pub agents: BTreeMap<String, bool>,
     /// Oldest first, so the owner answers them in order.
     pub waiting: Vec<Lesson>,
     /// Newest first.
@@ -89,18 +131,22 @@ pub fn lessons_in(text: &str) -> Vec<String> {
     out
 }
 
-/// What a worker of `role_name` is told about learning: the role's kept lessons, and how to
-/// write down a new one. Empty when the owner switched learning off.
-pub fn instructions(ledger: &Ledger, role_id: &str, role_name: &str) -> String {
+/// What a worker of `position` (role `role_name`) is told about learning: the role's kept
+/// lessons, and how to write down a new one. Empty when learning is off for it (ADR-041).
+pub fn instructions(ledger: &Ledger, position: &Position, role_name: &str) -> String {
     let Ok(s) = settings(ledger) else {
         return String::new();
     };
-    if !s.enabled {
+    if !learns(&s, position).0 {
         return String::new();
     }
     let mut out = String::new();
     let kept = ledger
-        .lessons(LessonState::Kept, Some(role_id), MAX_IN_INSTRUCTIONS)
+        .lessons(
+            LessonState::Kept,
+            Some(&position.role_id),
+            MAX_IN_INSTRUCTIONS,
+        )
         .unwrap_or_default();
     if !kept.is_empty() {
         out.push_str(&format!(
@@ -145,6 +191,9 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
     else {
         return Ok(Vec::new());
     };
+    if !learns(&s, &position).0 {
+        return Ok(Vec::new());
+    }
     let from_web = ledger.task_used_web_screen_or_servers(task_id)?;
     let keep = !from_web && s.auto_roles.contains(&position.role_id);
     Ok(ledger.add_lessons(
@@ -190,6 +239,8 @@ pub fn snapshot(ledger: &Ledger) -> Result<LearningSnapshot> {
     Ok(LearningSnapshot {
         enabled: s.enabled,
         auto_roles: s.auto_roles,
+        off_roles: s.off_roles,
+        agents: s.agents,
         waiting,
         kept: ledger.lessons(LessonState::Kept, None, 500)?,
     })
@@ -230,6 +281,54 @@ pub fn set_role(ledger: &Ledger, role_id: &str, auto: bool) -> Result<()> {
             s.auto_roles.push(role_id.to_owned());
         }
         json!({ "roleId": role_id, "name": role.name, "auto": auto })
+    })
+}
+
+/// Learning on or off for a role (on unless turned off).
+pub fn set_role_learns(ledger: &Ledger, role_id: &str, on: bool) -> Result<()> {
+    let role = ledger
+        .role(role_id)?
+        .ok_or_else(|| WorkforceError::Invalid("that role does not exist".into()))?;
+    change(ledger, "learning.role_switched", |s| {
+        s.off_roles.retain(|r| r != role_id);
+        if !on {
+            s.off_roles.push(role_id.to_owned());
+        }
+        json!({ "roleId": role_id, "name": role.name, "learns": on })
+    })
+}
+
+/// Learning on or off for one agent, or `None`: it follows its role.
+pub fn set_agent(ledger: &Ledger, position_id: &str, on: Option<bool>) -> Result<()> {
+    let position = ledger
+        .position(position_id)?
+        .filter(|p| !p.is_deleted())
+        .ok_or_else(|| WorkforceError::Invalid("that agent is no longer on the chart".into()))?;
+    change(ledger, "learning.agent_switched", |s| {
+        match on {
+            Some(on) => {
+                s.agents.insert(position_id.to_owned(), on);
+            }
+            None => {
+                s.agents.remove(position_id);
+            }
+        }
+        json!({ "positionId": position_id, "title": position.title, "learns": on })
+    })
+}
+
+/// Forget the settings of agents deleted for good or moved to the Workforce (ADR-043).
+pub fn forget(ledger: &Ledger, positions: &[String]) -> Result<()> {
+    if !settings(ledger)?
+        .agents
+        .keys()
+        .any(|p| positions.contains(p))
+    {
+        return Ok(());
+    }
+    change(ledger, "learning.agents_forgotten", |s| {
+        s.agents.retain(|p, _| !positions.contains(p));
+        json!({ "positionIds": positions })
     })
 }
 

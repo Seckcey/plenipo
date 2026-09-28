@@ -29,4 +29,8 @@ neverCompanies: Array<string>, cost: CostPreference, crossCompany: CrossCompany,
  * The effort level this role runs a model at, by model ID, when it differs from the
  * model's own setting.
  */
-efforts: { [key in string]?: Effort }, };
+efforts: { [key in string]?: Effort }, 
+/**
+ * The effort for any model this role does not set one for (ADR-041); `None`: none.
+ */
+effort: Effort | null, };

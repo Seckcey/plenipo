@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use plenipo_ledger::workforce::{clean_line, clean_model, clean_runtime_id};
-use plenipo_runtime::agent::Effort;
+use plenipo_runtime::agent::{Effort, KnownModel};
 use serde::{Deserialize, Serialize};
 
 use crate::dto::*;
@@ -23,26 +23,101 @@ pub struct RoutingConfig {
     pub models: Vec<ModelInfo>,
     /// By role ID.
     pub policies: BTreeMap<String, RolePolicy>,
+    /// The whole organization's rule (ADR-041).
+    pub organization: ModelRule,
+    /// By department ID.
+    pub departments: BTreeMap<String, ModelRule>,
+    /// Each agent's own rule, by position ID.
+    pub positions: BTreeMap<String, ModelRule>,
     pub options: RoutingOptions,
     /// When the owner last asked to try each runtime again after a usage limit (ms).
     pub cleared_limits: BTreeMap<String, u64>,
 }
 
-/// The AI tools this build has (runtime IDs), with the effort levels each accepts.
-pub type ToolLevels = BTreeMap<String, Vec<Effort>>;
+/// What one AI tool takes: its name, its effort levels, and its own models' levels.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ToolEfforts {
+    pub label: String,
+    pub levels: Vec<Effort>,
+    pub models: Vec<KnownModel>,
+}
+
+impl ToolEfforts {
+    /// The levels `model` takes: its own when the AI tool lists it, else the AI tool's.
+    pub fn for_model(&self, model: Option<&str>) -> &[Effort] {
+        model
+            .and_then(|m| self.models.iter().find(|k| k.name == m))
+            .map_or(&self.levels, |k| &k.effort_levels)
+    }
+}
+
+/// The AI tools this build has (runtime IDs), with what each takes.
+pub type ToolLevels = BTreeMap<String, ToolEfforts>;
 
 fn invalid(message: impl Into<String>) -> RouterError {
     RouterError::Invalid(message.into())
 }
 
-/// Refuse an effort level the AI tool does not accept.
-fn check_effort(effort: Option<Effort>, runtime_id: &str, tools: &ToolLevels) -> Result<()> {
-    match effort {
-        Some(e) if !tools.get(runtime_id).is_some_and(|l| l.contains(&e)) => Err(invalid(format!(
-            "{runtime_id} has no {} effort level",
-            e.label()
-        ))),
-        _ => Ok(()),
+/// "low, medium, high, extra high, or max".
+pub fn levels_words(levels: &[Effort]) -> String {
+    let words: Vec<&str> = levels.iter().map(|e| e.label()).collect();
+    match words.as_slice() {
+        [] => String::new(),
+        [one] => (*one).to_owned(),
+        [a, b] => format!("{a} or {b}"),
+        [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
+    }
+}
+
+/// "Sonnet (Claude Code)": a model's name with its AI tool's.
+fn model_words(label: &str, runtime_id: &str, tools: &ToolLevels) -> String {
+    let tool = tools
+        .get(runtime_id)
+        .map_or(runtime_id, |t| t.label.as_str());
+    if tool.is_empty() || label.to_lowercase().contains(&tool.to_lowercase()) {
+        label.to_owned()
+    } else {
+        format!("{label} ({tool})")
+    }
+}
+
+/// Refuse an effort level the model does not take, in plain words naming the levels it does
+/// (ADR-041 §8).
+pub fn check_model_effort(
+    effort: Effort,
+    runtime_id: &str,
+    name: Option<&str>,
+    label: &str,
+    tools: &ToolLevels,
+) -> Result<()> {
+    let levels = tools.get(runtime_id).map_or(&[][..], |t| t.for_model(name));
+    if levels.contains(&effort) {
+        return Ok(());
+    }
+    let who = model_words(label, runtime_id, tools);
+    Err(invalid(if levels.is_empty() {
+        format!("{who} has no effort setting")
+    } else {
+        format!(
+            "{who} does not take {} effort. It takes {}",
+            effort.label(),
+            levels_words(levels)
+        )
+    }))
+}
+
+/// Refuse an effort for any model that no AI tool takes.
+fn check_any_effort(effort: Effort, tools: &ToolLevels) -> Result<()> {
+    let taken = tools.values().any(|t| {
+        t.levels.contains(&effort) || t.models.iter().any(|m| m.effort_levels.contains(&effort))
+    });
+    if taken {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "none of your AI tools takes {} effort",
+            effort.label()
+        )))
     }
 }
 
@@ -101,7 +176,6 @@ impl RoutingConfig {
         if !tools.contains_key(&runtime_id) {
             return Err(invalid(format!("there is no AI tool named {runtime_id:?}")));
         }
-        check_effort(input.effort, &runtime_id, tools)?;
         let name = input
             .name
             .as_deref()
@@ -110,6 +184,9 @@ impl RoutingConfig {
             .map(clean_model)
             .transpose()?;
         let label = clean_line("the model's name", &input.label, 80)?;
+        if let Some(e) = input.effort {
+            check_model_effort(e, &runtime_id, name.as_deref(), &label, tools)?;
+        }
         let mut features = input.features.clone();
         features.sort();
         features.dedup();
@@ -170,12 +247,17 @@ impl RoutingConfig {
             effort: input.effort,
             built_in: existing.is_some_and(|i| self.models[i].built_in),
         };
-        // A role's effort for this model must still suit its (possibly new) AI tool.
-        let levels = tools.get(&model.runtime_id);
+        // A role's or a rule's effort for this model must still suit it (its AI tool may be new).
+        let levels: Vec<Effort> = tools
+            .get(&model.runtime_id)
+            .map(|t| t.for_model(model.name.as_deref()).to_vec())
+            .unwrap_or_default();
+        let keep = |id: &String, e: &mut Effort| *id != model.id || levels.contains(e);
         for policy in self.policies.values_mut() {
-            policy
-                .efforts
-                .retain(|id, e| *id != model.id || levels.is_some_and(|l| l.contains(e)));
+            policy.efforts.retain(keep);
+        }
+        for rule in self.rules_mut() {
+            rule.efforts.retain(keep);
         }
         match existing {
             Some(i) => self.models[i] = model.clone(),
@@ -213,7 +295,78 @@ impl RoutingConfig {
                 changed.push(role.clone());
             }
         }
+        for rule in self.rules_mut() {
+            rule.models.retain(|m| m != id);
+            rule.efforts.remove(id);
+        }
         Ok((removed, changed))
+    }
+
+    /// Every rule that is not a role's: the organization's, each department's, each agent's.
+    fn rules_mut(&mut self) -> impl Iterator<Item = &mut ModelRule> {
+        std::iter::once(&mut self.organization)
+            .chain(self.departments.values_mut())
+            .chain(self.positions.values_mut())
+    }
+
+    /// A validated rule for the organization, a department, or an agent (ADR-041).
+    pub fn check_rule(
+        &self,
+        rule: &ModelRule,
+        companies: &[String],
+        tools: &ToolLevels,
+    ) -> Result<ModelRule> {
+        let models = self.check_models(&rule.models)?;
+        let efforts = self.check_efforts(&rule.efforts, tools)?;
+        if let Some(e) = rule.effort {
+            check_any_effort(e, tools)?;
+        }
+        Ok(ModelRule {
+            models,
+            efforts,
+            effort: rule.effort,
+            never_companies: check_companies(&rule.never_companies, companies)?,
+        })
+    }
+
+    /// A model list: every model in the owner's list, once, at most [`MAX_ROLE_MODELS`].
+    fn check_models(&self, models: &[String]) -> Result<Vec<String>> {
+        if models.len() > MAX_ROLE_MODELS {
+            return Err(invalid(format!(
+                "a list has at most {MAX_ROLE_MODELS} models"
+            )));
+        }
+        let mut seen = HashSet::new();
+        for id in models {
+            if self.model(id).is_none() {
+                return Err(invalid("a chosen model is no longer in your list"));
+            }
+            if !seen.insert(id) {
+                return Err(invalid("a model is listed twice"));
+            }
+        }
+        Ok(models.to_vec())
+    }
+
+    /// Efforts by model: each model is in the owner's list and takes its level.
+    fn check_efforts(
+        &self,
+        efforts: &BTreeMap<String, Effort>,
+        tools: &ToolLevels,
+    ) -> Result<BTreeMap<String, Effort>> {
+        for (id, effort) in efforts {
+            let model = self
+                .model(id)
+                .ok_or_else(|| invalid("a chosen model is no longer in your list"))?;
+            check_model_effort(
+                *effort,
+                &model.runtime_id,
+                model.name.as_deref(),
+                &model.label,
+                tools,
+            )?;
+        }
+        Ok(efforts.clone())
     }
 
     /// A validated policy for a role; `companies` are the provider IDs this build knows.
@@ -223,20 +376,7 @@ impl RoutingConfig {
         companies: &[String],
         tools: &ToolLevels,
     ) -> Result<RolePolicy> {
-        if policy.models.len() > MAX_ROLE_MODELS {
-            return Err(invalid(format!(
-                "a role lists at most {MAX_ROLE_MODELS} models"
-            )));
-        }
-        let mut seen = HashSet::new();
-        for id in &policy.models {
-            if self.model(id).is_none() {
-                return Err(invalid("a chosen model is no longer in your list"));
-            }
-            if !seen.insert(id) {
-                return Err(invalid("a model is listed twice"));
-            }
-        }
+        let models = self.check_models(&policy.models)?;
         let mut needs = policy.needs.clone();
         needs.sort();
         needs.dedup();
@@ -247,37 +387,37 @@ impl RoutingConfig {
                 )));
             }
         }
-        let mut never = Vec::new();
-        for c in &policy.never_companies {
-            if !companies.contains(c) {
-                return Err(invalid(format!("there is no AI company named {c:?}")));
-            }
-            if !never.contains(c) {
-                never.push(c.clone());
-            }
-        }
-        for (id, effort) in &policy.efforts {
-            let model = self
-                .model(id)
-                .ok_or_else(|| invalid("a chosen model is no longer in your list"))?;
-            check_effort(Some(*effort), &model.runtime_id, tools)?;
+        // An effort equal to the model's own setting is kept: with rules above the role
+        // (ADR-041), it says "this level for this role", not nothing.
+        let efforts = self.check_efforts(&policy.efforts, tools)?;
+        if let Some(e) = policy.effort {
+            check_any_effort(e, tools)?;
         }
         Ok(RolePolicy {
-            models: policy.models.clone(),
+            models,
             needs,
             min_context_tokens: policy.min_context_tokens,
-            never_companies: never,
+            never_companies: check_companies(&policy.never_companies, companies)?,
             cost: policy.cost,
             cross_company: policy.cross_company,
-            // The same as the model's own setting says nothing.
-            efforts: policy
-                .efforts
-                .iter()
-                .filter(|(id, e)| self.model(id).is_some_and(|m| m.effort != Some(**e)))
-                .map(|(id, e)| (id.clone(), *e))
-                .collect(),
+            efforts,
+            effort: policy.effort,
         })
     }
+}
+
+/// AI companies never to use: each one this build knows, once.
+fn check_companies(list: &[String], companies: &[String]) -> Result<Vec<String>> {
+    let mut never = Vec::new();
+    for c in list {
+        if !companies.contains(c) {
+            return Err(invalid(format!("there is no AI company named {c:?}")));
+        }
+        if !never.contains(c) {
+            never.push(c.clone());
+        }
+    }
+    Ok(never)
 }
 
 /// `label`, or `label 2`, `label 3`, … when taken by another model.
@@ -302,9 +442,17 @@ mod tests {
     use super::*;
 
     fn tools() -> ToolLevels {
+        let tool = |label: &str, levels: &[Effort]| ToolEfforts {
+            label: label.into(),
+            levels: levels.to_vec(),
+            models: vec![KnownModel::new("mini", "Mini", &[])],
+        };
         ToolLevels::from([
-            ("alpha".into(), vec![Effort::Low, Effort::High]),
-            ("beta".into(), vec![]),
+            (
+                "alpha".into(),
+                tool("Alpha Code", &[Effort::Low, Effort::High]),
+            ),
+            ("beta".into(), tool("Beta CLI", &[])),
         ])
     }
 
@@ -443,8 +591,12 @@ mod tests {
                 &tools(),
             )
             .unwrap();
-        // A's own setting is already high, so only B's differs.
-        assert_eq!(ok.efforts, BTreeMap::from([(b.id.clone(), Effort::Low)]));
+        // Both are kept, A's too although it equals A's own setting: with rules above the role
+        // (ADR-041), it still says something.
+        assert_eq!(
+            ok.efforts,
+            BTreeMap::from([(a.id.clone(), Effort::High), (b.id.clone(), Effort::Low)])
+        );
         for bad in [
             policy(&[(&b.id, Effort::Max)]),
             policy(&[(&"nope".to_owned(), Effort::Low)]),
@@ -456,6 +608,8 @@ mod tests {
         }
         // Moving B to an AI tool without effort levels drops the role's effort for it; removing
         // a model drops it too.
+        let mut ok = ok;
+        ok.efforts.remove(&a.id);
         c.policies.insert("dev".into(), ok);
         c.save_model(
             &ModelInput {
@@ -559,5 +713,77 @@ mod tests {
         let back = RoutingConfig::from_value(c.to_value()).unwrap();
         assert_eq!(back, c);
         assert!(RoutingConfig::from_value(serde_json::json!({ "models": 3 })).is_err());
+    }
+
+    /// ADR-041 §8: an effort a model does not take is refused, naming the levels it takes.
+    #[test]
+    fn efforts_are_refused_in_plain_words_naming_what_the_model_takes() {
+        let mut c = RoutingConfig::default();
+        let opus = c
+            .save_model(&input("alpha", Some("opus"), "Opus"), &tools())
+            .unwrap();
+        let mini = c
+            .save_model(&input("alpha", Some("mini"), "Mini"), &tools())
+            .unwrap();
+        let companies = ["acme".to_owned()];
+        let rule = |id: &str, e: Effort| ModelRule {
+            efforts: BTreeMap::from([(id.to_owned(), e)]),
+            ..ModelRule::default()
+        };
+        let refused = c
+            .check_rule(&rule(&opus.id, Effort::Ultra), &companies, &tools())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("Opus (Alpha Code) does not take ultra effort. It takes low or high"),
+            "{refused}"
+        );
+        let none = c
+            .check_rule(&rule(&mini.id, Effort::Low), &companies, &tools())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            none.contains("Mini (Alpha Code) has no effort setting"),
+            "{none}"
+        );
+        // An effort for any model must be one some AI tool takes.
+        let any = |e| ModelRule {
+            effort: Some(e),
+            ..ModelRule::default()
+        };
+        assert!(c
+            .check_rule(&any(Effort::High), &companies, &tools())
+            .is_ok());
+        assert!(c
+            .check_rule(&any(Effort::Max), &companies, &tools())
+            .unwrap_err()
+            .to_string()
+            .contains("none of your AI tools takes max effort"));
+        // Lists and companies are checked as a role's are.
+        let listed = ModelRule {
+            models: vec![opus.id.clone(), opus.id.clone()],
+            ..ModelRule::default()
+        };
+        assert!(c.check_rule(&listed, &companies, &tools()).is_err());
+        let never = ModelRule {
+            never_companies: vec!["acme".into(), "acme".into()],
+            ..ModelRule::default()
+        };
+        assert_eq!(
+            c.check_rule(&never, &companies, &tools())
+                .unwrap()
+                .never_companies,
+            ["acme"]
+        );
+        // Removing a model takes it out of every rule.
+        c.organization = ModelRule {
+            models: vec![opus.id.clone()],
+            efforts: BTreeMap::from([(opus.id.clone(), Effort::High)]),
+            ..ModelRule::default()
+        };
+        c.departments.insert("dev".into(), c.organization.clone());
+        c.remove_model(&opus.id).unwrap();
+        assert!(c.organization.models.is_empty() && c.organization.efforts.is_empty());
+        assert!(c.departments["dev"].models.is_empty());
     }
 }

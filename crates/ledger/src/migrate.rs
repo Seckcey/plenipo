@@ -80,6 +80,12 @@ pub const MIGRATIONS: &[Migration] = &[
         up: include_str!("../migrations/0008_activity.up.sql"),
         down: include_str!("../migrations/0008_activity.down.sql"),
     },
+    Migration {
+        version: 9,
+        name: "owner_control",
+        up: include_str!("../migrations/0009_owner_control.up.sql"),
+        down: include_str!("../migrations/0009_owner_control.down.sql"),
+    },
 ];
 
 /// Highest version in `migrations` (0 if none).

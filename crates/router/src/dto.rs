@@ -150,6 +150,91 @@ pub struct RolePolicy {
     /// The effort level this role runs a model at, by model ID, when it differs from the
     /// model's own setting.
     pub efforts: BTreeMap<String, Effort>,
+    /// The effort for any model this role does not set one for (ADR-041); `None`: none.
+    pub effort: Option<Effort>,
+}
+
+/// Model and effort choices set for the whole organization, one department, or one agent
+/// (ADR-041). A role's are its [`RolePolicy`], which has the same four and the job's own needs.
+/// The closest layer that sets something wins; AI companies never to use add up.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export)]
+pub struct ModelRule {
+    /// Model IDs in order: the first choice, then backups. Empty: this layer lists none.
+    pub models: Vec<String>,
+    /// The effort for a model, by model ID.
+    pub efforts: BTreeMap<String, Effort>,
+    /// The effort for any model this layer does not set one for; `None`: none.
+    pub effort: Option<Effort>,
+    /// AI companies (provider IDs) never to use.
+    pub never_companies: Vec<String>,
+}
+
+impl ModelRule {
+    /// Sets nothing.
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// A layer of model and effort choices (ADR-041), closest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum RuleLayer {
+    /// The AI tool and model the owner fixed for the position.
+    Fixed,
+    /// The agent's own rule.
+    Agent,
+    Role,
+    Department,
+    Organization,
+    /// The model's own setting in the owner's list.
+    Model,
+}
+
+/// The layer that decided a model or an effort, and its name for the screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RuleSource {
+    pub layer: RuleLayer,
+    /// "this agent", "Senior Developer", "the Development department", "the organization", "the
+    /// model".
+    pub name: String,
+    /// The position, role, or department, when there is one.
+    pub id: Option<String>,
+}
+
+/// Which rule to change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "layer", content = "id")]
+#[ts(export)]
+pub enum RuleTarget {
+    Organization,
+    Department(String),
+    Agent(String),
+}
+
+/// A department's rule, for Settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DepartmentRuleView {
+    pub department_id: String,
+    pub name: String,
+    pub rule: ModelRule,
+}
+
+/// An agent's own rule, for Settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AgentRuleView {
+    pub position_id: String,
+    pub title: String,
+    pub rule: ModelRule,
 }
 
 /// Choices that apply to every role.
@@ -256,8 +341,15 @@ pub struct RouteDecision {
     pub rank: Option<u32>,
     /// Every model considered, in the order tried.
     pub candidates: Vec<CandidateNote>,
-    /// The owner fixed the AI tool and model on the position (the policy was not consulted).
+    /// The owner fixed the AI tool and model on the position (no model list was consulted).
     pub fixed: bool,
+    /// The layer whose model list chose the model (`None`: no layer lists models, so the owner's
+    /// whole list was used; or none was chosen).
+    #[serde(default)]
+    pub model_from: Option<RuleSource>,
+    /// The layer that set the effort (`None`: the AI tool's default).
+    #[serde(default)]
+    pub effort_from: Option<RuleSource>,
 }
 
 /// A role's policy with the model its next worker would get.
@@ -297,6 +389,12 @@ pub struct RoutingSnapshot {
     pub models: Vec<ModelInfo>,
     pub tools: Vec<ToolInfo>,
     pub roles: Vec<RolePolicyView>,
+    /// The whole organization's rule (ADR-041).
+    pub organization: ModelRule,
+    /// Each active department's rule (empty rules included).
+    pub departments: Vec<DepartmentRuleView>,
+    /// The agents that have a rule of their own.
+    pub agents: Vec<AgentRuleView>,
     pub seen: Vec<ModelSeen>,
     pub options: RoutingOptions,
     /// Pay-per-use API billing (always off in this version; ADR-007).

@@ -5,12 +5,14 @@ use std::collections::{HashMap, HashSet};
 
 use plenipo_ledger::{
     AgentInstance, OrgRecords, OversightKind, Position, PositionState, RoleType, RuntimeSession,
-    Task, TaskState,
+    SavedAgent, Specialty, Task, TaskState,
 };
 use plenipo_router::Planner;
+use serde_json::Value;
 
 use crate::directory::{allowed, decide};
 use crate::dto::*;
+use crate::learning::LearningSettings;
 use crate::templates::default_glyph;
 use crate::view::OrgView;
 
@@ -24,6 +26,8 @@ pub(crate) struct Inputs<'a> {
     pub sessions: &'a [RuntimeSession],
     /// Routing configuration and the AI tools' live state.
     pub planner: &'a Planner,
+    /// Who learns (ADR-041).
+    pub learning: &'a LearningSettings,
     pub name: String,
     pub titles: TitleTheme,
     pub notices: Vec<String>,
@@ -86,6 +90,106 @@ pub(crate) fn brief(task: &Task, titles: &HashMap<&str, &str>) -> TaskBrief {
     }
 }
 
+/// A number from a JSON value (0 when absent).
+fn count_of(v: &Value) -> u32 {
+    u32::try_from(v.as_u64().unwrap_or(0)).unwrap_or(u32::MAX)
+}
+
+/// 10 for each kept lesson, 1 for each finished task (ADR-045).
+pub(crate) fn score(kept_lessons: u32, tasks_done: u32) -> u32 {
+    kept_lessons.saturating_mul(10).saturating_add(tasks_done)
+}
+
+/// An agent's experience, from the records and what it brought from the Workforce.
+pub(crate) fn experience_counts(records: &OrgRecords, p: &Position) -> (u32, u32) {
+    let live = records.experience.get(&p.id).copied().unwrap_or_default();
+    let base = &p.metadata["experience"];
+    (
+        live.kept_lessons
+            .saturating_add(count_of(&base["keptLessons"])),
+        live.tasks_done.saturating_add(count_of(&base["tasksDone"])),
+    )
+}
+
+/// The organization's average experience, over its agents (not deleted) that finished a task.
+pub(crate) fn average_experience(records: &OrgRecords) -> u32 {
+    let scores: Vec<u64> = records
+        .positions
+        .iter()
+        .filter(|p| !p.is_deleted())
+        .map(|p| experience_counts(records, p))
+        .filter(|(_, tasks)| *tasks > 0)
+        .map(|(kept, tasks)| u64::from(score(kept, tasks)))
+        .collect();
+    if scores.is_empty() {
+        return 0;
+    }
+    let n = scores.len() as u64;
+    u32::try_from((scores.iter().sum::<u64>() + n / 2) / n).unwrap_or(u32::MAX)
+}
+
+pub(crate) fn experience_info(kept_lessons: u32, tasks_done: u32, average: u32) -> ExperienceInfo {
+    let score = score(kept_lessons, tasks_done);
+    ExperienceInfo {
+        score,
+        kept_lessons,
+        tasks_done,
+        experienced: score > 0 && score > average,
+    }
+}
+
+pub(crate) fn specialty_info(s: &Specialty) -> SpecialtyInfo {
+    SpecialtyInfo {
+        id: s.id.clone(),
+        role_id: s.role_id.clone(),
+        name: s.name.clone(),
+        title: s.title.clone(),
+        built_in: s.built_in(),
+        job: crate::prompt::specialty_job(s),
+        suggest: serde_json::from_value(s.metadata["suggest"].clone()).unwrap_or_default(),
+    }
+}
+
+fn archived_with(v: &Value) -> Option<ArchivedWith> {
+    Some(ArchivedWith {
+        kind: v["kind"].as_str()?.to_owned(),
+        id: v["id"].as_str()?.to_owned(),
+        name: v["name"].as_str()?.to_owned(),
+    })
+}
+
+pub(crate) fn saved_info(records: &OrgRecords, s: &SavedAgent, average: u32) -> SavedAgentInfo {
+    let e = &s.experience;
+    let specialty = s
+        .specialty_id
+        .as_deref()
+        .and_then(|id| records.specialties.iter().find(|x| x.id == id));
+    SavedAgentInfo {
+        id: s.id.clone(),
+        title: s.title.clone(),
+        role_id: s.role_id.clone(),
+        role_name: records
+            .roles
+            .iter()
+            .find(|r| r.id == s.role_id)
+            .map_or_else(String::new, |r| r.name.clone()),
+        specialty_id: specialty.map(|x| x.id.clone()),
+        specialty: specialty.map(|x| x.name.clone()),
+        experience: experience_info(
+            count_of(&e["keptLessons"]),
+            count_of(&e["tasksDone"]),
+            average,
+        ),
+        places: serde_json::from_value(e["places"].clone()).unwrap_or_default(),
+        first_worked: e["firstWorked"].as_u64(),
+        last_worked: e["lastWorked"].as_u64(),
+        lessons: s.lessons.clone(),
+        runtime_id: s.settings["runtimeId"].as_str().map(str::to_owned),
+        model: s.settings["model"].as_str().map(str::to_owned),
+        saved_at: s.saved_at,
+    }
+}
+
 fn counts(tasks: &[&Task]) -> WorkCounts {
     let mut c = WorkCounts::default();
     for t in tasks {
@@ -103,6 +207,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
     let records = inputs.records;
     let view = OrgView::new(records);
     let planner = inputs.planner;
+    let average = average_experience(records);
     let titles: HashMap<&str, &str> = records
         .positions
         .iter()
@@ -177,7 +282,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
         let c = counts(&own);
         let active = p.state == PositionState::Active;
         // Where its next worker (or a new agent) would go.
-        let route = active.then(|| decide(planner, p, project, &[]));
+        let route = active.then(|| decide(planner, &view, p, project, &[]));
         // A full-time agent keeps the AI tool of the conversation it has.
         let conversation = agent
             .filter(|a| session_of(a).is_some())
@@ -278,6 +383,30 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             },
             created_at: p.created_at,
             archived_at: p.archived_at,
+            specialty_id: p.specialty_id.clone(),
+            specialty: p.specialty_id.as_deref().and_then(|id| {
+                records
+                    .specialties
+                    .iter()
+                    .find(|x| x.id == id)
+                    .map(|x| x.name.clone())
+            }),
+            experience: {
+                let (kept, tasks) = experience_counts(records, p);
+                experience_info(kept, tasks, average)
+            },
+            learning: {
+                let (learns, from) = crate::learning::learns(inputs.learning, p);
+                LearningInfo {
+                    learns,
+                    from,
+                    own: inputs.learning.agents.get(&p.id).copied(),
+                }
+            },
+            own_rule: planner.config.positions.get(&p.id).cloned(),
+            archived_with: archived_with(&p.metadata["archive"]["with"]),
+            deleted: p.is_deleted(),
+            in_workforce: p.metadata["deleted"]["movedTo"] == "workforce",
         }
     };
 
@@ -285,14 +414,28 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
     let mut archived: Vec<&Position> = records
         .positions
         .iter()
-        .filter(|p| p.state == PositionState::Archived)
+        .filter(|p| p.state == PositionState::Archived && !p.is_deleted())
         .collect();
     archived.sort_by_key(|p| std::cmp::Reverse(p.archived_at));
     positions.extend(archived.into_iter().map(info));
+    let mut deleted: Vec<&Position> = records
+        .positions
+        .iter()
+        .filter(|p| p.is_deleted())
+        .collect();
+    deleted.sort_by_key(|p| std::cmp::Reverse(p.deleted_at));
+    positions.extend(deleted.into_iter().map(info));
 
     let active: Vec<&PositionInfo> = positions.iter().filter(|p| p.active).collect();
     let mut stats = OrgStats {
-        departments: u32::try_from(records.departments.len()).unwrap_or(u32::MAX),
+        departments: u32::try_from(
+            records
+                .departments
+                .iter()
+                .filter(|d| d.archived_at.is_none() && d.deleted_at.is_none())
+                .count(),
+        )
+        .unwrap_or(u32::MAX),
         projects: u32::try_from(
             records
                 .projects
@@ -360,6 +503,14 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                     purpose: strings("purpose"),
                     default_capabilities: strings("defaultCapabilities"),
                     job: crate::templates::job_of(r),
+                    specialties: records
+                        .specialties
+                        .iter()
+                        .filter(|x| x.role_id == r.id && x.removed_at.is_none())
+                        .map(specialty_info)
+                        .collect(),
+                    learns: !inputs.learning.off_roles.contains(&r.id),
+                    learns_on_its_own: inputs.learning.auto_roles.contains(&r.id),
                 }
             })
             .collect(),
@@ -370,7 +521,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 id: d.id.clone(),
                 name: d.name.clone(),
                 description: d.description.clone(),
-                active: d.status == "active",
+                active: d.status == "active" && d.archived_at.is_none() && d.deleted_at.is_none(),
                 head_position_id: d.head_position_id.clone(),
                 project_ids: records
                     .projects
@@ -379,6 +530,8 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                     .map(|p| p.id.clone())
                     .collect(),
                 created_at: d.created_at,
+                archived_at: d.archived_at,
+                deleted: d.deleted_at.is_some(),
             })
             .collect(),
         projects: records
@@ -397,9 +550,18 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 active: p.status == "active",
                 branch_per_objective: p.branch_per_objective,
                 created_at: p.created_at,
+                archived_at: p.archived_at,
+                archived_with: archived_with(&p.metadata["archive"]["with"]),
+                deleted: p.deleted_at.is_some(),
             })
             .collect(),
         positions,
+        workforce: records
+            .saved_agents
+            .iter()
+            .map(|s| saved_info(records, s, average))
+            .collect(),
+        average_experience: average,
         oversight: records
             .oversight
             .iter()
@@ -716,6 +878,7 @@ mod tests {
             finished_recent: &finished,
             sessions: &[],
             planner: &planner,
+            learning: &crate::learning::LearningSettings::default(),
             name: "8 West".into(),
             titles: TitleTheme::Army,
             notices: vec![],

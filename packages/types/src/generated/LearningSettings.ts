@@ -12,4 +12,12 @@ enabled: boolean,
  * Roles that learn on their own: their lessons are kept without asking (except lessons
  * from tasks that used websites or the screen).
  */
-autoRoles: Array<string>, };
+autoRoles: Array<string>, 
+/**
+ * Roles with learning turned off (ADR-041); a role is on unless listed.
+ */
+offRoles: Array<string>, 
+/**
+ * Agents set on or off, by position ID; an agent not listed follows its role.
+ */
+agents: { [key in string]?: boolean }, };

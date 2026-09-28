@@ -201,6 +201,7 @@ fn lead(role_id: &str, title: &str, runtime: &str) -> LeadInput {
         runtime_id: Some(runtime.into()),
         model: None,
         vacant: None,
+        from_workforce: None,
     }
 }
 
@@ -262,6 +263,7 @@ impl H {
                 runtime_id: Some(runtime.into()),
                 model: None,
                 vacant: None,
+                specialty_id: None,
             })
             .unwrap();
         Self::id_of(&s, title)
@@ -559,7 +561,11 @@ async fn workers_learn_lessons_the_owner_keeps() {
         }
     };
     // The instructions ask for lessons, and there are none yet.
-    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
+    let told = learning::instructions(
+        &h.ledger,
+        &h.ledger.position(&org.coordinator).unwrap().unwrap(),
+        "Supervisor",
+    );
     assert!(told.contains("```plenipo-lesson"), "{told}");
     assert!(!told.contains("have learned"));
 
@@ -572,15 +578,21 @@ async fn workers_learn_lessons_the_owner_keeps() {
     assert_eq!(waiting.text, "Read the release notes before planning.");
     assert_eq!(waiting.worker, "Cloudline Coordinator");
     assert!(!waiting.from_web);
-    assert!(
-        !learning::instructions(&h.ledger, &supervisor, "Supervisor")
-            .contains("Read the release notes")
-    );
+    assert!(!learning::instructions(
+        &h.ledger,
+        &h.ledger.position(&org.coordinator).unwrap().unwrap(),
+        "Supervisor"
+    )
+    .contains("Read the release notes"));
     // Kept in the owner's words, it is in the next workers' instructions.
     h.workforce
         .decide_lesson(&waiting.id, true, Some("Read the release notes first."))
         .unwrap();
-    let told = learning::instructions(&h.ledger, &supervisor, "Supervisor");
+    let told = learning::instructions(
+        &h.ledger,
+        &h.ledger.position(&org.coordinator).unwrap().unwrap(),
+        "Supervisor",
+    );
     assert!(told.contains("- Read the release notes first."), "{told}");
 
     // A role that learns on its own keeps them at once.
@@ -601,7 +613,12 @@ async fn workers_learn_lessons_the_owner_keeps() {
     h.finished(&task).await;
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(lessons(LessonState::Kept).len(), 2);
-    assert!(learning::instructions(&h.ledger, &supervisor, "Supervisor").is_empty());
+    assert!(learning::instructions(
+        &h.ledger,
+        &h.ledger.position(&org.coordinator).unwrap().unwrap(),
+        "Supervisor"
+    )
+    .is_empty());
     // Removing a kept lesson.
     h.workforce.set_learning(true).unwrap();
     let kept = h.workforce.learning().unwrap().kept;
@@ -715,6 +732,7 @@ async fn plan_create_department_role_manager_and_project_coordinator() {
         runtime_id: Some("gemini".into()),
         model: None,
         vacant: None,
+        specialty_id: None,
     }))
     .contains("no AI tool named"));
     let events: Vec<String> = h
@@ -979,7 +997,12 @@ async fn plan_orphan_prevention() {
             .move_position(&o.coordinator, Some(&o.developer))
     )
     .contains("on-call"));
-    assert!(refusal(h.workforce.remove_department(&o.department)).contains("project"));
+    assert!(refusal(
+        h.workforce
+            .delete_for_good("department", &o.department, &[])
+            .map(|(s, _)| s)
+    )
+    .contains("not archived"));
 
     // An agent with unfinished work cannot be let go.
     let busy = h
@@ -1181,6 +1204,7 @@ impl H {
                 runtime_id: None,
                 model: None,
                 vacant: None,
+                specialty_id: None,
             })
             .unwrap();
         Self::id_of(&s, title)
@@ -1326,7 +1350,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(
         reason(&child),
         "Fast (Claude Code) is Senior Developer's first choice and is ready. It runs at high \
-         effort (its setting)."
+         effort, from the model's own setting."
     );
     let worker =
         h.rt.session(child.metadata["sessionId"].as_str().unwrap())
@@ -1498,7 +1522,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(
         reason(&turn),
         "Codex (default model) is Manager's first choice and is ready. It runs at low \
-         effort (Manager's setting for it)."
+         effort, from Manager's rule."
     );
     let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(
