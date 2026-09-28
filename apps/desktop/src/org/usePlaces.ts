@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { OrgSnapshot, TilePlace } from "@plenipo/types";
 
 import { placeTiles, tidyUp, toCommandError } from "../api/commands";
-import { mergePlaces } from "./arrange";
+import { MAX_PLACES, mergePlaces } from "./arrange";
 
 interface Local {
   places: TilePlace[];
@@ -31,13 +31,16 @@ export function usePlaces(snapshot: OrgSnapshot | null, onError: (message: strin
   const save = useCallback(
     async (next: TilePlace[], work: () => Promise<unknown>): Promise<boolean> => {
       const mine = ++seq.current;
+      // What was on the canvas before: a refused save goes back to it (not to an older reading
+      // of the organization, which may not have the spots saved since).
+      const before = current.current;
       setLocal({ places: next, savedAt: null });
       try {
         await work();
         if (seq.current === mine) setLocal({ places: next, savedAt: Date.now() });
         return true;
       } catch (reason) {
-        if (seq.current === mine) setLocal(null);
+        if (seq.current === mine) setLocal({ places: before, savedAt: Date.now() });
         onError(toCommandError(reason).message);
         return false;
       }
@@ -45,12 +48,17 @@ export function usePlaces(snapshot: OrgSnapshot | null, onError: (message: strin
     [onError],
   );
 
-  /** Save these spots (a moved tile, and its team where needed). */
+  /** Save these spots (a moved tile, and its team where needed; Undo can bring back many, so
+   * they go in steps of at most 500, as the Ledger takes them). */
   const place = useCallback(
     (changes: TilePlace[]) =>
       changes.length === 0
         ? Promise.resolve(true)
-        : save(mergePlaces(current.current, changes), () => placeTiles(changes)),
+        : save(mergePlaces(current.current, changes), async () => {
+            for (let i = 0; i < changes.length; i += MAX_PLACES) {
+              await placeTiles(changes.slice(i, i + MAX_PLACES));
+            }
+          }),
     [save],
   );
 
