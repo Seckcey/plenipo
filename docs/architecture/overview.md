@@ -554,7 +554,7 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   programs the owner named. A secret goes only to the installed program of that name, found on
   PATH — never to a file inside the project folder named like it — and a run that would be given
   one asks the owner first, with "Will be given: <secret names>" on the card, unless a command
-  rule names both the program and the secret (ADR-038).
+  rule names both the program and the secret (ADR-043).
 
 ## 11. Development department (Phase 8)
 
@@ -624,7 +624,7 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   WebSocket only in the tests, which stand in for the owner's hand); `tab.rs` gives each grant
   its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
-  (sending, buying, signing in). The browser never saves files (ADR-037): right after it shows
+  (sending, buying, signing in). The browser never saves files (ADR-042): right after it shows
   it is up, before any tab exists, `launch_once` tells it to refuse every download
   (`Browser.setDownloadBehavior` with `deny` and `eventsEnabled`; a browser that does not take
   the setting is not used), and a refused download (`Browser.downloadWillBegin`) is routed by
@@ -648,7 +648,7 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   `prepare_control` asks the owner before a click, Enter, or Space on such a page. `classify.rs`
   asks before Enter in any text box (a form field, a contenteditable, a `role=textbox`), in a
   form or not; Enter in a textarea is a new line.
-- **New tabs** (`mod.rs`, `tab.rs`, ADR-036). A page never gets a second tab. At start,
+- **New tabs** (`mod.rs`, `tab.rs`, ADR-041). A page never gets a second tab. At start,
   `launch_once` tells the browser to attach to every new page paused (`Target.setAutoAttach` with
   `waitForDebuggerOnStart`, on the browser session, where new windows arrive); a browser that
   refuses is not used. `Tabs::target_attached` lets Plenipo's own tabs (no `openerId`) and those

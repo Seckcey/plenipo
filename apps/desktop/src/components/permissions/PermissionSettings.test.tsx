@@ -302,7 +302,7 @@ describe("Settings → Permissions", () => {
   });
 
   it("warns where a secret is bound to a program that runs scripts", async () => {
-    // ADR-038 (secrets reach only the programs they are for): the warning shows in the list...
+    // ADR-043 (secrets reach only the programs they are for): the warning shows in the list...
     const base = samplePermissions();
     api.getPermissions.mockResolvedValue({
       ...base,

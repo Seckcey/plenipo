@@ -1,4 +1,4 @@
-# ADR-038: Secrets reach only the programs they are for
+# ADR-043: Secrets reach only the programs they are for
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27

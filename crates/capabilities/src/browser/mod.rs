@@ -9,9 +9,9 @@
 //!   from Plenipo ([`cdp`]) — never a network port, so no other program on the computer can
 //!   connect to the browser and drive it; each worker's step gets its own tab ([`tab`]).
 //! - The profile never saves passwords or card details.
-//! - It never saves files (ADR-037): every download is refused before a tab exists, and the
+//! - It never saves files (ADR-042): every download is refused before a tab exists, and the
 //!   worker whose page tried it is told with its next result.
-//! - A page never gets a second tab (ADR-036): the browser attaches to every new tab paused,
+//! - A page never gets a second tab (ADR-041): the browser attaches to every new tab paused,
 //!   before any of it runs, and a tab a worker's page opened is closed, its address opened in
 //!   the worker's own tab when the worker's action opened it; the worker is told.
 //! - If it crashes or is closed, the next browser tool call starts it again.
@@ -375,7 +375,7 @@ struct Inner {
     /// The owner's choice (ADR-028), kept in step with Guard's settings by the broker.
     choice: std::sync::Mutex<BrowserChoice>,
     /// The workers' tabs open now, for the browser's own events (a download it refused,
-    /// ADR-037).
+    /// ADR-042).
     tabs: Tabs,
 }
 
@@ -591,7 +591,7 @@ impl Browser {
                 ))
             });
         }
-        // Plenipo's browser never saves files (ADR-037). Before any tab exists, the browser is
+        // Plenipo's browser never saves files (ADR-042). Before any tab exists, the browser is
         // told to refuse every download, and to report each one it refused so the worker whose
         // page tried it can be told. A browser that cannot be told so is not used: there is no
         // falling back to saving files.
@@ -611,7 +611,7 @@ impl Browser {
                 browser_words(&e, "Browser.setDownloadBehavior")
             )));
         }
-        // A page never gets a second tab (ADR-036): the browser is told to attach to every new
+        // A page never gets a second tab (ADR-041): the browser is told to attach to every new
         // tab paused, before any of it runs, so one a page opens can be closed and the worker
         // told (`Tabs::target_attached`). Told to the browser itself, which is where new windows
         // arrive (a tab's own session only hears of its frames and workers). Plenipo's own new
@@ -993,7 +993,7 @@ mod tests {
             .expect("the connection ends with the browser");
     }
 
-    /// ADR-037 and ADR-036: the browser is told never to save files as the very first thing
+    /// ADR-042 and ADR-041: the browser is told never to save files as the very first thing
     /// after it shows it is up, before any tab exists, with the setting that refuses every
     /// download and reports each one refused; and then to attach to every new tab paused, before
     /// any of it runs, so a tab a page opens can be closed.
@@ -1045,7 +1045,7 @@ mod tests {
             .expect("the connection ends with the browser");
     }
 
-    /// ADR-037: a browser that does not take the setting is not used, the owner is told in
+    /// ADR-042: a browser that does not take the setting is not used, the owner is told in
     /// plain words, and it is not started again (a second start would refuse the same way).
     #[cfg(unix)]
     #[tokio::test]
@@ -1076,7 +1076,7 @@ mod tests {
         assert_eq!(browser.status().await.problem, Some(error));
     }
 
-    /// ADR-036: a browser that will not hand over new tabs paused is not used either, and the
+    /// ADR-041: a browser that will not hand over new tabs paused is not used either, and the
     /// owner is told in plain words.
     #[cfg(unix)]
     #[tokio::test]

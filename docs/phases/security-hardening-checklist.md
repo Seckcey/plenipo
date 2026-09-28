@@ -66,10 +66,10 @@ records what was changed and how it was checked, in plain words, without the att
 
 ### Batch 1 (GHSA-2fq6-vq5f-685h)
 
-- [x] **B2 · The browser never saves files (ADR-037).** The browser is told at start to refuse
+- [x] **B2 · The browser never saves files (ADR-042).** The browser is told at start to refuse
       every download, before any tab exists; if it will not agree, Plenipo does not use it. The
       worker is told when a page tried to save a file (the file's name is cleaned and cut short).
-- [x] **B1 · A page never gets a second tab (ADR-036).** A pop-up or a `target="_blank"` link is
+- [x] **B1 · A page never gets a second tab (ADR-041).** A pop-up or a `target="_blank"` link is
       stopped before it runs and closed; during the worker's action, an allowed address opens in
       the worker's own tab through the same checks; a pop-up on the page's own, or while the owner
       has the tab, is just closed. The worker is told either way.
@@ -81,7 +81,7 @@ records what was changed and how it was checked, in plain words, without the att
       name; `git_diff` leaves blocked contents out and says how many files; `git_commit` refuses
       with a blocked file staged; the `git_push` card names blocked files in the commits (renames
       seen under both names).
-- [x] **B3 · Secrets reach only the programs they are for (ADR-038).** A secret goes only to a
+- [x] **B3 · Secrets reach only the programs they are for (ADR-043).** A secret goes only to a
       program found on PATH outside the project; a run that would receive one asks first unless
       the rule names the program and the secret; the card says "Will be given: …".
 - [x] **B6 · A cap on approvals.** Three waiting cards per grant, ten new cards a minute, four

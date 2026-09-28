@@ -19,9 +19,9 @@
 //!   connection (`Network.webSocketCreated`, forgotten on the next page), and the broker asks
 //!   the owner before a click, Enter, or Space on such a page ([`Tab::has_websocket`]);
 //! - a file a page tries to save (a download) is refused by the browser itself, for every tab,
-//!   from its start (ADR-037, [`super::Browser`]); the browser's event names only the frame that
+//!   from its start (ADR-042, [`super::Browser`]); the browser's event names only the frame that
 //!   started it, so the tab keeps the frames of its page, and [`Tabs`] finds the tab to tell;
-//! - a page never gets a second tab (ADR-036). The browser attaches to every new tab paused,
+//! - a page never gets a second tab (ADR-041). The browser attaches to every new tab paused,
 //!   before any of it runs ([`super::Browser`] asks for that), and [`Tabs`] closes one that a
 //!   worker's page opened (a link with `target="_blank"`, `window.open`, a form aimed at a new
 //!   window). When the worker's action opened it and its address passes the website check, the
@@ -51,7 +51,7 @@ pub const PAGE_JS: &str = include_str!("page.js");
 const WORLD: &str = "plenipo";
 const BINDING: &str = "plenipoControl";
 /// How long a tab waits for the address of a new tab its page asked for (`Page.windowOpen`, on
-/// the tab's own session) once the browser attached to that tab (ADR-036): the two arrive a
+/// the tab's own session) once the browser attached to that tab (ADR-041): the two arrive a
 /// moment apart, on different channels.
 const OPENING_WAIT: Duration = Duration::from_millis(500);
 /// How long an ask for a new tab that never became one is remembered.
@@ -60,7 +60,7 @@ const OPENING_KEPT: Duration = Duration::from_secs(5);
 /// stop those, and they never become tabs), and the oldest asks go first.
 const OPENING_MOST: usize = 16;
 /// A new tab the page's script can reach is closed once it has made no request for this long
-/// after it was let run (ADR-036, [`close_new_tab`]), and at the latest after `NEW_TAB_LONGEST`.
+/// after it was let run (ADR-041, [`close_new_tab`]), and at the latest after `NEW_TAB_LONGEST`.
 const NEW_TAB_QUIET: Duration = Duration::from_millis(150);
 const NEW_TAB_LONGEST: Duration = Duration::from_secs(2);
 
@@ -174,7 +174,7 @@ pub struct CaptchaState {
 struct State {
     main_frame: String,
     /// The page's frames now (the main frame and those inside it), by the browser's frame ID:
-    /// a download the browser refused names only the frame that started it (ADR-037).
+    /// a download the browser refused names only the frame that started it (ADR-042).
     frames: HashSet<String>,
     /// The helper's execution context in the main frame's document.
     world: Option<i64>,
@@ -198,9 +198,9 @@ struct State {
     /// What the worker should hear with its next result (a page Plenipo stopped, …).
     notes: Vec<String>,
     /// New tabs the page asked the browser for (`Page.windowOpen`), oldest first, until the
-    /// browser attaches to each (ADR-036): the paused new tab has no address of its own yet.
+    /// browser attaches to each (ADR-041): the paused new tab has no address of its own yet.
     opening: Vec<Opening>,
-    /// New tabs the page opened whose address this tab is on its way to instead (ADR-036): the
+    /// New tabs the page opened whose address this tab is on its way to instead (ADR-041): the
     /// action that is running waits for that page as for one it opened itself.
     opening_here: u32,
     policy: SitePolicy,
@@ -226,7 +226,7 @@ impl State {
     }
 }
 
-/// A new tab the page asked for, which the browser has not attached to yet (ADR-036).
+/// A new tab the page asked for, which the browser has not attached to yet (ADR-041).
 #[derive(Debug, Clone)]
 struct Opening {
     url: String,
@@ -235,7 +235,7 @@ struct Opening {
 
 struct Shared {
     /// The tab's target and session in the browser, so a new tab its page opens is traced back
-    /// to it, and its own page can be sent where that tab was going (ADR-036).
+    /// to it, and its own page can be sent where that tab was going (ADR-041).
     target: String,
     session: String,
     limits: TabLimits,
@@ -256,7 +256,7 @@ impl Shared {
     }
 
     /// The page asked the browser for a new tab (`Page.windowOpen`): keep its address for when
-    /// the browser attaches to that tab (ADR-036). Asks that never became a tab (the browser's
+    /// the browser attaches to that tab (ADR-041). Asks that never became a tab (the browser's
     /// own pop-up rules stopped one, say) are forgotten after a while, and only so many are kept.
     fn opening(&self, url: &str) {
         let mut s = self.state();
@@ -309,7 +309,7 @@ impl Shared {
     }
 
     /// Send the tab to `url` (already allowed) and wait for the page to load: how `browser_open`
-    /// goes, and how the tab goes where a new tab its page opened was going (ADR-036). `true`
+    /// goes, and how the tab goes where a new tab its page opened was going (ADR-041). `true`
     /// when the page took too long (its loading was stopped).
     async fn navigate(&self, cdp: &Cdp, url: &str, timeout: Duration) -> Result<bool, String> {
         let before = self.state().loads;
@@ -905,7 +905,7 @@ impl Tab {
             let (held, navigating, done) = {
                 let s = self.state();
                 // A page opened and not loaded yet (or one still loading), or the tab on its way
-                // to where a new tab the page opened was going (ADR-036).
+                // to where a new tab the page opened was going (ADR-041).
                 let navigating = s.loading
                     || (s.navigations > navigations && s.loads == loads)
                     || s.opening_here > 0;
@@ -1098,7 +1098,7 @@ impl Tab {
 }
 
 /// The workers' tabs open now, so the browser's own events reach the worker they concern. A
-/// download the browser refused (`Browser.downloadWillBegin` under "deny", ADR-037) names only
+/// download the browser refused (`Browser.downloadWillBegin` under "deny", ADR-042) names only
 /// the frame that started it; this finds the tab that frame is in. Cheap to clone; clones share
 /// it.
 #[derive(Clone, Default)]
@@ -1118,7 +1118,7 @@ impl Tabs {
         tabs.push(Arc::downgrade(shared));
     }
 
-    /// A page tried to save a file and the browser refused (ADR-037): the worker whose tab holds
+    /// A page tried to save a file and the browser refused (ADR-042): the worker whose tab holds
     /// the frame that started it hears so with its next result. `false` when no worker's tab
     /// has that frame (a tab the owner opened, say).
     pub fn download_refused(&self, params: &Value) -> bool {
@@ -1144,7 +1144,7 @@ impl Tabs {
     }
 
     /// The browser attached to a new target, paused before any of it runs
-    /// (`Target.attachedToTarget`, ADR-036). A new tab a worker's page opened never runs as a
+    /// (`Target.attachedToTarget`, ADR-041). A new tab a worker's page opened never runs as a
     /// tab: it is closed, the worker is told, and when the worker's action opened it and its
     /// address passes the website check, the worker's own tab goes there instead. That holds
     /// while the tab is handed to the owner for a check, or stopped, too: the page still runs
@@ -1193,7 +1193,7 @@ impl Tabs {
     }
 }
 
-/// What the worker hears when its page tried to save a file (ADR-037). The file's name is the
+/// What the worker hears when its page tried to save a file (ADR-042). The file's name is the
 /// page's own words, so it is cleaned and quoted, to keep it apart from Plenipo's.
 fn download_note(filename: &str) -> String {
     let name = page_words(filename);
@@ -1278,7 +1278,7 @@ async fn event_loop(
             }
             "Page.frameAttached" | "Page.frameDetached" => frame_event(&shared, &e.method, p),
             // The page asked for a new tab; the browser's own event (with the paused tab) follows
-            // on another channel, and `Tabs::target_attached` asks for this address (ADR-036).
+            // on another channel, and `Tabs::target_attached` asks for this address (ADR-041).
             "Page.windowOpen" => shared.opening(p["url"].as_str().unwrap_or_default()),
             "Page.navigatedWithinDocument" => {
                 let mut s = shared.state();
@@ -1380,7 +1380,7 @@ fn socket_event(shared: &Shared, method: &str, p: &Value) {
     }
 }
 
-/// A frame inside the page came or went (ADR-037: a download the browser refused names the
+/// A frame inside the page came or went (ADR-042: a download the browser refused names the
 /// frame that started it).
 fn frame_event(shared: &Shared, method: &str, p: &Value) {
     let Some(id) = p["frameId"].as_str() else {
@@ -1465,7 +1465,7 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
 /// Plenipo's website check of a page about to open in the tab (`main`: as the tab's own page;
 /// else in a frame inside it, where only blocked and local websites are refused): the note for
 /// the worker when it may not open. The same check for a page the tab loads (the network gate)
-/// and for a new tab the page opens (ADR-036).
+/// and for a new tab the page opens (ADR-041).
 fn site_refused(policy: &SitePolicy, site: &Site, main: bool) -> Option<String> {
     let shown = site.shown();
     match websites::check(&policy.rules, site) {
@@ -1489,7 +1489,7 @@ fn site_refused(policy: &SitePolicy, site: &Site, main: bool) -> Option<String> 
     }
 }
 
-/// What Plenipo does with a new tab a worker's page opened (ADR-036).
+/// What Plenipo does with a new tab a worker's page opened (ADR-041).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NewTab {
     /// The owner took the tab over: the new tab runs.
@@ -1502,7 +1502,7 @@ enum NewTab {
 }
 
 /// Decide about a new tab a worker's page opened, whose address is `url` when known, and note
-/// what the worker should hear with its next result (ADR-036).
+/// what the worker should hear with its next result (ADR-041).
 fn new_tab_decision(shared: &Shared, url: Option<&str>) -> NewTab {
     let s = shared.state();
     if s.mode == Mode::Owner {
@@ -1560,7 +1560,7 @@ async fn release(cdp: &Cdp, session: &str) {
     }
 }
 
-/// Close a new tab a worker's page opened, before it loads anything (ADR-036). One the page
+/// Close a new tab a worker's page opened, before it loads anything (ADR-041). One the page
 /// cannot reach (a link, a form) is closed while still paused. One the page's script can reach
 /// (`window.open`) is different: the browser holds that script until the new tab runs or is
 /// closed, and closing it while paused leaves the page unable to take clicks. So the new tab is
@@ -1668,7 +1668,7 @@ mod tests {
         std::mem::take(&mut s.state().notes)
     }
 
-    /// ADR-036: a new tab a worker's page opened never runs as one. During the worker's action
+    /// ADR-041: a new tab a worker's page opened never runs as one. During the worker's action
     /// it is closed and the worker's own tab goes to its address when the website check allows
     /// it (with the gate's own words when not); on its own it is just closed. The worker hears
     /// why either way, and a tab the owner has is left alone.
@@ -1745,7 +1745,7 @@ mod tests {
         assert!(reaches_opener(&json!({})));
     }
 
-    /// ADR-036: a tab handed to the owner for a check, or stopped, is still the worker's step,
+    /// ADR-041: a tab handed to the owner for a check, or stopped, is still the worker's step,
     /// and its page still runs (the owner's click gives its script the go-ahead for a new tab).
     /// A new tab it opens then is closed like one opened on the page's own, whatever the address
     /// and even if an action was still running, and the worker hears so.
@@ -1773,7 +1773,7 @@ mod tests {
         }
     }
 
-    /// ADR-036: the address of a new tab comes from the page's own ask (`Page.windowOpen`), kept
+    /// ADR-041: the address of a new tab comes from the page's own ask (`Page.windowOpen`), kept
     /// until the browser attaches to the tab, the newest ask first (the browser opens one new tab
     /// per click, so older asks are stale and go); an ask that never became a tab is forgotten
     /// after a while, and only so many are kept.
@@ -1824,7 +1824,7 @@ mod tests {
         }
     }
 
-    /// ADR-036: a new tab is traced to the worker's tab that opened it by the browser's target
+    /// ADR-041: a new tab is traced to the worker's tab that opened it by the browser's target
     /// ID; a tab no worker has (the owner's), or one that is gone, is nobody's.
     #[test]
     fn a_new_tab_is_traced_to_the_tab_that_opened_it() {
@@ -2004,7 +2004,7 @@ mod tests {
         assert!(!s.state().has_websocket());
     }
 
-    /// ADR-037: the tab keeps the frames of its page, so a download the browser refused (which
+    /// ADR-042: the tab keeps the frames of its page, so a download the browser refused (which
     /// names only the frame that started it) reaches the right worker.
     #[test]
     fn the_frames_of_the_page_are_kept_until_it_changes() {
@@ -2035,7 +2035,7 @@ mod tests {
         assert_eq!(s.state().frames, ["MAIN2".to_owned()].into());
     }
 
-    /// ADR-037: a refused download is noted for the worker whose page (or a frame in it) tried
+    /// ADR-042: a refused download is noted for the worker whose page (or a frame in it) tried
     /// it, in plain words; nobody is told of one from a tab no worker has.
     #[test]
     fn a_refused_download_is_noted_on_the_tab_whose_frame_started_it() {
@@ -2083,7 +2083,7 @@ mod tests {
         );
     }
 
-    /// ADR-037: the file's name is the page's own words. It is quoted, cleaned of control
+    /// ADR-042: the file's name is the page's own words. It is quoted, cleaned of control
     /// characters and line breaks, and cut short, so it cannot pass for Plenipo's words.
     #[test]
     fn a_pages_file_name_is_quoted_cleaned_and_cut_short() {

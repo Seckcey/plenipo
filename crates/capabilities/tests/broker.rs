@@ -1104,7 +1104,7 @@ async fn plan_secret_redaction() {
         ),
     ];
     if cfg!(unix) {
-        // ADR-038: the rule names the program and the secret, so it runs without asking.
+        // ADR-043: the rule names the program and the secret, so it runs without asking.
         let mut rules = h.guard.config().unwrap().commands;
         rules.with_secrets.push(SecretRule {
             rule: "printenv *".into(),
@@ -1170,7 +1170,7 @@ async fn plan_secret_redaction() {
     );
 }
 
-/// ADR-038 (secrets reach only the programs they are for): a program that would be given a
+/// ADR-043 (secrets reach only the programs they are for): a program that would be given a
 /// stored secret asks first, even when its command is approved, and the card names the secret;
 /// a rule naming both the program and the secret lets it run without asking; a file in the
 /// project folder named like the program gets nothing, and the worker is told.

@@ -154,7 +154,7 @@ async fn serve(
         response.push_str(&format!("Location: {l}\r\n"));
     }
     if path == "/report.txt" {
-        // A file the website says to save rather than show (ADR-037).
+        // A file the website says to save rather than show (ADR-042).
         response.push_str("Content-Disposition: attachment; filename=\"report.txt\"\r\n");
     }
     response.push_str("\r\n");
@@ -369,7 +369,7 @@ fn route(
             "<form method=post action=\"/save\"><label>API key \
              <input name=key></label><button type=submit>Save</button></form>",
         )),
-        // Two links that save a file rather than open a page (ADR-037): the first because the
+        // Two links that save a file rather than open a page (ADR-042): the first because the
         // website answers with `Content-Disposition: attachment`, the second because the link
         // itself says so (its `download` attribute).
         ("GET", "/download") => ok(page(
@@ -380,7 +380,7 @@ fn route(
         )),
         ("GET", "/report.txt") => ok("The quarterly report.\n".into()),
         ("GET", "/notes.txt") => ok("Notes for the worker.\n".into()),
-        // Ways a page opens a new tab (ADR-036): a link to a page of this website, a link to a
+        // Ways a page opens a new tab (ADR-041): a link to a page of this website, a link to a
         // blocked website, and a button whose script opens one (`window.open`, which keeps a
         // handle on the new window, unlike a link); "Buy now" asks the owner, so a test can look
         // at the browser while the worker waits.
@@ -401,7 +401,7 @@ fn route(
         )),
         // A page whose harmless-looking button opens a new tab by itself 2.5 seconds later: long
         // after Plenipo stops watching the click, while the click still counts for the browser's
-        // own pop-up rules (ADR-036). "Again" only changes the page's words.
+        // own pop-up rules (ADR-041). "Again" only changes the page's words.
         ("GET", "/popup-timer") => ok(page(
             "Timer",
             "<p id=out>Ready</p><button type=button id=go>Go</button> \

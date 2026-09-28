@@ -336,7 +336,7 @@ impl GuardConfig {
             }
             Ok(out)
         };
-        // ADR-038: a rule that names a program and the stored secrets it may be given.
+        // ADR-043: a rule that names a program and the stored secrets it may be given.
         if rules.with_secrets.len() > MAX_RULES {
             return Err(invalid(format!(
                 "at most {MAX_RULES} commands given stored secrets"
@@ -687,7 +687,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(c.commands.approved, ["cargo test *"]);
-        // ADR-038: a rule naming a program and its secrets is cleaned like the lists, and
+        // ADR-043: a rule naming a program and its secrets is cleaned like the lists, and
         // must name at least one secret.
         c.set_commands(&CommandRules {
             with_secrets: vec![

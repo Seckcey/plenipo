@@ -12,7 +12,7 @@ type Apply = (s: PermissionsSnapshot) => void;
 /**
  * Programs that run whatever script they are handed. A secret given to one of them reaches every
  * script a worker runs with it, so the owner is warned where the binding is listed and edited
- * (ADR-038, secrets reach only the programs they are for).
+ * (ADR-043, secrets reach only the programs they are for).
  */
 const INTERPRETERS = [
   "node",

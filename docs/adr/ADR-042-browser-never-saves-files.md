@@ -1,4 +1,4 @@
-# ADR-037: Plenipo's browser does not save files
+# ADR-042: Plenipo's browser does not save files
 
 - **Status:** Accepted (by the owner, 2026-09-27)
 - **Date:** 2026-09-27

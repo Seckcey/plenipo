@@ -39,7 +39,7 @@ export function CommandLists({
       approved: lines(approved),
       ask: lines(ask),
       blocked: lines(blocked),
-      // Rules that name a program and its secrets (ADR-038) are kept as they are.
+      // Rules that name a program and its secrets (ADR-043) are kept as they are.
       withSecrets: c.withSecrets,
     };
     void run(() => setCommandRules(rules));

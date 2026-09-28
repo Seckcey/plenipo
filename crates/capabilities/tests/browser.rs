@@ -1162,7 +1162,7 @@ async fn data_a_page_sends_on_its_own_is_stopped_and_the_worker_is_told() {
     assert_eq!(h.approvals_for(&task.id), 1, "only \"Buy now\" asked");
 }
 
-/// ADR-037: Plenipo's browser never saves files. A click on a link that saves a file (the
+/// ADR-042: Plenipo's browser never saves files. A click on a link that saves a file (the
 /// website answers "attachment", or the link itself says `download`) saves nothing anywhere:
 /// not in the folder the browser would save to, not in its profile. The tab stays usable, and
 /// the worker is told with its next result.
@@ -1255,7 +1255,7 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// ADR-036: a page never gets a second tab. A link that opens one (`target="_blank"`), and a
+/// ADR-041: a page never gets a second tab. A link that opens one (`target="_blank"`), and a
 /// button whose script opens one (`window.open`), open in the worker's own tab instead: the new
 /// tab is closed before it loads (the website sees each visit once, from the worker's tab), the
 /// worker is told, and the browser has one page for the grant while the worker waits.
@@ -1335,7 +1335,7 @@ async fn a_new_tab_a_page_opens_becomes_the_workers_own_tab() {
     );
 }
 
-/// ADR-036: a new tab a page opens on its own, outside any worker action (its script's
+/// ADR-041: a new tab a page opens on its own, outside any worker action (its script's
 /// `window.open` on a timer, long after the click that started it), never loads: it is closed,
 /// the website is not asked for it, the worker is told with its next result, and the worker's
 /// tab stays on its page and keeps taking clicks.
@@ -1408,7 +1408,7 @@ async fn a_new_tab_a_page_opens_on_its_own_is_closed_and_the_worker_told() {
     assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
 }
 
-/// ADR-036: a link that opens a blocked website in a new tab goes nowhere. The new tab is
+/// ADR-041: a link that opens a blocked website in a new tab goes nowhere. The new tab is
 /// closed before it loads, the worker's tab stays where it was, and the worker hears that the
 /// website is blocked, in the network gate's own words.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -229,7 +229,7 @@ pub struct Request<'a> {
     pub script: Option<&'a str>,
     /// Sensitive on its own (e.g. pushing to a server).
     pub inherent: Option<(SensitiveKind, &'a str)>,
-    /// Names of the stored secrets the program would be given (ADR-038): it asks unless one of
+    /// Names of the stored secrets the program would be given (ADR-043): it asks unless one of
     /// the owner's rules names both the program and each secret.
     pub secrets: &'a [String],
     pub workspace: &'a Path,
@@ -547,7 +547,7 @@ pub fn evaluate(
             checks,
         );
     }
-    // A rule that names a program and its secrets (ADR-038) approves the command too.
+    // A rule that names a program and its secrets (ADR-043) approves the command too.
     let names_program = |r: &SecretRule| {
         request
             .command
@@ -570,7 +570,7 @@ pub fn evaluate(
             );
         }
     }
-    // ADR-038 (secrets reach only the programs they are for): a program is given a stored
+    // ADR-043 (secrets reach only the programs they are for): a program is given a stored
     // secret without asking only when one of the owner's rules names both the program and that
     // secret. A script has no command a rule could name, so it always asks.
     if !request.secrets.is_empty() {
@@ -832,7 +832,7 @@ mod tests {
         assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Role));
     }
 
-    /// ADR-038: a program that would be given a stored secret asks first, even when its command
+    /// ADR-043: a program that would be given a stored secret asks first, even when its command
     /// is approved, unless one of the owner's rules names both the program and the secret.
     #[test]
     fn a_stored_secret_asks_unless_a_rule_names_program_and_secret() {

@@ -1,8 +1,8 @@
 # ADR-013: Plenipo Guard, the capability broker, and human approval
 
 - **Status:** Accepted (by the owner, 2026-09-26)
-- **Amended by:** [ADR-038 (secrets reach only the programs they are
-  for)](ADR-038-secrets-only-to-their-programs.md): a stored secret goes only to the installed
+- **Amended by:** [ADR-043 (secrets reach only the programs they are
+  for)](ADR-043-secrets-only-to-their-programs.md): a stored secret goes only to the installed
   program of that name, found on PATH; a run that would be given one asks first, even when its
   command is approved, unless a rule names both the program and the secret; and the approval card
   names the secrets (sections 7 and 12)
