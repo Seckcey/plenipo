@@ -13,5 +13,14 @@ modify the desktop rollout phases.
 - [x] Complete browser, performance, frozen-install, and repository checks.
 - [x] Deliver the review preview and open PR to the coordinator.
 
+## Automatic entry correction
+
+The owner requested the working interactive sample on entry after reviewing production.
+
+- [x] Start loading on page entry without requiring click, scroll, or idle activation.
+- [x] Preserve focus, static return, failure/retry, and duplicate-load protection.
+- [ ] Verify fresh desktop/phone navigation, fallback, and initial-load cost.
+- [ ] Merge and release the correction while retaining v1.6.0 installer metadata and rollback.
+
 Build guidance lives in [website operations](../development/website.md); measured results and
 remaining gates belong in [website acceptance](../development/website-validation.md).

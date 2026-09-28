@@ -13,7 +13,8 @@ test("production build includes every local asset and valid internal destination
     // The repository's own version (whatever the shell may have exported).
     await buildWebsite(output, { env: {} });
     const html = await readFile(join(output, "index.html"), "utf8");
-    // Enforce a bounded, locally served island that is not loaded by initial HTML.
+    // The page loader requests this bounded local island immediately on entry.
+    // Keep its URLs in data attributes so failed loads can be retried explicitly.
     for (const type of ["module", "style"]) {
       const url = html.match(new RegExp(`data-demo-${type}="([^"]+)"`))?.[1];
       assert.ok(url?.startsWith("/demo/demo-"));
