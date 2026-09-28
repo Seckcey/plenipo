@@ -307,6 +307,9 @@ struct Grant {
     desktop: DesktopUse,
     /// Its use of the owner's servers (Phase 11).
     ssh: Arc<SshUse>,
+    /// Why Plenipo itself stopped its use of the browser (the page fought the owner's sign, or
+    /// the gate would not go back on), for the worker's next refused call.
+    stop_reason: Option<String>,
 }
 
 impl Grant {
@@ -986,6 +989,7 @@ impl Broker {
             approved_sites: HashSet::new(),
             desktop: DesktopUse::default(),
             ssh: Arc::default(),
+            stop_reason: None,
         };
         {
             let mut s = self.state();

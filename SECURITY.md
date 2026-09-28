@@ -55,6 +55,10 @@ Plenipo's security promises, in plain words — a way around any of these is a v
   programs, not a network port, so no other program on your computer can connect to the browser
   and drive it. Plenipo's browser never saves files to your computer: it refuses every download
   from the moment it starts, and the worker is told why its click did nothing (ADR-047).
+- The sign in Plenipo's browser that says a worker is using it is yours, not the website's. It
+  sits in front of everything on the page, and a page that removes, hides, or closes it gets it
+  put back at once. A page that keeps doing so is stopped: the worker loses the browser for that
+  task step and is told why, and the Activity trail records it.
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
@@ -78,6 +82,14 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
     a worker's action, the worker's own tab goes to that address instead, checked like any page.
     The worker is told either way.
+  - **Checked again before acting:** the control a worker clicks, types into, presses a key in,
+    or chooses from is read again just before the action. If what it is changed while you
+    decided — a form now aimed somewhere else, a plain field turned into a password field, a
+    link that goes elsewhere — nothing is done, and the worker is told to read the page again.
+  - **No tab back without the gate:** after you solve a check for a worker, the gate is turned
+    back on before the worker gets the tab. If the browser will not turn it on, the tab is
+    stopped instead, and the worker is told. While you have the tab, the worker's browser calls
+    are refused.
 - Taking control of the screen, mouse, or keyboard asks the owner every time, and so does every
   click, typing, and key press after that (ADR-049): Plenipo cannot see what a point on the
   screen does, so the owner approves each step from a picture of the screen (the click's point

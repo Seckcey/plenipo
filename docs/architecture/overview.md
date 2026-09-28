@@ -646,6 +646,17 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   that always asks (a purpose that reads like paying, signing in, or sending is the headline;
   any other is quoted), and the card's picture is the screen as it is now with a click's point
   marked (`approval_shot`, `screens::mark`); `screen_view` and `screen_scroll` do not ask.
+- **Read again before acting.** Every `browser_click`, `browser_type`, `browser_press`, and
+  `browser_select` reads its control twice: when the call is prepared (those facts are on the
+  card) and again just before the action (`same_control`, `same_focus`, `classify::changed`).
+  If what the control is changed meanwhile — its kind, its words, where its link goes, whether
+  it sends a form, the form it belongs to (where it sends, its buttons, a password in it),
+  whether it takes a password or typing, whether it is part of a CAPTCHA — nothing is done, and
+  the worker is told what changed and to read the page again. Where it is, whether it shows, and
+  whether something covers it are checked again on their own. A call for a tab that is in the
+  owner's hands (a check being solved), taken over, or stopped is refused before and after the
+  card (`tab_not_workers`): calls come in side by side, and the tab's mode decides, not the
+  order they came in.
 - **Network gate** (`tab.rs`, ADR-035). The tab intercepts the page's `Document`, `XHR`,
   `Fetch`, `Ping`, and `Other` requests (`Fetch.enable`; Chromium's filter refuses
   `EventSource` and `WebSocket`). While a worker's action runs, any of them that is not a plain
@@ -680,14 +691,28 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   the indicator window in order, with a revision. Stop halts every session, releases held input,
   revokes those grants, and refuses new control until `allow_control`. Take over (a button, the
   owner's own click or key in the page, or moving the mouse on the desktop) stops that worker and
-  refuses its waiting approvals; the tab stays open for the owner.
+  refuses its waiting approvals; the tab stays open for the owner. Plenipo also stops a worker's
+  use of the browser on its own (`stop_browser_use`, `Grant.stop_reason`): when a page keeps
+  fighting the sign, and when the gate will not go back on after a hand-off. The control session
+  stops as after Stop, waiting approvals are refused, the tab is released, the Ledger records
+  `browser.tab_stopped` with the reason, and the worker's next browser call says why.
 - **Signs.** A banner on every page and the footer (`ControlBanner.tsx`), the tray menu line and
   **Stop all browser, desktop, and server work** (`tray.rs`), the indicator window above all others
   while the desktop is controlled (`indicator.rs`, `IndicatorView.tsx`), and in the browser a
-  colored frame and label inside the page (in a closed shadow root) with **Take over**.
+  colored frame and label inside the page (in a closed shadow root) with **Take over**. The
+  in-page sign is the owner's, not the page's: `page.js` gives its host styles no page rule can
+  override (`SIGN_STYLE`, each `!important`) and shows it as a manual popover in the browser's
+  top layer, above every z-index and untouched by the page's DOM order or a style on its root;
+  every 400 ms it is kept last under the root and above any dialog or popover the page opened
+  later (`signTick`, never counted against the page). It watches the host (a `MutationObserver`
+  and the popover's `toggle`) and puts the sign back when the page removes, restyles, hides, or
+  closes it (`signRestore`); the helper's own writes are not counted. A page that does so more
+  than five times is reported once (`Signal::SignFought`) and the helper stops restoring;
+  Plenipo then stops that worker's use of the browser (`stop_for_sign`, `browser.tab_stopped`).
+  Hiding the sign for a screenshot happens inside the shadow root, where the page cannot see it.
 - **Events:** `browser.started`, `browser.tab_lost`, `browser.opened_by_owner`,
   `control.started`, `control.taken_over`, `control.stopped`, `control.allowed`,
-  `control.ended`, `guard.websites_changed`, `guard.browser_chosen`.
+  `control.ended`, `browser.tab_stopped`, `guard.websites_changed`, `guard.browser_chosen`.
 - **Role instructions** (`crates/workforce/src/templates.rs`, `prompt.rs`): each role's job,
   returns, limits, and when to ask its lead, plus what its permissions allow and do not; custom
   roles take the same in the owner's words (`update_role`).
@@ -721,7 +746,13 @@ Decision records: [ADR-023 (on/off switches in Settings)](../adr/ADR-023-setting
   refused. The sign is drawn only in the top page, never inside a frame. Then, or at once when
   the worker prefers, `browser_person_check` asks the owner to solve it: the tab goes to mode
   `handed` (purple sign; the owner's clicks are not a take over), comes to the front, and
-  interception stops until the owner answers (`Tab::take_back`).
+  interception stops until the owner answers. `Tab::take_back` then turns the gate back on while
+  the owner still has the tab (requests pass while it is theirs) and only then gives it to the
+  worker (`after_gate`); a gate the browser will not turn back on stops the tab instead
+  (`TakenBack::Stopped`, fail closed), and the worker is told why (`stop_for_gate`,
+  `browser.tab_stopped`). A tab the owner took over or stopped meanwhile stays theirs, and a
+  second hand-off meanwhile has a take-back of its own (`State.hands`). While a tab is handed,
+  every other browser call for it is refused (`tab_not_workers`).
 - **Screenshots off** (`keep()`): steps keep no picture; approval pictures are always kept.
 - **Lessons** (`crates/ledger/src/lessons.rs`, migration 7 `lessons`; `crates/workforce/src/learning.rs`):
   a Ledger listener on `agent.result` reads `plenipo-lesson` blocks (at most 3 a task, 300

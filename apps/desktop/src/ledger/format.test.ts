@@ -297,6 +297,16 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
       "Plenipo's browser started (Google Chrome)",
     );
     expect(
+      describeEvent(
+        event("browser.tab_stopped", {
+          worker: "Web Assistant",
+          why: "the page kept removing Plenipo's sign that a worker is using the browser",
+        }),
+      ),
+    ).toBe(
+      "Plenipo stopped Web Assistant's use of the browser (the page kept removing Plenipo's sign that a worker is using the browser)",
+    );
+    expect(
       describeEvent(event("control.started", { kind: "browser", worker: "Web Assistant" })),
     ).toBe("Web Assistant started using Plenipo's browser");
     expect(

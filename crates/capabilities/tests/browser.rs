@@ -1761,6 +1761,154 @@ async fn plan_user_takes_control() {
     assert_eq!(taken[0]["why"], "you moved the mouse");
 }
 
+/// A page can change a control while the owner decides. The action goes ahead only on the
+/// control the owner saw: a form re-aimed at another website is not sent, and a field that
+/// became a password field is not typed into. The worker is told what changed and to read the
+/// page again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_control_that_changed_while_the_owner_decided_is_left_alone() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let (swap, turncoat) = (h.url("shop", "/swap"), h.url("shop", "/turncoat"));
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": swap })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_open", json!({ "url": turncoat })),
+            tool("browser_type", json!({ "ref": "e1", "text": "hello", "submit": true }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\""),
+        "{}",
+        click.summary
+    );
+    // The page re-aims its form 700 ms after it loads; the owner takes longer than that.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let typing = h.pending().await;
+    assert_ne!(typing.id, click.id);
+    assert!(typing.summary.contains("\"Note\""), "{}", typing.summary);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    h.broker
+        .resolve_approval(&typing.id, true, "owner")
+        .unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing was sent: {:?}",
+        h.site.sent()
+    );
+    let clicked = line(&text, "browser_click");
+    assert!(
+        clicked.contains("changed since the page was read")
+            && clicked.contains("where that form sends"),
+        "{text}"
+    );
+    let typed = line(&text, "browser_type");
+    assert!(
+        typed.contains("changed since the page was read")
+            && typed.contains("a password, a one-time code, or a card number"),
+        "{text}"
+    );
+    assert!(!text.contains("Typed into"), "{text}");
+    let used: Vec<Value> = h
+        .events(&task.id, "capability.used")
+        .into_iter()
+        .filter(|u| u["tool"] == "browser_click" || u["tool"] == "browser_type")
+        .collect();
+    assert_eq!(used.len(), 2, "{used:?}");
+    assert!(used.iter().all(|u| u["ok"] == false), "{used:?}");
+}
+
+/// The owner's sign that a worker is using the browser is the owner's, not the page's: a page
+/// that hides it gets it back at once, and the worker keeps the browser; a page that removes it
+/// again and again is stopped, the worker is told why, and the Ledger records it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_owners_sign_survives_the_page_and_a_page_that_keeps_fighting_it_is_stopped() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let (hide, fight, under) = (
+        h.url("shop", "/sign-hide-once"),
+        h.url("shop", "/sign-fight"),
+        h.url("shop", "/sign-under-dialog"),
+    );
+    // The page hides the sign 300 ms after it loads and looks again 600 ms later; the key press
+    // (harmless, no approval) keeps the worker busy long enough for the page's second look.
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": hide })),
+                tool("browser_press", json!({ "key": "Tab" })),
+                tool("browser_read", json!({}))
+            ] }]),
+        )
+        .await;
+    assert!(
+        text.contains("Hidden: none, later: block"),
+        "the page hid the sign and the sign came back: {text}"
+    );
+    assert!(
+        !text.contains("failed"),
+        "the worker kept the browser: {text}"
+    );
+    assert!(h.events(&task.id, "browser.tab_stopped").is_empty());
+
+    // A page that removes the sign again and again: the worker's use of the browser stops.
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": fight })),
+                tool("browser_read", json!({})),
+                tool("browser_read", json!({}))
+            ] }]),
+        )
+        .await;
+    assert!(
+        text.contains("kept removing Plenipo's sign"),
+        "the worker is told why: {text}"
+    );
+    let stopped = h.events(&task.id, "browser.tab_stopped");
+    assert_eq!(stopped.len(), 1, "{stopped:?}");
+    assert!(
+        stopped[0]["why"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("kept removing Plenipo's sign"),
+        "{stopped:?}"
+    );
+
+    // An ordinary page with its own dialog open and a widget at the very top of the stacking
+    // order: nothing of the page's was touched, so the worker keeps the browser, and the sign
+    // stays up in front (the browser's top layer).
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": under })),
+                tool("browser_press", json!({ "key": "Tab" })),
+                tool("browser_read", json!({}))
+            ] }]),
+        )
+        .await;
+    assert!(
+        text.contains("Sign: shown, dialog: open"),
+        "the sign is up under a dialog: {text}"
+    );
+    assert!(
+        !text.contains("failed"),
+        "the worker kept the browser: {text}"
+    );
+    assert!(h.events(&task.id, "browser.tab_stopped").is_empty());
+}
+
 // ---- More -------------------------------------------------------------------------------------
 
 /// Computer use is the last resort: no mouse or keyboard without taking control (the owner is
