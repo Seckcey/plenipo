@@ -65,6 +65,11 @@ After the MVP:
      notes, builds the installer, and only then creates the tag `vX.Y.Z` on that commit and
      publishes the release. It refuses a version that is already tagged or released.
    - **Tag push:** tag the merge commit `vX.Y.Z` and push the tag.
+6. **Approve the run.** Its job waits until you do: open the run under **Actions → Release**,
+   click **Review deployments**, tick `release`, and click **Approve and deploy** (ADR-052,
+   signing runs only for main and release tags, behind the owner's approval; where to click is
+   in [code signing → approving a release run](code-signing.md#approving-a-release-run)). Reject
+   a run you did not start.
 
 `.github/workflows/release.yml` runs on Windows: it checks that the version matches and that
 release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
@@ -72,7 +77,10 @@ release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
 installer attached. From 1.9.0 it also signs the installer with the updater key and attaches
 its `.sig` and `latest.json`, which installed copies read to find the new version (ADR-038,
 updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-037)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
-**Run workflow** with **Dry run** ticked builds and signs from any branch and publishes nothing.
+The signing secrets are Environment secrets of `release`, which only `main` and `v*` tags may use
+([code signing → where the secrets live](code-signing.md#where-the-secrets-live-the-release-environment)).
+**Run workflow** with **Dry run** ticked builds an unsigned installer from any branch, needs no
+approval, touches no secret, and publishes nothing.
 
 The workflows (`ci.yml`, `release.yml`, `website.yml`) name each GitHub Action they use by the
 exact commit it runs, not by a tag that someone could move to other code, and Dependabot

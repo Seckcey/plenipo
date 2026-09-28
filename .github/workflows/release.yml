@@ -7,13 +7,17 @@ name: Release
 # - Pushing a tag `vX.Y.Z`: releases that commit.
 #
 # The installer and the app are signed as 8 West Ventures, LLC through Azure Artifact Signing
-# (docs/development/code-signing.md). Run workflow with "dry run" ticked builds and signs from any
-# branch, checks the signature, and keeps the installer as a download; it publishes nothing.
+# (docs/development/code-signing.md). The signing secrets live in the GitHub Environment `release`
+# (ADR-052, signing behind the owner's approval): only `main` and `v*` tags may use it, and the
+# owner approves each release run before its job starts. Run workflow with "dry run" ticked uses
+# the empty Environment `dry-run` instead: it builds an unsigned installer from any branch, with no
+# approval and no secret, checks nothing about signing, and keeps the installer as a download; it
+# publishes nothing.
 #
 # Updates (Phase 13, ADR-038): the installer also gets an updater signature made with the updater
-# key (secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the key's public
-# half is built into Plenipo (repository variable PLENIPO_UPDATER_PUBLIC_KEY), and the release
-# carries latest.json, which installed copies read once a day.
+# key (Environment secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the
+# key's public half is built into Plenipo (repository variable PLENIPO_UPDATER_PUBLIC_KEY), and the
+# release carries latest.json, which installed copies read once a day.
 
 on:
   push:
@@ -21,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run: build and sign only, publish nothing (any branch)"
+        description: "Dry run: build an unsigned installer only, publish nothing (any branch, no approval)"
         type: boolean
         default: false
 
@@ -36,7 +40,13 @@ jobs:
   windows:
     name: Build Windows installer and publish release
     runs-on: windows-latest
+    # ADR-052: a release uses the Environment `release`, which holds the signing secrets, lets only
+    # `main` and `v*` tags in, and waits for the owner's approval before the job starts. A dry run
+    # uses `dry-run`, which holds nothing and asks nobody, so a dry run can never sign.
+    environment: ${{ inputs.dry_run == true && 'dry-run' || 'release' }}
     steps:
+      # Once the `release` Environment's branch rule is in place, GitHub refuses such a run before
+      # this step; this step says why in plain words when the rule is not there yet.
       - name: Run workflow releases `main` only
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.dry_run
         shell: bash
@@ -86,7 +96,9 @@ jobs:
             exit 1
           fi
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+      # A dry run has no secrets to check (ADR-052): it builds unsigned, further down.
       - name: Signing secrets are set
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -98,7 +110,7 @@ jobs:
         run: |
           for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
-              echo "::error::Repository secret $name is not set; see docs/development/code-signing.md"
+              echo "::error::Environment secret $name is not set in the Environment 'release'; see docs/development/code-signing.md"
               exit 1
             fi
           done
@@ -108,10 +120,12 @@ jobs:
             exit 1
           fi
       - name: Install the signing tool
+        if: ${{ !inputs.dry_run }}
         run: cargo install artifact-signing-cli --version 0.11.0 --locked
       # The tool defaults to signtool at one fixed Windows SDK version and the Azure CLI at one
       # fixed path, and stops if either is elsewhere. Find both, so a runner update cannot break it.
       - name: Find signtool and the Azure CLI for the signing tool
+        if: ${{ !inputs.dry_run }}
         shell: pwsh
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
@@ -126,6 +140,7 @@ jobs:
           "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
           "AZURE_CLI_PATH=$az" >> $env:GITHUB_ENV
       - name: Build release app and NSIS installer, signed
+        if: ${{ !inputs.dry_run }}
         env:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -142,15 +157,32 @@ jobs:
             $value = [Environment]::GetEnvironmentVariable($name)
             $trimmed = $value.Trim()
             if ($trimmed -ne $value) {
-              "::warning::Repository secret $name starts or ends with a space or line break; it was trimmed for this run. Save it again without one (docs/development/code-signing.md)."
+              "::warning::Environment secret $name starts or ends with a space or line break; it was trimmed for this run. Save it again without one (docs/development/code-signing.md)."
               [Environment]::SetEnvironmentVariable($name, $trimmed)
             }
-            if ($trimmed -match '\s') { throw "Repository secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
+            if ($trimmed -match '\s') { throw "Environment secret $name has a space or line break inside it; save it again (docs/development/code-signing.md)" }
           }
           pnpm --filter @plenipo/desktop tauri build --verbose --config "${{ github.workspace }}/apps/desktop/src-tauri/tauri.signing.conf.json"
+      # ADR-052: a dry run never touches a signing secret. It builds the same app and installer
+      # without the signing config, so nothing signs it, and keeps it for 7 days to look at. The
+      # signatures, their checks, and the release below are for a real release only.
+      - name: Build release app and NSIS installer, unsigned (dry run)
+        if: inputs.dry_run
+        env:
+          # Not a secret; built in so a dry-run installer is otherwise the same as a release one.
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+        run: pnpm --filter @plenipo/desktop tauri build --verbose
+      - name: Keep the unsigned installer (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plenipo-unsigned-installer-dry-run
+          path: target/release/bundle/nsis/*-setup.exe
+          retention-days: 7
       # ADR-038: the finished installer (already signed as 8 West above) gets the updater
       # signature, over its final bytes and naming this version, with Tauri's signing tool.
       - name: Sign the installer with the updater key, for this version
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -164,12 +196,13 @@ jobs:
           key=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '[:space:]')
           password=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" | tr -d '\r\n')
           if [ "$key" != "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "::warning::Repository secret TAURI_SIGNING_PRIVATE_KEY has spaces or line breaks; they were dropped for this run. Save it again without them (docs/development/code-signing.md)."
+            echo "::warning::Environment secret TAURI_SIGNING_PRIVATE_KEY has spaces or line breaks; they were dropped for this run. Save it again without them (docs/development/code-signing.md)."
           fi
           TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
             pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
             "$GITHUB_WORKSPACE/${installer[0]}"
       - name: The updater signature is Plenipo's, for this version, and latest.json is written
+        if: ${{ !inputs.dry_run }}
         shell: bash
         env:
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
@@ -196,20 +229,10 @@ jobs:
           if [ ! -f "$notes" ]; then notes="$RUNNER_TEMP/no-notes.md"; printf '# v%s\n' "$version" > "$notes"; fi
           node scripts/update-manifest.mjs "$version" "${installer[0]}" "$sig" "$notes" \
             target/release/bundle/nsis/latest.json
-      # Kept before the check, so a dry run that fails the check still leaves the installer to look at.
-      - name: Keep the signed installer (dry run)
-        if: inputs.dry_run
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: plenipo-signed-installer-dry-run
-          path: |
-            target/release/bundle/nsis/*-setup.exe
-            target/release/bundle/nsis/*-setup.exe.sig
-            target/release/bundle/nsis/latest.json
-          retention-days: 7
       # Checked inside the installer: that copy of the app is the one customers get. Tauri leaves
       # target/release/plenipo-desktop.exe unsigned after bundling, so that file proves nothing.
       - name: The installer and the app inside it are signed by 8 West Ventures, LLC, with a timestamp
+        if: ${{ !inputs.dry_run }}
         shell: pwsh
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
