@@ -81,6 +81,21 @@ pub struct CommandRules {
     pub ask: Vec<String>,
     /// Never run.
     pub blocked: Vec<String>,
+    /// Approved, and given the named stored secrets without asking (ADR-048, secrets reach
+    /// only the programs they are for). Any other run that would be given a stored secret asks
+    /// the owner first. Missing in older documents: none.
+    pub with_secrets: Vec<SecretRule>,
+}
+
+/// An approved command that may also be given named stored secrets without asking (ADR-048).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[ts(export)]
+pub struct SecretRule {
+    /// The command, written like an approved command (`gh pr *`).
+    pub rule: String,
+    /// The names of the stored secrets it may be given.
+    pub secrets: Vec<String>,
 }
 
 /// Kinds of actions the plan says need the owner's approval by default.

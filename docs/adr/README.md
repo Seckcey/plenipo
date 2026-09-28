@@ -27,14 +27,14 @@ architecture must be recorded here.
 | [010](ADR-010-plain-titles.md)                       | Plain words, chain of command, choosable ranks                                              | Accepted |
 | [011](ADR-011-model-policy-routing.md)               | Router: model registry, role policies, routing                                              | Accepted |
 | [012](ADR-012-brief-agent-messages.md)               | Brief messages between agents                                                               | Accepted |
-| [013](ADR-013-guard-capability-broker.md)            | Guard, capability broker, and human approval                                                | Accepted |
+| [013](ADR-013-guard-capability-broker.md)            | Guard, capability broker, and human approval (amended by 048)                               | Accepted |
 | [014](ADR-014-adding-ai-tools.md)                    | Adding AI tools ahead of Phase 15                                                           | Accepted |
 | [015](ADR-015-acp-ai-tools.md)                       | Running AI tools over ACP                                                                   | Accepted |
 | [016](ADR-016-development-department.md)             | Development department: delegation, working copies, GitHub, result                          | Accepted |
 | [017](ADR-017-ollama-cloud-models.md)                | Ollama cloud models through its service                                                     | Accepted |
 | [018](ADR-018-sales-on-hubspot-no-paperclip.md)      | Phase 9 postponed: no Paperclip; a Sales department later, on HubSpot                       | Accepted |
 | [019](ADR-019-role-working-instructions.md)          | Every role knows its job: working instructions for all roles                                | Accepted |
-| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035)                | Accepted |
+| [020](ADR-020-browser-and-computer-use.md)           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035, 046, 047)      | Accepted |
 | [021](ADR-021-editions-and-license.md)               | Free and Pro editions under the Elastic License 2.0                                         | Accepted |
 | [022](ADR-022-subscription-and-license-check.md)     | Subscription pricing and the weekly license check                                           | Accepted |
 | [023](ADR-023-settings-switches.md)                  | On/off switches in Settings                                                                 | Accepted |
@@ -60,3 +60,6 @@ architecture must be recorded here.
 | [043](ADR-043-archive-bring-back-delete.md)          | Archive, bring back, and delete for good (carries out 039 §2.1; amends 009)                 | Accepted |
 | [044](ADR-044-prompts-sized-to-the-job.md)           | Prompts sized to the job: measured, full instructions only when needed (amends 008, 012)    | Accepted |
 | [045](ADR-045-experience-and-the-workforce.md)       | Experience and the Workforce: keeping your best agents (amends 024, 043)                    | Accepted |
+| [046](ADR-046-new-tabs-open-in-the-workers-tab.md)   | New tabs open in the worker's own tab (amends 020)                                          | Accepted |
+| [047](ADR-047-browser-never-saves-files.md)          | Plenipo's browser does not save files (amends 020)                                          | Accepted |
+| [048](ADR-048-secrets-only-to-their-programs.md)     | Secrets reach only the programs they are for (amends 013)                                   | Accepted |

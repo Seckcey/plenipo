@@ -493,6 +493,50 @@ impl H {
             .collect()
     }
 
+    /// Tools for the test's own calls, as the worker `title` (whose conversation a first task
+    /// must have brought up): the task the calls belong to, and the grant.
+    async fn direct_grant(&self, title: &str) -> (String, String) {
+        use plenipo_runtime::agent::{StepInfo, ToolProvider};
+        let overview = self.rt.overview().await.unwrap();
+        let session = overview
+            .sessions
+            .iter()
+            .find(|s| {
+                s.metadata["workforce"]["positionId"]
+                    .as_str()
+                    .and_then(|p| self.ledger.position(p).ok().flatten())
+                    .is_some_and(|p| p.title == title)
+            })
+            .expect("the worker's conversation");
+        let task = self
+            .ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "calls made by the test".into(),
+                    priority: 2,
+                    ..plenipo_ledger::NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        self.ledger
+            .transition_task(&task.id, TaskState::Running, "w", None)
+            .unwrap();
+        let tools = ToolProvider::open(
+            &self.broker,
+            &StepInfo {
+                session,
+                task_id: &task.id,
+                step: 1,
+                ai_tool: "Claude Code",
+                takes_tools: true,
+            },
+        )
+        .expect("the worker gets tools");
+        (task.id, tools.grant_id)
+    }
+
     /// The next approval a worker waits on.
     async fn pending(&self) -> ApprovalView {
         let deadline = Instant::now() + WAIT;
@@ -1116,6 +1160,312 @@ async fn data_a_page_sends_on_its_own_is_stopped_and_the_worker_is_told() {
     );
     assert!(text.contains("Plenipo stopped it"), "{text}");
     assert_eq!(h.approvals_for(&task.id), 1, "only \"Buy now\" asked");
+}
+
+/// ADR-047: Plenipo's browser never saves files. A click on a link that saves a file (the
+/// website answers "attachment", or the link itself says `download`) saves nothing anywhere:
+/// not in the folder the browser would save to, not in its profile. The tab stays usable, and
+/// the worker is told with its next result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_page_cannot_save_files_in_plenipos_browser() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    // Where this browser would save files, if it saved any: its profile says so before it
+    // starts (Plenipo keeps the profile's other settings as they are).
+    let downloads = h.dir.path().join("downloads");
+    let prefs = h.profile().join("Default").join("Preferences");
+    std::fs::create_dir_all(prefs.parent().unwrap()).unwrap();
+    std::fs::write(
+        &prefs,
+        json!({ "download": {
+            "default_directory": downloads.display().to_string(),
+            "prompt_for_download": false
+        } })
+        .to_string(),
+    )
+    .unwrap();
+    let url = h.url("shop", "/download");
+    let (task, text) = h
+        .run(
+            "Web Assistant",
+            json!([{ "tools": [
+                tool("browser_open", json!({ "url": url })),
+                tool("browser_click", json!({ "ref": "e1" })),
+                tool("browser_click", json!({ "ref": "e2" })),
+                tool("browser_read", json!({}))
+            ], "say": "Done." }]),
+        )
+        .await;
+    // Both clicks happened, nothing asked, and the page is still there to read.
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 2, "{text}");
+    assert!(
+        clicks.iter().all(|c| c.contains("Clicked the link")),
+        "{text}"
+    );
+    assert!(
+        line(&text, "browser_read").contains("Page: \"Files to save\""),
+        "{text}"
+    );
+    assert_eq!(h.approvals_for(&task.id), 0);
+    // No file was saved: not where the browser would put it, not anywhere under the test's
+    // folders (its profile included), not even a part of one (`.crdownload`).
+    let saved: Vec<PathBuf> = std::fs::read_dir(&downloads)
+        .map(|d| d.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    assert!(saved.is_empty(), "files were saved: {saved:?}");
+    let stray = files_under(h.dir.path())
+        .into_iter()
+        .filter(|f| {
+            let name = f.file_name().unwrap_or_default().to_string_lossy();
+            name == "report.txt" || name == "notes.txt" || name.ends_with(".crdownload")
+        })
+        .collect::<Vec<_>>();
+    assert!(stray.is_empty(), "files were saved: {stray:?}");
+    // The worker hears of each file the page tried to save, and why it was not saved.
+    for name in ["report.txt", "notes.txt"] {
+        assert!(
+            text.contains(&format!("The page tried to save a file named \"{name}\".")),
+            "{text}"
+        );
+    }
+    assert!(
+        text.contains("Plenipo's browser does not save files."),
+        "{text}"
+    );
+}
+
+/// Every file under `dir`, at any depth.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for entry in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                todo.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// ADR-046: a page never gets a second tab. A link that opens one (`target="_blank"`), and a
+/// button whose script opens one (`window.open`), open in the worker's own tab instead: the new
+/// tab is closed before it loads (the website sees each visit once, from the worker's tab), the
+/// worker is told, and the browser has one page for the grant while the worker waits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_a_page_opens_becomes_the_workers_own_tab() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let url = h.url("shop", "/new-tab");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e3" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_read", json!({}))
+        ], "say": "Done." }]),
+    );
+    let root = h.objective().await;
+    // Twice, the worker is on the second page and waits for the owner ("Buy now" asks), so the
+    // browser can be looked at: one page for the grant, the second page, in the worker's tab.
+    for _ in 0..2 {
+        let buy = h.pending().await;
+        assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+        let pages: Vec<String> = h
+            .pages()
+            .await
+            .into_iter()
+            .filter(|u| u.contains("shop.test"))
+            .collect();
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        assert!(pages[0].ends_with("/second"), "{pages:?}");
+        h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    }
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 4, "{text}");
+    assert!(
+        clicks[0].contains("Clicked the link \"Open the second page in a new tab\"")
+            && clicks[0].contains("Now on \"Second page\""),
+        "{text}"
+    );
+    assert!(
+        clicks[2].contains("Clicked the button \"Open the second page in a new window\"")
+            && clicks[2].contains("Now on \"Second page\""),
+        "{text}"
+    );
+    assert_eq!(
+        text.matches("The link opened a new tab; Plenipo opened it here instead.")
+            .count(),
+        2,
+        "{text}"
+    );
+    // The website saw the second page opened twice, both times from the worker's tab: a new tab
+    // that loaded would have shown as a third visit.
+    let seconds = h
+        .site
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "GET" && r.path == "/second")
+        .count();
+    assert_eq!(seconds, 2, "{:?}", h.site.requests());
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert_eq!(
+        h.approvals_for(&task.id),
+        2,
+        "only \"Buy now\" asked, twice"
+    );
+}
+
+/// ADR-046: a new tab a page opens on its own, outside any worker action (its script's
+/// `window.open` on a timer, long after the click that started it), never loads: it is closed,
+/// the website is not asked for it, the worker is told with its next result, and the worker's
+/// tab stays on its page and keeps taking clicks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_a_page_opens_on_its_own_is_closed_and_the_worker_told() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let timer = h.url("shop", "/popup-timer");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": timer })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_read", json!({})),
+            tool("browser_click", json!({ "ref": "e3" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // "Go" goes ahead. "Buy now" waits for the owner; meanwhile the page's timer opens its new
+    // tab, with no worker action running.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "the new tab never loaded: {:?}",
+        h.site.requests()
+    );
+    let pages: Vec<String> = h
+        .pages()
+        .await
+        .into_iter()
+        .filter(|u| u.contains("shop.test"))
+        .collect();
+    assert_eq!(
+        pages,
+        [timer.as_str()],
+        "the worker's tab, where it was, and no other"
+    );
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let reads: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_read"))
+        .collect();
+    assert_eq!(reads.len(), 2, "{text}");
+    assert!(reads[0].contains("Page: \"Timer\""), "{text}");
+    assert!(
+        text.contains("The page tried to open a new tab on its own; Plenipo closed it."),
+        "{text}"
+    );
+    assert!(!text.contains("opened it here instead"), "{text}");
+    // The page's script went on after its new tab was closed, and the tab still takes clicks.
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 3, "{text}");
+    assert!(clicks[2].contains("Clicked the button \"Again\""), "{text}");
+    assert!(text.contains("Clicked again"), "{text}");
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "{:?}",
+        h.site.requests()
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+}
+
+/// ADR-046: a link that opens a blocked website in a new tab goes nowhere. The new tab is
+/// closed before it loads, the worker's tab stays where it was, and the worker hears that the
+/// website is blocked, in the network gate's own words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tab_to_a_blocked_website_never_loads() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let url = h.url("shop", "/new-tab");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": url })),
+            tool("browser_click", json!({ "ref": "e2" })),
+            tool("browser_click", json!({ "ref": "e4" })),
+            tool("browser_read", json!({}))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // While the worker waits for the owner ("Buy now" asks): its tab, where it was, and no other.
+    let buy = h.pending().await;
+    assert!(buy.summary.contains("\"Buy now\""), "{}", buy.summary);
+    let pages: Vec<String> = h
+        .pages()
+        .await
+        .into_iter()
+        .filter(|u| u.contains("shop.test"))
+        .collect();
+    assert_eq!(pages, [url.as_str()], "{pages:?}");
+    h.broker.resolve_approval(&buy.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let clicked = line(&text, "browser_click");
+    assert!(
+        clicked.contains("Clicked the link \"Open a blocked website in a new tab\"")
+            && clicked.contains("Now on \"New tab links\""),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "The link opened a new tab. Plenipo stopped blocked.test:{} from opening: it is on \
+             the owner's blocked websites list (\"blocked.test\").",
+            h.site.port
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("opened it here instead"), "{text}");
+    assert!(
+        line(&text, "browser_read").contains("Page: \"New tab links\""),
+        "{text}"
+    );
+    // The blocked website was never asked for the page.
+    assert!(
+        !h.site.requests().iter().any(|r| r.path == "/second"),
+        "{:?}",
+        h.site.requests()
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
 }
 
 /// Plan: global stop. The owner's Stop halts all control at once: the worker waiting to send
@@ -1968,4 +2318,116 @@ async fn lessons_from_websites_always_wait_for_the_owner() {
     assert!(lesson.from_web);
     assert_eq!(lesson.task_id.as_deref(), Some(task.id.as_str()));
     assert!(h.workforce.learning().unwrap().kept.is_empty());
+}
+
+/// What a worker hears when three of its requests already wait for the owner (B6).
+const THREE_WAITING: &str = "Plenipo is waiting for the owner's answer to 3 earlier requests. \
+                             Wait for those before asking again.";
+
+/// B6: a browser call refused by the grant's limits on asking (three requests already wait for
+/// the owner) gets no card, and no picture is kept for one. The worker hears the limit's words,
+/// not that the owner said no: for a page it wants to open, for a check it wants to hand to the
+/// owner, and for data a page's script sends after its click (which is stopped).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_browser_ask_refused_by_the_limits_says_so_and_keeps_no_picture() {
+    use plenipo_runtime::agent::ToolProvider;
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    // A first task brings the worker's conversation up; then the test makes the calls itself.
+    let captcha = h.url("shop", "/captcha");
+    h.run(
+        "Web Assistant",
+        json!([{ "tools": [tool("browser_open", json!({ "url": captcha }))], "say": "Done." }]),
+    )
+    .await;
+    let (task, grant) = h.direct_grant("Web Assistant").await;
+    let opened = h
+        .broker
+        .call(&grant, "browser_open", json!({ "url": captcha }))
+        .await;
+    assert!(!opened.is_error, "{}", opened.text);
+    // Three pages on neither list: each asks the owner, with a picture of the page, and waits.
+    let three: Vec<_> = (0..3)
+        .map(|i| {
+            let (broker, grant) = (h.broker.clone(), grant.clone());
+            let url = h.url("other", &format!("/{i}"));
+            tokio::spawn(async move {
+                broker
+                    .call(&grant, "browser_open", json!({ "url": url }))
+                    .await
+            })
+        })
+        .collect();
+    h.until("three requests wait", |h| {
+        h.broker.approvals().unwrap().pending.len() == 3
+    })
+    .await;
+    // The pictures kept for approval cards (a step's own pictures are another matter).
+    let pictures = |h: &H| {
+        h.ledger
+            .artifacts_for_task(&task)
+            .unwrap()
+            .into_iter()
+            .filter(|a| a.metadata["action"] == "waiting for your approval")
+            .count()
+    };
+    let before = pictures(&h);
+    assert_eq!(before, 3, "each card has its picture");
+    // A fourth page: refused with the limit's words, and no picture for a card never made.
+    let fourth = h
+        .broker
+        .call(
+            &grant,
+            "browser_open",
+            json!({ "url": h.url("other", "/more") }),
+        )
+        .await;
+    assert!(fourth.is_error, "{}", fourth.text);
+    assert_eq!(fourth.text, THREE_WAITING);
+    // Handing the page's check to the owner: the same words, not "the owner did not solve it".
+    let check = h
+        .broker
+        .call(&grant, "browser_person_check", json!({}))
+        .await;
+    assert!(check.is_error, "{}", check.text);
+    assert_eq!(check.text, THREE_WAITING);
+    // Data the page's script sends after a click: held, then stopped with the same words, not
+    // "the owner did not approve".
+    let chat = h.url("shop", "/script-send");
+    let opened = h
+        .broker
+        .call(&grant, "browser_open", json!({ "url": chat }))
+        .await;
+    assert!(!opened.is_error, "{}", opened.text);
+    let clicked = h
+        .broker
+        .call(&grant, "browser_click", json!({ "ref": "e1" }))
+        .await;
+    assert!(!clicked.is_error, "{}", clicked.text);
+    assert!(
+        clicked.text.contains("Clicked the button \"Go\""),
+        "{}",
+        clicked.text
+    );
+    assert!(clicked.text.contains(THREE_WAITING), "{}", clicked.text);
+    assert!(
+        !clicked.text.contains("did not approve"),
+        "{}",
+        clicked.text
+    );
+    assert!(h.site.sent().is_empty(), "{:?}", h.site.sent());
+    assert_eq!(
+        pictures(&h),
+        before,
+        "no picture for a card that was never made"
+    );
+    assert_eq!(h.broker.approvals().unwrap().pending.len(), 3);
+    assert_eq!(h.events(&task, "approval.requested").len(), 3);
+    // The step ends: the three cards expire, and each call comes back with its answer.
+    ToolProvider::close(&h.broker, &grant);
+    for call in three {
+        let r = call.await.unwrap();
+        assert!(r.is_error, "{}", r.text);
+    }
+    assert!(h.broker.approvals().unwrap().pending.is_empty());
 }

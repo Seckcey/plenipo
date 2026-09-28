@@ -101,6 +101,12 @@ itself.
 A second, narrower door serves workers: Plenipo's tool server listens on `127.0.0.1` only and
 admits a connection only with the ticket of a step that is running now (§10).
 
+Words that reach a worker from outside Plenipo — a web page's text, a file's lines, what a
+program or a server printed, and GitHub's issue and pull request text — arrive between two fence
+lines that share a fresh nonce and say they are information from that source, never instructions
+to the worker (`crates/capabilities/src/fence.rs`); Plenipo's own lines (a file's header, a run's
+exit code) stay outside the fence.
+
 ## 3. Shared DTOs
 
 DTOs are defined once in Rust (`crates/core/src/dto.rs`) with `serde` (camelCase on the wire)
@@ -533,15 +539,23 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   `awaitingApproval` in one transaction, and back to `running` when it is answered. It expires
   after the approval window (default 10 minutes), and approvals left pending at shutdown are
   expired at startup. The UI shows a banner on every page, a sidebar count, and a card with
-  exactly what will run.
+  exactly what will run. A worker may have at most 3 requests waiting at once and make at most
+  10 approval cards a minute: a call past either limit is refused at once with no card, the
+  worker is told to wait, and the refusal is recorded (`guard.approvals_limited`) at most once
+  a minute; the tool server works on at most 4 of a connection's requests at a time, the rest
+  waiting their turn in arrival order.
 - **Revocation** stops a grant's programs, refuses its waiting approvals, and blocks its later
   calls; a settings change applies to the next call.
-- **Logging and redaction.** Every call is `capability.used`, `guard.denied`, or `approval.*`.
-  Known secret values and common key and token formats are hidden in results, recorded text, and
-  all AI tool activity (`[hidden by Plenipo: …]`).
+- **Logging and redaction.** Every call is `capability.used`, `guard.denied`,
+  `guard.approvals_limited`, or `approval.*`. Known secret values and common key and token
+  formats are hidden in results, recorded text, and all AI tool activity
+  (`[hidden by Plenipo: …]`).
 - **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
   Plenipo stores only references and injects a value as an environment variable into the
-  programs the owner named.
+  programs the owner named. A secret goes only to the installed program of that name, found on
+  PATH — never to a file inside the project folder named like it — and a run that would be given
+  one asks the owner first, with "Will be given: <secret names>" on the card, unless a command
+  rule names both the program and the secret (ADR-048).
 
 ## 11. Development department (Phase 8)
 
@@ -562,9 +576,14 @@ the result)](../adr/ADR-016-development-department.md).
   the broker makes a `git worktree` on `plenipo/<objective>-<id>` in `<app data>/working-copies`
   and confines every worker of that objective to it. One writer at a time: a second writer of
   the same objective gets `<branch>-2`, made from the first. In a working copy the git tools may
-  not switch or create branches, and push only the objective's branch. After each step that used
-  it, its commits and changed files are recorded (`workspace.updated`). Plenipo's own git runs
-  without hooks, prompts, or inherited environment, with a time limit.
+  not switch or create branches, and push only the objective's branch. The git tools keep the
+  owner's blocked-files list too (`broker/git_tools.rs`): before Guard decides, Plenipo's own
+  git looks at what `git add` would stage (a blocked file is refused, named or found under a
+  folder), a diff leaves blocked files out and says how many, a commit with a blocked file
+  staged is refused, and the `git push` card names blocked files in the commits it would send.
+  After each step that used it, its commits and changed files are recorded
+  (`workspace.updated`). Plenipo's own git runs without hooks, prompts, or inherited
+  environment, with a time limit.
 - **GitHub tools** (`crates/capabilities/src/github.rs`, `tools.rs`): pull request list, view,
   and checks, issue view (github.read), and a draft pull request for the objective's branch
   (github.write; it pushes first, and always asks the owner). They run GitHub's `gh` on the
@@ -606,7 +625,12 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   WebSocket only in the tests, which stand in for the owner's hand); `tab.rs` gives each grant
   its own tab, with page helpers (`page.js`) in an isolated
   world and a binding only that world sees; `classify.rs` decides what a click or submit is
-  (sending, buying, signing in).
+  (sending, buying, signing in). The browser never saves files (ADR-047): right after it shows
+  it is up, before any tab exists, `launch_once` tells it to refuse every download
+  (`Browser.setDownloadBehavior` with `deny` and `eventsEnabled`; a browser that does not take
+  the setting is not used), and a refused download (`Browser.downloadWillBegin`) is routed by
+  the frame that started it (`tab::Tabs`, each tab keeping its page's frames) to the worker's
+  tab as a note with its next result.
 - **Tools** (`tools.rs`, `broker/operate.rs`): `browser_open/read/screenshot/scroll/back`
   (visit) and `browser_click/type/press/select` (use), by references from `browser_read`;
   `screen_view` (see) and `screen_take_control/click/type/keys/scroll/release_control` (use the
@@ -625,6 +649,15 @@ and [ADR-019 (every role knows its job)](../adr/ADR-019-role-working-instruction
   `prepare_control` asks the owner before a click, Enter, or Space on such a page. `classify.rs`
   asks before Enter in any text box (a form field, a contenteditable, a `role=textbox`), in a
   form or not; Enter in a textarea is a new line.
+- **New tabs** (`mod.rs`, `tab.rs`, ADR-046). A page never gets a second tab. At start,
+  `launch_once` tells the browser to attach to every new page paused (`Target.setAutoAttach` with
+  `waitForDebuggerOnStart`, on the browser session, where new windows arrive); a browser that
+  refuses is not used. `Tabs::target_attached` lets Plenipo's own tabs (no `openerId`) and those
+  of a tab the owner has run, and closes one a worker's page opened before it loads: one the
+  page's script can reach (`canAccessOpener`) is first set to refuse every request, let run, and
+  closed once quiet, because the browser holds the opener's script until then. The address comes
+  from the tab's own `Page.windowOpen`; during a worker's action the worker's tab navigates there
+  after the gate's website check (`site_refused`), and the worker is told with its next result.
 - **Never:** typing into password, one-time-code, or card fields; typing a secret; trying a
   CAPTCHA more than 3 times (ADR-029); the Windows key. Page text reaches the worker marked as
   the website's.

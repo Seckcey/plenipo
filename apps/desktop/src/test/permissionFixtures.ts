@@ -68,7 +68,12 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
           problem: "It has no folder, so its workers cannot use files, programs, or git.",
         },
       ],
-      commands: { approved: ["cargo test *", "npm test *"], ask: [], blocked: ["curl *"] },
+      commands: {
+        approved: ["cargo test *", "npm test *"],
+        ask: [],
+        blocked: ["curl *"],
+        withSecrets: [],
+      },
       blockedFiles: [".env", "*.pem"],
       sensitive: [
         {

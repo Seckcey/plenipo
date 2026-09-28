@@ -5,11 +5,11 @@
 //! are now, sent to the owner for approval when Guard says so, carried out by Plenipo,
 //! recorded in the Ledger, and returned to the worker with secrets hidden.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use plenipo_guard::engine::{doing, Request, Scope};
 use plenipo_guard::redact::Redactor;
@@ -37,6 +37,7 @@ use crate::control::ControlCenter;
 use crate::desktop::{Desktop, SystemDesktop};
 use crate::dto::*;
 use crate::error::{BrokerError, Result};
+use crate::fence;
 use crate::files;
 use crate::process::{self, Holders};
 use crate::programs::{self, Run};
@@ -46,10 +47,12 @@ use crate::tools::{self, Action, ToolDef, TOOLS};
 use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
+mod git_tools;
 mod operate;
 pub(crate) mod servers;
 mod terminals;
 
+use git_tools::{GitLook, Stopped};
 use operate::{CallContext, ControlWork, DesktopUse};
 use servers::{Caller, ServerPrep, SshUse, SshWork};
 pub use terminals::{TerminalSink, MAX_TERMINALS, PREFERENCES};
@@ -65,9 +68,21 @@ const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "make", "npx"];
 /// What the worker is told when a secret bound to a script runner was withheld.
 const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pnpm, yarn, make, \
                                 or npx, because they run the project's own scripts.)";
+/// What the worker is told when a stored secret is bound to the program's name, but the program
+/// is a file in the project folder rather than the installed one (ADR-048).
+const SECRETS_KEPT: &str = "(Plenipo gives a stored secret only to the installed program of that \
+                            name, so no stored secrets were given (the program is not from PATH).)";
 /// The notice where this computer offers no way to tell which program connects (ADR-034).
 const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
                                 a worker's tools, so a copied tool ticket cannot be refused.";
+/// How many of one worker's approval requests may wait for the owner at once (B6, limits on
+/// asking). A call that would add a fourth is refused until one is answered.
+pub const MAX_PENDING_APPROVALS: usize = 3;
+/// How many approval cards one worker's grant may make in a minute (B6). A call that would add
+/// an eleventh is refused until the minute has passed.
+pub const MAX_APPROVALS_A_MINUTE: usize = 10;
+/// The minute the limits on asking count over, and how often a refused ask is recorded.
+const ASK_MINUTE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct BrokerConfig {
@@ -151,6 +166,95 @@ impl CallResult {
     }
 }
 
+/// A grant's limits on asking the owner (B6): at most [`MAX_PENDING_APPROVALS`] requests
+/// waiting at once and at most [`MAX_APPROVALS_A_MINUTE`] new cards a minute, so a worker — or
+/// text that drives it — cannot bury the one request that matters under look-alike cards, nor
+/// load the Ledger and the Approvals page with them. A refused ask is recorded at most once a
+/// minute per grant.
+#[derive(Default)]
+struct AskLimits {
+    /// Cards being made now: checked and given a place, not yet among the grant's `pending`.
+    opening: usize,
+    /// When each card of the last minute was made, oldest first.
+    made: VecDeque<Instant>,
+    /// When a refusal was last recorded.
+    recorded: Option<Instant>,
+}
+
+/// Why an ask was refused before any card was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Limited {
+    /// That many of the grant's requests already wait for the owner.
+    Waiting(usize),
+    /// Too many cards were made in the last minute.
+    Minute,
+}
+
+impl Limited {
+    /// What the worker is told.
+    fn words(self) -> String {
+        match self {
+            Self::Waiting(n) => format!(
+                "Plenipo is waiting for the owner's answer to {n} earlier requests. Wait for \
+                 those before asking again."
+            ),
+            Self::Minute => "Plenipo got too many requests for approval in a short time. Wait a \
+                             minute before asking again."
+                .into(),
+        }
+    }
+
+    /// The limit's name in the Ledger.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Waiting(_) => "waiting",
+            Self::Minute => "minute",
+        }
+    }
+}
+
+impl AskLimits {
+    /// Whether a new card may be made at `now`, with `waiting` of the grant's requests waiting
+    /// for the owner. When it may, a place is held for it until [`AskLimits::placed`].
+    fn reserve(&mut self, now: Instant, waiting: usize) -> std::result::Result<(), Limited> {
+        while self
+            .made
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= ASK_MINUTE)
+        {
+            self.made.pop_front();
+        }
+        let waiting = waiting + self.opening;
+        if waiting >= MAX_PENDING_APPROVALS {
+            return Err(Limited::Waiting(waiting));
+        }
+        if self.made.len() >= MAX_APPROVALS_A_MINUTE {
+            return Err(Limited::Minute);
+        }
+        self.made.push_back(now);
+        self.opening += 1;
+        Ok(())
+    }
+
+    /// The card a place was held for is made (and counted among the waiting ones), or could
+    /// not be made.
+    fn placed(&mut self) {
+        self.opening = self.opening.saturating_sub(1);
+    }
+
+    /// Whether a refusal at `now` is to be recorded: once a minute at most.
+    fn record(&mut self, now: Instant) -> bool {
+        if self
+            .recorded
+            .is_some_and(|t| now.duration_since(t) < ASK_MINUTE)
+        {
+            return false;
+        }
+        self.recorded = Some(now);
+        true
+    }
+}
+
 struct Grant {
     id: String,
     ticket: String,
@@ -173,6 +277,8 @@ struct Grant {
     revoked: bool,
     running: HashSet<String>,
     pending: HashSet<String>,
+    /// Its limits on asking the owner (B6).
+    asks: AskLimits,
     used: u32,
     blocked: u32,
     asked: u32,
@@ -243,6 +349,9 @@ struct State {
     tickets: HashMap<String, String>,
     /// Approval ID → the tool call waiting for it.
     waiters: HashMap<String, oneshot::Sender<ApprovalState>>,
+    /// Approval ID → the grant whose call waits for it, so the grant's count of waiting
+    /// requests moves with the owner's answer (B6).
+    askers: HashMap<String, String>,
 }
 
 struct Inner {
@@ -293,13 +402,17 @@ struct Prepared {
     inherent_owned: Option<(SensitiveKind, String)>,
     /// The website it opens or acts on (Phase 10).
     site: Option<plenipo_guard::Site>,
-    /// A screenshot for the approval card (Phase 10).
-    screenshot: Option<String>,
     /// The server it uses, for Guard (Phase 11).
     server: Option<ServerPrep>,
     /// It only reads Plenipo's own settings or gives something up (listing servers,
     /// disconnecting): never asks, though the permission must not be blocked.
     harmless: bool,
+    /// For a git tool: what Plenipo's own git looks at before Guard decides (the files a
+    /// `git add` would stage, the files staged, the files a diff or a push covers), so the
+    /// blocked-files list holds for git too (`git_tools`).
+    git: Option<GitLook>,
+    /// A line of Plenipo's own to end the result with (how many files a diff left out).
+    note: Option<String>,
     work: Work,
 }
 
@@ -324,6 +437,11 @@ enum Work {
         timeout: Duration,
         /// The program's own variables (git's, gh's).
         env: Vec<(String, String)>,
+        /// For GitHub's `gh --json` tools, the repository: their output is text anyone wrote on
+        /// GitHub, so the fence around it says the words are GitHub's, not the program's.
+        github: Option<String>,
+        /// Where it came from: only a program from PATH gets stored secrets (ADR-048).
+        origin: Origin,
     },
     /// Plenipo's browser or the screen (Phase 10).
     Control(ControlWork),
@@ -359,6 +477,14 @@ struct Refused {
     summary: String,
 }
 
+/// Why a call that needs the owner's approval got no card.
+enum NotAsked {
+    /// One of the grant's limits on asking (B6): what the worker is told.
+    Limited(String),
+    /// The card could not be made.
+    Failed(String),
+}
+
 /// What became of a connection presenting a ticket (ADR-034).
 enum Admission {
     /// From the AI tool's own process tree.
@@ -369,40 +495,84 @@ enum Admission {
     Refused(Option<u32>),
 }
 
-/// The stored secrets one program gets.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct SecretsGiven {
-    /// Variables to set.
-    env: Vec<(String, String)>,
-    /// Names of the secrets given (told to the worker).
-    used: Vec<String>,
-    /// Names of the secrets the owner bound to this program that Plenipo withheld, because
-    /// the program runs the project's own scripts (ADR-034).
-    withheld: Vec<String>,
+/// Where a program a worker runs came from (ADR-048, secrets reach only the programs they are
+/// for).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// Found on PATH, or in Plenipo's own search folders: the installed program of that name.
+    Path,
+    /// A file inside the project folder (`./gradlew`): whatever the project holds.
+    Project,
 }
 
-/// The secrets the owner bound to `program` (its bare name), read with `read` (the Vault).
-fn secrets_for(
-    program: &str,
-    secrets: &[SecretInfo],
-    read: impl Fn(&str) -> Option<String>,
-) -> SecretsGiven {
+/// One stored secret a program gets: the variable to set, the Vault ID of the value, and the
+/// secret's name.
+#[derive(Debug, PartialEq, Eq)]
+struct Giving {
+    var: String,
+    id: String,
+    name: String,
+}
+
+/// The stored secrets one program gets, worked out before Guard decides (the approval card
+/// names them) and read from the Vault only when the program runs.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SecretsGiven {
+    give: Vec<Giving>,
+    /// Bound to this program, but withheld because it runs the project's own scripts
+    /// (ADR-034).
+    withheld: Vec<String>,
+    /// Bound to this program's name, but kept back because the program is not the installed
+    /// one from PATH (ADR-048).
+    kept: Vec<String>,
+}
+
+impl SecretsGiven {
+    /// The names of the secrets given.
+    fn names(&self) -> Vec<String> {
+        self.give.iter().map(|g| g.name.clone()).collect()
+    }
+}
+
+/// The secrets the owner bound to `program` (its bare name) when it came from `origin`: only
+/// the installed program from PATH gets them (ADR-048), and never a script runner (ADR-034).
+fn secrets_for(program: &str, origin: Origin, secrets: &[SecretInfo]) -> SecretsGiven {
     let mut given = SecretsGiven::default();
     let runner = SCRIPT_RUNNERS.contains(&program);
     for s in secrets
         .iter()
         .filter(|s| s.programs.iter().any(|p| p == program))
     {
+        if origin == Origin::Project {
+            given.kept.push(s.name.clone());
+            continue;
+        }
         if runner {
             given.withheld.push(s.name.clone());
             continue;
         }
-        if let (Some(var), Some(value)) = (&s.env_var, read(&s.id)) {
-            given.env.push((var.clone(), value));
-            given.used.push(s.name.clone());
+        if let Some(var) = &s.env_var {
+            given.give.push(Giving {
+                var: var.clone(),
+                id: s.id.clone(),
+                name: s.name.clone(),
+            });
         }
     }
     given
+}
+
+/// The bare name a program's secrets are bound by: its file name without the extension, in
+/// lower case (`C:\Program Files\GitHub CLI\gh.exe` → `gh`).
+fn program_stem(executable: &Path) -> String {
+    CommandLine {
+        program: executable
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        args: Vec::new(),
+    }
+    .program_name()
 }
 
 fn cap(text: &str, max: usize) -> String {
@@ -419,7 +589,7 @@ fn cap(text: &str, max: usize) -> String {
 fn first_line(text: &str) -> String {
     cap(
         text.lines()
-            .find(|l| !l.trim().is_empty())
+            .find(|l| !l.trim().is_empty() && !fence::is_boundary(l))
             .unwrap_or("")
             .trim(),
         300,
@@ -791,6 +961,7 @@ impl Broker {
             revoked: false,
             running: HashSet::new(),
             pending: HashSet::new(),
+            asks: AskLimits::default(),
             used: 0,
             blocked: 0,
             asked: 0,
@@ -1204,7 +1375,18 @@ impl Broker {
             .ledger()
             .settle_approval(approval_id, state, by, Some(note))
             .ok();
-        let waiter = self.state().waiters.remove(approval_id);
+        let waiter = {
+            let mut s = self.state();
+            let waiter = s.waiters.remove(approval_id);
+            // The grant's count of waiting requests moves with the answer, not with the woken
+            // call (B6): the next ask sees the place free at once.
+            if let Some(grant) = s.askers.remove(approval_id) {
+                if let Some(g) = s.grants.get_mut(&grant) {
+                    g.pending.remove(approval_id);
+                }
+            }
+            waiter
+        };
         if let Some(tx) = waiter {
             let actual = settled.as_ref().map_or(state, |a| a.state);
             let _ = tx.send(actual);
@@ -1435,6 +1617,61 @@ impl Broker {
                 );
             }
         };
+        // A git tool: what git would stage, show, record, or send is checked against the
+        // blocked-files list first, by Plenipo's own git (`git_tools`).
+        if let Some(look) = prepared.git.take() {
+            let looked = self
+                .look_at_git(
+                    &mut prepared,
+                    look,
+                    workspace.as_ref(),
+                    at.base,
+                    &config.blocked_files,
+                )
+                .await;
+            match looked {
+                Ok(()) => {}
+                Err(Stopped::Refused(r)) => {
+                    let decision = Decision {
+                        verdict: Verdict::Deny,
+                        reason: format!("Blocked: {}", r.reason),
+                        layer: r.layer,
+                        risk: tool.risk,
+                        sensitive: None,
+                        checks: Vec::new(),
+                    };
+                    let detail = self.redact(&prepared.detail);
+                    return self.deny(
+                        grant_id, &task_id, &worker, tool, &r.summary, &detail, &decision, None,
+                    );
+                }
+                Err(Stopped::Unchecked(why)) => {
+                    return CallResult::error(format!(
+                        "Not done: {why} ({}). Try again; if it keeps failing, say so in your \
+                         answer.",
+                        prepared.summary
+                    ));
+                }
+            }
+        }
+        // ADR-048 (secrets reach only the programs they are for): the stored secrets a program
+        // the worker named, or a script it wrote, would be given. Guard asks first unless one of
+        // the owner's rules names the program and each secret, and the approval card says which.
+        // Plenipo's own git and GitHub tools run git and gh with Plenipo's arguments under their
+        // own permissions, and are given a secret bound to them as before.
+        let planned: Vec<String> = match &prepared.work {
+            Work::Program {
+                executable, origin, ..
+            } if prepared.command.is_some() || prepared.script.is_some() => {
+                secrets_for(&program_stem(executable), *origin, &config.secrets).names()
+            }
+            _ => Vec::new(),
+        };
+        if !planned.is_empty() {
+            let line = format!("\nWill be given: {}", planned.join(", "));
+            let room = MAX_DETAIL.saturating_sub(line.len() + "…".len());
+            prepared.detail = cap(&prepared.detail, room) + &line;
+        }
         let current = level_for(&config, &scope, prepared.capability);
         let rels: Vec<String> = prepared.files.iter().map(|f| f.rel.clone()).collect();
         let root = workspace
@@ -1458,6 +1695,7 @@ impl Broker {
                 .inherent_owned
                 .as_ref()
                 .map(|(k, why)| (*k, why.as_str()))),
+            secrets: &planned,
             workspace: &root,
             site: prepared.site.as_ref().map(|site| SiteCheck {
                 site,
@@ -1508,27 +1746,6 @@ impl Broker {
             }
             Verdict::Ask => {
                 let minutes = config.options.approval_minutes;
-                if control && prepared.site.is_some() {
-                    // The card shows the page as it is now (Phase 10).
-                    prepared.screenshot = self.approval_shot(grant_id, &task_id, &worker).await;
-                }
-                // A server's identity is checked before the owner is asked (Phase 11): never an
-                // approval for a command that cannot safely run.
-                if let Some(p) = &prepared.server {
-                    let who = Caller {
-                        grant_id,
-                        task_id: &task_id,
-                        worker: &worker,
-                        role_id: &scope.role_id,
-                        role_name: &scope.role_name,
-                    };
-                    if let Err(why) = self.connect_first(&who, &p.server).await {
-                        return CallResult::error(format!(
-                            "Not done: {why}. ({})",
-                            prepared.summary
-                        ));
-                    }
-                }
                 match self
                     .ask(
                         grant_id,
@@ -1557,7 +1774,8 @@ impl Broker {
                             prepared.summary
                         ));
                     }
-                    Err(e) => return CallResult::error(format!("Not done: {e}")),
+                    Err(NotAsked::Limited(words)) => return CallResult::error(words),
+                    Err(NotAsked::Failed(e)) => return CallResult::error(format!("Not done: {e}")),
                 }
                 // Revoked while waiting?
                 if self.state().grants.get(grant_id).is_none_or(|g| g.revoked) {
@@ -1628,7 +1846,14 @@ impl Broker {
             Ok(text) => (text, true),
             Err(text) => (text, false),
         };
-        let text = self.redact(&text);
+        let mut text = self.redact(&text);
+        // Plenipo's own closing line (how many files a diff left out), outside any fence.
+        if let (true, Some(note)) = (ok, prepared.note.take()) {
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(&note);
+        }
         if let Some(g) = self.state().grants.get_mut(grant_id) {
             g.used += 1;
         }
@@ -1727,7 +1952,66 @@ impl Broker {
         detail: &str,
         decision: &Decision,
         minutes: u32,
-    ) -> std::result::Result<(String, ApprovalState), String> {
+    ) -> std::result::Result<(String, ApprovalState), NotAsked> {
+        // The grant's limits on asking (B6), checked and a place held in one step, so calls
+        // made at the same time cannot slip past them together. A refused call gets no card;
+        // the refusal is recorded once a minute at most.
+        let at = Instant::now();
+        let limited = {
+            let mut s = self.state();
+            s.grants.get_mut(grant_id).and_then(|g| {
+                let waiting = g.pending.len();
+                g.asks
+                    .reserve(at, waiting)
+                    .err()
+                    .map(|why| (why, waiting + g.asks.opening, g.asks.record(at)))
+            })
+        };
+        if let Some((why, waiting, record)) = limited {
+            let words = why.words();
+            if record {
+                let _ = self.ledger().append_event(NewEvent {
+                    task_id: Some(task_id.into()),
+                    source: GUARD.into(),
+                    event_type: "guard.approvals_limited".into(),
+                    payload: json!({
+                        "grantId": grant_id,
+                        "worker": worker,
+                        "tool": tool.name,
+                        "summary": self.redact(&prepared.summary),
+                        "limit": why.name(),
+                        "waiting": waiting,
+                        "reason": words,
+                    }),
+                    ..NewEvent::default()
+                });
+            }
+            return Err(NotAsked::Limited(words));
+        }
+        // Work for the card only once a place is held, so a refused call costs nothing more
+        // than its refusal. The card shows the page as it is now (Phase 10), and a server's
+        // identity is checked before the owner is asked (Phase 11): never an approval for a
+        // command that cannot safely run.
+        let screenshot = if prepared.site.is_some() && tools::is_control(tool) {
+            self.approval_shot(grant_id, task_id, worker).await
+        } else {
+            None
+        };
+        if let Some(p) = &prepared.server {
+            let who = Caller {
+                grant_id,
+                task_id,
+                worker,
+                role_id: &scope.role_id,
+                role_name: &scope.role_name,
+            };
+            if let Err(why) = self.connect_first(&who, &p.server).await {
+                if let Some(g) = self.state().grants.get_mut(grant_id) {
+                    g.asks.placed();
+                }
+                return Err(NotAsked::Failed(format!("{why}. ({})", prepared.summary)));
+            }
+        }
         let now = plenipo_ledger::now_ms();
         let wait = self.inner.config.approval_minute * minutes;
         let expires_at = now + wait.as_millis() as u64;
@@ -1749,27 +2033,36 @@ impl Broker {
             "grantId": grant_id,
             "sessionId": self.state().grants.get(grant_id).map(|g| g.session_id.clone()),
             "url": prepared.site.as_ref().map(|s| s.url.clone()),
-            "screenshot": prepared.screenshot,
+            "screenshot": screenshot,
             "server": prepared.server.as_ref().map(|p| p.server.name.clone()),
             "environment": prepared.server.as_ref().map(|p| p.server.environment),
             "address": prepared.server.as_ref().map(|p| p.server.address()),
         });
         let (tx, rx) = oneshot::channel();
-        let approval = self
-            .ledger()
-            .request_action_approval(
-                task_id,
-                prepared.capability.id(),
-                &payload,
-                expires_at,
-                &format!("agent:{runtime_id}"),
-            )
-            .map_err(|e| format!("the approval could not be requested: {e}"))?;
+        let approval = match self.ledger().request_action_approval(
+            task_id,
+            prepared.capability.id(),
+            &payload,
+            expires_at,
+            &format!("agent:{runtime_id}"),
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                if let Some(g) = self.state().grants.get_mut(grant_id) {
+                    g.asks.placed();
+                }
+                return Err(NotAsked::Failed(format!(
+                    "the approval could not be requested: {e}"
+                )));
+            }
+        };
         {
             let mut s = self.state();
             s.waiters.insert(approval.id.clone(), tx);
+            s.askers.insert(approval.id.clone(), grant_id.to_owned());
             if let Some(g) = s.grants.get_mut(grant_id) {
                 g.asked += 1;
+                g.asks.placed();
                 g.pending.insert(approval.id.clone());
             } else {
                 drop(s);
@@ -1926,9 +2219,12 @@ impl Broker {
                 stdin,
                 timeout,
                 env,
+                github,
+                origin,
             } => {
                 self.run_program(
-                    grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env,
+                    grant_id, worker, summary, executable, args, &cwd, stdin, timeout, env, github,
+                    origin,
                 )
                 .await
             }
@@ -1951,6 +2247,8 @@ impl Broker {
                         None,
                         timeout,
                         programs::git_env(),
+                        None,
+                        Origin::Path,
                     )
                     .await;
                 let pushed = match pushed {
@@ -1973,6 +2271,8 @@ impl Broker {
                         None,
                         timeout,
                         programs::gh_env(),
+                        None,
+                        Origin::Path,
                     )
                     .await;
                 let run = create_run.or(push_run);
@@ -1990,7 +2290,8 @@ impl Broker {
     }
 
     /// Run one program for a grant: through the supervisor, with the stored secrets the owner
-    /// gave that program; its output and run ID.
+    /// gave that program; its output (fenced as the program's words, or GitHub's for
+    /// `gh --json`) and run ID.
     #[allow(clippy::too_many_arguments)]
     async fn run_program(
         &self,
@@ -2003,25 +2304,24 @@ impl Broker {
         stdin: Option<Vec<u8>>,
         timeout: Duration,
         extra: Vec<(String, String)>,
+        github: Option<String>,
+        origin: Origin,
     ) -> (std::result::Result<String, String>, Option<String>) {
         let mut env = programs::dev_env();
         env.extend(extra);
-        let program = CommandLine {
-            program: executable
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            args: Vec::new(),
-        }
-        .program_name();
+        let program = program_stem(&executable);
         let given = match self.inner.guard.config() {
-            Ok(config) => secrets_for(&program, &config.secrets, |id| {
-                vault::read(self.inner.store.as_ref(), id).ok().flatten()
-            }),
+            Ok(config) => secrets_for(&program, origin, &config.secrets),
             Err(_) => SecretsGiven::default(),
         };
-        env.extend(given.env);
-        let (secrets_used, withheld) = (given.used, given.withheld);
+        let mut secrets_used = Vec::new();
+        for g in &given.give {
+            if let Some(value) = vault::read(self.inner.store.as_ref(), &g.id).ok().flatten() {
+                env.push((g.var.clone(), value));
+                secrets_used.push(g.name.clone());
+            }
+        }
+        let withheld = given.withheld;
         let this = self.clone();
         let grant = grant_id.to_owned();
         let ran = programs::run(
@@ -2064,13 +2364,23 @@ impl Broker {
                     text.push_str(SECRETS_WITHHELD);
                     text.push('\n');
                 }
+                if !given.kept.is_empty() {
+                    text.push_str(SECRETS_KEPT);
+                    text.push('\n');
+                }
+                // What the program printed, fenced as the program's (or GitHub's) words, never
+                // instructions to the worker. Plenipo's own lines (the secrets given, how the
+                // run ended) stay outside.
                 let output = ran.output.trim_end();
-                text.push_str(if output.is_empty() {
-                    "(no output)"
+                if output.is_empty() {
+                    text.push_str("(no output)\n");
                 } else {
-                    output
-                });
-                text.push('\n');
+                    let source = match github {
+                        Some(repo) => fence::Source::GitHub(repo),
+                        None => fence::Source::Program(program),
+                    };
+                    text.push_str(&fence::fenced(&source, output));
+                }
                 text.push_str(&ran.ending(timeout));
                 let id = Some(ran.execution_id.clone());
                 if ran.succeeded() {
@@ -2555,7 +2865,7 @@ fn program_path(
     program: &str,
     search: Option<&std::ffi::OsStr>,
     summary: &str,
-) -> std::result::Result<(std::result::Result<PathBuf, String>, String), Refused> {
+) -> std::result::Result<(std::result::Result<PathBuf, String>, String, Origin), Refused> {
     let refuse = |reason: String| Refused {
         layer: Layer::Target,
         reason,
@@ -2581,13 +2891,19 @@ fn program_path(
                 r.shown()
             )));
         }
-        return Ok((Ok(r.abs.clone()), format!("./{}", r.rel)));
+        return Ok((Ok(r.abs.clone()), format!("./{}", r.rel), Origin::Project));
     }
     let found = search
         .and_then(|p| programs::find_in(program, Some(p.to_os_string())))
         .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
-    Ok((found, program.to_owned()))
+    // Found through PATH but lying inside the project folder: the project's own file, not the
+    // installed program (ADR-048).
+    let origin = match &found {
+        Ok(p) if p.starts_with(ws.root()) => Origin::Project,
+        _ => Origin::Path,
+    };
+    Ok((found, program.to_owned(), origin))
 }
 
 /// Read a call into what Guard checks and what Plenipo then does. In an objective's working
@@ -2614,9 +2930,10 @@ fn prepare(
             inherent: None,
             inherent_owned: None,
             site: None,
-            screenshot: None,
             server: None,
             harmless: false,
+            git: None,
+            note: None,
             work,
         }
     };
@@ -2741,7 +3058,7 @@ fn prepare(
                     summary: s,
                 });
             };
-            let (executable, key) = program_path(w, &program, at.search.as_deref(), &s)?;
+            let (executable, key, origin) = program_path(w, &program, at.search.as_deref(), &s)?;
             let cwd = cwd_of(&cwd, &s)?;
             let command = CommandLine {
                 program: key,
@@ -2755,6 +3072,8 @@ fn prepare(
                     stdin: None,
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
+                    github: None,
+                    origin,
                 },
                 Err(why) => Work::Missing(why),
             };
@@ -2787,6 +3106,8 @@ fn prepare(
                     stdin: Some(script.clone().into_bytes()),
                     timeout: timeout_of(timeout),
                     env: Vec::new(),
+                    github: None,
+                    origin: Origin::Path,
                 },
                 None => Work::Missing("PowerShell is not installed on this computer.".into()),
             };
@@ -2830,6 +3151,8 @@ fn prepare(
                     stdin: None,
                     timeout: default_timeout,
                     env: programs::gh_env(),
+                    github: Some(repo.to_owned()),
+                    origin: Origin::Path,
                 },
                 None => gh_missing(),
             };
@@ -2966,6 +3289,11 @@ fn prepare(
                         SensitiveKind::Outbound,
                         "it publishes the branch and opens a pull request on GitHub",
                     ));
+                    // It pushes the branch: the card names blocked files in its commits.
+                    p.git = Some(GitLook::Push {
+                        remote: "origin".into(),
+                        branch: Some(branch.to_owned()),
+                    });
                     p
                 }
                 _ => unreachable!("only GitHub actions come here"),
@@ -2981,11 +3309,13 @@ fn prepare(
                 });
             };
             let git = programs::find_on_path("git");
-            let rel = |p: &str| -> std::result::Result<String, Refused> {
-                let r = resolve(ws, p, &s)?;
-                Ok(if r.rel.is_empty() { ".".into() } else { r.rel })
-            };
+            let rel = |p: &str| -> std::result::Result<Resolved, Refused> { resolve(ws, p, &s) };
             let mut inherent = None;
+            // The files named go to Guard as the file tools' do, and Plenipo's own git looks at
+            // what git would then stage, show, record, or send (`git_tools`), so a file on the
+            // blocked list stays out of git's hands too.
+            let mut files = Vec::new();
+            let mut look = None;
             let (summary, op): (String, Vec<String>) = match git_action {
                 Action::GitStatus => (
                     "git status".into(),
@@ -2996,12 +3326,19 @@ fn prepare(
                     if staged {
                         op.push("--cached".into());
                     }
+                    let mut of = None;
                     if let Some(p) = path {
-                        op.extend(["--".into(), rel(&p)?]);
+                        // A diff shows contents: a blocked path is refused like a read.
+                        let r = rel(&p)?;
+                        of = Some(r.shown().to_owned());
+                        op.extend(["--".into(), r.shown().to_owned()]);
+                        files.push(r);
                     }
+                    look = Some(GitLook::Diff { staged, path: of });
                     ("git diff".into(), op)
                 }
                 Action::GitLog { count, path } => {
+                    // One line per commit, never a patch: names, not contents.
                     let mut op = vec![
                         "log".to_owned(),
                         "--oneline".into(),
@@ -3010,24 +3347,32 @@ fn prepare(
                         count.to_string(),
                     ];
                     if let Some(p) = path {
-                        op.extend(["--".into(), rel(&p)?]);
+                        op.extend(["--".into(), rel(&p)?.shown().to_owned()]);
                     }
                     ("git log".into(), op)
                 }
                 Action::GitAdd { paths } => {
                     let mut op = vec!["add".to_owned(), "--".into()];
                     for p in &paths {
-                        op.push(rel(p)?);
+                        let r = rel(p)?;
+                        op.push(r.shown().to_owned());
+                        files.push(r);
                     }
+                    look = Some(GitLook::Add {
+                        paths: op[2..].to_vec(),
+                    });
                     (format!("git add {}", op[2..].join(" ")), op)
                 }
-                Action::GitCommit { message } => (
-                    format!(
-                        "git commit ({})",
-                        cap(message.lines().next().unwrap_or(""), 80)
-                    ),
-                    vec!["commit".into(), "-m".into(), message],
-                ),
+                Action::GitCommit { message } => {
+                    look = Some(GitLook::Commit);
+                    (
+                        format!(
+                            "git commit ({})",
+                            cap(message.lines().next().unwrap_or(""), 80)
+                        ),
+                        vec!["commit".into(), "-m".into(), message],
+                    )
+                }
                 Action::GitBranch { name, create } => {
                     if let Some(own) = branch {
                         return Err(Refused {
@@ -3057,7 +3402,7 @@ fn prepare(
                     branch: asked,
                 } => {
                     inherent = Some((SensitiveKind::Outbound, "it sends commits to a server"));
-                    let op = match (branch, &asked) {
+                    let (op, pushed) = match (branch, &asked) {
                         // In a working copy, only the objective's own branch is pushed.
                         (Some(own), Some(b)) if b != own && b != "HEAD" => {
                             return Err(Refused {
@@ -3069,15 +3414,26 @@ fn prepare(
                                 summary: format!("git push {remote} {b}"),
                             });
                         }
-                        (Some(own), _) => vec![
-                            "push".to_owned(),
-                            "-u".into(),
-                            remote.clone(),
-                            own.to_owned(),
-                        ],
-                        (None, Some(b)) => vec!["push".to_owned(), remote.clone(), b.clone()],
-                        (None, None) => vec!["push".to_owned(), remote.clone()],
+                        (Some(own), _) => (
+                            vec![
+                                "push".to_owned(),
+                                "-u".into(),
+                                remote.clone(),
+                                own.to_owned(),
+                            ],
+                            Some(own.to_owned()),
+                        ),
+                        (None, Some(b)) => (
+                            vec!["push".to_owned(), remote.clone(), b.clone()],
+                            Some(b.clone()),
+                        ),
+                        (None, None) => (vec!["push".to_owned(), remote.clone()], None),
                     };
+                    // The approval card names blocked files in the commits it would send.
+                    look = Some(GitLook::Push {
+                        remote: remote.clone(),
+                        branch: pushed,
+                    });
                     let shown: Vec<&str> = op[1..]
                         .iter()
                         .map(String::as_str)
@@ -3096,16 +3452,19 @@ fn prepare(
                     stdin: None,
                     timeout: default_timeout,
                     env: programs::git_env(),
+                    github: None,
+                    origin: Origin::Path,
                 },
                 None => Work::Missing("git is not installed (it was not found on PATH).".into()),
             };
             let mut p = base(
                 summary.clone(),
                 format!("git {}", op.join(" ")),
-                vec![],
+                files,
                 work,
             );
             p.inherent = inherent;
+            p.git = look;
             p
         }
     })
@@ -3114,6 +3473,70 @@ fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B6: three of a grant's requests may wait for the owner at once. A place held for a card
+    /// being made counts as waiting, and a fourth is refused with the count.
+    #[test]
+    fn at_most_three_approval_requests_wait_at_once() {
+        let mut limits = AskLimits::default();
+        let now = Instant::now();
+        for waiting in 0..MAX_PENDING_APPROVALS {
+            assert_eq!(limits.reserve(now, waiting), Ok(()));
+            limits.placed();
+        }
+        assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
+        // One answered: the next may ask, and its place counts until its card is made.
+        assert_eq!(limits.reserve(now, 2), Ok(()));
+        assert_eq!(limits.reserve(now, 2), Err(Limited::Waiting(3)));
+        limits.placed();
+        assert_eq!(limits.reserve(now, 3), Err(Limited::Waiting(3)));
+        assert_eq!(limits.reserve(now, 0), Ok(()));
+    }
+
+    /// B6: ten cards a minute. The eleventh waits until the oldest card is a minute old, and a
+    /// refused ask is not a card.
+    #[test]
+    fn at_most_ten_approval_cards_a_minute() {
+        let mut limits = AskLimits::default();
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        for i in 0..MAX_APPROVALS_A_MINUTE {
+            assert_eq!(limits.reserve(at(i as u64), 0), Ok(()));
+            limits.placed();
+        }
+        assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(59), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(60), 0), Ok(()));
+        limits.placed();
+        assert_eq!(limits.reserve(at(60), 0), Err(Limited::Minute));
+        assert_eq!(limits.reserve(at(61), 0), Ok(()));
+    }
+
+    /// B6: a refused ask is recorded once a minute per grant.
+    #[test]
+    fn a_refused_ask_is_recorded_once_a_minute() {
+        let mut limits = AskLimits::default();
+        let start = Instant::now();
+        assert!(limits.record(start));
+        assert!(!limits.record(start + Duration::from_secs(59)));
+        assert!(limits.record(start + Duration::from_secs(60)));
+        assert!(!limits.record(start + Duration::from_secs(61)));
+    }
+
+    /// B6: what a refused worker is told, in plain words.
+    #[test]
+    fn a_refused_ask_is_told_in_plain_words() {
+        assert_eq!(
+            Limited::Waiting(3).words(),
+            "Plenipo is waiting for the owner's answer to 3 earlier requests. Wait for those \
+             before asking again."
+        );
+        assert_eq!(
+            Limited::Minute.words(),
+            "Plenipo got too many requests for approval in a short time. Wait a minute before \
+             asking again."
+        );
+    }
 
     fn secret(name: &str, var: &str, programs: &[&str]) -> SecretInfo {
         SecretInfo {
@@ -3133,33 +3556,210 @@ mod tests {
             secret("Registry token", "NPM_TOKEN", &["npm"]),
             secret("Other", "OTHER", &["cargo"]),
         ];
-        let read = |id: &str| Some(format!("value-of-{id}"));
-        let gh = secrets_for("gh", &secrets, read);
+        let gh = secrets_for("gh", Origin::Path, &secrets);
         assert_eq!(
-            gh.env,
-            vec![("DEPLOY_KEY".to_owned(), "value-of-id-Deploy key".to_owned())]
+            gh.give,
+            vec![Giving {
+                var: "DEPLOY_KEY".into(),
+                id: "id-Deploy key".into(),
+                name: "Deploy key".into(),
+            }]
         );
-        assert_eq!(gh.used, vec!["Deploy key"]);
+        assert_eq!(gh.names(), vec!["Deploy key"]);
         assert!(gh.withheld.is_empty());
+        assert!(gh.kept.is_empty());
         for runner in ["npm", "pnpm", "yarn", "make", "npx"] {
-            let given = secrets_for(runner, &secrets, read);
-            assert!(given.env.is_empty(), "{runner}");
-            assert!(given.used.is_empty(), "{runner}");
+            let given = secrets_for(runner, Origin::Path, &secrets);
+            assert!(given.give.is_empty(), "{runner}");
         }
         assert_eq!(
-            secrets_for("npm", &secrets, read).withheld,
+            secrets_for("npm", Origin::Path, &secrets).withheld,
             vec!["Deploy key", "Registry token"]
         );
         assert_eq!(
-            secrets_for("make", &secrets, read).withheld,
+            secrets_for("make", Origin::Path, &secrets).withheld,
             vec!["Deploy key"]
         );
         // Nothing bound: nothing given, nothing withheld, nothing said.
-        assert_eq!(secrets_for("yarn", &secrets, read), SecretsGiven::default());
         assert_eq!(
-            secrets_for("cargo", &secrets, |_| None),
+            secrets_for("yarn", Origin::Path, &secrets),
+            SecretsGiven::default()
+        );
+        assert_eq!(
+            secrets_for("cargo", Origin::Path, &[]),
             SecretsGiven::default()
         );
         assert!(SECRETS_WITHHELD.contains("npm, pnpm, yarn, make, or npx"));
+    }
+
+    /// ADR-048: a stored secret goes only to the installed program of that name, found on
+    /// PATH; a file in the project folder named like it gets nothing, and the worker is told.
+    #[test]
+    fn stored_secrets_go_only_to_programs_from_path() {
+        let secrets = vec![
+            secret("Deploy key", "DEPLOY_KEY", &["gh", "npm"]),
+            secret("Other", "OTHER", &["cargo"]),
+        ];
+        let from_path = secrets_for("gh", Origin::Path, &secrets);
+        assert_eq!(from_path.names(), vec!["Deploy key"]);
+        assert!(from_path.kept.is_empty());
+        let from_project = secrets_for("gh", Origin::Project, &secrets);
+        assert!(from_project.give.is_empty());
+        assert!(from_project.withheld.is_empty());
+        assert_eq!(from_project.kept, vec!["Deploy key"]);
+        // A script runner's look-alike in the project: kept back for the same reason.
+        let npm = secrets_for("npm", Origin::Project, &secrets);
+        assert!(npm.give.is_empty());
+        assert_eq!(npm.kept, vec!["Deploy key"]);
+        assert!(npm.withheld.is_empty());
+        // Nothing bound to that name: nothing to say.
+        assert_eq!(
+            secrets_for("gradlew", Origin::Project, &secrets),
+            SecretsGiven::default()
+        );
+        assert!(
+            SECRETS_KEPT.contains("no stored secrets were given (the program is not from PATH)")
+        );
+        assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        assert_eq!(program_stem(Path::new("/usr/bin/gh")), "gh");
+        assert_eq!(program_stem(Path::new("./scripts/gh.sh")), "gh");
+    }
+
+    /// ADR-048: `prepare` says where a program came from: `./path` (or a path inside the
+    /// project) is the project's own file; a bare name is the installed program from PATH.
+    #[test]
+    fn a_program_in_the_project_folder_is_not_the_installed_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(project.join("scripts")).unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = |name: &str| {
+            if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_owned()
+            }
+        };
+        for path in [
+            project.join(exe("gh")),
+            project.join("scripts").join(exe("gh")),
+            bin.join(exe("gh")),
+        ] {
+            std::fs::write(&path, b"").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let ws = Workspace::open(&project.display().to_string()).unwrap();
+        let at = Where {
+            ws: Some(&ws),
+            branch: None,
+            base: None,
+            repo: None,
+            gh: None,
+            search: Some(bin.clone().into_os_string()),
+        };
+        let run = |at: &Where, program: &str| {
+            let tool = tools::find("run_command").unwrap();
+            let action = tools::parse(tool, &json!({ "program": program, "args": [] })).unwrap();
+            let Ok(p) = prepare(tool, action, at, Duration::from_secs(30)) else {
+                panic!("{program} was refused");
+            };
+            let Work::Program {
+                executable, origin, ..
+            } = p.work
+            else {
+                panic!("{program} was not prepared as a program");
+            };
+            (executable, origin, p.command.unwrap().program)
+        };
+        // The project folder as the workspace names it (its real path; the temp folder's path
+        // may be a link to it).
+        let root = ws.root();
+        let (executable, origin, key) = run(&at, &format!("./{}", exe("gh")));
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, root.join(exe("gh")));
+        assert_eq!(key, format!("./{}", exe("gh")));
+        let (executable, origin, key) = run(&at, &format!("scripts/{}", exe("gh")));
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, root.join("scripts").join(exe("gh")));
+        assert_eq!(key, format!("./scripts/{}", exe("gh")));
+        // The bare name is the installed program, even though the project has a file of that
+        // name.
+        let (executable, origin, key) = run(&at, "gh");
+        assert_eq!(origin, Origin::Path);
+        assert_eq!(executable, bin.join(exe("gh")));
+        assert_eq!(key, "gh");
+        // A search path inside the project folder finds the project's own file: not the
+        // installed program, even by its bare name.
+        let inside = Where {
+            ws: Some(&ws),
+            branch: None,
+            base: None,
+            repo: None,
+            gh: None,
+            search: Some(root.join("scripts").into_os_string()),
+        };
+        let (executable, origin, key) = run(&inside, "gh");
+        assert_eq!(origin, Origin::Project);
+        assert_eq!(executable, root.join("scripts").join(exe("gh")));
+        assert_eq!(key, "gh");
+    }
+
+    /// The Activity trail shows what a program said, not the fence around it.
+    #[test]
+    fn the_trail_shows_the_words_inside_a_fence() {
+        let text = fence::fenced(
+            &fence::Source::Program("git".into()),
+            "git version 2.43.0\n",
+        ) + "Finished (exit code 0) in 0.1s.";
+        assert_eq!(first_line(&text), "git version 2.43.0");
+        let read = format!(
+            "README.md (2 lines)\n{}",
+            fence::fenced(&fence::Source::File("README.md".into()), "# Website\n")
+        );
+        assert_eq!(first_line(&read), "README.md (2 lines)");
+        assert_eq!(first_line("\n  \n"), "");
+    }
+
+    /// GitHub's `gh --json` tools mark their output as GitHub's words; git's stays the
+    /// program's own.
+    #[test]
+    fn github_json_tools_fence_their_output_as_githubs_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open(&dir.path().display().to_string()).unwrap();
+        let at = Where {
+            ws: Some(&ws),
+            branch: Some("plenipo/login"),
+            base: Some("main"),
+            repo: Some("example/website"),
+            gh: Some(PathBuf::from("gh")),
+            search: None,
+        };
+        let work = |name: &str, args: serde_json::Value| {
+            let tool = tools::find(name).unwrap();
+            let action = tools::parse(tool, &args).unwrap();
+            prepare(tool, action, &at, Duration::from_secs(30))
+                .ok()
+                .map(|p| p.work)
+        };
+        for (name, args) in [
+            ("github_issue_view", json!({ "number": 12 })),
+            ("github_pr_view", json!({})),
+            ("github_pr_list", json!({})),
+            ("github_pr_checks", json!({})),
+        ] {
+            let Some(Work::Program { github, .. }) = work(name, args) else {
+                panic!("{name} is not run as a program");
+            };
+            assert_eq!(github.as_deref(), Some("example/website"), "{name}");
+        }
+        match work("git_status", json!({})) {
+            Some(Work::Program { github: None, .. }) | Some(Work::Missing(_)) => {}
+            _ => panic!("git's output is the program's own words"),
+        }
     }
 }

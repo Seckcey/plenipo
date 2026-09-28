@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::commands::{first_match, CommandLine};
+use crate::commands::{first_match, rule_matches, CommandLine};
 use crate::config::GuardConfig;
 use crate::dto::*;
 use crate::paths::blocked_by;
@@ -229,6 +229,9 @@ pub struct Request<'a> {
     pub script: Option<&'a str>,
     /// Sensitive on its own (e.g. pushing to a server).
     pub inherent: Option<(SensitiveKind, &'a str)>,
+    /// Names of the stored secrets the program would be given (ADR-048): it asks unless one of
+    /// the owner's rules names both the program and each secret.
+    pub secrets: &'a [String],
     pub workspace: &'a Path,
     /// The website it opens or acts on (Phase 10), checked against the owner's website lists.
     pub site: Option<SiteCheck<'a>>,
@@ -544,8 +547,16 @@ pub fn evaluate(
             checks,
         );
     }
+    // A rule that names a program and its secrets (ADR-048) approves the command too.
+    let names_program = |r: &SecretRule| {
+        request
+            .command
+            .is_some_and(|cmd| rule_matches(&r.rule, cmd))
+    };
     if let Some(cmd) = request.command {
-        if first_match(&config.commands.approved, cmd).is_none() {
+        if first_match(&config.commands.approved, cmd).is_none()
+            && !config.commands.with_secrets.iter().any(names_program)
+        {
             return decision(
                 Verdict::Ask,
                 Layer::Rule,
@@ -558,6 +569,42 @@ pub fn evaluate(
                 checks,
             );
         }
+    }
+    // ADR-048 (secrets reach only the programs they are for): a program is given a stored
+    // secret without asking only when one of the owner's rules names both the program and that
+    // secret. A script has no command a rule could name, so it always asks.
+    if !request.secrets.is_empty() {
+        let named = |secret: &String| {
+            config
+                .commands
+                .with_secrets
+                .iter()
+                .filter(|r| names_program(r))
+                .any(|r| r.secrets.iter().any(|n| n.eq_ignore_ascii_case(secret)))
+        };
+        let what = format!(
+            "the stored secret{} {}",
+            if request.secrets.len() == 1 { "" } else { "s" },
+            request.secrets.join(", ")
+        );
+        if !request.secrets.iter().all(named) {
+            return decision(
+                Verdict::Ask,
+                Layer::Rule,
+                format!(
+                    "{} needs your approval: it would be given {what}.",
+                    capitalized(request.summary)
+                ),
+                risk,
+                None,
+                checks,
+            );
+        }
+        checks.push(Check {
+            layer: Layer::Rule,
+            verdict: Verdict::Allow,
+            note: format!("your rule gives this program {what}"),
+        });
     }
     checks.push(Check {
         layer: Layer::Target,
@@ -622,6 +669,7 @@ mod tests {
             command,
             script: None,
             inherent: None,
+            secrets: &[],
             workspace: Path::new("/w"),
             site: None,
             server: None,
@@ -782,6 +830,86 @@ mod tests {
         let cmd = CommandLine::new("cargo", &["test"]);
         let d = eval(&c, &rev, &request(Capability::ShellExec, &[], Some(&cmd)));
         assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Role));
+    }
+
+    /// ADR-048: a program that would be given a stored secret asks first, even when its command
+    /// is approved, unless one of the owner's rules names both the program and the secret.
+    #[test]
+    fn a_stored_secret_asks_unless_a_rule_names_program_and_secret() {
+        let mut c = config();
+        let s = scope("dev", None);
+        let given = ["Deploy key".to_owned()];
+        let cmd = CommandLine::new("cargo", &["test"]);
+        let mut r = request(Capability::ShellExec, &[], Some(&cmd));
+        r.summary = "run cargo test";
+        assert_eq!(eval(&c, &s, &r).verdict, Verdict::Allow);
+        r.secrets = &given;
+        let d = eval(&c, &s, &r);
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert_eq!(
+            d.reason,
+            "Run cargo test needs your approval: it would be given the stored secret Deploy key."
+        );
+        // A rule for another program, or another secret, does not cover it.
+        c.commands.with_secrets.push(SecretRule {
+            rule: "gh *".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        c.commands.with_secrets.push(SecretRule {
+            rule: "cargo test *".into(),
+            secrets: vec!["Other".into()],
+        });
+        assert_eq!(eval(&c, &s, &r).verdict, Verdict::Ask);
+        // One naming the program and the secret does; names are compared ignoring case.
+        c.commands.with_secrets.push(SecretRule {
+            rule: "cargo test *".into(),
+            secrets: vec!["deploy KEY".into()],
+        });
+        let d = eval(&c, &s, &r);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        assert!(
+            d.checks
+                .iter()
+                .any(|k| k.layer == Layer::Rule && k.note.contains("Deploy key")),
+            "{:?}",
+            d.checks
+        );
+        // Every secret given must be named by a rule that matches the command.
+        let two = ["Deploy key".to_owned(), "Third".to_owned()];
+        r.secrets = &two;
+        let d = eval(&c, &s, &r);
+        assert_eq!(d.verdict, Verdict::Ask);
+        assert!(
+            d.reason.contains("stored secrets Deploy key, Third"),
+            "{}",
+            d.reason
+        );
+        // Such a rule is an approved command too: one line does both.
+        let cmd = CommandLine::new("gh", &["pr", "list"]);
+        let mut r = request(Capability::ShellExec, &[], Some(&cmd));
+        r.summary = "run gh pr list";
+        r.secrets = &given;
+        assert_eq!(eval(&c, &s, &r).verdict, Verdict::Allow);
+        // The always-ask list and blocked list still win over it.
+        c.commands.ask.push("gh pr *".into());
+        assert_eq!(eval(&c, &s, &r).verdict, Verdict::Ask);
+        // A script has no command a rule could name: it always asks when given a secret.
+        for set in c.sets.iter_mut().filter(|s| s.id == "developer") {
+            set.levels
+                .insert(Capability::PowershellExec, Level::Allowed);
+        }
+        let mut script = request(Capability::PowershellExec, &[], None);
+        script.summary = "run a PowerShell script";
+        script.script = Some("Get-Date");
+        assert_eq!(eval(&c, &s, &script).verdict, Verdict::Allow);
+        script.secrets = &given;
+        let d = eval(&c, &s, &script);
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert!(
+            d.reason.contains("stored secret Deploy key"),
+            "{}",
+            d.reason
+        );
     }
 
     #[test]

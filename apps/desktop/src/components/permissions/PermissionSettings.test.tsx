@@ -173,6 +173,7 @@ describe("Settings → Permissions", () => {
       approved: ["cargo test *", "npm test *", "pnpm test *"],
       ask: ["npm publish *"],
       blocked: ["curl *"],
+      withSecrets: [],
     });
     const files = screen.getByRole("form", { name: "Blocked files" });
     await user.type(within(files).getByLabelText("Blocked files"), "\nsecrets/");
@@ -298,6 +299,53 @@ describe("Settings → Permissions", () => {
     expect(screen.queryByDisplayValue("npm_secret_value")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Remove GitHub token" }));
     expect(api.removeSecret).toHaveBeenCalledWith("secret-1");
+  });
+
+  it("warns where a secret is bound to a program that runs scripts", async () => {
+    // ADR-048 (secrets reach only the programs they are for): the warning shows in the list...
+    const base = samplePermissions();
+    api.getPermissions.mockResolvedValue({
+      ...base,
+      settings: {
+        ...base.settings,
+        secrets: [
+          ...base.settings.secrets,
+          {
+            id: "secret-2",
+            name: "PyPI token",
+            envVar: "TWINE_PASSWORD",
+            programs: ["python", "twine"],
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      },
+    });
+    render(<PermissionSettings />);
+    const row = await screen.findByRole("row", { name: /^PyPI token/ });
+    expect(within(row).getByRole("note")).toHaveTextContent(
+      "Every script run with python would get this secret.",
+    );
+    expect(
+      within(screen.getByRole("row", { name: /^GitHub token/ })).queryByRole("note"),
+    ).toBeNull();
+    // ...and in the form, as the programs are typed.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Add a secret" }));
+    const form = screen.getByRole("form", { name: "New secret" });
+    const programs = within(form).getByLabelText(/Give it to these programs/);
+    await user.type(programs, "gh, node python3");
+    expect(
+      within(form)
+        .getAllByRole("note")
+        .map((n) => n.textContent),
+    ).toEqual([
+      "Every script run with node would get this secret.",
+      "Every script run with python3 would get this secret.",
+    ]);
+    await user.clear(programs);
+    await user.type(programs, "gh");
+    expect(within(form).queryByRole("note")).toBeNull();
   });
 
   it("explains when the operating system's store or the tools are unavailable", async () => {

@@ -57,6 +57,7 @@ export function eventStatus(e: LedgerEvent): { status: Status; label: string } |
       if (p.to === "cancelled") return { status: "offline", label: "Cancelled" };
       return undefined;
     case "guard.denied":
+    case "guard.approvals_limited":
     case "task.transition_rejected":
     case "liaison.handoff_rejected":
       return { status: "warn", label: "Refused" };

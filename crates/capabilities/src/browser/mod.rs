@@ -9,6 +9,11 @@
 //!   from Plenipo ([`cdp`]) — never a network port, so no other program on the computer can
 //!   connect to the browser and drive it; each worker's step gets its own tab ([`tab`]).
 //! - The profile never saves passwords or card details.
+//! - It never saves files (ADR-047): every download is refused before a tab exists, and the
+//!   worker whose page tried it is told with its next result.
+//! - A page never gets a second tab (ADR-046): the browser attaches to every new tab paused,
+//!   before any of it runs, and a tab a worker's page opened is closed, its address opened in
+//!   the worker's own tab when the worker's action opened it; the worker is told.
 //! - If it crashes or is closed, the next browser tool call starts it again.
 //! - The owner chooses which browser (ADR-028): Automatic (Edge, then Chrome), Edge, or Chrome.
 //!   Each keeps its own profile folder; a new choice is used from the browser's next start.
@@ -28,7 +33,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use ts_rs::TS;
 
 use self::cdp::Cdp;
-use self::tab::{Signals, SitePolicy, Tab, TabLimits};
+use self::tab::{Signals, SitePolicy, Tab, TabLimits, Tabs};
 
 /// Variables the browser gets besides the supervisor's baseline (a display on Linux).
 const BROWSER_ENV: &[&str] = &[
@@ -136,6 +141,14 @@ fn name_of(path: &Path) -> String {
     } else {
         stem
     }
+}
+
+/// The browser's own words in its answer to a command, without the command's name (which the
+/// owner would not know; [`Cdp::call`] puts it before an error and after a wait that ran out).
+fn browser_words(answer: &str, method: &str) -> String {
+    answer
+        .replace(&format!("{method}: "), "")
+        .replace(&format!(" ({method})"), "")
 }
 
 /// Edge and Chrome on this computer, Edge first: each program found, and which choice it is.
@@ -361,6 +374,9 @@ struct Inner {
     problem: std::sync::Mutex<Option<String>>,
     /// The owner's choice (ADR-028), kept in step with Guard's settings by the broker.
     choice: std::sync::Mutex<BrowserChoice>,
+    /// The workers' tabs open now, for the browser's own events (a download it refused,
+    /// ADR-047).
+    tabs: Tabs,
 }
 
 impl Browser {
@@ -372,6 +388,7 @@ impl Browser {
                 running: AsyncMutex::new(None),
                 problem: std::sync::Mutex::new(None),
                 choice: std::sync::Mutex::new(BrowserChoice::Automatic),
+                tabs: Tabs::default(),
             }),
         }
     }
@@ -574,8 +591,74 @@ impl Browser {
                 ))
             });
         }
-        // The browser's own events are not needed; drain them.
-        tokio::spawn(async move { while browser_events.recv().await.is_some() {} });
+        // Plenipo's browser never saves files (ADR-047). Before any tab exists, the browser is
+        // told to refuse every download, and to report each one it refused so the worker whose
+        // page tried it can be told. A browser that cannot be told so is not used: there is no
+        // falling back to saving files.
+        if let Err(e) = cdp
+            .call(
+                None,
+                "Browser.setDownloadBehavior",
+                json!({ "behavior": "deny", "eventsEnabled": true }),
+                config.launch_timeout,
+            )
+            .await
+        {
+            let _ = sup.cancel(&record.id).await;
+            return Err(LaunchError::Failed(format!(
+                "{name} would not agree to never save files (it said: {}), so Plenipo did not \
+                 use it",
+                browser_words(&e, "Browser.setDownloadBehavior")
+            )));
+        }
+        // A page never gets a second tab (ADR-046): the browser is told to attach to every new
+        // tab paused, before any of it runs, so one a page opens can be closed and the worker
+        // told (`Tabs::target_attached`). Told to the browser itself, which is where new windows
+        // arrive (a tab's own session only hears of its frames and workers). Plenipo's own new
+        // tabs arrive the same way and are let run. A browser that cannot be told so is not used.
+        if let Err(e) = cdp
+            .call(
+                None,
+                "Target.setAutoAttach",
+                json!({
+                    "autoAttach": true,
+                    "waitForDebuggerOnStart": true,
+                    "flatten": true,
+                    "filter": [{ "type": "page" }],
+                }),
+                config.launch_timeout,
+            )
+            .await
+        {
+            let _ = sup.cancel(&record.id).await;
+            return Err(LaunchError::Failed(format!(
+                "{name} would not agree to keep pages from opening new tabs (it said: {}), so \
+                 Plenipo did not use it",
+                browser_words(&e, "Target.setAutoAttach")
+            )));
+        }
+        // Of the browser's own events, two matter: a download it refused, which the tab whose
+        // page tried it notes for its worker; and a new tab it attached to, paused, which the
+        // tabs decide about (on its own, so a slow one holds up no other event). The rest are
+        // dropped.
+        let tabs = self.inner.tabs.clone();
+        let events_cdp = cdp.clone();
+        tokio::spawn(async move {
+            while let Some(event) = browser_events.recv().await {
+                match event.method.as_str() {
+                    "Browser.downloadWillBegin" => {
+                        tabs.download_refused(&event.params);
+                    }
+                    "Target.attachedToTarget" => {
+                        let (tabs, cdp) = (tabs.clone(), events_cdp.clone());
+                        tokio::spawn(async move {
+                            tabs.target_attached(&cdp, &event.params).await;
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        });
         Ok(Running {
             cdp,
             execution_id: record.id,
@@ -594,6 +677,7 @@ impl Browser {
     ) -> Result<(Tab, Start), String> {
         let (cdp, start) = self.connection().await?;
         let tab = Tab::open(cdp, self.inner.config.limits, worker, policy, signals).await?;
+        self.inner.tabs.watch(&tab);
         Ok((tab, start))
     }
 
@@ -654,6 +738,21 @@ mod tests {
                 "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
             )),
             "Chromium"
+        );
+        // The browser's answer, in the owner's message without the command's name.
+        assert_eq!(
+            browser_words(
+                "Browser.setDownloadBehavior: not supported",
+                "Browser.setDownloadBehavior"
+            ),
+            "not supported"
+        );
+        assert_eq!(
+            browser_words(
+                "the browser did not answer within 20 seconds (Browser.setDownloadBehavior)",
+                "Browser.setDownloadBehavior"
+            ),
+            "the browser did not answer within 20 seconds"
         );
         let dir = tempfile::tempdir().unwrap();
         let config = BrowserConfig {
@@ -763,7 +862,9 @@ mod tests {
 
     /// A stand-in for Edge: a shell script that notes each start in the `starts` file, then runs
     /// `then` with `$STARTS` and `$PROFILE` (the browser's profile folder) set. Like the real
-    /// browser, it gets the DevTools pipes as its descriptors 3 (commands) and 4 (answers).
+    /// browser, it gets the DevTools pipes as its descriptors 3 (commands) and 4 (answers), and
+    /// `then` may call `answer_commands` to answer each command the way the real browser does
+    /// (see the script), keeping a copy of every command in the `starts.commands` file.
     #[cfg(unix)]
     fn fake_browser(
         then: &str,
@@ -773,10 +874,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let profile = dir.path().join("profile");
         let script = dir.path().join("fake-browser");
+        // `answer_commands [ID]`: read each command from descriptor 3 (a JSON text ended by a
+        // NUL byte; a NUL cannot live in a shell variable, so an empty byte read ends one),
+        // note it, and answer it on descriptor 4 with a result, or with an error for command ID.
+        const ANSWER: &str = "answer_commands() {\n  \
+            while :; do\n    \
+              cmd=''\n    \
+              while b=$(dd bs=1 count=1 2>/dev/null <&3) && [ -n \"$b\" ]; do cmd=\"$cmd$b\"; done\n    \
+              [ -n \"$cmd\" ] || return\n    \
+              printf '%s\\n' \"$cmd\" >> \"$STARTS.commands\"\n    \
+              id=${cmd#*\\\"id\\\":}\n    \
+              id=${id%%,*}\n    \
+              if [ \"$id\" = \"${1:-}\" ]; then\n      \
+                printf '{\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"not supported\"}}\\0' \"$id\" >&4\n    \
+              else\n      \
+                printf '{\"id\":%s,\"result\":{\"product\":\"Fake/1\"}}\\0' \"$id\" >&4\n    \
+              fi\n  \
+            done\n\
+            }\n";
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nSTARTS='{}'\nPROFILE='{}'\necho start >> \"$STARTS\"\n{then}\n",
+                "#!/bin/sh\nSTARTS='{}'\nPROFILE='{}'\necho start >> \"$STARTS\"\n{ANSWER}{then}\n",
                 dir.path().join("starts").display(),
                 profile.display(),
             ),
@@ -808,6 +927,16 @@ mod tests {
         std::fs::read_to_string(dir.path().join("starts")).map_or(0, |s| s.lines().count())
     }
 
+    /// The commands the fake browser was sent, in order.
+    #[cfg(unix)]
+    fn commands(dir: &tempfile::TempDir) -> Vec<Value> {
+        std::fs::read_to_string(dir.path().join("starts.commands"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_browser_slow_to_start_is_stopped_and_started_once_more() {
@@ -836,15 +965,13 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn the_second_start_is_connected_to_once_it_gets_ready() {
-        // Slow the first time. The second time it gets ready the way the real browser does: once
-        // Plenipo's first command (ID 1) starts arriving on its descriptor 3, it answers on its
-        // descriptor 4, as one JSON text ended by a NUL byte. It never wrote a
-        // `DevToolsActivePort` file: it has no port.
+        // Slow the first time. The second time it gets ready the way the real browser does: it
+        // answers each command Plenipo sends on its descriptor 3 on its descriptor 4, as one
+        // JSON text ended by a NUL byte. It never wrote a `DevToolsActivePort` file: it has no
+        // port.
         let (dir, browser, supervisor) = fake_browser(
-            "if [ -e \"$STARTS.once\" ]; then\n  \
-             head -c 1 <&3 > /dev/null\n  \
-             printf '{\"id\":1,\"result\":{\"product\":\"Fake/1\"}}\\0' >&4\n\
-             else touch \"$STARTS.once\"; fi\nexec sleep 60",
+            "if [ -e \"$STARTS.once\" ]; then answer_commands; else touch \"$STARTS.once\"; fi\n\
+             exec sleep 60",
             Duration::from_secs(1),
         );
         let (cdp, start) = browser
@@ -864,6 +991,122 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), cdp.closed())
             .await
             .expect("the connection ends with the browser");
+    }
+
+    /// ADR-047 and ADR-046: the browser is told never to save files as the very first thing
+    /// after it shows it is up, before any tab exists, with the setting that refuses every
+    /// download and reports each one refused; and then to attach to every new tab paused, before
+    /// any of it runs, so a tab a page opens can be closed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_browser_is_told_never_to_save_files_before_any_tab_opens() {
+        let (dir, browser, supervisor) =
+            fake_browser("answer_commands\nexec sleep 60", Duration::from_secs(5));
+        let (cdp, start) = browser.connection().await.expect("the browser answers");
+        assert_eq!(start, Start::Started);
+        let sent = commands(&dir);
+        let methods: Vec<&str> = sent.iter().filter_map(|c| c["method"].as_str()).collect();
+        assert_eq!(
+            methods,
+            [
+                "Browser.getVersion",
+                "Browser.setDownloadBehavior",
+                "Target.setAutoAttach"
+            ],
+            "{sent:?}"
+        );
+        assert_eq!(sent[1]["params"]["behavior"], "deny", "{sent:?}");
+        assert_eq!(sent[1]["params"]["eventsEnabled"], true, "{sent:?}");
+        assert!(
+            sent[1]["params"].get("downloadPath").is_none(),
+            "nowhere to save to: {sent:?}"
+        );
+        assert!(
+            sent[1].get("sessionId").is_none(),
+            "told to the browser itself, for every tab: {sent:?}"
+        );
+        // New tabs arrive paused, on the browser's own session (where new windows come), flat.
+        assert_eq!(sent[2]["params"]["autoAttach"], true, "{sent:?}");
+        assert_eq!(
+            sent[2]["params"]["waitForDebuggerOnStart"], true,
+            "{sent:?}"
+        );
+        assert_eq!(sent[2]["params"]["flatten"], true, "{sent:?}");
+        assert_eq!(
+            sent[2]["params"]["filter"],
+            json!([{ "type": "page" }]),
+            "{sent:?}"
+        );
+        assert!(sent[2].get("sessionId").is_none(), "{sent:?}");
+        let run = browser.execution_id().await.expect("its run");
+        supervisor.cancel(&run).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), cdp.closed())
+            .await
+            .expect("the connection ends with the browser");
+    }
+
+    /// ADR-047: a browser that does not take the setting is not used, the owner is told in
+    /// plain words, and it is not started again (a second start would refuse the same way).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_browser_that_may_save_files_is_not_used() {
+        // It refuses Plenipo's second command, the one that keeps it from saving files.
+        let (dir, browser, supervisor) =
+            fake_browser("answer_commands 2\nexec sleep 60", Duration::from_secs(5));
+        let error = browser.connection().await.err().expect("it is not used");
+        assert!(
+            error.contains("would not agree to never save files (it said: not supported)"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("Browser."),
+            "no command names for the owner: {error}"
+        );
+        assert!(error.ends_with("so Plenipo did not use it"), "{error}");
+        assert_eq!(starts(&dir), 1);
+        assert!(
+            supervisor
+                .overview()
+                .executions
+                .iter()
+                .all(|e| e.state.is_terminal()),
+            "the browser is stopped"
+        );
+        assert!(browser.execution_id().await.is_none());
+        assert_eq!(browser.status().await.problem, Some(error));
+    }
+
+    /// ADR-046: a browser that will not hand over new tabs paused is not used either, and the
+    /// owner is told in plain words.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_browser_that_lets_pages_open_new_tabs_is_not_used() {
+        // It refuses Plenipo's third command, the one about new tabs.
+        let (dir, browser, supervisor) =
+            fake_browser("answer_commands 3\nexec sleep 60", Duration::from_secs(5));
+        let error = browser.connection().await.err().expect("it is not used");
+        assert!(
+            error.contains(
+                "would not agree to keep pages from opening new tabs (it said: not supported)"
+            ),
+            "{error}"
+        );
+        assert!(
+            !error.contains("Target."),
+            "no command names for the owner: {error}"
+        );
+        assert!(error.ends_with("so Plenipo did not use it"), "{error}");
+        assert_eq!(starts(&dir), 1);
+        assert!(
+            supervisor
+                .overview()
+                .executions
+                .iter()
+                .all(|e| e.state.is_terminal()),
+            "the browser is stopped"
+        );
+        assert!(browser.execution_id().await.is_none());
+        assert_eq!(browser.status().await.problem, Some(error));
     }
 
     #[cfg(unix)]

@@ -88,6 +88,11 @@ impl Site {
             .cloned()
             .collect()
     }
+
+    /// Everything received so far, page reads included.
+    pub fn requests(&self) -> Vec<Received> {
+        self.received.lock().unwrap().clone()
+    }
 }
 
 async fn serve(
@@ -138,13 +143,19 @@ async fn serve(
         tokio::time::sleep(Duration::from_secs(600)).await;
         return Ok(());
     }
+    let text_file = path.ends_with(".txt");
     let mut response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\
+        "HTTP/1.1 {status}\r\nContent-Type: {}; charset=utf-8\r\nContent-Length: {}\r\n\
          Cache-Control: no-store\r\nConnection: close\r\n",
+        if text_file { "text/plain" } else { "text/html" },
         html.len()
     );
     if let Some(l) = location {
         response.push_str(&format!("Location: {l}\r\n"));
+    }
+    if path == "/report.txt" {
+        // A file the website says to save rather than show (ADR-047).
+        response.push_str("Content-Disposition: attachment; filename=\"report.txt\"\r\n");
     }
     response.push_str("\r\n");
     response.push_str(&html);
@@ -357,6 +368,51 @@ fn route(
             "Account",
             "<form method=post action=\"/save\"><label>API key \
              <input name=key></label><button type=submit>Save</button></form>",
+        )),
+        // Two links that save a file rather than open a page (ADR-047): the first because the
+        // website answers with `Content-Disposition: attachment`, the second because the link
+        // itself says so (its `download` attribute).
+        ("GET", "/download") => ok(page(
+            "Files to save",
+            "<p>Take the files.</p><ul>\
+             <li><a href=\"/report.txt\">Download the report</a></li>\
+             <li><a href=\"/notes.txt\" download=\"notes.txt\">Save the notes</a></li></ul>",
+        )),
+        ("GET", "/report.txt") => ok("The quarterly report.\n".into()),
+        ("GET", "/notes.txt") => ok("Notes for the worker.\n".into()),
+        // Ways a page opens a new tab (ADR-046): a link to a page of this website, a link to a
+        // blocked website, and a button whose script opens one (`window.open`, which keeps a
+        // handle on the new window, unlike a link); "Buy now" asks the owner, so a test can look
+        // at the browser while the worker waits.
+        ("GET", "/new-tab") => ok(page(
+            "New tab links",
+            &format!(
+                "<p>Open the second page.</p><ul>\
+                 <li><a href=\"/second\" target=\"_blank\">Open the second page in a new tab</a></li>\
+                 <li><a href=\"http://blocked.test:{port}/second\" target=\"_blank\">Open a blocked \
+                 website in a new tab</a></li></ul>\
+                 <button type=button id=win onclick=\"window.open('/second')\">Open the second \
+                 page in a new window</button> <button type=button id=buy>Buy now</button>"
+            ),
+        )),
+        ("GET", "/second") => ok(page(
+            "Second page",
+            "<p>You made it to the second page.</p><button type=button id=buy>Buy now</button>",
+        )),
+        // A page whose harmless-looking button opens a new tab by itself 2.5 seconds later: long
+        // after Plenipo stops watching the click, while the click still counts for the browser's
+        // own pop-up rules (ADR-046). "Again" only changes the page's words.
+        ("GET", "/popup-timer") => ok(page(
+            "Timer",
+            "<p id=out>Ready</p><button type=button id=go>Go</button> \
+             <button type=button id=buy>Buy now</button> \
+             <button type=button id=again>Again</button>\
+             <script>document.getElementById('go').onclick = () => { \
+             document.getElementById('out').textContent = 'Opening soon'; \
+             setTimeout(() => { window.open('/second'); \
+             document.getElementById('out').textContent = 'Opened' }, 2500) }; \
+             document.getElementById('again').onclick = () => \
+             document.getElementById('out').textContent = 'Clicked again'</script>",
         )),
         _ => (
             "404 Not Found",

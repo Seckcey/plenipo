@@ -33,15 +33,23 @@ without including any sensitive details. No response-time commitment is made whi
 Plenipo's security promises, in plain words — a way around any of these is a vulnerability:
 
 - A worker stays inside its project's folder. It cannot read or change files outside it.
+- Files on your blocked list (`.env` files, keys, and the like) are never read or changed by a
+  worker: not through the file tools, and not through the git tools either, which never stage,
+  show, or commit one. A push that would send one is not refused, but its approval card names
+  the file so you can decide.
 - A worker cannot do anything its permission set does not allow.
 - Sensitive actions — deploying, DNS, passwords, payments, publishing, running as administrator —
   stop and wait for the owner's approval.
 - Secrets live in the Windows Credential Manager. Workers never see them, and secrets are redacted
-  from the record.
+  from the record. A stored secret is given only to the installed program the owner named, found on
+  PATH — never to a file inside a project folder with the same name — and a program that would be
+  given one asks the owner first, with the secret's name on the approval card, unless the owner's
+  rule names both the program and the secret (ADR-048).
 - Plenipo's browser uses its own profile. Your own browser, your sign-ins, and your saved
   passwords are never used. Plenipo controls its browser over a private pipe between the two
   programs, not a network port, so no other program on your computer can connect to the browser
-  and drive it.
+  and drive it. Plenipo's browser never saves files to your computer: it refuses every download
+  from the moment it starts, and the worker is told why its click did nothing (ADR-047).
 - Workers never type passwords or secrets. Plenipo can handle some CAPTCHAs automatically and
   can hand checks to the owner. It uses no solving service. Behavior and results depend on the
   installed version, browser policy, and website. Follow the [release notes](https://github.com/Seckcey/plenipo/releases)
@@ -61,6 +69,10 @@ Plenipo's security promises, in plain words — a way around any of these is a v
     action running (a form it submits by itself, a script's POST on a timer, a beacon).
   - **Not seen:** what goes through a live connection (WebSocket frames) or a plain page load
     (a link that changes something with a GET); those are covered only by the asks above.
+  - **Kept in one tab:** a page never gets a second tab (ADR-046). A new tab it opens (a link
+    to a new tab, `window.open`, a form aimed at a new window) is closed before it loads; during
+    a worker's action, the worker's own tab goes to that address instead, checked like any page.
+    The worker is told either way.
 - Taking control of the screen, mouse, or keyboard asks the owner every time.
 - Everything a worker does is recorded in the Ledger and the Activity trail.
 - Plenipo installs an update only when the owner chooses **Install now**, and only an installer

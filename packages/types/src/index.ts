@@ -137,6 +137,7 @@ export type { Risk } from "./generated/Risk";
 export type { RolePermissions } from "./generated/RolePermissions";
 export type { SecretInfo } from "./generated/SecretInfo";
 export type { SecretInput } from "./generated/SecretInput";
+export type { SecretRule } from "./generated/SecretRule";
 export type { SensitiveInfo } from "./generated/SensitiveInfo";
 export type { SensitiveKind } from "./generated/SensitiveKind";
 export type { SensitiveRule } from "./generated/SensitiveRule";
