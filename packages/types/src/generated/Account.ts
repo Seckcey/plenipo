@@ -5,11 +5,11 @@
  */
 export type Account = { 
 /**
- * "Frankie Gonzalez".
+ * "Alex Rivera".
  */
 name: string, 
 /**
- * "frankie@8westit.com".
+ * "alex@8westit.com".
  */
 address: string, 
 /**

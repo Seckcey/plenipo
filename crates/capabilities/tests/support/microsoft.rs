@@ -22,11 +22,11 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
 /// The person signed in.
-pub const USER: &str = "frankie@8westit.com";
-pub const USER_NAME: &str = "Frankie Gonzalez";
+pub const USER: &str = "alex@8westit.com";
+pub const USER_NAME: &str = "Alex Rivera";
 pub const TENANT: &str = "11111111-2222-3333-4444-555555555555";
 /// A personal Microsoft account, and the tenant every personal account belongs to.
-pub const PERSONAL_USER: &str = "frankie.gonzalez@outlook.com";
+pub const PERSONAL_USER: &str = "alex.rivera@outlook.example";
 pub const PERSONAL_TENANT: &str = "9188040d-6c67-4c5b-b112-36a304b66dad";
 /// The app ID the stand-in expects (8 West's, in the tests).
 pub const APP_ID: &str = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
@@ -156,7 +156,7 @@ impl World {
                     "msg-quote",
                     ("Dana Client", CLIENT),
                     "Server upgrade quote",
-                    "Hi Frankie, can you send the quote for the server upgrade by Friday? Thanks, Dana",
+                    "Hi Alex, can you send the quote for the server upgrade by Friday? Thanks, Dana",
                     true,
                     &today(8, 15),
                 ),
@@ -199,17 +199,17 @@ impl World {
             files: vec![
                 json!({ "id": "file-summary", "name": "summary.md", "_path": "Reports/summary.md", "_drive": "me",
                         "_content": "# Summary\nAll servers patched.\n", "size": 31, "file": {},
-                        "webUrl": "https://8westit-my.sharepoint.com/personal/frankie/Reports/summary.md",
+                        "webUrl": "https://8westit-my.sharepoint.com/personal/alex/Reports/summary.md",
                         "parentReference": { "driveId": "drive-me" } }),
                 json!({ "id": "file-proposal", "name": "Proposal.docx", "_path": "Proposal.docx", "_drive": "me",
                         "_bytes": base64::engine::general_purpose::STANDARD.encode(docx("Proposal for Client Co")),
                         "size": 300, "file": {},
-                        "webUrl": "https://8westit-my.sharepoint.com/personal/frankie/Proposal.docx",
+                        "webUrl": "https://8westit-my.sharepoint.com/personal/alex/Proposal.docx",
                         "parentReference": { "driveId": "drive-me" } }),
                 json!({ "id": "file-elsewhere", "name": "notes.txt", "_path": "notes.txt", "_drive": "me",
                         "_content": "never read", "_redirect": "https://files.evil.example/steal",
                         "size": 10, "file": {},
-                        "webUrl": "https://8westit-my.sharepoint.com/personal/frankie/notes.txt",
+                        "webUrl": "https://8westit-my.sharepoint.com/personal/alex/notes.txt",
                         "parentReference": { "driveId": "drive-me" } }),
                 json!({ "id": "file-portal", "name": "handbook.txt", "_path": "handbook.txt", "_drive": "drive-portal",
                         "_content": "Client Co handbook.\n", "size": 20, "file": {},
@@ -222,7 +222,7 @@ impl World {
                 "id": "chat-guest", "chatType": "group", "topic": "Project",
                 "webUrl": "https://teams.microsoft.com/l/chat/chat-guest",
                 "members": [
-                    { "displayName": USER_NAME, "email": USER, "userId": "user-frankie" },
+                    { "displayName": USER_NAME, "email": USER, "userId": "user-alex" },
                     { "displayName": "ceo@8westit.com", "email": null, "userId": "user-guest" },
                 ],
             }), json!({
@@ -230,7 +230,7 @@ impl World {
                 "webUrl": "https://teams.microsoft.com/l/chat/chat-dana",
                 "members": [
                     // The owner's mail address in Teams may differ from the sign-in name.
-                    { "displayName": USER_NAME, "email": "frankie.gonzalez@8westit.com", "userId": "user-frankie" },
+                    { "displayName": USER_NAME, "email": "alex.rivera@8westit.com", "userId": "user-alex" },
                     { "displayName": "Dana Client", "email": CLIENT, "userId": "user-dana" },
                 ],
             })],
@@ -249,7 +249,7 @@ impl World {
             "team-8west/channel-general".into(),
             vec![json!({
                 "id": "post-1", "messageType": "message", "createdDateTime": today(8, 0),
-                "from": { "user": { "displayName": "Frankie Gonzalez" } },
+                "from": { "user": { "displayName": "Alex Rivera" } },
                 "body": { "contentType": "html", "content": "<div>Patching tonight.</div>" },
                 "webUrl": "https://teams.microsoft.com/l/message/post-1",
             })],
@@ -791,9 +791,7 @@ fn graph(req: &Req, rest: &str, personal: bool, w: &mut World) -> Resp {
     let m = req.method.as_str();
     let q = &req.query;
     match (m, parts.as_slice()) {
-        ("GET", ["me"]) => {
-            ok(json!({ "id": "user-frankie", "displayName": USER_NAME, "mail": USER }))
-        }
+        ("GET", ["me"]) => ok(json!({ "id": "user-alex", "displayName": USER_NAME, "mail": USER })),
         // ---- Mail
         ("GET", ["me", "mailFolders", folder, "messages"]) => {
             let filter = q.get("$filter").cloned().unwrap_or_default();
@@ -1143,7 +1141,7 @@ fn graph(req: &Req, rest: &str, personal: bool, w: &mut World) -> Resp {
                 .unwrap_or_default()
                 .iter()
                 // Everyone but the owner (known by account).
-                .filter(|m| m["userId"] != "user-frankie")
+                .filter(|m| m["userId"] != "user-alex")
                 .filter_map(|m| m["email"].as_str().map(str::to_owned))
                 .collect();
             w.sent.push(
@@ -1166,7 +1164,7 @@ fn graph(req: &Req, rest: &str, personal: bool, w: &mut World) -> Resp {
                         .nth(1)
                         .and_then(|r| r.split('\'').next())
                         .unwrap_or_default();
-                    let email = if who == "user-frankie" {
+                    let email = if who == "user-alex" {
                         USER.to_owned()
                     } else {
                         who.to_owned()

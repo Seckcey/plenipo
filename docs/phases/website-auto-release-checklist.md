@@ -28,9 +28,20 @@
 - [x] A broken build is caught and the previous release comes back by itself
 - [x] Desktop and phone layout, no console errors
 
-## Owner
+## On Coastline
 
-- [ ] Merge the pull request
-- [ ] Install on Coastline and run the first update to v1.11.0
-      ([steps](../development/website.md#install-it-on-coastline-once))
-- [ ] Look at <https://plenipo.8westit.com/#whats-new>
+- [x] Merged ([Seckcey/plenipo#98](https://github.com/Seckcey/plenipo/pull/98))
+- [x] Installed, and the first update to v1.11.0 run: live at
+      <https://plenipo.8westit.com/#whats-new>
+- [x] Timer on, running as the deploy account, every 15 minutes
+
+## Follow-up (the same day)
+
+- [x] The script refuses to run as root; the install steps run it as the folder's owner
+- [x] The service file names no account; the install steps fill it in
+- [x] Release notes v0.6.1 to v1.13.0 name no one, and talk to Plenipo's users only
+- [x] The website reads the notes from `main`, and updates when the shown release's notes change
+- [x] Release notes workflow: GitHub release pages follow `docs/releases`
+- [x] Test data uses a made-up person, not a real one
+- [ ] After merge: the Release notes workflow runs by itself (the notes changed on `main`); check
+      its log, and that the next timer run shows the new wording on the website

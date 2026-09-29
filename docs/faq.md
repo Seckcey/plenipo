@@ -30,14 +30,14 @@ connects to Linux/Unix servers; Windows servers are not supported by that featur
 
 ## Why does the screenshot look different from my download?
 
-The README labels its real app capture as **v1.7.0 development**, with synthetic test data.
-At the September 27, 2026 documentation review, **v1.6.0** was the latest published installer.
-A version number on the main branch does not mean that installer has been released.
+The README's real app capture comes from a development acceptance run, with synthetic test data,
+so the version you installed may look a little different. A version number on the main branch does
+not mean that installer has been released.
 The [latest release](https://github.com/Seckcey/plenipo/releases/latest) is the download source of truth.
 
 ## Is Plenipo free? What is Pro?
 
-The published v1.6.0 app has no license check or edition limits. The Free/Pro split and subscription
+The current release has no license check or edition limits. The Free/Pro split and subscription
 pricing described in the [edition plan](editions.md) are planned, not a currently shipped purchase
 flow. Plenipo's price does not include AI provider subscriptions.
 

@@ -3,7 +3,7 @@
 The public product site is built from `apps/website` for <https://plenipo.8westit.com>.
 It serves static HTML, CSS, and JavaScript. The homepage includes an optional, self-hosted
 React Flow sample. Repository website code adds no forms, accounts, tracking scripts, or billing
-integrations. The public edge may insert the owner's existing Cloudflare analytics script.
+integrations. The public edge may insert the project's existing Cloudflare analytics script.
 Plenipo's desktop app and its release workflow are unchanged.
 
 ## Interactive sample
@@ -56,7 +56,7 @@ workflow installs the standalone dependencies before its Node tests and Docker b
 The build tests enforce local content-hashed demo assets, retained static disclosure, and gzip
 budgets of 180,000 bytes of JS and 12,000 bytes of CSS. These are build-compression limits, not
 network or speed guarantees. React Flow exceeds the earlier native-module proposal's 80 KB
-target; the owner's explicit React Flow choice replaces that architecture. Measure actual
+target; the maintainers' explicit React Flow choice replaces that architecture. Measure actual
 HTTP transfer sizes and interaction behavior as recorded in [acceptance](website-validation.md).
 The corrected source requests demo JS/CSS on page entry; only the currently needed Pip pose loads.
 Earlier click-activation measurements describe the initial implementation, not initial-page cost
@@ -80,7 +80,7 @@ The Pip branding update aligns the page with the published
 [v1.6.0 Windows release](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0)
 (published September 27, 2026, 10:10:51 UTC). Its tagged
 [Kimi runtime](https://github.com/Seckcey/plenipo/blob/v1.6.0/crates/runtime/src/agent/kimi.rs) and
-[owner acceptance record](https://github.com/Seckcey/plenipo/blob/v1.6.0/docs/phases/ai-tools-kimi-acceptance-report.md)
+[acceptance record](https://github.com/Seckcey/plenipo/blob/v1.6.0/docs/phases/ai-tools-kimi-acceptance-report.md)
 establish the Kimi/Moonshot entry; Ollama cloud support remains in adjacent text.
 Both download buttons, both visible version labels, the structured data, and `release.json`
 always show the same version: the one the build was given. Existing screenshot captions continue
@@ -92,12 +92,12 @@ favicon set use the public hostname. There are no fabricated ratings or reviews.
 and permissions do not imply offline AI: requests go to the selected AI provider, using the
 person's existing sign-in and subject to that provider's plan limits.
 
-Publish a crawlable HTTPS site through the owner's Cloudflare Tunnel before submitting the
+Publish a crawlable HTTPS site through the project's Cloudflare Tunnel before submitting the
 sitemap in Google Search Console. Search Console ownership verification and indexing submission
 are separate account actions. Metadata helps discovery; it does not guarantee indexing or rank.
-The GitHub About description and topics were improved in the owner's browser. The homepage field
+The GitHub About description and topics were improved by the maintainers. The homepage field
 should point to the final hostname when its origin is ready. Do not change repository visibility,
-license terms, the owner's profile avatar, or authentication settings as an SEO shortcut.
+license terms, the maintainers' profile avatars, or authentication settings as an SEO shortcut.
 
 ## Build and check
 
@@ -123,8 +123,8 @@ checks health, the home page, sitemap, `release.json`'s version, and a genuine H
 response. Existing repository checks still cover formatting,
 linting, the workspace, and the desktop application.
 
-On Frankie's machines, container builds/tests/previews run on `ssh coastline`, never Docker
-Desktop. Use a separate task source directory and bounded CPU/RAM. Browser checks cover desktop,
+Container builds, tests, and previews for this site run on the Coastline server (`ssh coastline`),
+never Docker Desktop. Use a separate task source directory and bounded CPU/RAM. Browser checks cover desktop,
 mobile, menu/tabs/FAQ/links, console errors, and screenshot comparison against the selected visual
 concepts. Clean up only the task's temporary containers and SSH forwarding process afterward.
 
@@ -144,7 +144,8 @@ The intended permanent service is:
 
 `cloudflared` was verified as a host systemd service during setup. Recheck that topology before
 using localhost: a connector inside another container has a different localhost. The origin is
-HTTP; Cloudflare provides public HTTPS. Frankie configures the Tunnel hostname. An origin health
+HTTP; Cloudflare provides public HTTPS. The Tunnel hostname is set in Cloudflare, outside this
+repository. An origin health
 check does not establish public routing or Google indexing.
 
 `compose.yaml` requires explicit `PLENIPO_IMAGE` and `PLENIPO_PORT`. The service runs as an
@@ -163,7 +164,7 @@ project's network or change Docker's daemon pools to make room.
 
 ## Reserve, deploy, and roll back
 
-Use the owner's `coastline` skill. The agreed shared allocation directory is
+Use the maintainers' `coastline` skill. The agreed shared allocation directory is
 `/srv/8west/port-allocations`; hold exclusive `flock` on its persistent `allocations.lock` while
 checking, reserving, and starting a new binding. Inspect IPv4/IPv6 listeners, every Docker
 container including stopped allocations, existing reservation records, active release locks,
@@ -212,10 +213,12 @@ stop other services, modify firewall/DNS, or restart the Tunnel as part of a web
 [ADR-069 (the website follows new releases)](../adr/ADR-069-website-follows-releases.md): a systemd
 timer on Coastline runs [`apps/website/deploy/auto-release.sh`](../../apps/website/deploy/auto-release.sh)
 every 15 minutes. When GitHub's latest published release (not a draft or pre-release, with its
-installer attached) is newer than what `release.json` shows, or the page has no notes, it:
+installer attached) is newer than what `release.json` shows, or that release's notes changed on
+`main` since they were shown, it:
 
-1. exports the website from `main` and the release's `docs/releases/vX.Y.Z.md` (read at the
-   release's tag) into a new read-only folder, `releases/<commit>-v<version>`;
+1. exports the website from `main` and the release's `docs/releases/vX.Y.Z.md` (from `main`, so
+   a correction made after the release shows; from the release's tag if `main` has none) into a
+   new read-only folder, `releases/<commit>-v<version>`;
 2. builds `plenipo-website:<commit>-v<version>` with that version;
 3. swaps the container while holding `/srv/8west/port-allocations/allocations.lock`;
 4. checks health, the home page and its "What's new" for this version, `release.json`'s version,
@@ -237,27 +240,42 @@ can be changed in `/srv/8west/apps/plenipo-website/auto-release.env`.
 
 ### Install it on Coastline (once)
 
-After this is merged to `main`, on Coastline:
+After this is merged to `main`, on Coastline, as an admin (`root` or with `sudo`). The script and
+the timer run as the account that owns the app folder, never as root: files made by root would
+lock that account out, and the script refuses to run as root.
 
 ```sh
 ssh coastline
 command -v jq || sudo apt install -y jq
 cd /srv/8west/apps/plenipo-website
+deploy_user="$(stat -c %U .)"                  # the account that owns the app folder
+id -nG "$deploy_user" | grep -qw docker || echo "Add $deploy_user to the docker group first"
 raw=https://raw.githubusercontent.com/Seckcey/plenipo/main/apps/website/deploy
-mkdir -p bin
-curl -fsSL "$raw/auto-release.sh" -o bin/auto-release.sh && chmod 755 bin/auto-release.sh
-bin/auto-release.sh --check      # says what it would do; changes nothing
-bin/auto-release.sh              # the first update, now
-sudo curl -fsSL "$raw/plenipo-website-update.service" -o /etc/systemd/system/plenipo-website-update.service
+sudo -u "$deploy_user" mkdir -p bin
+sudo -u "$deploy_user" curl -fsSL "$raw/auto-release.sh" -o bin/auto-release.sh
+sudo -u "$deploy_user" chmod 755 bin/auto-release.sh
+sudo -u "$deploy_user" bin/auto-release.sh --check   # says what it would do; changes nothing
+sudo -u "$deploy_user" bin/auto-release.sh           # the first update, now
+curl -fsSL "$raw/plenipo-website-update.service" | sed "s/DEPLOY_USER/$deploy_user/" \
+  | sudo tee /etc/systemd/system/plenipo-website-update.service > /dev/null
 sudo curl -fsSL "$raw/plenipo-website-update.timer" -o /etc/systemd/system/plenipo-website-update.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now plenipo-website-update.timer
 systemctl list-timers plenipo-website-update.timer
 ```
 
-The service runs as `seckcey`, who must be able to write to `/srv/8west/apps/plenipo-website`
-and use Docker. To change the script later, copy it again the same way; a merge alone never
-changes what runs on Coastline.
+The list should show a time under **NEXT**, about 15 minutes away. To change the script later,
+download it again the same way; a merge alone never changes what runs on Coastline.
+
+If the first update was run as root by mistake, give the files back to the deploy account (the
+names are this app's own; nothing else is touched), then start one run to check:
+
+```sh
+cd /srv/8west/apps/plenipo-website
+sudo chown -R "$(stat -c %U .)": auto-release bin releases
+sudo systemctl start plenipo-website-update.service
+systemctl status plenipo-website-update.service --no-pager   # ends with "Up to date" or "Done"
+```
 
 ### Check on it, pause it, go back
 
@@ -266,7 +284,8 @@ systemctl status plenipo-website-update          # the last run: finished, or wh
 journalctl -u plenipo-website-update -n 100      # what each run did
 tail -n 5 /srv/8west/apps/plenipo-website/auto-release/history.jsonl
 sudo systemctl disable --now plenipo-website-update.timer    # pause automatic updates
-/srv/8west/apps/plenipo-website/bin/auto-release.sh --version 1.10.0   # show an older release
+sudo -u "$(stat -c %U /srv/8west/apps/plenipo-website)" \
+  /srv/8west/apps/plenipo-website/bin/auto-release.sh --version 1.10.0   # show an older release
 ```
 
 Release folders are made read-only so nothing edits them after they are built; to delete an old

@@ -3012,12 +3012,11 @@ mod tests {
         ));
         assert!(refusal_words("access_denied", "AADSTS65004").contains("did not approve"));
         use base64::Engine as _;
-        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            br#"{"name":"Frankie","preferred_username":"frankie@8westit.com","tid":"t-1"}"#,
-        );
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"name":"Alex","preferred_username":"alex@8westit.com","tid":"t-1"}"#);
         let (account, tenant) = account_from_id_token(&format!("x.{claims}.y"));
-        assert_eq!(account.address, "frankie@8westit.com");
-        assert_eq!(account.name, "Frankie");
+        assert_eq!(account.address, "alex@8westit.com");
+        assert_eq!(account.name, "Alex");
         assert_eq!(tenant.as_deref(), Some("t-1"));
         assert_eq!(
             admin_link("app", None),
@@ -3110,9 +3109,9 @@ mod tests {
     /// earlier message too.
     #[test]
     fn a_drafts_own_words_stop_where_the_earlier_message_starts() {
-        let reply = "Hi Dana, attached.\nFrankie\n\n________________________________\n\
+        let reply = "Hi Dana, attached.\nAlex\n\n________________________________\n\
                      From: Dana <dana@clientco.com>\nSent: Monday\nSubject: Quote\n\nby Friday";
-        assert_eq!(own_words(reply), "Hi Dana, attached.\nFrankie");
+        assert_eq!(own_words(reply), "Hi Dana, attached.\nAlex");
         assert_eq!(
             own_words("Yes.\n-----Original Message-----\nFrom: x\nold"),
             "Yes."

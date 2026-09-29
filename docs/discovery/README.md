@@ -1,6 +1,6 @@
 # Repository presentation assets
 
-The README uses Frankie's approved Plenipo/Pip branding, copied without changing the original
+The README uses the approved Plenipo/Pip branding, copied without changing the original
 files from the supplied `assets/logos` kit. The source kit remains owned by the branding work.
 
 | File                                     | Source and meaning                                                                                                                 |
@@ -13,7 +13,7 @@ files from the supplied `assets/logos` kit. The source kit remains owned by the 
 
 The logo is hybrid artwork: outlined vector lettering plus embedded raster Pip, not a fully
 vector mascot. No new mascot was generated, and no product screenshot was redrawn or generated.
-The screenshot shows **v1.7.0 development**, not the appearance of the published v1.6.0 installer.
+The screenshot shows **v1.7.0 development**; other releases may look a little different.
 
 The social SVG is the self-contained, editable master. To rebuild the PNG, open it in a vector
 editor and export at 1280 × 640 with its solid background. Keep the PNG under 1 MB.

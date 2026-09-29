@@ -785,7 +785,7 @@ fn inside_fence(lines: &[String], kind: &str, source: &str, whose: &str) -> Vec<
     lines[start + 1..start + 1 + end].to_vec()
 }
 
-const MS365: &str = "Microsoft 365 (frankie@8westit.com)";
+const MS365: &str = "Microsoft 365 (alex@8westit.com)";
 
 // ---- The plan's tests ---------------------------------------------------------------------------
 
@@ -855,7 +855,7 @@ async fn connect_read_write_with_approval_and_disconnect() {
         tool("m365_teams_chat_messages", json!({ "chat": "chat-dana" })),
         tool(
             "m365_mail_draft",
-            json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is attached. Frankie" }),
+            json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is attached. Alex" }),
         ),
         tool("m365_mail_send", json!({ "id": "draft-1" })),
     ]
@@ -874,7 +874,7 @@ async fn connect_read_write_with_approval_and_disconnect() {
         a.detail
     );
     assert!(a.detail.contains("Subject: RE: Server upgrade quote"));
-    assert!(a.detail.contains("Hi Dana, the quote is attached. Frankie"));
+    assert!(a.detail.contains("Hi Dana, the quote is attached. Alex"));
     // The worker's own words only: never the earlier message quoted under the reply.
     assert!(!a.detail.contains("Original Message"), "{}", a.detail);
     assert!(!a.detail.contains("by Friday"), "{}", a.detail);

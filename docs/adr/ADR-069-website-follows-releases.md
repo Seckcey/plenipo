@@ -1,7 +1,7 @@
 # ADR-069: The website follows new releases by itself, with each release's notes
 
-- **Status:** Accepted (by the owner, 2026-09-29, who chose this option out of three)
-- **Date:** 2026-09-29
+- **Status:** Accepted (2026-09-29; option 1 of the three below)
+- **Date:** 2026-09-29; amended the same day after the first run on Coastline
 - **Phase:** Website (follow-up to the automatic homepage demo release)
 - **Changes:** [the website's deploy steps](../development/website.md#reserve-deploy-and-roll-back),
   which were done by hand for every release
@@ -36,9 +36,11 @@ Three ways to update it automatically were weighed:
    rule installed copies follow for updates, ADR-038), and only when its Windows installer is
    attached and its download link works.
 3. **What it builds.** The website code from `main`, the reviewed website, with the release's
-   version and the release's own notes, `docs/releases/vX.Y.Z.md` read at the release's tag. So
-   a website fix merged after a release is shown with the next release (or at once with
-   `--force`), and the notes are exactly the text the release was published with.
+   version and its notes, `docs/releases/vX.Y.Z.md` as it reads on `main` (from the release's tag
+   only if `main` has none). A correction to the notes merged after a release is shown within 15
+   minutes, because a run also updates the site when the shown release's notes changed. A
+   website code fix merged after a release is shown with the next release (or at once with
+   `--force`).
 4. **Release notes on the page.** A "What's new in vX.Y.Z" section above Download shows the
    notes' title and opening paragraphs, with the rest under **Read the full release notes**. The
    notes are rendered as plain text with a few shapes (headings, paragraphs, lists, code, bold,
@@ -52,14 +54,34 @@ Three ways to update it automatically were weighed:
    recorded as rolled back. Every run is logged to the systemd journal, and every update to
    `history.jsonl`. It never prunes images, stops other services, or touches the firewall, DNS,
    or the Tunnel.
+6. **Never as root.** The script and its timer run as the account that owns the app folder. The
+   script refuses to run as root, because files made by root lock that account out (found on the
+   first run, below).
+7. **Release pages follow the notes too.** The Release notes workflow
+   (`.github/workflows/release-notes.yml`) puts each `docs/releases/vX.Y.Z.md` on its GitHub
+   release page when the notes change on `main`, or when run by hand. It changes only titles and
+   notes, never files, tags, or signatures.
+8. **Notes are written for Plenipo's users.** They are public on the website and on GitHub, so
+   they describe Plenipo, and name no maintainer or person: "accepted", not "accepted by you";
+   "not yet checked on a real Windows PC", not "please try on your PC".
+
+9. **Pages on GitHub never go stale either.** The README shows a latest-release badge (shields.io
+   reads GitHub Releases each time the page is shown) instead of a typed version, and points to
+   GitHub Releases and `docs/releases` instead of keeping its own list of versions. The README,
+   `SUPPORT.md`, `SECURITY.md`, `CONTRIBUTING.md`, `docs/faq.md`, and `docs/roadmap.md` never
+   name the latest version by hand; `pnpm versions:check` fails if one does. Nothing commits to
+   the repository on its own after a release.
 
 ## Consequences
 
-- Releasing no longer needs a second, manual website step. The owner installs the timer once.
+- Releasing no longer needs a second, manual website step. A maintainer installs the timer once.
 - Up to 15 minutes between a release and the site showing it. `auto-release.sh` can be run by
   hand to update at once.
-- The release notes are now on the public website as well as on GitHub, so they are written for
-  anyone to read (they already were public on GitHub).
+- The release notes are now on the public website as well as on GitHub. The earlier notes (v0.6.1
+  to v1.13.0) were reworded on 2026-09-29 to name no one; the website and, after the Release
+  notes workflow runs, the release pages show the new wording. The notes inside v1.11.0's
+  `latest.json` (what installed copies show when offering that update) keep the old wording: that
+  file is part of the published release that installed copies read, and is left as published.
 - A failed update leaves the previous release running and says so in the journal; nobody is
   told by email or phone yet. `systemctl status plenipo-website-update` shows the last run.
 - The script on Coastline is an installed copy. A change to it in the repository reaches
