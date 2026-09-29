@@ -628,12 +628,15 @@ impl GuardConfig {
         }
         let mut seen = std::collections::HashSet::new();
         for a in access {
+            // A line already on the list stays even when its role or agent is gone (it gives
+            // nobody anything, and the owner can remove it); a new one must exist.
+            let kept = c.access.iter().any(|x| x.who == a.who);
             match &a.who {
-                Who::Role { id } if !roles.contains(id) => {
-                    return Err(invalid(format!("the role {id:?} no longer exists")))
+                Who::Role { id } if !kept && !roles.contains(id) => {
+                    return Err(invalid("a role you added no longer exists"))
                 }
-                Who::Agent { id } if !agents.contains(id) => {
-                    return Err(invalid(format!("the agent {id:?} no longer exists")))
+                Who::Agent { id } if !kept && !agents.contains(id) => {
+                    return Err(invalid("an agent you added no longer exists"))
                 }
                 _ => {}
             }
@@ -1007,6 +1010,45 @@ mod tests {
             &agents,
         )
         .unwrap();
+        // The agent is removed later: its line stays (it gives nobody anything), and the owner
+        // can still change the other lines, or take it off; a new unknown one is refused, in
+        // words without its ID.
+        let gone: Vec<String> = Vec::new();
+        c.set_connection_access(
+            "microsoft365",
+            &[
+                Access {
+                    who: Who::Role {
+                        id: "writer".into(),
+                    },
+                    level: AccessLevel::ReadWrite,
+                },
+                line(Who::Agent { id: "pos-1".into() }),
+            ],
+            &roles,
+            &gone,
+        )
+        .unwrap();
+        c.set_connection_access(
+            "microsoft365",
+            &[line(Who::Role {
+                id: "writer".into(),
+            })],
+            &roles,
+            &gone,
+        )
+        .unwrap();
+        let err = c
+            .set_connection_access(
+                "microsoft365",
+                &[line(Who::Agent { id: "pos-2".into() })],
+                &roles,
+                &gone,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("an agent you added no longer exists"), "{err}");
+        assert!(!err.contains("pos-2"), "{err}");
         // The list: checked, lower case, once each.
         assert!(c
             .set_connection_send_list("microsoft365", &["not an address".into()])
@@ -1063,7 +1105,7 @@ mod tests {
         assert_eq!(m.state, ConnectionState::NotConnected);
         assert_eq!(m.account, None);
         assert!(m.granted.is_empty());
-        assert_eq!(m.access.len(), 2);
+        assert_eq!(m.access.len(), 1);
         assert_eq!(m.send_list.len(), 1);
         // Nothing like a token is ever part of the document.
         let doc = c.to_value().to_string();

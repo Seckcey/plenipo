@@ -208,3 +208,8 @@ service's own publisher.
   choice (the checklist, choice 2).
 - **A hosted MCP server reached by Plenipo over the internet.** Deferred (ADR-066 §6).
 - **Unofficial community servers.** Rejected by the plan: "No unofficial servers by default."
+
+## As built (v1.13.0)
+
+Part 20A built Microsoft 365 as [ADR-065](ADR-065-microsoft-365-connection.md) says. Slack and
+Google come in part 20B; HubSpot, Stripe, and WordPress and WooCommerce in part 20C.

@@ -26,6 +26,8 @@ pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
 #[derive(Clone)]
 pub(crate) enum Body {
     None,
+    /// No body at all, sent as `Content-Length: 0` (Microsoft asks for it on some actions).
+    Empty,
     Json(Value),
     /// A form (sign-in token requests).
     Form(Vec<(String, String)>),
@@ -220,6 +222,9 @@ impl Http {
                 }
                 request = match body {
                     Body::None => request,
+                    Body::Empty => request
+                        .header(reqwest::header::CONTENT_LENGTH, "0")
+                        .body(Vec::<u8>::new()),
                     Body::Json(v) => request
                         .header(reqwest::header::CONTENT_TYPE, "application/json")
                         .body(serde_json::to_vec(v).unwrap_or_default()),

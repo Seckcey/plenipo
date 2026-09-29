@@ -328,6 +328,17 @@ struct Grant {
     read_outside: Vec<&'static str>,
 }
 
+/// "Read Microsoft 365" or "Write in Microsoft 365": a step's use of one connection, in the
+/// permissions the owner sees.
+fn connection_permission_label(id: &str, capability: Capability) -> String {
+    let service = plenipo_guard::connections::service_of(id).map_or(id, |s| s.label());
+    if capability == Capability::ConnectionsWrite {
+        format!("Write in {service}")
+    } else {
+        format!("Read {service}")
+    }
+}
+
 impl Grant {
     fn view(&self) -> GrantView {
         GrantView {
@@ -352,6 +363,17 @@ impl Grant {
                     label: c.label().into(),
                     level: *l,
                 })
+                // What it may do through each connection, so the owner sees it here too.
+                .chain(
+                    self.connection_levels
+                        .iter()
+                        .filter(|(_, l)| **l != Level::Blocked)
+                        .map(|((id, c), l)| GrantPermission {
+                            capability: *c,
+                            label: connection_permission_label(id, *c),
+                            level: *l,
+                        }),
+                )
                 .collect(),
             opened_at: self.opened_at,
             revoked: self.revoked,

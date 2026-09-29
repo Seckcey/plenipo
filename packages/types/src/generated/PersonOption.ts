@@ -15,4 +15,8 @@ name: string,
 /**
  * For an agent: its role.
  */
-role?: string, };
+role?: string, 
+/**
+ * An agent that is archived: shown by name on a list, never offered to add.
+ */
+archived: boolean, };

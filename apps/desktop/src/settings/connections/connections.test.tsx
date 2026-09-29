@@ -100,7 +100,9 @@ describe("Settings → Connections", () => {
     );
     expect(within(m365).getByText("Connected")).toBeInTheDocument();
     const allowed = within(m365).getByRole("region", { name: "What Plenipo was allowed" });
-    expect(allowed).toHaveTextContent("Send mail as you (each send asks you first) Mail.Send");
+    expect(allowed).toHaveTextContent(
+      "Send mail as you (asks you first, unless everyone is on your list) Mail.Send",
+    );
     expect(within(m365).getByRole("button", { name: "Reconnect" })).toBeEnabled();
     const user = userEvent.setup();
     await user.click(within(m365).getByRole("button", { name: "Disconnect" }));
@@ -119,7 +121,9 @@ describe("Settings → Connections", () => {
       "aria-pressed",
       "true",
     );
-    expect(parts).toHaveTextContent("Full access: Save drafts; sending a draft asks you.");
+    expect(parts).toHaveTextContent(
+      "Full access: Save drafts. Sending one asks you, unless everyone is on your Send without asking to list.",
+    );
     expect(parts).toHaveTextContent("Your organization's admin approves it once.");
     await userEvent.setup().click(within(mail).getByRole("button", { name: "Full access" }));
     expect(api.setConnectionParts).toHaveBeenCalledWith("microsoft365", { mail: "fullAccess" });
@@ -176,10 +180,45 @@ describe("Settings → Connections", () => {
       }),
     );
     expect(api.setConnectionAccess).toHaveBeenLastCalledWith("microsoft365", []);
-    // The agent is offered with its role.
+    // The agent is offered with its role; an archived one is not offered.
+    expect(within(who).queryByRole("option", { name: /Old Scout/ })).toBeNull();
     expect(
       within(who).getByRole("option", { name: "Backend Developer (Senior Developer)" }),
     ).toBeInTheDocument();
+  });
+
+  it("names an archived agent on the list, and keeps a removed one removable", async () => {
+    const lines = sampleCard(
+      {},
+      {
+        connection: {
+          ...sampleCard().connection,
+          access: [
+            { who: { kind: "agent", id: "pos-old" }, level: "readOnly" },
+            { who: { kind: "agent", id: "pos-gone" }, level: "readOnly" },
+          ],
+        },
+      },
+    );
+    api.getConnections.mockResolvedValue(samplePage(lines));
+    api.setConnectionAccess.mockResolvedValue(samplePage());
+    const m365 = await card();
+    const who = within(m365).getByRole("region", { name: "Who may use it" });
+    expect(who).toHaveTextContent("Old Scout (archived)");
+    await userEvent
+      .setup()
+      .click(within(who).getByRole("button", { name: "Take A removed agent off the list" }));
+    expect(api.setConnectionAccess).toHaveBeenCalledWith("microsoft365", [
+      { who: { kind: "agent", id: "pos-old" }, level: "readOnly" },
+    ]);
+  });
+
+  it("locks the organization's own app while a sign-in waits", async () => {
+    api.getConnections.mockResolvedValue(samplePage(sampleCard({}, { signingIn: true })));
+    const m365 = await card();
+    await userEvent.setup().click(within(m365).getByText("Advanced"));
+    expect(within(m365).queryByLabelText("Microsoft app ID")).toBeNull();
+    expect(m365).toHaveTextContent("Finish or cancel the sign-in first");
   });
 
   it("warns above the send list, says whether the switch is on, and edits the list", async () => {
@@ -195,6 +234,7 @@ describe("Settings → Connections", () => {
     );
     expect(send).toHaveTextContent("Not used now: the switch Sending forms and messages");
     expect(send).toHaveTextContent("Nobody on the list: every send asks you.");
+    expect(send).toHaveTextContent("Posting in a Teams channel always asks you.");
     const user = userEvent.setup();
     await user.type(within(send).getByRole("textbox"), "  @clientco.com ");
     await user.click(within(send).getByRole("button", { name: "Add to the list" }));

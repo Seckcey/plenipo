@@ -8,7 +8,11 @@ import type {
 } from "@plenipo/types";
 
 const PART_WORDS: Record<Part, [string, string, string]> = {
-  mail: ["Mail", "Search and read your mail.", "Save drafts; sending a draft asks you."],
+  mail: [
+    "Mail",
+    "Search and read your mail.",
+    "Save drafts. Sending one asks you, unless everyone is on your Send without asking to list.",
+  ],
   calendar: ["Calendar", "Read your calendar.", "Add events; inviting people asks you."],
   onedrive: [
     "OneDrive",
@@ -90,7 +94,10 @@ export function connectedCard(extra: Partial<ConnectionCard> = {}): ConnectionCa
     },
     granted: [
       { name: "Mail.ReadWrite", words: "Read your mail and save drafts" },
-      { name: "Mail.Send", words: "Send mail as you (each send asks you first)" },
+      {
+        name: "Mail.Send",
+        words: "Send mail as you (asks you first, unless everyone is on your list)",
+      },
       { name: "Calendars.Read", words: "Read your calendar" },
     ],
     ...extra,
@@ -116,9 +123,16 @@ export function samplePage(
       ...LATER.map(([service, label]) => ({ service, label, built: false, connections: [] })),
     ],
     people: [
-      { kind: "role", id: "role-sup", name: "Supervisor" },
-      { kind: "role", id: "role-writer", name: "Writer" },
-      { kind: "agent", id: "pos-dev", name: "Backend Developer", role: "Senior Developer" },
+      { kind: "role", id: "role-sup", name: "Supervisor", archived: false },
+      { kind: "role", id: "role-writer", name: "Writer", archived: false },
+      {
+        kind: "agent",
+        id: "pos-dev",
+        name: "Backend Developer",
+        role: "Senior Developer",
+        archived: false,
+      },
+      { kind: "agent", id: "pos-old", name: "Old Scout", role: "Writer", archived: true },
     ],
     sendSwitchOn: false,
     vaultAvailable: true,

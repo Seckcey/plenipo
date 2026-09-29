@@ -51,10 +51,14 @@ pub fn connection_hosts(service: Service) -> &'static [&'static str] {
 
 /// Where a connection's service sends a file's download (a short-lived address that needs no
 /// sign-in): Microsoft sends OneDrive and SharePoint files to its own storage, on these
-/// domains' subdomains only.
+/// domains' subdomains only (personal accounts' files, to `my.microsoftpersonalcontent.com`).
 pub fn connection_download_domains(service: Service) -> &'static [&'static str] {
     match service {
-        Service::Microsoft365 => &["sharepoint.com", "files.1drv.com"],
+        Service::Microsoft365 => &[
+            "sharepoint.com",
+            "files.1drv.com",
+            "microsoftpersonalcontent.com",
+        ],
         _ => &[],
     }
 }
@@ -323,6 +327,7 @@ mod tests {
             "https://graph.microsoft.com/v1.0/me/messages?$top=25",
             "https://contoso-my.sharepoint.com/personal/x/_layouts/15/download.aspx?tempauth=y",
             "https://public.am.files.1drv.com/y4m",
+            "https://my.microsoftpersonalcontent.com/personal/abc/_layouts/15/download.aspx",
         ] {
             assert!(rules.check(m, ok).is_ok(), "{ok}");
         }
@@ -337,6 +342,8 @@ mod tests {
             "https://sharepoint.com/x",
             "https://evilsharepoint.com/x",
             "https://sharepoint.com.evil.example/x",
+            "https://microsoftpersonalcontent.com/x",
+            "https://evilmicrosoftpersonalcontent.com/x",
         ] {
             assert!(rules.check(m, bad).is_err(), "{bad}");
         }

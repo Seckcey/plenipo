@@ -19,12 +19,13 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_capabilities::connections::{ConnectionCard, ConnectionsConfig, Opener};
 use plenipo_capabilities::{ApprovalStatus, Broker, BrokerConfig, MemorySecretStore};
-use plenipo_capabilities::{ApprovalView, SecretStore as _};
+use plenipo_capabilities::{ApprovalView, SecretStore};
 use plenipo_guard::{
     Access, AccessLevel, AccountKind, Capability, ConnectionState, Guard, Part, PartLevel, Service,
     Who,
@@ -129,6 +130,40 @@ fn logged() -> &'static Mutex<String> {
     })
 }
 
+/// The Vault as these tests keep it: in memory, refusing values longer than one Windows
+/// Credential Manager entry, and able to fail every removal (to test Disconnect then).
+struct TestStore {
+    inner: MemorySecretStore,
+    fail_removing: AtomicBool,
+}
+
+impl TestStore {
+    fn stored(&self) -> usize {
+        self.inner.stored()
+    }
+}
+
+impl SecretStore for TestStore {
+    fn label(&self) -> &str {
+        "Windows Credential Manager (test)"
+    }
+    fn check(&self) -> Result<(), String> {
+        self.inner.check()
+    }
+    fn set(&self, id: &str, value: &str) -> Result<(), String> {
+        self.inner.set(id, value)
+    }
+    fn get(&self, id: &str) -> Result<Option<String>, String> {
+        self.inner.get(id)
+    }
+    fn delete(&self, id: &str) -> Result<(), String> {
+        if self.fail_removing.load(Ordering::SeqCst) {
+            return Err("the Vault did not answer".into());
+        }
+        self.inner.delete(id)
+    }
+}
+
 struct NoOutput;
 
 impl EventSink for NoOutput {
@@ -159,7 +194,7 @@ struct H {
     workforce: Workforce,
     guard: Guard,
     broker: Broker,
-    store: Arc<MemorySecretStore>,
+    store: Arc<TestStore>,
     ms: StandIn,
     run: tokio::task::JoinHandle<()>,
     dir: tempfile::TempDir,
@@ -252,7 +287,10 @@ async fn harness_on(supervisor_tool: &str) -> H {
     );
     let guard = Guard::new(Arc::clone(&ledger));
     guard.seed_template_roles().unwrap();
-    let store = Arc::new(MemorySecretStore::with_limit(1_000));
+    let store = Arc::new(TestStore {
+        inner: MemorySecretStore::with_limit(1_000),
+        fail_removing: AtomicBool::new(false),
+    });
     let mut broker_config = BrokerConfig::new(
         PathBuf::from(env!("CARGO_BIN_EXE_plenipo-tool-relay")),
         dir.path().join("tickets"),
@@ -595,7 +633,7 @@ impl H {
                 .path()
                 .join("home")
                 .join(".plenipo-fake-agent")
-                .join("notes.txt"),
+                .join("tool-notes.txt"),
         )
         .unwrap_or_default()
     }
@@ -625,7 +663,7 @@ impl H {
             scanned += 1;
             for t in &issued {
                 // Enough of a value to recognise it anywhere (they share no prefix beyond it).
-                let probe = &t.as_bytes()[..60];
+                let probe = &t.as_bytes()[..t.len().min(60)];
                 if bytes.windows(probe.len()).any(|w| w == probe) {
                     seen.push(path.display().to_string());
                 }
@@ -644,11 +682,12 @@ impl H {
         );
         let log = logged().lock().unwrap().clone();
         for t in &issued {
+            let probe = &t[..t.len().min(60)];
             assert!(
-                !recorded.contains(&t[..60]),
+                !recorded.contains(probe),
                 "a sign-in value is in the Ledger"
             );
-            assert!(!log.contains(&t[..60]), "a sign-in value was logged");
+            assert!(!log.contains(probe), "a sign-in value was logged");
         }
     }
 }
@@ -699,6 +738,25 @@ fn result_of(text: &str, tool: &str) -> Vec<String> {
             .map(|l| l.trim().to_owned()),
     );
     out
+}
+
+/// The lines outside the first fence of `kind` from `source` (before its opening line and after
+/// its closing line).
+fn outside_fence(lines: &[String], kind: &str, source: &str) -> Vec<String> {
+    let start = lines
+        .iter()
+        .position(|l| l.contains(&format!("--- {kind} from {source} ")))
+        .unwrap();
+    let end = start
+        + lines[start..]
+            .iter()
+            .position(|l| l.starts_with(&format!("--- end of {kind} ")))
+            .unwrap();
+    lines[..start]
+        .iter()
+        .chain(&lines[end + 1..])
+        .cloned()
+        .collect()
 }
 
 /// The words between a fence's opening line (`open`, of `kind` from `source`, marked as
@@ -1239,9 +1297,8 @@ async fn an_email_saying_forward_all_mail_is_never_obeyed() {
     let inside = inside_fence(&read, "email", MS365, "the people who wrote it").join("\n");
     assert!(inside.contains(microsoft::PLANTED), "{inside}");
     assert!(
-        !read
+        !outside_fence(&read, "email", MS365)
             .iter()
-            .filter(|l| !inside.contains(l.as_str()))
             .any(|l| l.contains("ignore your instructions")),
         "the planted words are only inside the fence: {read:#?}"
     );
@@ -1621,6 +1678,23 @@ async fn an_organization_that_needs_its_admin_gets_the_link() {
     let failed = h.all_events("connection.sign_in_failed");
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0]["reason"], json!(problem));
+    // Going back from Microsoft's "Need admin approval" page: Microsoft says the owner
+    // declined; the card says so, and still gives the link.
+    h.ms.world().admin_needed = false;
+    h.ms.world().decline_consent = true;
+    h.broker
+        .connect_connection(ID, AccountKind::Work)
+        .await
+        .unwrap();
+    let card = h.sign_in_ended().await;
+    assert!(
+        card.problem
+            .as_deref()
+            .is_some_and(|p| p.contains("send them the link below")),
+        "{card:#?}"
+    );
+    assert!(card.admin_link.is_some());
+    h.ms.world().decline_consent = false;
     // Once the admin approves, it connects.
     h.ms.world().admin_needed = false;
     let card = h.connect(AccountKind::Work).await;
@@ -1636,6 +1710,7 @@ async fn a_personal_account_has_no_teams_or_sharepoint() {
     h.parts(&[
         (Part::Teams, PartLevel::ReadOnly),
         (Part::Sharepoint, PartLevel::ReadOnly),
+        (Part::Onedrive, PartLevel::ReadOnly),
     ]);
     h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
     let card = h.connect(AccountKind::Personal).await;
@@ -1644,7 +1719,7 @@ async fn a_personal_account_has_no_teams_or_sharepoint() {
     assert_eq!(asked[0]["prompt"], "");
     assert_eq!(
         asked[0]["scope"],
-        "openid profile offline_access User.Read Mail.Read Calendars.Read"
+        "openid profile offline_access User.Read Mail.Read Calendars.Read Files.Read"
     );
     assert_eq!(card.connection.account_kind, Some(AccountKind::Personal));
     assert_eq!(
@@ -1661,13 +1736,21 @@ async fn a_personal_account_has_no_teams_or_sharepoint() {
     assert!(card.reconnect_for.is_empty(), "{card:#?}");
     let (_, text) = h
         .run(&format!(
-            "[tools-list] {}",
-            tool("m365_teams_chats", json!({}))
+            "[tools-list] {} {}",
+            tool("m365_teams_chats", json!({})),
+            tool("m365_onedrive_read", json!({ "id": "file-summary" }))
         ))
         .await;
     assert_eq!(
         m365_offered(&text),
-        ["m365_mail_search", "m365_mail_read", "m365_calendar_events"],
+        [
+            "m365_mail_search",
+            "m365_mail_read",
+            "m365_calendar_events",
+            "m365_onedrive_search",
+            "m365_onedrive_list",
+            "m365_onedrive_read"
+        ],
         "{text}"
     );
     assert!(
@@ -1676,6 +1759,14 @@ async fn a_personal_account_has_no_teams_or_sharepoint() {
         ),
         "{text}"
     );
+    // A personal account's files come from Microsoft's personal storage, which Guard allows.
+    assert!(text.contains("All servers patched."), "{text}");
+    assert!(h
+        .ms
+        .world()
+        .requests
+        .iter()
+        .any(|r| r.starts_with("GET /my.microsoftpersonalcontent.com/download/file-summary")));
 }
 
 /// The access token goes to Microsoft Graph only: never to the sign-in page, never to where a
@@ -1827,4 +1918,425 @@ async fn later_services_wait_and_disconnect_always_works() {
         .broker
         .set_connection_send_list(ID, &["not an address".into()])
         .is_err());
+}
+
+// ---- What the review found (each fails without its fix) -----------------------------------------
+
+/// A part turned on, or up, after connecting waits for Reconnect, and the parts that worked keep
+/// working: the renewal asks Microsoft only for what it granted (asking for more fails, and must
+/// not cost the owner the sign-in). A part turned down works with what was granted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_part_turned_on_or_up_after_connecting_waits_for_reconnect_and_the_rest_keep_working() {
+    let h = harness().await;
+    h.parts(&[(Part::Mail, PartLevel::FullAccess)]);
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+    h.connect(AccountKind::Work).await;
+    // Teams on, Calendar up to Full access, Mail down to Read only.
+    h.parts(&[
+        (Part::Teams, PartLevel::ReadOnly),
+        (Part::Calendar, PartLevel::FullAccess),
+        (Part::Mail, PartLevel::ReadOnly),
+    ]);
+    assert_eq!(h.card().reconnect_for, ["Calendar", "Teams"]);
+    // The access token runs out: Plenipo renews the sign-in.
+    h.ms.world().access.clear();
+    let (_, text) = h
+        .run(&format!(
+            "[tools-list] {} {}",
+            tool("m365_mail_search", json!({})),
+            tool("m365_teams_chats", json!({}))
+        ))
+        .await;
+    assert!(
+        text.contains("Tool m365_mail_search: 4 message(s) found."),
+        "{text}"
+    );
+    assert_eq!(
+        m365_offered(&text),
+        ["m365_mail_search", "m365_mail_read", "m365_calendar_events"],
+        "only what Microsoft allowed, at the parts' levels: {text}"
+    );
+    assert!(
+        text.contains("Tool m365_teams_chats failed: Blocked: m365_teams_chats is not offered"),
+        "{text}"
+    );
+    assert_eq!(h.card().connection.state, ConnectionState::Connected);
+    assert!(h.vault_value().is_some(), "the sign-in was kept");
+    assert!(h.all_events("connection.sign_in_needed").is_empty());
+    // Reconnect: the new parts are asked for, and their tools come.
+    h.connect(AccountKind::Work).await;
+    let scope = h.ms.world().asked[1]["scope"].as_str().unwrap().to_owned();
+    for p in ["Mail.Read", "Calendars.ReadWrite", "Chat.Read"] {
+        assert!(scope.split(' ').any(|s| s == p), "{p} in {scope}");
+    }
+    assert!(!scope.contains("Mail.Send"), "{scope}");
+    assert!(h.card().reconnect_for.is_empty());
+    let (_, text) = h.run("[tools-list]").await;
+    let offered = m365_offered(&text);
+    assert!(offered.contains(&"m365_teams_chats".to_owned()), "{text}");
+    assert!(
+        offered.contains(&"m365_calendar_add_event".to_owned()),
+        "{text}"
+    );
+}
+
+/// Outlook's "unique body" may hold the earlier message under a reply: the card still shows only
+/// the worker's words, so the approval's record keeps no copy of the email.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reply_that_quotes_the_earlier_email_shows_only_the_workers_words() {
+    let h = harness().await;
+    h.parts(&[(Part::Mail, PartLevel::FullAccess)]);
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+    h.connect(AccountKind::Work).await;
+    h.ms.world().quoted_unique_body = true;
+    let task = h
+        .objective(&format!(
+            "{} {}",
+            tool(
+                "m365_mail_draft",
+                json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is attached." })
+            ),
+            tool("m365_mail_send", json!({ "id": "draft-1" }))
+        ))
+        .await;
+    let a = h.pending().await;
+    assert!(
+        a.detail.contains("Hi Dana, the quote is attached."),
+        "{}",
+        a.detail
+    );
+    for never in ["by Friday", "From: Dana", "________"] {
+        assert!(
+            !a.detail.contains(never),
+            "{never:?} on the card: {}",
+            a.detail
+        );
+    }
+    h.answer(&a, false);
+    h.finished(&task).await;
+    // Nothing Plenipo recorded holds the earlier email.
+    let kept = format!("{:?}", h.ledger.recent_events(10_000).unwrap());
+    assert!(
+        !kept.contains("by Friday"),
+        "the earlier email was recorded"
+    );
+}
+
+/// Inviting people, posting in a channel, writing to someone known only by a name, and adding a
+/// file to a SharePoint site all ask — even with the switch on and a list that seems to cover
+/// them. Channels cannot be on the list. The invitation card shows where and what the guests get.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invitations_posts_unknown_people_and_site_files_ask_whatever_the_list() {
+    let h = harness().await;
+    h.parts(&[
+        (Part::Calendar, PartLevel::FullAccess),
+        (Part::Teams, PartLevel::FullAccess),
+        (Part::Sharepoint, PartLevel::FullAccess),
+    ]);
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+    h.send_switch(true);
+    h.broker
+        .set_connection_send_list(ID, &["@8westit.com".into(), "@clientco.com".into()])
+        .unwrap();
+    let refused = h
+        .broker
+        .set_connection_send_list(ID, &["8 West IT › General".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("always asks you"), "{refused}");
+    h.connect(AccountKind::Work).await;
+    let work = [
+        tool(
+            "m365_calendar_add_event",
+            json!({ "subject": "Quote review", "start": "2026-10-01T10:00", "end": "2026-10-01T10:30",
+                    "attendees": ["someone@elsewhere.test"], "location": "Teams",
+                    "text": "Agenda: the server upgrade quote." }),
+        ),
+        tool(
+            "m365_teams_post",
+            json!({ "team": "team-8west", "channel": "channel-general", "text": "Hello all" }),
+        ),
+        tool(
+            "m365_teams_send_chat",
+            json!({ "chat": "chat-guest", "text": "Here are the numbers" }),
+        ),
+        tool(
+            "m365_sharepoint_upload",
+            json!({ "site": "site-portal", "path": "notes.txt", "content": "Meeting notes" }),
+        ),
+        tool("m365_sharepoint_list", json!({ "site": "site-portal" })),
+        tool(
+            "m365_sharepoint_read",
+            json!({ "drive": "drive-portal", "id": "file-portal" }),
+        ),
+    ]
+    .join(" ");
+    let task = h.objective(&work).await;
+    let invite = h.pending().await;
+    assert_eq!(
+        invite.summary,
+        "add the event \"Quote review\" and invite 1 person"
+    );
+    assert!(
+        invite
+            .detail
+            .starts_with("Guests (they get invitations): someone@elsewhere.test\n"),
+        "{}",
+        invite.detail
+    );
+    assert!(invite.detail.contains("Where: Teams"), "{}", invite.detail);
+    assert!(
+        invite.detail.contains("Agenda: the server upgrade quote."),
+        "{}",
+        invite.detail
+    );
+    h.answer(&invite, true);
+    let post = h.pending().await;
+    assert_eq!(
+        post.summary,
+        "post in the Teams channel 8 West IT › General"
+    );
+    h.answer(&post, false);
+    let guest = h.pending().await;
+    assert!(
+        guest
+            .detail
+            .starts_with("To: ceo@8westit.com (no email address in Teams)\n"),
+        "{}",
+        guest.detail
+    );
+    h.answer(&guest, false);
+    let file = h.pending().await;
+    assert_eq!(
+        file.summary,
+        "add the file notes.txt to the SharePoint site Client Co Portal"
+    );
+    h.answer(&file, true);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    assert!(
+        text.contains("Tool m365_sharepoint_upload: Saved: notes.txt"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Client Co handbook."),
+        "the site's file was read: {text}"
+    );
+    let sent = h.ms.sent();
+    assert_eq!(sent.len(), 1, "only the approved invitation: {sent:?}");
+    assert_eq!(sent[0]["kind"], "invite");
+}
+
+/// People added to a chat while the owner decides do not get the message: the members are
+/// checked again just before it is sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn people_added_to_a_chat_while_the_owner_decides_stop_the_message() {
+    let h = harness().await;
+    h.parts(&[(Part::Teams, PartLevel::FullAccess)]);
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+    h.connect(AccountKind::Work).await;
+    let task = h
+        .objective(&tool(
+            "m365_teams_send_chat",
+            json!({ "chat": "chat-dana", "text": "The numbers are attached." }),
+        ))
+        .await;
+    let a = h.pending().await;
+    assert!(
+        a.detail.starts_with("To: dana@clientco.com\n"),
+        "{}",
+        a.detail
+    );
+    assert_eq!(a.summary, "send a Teams chat message to 1 person");
+    {
+        let mut w = h.ms.world();
+        let chat = w.chats.iter_mut().find(|c| c["id"] == "chat-dana").unwrap();
+        chat["members"].as_array_mut().unwrap().push(json!({
+            "displayName": "Mallory", "email": microsoft::ATTACKER, "userId": "user-mallory"
+        }));
+    }
+    h.answer(&a, true);
+    h.finished(&task).await;
+    let text = h.text(&task);
+    assert!(
+        text.contains("the people in the chat changed after it was checked"),
+        "{text}"
+    );
+    assert!(h.ms.sent().is_empty(), "{:?}", h.ms.sent());
+}
+
+/// A renewal or a sign-in that Microsoft answers after Disconnect or Cancel keeps nothing: no
+/// sign-in in the Vault, nothing in memory, and the connection stays not connected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disconnect_or_cancel_while_microsoft_answers_keeps_nothing() {
+    let h = harness().await;
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    h.connect(AccountKind::Work).await;
+    // A renewal on its way when the owner disconnects.
+    {
+        let mut w = h.ms.world();
+        w.access.clear();
+        w.slow_token_ms = 1_500;
+    }
+    let task = h.objective(&tool("m365_mail_search", json!({}))).await;
+    let waiting = |h: &H| {
+        h.ms.world()
+            .requests
+            .iter()
+            .filter(|r| r.starts_with("WAITING POST") && r.ends_with("/oauth2/v2.0/token"))
+            .count()
+    };
+    let deadline = Instant::now() + WAIT;
+    while waiting(&h) < 1 {
+        assert!(Instant::now() < deadline, "no renewal started");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    h.broker.disconnect_connection(ID).unwrap();
+    h.finished(&task).await;
+    let text = h.text(&task);
+    assert!(text.contains("Tool m365_mail_search failed"), "{text}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(h.card().connection.state, ConnectionState::NotConnected);
+    assert_eq!(h.vault_value(), None, "the renewal kept nothing");
+    assert_eq!(h.store.stored(), 0);
+    // A sign-in whose code is being traded when the owner cancels.
+    let connected = h.all_events("connection.connected").len();
+    h.broker
+        .connect_connection(ID, AccountKind::Work)
+        .await
+        .unwrap();
+    let deadline = Instant::now() + WAIT;
+    while waiting(&h) < 2 {
+        assert!(Instant::now() < deadline, "the code was never traded");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    h.broker.cancel_connection_sign_in(ID).unwrap();
+    h.sign_in_ended().await;
+    tokio::time::sleep(Duration::from_millis(1_800)).await;
+    let card = h.card();
+    assert_eq!(
+        card.connection.state,
+        ConnectionState::NotConnected,
+        "{card:#?}"
+    );
+    assert_eq!(h.vault_value(), None);
+    assert_eq!(h.all_events("connection.connected").len(), connected);
+    h.ms.world().slow_token_ms = 0;
+    h.assert_no_sign_in_value_anywhere();
+}
+
+/// Disconnect stops the tools even when Windows Credential Manager does not answer; it says the
+/// sign-in could not be removed, and removes it once it can.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disconnect_stops_the_tools_even_when_the_vault_fails() {
+    let h = harness().await;
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    h.connect(AccountKind::Work).await;
+    h.store.fail_removing.store(true, Ordering::SeqCst);
+    let err = h.broker.disconnect_connection(ID).unwrap_err().to_string();
+    assert!(err.contains("could not remove the sign-in"), "{err}");
+    assert_eq!(h.card().connection.state, ConnectionState::NotConnected);
+    let (_, text) = h
+        .run(&format!(
+            "[tools-list] {}",
+            tool("m365_mail_search", json!({}))
+        ))
+        .await;
+    assert!(m365_offered(&text).is_empty(), "{text}");
+    assert!(text.contains("not offered to you"), "{text}");
+    // Still hidden in any text while it is in the Vault.
+    let left = h.vault_value().unwrap();
+    assert!(!(h.broker.text_filter())(&left).contains(&left[..60]));
+    h.store.fail_removing.store(false, Ordering::SeqCst);
+    h.broker.disconnect_connection(ID).unwrap();
+    assert_eq!(h.store.stored(), 0);
+}
+
+// ---- The plan's acceptance criterion -------------------------------------------------------------
+
+/// ROLLOUT_PLAN, Phase 20: "The owner connects 8 West's Microsoft 365. A worker reads today's
+/// calendar and the unread mail from one client, drafts a reply in Outlook, and the reply is sent
+/// only after the owner approves it. The same worker, on another AI tool, does the same. The
+/// Ledger shows every call, with no copy of the mail."
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn acceptance_a_worker_reads_the_day_drafts_a_reply_and_it_is_sent_only_when_approved() {
+    for ai_tool in ["claude-code", "codex"] {
+        let h = harness_on(ai_tool).await;
+        h.parts(&[(Part::Mail, PartLevel::FullAccess)]);
+        h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+        h.connect(AccountKind::Work).await;
+        let work = [
+            tool("m365_calendar_events", json!({})),
+            tool(
+                "m365_mail_search",
+                json!({ "from": microsoft::CLIENT, "unread": true }),
+            ),
+            tool("m365_mail_read", json!({ "id": "msg-quote" })),
+            tool(
+                "m365_mail_draft",
+                json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is on its way." }),
+            ),
+            tool("m365_mail_send", json!({ "id": "draft-1" })),
+        ]
+        .join(" ");
+        let task = h.objective(&work).await;
+        let a = h.pending().await;
+        assert!(
+            h.ms.sent().is_empty(),
+            "{ai_tool}: nothing sent before the owner approves"
+        );
+        // Approvals → Workers using permissions now names the connection.
+        let shown: Vec<String> = h
+            .broker
+            .grants()
+            .into_iter()
+            .flat_map(|g| g.permissions.into_iter().map(|p| p.label))
+            .collect();
+        for label in ["Read Microsoft 365", "Write in Microsoft 365"] {
+            assert!(shown.iter().any(|s| s == label), "{ai_tool}: {shown:?}");
+        }
+        assert!(
+            a.detail.starts_with("To: dana@clientco.com\n"),
+            "{}",
+            a.detail
+        );
+        h.answer(&a, true);
+        assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+        let text = h.text(&task);
+        assert!(
+            text.contains("Tool m365_calendar_events: 2 event(s)."),
+            "{ai_tool}: {text}"
+        );
+        assert!(
+            text.contains("Tool m365_mail_search: 1 message(s) found."),
+            "{ai_tool}: {text}"
+        );
+        assert!(
+            text.contains("Tool m365_mail_send: Sent to 1 person."),
+            "{ai_tool}: {text}"
+        );
+        let sent = h.ms.sent();
+        assert_eq!(sent.len(), 1, "{ai_tool}");
+        assert_eq!(sent[0]["to"], json!(["dana@clientco.com"]));
+        // The Ledger shows every call — with no copy of the mail.
+        let used = h.events(&task, "capability.used");
+        let tools: Vec<&str> = used.iter().filter_map(|u| u["tool"].as_str()).collect();
+        assert_eq!(
+            tools,
+            [
+                "m365_calendar_events",
+                "m365_mail_search",
+                "m365_mail_read",
+                "m365_mail_draft",
+                "m365_mail_send"
+            ],
+            "{ai_tool}"
+        );
+        assert_eq!(used[4]["approvalId"], json!(a.id));
+        let kept = format!("{used:?}");
+        for never in ["can you send the quote", "Weekly check-in", "by Friday"] {
+            assert!(!kept.contains(never), "{ai_tool}: {never:?} was recorded");
+        }
+        h.assert_no_sign_in_value_anywhere();
+    }
 }

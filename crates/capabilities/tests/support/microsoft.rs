@@ -7,7 +7,8 @@
 //!
 //! Test controls, over HTTP for the end-to-end tests: `GET /_control/world` (what was sent,
 //! every request, and every token issued) and `POST /_control/knobs` (`adminNeeded`,
-//! `refuseRefresh`, `throttleNext`, `slowSignInMs`).
+//! `refuseRefresh`, `throttleNext`, `slowSignInMs`, `slowTokenMs`, `declineConsent`,
+//! `quotedUniqueBody`).
 
 #![allow(dead_code)]
 
@@ -54,9 +55,26 @@ pub struct World {
     /// Wait this long before answering the sign-in page (the end-to-end tests photograph the
     /// card while it waits, and cancel it).
     pub slow_sign_in_ms: u64,
+    /// Wait this long before answering a token request (tests disconnect or cancel meanwhile).
+    pub slow_token_ms: u64,
+    /// Answer the sign-in page as when the owner goes back from Microsoft's "Need admin
+    /// approval" page (Microsoft says the user declined, AADSTS65004).
+    pub decline_consent: bool,
+    /// Put the whole earlier message under a reply draft's own words in its "unique body", as
+    /// Outlook may.
+    pub quoted_unique_body: bool,
     pub codes: HashMap<String, Code>,
     pub access: Vec<String>,
     pub refresh: Vec<String>,
+    /// What each long-lived sign-in was granted (the owner's consent), lower case: a renewal may
+    /// ask for these and no more, like Microsoft.
+    pub consent: HashMap<String, Vec<String>>,
+    /// Each access token's permissions, lower case: a Graph call without the one it needs is
+    /// refused (403), like Microsoft.
+    pub scopes_of: HashMap<String, Vec<String>>,
+    /// Access tokens of personal accounts: their files download from Microsoft's personal
+    /// storage.
+    pub personal: Vec<String>,
     /// Every token ever issued (tests check none leaks anywhere).
     pub issued: Vec<String>,
     /// Every request, `METHOD /host/path` (and ` [token]` when it carried one), in order.
@@ -199,11 +217,21 @@ impl World {
                         "parentReference": { "driveId": "drive-portal", "siteId": "site-portal" } }),
             ],
             chats: vec![json!({
+                // A chat with a guest Teams gives no email address for, whose name looks like
+                // one of the owner's colleagues' addresses.
+                "id": "chat-guest", "chatType": "group", "topic": "Project",
+                "webUrl": "https://teams.microsoft.com/l/chat/chat-guest",
+                "members": [
+                    { "displayName": USER_NAME, "email": USER, "userId": "user-frankie" },
+                    { "displayName": "ceo@8westit.com", "email": null, "userId": "user-guest" },
+                ],
+            }), json!({
                 "id": "chat-dana", "chatType": "oneOnOne", "topic": null,
                 "webUrl": "https://teams.microsoft.com/l/chat/chat-dana",
                 "members": [
-                    { "displayName": USER_NAME, "email": USER },
-                    { "displayName": "Dana Client", "email": CLIENT },
+                    // The owner's mail address in Teams may differ from the sign-in name.
+                    { "displayName": USER_NAME, "email": "frankie.gonzalez@8westit.com", "userId": "user-frankie" },
+                    { "displayName": "Dana Client", "email": CLIENT, "userId": "user-dana" },
                 ],
             })],
             ..World::default()
@@ -420,9 +448,21 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
     let Some(req) = read_request(&mut stream).await else {
         return Ok(());
     };
-    let slow = world.lock().unwrap().slow_sign_in_ms;
-    if slow > 0 && req.path.ends_with("/oauth2/v2.0/authorize") {
-        tokio::time::sleep(std::time::Duration::from_millis(slow)).await;
+    let (slow_page, slow_token) = {
+        let w = world.lock().unwrap();
+        (w.slow_sign_in_ms, w.slow_token_ms)
+    };
+    if slow_page > 0 && req.path.ends_with("/oauth2/v2.0/authorize") {
+        tokio::time::sleep(std::time::Duration::from_millis(slow_page)).await;
+    }
+    if slow_token > 0 && req.path.ends_with("/oauth2/v2.0/token") {
+        // Tests act while it waits: say so first.
+        world
+            .lock()
+            .unwrap()
+            .requests
+            .push(format!("WAITING {} {}", req.method, req.path));
+        tokio::time::sleep(std::time::Duration::from_millis(slow_token)).await;
     }
     let resp = route(&req, &world);
     let mut head = format!(
@@ -465,7 +505,7 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     if let Some(rest) = path.strip_prefix("_control/") {
         return match (req.method.as_str(), rest) {
             ("GET", "world") => ok(json!({
-                "sent": w.sent, "requests": w.requests, "issued": w.issued,
+                "sent": w.sent, "requests": w.requests, "issued": w.issued, "asked": w.asked,
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
             ("POST", "knobs") => {
@@ -475,6 +515,15 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 }
                 if let Some(b) = v["refuseRefresh"].as_bool() {
                     w.refuse_refresh = b;
+                }
+                if let Some(b) = v["declineConsent"].as_bool() {
+                    w.decline_consent = b;
+                }
+                if let Some(b) = v["quotedUniqueBody"].as_bool() {
+                    w.quoted_unique_body = b;
+                }
+                if let Some(ms) = v["slowTokenMs"].as_u64() {
+                    w.slow_token_ms = ms.min(120_000);
                 }
                 if let Some(ms) = v["slowSignInMs"].as_u64() {
                     w.slow_sign_in_ms = ms.min(120_000);
@@ -491,7 +540,10 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
         return login(req, rest, &mut w);
     }
     // A file's download, where Graph sends it (no token: the address itself is the pass).
-    if let Some(id) = path.strip_prefix("8westit-my.sharepoint.com/download/") {
+    if let Some(id) = path
+        .strip_prefix("8westit-my.sharepoint.com/download/")
+        .or_else(|| path.strip_prefix("my.microsoftpersonalcontent.com/download/"))
+    {
         return match w.files.iter().find(|f| f["id"] == id) {
             Some(f) => Resp {
                 status: "200 OK",
@@ -513,13 +565,19 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     if !w.access.contains(&token) {
         return error("401 Unauthorized", "InvalidAuthenticationToken");
     }
+    let needed = required(&req.method, rest);
+    let has = w.scopes_of.get(&token).cloned().unwrap_or_default();
+    if !needed.is_empty() && !needed.iter().any(|n| has.iter().any(|h| h == n)) {
+        return error("403 Forbidden", "Forbidden");
+    }
+    let personal = w.personal.contains(&token);
     if w.throttle_next > 0 {
         w.throttle_next -= 1;
         let mut r = error("429 Too Many Requests", "TooManyRequests");
         r.headers.push(("Retry-After".into(), "1".into()));
         return r;
     }
-    graph(req, rest, &mut w)
+    graph(req, rest, personal, &mut w)
 }
 
 fn file_bytes(f: &Value) -> Vec<u8> {
@@ -549,6 +607,11 @@ fn login(req: &Req, rest: &str, w: &mut World) -> Resp {
             "method": q("code_challenge_method"),
             "prompt": q("prompt"),
         }));
+        if w.decline_consent {
+            return redirect(&format!(
+                "{redirect_uri}?error=access_denied&error_description=AADSTS65004%3A+User+declined+to+consent+to+access+the+app&state={state}"
+            ));
+        }
         if w.admin_needed {
             return redirect(&format!(
                 "{redirect_uri}?error=access_denied&error_description=AADSTS65001%3A+The+user+or+administrator+has+not+consented&state={state}"
@@ -572,7 +635,14 @@ fn login(req: &Req, rest: &str, w: &mut World) -> Resp {
         if get("client_id") != APP_ID || f.contains_key("client_secret") {
             return json_resp("400 Bad Request", json!({ "error": "invalid_client" }));
         }
-        let scopes = match get("grant_type").as_str() {
+        // Permissions as Microsoft counts them (the sign-in's own ones aside), lower case.
+        let perms = |text: &str| -> Vec<String> {
+            text.split_whitespace()
+                .filter(|x| !matches!(*x, "openid" | "profile" | "offline_access"))
+                .map(str::to_lowercase)
+                .collect()
+        };
+        let (scopes, consent) = match get("grant_type").as_str() {
             "authorization_code" => {
                 let Some(code) = w.codes.remove(&get("code")) else {
                     return json_resp("400 Bad Request", json!({ "error": "invalid_grant" }));
@@ -584,7 +654,10 @@ fn login(req: &Req, rest: &str, w: &mut World) -> Resp {
                         json!({ "error": "invalid_grant", "error_description": "AADSTS501481: The code_verifier does not match" }),
                     );
                 }
-                code.scopes
+                // The PKCE secret is a sign-in value too: tests check it is kept nowhere.
+                w.issued.push(get("code_verifier"));
+                let consent = perms(&code.scopes);
+                (code.scopes, consent)
             }
             "refresh_token" => {
                 let rt = get("refresh_token");
@@ -594,9 +667,18 @@ fn login(req: &Req, rest: &str, w: &mut World) -> Resp {
                         json!({ "error": "invalid_grant", "error_description": "AADSTS70008: The refresh token has expired" }),
                     );
                 }
+                // A renewal may ask for what was granted, and no more.
+                let consent = w.consent.get(&rt).cloned().unwrap_or_default();
+                if let Some(extra) = perms(&get("scope")).iter().find(|p| !consent.contains(p)) {
+                    return json_resp(
+                        "400 Bad Request",
+                        json!({ "error": "invalid_grant", "error_description": format!("AADSTS65001: The user or administrator has not consented to use the application ({extra})") }),
+                    );
+                }
                 // Each use replaces it.
                 w.refresh.retain(|r| r != &rt);
-                get("scope")
+                w.consent.remove(&rt);
+                (get("scope"), consent)
             }
             _ => {
                 return json_resp(
@@ -609,8 +691,13 @@ fn login(req: &Req, rest: &str, w: &mut World) -> Resp {
         let refresh = w.token("SI-RT");
         w.access.push(access.clone());
         w.refresh.push(refresh.clone());
+        w.consent.insert(refresh.clone(), consent);
+        w.scopes_of.insert(access.clone(), perms(&scopes));
         // A personal account (signed in at "consumers") belongs to Microsoft's own tenant.
         let personal = rest.starts_with("consumers/");
+        if personal {
+            w.personal.push(access.clone());
+        }
         let (address, tenant) = if personal {
             (PERSONAL_USER, PERSONAL_TENANT)
         } else {
@@ -662,7 +749,44 @@ fn addresses(list: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
+/// The permissions (any one of them) a Graph call needs, as Microsoft documents them.
+fn required(method: &str, path: &str) -> &'static [&'static str] {
+    let p: Vec<&str> = path.split('/').collect();
+    match (method, p.as_slice()) {
+        ("GET", ["me"]) => &["user.read"],
+        ("GET", ["me", "mailFolders", ..]) | ("GET", ["me", "messages", _]) => {
+            &["mail.read", "mail.readwrite"]
+        }
+        ("POST", ["me", "messages", _, "send"]) => &["mail.send"],
+        ("POST", ["me", "messages", ..]) => &["mail.readwrite"],
+        ("GET", ["me", "calendarView"]) => &["calendars.read", "calendars.readwrite"],
+        ("POST", ["me", "events"]) => &["calendars.readwrite"],
+        ("GET", ["me", "drive", ..]) => &["files.read", "files.readwrite"],
+        ("PUT", ["me", ..]) => &["files.readwrite"],
+        ("GET", ["drives", ..]) => &[
+            "files.read",
+            "files.readwrite",
+            "sites.read.all",
+            "sites.readwrite.all",
+        ],
+        ("GET", ["sites", ..]) | ("POST", ["search", "query"]) => {
+            &["sites.read.all", "sites.readwrite.all"]
+        }
+        ("PUT", ["sites", ..]) => &["sites.readwrite.all"],
+        ("GET", ["me", "chats"]) | ("GET", ["chats", ..]) => &["chat.read"],
+        ("POST", ["chats", _, "messages"]) => &["chatmessage.send"],
+        ("POST", ["chats"]) => &["chat.create"],
+        ("GET", ["me", "joinedTeams"]) | ("GET", ["teams", _]) => &["team.readbasic.all"],
+        ("GET", ["teams", _, "channels"]) | ("GET", ["teams", _, "channels", _]) => {
+            &["channel.readbasic.all"]
+        }
+        ("GET", ["teams", _, "channels", _, "messages"]) => &["channelmessage.read.all"],
+        ("POST", ["teams", ..]) => &["channelmessage.send"],
+        _ => &[],
+    }
+}
+
+fn graph(req: &Req, rest: &str, personal: bool, w: &mut World) -> Resp {
     let parts: Vec<&str> = rest.split('/').collect();
     let m = req.method.as_str();
     let q = &req.query;
@@ -754,10 +878,21 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
                 _ => (b["toRecipients"].clone(), "FW: "),
             };
             let draft_id = w.id("draft");
+            // Outlook's layout for a reply as text: the new words, a line, then the earlier
+            // message with its header.
             let quoted = format!(
-                "{comment}\n\n-----Original Message-----\n{}",
+                "{comment}\n\n________________________________\nFrom: {} <{}>\nSent: Monday, September 28, 2026 8:15 AM\nTo: {USER_NAME} <{USER}>\nSubject: {}\n\n{}",
+                original["from"]["emailAddress"]["name"].as_str().unwrap_or_default(),
+                original["from"]["emailAddress"]["address"].as_str().unwrap_or_default(),
+                original["subject"].as_str().unwrap_or_default(),
                 original["body"]["content"].as_str().unwrap_or_default()
             );
+            // Outlook's "unique body" should be the new words alone, but may hold everything.
+            let unique = if w.quoted_unique_body {
+                quoted.clone()
+            } else {
+                comment.clone()
+            };
             let draft = json!({
                 "id": draft_id, "_folder": "drafts", "isDraft": true,
                 "subject": format!("{prefix}{}", original["subject"].as_str().unwrap_or_default()),
@@ -766,7 +901,7 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
                 "receivedDateTime": today_at(12, 0), "isRead": true, "hasAttachments": false,
                 "bodyPreview": quoted.chars().take(255).collect::<String>(),
                 "body": { "contentType": "text", "content": quoted },
-                "uniqueBody": { "contentType": "text", "content": comment },
+                "uniqueBody": { "contentType": "text", "content": unique },
                 "webLink": format!("https://outlook.office365.com/owa/?ItemID={draft_id}"), "attachments": [],
             });
             w.messages.push(draft.clone());
@@ -897,6 +1032,10 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
             match w.files.iter().find(|f| f["id"] == *id) {
                 Some(f) => match f["_redirect"].as_str() {
                     Some(elsewhere) => redirect(elsewhere),
+                    // Personal accounts' files come from Microsoft's personal storage.
+                    None if personal => redirect(&format!(
+                        "https://my.microsoftpersonalcontent.com/download/{id}"
+                    )),
                     None => redirect(&format!("https://8westit-my.sharepoint.com/download/{id}")),
                 },
                 None => error("404 Not Found", "itemNotFound"),
@@ -938,6 +1077,10 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
             w.files.push(f.clone());
             json_resp("201 Created", clean(&f))
         }
+        ("GET", ["sites", "site-portal"]) => ok(json!({
+            "id": "site-portal", "displayName": "Client Co Portal",
+            "webUrl": "https://clientco.sharepoint.com/sites/portal"
+        })),
         ("GET", ["sites"]) => {
             let s = q.get("search").cloned().unwrap_or_default().to_lowercase();
             let sites = if "client co portal".contains(&s) || s.is_empty() {
@@ -999,8 +1142,9 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
                 .and_then(|c| c["members"].as_array().cloned())
                 .unwrap_or_default()
                 .iter()
+                // Everyone but the owner (known by account).
+                .filter(|m| m["userId"] != "user-frankie")
                 .filter_map(|m| m["email"].as_str().map(str::to_owned))
-                .filter(|e| e != USER)
                 .collect();
             w.sent.push(
                 json!({ "kind": "chat", "chat": id, "to": to, "text": b["body"]["content"] }),
@@ -1027,7 +1171,7 @@ fn graph(req: &Req, rest: &str, w: &mut World) -> Resp {
                     } else {
                         who.to_owned()
                     };
-                    json!({ "displayName": email, "email": email })
+                    json!({ "displayName": email, "email": email, "userId": who })
                 })
                 .collect();
             w.chats.push(json!({ "id": id, "chatType": b["chatType"], "topic": null, "members": members, "webUrl": format!("https://teams.microsoft.com/l/chat/{id}") }));

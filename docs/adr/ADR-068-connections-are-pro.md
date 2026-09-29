@@ -78,3 +78,8 @@ What exists today (read at `066e9af`, `main`, after the Phase 20 design merged):
   departments). Not chosen: a connection is an ongoing service, not something the owner made; the
   pause loses nothing and resumes when Pro returns.
 - **Add-on tools on Free.** Not chosen: they are another way of connecting outside tools.
+
+## As built (v1.13.0)
+
+As decided: no lock yet. Settings → Connections says "Connections are part of Plenipo Pro. Every
+copy can use them for now; disconnecting always works." Phase 11A adds the lock.

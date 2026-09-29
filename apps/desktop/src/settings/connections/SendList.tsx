@@ -36,7 +36,8 @@ export function SendList({
           An email could trick a worker into writing to anyone on this list without asking you.
         </strong>{" "}
         Add only addresses and domains you would be happy to receive anything a worker writes.
-        Everyone else, and every send with someone not on the list, still asks you.
+        Everyone else, and every send with someone not on the list, still asks you. Posting in a
+        Teams channel always asks you.
       </p>
       <p className="muted">
         {switchOn
@@ -78,7 +79,7 @@ export function SendList({
         }}
       >
         <TextField
-          label="An address, an @domain, or a Teams channel (Team › Channel)"
+          label="An address or an @domain"
           value={entry}
           placeholder="dana@clientco.com or @clientco.com"
           onChange={setEntry}

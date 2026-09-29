@@ -32,10 +32,11 @@ export function WhoMayUse({
   const nameOf = (who: Who) => {
     const p = people.find((x) => x.kind === who.kind && x.id === who.id);
     if (!p) return who.kind === "role" ? "A removed role" : "A removed agent";
-    return who.kind === "role" ? `${p.name} (every agent in this role)` : p.name;
+    if (who.kind === "role") return `${p.name} (every agent in this role)`;
+    return p.archived ? `${p.name} (archived)` : p.name;
   };
   const choices = people
-    .filter((p) => !listed.has(`${p.kind}:${p.id}`))
+    .filter((p) => !p.archived && !listed.has(`${p.kind}:${p.id}`))
     .map((p) => ({
       value: `${p.kind}:${p.id}`,
       label: p.kind === "agent" && p.role ? `${p.name} (${p.role})` : p.name,

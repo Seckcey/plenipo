@@ -421,8 +421,10 @@ pub fn is_address(s: &str) -> bool {
         && is_domain(domain)
 }
 
-/// One entry of a **Send without asking to** list, as kept: an address or an `@domain` in lower
-/// case, or a channel name ("Team › Channel", "#general"). `Err`: why it is not one.
+/// One entry of a **Send without asking to** list, as kept: an address or an `@domain`, in lower
+/// case. `Err`: why it is not one. Channels cannot be on the list: a channel is known only by
+/// names anyone can reuse (a team and a channel with the same names), so posting in a channel
+/// always asks (as built, part 20A).
 pub fn send_entry(entry: &str) -> Result<String, String> {
     let e = entry.trim();
     if e.is_empty() || e.chars().count() > 200 || e.chars().any(char::is_control) {
@@ -445,25 +447,32 @@ pub fn send_entry(entry: &str) -> Result<String, String> {
             Err(format!("{e:?} is not an email address"))
         };
     }
-    // A channel: a name the owner sees in the service.
     if e.starts_with('#') || e.contains('›') {
-        return Ok(e.to_owned());
+        return Err(format!(
+            "{e:?} is a channel: posting in a channel always asks you, so it cannot be on this list"
+        ));
     }
     Err(format!(
-        "{e:?} is not an email address, an @domain, or a channel (write a Teams channel as \
-         Team › Channel)"
+        "{e:?} is not an email address or an @domain (write it like dana@clientco.com or \
+         @clientco.com)"
     ))
 }
 
-/// Whether `recipient` (an address, or a channel name) is on `list`.
+/// Whether `recipient` is on `list`. Only a real email address can be: an address entry matches
+/// it exactly, and an `@domain` entry matches its domain exactly (never a subdomain). Anything
+/// else — a person known only by a name anyone can set, a channel — is never on the list, so a
+/// send to it asks the owner.
 pub fn listed(list: &[String], recipient: &str) -> bool {
     let r = recipient.trim().to_lowercase();
+    if !is_address(&r) {
+        return false;
+    }
+    let domain = r.rsplit_once('@').map(|(_, d)| d);
     list.iter().any(|entry| {
-        let e = entry.to_lowercase();
-        if let Some(domain) = e.strip_prefix('@') {
-            r.rsplit_once('@').is_some_and(|(_, d)| d == domain)
-        } else {
-            e == r
+        let e = entry.trim().to_lowercase();
+        match e.strip_prefix('@') {
+            Some(d) => domain == Some(d),
+            None => e == r,
         }
     })
 }
@@ -938,8 +947,22 @@ mod tests {
             panic!()
         };
         assert!(!all_listed);
-        // A subdomain is not the domain.
+        // A subdomain is not the domain, nor a look-alike.
         assert!(!listed(&c.send_list, "x@mail.8westit.com"));
+        assert!(!listed(&c.send_list, "x@evil-8westit.com"));
+        assert!(!listed(&c.send_list, "x@8westit.com.evil.test"));
+        // Only a real address: a name with an address in it, a person known only by a name, or
+        // a channel is never on the list.
+        assert!(listed(&c.send_list, " Dana@8WestIT.com "));
+        for not_one in [
+            "Dana <dana@8westit.com>",
+            "ceo@8westit.com (no email address in Teams)",
+            "8 West IT › General",
+            "@8westit.com",
+            "",
+        ] {
+            assert!(!listed(&c.send_list, not_one), "{not_one:?}");
+        }
         // No recipients: never "all listed".
         let ConnectionVerdict::Go { all_listed, .. } = verdict(&c, Part::Mail, ToolKind::Send, &[])
         else {
@@ -957,14 +980,19 @@ mod tests {
     }
 
     #[test]
-    fn list_entries_are_addresses_domains_or_channels() {
+    fn list_entries_are_addresses_or_domains_never_channels() {
         assert_eq!(send_entry(" @8WestIT.com ").unwrap(), "@8westit.com");
         assert_eq!(
             send_entry("Client@Example.com").unwrap(),
             "client@example.com"
         );
-        assert_eq!(send_entry("Sales › General").unwrap(), "Sales › General");
-        assert_eq!(send_entry("#general").unwrap(), "#general");
+        // Channels: posting in one always asks.
+        for channel in ["Sales › General", "#general"] {
+            assert!(
+                send_entry(channel).unwrap_err().contains("always asks"),
+                "{channel}"
+            );
+        }
         for bad in [
             "",
             "@",

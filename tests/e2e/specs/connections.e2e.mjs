@@ -15,8 +15,8 @@
 // owner's check on Windows (see the Phase 20 acceptance report).
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, describe, it } from "node:test";
@@ -184,6 +184,23 @@ async function submit(browser, form) {
   await waitUntil(async () => !(await exists(browser, form)), `${form} to close`);
 }
 
+/** Every file in a zip, as text (the diagnostics file). */
+function zipEntries(path) {
+  const script = [
+    "import sys, zipfile, json",
+    "z = zipfile.ZipFile(sys.argv[1])",
+    "print(json.dumps({n: z.read(n).decode('utf-8', 'replace') for n in z.namelist()}))",
+  ].join("\n");
+  return JSON.parse(execFileSync("python3", ["-c", script, path], { encoding: "utf8" }));
+}
+
+/** Every file under `dir`. */
+function walk(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(join(dir, e.name)) : e.isFile() ? [join(dir, e.name)] : [],
+  );
+}
+
 /** A Plenipo tool call in the fake agent's objective. */
 const tool = (name, args) => `<<tool:${name} ${JSON.stringify(args)}>>`;
 
@@ -236,7 +253,12 @@ describe(
       await waitForText(browser, CARD, "Not connected");
       await waitForText(browser, ".connections", "other people's words");
       for (const later of ["Slack", "Google", "HubSpot", "Stripe", "WordPress and WooCommerce"]) {
-        await waitForText(browser, `li[aria-label="${later}, coming in a later update"]`, later);
+        // Card headings are shown in capitals, so compare without case.
+        const item = `li[aria-label="${later}, coming in a later update"]`;
+        await waitUntil(async () => {
+          const shown = (await textOf(browser, item)).toLowerCase();
+          return shown.includes(later.toLowerCase()) && shown.includes("coming in a later update");
+        }, `${later}, coming in a later update`);
       }
       // Never a place to type a password, a key, or an app's secret.
       assert.equal(await exists(browser, ".connections input[type=password]"), false);
@@ -304,11 +326,15 @@ describe(
       await onCard(browser, "Connect a work or school account");
       await waitForText(browser, CARD, "Connected as frankie@8westit.com", 30_000);
       await waitForText(browser, CARD, "What Plenipo was allowed");
-      await waitForText(browser, CARD, "Send mail as you (each send asks you first)");
+      await waitForText(browser, CARD, "Send mail as you (asks you first");
       await screenshot(browser, "connections-connected", CARD);
       // The sign-in page asked for exactly what those parts need.
-      const asked = (await world()).requests.filter((r) => r.includes("/oauth2/v2.0/authorize"));
-      assert.ok(asked.length >= 2);
+      const { asked } = await world();
+      assert.equal(
+        asked.at(-1).scope,
+        "openid profile offline_access User.Read Mail.ReadWrite Mail.Send Calendars.Read " +
+          "Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All",
+      );
     });
 
     it("the forward-all-mail email: the worker reads it fenced, and the forward waits and is denied", async () => {
@@ -380,6 +406,30 @@ describe(
       );
       const [sent] = (await world()).sent;
       assert.deepEqual(sent.to, ["dana@clientco.com"]);
+    });
+
+    it("no sign-in value is in the diagnostics file, the logs, or anything Plenipo keeps", async () => {
+      const { browser } = app;
+      await nav(browser, "Diagnostics");
+      await clickButton(browser, "Save a diagnostics file");
+      await waitForText(browser, ".diagnostics-file", "Saved", 30_000);
+      const files = zipEntries(await textOf(browser, ".diagnostics-file code"));
+      const about = JSON.parse(files["about.json"]);
+      assert.equal(about.connections[0].service, "Microsoft 365");
+      assert.equal(about.connections[0].state, "connected");
+      assert.doesNotMatch(files["about.json"], /frankie@8westit\.com|clientco/);
+      const probes = (await world()).issued.map((t) => t.slice(0, 60));
+      assert.ok(probes.length >= 4, "codes, sign-ins, and access tokens were issued");
+      for (const [name, text] of Object.entries(files)) {
+        for (const p of probes) assert.ok(!text.includes(p), `a sign-in value in ${name}`);
+      }
+      // Everything Plenipo keeps on this computer: the Ledger, its logs, its settings.
+      const kept = walk(join(home, ".local", "share", "com.eightwest.plenipo"));
+      assert.ok(kept.length > 3, kept.join(", "));
+      for (const file of kept) {
+        const bytes = readFileSync(file);
+        for (const p of probes) assert.ok(!bytes.includes(p), `a sign-in value in ${file}`);
+      }
     });
 
     it("Disconnect removes the sign-in; the card says so", async () => {

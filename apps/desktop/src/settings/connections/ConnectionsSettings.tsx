@@ -26,9 +26,11 @@ export function ConnectionsSettings({ go }: { go: Go }) {
       <p className="muted">
         A worker uses a connection only if it is on the connection&apos;s <em>Who may use it</em>{" "}
         list, and only the parts you turned on. Reading is allowed at <em>Read only</em>; drafting
-        and adding need <em>Full access</em>. Sending, posting, inviting people, and replacing or
-        deleting anything ask you first. Sign-ins are kept in {page.vaultLabel}: workers never see
-        them, and neither does anything Plenipo records.
+        and adding need <em>Full access</em>. Sending, posting, inviting people, adding a file to a
+        SharePoint site, and replacing a file ask you first — except a send to people who are all on
+        that connection&apos;s <em>Send without asking to</em> list, while you have that switch on.
+        Sign-ins are kept in {page.vaultLabel}: workers never see them, and neither does anything
+        Plenipo records.
       </p>
       <p className="notice-box" role="note">
         <strong>Mail, chats, calendars, and files are other people&apos;s words.</strong> Workers

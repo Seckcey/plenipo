@@ -240,6 +240,8 @@ pub struct PersonOption {
     /// For an agent: its role.
     #[ts(optional)]
     pub role: Option<String>,
+    /// An agent that is archived: shown by name on a list, never offered to add.
+    pub archived: bool,
 }
 
 // ---- The service ---------------------------------------------------------------------------------
@@ -248,12 +250,29 @@ pub struct PersonOption {
 struct State {
     /// Connection ID → its access token and when it expires (memory only).
     tokens: HashMap<String, (String, Instant)>,
-    /// Connection ID → the sign-in waiting in the owner's browser.
-    waiting: HashMap<String, oneshot::Sender<()>>,
+    /// Connection ID → the sign-in waiting in the owner's browser: its turn, and how to stop it.
+    waiting: HashMap<String, (u64, oneshot::Sender<()>)>,
     /// Connection ID → the link for the organization's admin.
     admin: HashMap<String, String>,
     /// Connection ID → what went wrong with the last sign-in.
     problem: HashMap<String, String>,
+    /// Connection ID → the turn of its latest sign-in, Cancel, or Disconnect. A sign-in or a
+    /// renewal that finishes after a newer one of these keeps nothing.
+    turns: HashMap<String, u64>,
+    next_turn: u64,
+}
+
+impl State {
+    /// A new turn for `id`: whatever was under way for it before keeps nothing.
+    fn next(&mut self, id: &str) -> u64 {
+        self.next_turn += 1;
+        self.turns.insert(id.to_owned(), self.next_turn);
+        self.next_turn
+    }
+
+    fn turn(&self, id: &str) -> u64 {
+        self.turns.get(id).copied().unwrap_or(0)
+    }
 }
 
 /// The connections service: sign-ins, fresh access tokens, and the calls.
@@ -263,8 +282,11 @@ pub struct Connections {
     store: Arc<dyn SecretStore>,
     opener: RwLock<Arc<dyn Opener>>,
     state: Mutex<State>,
-    /// One refresh at a time.
+    /// One renewal at a time.
     refreshing: tokio::sync::Mutex<()>,
+    /// One change to a kept sign-in at a time — keeping, erasing, and recording it, after a
+    /// sign-in, a renewal, or Disconnect. Never held across a wait.
+    commit: Mutex<()>,
     /// Called when a sign-in or access token changes (the broker hides them again).
     changed: RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -276,6 +298,27 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// A connection's name, from its ID.
 fn name_of(id: &str) -> &'static str {
     plenipo_guard::connections::service_of(id).map_or("That connection", Service::label)
+}
+
+/// How a sign-in in the owner's browser ended.
+enum Signed {
+    /// Connected.
+    In,
+    /// Cancelled, ten minutes passed, or a newer sign-in, Cancel, or Disconnect came meanwhile:
+    /// nothing kept.
+    Stopped,
+}
+
+/// What one sign-in started with.
+struct SignIn<'a> {
+    id: &'a str,
+    turn: u64,
+    kind: AccountKind,
+    app_id: &'a str,
+    authority: &'a str,
+    redirect: &'a str,
+    /// The permissions asked for on the sign-in page, as sent.
+    scopes: &'a str,
 }
 
 impl Connections {
@@ -292,6 +335,7 @@ impl Connections {
             opener: RwLock::new(opener),
             state: Mutex::new(State::default()),
             refreshing: tokio::sync::Mutex::new(()),
+            commit: Mutex::new(()),
             changed: RwLock::new(None),
         }
     }
@@ -337,13 +381,13 @@ impl Connections {
         lock(&self.state).waiting.contains_key(id)
     }
 
-    /// Every sign-in value to hide in text: the long-lived ones in the Vault, and the access
-    /// tokens in memory. (value, name)
+    /// Every sign-in value to hide in text: the long-lived ones in the Vault (for every kept
+    /// connection, connected or not, so a value left behind is hidden too), and the access tokens
+    /// in memory. (value, name)
     pub fn secrets(&self) -> Vec<(String, String)> {
         let conns = self.guard().connections().unwrap_or_default();
         let mut out: Vec<(String, String)> = conns
             .iter()
-            .filter(|c| c.state != ConnectionState::NotConnected)
             .filter_map(|c| {
                 vault::read(self.store.as_ref(), &vault_id(&c.id))
                     .ok()
@@ -360,9 +404,18 @@ impl Connections {
         out
     }
 
-    /// The IDs of every Vault value connections keep (for uninstalling with "delete my data").
+    /// The IDs of every Vault value connections keep (for uninstalling with "delete my data"):
+    /// each kept connection's, and each service's own, in case a sign-in was kept before its
+    /// connection was.
     pub fn vault_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
-        config.connections.iter().map(|c| vault_id(&c.id)).collect()
+        let mut ids: Vec<String> = config.connections.iter().map(|c| vault_id(&c.id)).collect();
+        for s in Service::ALL {
+            let id = vault_id(s.id());
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
     }
 
     // ---- Signing in ----------------------------------------------------------------------------
@@ -392,6 +445,8 @@ impl Connections {
         let pkce = Pkce::new();
         let redirect = format!("http://localhost:{}", listener.port);
         let authority = microsoft365::authority(kind, conn.own_app.as_ref());
+        // The permissions asked for now are the ones the code is traded for, whatever the owner
+        // changes while signing in.
         let scopes = microsoft365::scopes(&conn, kind);
         let address = microsoft365::authorize_address(
             &app_id,
@@ -407,7 +462,7 @@ impl Connections {
             .check(conn.service, &reachable)
             .map_err(|e| e.to_string())?;
         let (cancel, cancelled) = oneshot::channel();
-        {
+        let turn = {
             let mut s = lock(&self.state);
             if s.waiting.contains_key(id) {
                 return Err(format!(
@@ -415,10 +470,12 @@ impl Connections {
                     conn.label()
                 ));
             }
-            s.waiting.insert(id.to_owned(), cancel);
+            let turn = s.next(id);
+            s.waiting.insert(id.to_owned(), (turn, cancel));
             s.admin.remove(id);
             s.problem.remove(id);
-        }
+            turn
+        };
         let opener = self
             .opener
             .read()
@@ -427,6 +484,7 @@ impl Connections {
         let start = listener.start_address();
         let this = Arc::clone(self);
         let id = id.to_owned();
+        let scopes = scopes.join(" ");
         tokio::spawn(async move {
             // Listen while the browser opens: a browser may come back before its opener
             // returns (the tests' stand-in browser follows the whole sign-in inside it).
@@ -443,35 +501,39 @@ impl Connections {
             };
             let outcome = match answer {
                 Err(why) => Err(why),
-                Ok(answer) => match answer {
-                    None => Ok(None),
-                    Some(Callback::Code(code)) => this
-                        .finish_sign_in(
-                            &id,
-                            kind,
-                            &app_id,
-                            &authority,
-                            &redirect,
-                            &code,
-                            &pkce.verifier,
-                        )
-                        .await
-                        .map(Some),
-                    Some(Callback::Refused { error, description }) => {
-                        if microsoft365::needs_admin(&error, &description) {
-                            lock(&this.state)
-                                .admin
-                                .insert(id.clone(), microsoft365::admin_link(&app_id, None));
-                        }
-                        Err(microsoft365::refusal_words(&error, &description))
+                Ok(None) => Ok(Signed::Stopped),
+                Ok(Some(Callback::Code(code))) => {
+                    let sign_in = SignIn {
+                        id: &id,
+                        turn,
+                        kind,
+                        app_id: &app_id,
+                        authority: &authority,
+                        redirect: &redirect,
+                        scopes: &scopes,
+                    };
+                    this.finish_sign_in(&sign_in, &code, &pkce.verifier).await
+                }
+                Ok(Some(Callback::Refused { error, description })) => {
+                    if microsoft365::admin_may_help(&error, &description) {
+                        lock(&this.state)
+                            .admin
+                            .insert(id.clone(), microsoft365::admin_link(&app_id, None));
                     }
-                },
+                    Err(microsoft365::refusal_words(&error, &description))
+                }
             };
-            lock(&this.state).waiting.remove(&id);
+            let current = {
+                let mut s = lock(&this.state);
+                if s.waiting.get(&id).is_some_and(|(t, _)| *t == turn) {
+                    s.waiting.remove(&id);
+                }
+                s.turn(&id) == turn
+            };
             match outcome {
-                Ok(Some(())) => {}
-                Ok(None) => {
-                    // Cancelled, or ten minutes passed: nothing kept, only that it stopped.
+                Ok(Signed::In) => {}
+                Ok(Signed::Stopped) => {
+                    // Cancelled, ten minutes passed, or something newer: nothing kept.
                     let _ = this
                         .guard()
                         .ledger()
@@ -483,7 +545,9 @@ impl Connections {
                         });
                 }
                 Err(why) => {
-                    lock(&this.state).problem.insert(id.clone(), why.clone());
+                    if current {
+                        lock(&this.state).problem.insert(id.clone(), why.clone());
+                    }
                     let _ = this.guard().ledger().append_event(plenipo_ledger::NewEvent {
                         source: "plenipo".into(),
                         event_type: "connection.sign_in_failed".into(),
@@ -496,33 +560,37 @@ impl Connections {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Trade the code for the sign-in, and keep it — unless a Cancel, Disconnect, or newer
+    /// sign-in came meanwhile.
     async fn finish_sign_in(
         &self,
-        id: &str,
-        kind: AccountKind,
-        app_id: &str,
-        authority: &str,
-        redirect: &str,
+        s: &SignIn<'_>,
         code: &str,
         verifier: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Signed, String> {
+        let id = s.id;
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
-        let scopes = microsoft365::scopes(&conn, kind).join(" ");
+        // The sign-in belongs to the app it started with.
+        if self.app_id(&conn).as_deref() != Some(s.app_id) {
+            return Err(format!(
+                "{}'s app changed while you signed in. Connect again.",
+                conn.label()
+            ));
+        }
         let form = vec![
-            ("client_id".to_owned(), app_id.to_owned()),
+            ("client_id".to_owned(), s.app_id.to_owned()),
             ("grant_type".to_owned(), "authorization_code".to_owned()),
             ("code".to_owned(), code.to_owned()),
-            ("redirect_uri".to_owned(), redirect.to_owned()),
+            ("redirect_uri".to_owned(), s.redirect.to_owned()),
             ("code_verifier".to_owned(), verifier.to_owned()),
-            ("scope".to_owned(), scopes),
+            ("scope".to_owned(), s.scopes.to_owned()),
         ];
         let reply = self
             .http
             .send(
                 conn.service,
                 reqwest::Method::POST,
-                &microsoft365::token_address(authority),
+                &microsoft365::token_address(s.authority),
                 None,
                 &[],
                 Body::Form(form),
@@ -534,10 +602,10 @@ impl Connections {
         if !reply.ok() {
             let error = answer["error"].as_str().unwrap_or_default();
             let description = answer["error_description"].as_str().unwrap_or_default();
-            if microsoft365::needs_admin(error, description) {
+            if microsoft365::admin_may_help(error, description) {
                 lock(&self.state)
                     .admin
-                    .insert(id.to_owned(), microsoft365::admin_link(app_id, None));
+                    .insert(id.to_owned(), microsoft365::admin_link(s.app_id, None));
             }
             return Err(microsoft365::refusal_words(error, description));
         }
@@ -550,50 +618,73 @@ impl Connections {
         let kind = if tenant.as_deref() == Some(microsoft365::PERSONAL_TENANT) {
             AccountKind::Personal
         } else {
-            kind
+            s.kind
         };
         account.tenant = tenant;
-        self.keep(id, refresh)?;
-        if let Some(access) = answer["access_token"].as_str() {
-            let expires = answer["expires_in"].as_u64().unwrap_or(3600);
-            lock(&self.state).tokens.insert(
-                id.to_owned(),
-                (
-                    access.to_owned(),
-                    Instant::now() + Duration::from_secs(expires),
-                ),
-            );
-        }
         let granted = microsoft365::granted(answer["scope"].as_str().unwrap_or_default());
-        self.guard()
-            .connection_connected(id, Some(kind), account, &granted)
-            .map_err(|e| e.to_string())?;
-        self.changed();
-        Ok(())
-    }
-
-    /// Keep a long-lived sign-in in the Vault, and check it reads back the same.
-    fn keep(&self, id: &str, value: &str) -> Result<(), String> {
-        let key = vault_id(id);
-        vault::put(self.store.as_ref(), &key, value).map_err(|e| {
-            format!(
-                "Plenipo could not keep the sign-in in {} ({e}).",
-                self.store.label()
-            )
-        })?;
-        match vault::read(self.store.as_ref(), &key) {
-            Ok(Some(v)) if v == value => Ok(()),
-            _ => Err(format!(
-                "Plenipo could not keep the sign-in in {}: it did not read back the same.",
-                self.store.label()
-            )),
+        {
+            let _one = lock(&self.commit);
+            if lock(&self.state).turn(id) != s.turn {
+                return Ok(Signed::Stopped);
+            }
+            let previous = vault::read(self.store.as_ref(), &vault_id(id))
+                .ok()
+                .flatten();
+            self.keep(id, refresh, previous.as_deref())?;
+            if let Some(access) = answer["access_token"].as_str() {
+                let expires = answer["expires_in"].as_u64().unwrap_or(3600);
+                lock(&self.state).tokens.insert(
+                    id.to_owned(),
+                    (
+                        access.to_owned(),
+                        Instant::now() + Duration::from_secs(expires),
+                    ),
+                );
+            }
+            if let Err(e) = self
+                .guard()
+                .connection_connected(id, Some(kind), account, &granted)
+            {
+                // Nothing kept that the owner cannot see or disconnect.
+                let _ = vault::erase(self.store.as_ref(), &vault_id(id));
+                lock(&self.state).tokens.remove(id);
+                return Err(e.to_string());
+            }
         }
+        self.changed();
+        Ok(Signed::In)
     }
 
-    /// Stop a sign-in waiting in the owner's browser.
+    /// Keep a long-lived sign-in in the Vault, and check it reads back the same. If that fails,
+    /// the `previous` one goes back (Microsoft does not cancel it when it is used), or, with none,
+    /// nothing is left — never a mix of the two.
+    fn keep(&self, id: &str, value: &str, previous: Option<&str>) -> Result<(), String> {
+        let key = vault_id(id);
+        let label = self.store.label();
+        let kept = vault::put(self.store.as_ref(), &key, value)
+            .map_err(|e| format!("Plenipo could not keep the sign-in in {label} ({e})."))
+            .and_then(|()| match vault::read(self.store.as_ref(), &key) {
+                Ok(Some(v)) if v == value => Ok(()),
+                _ => Err(format!(
+                    "Plenipo could not keep the sign-in in {label}: it did not read back the same."
+                )),
+            });
+        if kept.is_err() {
+            let _ = match previous {
+                Some(p) => vault::put(self.store.as_ref(), &key, p),
+                None => vault::erase(self.store.as_ref(), &key),
+            };
+        }
+        kept
+    }
+
+    /// Stop a sign-in waiting in the owner's browser (even one Microsoft already answered: its
+    /// sign-in is not kept).
     pub fn cancel(&self, id: &str) -> bool {
-        match lock(&self.state).waiting.remove(id) {
-            Some(tx) => {
+        let mut s = lock(&self.state);
+        match s.waiting.remove(id) {
+            Some((_, tx)) => {
+                s.next(id);
                 let _ = tx.send(());
                 true
             }
@@ -601,27 +692,38 @@ impl Connections {
         }
     }
 
-    /// Disconnect: forget the sign-in (the Vault's value and its pieces, the access token), and
-    /// mark it not connected. Microsoft has no way to cancel one sign-in, so nothing is sent.
+    /// Disconnect: its tools stop at once — it is marked not connected, and its access token and
+    /// any sign-in under way are dropped — then its sign-in leaves the Vault (with its pieces).
+    /// Microsoft has no way to cancel one sign-in, so nothing is sent.
     pub fn disconnect(&self, id: &str) -> Result<(), String> {
-        self.cancel(id);
-        vault::erase(self.store.as_ref(), &vault_id(id)).map_err(|e| {
-            format!(
-                "Plenipo could not remove the sign-in from {} ({e}).",
-                self.store.label()
-            )
-        })?;
+        let marked;
+        let erased;
         {
-            let mut s = lock(&self.state);
-            s.tokens.remove(id);
-            s.admin.remove(id);
-            s.problem.remove(id);
+            let _one = lock(&self.commit);
+            {
+                let mut s = lock(&self.state);
+                s.next(id);
+                if let Some((_, tx)) = s.waiting.remove(id) {
+                    let _ = tx.send(());
+                }
+                s.tokens.remove(id);
+                s.admin.remove(id);
+                s.problem.remove(id);
+            }
+            marked = self
+                .guard()
+                .connection_disconnected(id)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+            erased = vault::erase(self.store.as_ref(), &vault_id(id)).map_err(|e| {
+                format!(
+                    "Plenipo could not remove the sign-in from {} ({e}).",
+                    self.store.label()
+                )
+            });
         }
-        self.guard()
-            .connection_disconnected(id)
-            .map_err(|e| e.to_string())?;
         self.changed();
-        Ok(())
+        marked.and(erased)
     }
 
     // ---- Fresh access tokens --------------------------------------------------------------------
@@ -640,9 +742,13 @@ impl Connections {
             return Ok(t);
         }
         let _one = self.refreshing.lock().await;
-        if let Some(t) = fresh(&lock(&self.state)) {
-            return Ok(t);
-        }
+        let turn = {
+            let s = lock(&self.state);
+            if let Some(t) = fresh(&s) {
+                return Ok(t);
+            }
+            s.turn(id)
+        };
         let name = name_of(id);
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
         match conn.state {
@@ -670,13 +776,14 @@ impl Connections {
                 .and_then(|a| a.tenant.clone())
                 .unwrap_or_else(|| "organizations".into()),
         };
+        // Only what Microsoft already granted: asking for more fails the renewal.
         let form = vec![
             ("client_id".to_owned(), app_id),
             ("grant_type".to_owned(), "refresh_token".to_owned()),
-            ("refresh_token".to_owned(), refresh),
+            ("refresh_token".to_owned(), refresh.clone()),
             (
                 "scope".to_owned(),
-                microsoft365::scopes(&conn, kind).join(" "),
+                microsoft365::refresh_scopes(&conn, kind).join(" "),
             ),
         ];
         let reply = self
@@ -693,37 +800,34 @@ impl Connections {
             .await
             .map_err(|e| format!("{name}: {e}"))?;
         let answer = reply.json();
-        if !reply.ok() {
-            let error = answer["error"].as_str().unwrap_or_default();
-            if matches!(
-                error,
-                "invalid_grant" | "interaction_required" | "consent_required"
-            ) {
-                let reason = if error == "invalid_grant" {
-                    format!("{name} no longer accepts the sign-in (it expired, was removed, or the password changed).")
-                } else {
-                    format!("{name} asks for the sign-in to be done again.")
-                };
-                let _ = vault::erase(self.store.as_ref(), &vault_id(id));
-                lock(&self.state).tokens.remove(id);
-                let _ = self.guard().connection_needs_sign_in(id, &reason);
-                self.changed();
+        let result = {
+            let _commit = lock(&self.commit);
+            // Disconnected, cancelled, or signed in again meanwhile: this renewal keeps nothing.
+            if lock(&self.state).turn(id) != turn {
                 return Err(format!(
-                    "{name} needs the owner to sign in again (Settings → Connections)."
+                    "{name} was disconnected or signed in again meanwhile. Try again."
                 ));
             }
-            return Err(format!(
-                "{name} did not renew the sign-in ({}).",
-                reply.status
-            ));
-        }
+            if reply.ok() {
+                self.renewed(id, &answer, &refresh)
+            } else {
+                Err(self.renewal_refused(id, &answer, reply.status))
+            }
+        };
+        self.changed();
+        result
+    }
+
+    /// Keep a renewal: the new long-lived sign-in (if any) and the access token.
+    fn renewed(&self, id: &str, answer: &Value, previous: &str) -> Result<String, String> {
+        let name = name_of(id);
         let access = answer["access_token"]
             .as_str()
             .filter(|t| !t.is_empty())
             .ok_or_else(|| format!("{name} sent no access token."))?
             .to_owned();
         if let Some(new) = answer["refresh_token"].as_str().filter(|t| !t.is_empty()) {
-            self.keep(id, new)?;
+            self.keep(id, new, Some(previous))?;
         }
         let expires = answer["expires_in"].as_u64().unwrap_or(3600);
         lock(&self.state).tokens.insert(
@@ -733,8 +837,29 @@ impl Connections {
                 Instant::now() + Duration::from_secs(expires),
             ),
         );
-        self.changed();
         Ok(access)
+    }
+
+    /// Microsoft refused a renewal: when it no longer accepts the sign-in, forget it, and say the
+    /// owner must sign in again. What the worker is told.
+    fn renewal_refused(&self, id: &str, answer: &Value, status: u16) -> String {
+        let name = name_of(id);
+        let error = answer["error"].as_str().unwrap_or_default();
+        if !matches!(
+            error,
+            "invalid_grant" | "interaction_required" | "consent_required"
+        ) {
+            return format!("{name} did not renew the sign-in ({status}).");
+        }
+        let reason = if error == "invalid_grant" {
+            format!("{name} no longer accepts the sign-in (it expired, was removed, or the password changed).")
+        } else {
+            format!("{name} asks for the sign-in to be done again.")
+        };
+        let _ = vault::erase(self.store.as_ref(), &vault_id(id));
+        lock(&self.state).tokens.remove(id);
+        let _ = self.guard().connection_needs_sign_in(id, &reason);
+        format!("{name} needs the owner to sign in again (Settings → Connections).")
     }
 
     /// One Graph call for connection `id`, with a fresh access token (tried once more with a new
@@ -768,7 +893,13 @@ impl Connections {
         if reply.status != 401 {
             return Ok(reply);
         }
-        lock(&self.state).tokens.remove(id);
+        {
+            let mut s = lock(&self.state);
+            // Only the token that was refused: a newer one stays.
+            if s.tokens.get(id).is_some_and(|(t, _)| *t == token) {
+                s.tokens.remove(id);
+            }
+        }
         let token = self.access_token(id).await?;
         self.http
             .send(
@@ -802,13 +933,14 @@ impl Connections {
                 id: r.id.clone(),
                 name: r.name.clone(),
                 role: None,
+                archived: false,
             })
             .collect();
         people.extend(
             records
                 .positions
                 .iter()
-                .filter(|p| !p.is_deleted() && p.archived_at.is_none())
+                .filter(|p| !p.is_deleted())
                 .map(|p| PersonOption {
                     kind: "agent".into(),
                     id: p.id.clone(),
@@ -818,6 +950,7 @@ impl Connections {
                         .iter()
                         .find(|r| r.id == p.role_id)
                         .map(|r| r.name.clone()),
+                    archived: p.archived_at.is_some(),
                 }),
         );
         let state = lock(&self.state);
@@ -994,7 +1127,7 @@ impl Graph<'_> {
     }
 
     pub async fn send_empty(&self, method: reqwest::Method, url: &str) -> Result<(), String> {
-        self.call(method, url, None, Body::Json(json!({})), MAX_ANSWER)
+        self.call(method, url, None, Body::Empty, MAX_ANSWER)
             .await
             .map(|_| ())
     }

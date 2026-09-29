@@ -422,6 +422,18 @@ pub fn evaluate(
     let mut connection_sensitive = None;
     let mut connection_all_listed = false;
     if let Some(check) = &request.connection {
+        // A tool that writes, sends, deletes, or pays needs the writing permission, whatever it
+        // is called (defense in depth: the tool tables keep these in line).
+        if check.kind.writes() && request.capability != Capability::ConnectionsWrite {
+            return decision(
+                Verdict::Deny,
+                Layer::Target,
+                "Blocked: this changes something, so it needs Write through Connections.".into(),
+                risk,
+                None,
+                checks,
+            );
+        }
         match connections::check(check) {
             ConnectionVerdict::Deny { layer, reason } => {
                 return decision(
@@ -943,6 +955,93 @@ mod tests {
         // A draft stays in the owner's account: no question.
         let d = connection_eval(&c, &s, &m, ToolKind::Write, &[]);
         assert_eq!(d.verdict, Verdict::Allow);
+    }
+
+    /// The switch reaches sending only: never deleting or paying, even to listed recipients; a
+    /// limit that asks still asks; and a tool that changes something needs the writing
+    /// permission whatever it says it is.
+    #[test]
+    fn the_send_switch_reaches_sending_only_and_a_limit_that_asks_still_asks() {
+        use crate::connections::{Part, ToolKind};
+        let mut c = config();
+        c.switches.send_without_asking = true;
+        c.switches.buy_without_asking = true;
+        let m = microsoft();
+        let s = writer("pos-1", None);
+        let team = vec!["frankie@8westit.com".to_owned()];
+        for kind in [ToolKind::Delete, ToolKind::Pay] {
+            let d = connection_eval(&c, &s, &m, kind, &team);
+            assert_eq!(d.verdict, Verdict::Ask, "{kind:?}: {}", d.reason);
+        }
+        // A project limit whose set says "ask me" for writing: a listed send still asks.
+        let asks = c
+            .save_set(&crate::dto::PermissionSetInput {
+                id: None,
+                name: "Asks first".into(),
+                description: String::new(),
+                levels: [
+                    (Capability::ConnectionsRead, Level::Allowed),
+                    (Capability::ConnectionsWrite, Level::Ask),
+                ]
+                .into_iter()
+                .collect(),
+            })
+            .unwrap();
+        let limited = writer("pos-1", Some(&asks.id));
+        let d = connection_eval(&c, &limited, &m, ToolKind::Send, &team);
+        assert_eq!(d.verdict, Verdict::Ask, "{}", d.reason);
+        // A department limit narrows too.
+        let mut in_dept = writer("pos-1", None);
+        in_dept.department = Some(ScopeUnit {
+            id: "d".into(),
+            name: "Development".into(),
+        });
+        c.assign_department("d", Some("read-only")).unwrap();
+        let d = connection_eval(&c, &in_dept, &m, ToolKind::Read, &[]);
+        assert_eq!((d.verdict, d.layer), (Verdict::Deny, Layer::Department));
+        // A tool that sends but asks only for reading is refused.
+        let now = level_for_connection(&c, &s, &m, Capability::ConnectionsRead);
+        let mut r = request(Capability::ConnectionsRead, &[], None);
+        r.connection = Some(ConnectionCheck {
+            connection: &m,
+            part: Part::Mail,
+            kind: ToolKind::Send,
+            recipients: &team,
+        });
+        let d = evaluate(
+            &c,
+            &r,
+            &now,
+            GrantState {
+                level: now.level,
+                revoked: false,
+            },
+        );
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(
+            d.reason.contains("Write through Connections"),
+            "{}",
+            d.reason
+        );
+        // A step's grant stricter than the settings now: the stricter wins.
+        let now = level_for_connection(&c, &s, &m, Capability::ConnectionsWrite);
+        let mut r = request(Capability::ConnectionsWrite, &[], None);
+        r.connection = Some(ConnectionCheck {
+            connection: &m,
+            part: Part::Mail,
+            kind: ToolKind::Write,
+            recipients: &[],
+        });
+        let d = evaluate(
+            &c,
+            &r,
+            &now,
+            GrantState {
+                level: Level::Blocked,
+                revoked: false,
+            },
+        );
+        assert_eq!(d.verdict, Verdict::Deny, "{}", d.reason);
     }
 
     fn eval(c: &GuardConfig, s: &Scope, r: &Request<'_>) -> Decision {

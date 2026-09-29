@@ -57,3 +57,9 @@ wait on the slowest of those steps.
 - **A part per service (six parts).** More paperwork than it saves; Slack and Google share their
   shape (chat and mail from a big company with an app review), and the last three share theirs
   (keys the owner creates).
+
+## As built (v1.13.0)
+
+Part 20A (Settings → Connections, Guard's rules, signing in, and Microsoft 365) is version 1.13.0.
+Parts 20B (Slack and Google, 1.13.1) and 20C (HubSpot, Stripe, WordPress and WooCommerce, and
+add-on tools, 1.13.2) are next.

@@ -787,6 +787,9 @@ mod ipc_boundary_tests {
             supervisor.clone(),
             &agents,
         );
+        // A copy built with an app ID would otherwise open the developer's real browser when a
+        // test presses Connect: these tests open nothing.
+        broker.set_connection_opener(Arc::new(NoBrowser));
         app.manage(Arc::new(notices::start(
             app.handle(),
             ledger.clone(),
@@ -812,6 +815,19 @@ mod ipc_boundary_tests {
         app.manage(router);
         app.manage(workforce);
         app
+    }
+
+    /// A browser that opens nothing.
+    struct NoBrowser;
+
+    impl plenipo_capabilities::connections::Opener for NoBrowser {
+        fn open(
+            &self,
+            _: String,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
@@ -2038,7 +2054,7 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let s = perms(invoke(&main, "get_permissions"));
-        assert_eq!(s.settings.capabilities.len(), 16);
+        assert_eq!(s.settings.capabilities.len(), 18);
         let ids: Vec<&str> = s.settings.sets.iter().map(|x| x.id.as_str()).collect();
         for id in [
             "read-only",
@@ -4229,7 +4245,7 @@ mod ipc_boundary_tests {
             (
                 "set_connection_send_list",
                 serde_json::json!({ "connectionId": id, "list": ["everyone"] }),
-                "is not an email address, an @domain, or a channel",
+                "is not an email address or an @domain",
             ),
             (
                 "set_connection_own_app",

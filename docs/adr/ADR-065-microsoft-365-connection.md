@@ -191,3 +191,24 @@ answer "admin approval needed", "sign in again", and "too many requests".
   Calendar, and OneDrive.
 - **A client secret, or a web app with a server.** Rejected: a desktop app cannot keep a secret,
   and Plenipo must work without an 8 West server.
+
+## As built (v1.13.0)
+
+Built as written: 21 tools — Mail (search, read, draft, send), Calendar (events, add an event),
+OneDrive (search, list, read, save), SharePoint (search, list, read, save), and Teams (chats, chat
+messages, teams and channels, channel messages, send in a chat, start a chat, post). The
+permissions per part and level are the table above; a personal account has Mail, Calendar, and
+OneDrive. Details as built:
+
+- **8 West's app ID** comes from the repository variable `PLENIPO_MICROSOFT_APP_ID` (public, not a
+  secret); until it is set, the card says "This copy of Plenipo has no Microsoft app ID yet", and
+  an organization can use its own app under **Advanced** (locked while a sign-in waits).
+- **Downloads** go only to Microsoft's storage: `*.sharepoint.com`, `*.files.1drv.com`, and, for
+  personal accounts, `*.microsoftpersonalcontent.com`; the sign-in goes to Microsoft Graph only.
+- **Reading a reply's own words:** Outlook's "unique body" may hold the earlier message too, so
+  Plenipo cuts at Outlook's line above a quoted message.
+- **Teams:** a chat message goes to the chat's members as Teams gives their addresses (the owner by
+  account); posting in a channel always asks. **SharePoint:** adding a file asks (see ADR-062, as
+  built).
+- **"Too many requests":** waited on once, for up to 30 seconds as Microsoft asks.
+- **Sending** uses Microsoft's documented request with no body.

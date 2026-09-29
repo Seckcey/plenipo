@@ -107,7 +107,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
         run: |
+          # A release never signs in with the end-to-end tests' stand-in app ID (Phase 20).
+          if [ "$PLENIPO_MICROSOFT_APP_ID" = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" ]; then
+            echo "::error::Repository variable PLENIPO_MICROSOFT_APP_ID is the tests' stand-in ID; set 8 West's app ID (docs/phases/phase-20-microsoft-app-registration.md)"
+            exit 1
+          fi
           for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Environment secret $name is not set in the Environment 'release'; see docs/development/code-signing.md"
@@ -150,6 +156,9 @@ jobs:
           # 8 West's Microsoft app ID (ADR-065 §6): public, not a secret. Until the owner adds the
           # variable, Plenipo says it has no app ID yet (an organization can use its own).
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
+          # Never a test stand-in in a release (an empty value is ignored).
+          PLENIPO_CONNECTIONS_STAND_IN: ""
+          PLENIPO_AI_TOOL_RELEASES: ""
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -175,6 +184,8 @@ jobs:
           # Not secrets; built in so a dry-run installer is otherwise the same as a release one.
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
+          PLENIPO_CONNECTIONS_STAND_IN: ""
+          PLENIPO_AI_TOOL_RELEASES: ""
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run

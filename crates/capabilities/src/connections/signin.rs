@@ -2,13 +2,15 @@
 //! code flow with PKCE (RFC 7636) and a one-time loopback listener (RFC 8252).
 //!
 //! - A fresh PKCE secret and a fresh `state` for every sign-in (32 random bytes each).
-//! - A listener on `127.0.0.1` (and `[::1]` at the same port when it is free) at a port Windows
-//!   picks. The owner's browser is opened at its start page, `/start`, which sends the browser on
-//!   to the service's sign-in page — so the address Plenipo hands to Windows holds nothing but
-//!   this computer's port, and the sign-in's details are never in a program's record. The
-//!   listener's answer is **one** request: `GET /?code=…&state=…` whose `state` matches. Anything
-//!   else gets "not found" and is ignored. The page it shows never repeats anything from the
-//!   request. It stops after [`WAIT`], on Cancel, or once answered.
+//! - A listener on `127.0.0.1` and `[::1]` at one port Windows picks (a port another program
+//!   holds on either is never used; `[::1]` is left out only where this computer has no IPv6).
+//!   The owner's browser is opened at its start page, `/start/<random>`, which sends the browser
+//!   on to the service's sign-in page **once** and is "not found" after — so the address Plenipo
+//!   hands to Windows holds nothing but this computer's port and a key used up by the owner's
+//!   browser, and no other program on this computer can learn the sign-in's `state` or challenge
+//!   from it. The listener's answer is **one** request: `GET /?code=…&state=…` whose `state`
+//!   matches. Anything else gets "not found" and is ignored. The page it shows never repeats
+//!   anything from the request. It stops after [`WAIT`], on Cancel, or once answered.
 //! - Nothing here is recorded or logged: not the code, the state, or the secret.
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -79,27 +81,49 @@ pub enum Callback {
     Refused { error: String, description: String },
 }
 
+/// How many ports are tried for one that is free on both `127.0.0.1` and `[::1]`.
+const PORT_TRIES: usize = 20;
+
 /// A listener waiting for one answer.
 pub struct Listener {
     pub port: u16,
     v4: TcpListener,
     v6: Option<TcpListener>,
+    /// The start page's one-time key.
+    start: String,
 }
 
 impl Listener {
-    /// Listen on `127.0.0.1` at a port the system picks, and `[::1]` at the same port if free.
+    /// Listen on `127.0.0.1` and `[::1]` at one port the system picks. A browser opening
+    /// `localhost` may try either, so a port another program holds on `[::1]` is never used;
+    /// only a computer without IPv6 gets `127.0.0.1` alone.
     pub async fn open() -> std::io::Result<Self> {
-        let v4 = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
-        let port = v4.local_addr()?.port();
-        let v6 = TcpListener::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, port)))
-            .await
-            .ok();
-        Ok(Self { port, v4, v6 })
+        let mut last = None;
+        for _ in 0..PORT_TRIES {
+            let v4 = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
+            let port = v4.local_addr()?.port();
+            match TcpListener::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, port))).await {
+                Ok(v6) => return Ok(Self::new(port, v4, Some(v6))),
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => last = Some(e),
+                // No IPv6 on this computer: `localhost` means `127.0.0.1` alone.
+                Err(_) => return Ok(Self::new(port, v4, None)),
+            }
+        }
+        Err(last.unwrap_or_else(|| std::io::Error::other("no free port")))
     }
 
-    /// The address the owner's browser is opened at: this computer's start page.
+    fn new(port: u16, v4: TcpListener, v6: Option<TcpListener>) -> Self {
+        Self {
+            port,
+            v4,
+            v6,
+            start: b64(&random_bytes()),
+        }
+    }
+
+    /// The address the owner's browser is opened at: this computer's one-time start page.
     pub fn start_address(&self) -> String {
-        format!("http://localhost:{}/start", self.port)
+        format!("http://localhost:{}/start/{}", self.port, self.start)
     }
 
     /// Wait for the one request whose `state` matches, until `cancel` fires or [`WAIT`] passes;
@@ -112,6 +136,7 @@ impl Listener {
         cancel: oneshot::Receiver<()>,
     ) -> Option<Callback> {
         let serve = async {
+            let mut start = Some(self.start.as_str());
             loop {
                 let stream = match &self.v6 {
                     Some(v6) => tokio::select! {
@@ -121,8 +146,11 @@ impl Listener {
                     None => self.v4.accept().await.map(|(s, _)| s),
                 };
                 let Ok(stream) = stream else { continue };
-                if let Some(answer) = answer(stream, sign_in, state).await {
-                    return answer;
+                match answer(stream, sign_in, state, start).await {
+                    Some(Asked::Answer(answer)) => return answer,
+                    // The start page is used up once the owner's browser has it.
+                    Some(Asked::Start) => start = None,
+                    None => {}
                 }
             }
         };
@@ -143,8 +171,13 @@ pub enum Asked {
     Answer(Callback),
 }
 
-/// Read one request; answer it; the callback when it is the one waited for.
-async fn answer(mut stream: TcpStream, sign_in: &str, state: &str) -> Option<Callback> {
+/// Read one request and answer it; what it was, when it was the start page or the answer.
+async fn answer(
+    mut stream: TcpStream,
+    sign_in: &str,
+    state: &str,
+    start: Option<&str>,
+) -> Option<Asked> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
     let read = tokio::time::timeout(Duration::from_secs(10), async {
@@ -156,7 +189,7 @@ async fn answer(mut stream: TcpStream, sign_in: &str, state: &str) -> Option<Cal
         }
     })
     .await;
-    let asked = read.ok().and_then(|()| parse(&buf, state));
+    let asked = read.ok().and_then(|()| parse(&buf, state, start));
     let (status, page, location) = match &asked {
         Some(Asked::Start) => ("302 Found", "", Some(sign_in)),
         Some(Asked::Answer(Callback::Code(_))) => ("200 OK", DONE_PAGE, None),
@@ -171,14 +204,12 @@ async fn answer(mut stream: TcpStream, sign_in: &str, state: &str) -> Option<Cal
     );
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
-    match asked {
-        Some(Asked::Answer(callback)) => Some(callback),
-        _ => None,
-    }
+    asked
 }
 
-/// What a request is: `GET /start`, or `GET /?…` with the right `state`.
-pub fn parse(request: &[u8], state: &str) -> Option<Asked> {
+/// What a request is: `GET /start/<key>` while the start page is not used up (`start`), or
+/// `GET /?…` with the right `state`.
+pub fn parse(request: &[u8], state: &str, start: Option<&str>) -> Option<Asked> {
     let text = std::str::from_utf8(request).ok()?;
     let line = text.lines().next()?;
     let mut words = line.split(' ');
@@ -186,8 +217,8 @@ pub fn parse(request: &[u8], state: &str) -> Option<Asked> {
     if method != "GET" {
         return None;
     }
-    if target == "/start" {
-        return Some(Asked::Start);
+    if let Some(key) = target.strip_prefix("/start/") {
+        return (start == Some(key)).then_some(Asked::Start);
     }
     if !target.starts_with("/?") {
         return None;
@@ -234,28 +265,33 @@ mod tests {
     #[test]
     fn only_a_get_with_the_right_state_is_the_answer() {
         let ok = b"GET /?code=abc&state=s1 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        let k = Some("k1");
         assert_eq!(
-            parse(ok, "s1"),
+            parse(ok, "s1", k),
             Some(Asked::Answer(Callback::Code("abc".into())))
         );
         assert_eq!(
-            parse(b"GET /start HTTP/1.1\r\n\r\n", "s1"),
+            parse(b"GET /start/k1 HTTP/1.1\r\n\r\n", "s1", k),
             Some(Asked::Start)
         );
-        assert_eq!(parse(ok, "s2"), None, "a wrong state is ignored");
+        // The start page only with its key, and only until it is used.
+        assert_eq!(parse(b"GET /start HTTP/1.1\r\n\r\n", "s1", k), None);
+        assert_eq!(parse(b"GET /start/k2 HTTP/1.1\r\n\r\n", "s1", k), None);
+        assert_eq!(parse(b"GET /start/k1 HTTP/1.1\r\n\r\n", "s1", None), None);
+        assert_eq!(parse(ok, "s2", k), None, "a wrong state is ignored");
         assert_eq!(
-            parse(b"POST /?code=abc&state=s1 HTTP/1.1\r\n\r\n", "s1"),
+            parse(b"POST /?code=abc&state=s1 HTTP/1.1\r\n\r\n", "s1", k),
             None
         );
         assert_eq!(
-            parse(b"GET /other?code=abc&state=s1 HTTP/1.1\r\n\r\n", "s1"),
+            parse(b"GET /other?code=abc&state=s1 HTTP/1.1\r\n\r\n", "s1", k),
             None
         );
-        assert_eq!(parse(b"GET /?code=abc HTTP/1.1\r\n\r\n", "s1"), None);
+        assert_eq!(parse(b"GET /?code=abc HTTP/1.1\r\n\r\n", "s1", k), None);
         let refused =
             b"GET /?error=access_denied&error_description=AADSTS65001%3A+no&state=s1 HTTP/1.1\r\n\r\n";
         assert_eq!(
-            parse(refused, "s1"),
+            parse(refused, "s1", k),
             Some(Asked::Answer(Callback::Refused {
                 error: "access_denied".into(),
                 description: "AADSTS65001: no".into()
@@ -267,6 +303,12 @@ mod tests {
     async fn the_listener_answers_once_and_ignores_the_rest() {
         let listener = Listener::open().await.unwrap();
         let port = listener.port;
+        let start = listener.start_address();
+        let start = start
+            .strip_prefix(&format!("http://localhost:{port}"))
+            .unwrap()
+            .to_owned();
+        assert!(start.starts_with("/start/") && start.len() > 40, "{start}");
         let (_cancel, rx) = oneshot::channel();
         let waiting =
             tokio::spawn(
@@ -281,10 +323,16 @@ mod tests {
             s.read_to_string(&mut out).await.unwrap();
             out
         };
-        // The start page sends the browser on to the sign-in page.
-        let start = send("/start").await;
-        assert!(start.starts_with("HTTP/1.1 302"));
-        assert!(start.contains("Location: https://sign.in/x?state=s1"));
+        // The start page sends the browser on to the sign-in page, once; then it is gone, and
+        // another program on this computer learns nothing from it.
+        let path: &'static str = Box::leak(start.into_boxed_str());
+        let first = send(path).await;
+        assert!(first.starts_with("HTTP/1.1 302"));
+        assert!(first.contains("Location: https://sign.in/x?state=s1"));
+        let again = send(path).await;
+        assert!(again.starts_with("HTTP/1.1 404"), "{again}");
+        assert!(!again.contains("state=s1"));
+        assert!(send("/start").await.starts_with("HTTP/1.1 404"));
         // A stranger's request: "not found", and the listener keeps waiting.
         let stranger = send("/?code=evil&state=guess").await;
         assert!(stranger.starts_with("HTTP/1.1 404"));

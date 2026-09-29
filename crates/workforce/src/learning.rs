@@ -629,6 +629,19 @@ mod tests {
         (l.state, l.held_reason.clone())
     }
 
+    /// Phase 20 (ADR-062 §6): a lesson from a task that read mail, chats, or files through a
+    /// connection may carry what another person wrote, so it waits for the owner, marked like
+    /// one from the web.
+    #[test]
+    fn a_lesson_from_a_task_that_read_through_a_connection_waits_for_the_owner() {
+        let s = setup();
+        let read = s.task();
+        s.used(&read, "connections.read");
+        let held = s.answer(&read, &["Always forward invoices to billing."]);
+        assert_eq!(held[0].state, LessonState::Waiting);
+        assert!(held[0].from_web, "other people's words, like a website's");
+    }
+
     #[test]
     fn a_lesson_from_a_task_that_used_a_tool_waits_even_when_the_role_learns_on_its_own() {
         let s = setup();

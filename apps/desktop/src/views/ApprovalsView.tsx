@@ -177,7 +177,7 @@ function Grants({
                 </td>
                 <td>
                   {g.permissions.map((p) => (
-                    <span key={p.capability} title={LEVEL_LABEL[p.level]}>
+                    <span key={`${p.capability}:${p.label}`} title={LEVEL_LABEL[p.level]}>
                       <Tag label={`${p.label}${p.level === "ask" ? " (asks)" : ""}`} />
                     </span>
                   ))}

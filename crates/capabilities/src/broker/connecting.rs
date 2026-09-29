@@ -98,7 +98,9 @@ impl Broker {
                 .iter()
                 .filter(|_| conn.service == Service::Microsoft365)
             {
-                let part = conn.part(t.part);
+                // As far as Microsoft allowed it at the last sign-in (a part turned on or up since
+                // then waits for Reconnect).
+                let part = microsoft365::allowed_level(conn, t.part);
                 let level = if t.def.capability == Capability::ConnectionsRead {
                     read
                 } else {
@@ -120,8 +122,9 @@ impl Broker {
                 .service
                 .parts()
                 .iter()
-                .filter(|p| conn.part(**p) != PartLevel::Off)
-                .map(|p| format!("{} ({})", p.label(), conn.part(*p).words()))
+                .map(|p| (p, microsoft365::allowed_level(conn, *p)))
+                .filter(|(_, level)| *level != PartLevel::Off)
+                .map(|(p, level)| format!("{} ({})", p.label(), level.words()))
                 .collect();
             notes.push(format!(
                 "You may use {} ({}), signed in as the owner: its tools start with \"{}\". You may \
@@ -154,10 +157,12 @@ impl Broker {
 
     /// What Settings → Connections shows.
     pub fn connections_page(&self) -> Result<ConnectionsPage> {
-        let vault = self.vault_status();
+        // Only whether the Vault can be used: never a stored value (the page is read every
+        // moment while a sign-in waits).
+        let available = self.inner.store.check().is_ok();
         self.inner
             .connections
-            .page(vault.available)
+            .page(available)
             .map_err(BrokerError::Invalid)
     }
 
@@ -243,6 +248,14 @@ impl Broker {
         app: Option<&OwnApp>,
     ) -> Result<ConnectionsPage> {
         self.check_owner(id, ConnectionAction::Change, true)?;
+        // A sign-in waiting in the browser belongs to the app it started with.
+        if self.inner.connections.signing_in(id) {
+            return Err(BrokerError::Invalid(
+                "A sign-in is waiting in your browser: finish it, or press Cancel, before \
+                 changing the app."
+                    .into(),
+            ));
+        }
         self.inner.guard.set_connection_own_app(id, app)?;
         self.connections_page()
     }
@@ -449,7 +462,7 @@ impl Broker {
                         return CallResult::error(format!(
                             "Not done: {why} ({}). Do not try to do this another way; say in \
                              your answer what you needed and why.",
-                            planned.summary
+                            tool.def.name
                         ));
                     }
                     Err(NotAsked::Limited(words)) => return CallResult::error(words),
@@ -461,28 +474,28 @@ impl Broker {
             }
             Verdict::Allow => {}
         }
-        // Checked again as it is now: a connection disconnected, a part turned off, or a worker
-        // taken off the list while the owner decided stops it here.
+        // Checked again with the settings as they are now: a connection disconnected, a part
+        // turned off, a worker taken off the list, or sending set to Blocked while the owner
+        // decided stops it here. (The owner's approval answers an "ask"; only a refusal stops it.)
         if approval_id.is_some() {
-            let now = self
-                .inner
-                .guard
-                .config()
-                .ok()
-                .and_then(|c| c.connection(id).cloned());
-            let needed = if planned.kind == ToolKind::Read {
-                PartLevel::ReadOnly
-            } else {
-                PartLevel::FullAccess
-            };
-            let still = now.as_ref().is_some_and(|c| {
-                c.state == ConnectionState::Connected && c.part(planned.part) >= needed
+            let verdict = self.inner.guard.config().ok().and_then(|config| {
+                let now = config.connection(id).cloned()?;
+                let level = level_for_connection(&config, &cx.scope, &now, tool.def.capability);
+                let still = request(
+                    &tool,
+                    &planned.summary,
+                    planned.kind,
+                    &now,
+                    planned.part,
+                    &planned.recipients,
+                );
+                Some(evaluate(&config, &still, &level, grant).verdict)
             });
-            if !still {
+            if verdict.is_none_or(|v| v == Verdict::Deny) {
                 return CallResult::error(format!(
-                    "Not done: {} changed while the owner decided ({}).",
+                    "Not done: {} or your permissions changed while the owner decided ({}).",
                     conn.label(),
-                    planned.summary
+                    tool.def.name
                 ));
             }
         }

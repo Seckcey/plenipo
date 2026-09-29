@@ -258,11 +258,21 @@ pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
                 .iter()
                 .flat_map(|s| crate::broker::servers::vault_ids(s)),
         )
-        .chain(
-            ids("connections")
+        .chain({
+            // Each kept connection's, and each service's own, in case a sign-in was kept
+            // before its connection was.
+            let mut conns: Vec<String> = ids("connections")
                 .iter()
-                .map(|c| crate::connections::vault_id(c)),
-        )
+                .map(|c| crate::connections::vault_id(c))
+                .collect();
+            for s in plenipo_guard::Service::ALL {
+                let id = crate::connections::vault_id(s.id());
+                if !conns.contains(&id) {
+                    conns.push(id);
+                }
+            }
+            conns
+        })
         .collect()
 }
 

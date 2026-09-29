@@ -19,7 +19,7 @@
 //! - `sessions/<id>.json`: prompts per session, so resume can be verified, and the size of each
 //!   message as it came (`sizes`, in bytes, Plenipo's tools note included);
 //! - `last-args.json`, `last-env.txt`: what the last turn received;
-//! - `notes.txt`: every tools note Plenipo put before a prompt, one after another.
+//! - `tool-notes.txt`: every tools note Plenipo put before a prompt, one after another.
 //!
 //! `[stream-writes:MS]` (Claude Code; a script step's `"streamWrites": MS`) streams each
 //! Plenipo `write_file` or `edit_file` call's arguments in pieces MS milliseconds apart before
@@ -838,7 +838,7 @@ const NOTE_START: &str = "[Plenipo tools]";
 const NOTE_END: &str = "[End of Plenipo tools]";
 
 /// The prompt without Plenipo's tools note, and whether it had one. Each note is kept in
-/// `notes.txt` (appended, one after another), so tests can read what Plenipo told the worker.
+/// `tool-notes.txt` (appended, one after another), so tests can read what Plenipo told the worker.
 fn strip_note(prompt: &str) -> (bool, String) {
     if let Some(rest) = prompt.strip_prefix(NOTE_START) {
         if let Some((note, after)) = rest.split_once(NOTE_END) {
@@ -846,7 +846,7 @@ fn strip_note(prompt: &str) -> (bool, String) {
             if let Ok(mut f) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(state_dir().join("notes.txt"))
+                .open(state_dir().join("tool-notes.txt"))
             {
                 let _ = writeln!(f, "{}\n---", note.trim());
             }

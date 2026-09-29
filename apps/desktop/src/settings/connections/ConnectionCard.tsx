@@ -262,7 +262,9 @@ function OwnApp({ card, onApply }: { card: Card; onApply: (page: ConnectionsPage
   const [appId, setAppId] = useState(c.ownApp?.appId ?? "");
   const [tenant, setTenant] = useState(c.ownApp?.tenant ?? "");
   const { pending, error, run } = useRun(onApply);
-  const locked = c.state !== "notConnected";
+  // A sign-in belongs to the app it was made with, and one waiting in the browser to the app it
+  // started with.
+  const locked = c.state !== "notConnected" || card.signingIn;
   return (
     <details className="connection__section connection__advanced">
       <summary>Advanced</summary>
@@ -276,7 +278,9 @@ function OwnApp({ card, onApply }: { card: Card; onApply: (page: ConnectionsPage
           {c.ownApp
             ? `Using your organization's own app (${c.ownApp.appId}, ${c.ownApp.tenant}).`
             : "Using 8 West's app."}{" "}
-          Disconnect first to change it: a sign-in belongs to the app it was made with.
+          {card.signingIn
+            ? "Finish or cancel the sign-in first: it belongs to the app it started with."
+            : "Disconnect first to change it: a sign-in belongs to the app it was made with."}
         </p>
       ) : (
         <>

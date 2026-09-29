@@ -126,3 +126,8 @@ add-ons; installing programs for the owner.
   calls, files, and secrets away from another's, and nothing runs when no one needs it.
 - **Remote MCP servers as add-ons.** Deferred: their tools can change on the service's side at any
   moment, and each would need its own sign-in; built-in connections cover the named services.
+
+## As built (v1.13.0)
+
+Not built in part 20A: add-on tools come in part 20C
+([ADR-067 (Phase 20 in three parts)](ADR-067-phase-20-in-three-parts.md)).
