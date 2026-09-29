@@ -91,7 +91,9 @@ version="${tag#v}"
 installer="Plenipo_${version}_x64-setup.exe"
 jq -e --arg name "$installer" '.assets | any(.name == $name and .state == "uploaded")' <<< "$release_json" > /dev/null \
   || fail "$tag has no $installer attached; the download buttons would break"
-curl -fsIL --max-time 30 "https://github.com/Seckcey/plenipo/releases/download/$tag/$installer" > /dev/null \
+# One byte is enough to prove the link works (the signed storage link it redirects to may refuse a
+# headers-only request).
+curl -fsSL --max-time 60 -r 0-0 -o /dev/null "https://github.com/Seckcey/plenipo/releases/download/$tag/$installer" \
   || fail "The $installer download link does not work"
 
 # --- 2. What the site shows now ---------------------------------------------------------------
