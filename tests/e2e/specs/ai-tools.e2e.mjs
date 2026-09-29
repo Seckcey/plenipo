@@ -36,6 +36,8 @@ const PUBLISHED = {
 
 const home = makeHome();
 const env = installFakeTools(home);
+// The fake AI tools' state. Antigravity is the exception: Plenipo gives it a home folder of its
+// own (ADR-082), so its state is under the app data's `runtime/ai-tool-homes/antigravity`.
 const stateDir = join(home, ".plenipo-fake-agent");
 const state = (name) => join(stateDir, name);
 const setState = (name, value) => {
@@ -220,7 +222,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
       "settings.json",
     );
     const written = JSON.parse(readFileSync(settings, "utf8"));
-    assert.equal(written.useG1Credits, false);
+    assert.notEqual(written.useG1Credits, true, "paid AI credits at their default, off");
     assert.equal(written.toolPermission, "strict");
     assert.deepEqual(written.permissions.deny, [
       "command(*)",
@@ -374,7 +376,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
         return el ? [...el.options].map((o) => o.textContent) : [];
       }, MENU);
     await waitUntil(
-      async () => (await options()).includes("grok-5 — new, not checked yet"),
+      async () => (await options()).includes("grok-5 — made by xAI — new, not checked yet"),
       "grok-5 offered as new in the menu",
     );
     await (await browser.$(MENU)).selectByAttribute("value", "grok-5");

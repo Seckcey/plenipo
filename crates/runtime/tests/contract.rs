@@ -618,16 +618,26 @@ async fn antigravity_runs_with_a_home_folder_of_its_own() {
     let program = fakes.rt.tool_program("antigravity").unwrap();
     let homes: Vec<&(String, String)> = program.env.iter().filter(|(k, _)| k == HOME_VAR).collect();
     assert_eq!(homes, [&(HOME_VAR.to_owned(), own.display().to_string())]);
+    let written = || std::fs::read_to_string(&settings).unwrap();
+    assert_eq!(
+        written(),
+        plenipo_runtime::agent::antigravity::SETTINGS_TEXT
+    );
     assert_eq!(read()["toolPermission"], "strict");
-    // Changed by hand, or by Antigravity itself: written again before the next run.
+    // Paid AI credits turned on by hand: put back before the check.
     std::fs::write(&settings, r#"{"useG1Credits": true}"#).unwrap();
     let (_, info) = fakes.rt.recheck("antigravity").await.unwrap();
     assert_eq!(info.auth.state, AuthState::Subscription, "{info:#?}");
-    assert_eq!(read()["useG1Credits"], false);
+    assert!(read().get("useG1Credits").is_none());
     // The owner's own home folder is never touched.
     assert!(!fakes.dir.path().join("home").join(".gemini").exists());
 
-    // A task reads them: strict permissions, so it runs.
+    // ... and before each task: the task reads Plenipo's settings, strict, so it runs.
+    std::fs::write(
+        &settings,
+        r#"{"useG1Credits": true, "toolPermission": "request-review"}"#,
+    )
+    .unwrap();
     let (text, outcome) = run_antigravity(&fakes, "Hello [settings]").await;
     assert_eq!(outcome, TurnOutcome::Completed, "{text:?}");
     let text = text.unwrap();
@@ -635,7 +645,11 @@ async fn antigravity_runs_with_a_home_folder_of_its_own() {
         text.contains("Hello") && text.contains(r#""toolPermission":"strict""#),
         "{text}"
     );
-    assert!(text.contains(r#""useG1Credits":false"#), "{text}");
+    assert!(!text.contains("useG1Credits"), "{text}");
+    assert_eq!(
+        written(),
+        plenipo_runtime::agent::antigravity::SETTINGS_TEXT
+    );
     // One of its own tools refused: the task goes on. One that finished: stopped.
     let (_, outcome) = run_antigravity(&fakes, "Look around [refused-tool]").await;
     assert_eq!(outcome, TurnOutcome::Completed);
@@ -653,6 +667,23 @@ async fn antigravity_runs_with_a_home_folder_of_its_own() {
             .any(|n| n.contains("KEY") || n.starts_with("GEMINI")),
         "{env}"
     );
+
+    // Settings that cannot be written: the check says why, and no task runs.
+    std::fs::remove_file(&settings).unwrap();
+    std::fs::create_dir_all(settings.join("in-the-way")).unwrap();
+    let (_, info) = fakes.rt.recheck("antigravity").await.unwrap();
+    assert_eq!(info.installation.state, InstallState::Broken, "{info:#?}");
+    assert!(!info.ready);
+    let detail = info.installation.detail.unwrap_or_default();
+    assert!(
+        detail.contains("could not prepare Antigravity's own settings folder"),
+        "{detail}"
+    );
+    assert!(fakes
+        .rt
+        .start_session("antigravity", "Hello", None)
+        .await
+        .is_err());
 }
 
 /// Run one Antigravity task on `fakes` (whose home folder is Antigravity's own) to its end.

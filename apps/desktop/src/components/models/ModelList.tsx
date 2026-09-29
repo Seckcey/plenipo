@@ -96,7 +96,7 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
         {groups.map((g) => (
           <tbody key={g.key} aria-label={g.label}>
             <tr className="table__group">
-              <th scope="colgroup" colSpan={COLUMNS}>
+              <th scope="rowgroup" colSpan={COLUMNS}>
                 {g.label}
               </th>
             </tr>

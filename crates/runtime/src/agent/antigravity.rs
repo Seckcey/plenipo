@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 use crate::agent::adapter::{
     cap, first_line, model_name, plain_name, ProbeOutput, ProcessEnd, ProviderSession,
     RuntimeAdapter, StatusCheck, Stop, TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT,
-    MAX_SUMMARY, NETWORK_ENV,
+    MAX_RESULT_TEXT, MAX_SUMMARY, NETWORK_ENV,
 };
 use crate::agent::adapter::{NewestVersion, Parsed};
 use crate::agent::discovery::HostEnv;
@@ -65,20 +65,25 @@ const HARMLESS_TOOLS: &[&str] = &[
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Antigravity;
 
-/// Plenipo's settings for Antigravity (ADR-082 §4). Each rule kind was checked to load on
-/// Antigravity 1.2.13: it rewrites the file after reading it and drops rules it does not know
-/// (`url(*)` and `file(*)` were dropped; these five were kept). `useG1Credits: false` is its
-/// default (a rewrite leaves it out); it is written anyway, so paid credits are never on.
-pub fn settings() -> String {
-    let settings = json!({
-        "useG1Credits": false,
-        "toolPermission": STRICT,
-        "permissions": {
-            "deny": ["command(*)", "read_url(*)", "read_file(*)", "write_file(*)", "mcp(*)"]
-        }
-    });
-    serde_json::to_string_pretty(&settings).unwrap_or_default() + "\n"
+/// Plenipo's settings for Antigravity (ADR-082 §4), exactly as Antigravity 1.2.13 writes the
+/// file back after reading it (keys in order, two spaces), so the file is replaced only when
+/// something changed it. Each permission rule kind was checked to load: Antigravity drops rule
+/// kinds it does not know (`url(*)` and `file(*)` were dropped; these five were kept). Paid AI
+/// credits stay at its default, off: it leaves `useG1Credits` out when it is off and keeps it
+/// when it is on, so a file that turns them on is replaced before the next run.
+pub const SETTINGS_TEXT: &str = "{
+  \"permissions\": {
+    \"deny\": [
+      \"command(*)\",
+      \"read_url(*)\",
+      \"read_file(*)\",
+      \"write_file(*)\",
+      \"mcp(*)\"
+    ]
+  },
+  \"toolPermission\": \"strict\"
 }
+";
 
 impl RuntimeAdapter for Antigravity {
     fn id(&self) -> &'static str {
@@ -110,7 +115,8 @@ impl RuntimeAdapter for Antigravity {
             tool_posture: "Conversation only: Antigravity's own tools are off. It cannot run \
                            programs, read or change files, open web pages, or use add-ons, and \
                            none of your own Antigravity settings apply. Paid AI credits stay \
-                           off. If it uses one of its own tools anyway, Plenipo stops the task."
+                           off. If it uses one of its own tools anyway (its web search, for \
+                           example), Plenipo stops the task."
                 .into(),
             // Each model's name carries its thinking level ("Gemini 3.8 Flash (High)"), so
             // Plenipo sets no effort of its own (ADR-082 §5).
@@ -152,7 +158,7 @@ impl RuntimeAdapter for Antigravity {
     }
 
     fn install_hint(&self) -> &'static str {
-        "Install Antigravity CLI, Google's command-line tool. Windows (PowerShell): irm \
+        "Install Antigravity, Google's command-line AI tool. Windows (PowerShell): irm \
          https://antigravity.google/cli/install.ps1 | iex — macOS/Linux: curl -fsSL \
          https://antigravity.google/cli/install.sh | bash. Then choose Re-check."
     }
@@ -207,7 +213,7 @@ impl RuntimeAdapter for Antigravity {
     }
 
     fn own_home(&self) -> Vec<(&'static str, String)> {
-        vec![(SETTINGS, settings())]
+        vec![(SETTINGS, SETTINGS_TEXT.to_owned())]
     }
 
     fn turn_args(&self, request: &TurnRequest) -> Vec<String> {
@@ -247,6 +253,7 @@ impl RuntimeAdapter for Antigravity {
             expected,
             answer: String::new(),
             model: request.model.clone(),
+            verified: false,
         })
     }
 
@@ -324,16 +331,34 @@ fn parse_auth(out: &ProbeOutput) -> AuthStatus {
     if let (Some(0), Some(models)) = (out.exit_code, listed_models(&out.stdout)) {
         // Signed in to Google, it also offers other companies' models; with a Gemini API key
         // (a setting Plenipo never writes, and a variable it never passes) it lists only
-        // Gemini's (both recorded, 1.2.13).
-        if models.iter().any(|m| !m.name.starts_with("gemini-")) {
+        // Gemini's (both recorded, 1.2.13). A Google sign-in is recognized only by a model
+        // Plenipo's own list says another company made.
+        let known = Antigravity.capabilities().known_models;
+        let another_company = models.iter().any(|m| {
+            known.iter().any(|k| {
+                k.name == m.name && k.maker.as_ref().is_some_and(|w| w.id != makers::GOOGLE.0)
+            })
+        });
+        if another_company {
             return status(AuthState::Subscription, Some("Google sign-in"), None);
         }
+        if models.iter().all(|m| m.name.starts_with("gemini-")) {
+            return status(
+                AuthState::ApiKey,
+                Some("Gemini API key"),
+                Some(
+                    "Antigravity listed only Gemini's models, as it does when it uses a Gemini \
+                     API key (billed per use), not your Google sign-in."
+                        .into(),
+                ),
+            );
+        }
         return status(
-            AuthState::ApiKey,
-            Some("Gemini API key"),
+            AuthState::Unverified,
+            None,
             Some(
-                "Antigravity listed only Gemini's models, as it does when it uses a Gemini API \
-                 key (billed per use), not your Google sign-in."
+                "Antigravity listed models Plenipo cannot place, so it cannot tell whether it is \
+                 using your Google sign-in or a key billed per use."
                     .into(),
             ),
         );
@@ -362,9 +387,12 @@ struct Parser {
     state: TurnState,
     /// The conversation Plenipo asked to continue.
     expected: Option<String>,
-    /// The answer being written, from `text_delta`s.
+    /// The answer being written, from `text_delta`s (at most [`MAX_RESULT_TEXT`] kept).
     answer: String,
     model: Option<String>,
+    /// Its `init` reported strict permissions: it read Plenipo's settings. Nothing it does
+    /// before that is accepted.
+    verified: bool,
 }
 
 impl Parser {
@@ -395,6 +423,7 @@ impl Parser {
                 mode.unwrap_or("not reported")
             ));
         }
+        self.verified = true;
         let mut parsed = Parsed::one(AgentEvent::SessionStarted {
             provider_session_id: id.clone(),
             model: self.model.clone(),
@@ -417,15 +446,32 @@ impl Parser {
         parsed
     }
 
+    /// Stop the task: a step or a finished answer came before `init` said the permissions
+    /// were strict.
+    fn unverified(&mut self) -> Parsed {
+        self.stop(
+            "Antigravity did not say it started with Plenipo's settings for it before it began, \
+             so Plenipo stopped the task."
+                .into(),
+        )
+    }
+
     fn step(&mut self, step: &Value) -> Parsed {
+        if !self.verified {
+            return self.unverified();
+        }
         let kind = step.get("step_type").and_then(Value::as_str).unwrap_or("");
         let state = step.get("state").and_then(Value::as_str).unwrap_or("");
+        // A step that names a tool is a tool, whatever kind it says it is.
+        let names_a_tool = step.get("tool_name").is_some() || step.get("tool_info").is_some();
         match kind {
-            "agent_response" => {
+            "agent_response" if !names_a_tool => {
                 let mut parsed = Parsed::none();
                 if let Some(delta) = step.get("text_delta").and_then(Value::as_str) {
                     if !delta.is_empty() {
-                        self.answer.push_str(delta);
+                        if self.answer.len() < MAX_RESULT_TEXT {
+                            self.answer.push_str(delta);
+                        }
                         parsed.events.push(AgentEvent::TextDelta {
                             text: delta.to_owned(),
                         });
@@ -440,7 +486,7 @@ impl Parser {
                 }
                 parsed
             }
-            "tool" => self.tool(step, state),
+            _ if kind == "tool" || names_a_tool => self.tool(step, state),
             _ => Parsed::none(),
         }
     }
@@ -461,14 +507,26 @@ impl Parser {
                 summary: "done".into(),
             }),
             "ERROR" => {
-                let why = step
+                let message = step
                     .pointer("/tool_info/error/message")
                     .and_then(Value::as_str)
-                    .map_or_else(|| "refused".to_owned(), |m| first_line(m, MAX_SUMMARY));
+                    .unwrap_or("");
+                // Refused for want of permission (recorded: "permission check failed for
+                // command …: user denied permission to run command"). A tool that failed for any
+                // other reason may have run, so the task stops.
+                let lower = message.to_ascii_lowercase();
+                if !(lower.contains("permission check failed")
+                    || lower.contains("denied permission"))
+                {
+                    return self.stop(format!(
+                        "Antigravity's own tool {name} ran and failed; Plenipo does not allow its \
+                         own tools, so it stopped the task."
+                    ));
+                }
                 Parsed::one(AgentEvent::ToolResult {
                     tool: Some(name),
                     is_error: true,
-                    summary: why,
+                    summary: first_line(message, MAX_SUMMARY),
                 })
             }
             _ => Parsed::one(AgentEvent::ToolUse {
@@ -527,6 +585,10 @@ impl Parser {
             });
         }
         match r.get("status").and_then(Value::as_str) {
+            Some("SUCCESS") if !self.verified => {
+                let stopped = self.unverified();
+                parsed.stop = stopped.stop;
+            }
             Some("SUCCESS") => {
                 self.state.completed = true;
                 let text = r.get("response").and_then(Value::as_str).unwrap_or("");
@@ -664,6 +726,36 @@ mod tests {
     }
 
     #[test]
+    fn a_google_sign_in_is_recognized_only_by_another_companys_model() {
+        // Google's other models (as a Gemini API key's list could have): not recognized.
+        let odd = parse_auth(&probe(
+            "Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\n\
+             gemma-3-27b\tGemma 3 27B\n",
+            "",
+            0,
+        ));
+        assert_eq!(odd.state, AuthState::Unverified);
+        assert!(
+            !Antigravity.capabilities().billing_checked_per_turn,
+            "so never ready"
+        );
+        // A model Plenipo does not know by that name is not enough either.
+        let unknown = parse_auth(&probe(
+            "Fetching available models...\nclaude-9\tClaude 9\n",
+            "",
+            0,
+        ));
+        assert_eq!(unknown.state, AuthState::Unverified);
+        // One Plenipo knows another company made: a Google sign-in.
+        let signed_in = parse_auth(&probe(
+            "Fetching available models...\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n",
+            "",
+            0,
+        ));
+        assert_eq!(signed_in.state, AuthState::Subscription);
+    }
+
+    #[test]
     fn its_models_are_read_from_its_own_list() {
         let models = Antigravity.parse_models(&probe(MODELS, "", 0)).unwrap();
         let names: Vec<&str> = models.iter().map(|m| m.name.as_str()).collect();
@@ -747,8 +839,20 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].0, SETTINGS);
         let s: Value = serde_json::from_str(&files[0].1).unwrap();
-        assert_eq!(s["useG1Credits"], json!(false));
+        // Paid AI credits at its default, off: never turned on.
+        assert!(s.get("useG1Credits").is_none());
         assert_eq!(s["toolPermission"], json!("strict"));
+        // Exactly the file Antigravity writes back (keys in order, two spaces, a last line),
+        // so it is replaced only when something changed it.
+        assert_eq!(
+            files[0].1,
+            serde_json::to_string_pretty(&s).unwrap() + "\n",
+            "Antigravity's own layout"
+        );
+        assert_eq!(
+            s.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["permissions", "toolPermission"]
+        );
         assert_eq!(
             s["permissions"]["deny"],
             json!([
@@ -851,6 +955,69 @@ mod tests {
             let r = p.finish(&end(ExecutionState::Cancelled, None));
             assert_eq!(r.outcome, TurnOutcome::Failed);
         }
+    }
+
+    #[test]
+    fn nothing_is_accepted_before_it_says_it_read_plenipos_settings() {
+        // A step first: stopped.
+        let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+        let stop = p.line(TASK[2], false).stop.expect("stopped");
+        assert!(stop
+            .reason
+            .contains("did not say it started with Plenipo's settings"));
+        assert_eq!(
+            p.finish(&end(ExecutionState::Cancelled, None)).outcome,
+            TurnOutcome::Failed
+        );
+        // A finished answer with no `init`: stopped, never Completed.
+        let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+        assert!(p.line(TASK[4], false).stop.is_some());
+        assert_eq!(
+            p.finish(&end(ExecutionState::Succeeded, Some(0))).outcome,
+            TurnOutcome::Failed
+        );
+        // An error with no `init` (signed out, recorded) keeps its own meaning.
+        let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+        let signed_out = r#"{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"authentication failed or timed out"}}"#;
+        assert!(p.line(signed_out, false).stop.is_none());
+        assert_eq!(
+            p.finish(&end(ExecutionState::Failed, Some(1))).outcome,
+            TurnOutcome::AuthRequired
+        );
+    }
+
+    #[test]
+    fn a_tool_that_failed_for_another_reason_or_under_another_kind_stops_the_task() {
+        for step in [
+            // Failed, but not for want of permission: it may have run.
+            r#"{"event":"step_update","step_update":{"step_index":2,"state":"ERROR","step_type":"tool","tool_name":"search_web","tool_info":{"name":"search_web","error":{"type":"TOOL_ERROR","message":"request timed out"}}}}"#,
+            // A tool reported under a step kind Plenipo does not know.
+            r#"{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"browser_action","tool_name":"open_browser_url"}}"#,
+        ] {
+            let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+            p.line(TASK[0], false);
+            let stop = p.line(step, false).stop.expect(step);
+            assert!(stop.reason.contains("Plenipo does not allow"), "{stop:?}");
+        }
+        // A step kind it does not know, naming no tool, is ignored.
+        let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+        p.line(TASK[0], false);
+        let other = r#"{"event":"step_update","step_update":{"step_index":3,"state":"DONE","step_type":"error_message"}}"#;
+        assert!(p.line(other, false).stop.is_none());
+    }
+
+    #[test]
+    fn a_very_long_answer_is_kept_to_the_result_limit() {
+        let mut p = Antigravity.parser(&request(ProviderSession::default(), None));
+        p.line(TASK[0], false);
+        let piece = "x".repeat(MAX_RESULT_TEXT);
+        for state in ["ACTIVE", "ACTIVE", "DONE"] {
+            let line = json!({"event": "step_update", "step_update": {"state": state, "step_type": "agent_response", "text_delta": piece}}).to_string();
+            p.line(&line, false);
+        }
+        p.line(r#"{"event":"result","result":{"conversation_id":"b767","status":"SUCCESS","response":""}}"#, false);
+        let r = p.finish(&end(ExecutionState::Succeeded, Some(0)));
+        assert!(r.text.unwrap().len() <= MAX_RESULT_TEXT);
     }
 
     /// The owner's E9 check: asked to write a file, it tried to run a program; refused.

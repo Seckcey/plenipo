@@ -1522,3 +1522,28 @@ async fn the_directory_hears_the_model_that_did_the_work_under_review() {
         [vec![WorkDoneBy::new("codex", Some("gpt-6-sol"))]]
     );
 }
+
+/// Work passed on by its task ID is the work under review (ADR-081 §3): the AI tool and model
+/// that task asked for, not the requester's own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_directory_hears_the_model_of_a_task_passed_on() {
+    let h = harness().await;
+    let (lead, _members, directory) = organization(&h);
+    let (_, root) = h
+        .start_member(
+            &lead,
+            "Plan the release [handoff:role:Reviewer] [handoff-pass:role:Builder]",
+        )
+        .await;
+    h.finished(&root).await;
+    let reviewed = directory.reviewed.lock().unwrap().clone();
+    assert_eq!(
+        reviewed,
+        [
+            // To the Reviewer: the requester's own work (Codex, its default).
+            vec![WorkDoneBy::new("codex", None)],
+            // To the Builder: the Reviewer's task it passed on, on the model its position names.
+            vec![WorkDoneBy::new("claude-code", Some("fake-model-x"))],
+        ]
+    );
+}

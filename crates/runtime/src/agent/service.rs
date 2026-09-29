@@ -934,6 +934,11 @@ impl AgentRuntime {
         static DRAFTS: AtomicU64 = AtomicU64::new(0);
         for (place, contents) in files {
             let file = home.join(place);
+            // Already so (the usual case): nothing to replace, so a run that has the file open
+            // is never in the way.
+            if std::fs::read(&file).is_ok_and(|now| now == contents.as_bytes()) {
+                continue;
+            }
             let dir = file.parent().unwrap_or(&home);
             std::fs::create_dir_all(dir).map_err(failed)?;
             let draft = dir.join(format!(
@@ -941,10 +946,26 @@ impl AgentRuntime {
                 std::process::id(),
                 DRAFTS.fetch_add(1, Ordering::Relaxed)
             ));
-            let written = std::fs::write(&draft, contents.as_bytes())
-                .and_then(|()| std::fs::rename(&draft, &file));
+            let written = std::fs::write(&draft, contents.as_bytes()).and_then(|()| {
+                // On Windows a program reading the file at that moment can keep it from being
+                // replaced; it lets go within moments.
+                let mut tries = 0;
+                loop {
+                    match std::fs::rename(&draft, &file) {
+                        Err(_) if tries < 4 => {
+                            tries += 1;
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        done => break done,
+                    }
+                }
+            });
             if let Err(e) = written {
                 let _ = std::fs::remove_file(&draft);
+                // Another run put the same settings there first: as good.
+                if std::fs::read(&file).is_ok_and(|now| now == contents.as_bytes()) {
+                    continue;
+                }
                 return Err(failed(e));
             }
         }

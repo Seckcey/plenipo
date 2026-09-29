@@ -84,6 +84,6 @@ architecture must be recorded here.
 | [067](ADR-067-phase-20-in-three-parts.md)                | Phase 20 in three parts: Microsoft 365, then Slack and Google, then the rest                  | Accepted |
 | [068](ADR-068-connections-are-pro.md)                    | Connections and add-on tools are part of Pro (amends 021)                                     | Accepted |
 | [069](ADR-069-website-follows-releases.md)               | The website follows new releases by itself, with each release's notes                         | Accepted |
-| [080](ADR-080-phase-16-wave-1-alongside-phase-20.md)     | Building Phase 16's first wave alongside Phase 20 (amends 061)                                | Proposed |
-| [081](ADR-081-who-made-each-model.md)                    | Who made each model: cross-company review by maker; the list two ways (amends 011)            | Proposed |
-| [082](ADR-082-antigravity-as-an-ai-tool.md)              | Antigravity as an AI tool, run with a settings folder of its own                              | Proposed |
+| [080](ADR-080-phase-16-wave-1-alongside-phase-20.md)     | Building Phase 16's first wave alongside Phase 20 (amends 061)                                | Accepted |
+| [081](ADR-081-who-made-each-model.md)                    | Who made each model: cross-company review by maker; the list two ways (amends 011, 014)       | Accepted |
+| [082](ADR-082-antigravity-as-an-ai-tool.md)              | Antigravity as an AI tool, with a settings folder of its own (amends 081; adds to 007, 058)   | Proposed |

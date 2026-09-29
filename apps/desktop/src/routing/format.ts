@@ -74,13 +74,15 @@ export function modelGroups(
     label,
     options: options.filter((o) => !shown.has(o.name) && shown.add(o.name)),
   });
-  // "opus — now Opus 5.5", and who made it for an AI tool that runs several companies' models
-  // ("deepseek-v4-pro:cloud — made by DeepSeek", ADR-081 §6).
+  // Who made a name the tool's list does not name: its company, for an AI tool that runs only
+  // its own company's models; not known for one that runs other companies' too (ADR-081 §2).
+  const unlisted = companyOnly(tool);
+  // "opus — now Opus 5.5 — made by Anthropic" (ADR-081 §6, §8).
   const words = (k: KnownModel) => {
     const parts = [k.name];
     const now = k.pointsTo && tool?.knownModels.find((x) => x.name === k.pointsTo);
     if (now) parts.push(`now ${now.label}`);
-    if (tool?.runsOtherMakers) parts.push(`made by ${makerWords(k.maker)}`);
+    parts.push(madeByWords(k.maker ?? unlisted));
     return parts.join(" — ");
   };
   const groups = [
@@ -96,7 +98,12 @@ export function modelGroups(
       yours
         ? snapshot.models.flatMap((m) =>
             m.runtimeId === runtimeId && m.name
-              ? [{ name: m.name, label: m.label === m.name ? m.name : `${m.label} — ${m.name}` }]
+              ? [
+                  {
+                    name: m.name,
+                    label: `${m.label === m.name ? m.name : `${m.label} — ${m.name}`} — ${madeByWords(m.maker)}`,
+                  },
+                ]
               : [],
           )
         : [],
@@ -105,7 +112,7 @@ export function modelGroups(
       "Seen in use",
       snapshot.seen
         .filter((s) => s.runtimeId === runtimeId)
-        .map((s) => ({ name: s.name, label: s.name })),
+        .map((s) => ({ name: s.name, label: `${s.name} — ${madeByWords(unlisted)}` })),
     ),
   ];
   return groups.filter((g) => g.options.length > 0);
@@ -177,9 +184,24 @@ export function companies(snapshot: RoutingSnapshot): Maker[] {
   return snapshot.companies;
 }
 
-/** Who made a model, in plain words: its company's name, or "Not known" (ADR-081 §7). */
+/** Who made a model, as a column or heading: its company's name, or "Not known" (ADR-081 §7). */
 export function makerWords(maker: Maker | null | undefined): string {
   return maker?.label ?? "Not known";
+}
+
+/** Who made a model, inside a sentence: "made by DeepSeek", or "who made it is not known". */
+export function madeByWords(maker: Maker | null | undefined): string {
+  return maker ? `made by ${maker.label}` : "who made it is not known";
+}
+
+/**
+ * Who made any model an AI tool runs, when that is its own company (it runs no other company's
+ * models); `null` for an AI tool that runs other companies' models too, or none.
+ */
+export function companyOnly(
+  tool: { company: string; companyLabel: string; runsOtherMakers: boolean } | undefined,
+): Maker | null {
+  return tool && !tool.runsOtherMakers ? { id: tool.company, label: tool.companyLabel } : null;
 }
 
 /** How the model list is grouped (ADR-081 §6). */

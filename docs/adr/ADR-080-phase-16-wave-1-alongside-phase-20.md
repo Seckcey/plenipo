@@ -1,7 +1,8 @@
 # ADR-080: Building Phase 16's first wave alongside Phase 20
 
-- **Status:** Proposed (written at the owner's direction, 2026-09-29; the owner accepts it by
-  approving the Phase 16 design)
+- **Status:** Accepted (2026-09-29). The owner's own instruction, accepted with the Phase 16
+  design: "Choices 1 to 3 are as recommended", then "yes, I need you to start building. thats the
+  whole point of this."
 - **Date:** 2026-09-29
 - **Phase:** plan change, after Phase 20A (v1.13.0, pull request #96)
 - **Amends:** [ADR-061 (doing Connections before new AI models)](ADR-061-connections-before-new-ai-models.md)
@@ -26,7 +27,7 @@ and the rule "work only on the earliest incomplete phase" allows it, because the
 
 ## Context
 
-The order of work ([ADR-039](ADR-039-owners-notes-order-of-work.md), changed by ADR-061) is: 13,
+The order of work ([ADR-039 (the owner's notes and the order of work)](ADR-039-owners-notes-order-of-work.md), changed by ADR-061) is: 13,
 17, 18, 19 (delivered), **20 (in progress)**, then **16**. Phase 20 is being built in three parts
 (ADR-067): 20A (Microsoft 365) is delivered as v1.13.0; 20B (Slack and Google) is being built now
 in another session; 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) comes after.
@@ -103,3 +104,13 @@ Hermes) stay after Phase 20.
   phases in flight, the risk ADR-061 named.
 - **Renumber Phase 20B and 20C now** (to v1.14.x) so the numbers follow the merge order. Not done:
   the owner plans to merge 20B first, which keeps 20B as v1.13.1.
+
+## As built
+
+Wave 1 was built on 2026-09-29 as v1.14.0, beside Phase 20B (pull request #100, Slack and Google),
+which was still open: no Connections file, the Vault, or Connections test was changed. Shared files
+(`ROLLOUT_PLAN.md`, the ADR index, `docs/development/versioning.md`, the word list, the package
+versions, and `Cargo.lock`) change by a few lines each, and each merge keeps both sides. At the
+owner's direction, Google's Antigravity CLI joined Wave 1 in Gemini CLI's place
+([ADR-082 (Antigravity as an AI tool)](ADR-082-antigravity-as-an-ai-tool.md)). More of Ollama's
+cloud models wait for the owner's paid plan (a small follow-up).

@@ -257,11 +257,11 @@ describe("Settings → AI models", () => {
     // ones already in your list are shown but not offered.
     expect(options(model)).toEqual([
       "The AI tool's default (already in your list)",
-      "fable",
-      "opus (already in your list)",
-      "sonnet",
-      "haiku",
-      "claude-opus-5-5",
+      "fable — made by Anthropic",
+      "opus — made by Anthropic (already in your list)",
+      "sonnet — made by Anthropic",
+      "haiku — made by Anthropic",
+      "claude-opus-5-5 — made by Anthropic",
       "Type another name…",
     ]);
     expect(
@@ -270,7 +270,9 @@ describe("Settings → AI models", () => {
         .map((g) => g.getAttribute("label")),
     ).toEqual(["Claude Code's models", "Seen in use"]);
     expect(
-      within(model).getByRole("option", { name: "opus (already in your list)" }),
+      within(model).getByRole("option", {
+        name: "opus — made by Anthropic (already in your list)",
+      }),
     ).toBeDisabled();
     // Choosing one also names the model, until you name it yourself.
     await user.selectOptions(model, "fable");
@@ -303,8 +305,8 @@ describe("Settings → AI models", () => {
     const codexModel = within(next).getByRole("combobox", { name: "Model" });
     expect(options(codexModel)).toEqual([
       "The AI tool's default (already in your list)",
-      "gpt-6-sol",
-      "gpt-6-luna",
+      "gpt-6-sol — made by OpenAI",
+      "gpt-6-luna — made by OpenAI",
       "Type another name…",
     ]);
     await user.selectOptions(codexModel, "gpt-6-luna");
@@ -344,9 +346,12 @@ describe("Settings → AI models", () => {
       {
         label: "Codex's models",
         options: [
-          { name: "gpt-6-sol", label: "gpt-6-sol" },
-          { name: "gpt-6-luna", label: "gpt-6-luna" },
-          { name: "gpt-6-terra", label: "gpt-6-terra — new, not checked yet" },
+          { name: "gpt-6-sol", label: "gpt-6-sol — made by OpenAI" },
+          { name: "gpt-6-luna", label: "gpt-6-luna — made by OpenAI" },
+          {
+            name: "gpt-6-terra",
+            label: "gpt-6-terra — made by OpenAI — new, not checked yet",
+          },
         ],
       },
     ]);
@@ -363,12 +368,12 @@ describe("Settings → AI models", () => {
         .map((o) => o.textContent),
     ).toEqual([
       "The AI tool's default (already in your list)",
-      "gpt-6-sol",
-      "gpt-6-luna",
-      "gpt-6-terra — new, not checked yet",
+      "gpt-6-sol — made by OpenAI",
+      "gpt-6-luna — made by OpenAI",
+      "gpt-6-terra — made by OpenAI — new, not checked yet",
       "Type another name…",
     ]);
-    await user.selectOptions(model, "gpt-6-terra — new, not checked yet");
+    await user.selectOptions(model, "gpt-6-terra — made by OpenAI — new, not checked yet");
     expect(model).toHaveValue("gpt-6-terra");
     // Chosen from the menu, not typed.
     expect(
@@ -455,22 +460,43 @@ describe("Settings → AI models", () => {
           }
         : t,
     );
-    // Claude Code runs only Anthropic's models, so its menu does not repeat who made them.
+    // Each name says what it is now and who made it.
     expect(modelGroups(routing, "claude-code", { yours: false })[0]).toEqual({
       label: "Claude Code's models",
       options: [
-        { name: "opus", label: "opus — now Opus 5.5" },
-        { name: "claude-opus-5-5", label: "claude-opus-5-5" },
+        { name: "opus", label: "opus — now Opus 5.5 — made by Anthropic" },
+        { name: "claude-opus-5-5", label: "claude-opus-5-5 — made by Anthropic" },
       ],
     });
-    // Ollama runs several companies' models: each one says who made it.
-    expect(modelGroups(routing, "ollama", { yours: false })[0]).toEqual({
-      label: "Ollama's models",
-      options: [
-        { name: "deepseek-v4-pro:cloud", label: "deepseek-v4-pro:cloud — made by DeepSeek" },
-        { name: "gpt-oss:120b-cloud", label: "gpt-oss:120b-cloud — made by OpenAI" },
-      ],
-    });
+    // Ollama runs several companies' models: each one says who made it, and a new one it
+    // reported that Plenipo has not checked says that is not known.
+    routing.tools = routing.tools.map((t) =>
+      t.runtimeId === "ollama"
+        ? {
+            ...t,
+            newModels: [{ name: "mystery9:cloud", label: "mystery9:cloud", effortLevels: [] }],
+          }
+        : t,
+    );
+    expect(modelGroups(routing, "ollama")).toEqual([
+      {
+        label: "Ollama's models",
+        options: [
+          { name: "deepseek-v4-pro:cloud", label: "deepseek-v4-pro:cloud — made by DeepSeek" },
+          { name: "gpt-oss:120b-cloud", label: "gpt-oss:120b-cloud — made by OpenAI" },
+          {
+            name: "mystery9:cloud",
+            label: "mystery9:cloud — who made it is not known — new, not checked yet",
+          },
+        ],
+      },
+      {
+        label: "Your models",
+        options: [
+          { name: "mystery:cloud", label: "Mystery — mystery:cloud — who made it is not known" },
+        ],
+      },
+    ]);
     // "AI companies never to use" offers the companies that make models, not only the AI
     // tools' own.
     api.getRouting.mockResolvedValue(routing);
@@ -563,15 +589,20 @@ function withOllama(): RoutingSnapshot {
   return routing;
 }
 
-/** The model list's groups, in order: each heading and its models' names. */
+/**
+ * The model list's groups, in order: each heading and its models' names. Each group's visible
+ * heading says the same as its name.
+ */
 function groupsOf(table: HTMLElement): [string, string[]][] {
   return within(table)
     .getAllByRole("rowgroup")
     .filter((g) => g.tagName === "TBODY")
-    .map((g) => [
-      g.getAttribute("aria-label") ?? "",
-      within(g)
-        .getAllByRole("rowheader")
-        .map((h) => h.firstChild?.textContent ?? ""),
-    ]);
+    .map((g) => {
+      const label = g.getAttribute("aria-label") ?? "";
+      expect(g.querySelector('th[scope="rowgroup"]')?.textContent).toBe(label);
+      return [
+        label,
+        [...g.querySelectorAll('th[scope="row"]')].map((h) => h.firstChild?.textContent ?? ""),
+      ];
+    });
 }

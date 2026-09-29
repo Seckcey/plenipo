@@ -178,6 +178,7 @@ export function route(id: string, patch: Partial<ToolInfo> = {}): ToolInfo {
     company: f.provider,
     companyLabel: f.providerLabel,
     knownModels: MODELS[id] ?? [],
+    runsOtherMakers: id === "ollama" || id === "antigravity",
     ...patch,
   });
 }

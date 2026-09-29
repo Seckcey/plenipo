@@ -292,10 +292,10 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 5);
+    assert_eq!(runtimes.len(), 6);
     for (info, version) in runtimes
         .iter()
-        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4"])
+        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4", "1.2.99"])
     {
         assert_eq!(
             info.installation.state,
@@ -323,6 +323,7 @@ async fn installation_detection() {
         runtimes[4].auth.method.as_deref(),
         Some("Ollama sign-in (free plan)")
     );
+    assert_eq!(runtimes[5].auth.method.as_deref(), Some("Google sign-in"));
     // No account identifier from the status output is kept.
     assert!(!format!("{runtimes:?}").contains("owner@example.com"));
     // The UI was told.

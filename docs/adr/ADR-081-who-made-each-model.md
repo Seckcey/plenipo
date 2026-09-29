@@ -1,9 +1,12 @@
 # ADR-081: Who made each model — the maker on every model, cross-company review by maker, and the model list two ways
 
-- **Status:** Proposed (2026-09-29). The owner answered its three choices on 2026-09-29, **all as
-  recommended** ([Phase 16 checklist](../phases/phase-16-checklist.md#choices-for-you)): §6 Your
-  models gets the grouping; §5 "never use" counts who made a model too; §7 a model whose maker is
-  not known plays it safe.
+- **Status:** Accepted (2026-09-29). The owner answered its three choices **all as recommended**
+  ("Choices 1 to 3 are as recommended.", [Phase 16 checklist](../phases/phase-16-checklist.md#choices-for-you)):
+  §6 Your models gets the grouping, and every other list says who made each model; §5 "never use"
+  counts who made a model too; §7 a model whose maker is not known plays it safe. Then the
+  go-ahead to build it: "yes, I need you to start building. thats the whole point of this."
+  Amended by [ADR-082 (Antigravity as an AI tool)](ADR-082-antigravity-as-an-ai-tool.md) (§2: an AI
+  tool may not say who made its default model).
 - **Date:** 2026-09-29
 - **Phase:** 16, Wave 1 (built beside Phase 20 by
   [ADR-080 (building Phase 16's first wave alongside Phase 20)](ADR-080-phase-16-wave-1-alongside-phase-20.md))
@@ -39,7 +42,7 @@ company than the one that did the work. The engine (`crates/router/src/engine.rs
 companies from the AI tools: the reviewer's is its AI tool's company (`info.provider`), and the work
 under review is described only by the AI tool that did it (Liaison passes runtime IDs,
 `crates/liaison/src/service.rs` `reviewed_work`). ADR-014 warned this would break for AI tools that
-run other companies' models; Ollama (ADR-017) is the first. Its eight checked models come from six
+run other companies' models; Ollama ([ADR-017 (Ollama's cloud models)](ADR-017-ollama-cloud-models.md)) is the first. Its eight checked models come from six
 companies:
 
 | Ollama model (as Plenipo lists it)   | Who made it |
@@ -64,7 +67,7 @@ or flag that points them anywhere else; ADR-007 §4, ADR-014 §4).
   Codex are one company.
 - **Each AI tool also says** who made its default model (Ollama: gpt-oss 120B, so OpenAI) and
   whether it runs only its own company's models (Claude Code, Codex, Grok, Kimi: yes; Ollama: no).
-- **The adapters keep this knowledge** (ADR-003, ADR-014 §7): the Router, Liaison, and the screens
+- **The adapters keep this knowledge** ([ADR-003 (provider-independent roles)](ADR-003-provider-independent-roles.md), ADR-014 §7): the Router, Liaison, and the screens
   stay free of company names; they read the maker from the AI tool's list.
 - **The contract suite checks:** every listed model has a maker with an ID and a name; one name per
   ID across all AI tools; and a tool that runs only its own company's models lists only models its
@@ -108,7 +111,7 @@ Ledger layout.
 
 ### 5. AI companies never to use — choice 2
 
-"Never use these AI companies" (ADR-041) today compares the AI tool's company. **Recommended:** a
+"Never use these AI companies" ([ADR-041 (model, effort, and learning rules in layers)](ADR-041-model-effort-learning-layers.md)) today compares the AI tool's company. **Recommended:** a
 company on the list is skipped whether it **made** the model or its AI tool **runs** it, and the
 list offers the makers too (DeepSeek, Z.ai, MiniMax, NVIDIA). So "never OpenAI" also skips
 gpt-oss on Ollama, and "never Ollama" still skips every Ollama model. The other answer keeps
@@ -161,8 +164,8 @@ was refused, on Codex 0.145.0 and 0.159.0, so none is added.
 These follow their own rules and are not decided here. Gemini CLI failed ADR-014's bar on the
 owner's PC: Google no longer serves it to personal plans ([the finding](../phases/ai-tools-gemini-finding.md)).
 At the owner's direction, Google's replacement, Antigravity CLI, goes through the same bar with
-step 0 on the owner's PC, and gets its own decision record (ADR-082) if it passes, or a finding if
-it does not. More Ollama cloud models are added only if the owner's paid plan is active, each
+step 0 on the owner's PC, and gets its own decision record if it passes, or a finding if it does
+not. It passed: [ADR-082 (Antigravity as an AI tool)](ADR-082-antigravity-as-an-ai-tool.md). More Ollama cloud models are added only if the owner's paid plan is active, each
 checked on the owner's PC as ADR-017 did. Each new model says who made it (§1).
 
 ## Consequences
@@ -192,3 +195,40 @@ checked on the owner's PC as ADR-017 did. Each new model says who made it (§1).
   subscriptions, which is Wave 3's routes, built with spending caps.
 - **Keep the grouping choice in the Ledger** (a new setting and desktop command). Not needed: it
   only changes how a list looks on this PC, like the theme.
+
+## As built
+
+Built on 2026-09-29 (v1.14.0). Where the build differs from, or adds to, the decision above:
+
+- **§2, "its default":** Antigravity (ADR-082) does not say which model it runs when none is named,
+  so who made its default is not known and plays safe (§7). Ollama's default is OpenAI's gpt-oss,
+  and a test keeps its two statements of that the same.
+- **§2, a model an AI tool reports:** only Plenipo's checked list says who made a model. What a tool
+  reports about a model it runs never does.
+- **§3, work whose model cannot be read:** if Plenipo cannot read which model did the work under
+  review, who made it is not known on an AI tool that runs other companies' models (it is still the
+  tool's company on one that runs only its own).
+- **§5 with §7, a company never to use and a model whose maker is not known:** such a model could
+  have been made by a company on the list, so it is skipped when a rule names any AI company other
+  than its AI tool's own ("… has AI companies never to use, and who made this model is not known").
+  This carries choice 3 ("play it safe") over to "never use"; the owner can ask for it the other
+  way. A position fixed to such a model says so too.
+- **§6, every list:** as the owner's answer to choice 1 says, every model list says who made each
+  model: each AI tool's Models tab ("made by OpenAI"), and every model menu, on every AI tool
+  ("opus — now Opus 5.5 — made by Anthropic"). A model whose maker is not known reads "who made it
+  is not known"; the **Who made it** column and the group heading say "Not known".
+- **§7, prefer a different company:** models by another company first, then the same company, and a
+  model whose maker is not known last.
+- **§8, exact versions:** all four exact Claude versions are listed. Fable's was accepted on the
+  owner's subscription and then stopped at the plan's weekly usage limit, which is a usage limit,
+  not a refusal ([evidence, Part A](../phases/evidence/phase-16/README.md)).
+- **§9, Codex:** no older model is added (every one tried was refused); Codex's newest model,
+  GPT-6.1-Sol, joins its list, checked on 0.159.0.
+- **Words on screen:** the reasons say "an AI company Plenipo doesn't know" and "who made it is
+  not known", never "maker".
+- **Code:** `crates/router/src/makers.rs` (who made a model, and every company Plenipo knows),
+  `engine.rs` and `service.rs` (review, never use, fixed positions), `liaison/src/service.rs` (the
+  work under review), the adapters' lists, `apps/desktop/src/routing/format.ts`,
+  `components/models/ModelList.tsx`, `components/aiTools/ModelsTab.tsx`. Tests: the plan's two,
+  plus play-it-safe, never-use by maker (also for a fixed position), the list grouped both ways with
+  the same models, and the contract suite's check that every listed model says who made it.

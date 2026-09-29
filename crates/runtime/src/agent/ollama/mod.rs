@@ -417,6 +417,19 @@ mod tests {
     use crate::dto::ExecutionState;
     use serde_json::json;
 
+    /// Who made "its default" (ADR-081 §2) is who made the model Plenipo runs when none is named.
+    #[test]
+    fn its_default_is_made_by_whoever_made_its_default_model() {
+        let caps = Ollama.capabilities();
+        let listed = caps
+            .known_models
+            .iter()
+            .find(|m| m.name == DEFAULT_MODEL)
+            .expect("its default model is listed");
+        assert_eq!(caps.default_maker, listed.maker);
+        assert!(caps.default_maker.is_some());
+    }
+
     fn probe(stdout: &str) -> ProbeOutput {
         ProbeOutput {
             exit_code: Some(0),

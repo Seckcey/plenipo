@@ -84,8 +84,9 @@ pub struct RuntimeCapabilities {
     /// Models the CLI itself offers (its own aliases or model picker), most capable first;
     /// offered as choices, never assumed to be in the owner's list.
     pub known_models: Vec<KnownModel>,
-    /// Who made the model the AI tool runs when none is named (ADR-081 §2); absent: the AI
-    /// tool's own company.
+    /// Who made the model the AI tool runs when none is named (ADR-081 §2). Absent: the AI
+    /// tool's own company for one that runs only its own company's models, and not known for
+    /// one that runs other companies' models too (Antigravity, ADR-082).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub default_maker: Option<Maker>,
@@ -130,6 +131,9 @@ impl Maker {
 pub struct WorkDoneBy {
     pub runtime_id: String,
     pub model: Option<String>,
+    /// Plenipo could not read which model did it (its records could not be read), so who made
+    /// it is not known on an AI tool that runs other companies' models.
+    pub model_unread: bool,
 }
 
 impl WorkDoneBy {
@@ -137,6 +141,15 @@ impl WorkDoneBy {
         Self {
             runtime_id: runtime_id.into(),
             model: model.map(str::to_owned),
+            model_unread: false,
+        }
+    }
+
+    /// Work on `runtime_id` whose model Plenipo could not read.
+    pub fn unread(runtime_id: &str) -> Self {
+        Self {
+            model_unread: true,
+            ..Self::new(runtime_id, None)
         }
     }
 }

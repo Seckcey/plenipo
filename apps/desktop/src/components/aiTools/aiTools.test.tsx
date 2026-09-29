@@ -1068,7 +1068,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
         .getAllByRole("listitem")
         .find((i) => i.textContent?.startsWith(label))!;
     expect(item("GPT-6-Sol")).toHaveTextContent(
-      "GPT-6-Sol gpt-6-sol · Effort: Low, Medium, High, Extra high, Max, Ultra",
+      "GPT-6-Sol gpt-6-sol · made by OpenAI · Effort: Low, Medium, High, Extra high, Max, Ultra",
     );
     expect(item("GPT-6-Sol")).not.toHaveTextContent("not offered");
     expect(item("GPT-6-Luna")).toHaveTextContent("not offered by this version");
@@ -1151,9 +1151,9 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
         .getAllByRole("listitem")
         .map((i) => i.textContent),
     ).toEqual([
-      // Claude Code runs only Anthropic's models: who made them is not repeated.
-      "Opus opus · now Opus 5.5 · Effort: Low, High",
-      "Opus 5.5 claude-opus-5-5 · Effort: Low, High",
+      // Each says who made it; a short name also says what it is now.
+      "Opus opus · now Opus 5.5 · made by Anthropic · Effort: Low, High",
+      "Opus 5.5 claude-opus-5-5 · made by Anthropic · Effort: Low, High",
     ]);
     const ollama = card("Ollama");
     await user.click(within(ollama).getByRole("tab", { name: "Models" }));

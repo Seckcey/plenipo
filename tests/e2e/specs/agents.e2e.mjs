@@ -168,7 +168,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     );
     // It ran with Plenipo's settings for it: strict permissions, paid AI credits off.
     assert.match(t.text, /"toolPermission":"strict"/);
-    assert.match(t.text, /"useG1Credits":false/);
+    assert.doesNotMatch(t.text, /"useG1Credits":true/);
     assert.match(t.text, /20 in \(8 cached\) · 9 out/);
     await waitForText(browser, ".detail__header", "Antigravity conversation");
     // The tool it asked for was refused, and that is in the task's activity, in plain words.

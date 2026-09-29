@@ -10,9 +10,9 @@ or changes Plenipo.
 - **Part B (Codex): done** on Codex 0.159.0. Thank you.
 - **Part C (Gemini CLI): done — it can't be used.** Google stopped serving Gemini CLI to personal
   Google plans; see [the finding](ai-tools-gemini-finding.md).
-- **Part E (Antigravity CLI, Google's replacement): E1 to E8 done** — it answered a task and
-  continued the conversation on your Google sign-in. **One more step, E9, please**, plus your
-  `/credits` screenshot and your Google plan's name (E4, E8). I stop for Antigravity until then.
+- **Part E (Antigravity CLI, Google's replacement): done (E1 to E9).** It answered a task,
+  continued the conversation on your Google sign-in, and ran safely the way Plenipo runs it. Thank
+  you. It is now built into Plenipo (ADR-082, Antigravity as an AI tool).
 - **Part D (Ollama):** your paid plan starts 2026-09-30, so this waits for a small follow-up.
 
 - **Time:** about 30 minutes, most of it waiting.
@@ -266,8 +266,8 @@ input, prints its progress as JSON lines, and continues a conversation by its ID
    a switch for that, `useG1Credits`. Plenipo must never let a task spend money.
 3. **Does it update itself in the middle of work?** Plenipo updates AI tools only between tasks.
 
-If it can't pass, it gets a written finding like Gemini CLI. **I stop again for Antigravity until
-you send these results.**
+If it couldn't pass, it would get a written finding like Gemini CLI. It passed (see the
+[evidence](evidence/phase-16/README.md)).
 
 Use a PowerShell 7 window in the checks folder (the three lines of step 0). You already installed
 Antigravity and signed in, so there is nothing to install here unless `agy` is not found (then run
@@ -441,7 +441,7 @@ It saves `agy-e9-models.txt`, `agy-e9-write.txt`, and `agy-e9-made-up-key.txt`. 
 listed in both counts, and `proof.txt written: False`. If the counts are 0, send me the files:
 that's an answer too.
 
-**Then stop.** I write nothing for Antigravity until I have these results.
+**Done (2026-09-29).** The results are in the [evidence](evidence/phase-16/README.md).
 
 ## Part D — More Ollama cloud models (only if your paid Ollama plan is active)
 

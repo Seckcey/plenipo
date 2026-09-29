@@ -1,8 +1,8 @@
 //! Who made a model (ADR-081, who made each model): the AI company that made it, apart from the
 //! AI tool that runs it. Worked out each time from the AI tool's own list, never saved.
 //!
-//! 1. A model the AI tool lists says who made it (`KnownModel::maker`), and so does a model the
-//!    AI tool reported that Plenipo has checked elsewhere in its list.
+//! 1. A model the AI tool's checked list names says who made it (`KnownModel::maker`). What a
+//!    tool reports on its own never says who made a model.
 //! 2. "Its default" (no model name): who made the AI tool's default model.
 //! 3. A model it does not list: its company, for an AI tool that runs only its own company's
 //!    models; **not known** for one that runs other companies' models (Ollama).
@@ -24,11 +24,9 @@ pub fn maker_of(info: &AgentRuntimeInfo, model: Option<&str>) -> Option<Maker> {
             .clone()
             .or_else(|| (!caps.runs_other_makers).then(|| company_of(info)));
     };
-    let listed = caps
+    if let Some(maker) = caps
         .known_models
         .iter()
-        .chain(info.reported_models.iter().flat_map(|r| r.models.iter()));
-    if let Some(maker) = listed
         .filter(|k| k.name == name)
         .find_map(|k| k.maker.clone())
     {
@@ -139,17 +137,14 @@ mod tests {
         // Codex runs only OpenAI's models, listed or not.
         assert_eq!(maker_of(&codex, Some("gpt-7")).unwrap().id, "openai");
         assert_eq!(maker_of(&codex, None).unwrap().id, "openai");
-        // A model the tool reported and Plenipo lists nowhere else keeps what it says.
+        // What a tool reports never says who made a model: only Plenipo's checked list does.
         let mut reported = ollama.clone();
         reported.reported_models = Some(ReportedModels {
             models: vec![KnownModel::new("qwen9:cloud", "Qwen 9", &[]).by(("alibaba", "Alibaba"))],
             complete: false,
             checked_at: 1,
         });
-        assert_eq!(
-            maker_of(&reported, Some("qwen9:cloud")).unwrap().id,
-            "alibaba"
-        );
+        assert_eq!(maker_of(&reported, Some("qwen9:cloud")), None);
         // Every company once, by name: the AI tools' own and their lists' makers.
         let names: Vec<String> = companies(&[ollama, codex])
             .into_iter()

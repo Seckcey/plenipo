@@ -1,4 +1,4 @@
-# Phase 16 evidence: Google's Gemini CLI and Antigravity CLI, and Codex's models
+# Phase 16 evidence: Claude's exact versions, Codex's models, Gemini CLI, and Antigravity
 
 What Plenipo's build machine saw before the owner's checks. Gemini CLI then failed on the owner's
 PC ([the finding](../../ai-tools-gemini-finding.md)); Antigravity CLI is checked in its place.
@@ -284,6 +284,24 @@ error: authentication failed or timed out
 
 (exit code 1)
 
+# Claude's exact versions on the owner's subscription (Part A, 2026-09-29)
+
+From the owner's PC, Claude Code **2.1.284**, Claude Max, signed in with the subscription
+(`SignIn : none` on every task, so no key was used). Each name was run as a one-word task, and
+Claude Code's own `init` reported the exact model it ran:
+
+| Name     | Exact model it ran          | Ran by its exact name                                                                                                           |
+| -------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `opus`   | `claude-opus-5-5`           | yes, "OK"                                                                                                                       |
+| `sonnet` | `claude-sonnet-5-5`         | yes, "OK"                                                                                                                       |
+| `haiku`  | `claude-haiku-4-5-20251001` | yes, "OK"                                                                                                                       |
+| `fable`  | `claude-fable-5-1`          | accepted, then stopped at the plan's weekly Fable usage limit ("You've reached your Fable limit"): a usage limit, not a refusal |
+
+Claude Code's own `/model` list showed the same four: Opus 5.5, Fable 5.1, Sonnet 5.5, and Haiku
+4.5. The first run used an old `ANTHROPIC_API_KEY` setting on the PC instead of the subscription,
+and every task was refused; the owner turned it off for the check. Plenipo never passes that
+setting to Claude Code.
+
 # Codex's models on the owner's ChatGPT sign-in (Part B, 2026-09-29)
 
 From the owner's PC, Codex **0.159.0** (updated from 0.145.0), `Logged in using ChatGPT`. The list
@@ -384,6 +402,15 @@ exit code: 0
 exit code: 0
 ```
 
+## Paid credits and the plan (E4 and E8, the owner's screenshots)
+
+The owner sent two screenshots from Antigravity itself (not kept here: they show the owner's
+email address). What they show:
+
+- `/credits`: **"AI Credits not enabled"**.
+- Its settings screen: **"Use AI Credits" off**.
+- The plan: **"Antigravity Starter Quota"**.
+
 ## Found on the build machine after Part E
 
 - **Self-updates can be turned off:** the program reads `AGY_CLI_DISABLE_AUTO_UPDATE` (not in
@@ -426,7 +453,8 @@ proof.txt written: False
 Signed out, Antigravity CLI 1.2.13, a settings folder of Plenipo's own, `env -i` (a cleared
 environment).
 
-- **It rewrites its settings file after reading it,** keeping only what it understands. Of
+- **It rewrites its settings file after reading it.** It drops permission rules of a kind it does
+  not know and settings left at their default; a top-level setting it does not know is kept. Of
   `permissions.deny: ["command(*)", "read_url(*)", "url(*)", "mcp(*)", "file(*)"]` it kept
   `command(*)`, `read_url(*)`, and `mcp(*)`. The rule kinds its program names are `command`,
   `read_url`, `read_file`, `write_file`, and `mcp`; with those five, all five were kept, and its
@@ -455,3 +483,25 @@ read_file(*) write_file(*) mcp(*)] Ask:[]}, toolPermission=strict`.
   `open_browser_url`, `browser_subagent`, `run_command`, `generate_image`) removed nothing: in a
   task run with a made-up Gemini API key, which gets as far as `init` before Google refuses the
   key, `init` still listed all 57 tools. Plenipo does not rely on it.
+- **Leaving it, and slash commands.** Its built-in help says: "Exit: `Ctrl+D Ctrl+D` (or `/exit` or
+  `/quit`)." In one-task mode, a task whose words start with `/` is not sent to the model: `/help`
+  ended with "/help is answered by the CLI itself and is unavailable with --input-format
+  stream-json", and `/logout` with "/logout is not available in print mode (it clears stored
+  credentials, an effect that outlives the run)". Its `--disable-slash-commands` option would send
+  such words to the model instead, but it also turns read-only mode off: "--mode plan has no effect
+  while slash command expansion is disabled", so Plenipo does not use it.
+- **Plenipo's settings, as Antigravity writes them back** (signed out, twice in a row, the same
+  bytes both times): keys in alphabetical order, two spaces, a last line, and no `useG1Credits`
+  line (off is the default):
+
+```json
+{
+  "permissions": {
+    "deny": ["command(*)", "read_url(*)", "read_file(*)", "write_file(*)", "mcp(*)"]
+  },
+  "toolPermission": "strict"
+}
+```
+
+(Shown here on fewer lines; the file has one rule per line.) Plenipo writes exactly the file
+Antigravity writes, so it replaces the file only when something changed it.

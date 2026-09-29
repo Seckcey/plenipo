@@ -91,7 +91,9 @@
 //! say so; `[own-tool]` makes one of its own tools finish (Plenipo must stop the task),
 //! `[refused-tool]` makes one be refused, and `[settings]` adds the settings it ran with to the
 //! answer. `agy models` lists only Gemini's models when signed in with an API key, as the real
-//! one does; `agy` alone is its sign-in.
+//! one does; `agy` alone is its sign-in. Plenipo gives Antigravity a home folder of its own
+//! (ADR-082), so in the app its state is in that folder's `.plenipo-fake-agent`, not the tests'
+//! home (the Rust harnesses choose the home folder, and Plenipo writes its settings there).
 //!
 //! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
 //! bridge (`--plenipo-ollama auth`, `models`, and `chat …`) in the bridge's output format, so

@@ -1093,9 +1093,7 @@ body {
 
 .models .table__group th {
   padding-top: var(--ui-space-5);
-  font-weight: 600;
-  text-align: left;
-  border-bottom: 1px solid var(--ui-border);
+  font-weight: var(--ui-weight-semibold);
 }
 
 .models__roles th[scope="row"] {

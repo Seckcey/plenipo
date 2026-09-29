@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 use crate::config::{check_model_effort, RoutingConfig, ToolEfforts, ToolLevels};
 use crate::dto::*;
 use crate::engine::{
-    effort_for, effort_words, layers, limit_words, never_by, not_ready, route, DepartmentRule,
-    RouteInput, ToolState,
+    effort_for, effort_words, layers, limit_words, never_by, never_other_than, not_ready, route,
+    DepartmentRule, RouteInput, ToolState,
 };
 use crate::error::{Result, RouterError};
 use crate::limits;
@@ -191,6 +191,27 @@ impl Planner {
                         never_by(&layers, &made.id).map(|who| (who, made.label.clone()))
                     })
             });
+        // Who made it is not known: it could be a company on such a list (ADR-081 §7).
+        let unknown = if never.is_none() && made_by.is_none() {
+            never_other_than(&layers, &company)
+        } else {
+            None
+        };
+        if let Some(who) = unknown {
+            return RouteDecision {
+                reason: format!(
+                    "You set {title} to always use {label}, but {who} has AI companies never to \
+                     use, and who made {label} is not known. Change one of them (Settings → AI \
+                     models)."
+                ),
+                choice: None,
+                rank: None,
+                candidates: Vec::new(),
+                fixed: true,
+                model_from: Some(fixed_by),
+                effort_from: None,
+            };
+        }
         if let Some((who, never_label)) = never {
             return RouteDecision {
                 reason: format!(
@@ -1047,6 +1068,57 @@ mod tests {
             .unavailable("gamma")
             .unwrap()
             .contains("not available"));
+    }
+
+    /// ADR-081 §5, §7: a position fixed to a model is refused when its maker is a company never
+    /// to use, or when who made it is not known and there are companies never to use.
+    #[test]
+    fn a_fixed_model_is_refused_by_who_made_it() {
+        use plenipo_runtime::agent::makers;
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let router = Router::with_tools(
+            Arc::clone(&ledger),
+            Arc::new(|| {
+                let mut hub = info("hub", "Hub", "hub", true);
+                hub.capabilities.runs_other_makers = true;
+                hub.capabilities.known_models =
+                    vec![KnownModel::new("deep", "Deep", &[]).by(makers::DEEPSEEK)];
+                vec![hub]
+            }),
+        );
+        let never = |companies: &[&str]| {
+            router
+                .set_rule(
+                    &RuleTarget::Organization,
+                    &ModelRule {
+                        never_companies: companies.iter().map(|c| (*c).to_owned()).collect(),
+                        ..ModelRule::default()
+                    },
+                )
+                .unwrap();
+        };
+        let fixed = |model: &str| {
+            router.planner().unwrap().fixed(
+                &RouteRequest::default(),
+                "Code Reviewer",
+                "hub",
+                Some(model),
+            )
+        };
+        // Nothing never to use: both may be used.
+        assert!(fixed("deep").choice.is_some());
+        assert!(fixed("mystery").choice.is_some());
+        never(&["deepseek"]);
+        let d = fixed("deep");
+        assert!(d.choice.is_none());
+        assert!(d.reason.contains("never uses DeepSeek"), "{}", d.reason);
+        let d = fixed("mystery");
+        assert!(d.choice.is_none());
+        assert!(
+            d.reason.contains("who made mystery (Hub) is not known"),
+            "{}",
+            d.reason
+        );
     }
 
     /// ADR-041: the organization's, a department's, and an agent's rules are saved, checked, and

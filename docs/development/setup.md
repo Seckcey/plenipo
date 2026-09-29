@@ -68,7 +68,7 @@ apps do not need to be open.
 | Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)                    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
 | Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code)           | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
 | Ollama      | The installer from ollama.com/download                                    | `ollama signin` — finish in the browser                                        |
-| Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` (Antigravity CLI) | `agy` — sign in with your Google account, then type `/exit`                    |
+| Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` (Antigravity CLI) | `agy` — sign in with your Google account, then type `/exit` (or Ctrl+D twice)  |
 
 Then open **AI tools** in Plenipo and choose **Check again**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -96,20 +96,24 @@ Notes:
   Google's Gemini models and some of Anthropic's and OpenAI's under your Google sign-in. The
   installer puts `agy.exe` in `%LOCALAPPDATA%\agy\bin`; open a new PowerShell window afterwards so
   `agy` works there (Plenipo also looks in that folder). Its card's **Sign in** opens `agy` in a
-  tab: sign in there, then type `/exit`. What Plenipo checks and does:
+  tab: sign in there, then type `/exit` (or press Ctrl+D twice). Its card has no **Sign out**:
+  Antigravity has no sign-out command. What Plenipo checks and does:
   - Before every task it runs `agy models`. Signed in to Google, it lists Gemini's models and other
-    companies'. A list with only Gemini's models is what a Gemini API key gives (billed per use),
-    and Plenipo refuses it. Plenipo never passes `GEMINI_API_KEY`.
+    companies' (Claude, GPT-OSS). A list with only Gemini's models is what a Gemini API key gives
+    (billed per use), and Plenipo refuses it. Plenipo never passes `GEMINI_API_KEY`.
   - It gives Antigravity a settings folder of its own, in Plenipo's app data
-    (`runtime\ai-tool-homes\antigravity`), written again before every run: paid AI credits off,
-    strict permissions, and every kind of its own tool denied (programs, web pages, reading and
-    writing files, add-ons). Your own Antigravity settings, hooks, and add-ons are not used. Your
-    Google sign-in stays in Windows Credential Manager, so it still works there.
+    (`runtime\ai-tool-homes\antigravity`), checked before every run: paid AI credits off, strict
+    permissions, and every kind of its own tool denied (programs, web pages, reading and writing
+    files, add-ons). Your own Antigravity settings, hooks, and add-ons are not used. Your Google
+    sign-in stays in Windows Credential Manager, so it still works there. Anything you set up
+    inside Antigravity from its **Sign in** tab (an add-on, a hook) is saved in that folder and
+    stays for later tasks, so leave it as it is there.
   - One task is one program, read-only (`--mode plan --sandbox`), and the task's words go in on its
     input. A conversation goes on by its ID.
   - Antigravity workers are conversation only: they answer in text and cannot read files, run
-    programs, or open web pages. If Antigravity uses one of its own tools anyway, or starts without
-    Plenipo's settings, Plenipo stops the task.
+    programs, or open web pages. If Antigravity uses one of its own tools anyway (its web search,
+    which no setting turns off, for example), or starts without Plenipo's settings, Plenipo stops
+    the task. A task whose words start with `/` fails with Antigravity's own message.
   - It no longer updates itself during tasks (`AGY_CLI_DISABLE_AUTO_UPDATE=true`); **Update** on
     its card runs `agy update` between tasks.
   - Models (1.2.13, signed in): eleven Gemini models whose names carry their thinking level (for

@@ -16,7 +16,7 @@ availability, and usage limits still apply.
 The Ollama adapter currently uses **Ollama cloud models**, not local models. Its workers answer
 in text and cannot read files or run programs. See the [AI tool setup guide](development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional).
 
-## Do I need API keys or all five providers?
+## Do I need API keys or all six AI tools?
 
 No. Plenipo uses the supported tools' account sign-ins and rejects API-key authentication.
 Install and sign in to at least one supported tool to run workers. No provider login is needed

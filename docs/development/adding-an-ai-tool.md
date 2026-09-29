@@ -149,6 +149,13 @@ fn fixed_env(&self) -> Vec<(String, String)> {
   CLI gets only that baseline, `fixed_env`, and the `passthrough_env` names that are set.
 - Pass through only what the CLI needs to find its own settings and sign-in (its config
   directory) and the proxy and certificate settings in `NETWORK_ENV`.
+- **A settings folder of its own** (`own_home`, ADR-082, Antigravity as an AI tool). When a tool's
+  least privilege lives in a settings file in its home folder, list that file and its contents in
+  `own_home()`. Plenipo keeps a home folder for the tool (`AgentConfig::tool_homes`), writes the file
+  whenever it differs, and points `USERPROFILE` (Windows) or `HOME` at that folder for every process
+  of the tool. Write the file exactly as the tool writes it back, so it is replaced only when
+  something changed it. Check that the tool's sign-in still works from another home folder (step
+  0), and have the parser check, in each task, that the settings were read.
 - **Never** pass API keys, tokens, passwords, or variables that switch billing to a cloud account
   or another endpoint. Examples: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
   `GITHUB_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `*_BASE_URL`. The contract suite rejects any name
@@ -164,6 +171,8 @@ fn turn_args(&self, request: &TurnRequest) -> Vec<String>;
 
 `TurnRequest` holds the session (new, optionally with an ID Plenipo chose, or resumed by the
 provider's ID), the model, the effort, and whether billing was confirmed. **It has no prompt.**
+A tool that wants its prompt on stdin in a wrapper (Antigravity: one JSON message) returns it from
+`TurnParser::input`; the default is the prompt itself.
 Plenipo writes the prompt to the CLI's stdin, so it never shows in process lists, is not limited
 by Windows command-line length, and cannot be misquoted.
 
@@ -432,7 +441,8 @@ tools officially report) add these to the `RuntimeAdapter` contract. Each has a 
 tool without one simply goes without; the contract suite checks what each tool declares.
 
 - **`account_command(action)`** — the tool's own sign-in (also Reconnect) and sign-out command,
-  e.g. `["login"]` / `["logout"]`. Only its maker's documented command; never a flag that
+  e.g. `["login"]` / `["logout"]`. An empty list means the tool started on its own is its sign-in
+  (Antigravity); the contract suite allows that only where it is recorded. Only its maker's documented command; never a flag that
   changes what is billed (`--console`, `--with-api-key`). `None` when there is no such command
   (Kimi has no sign-out). The owner signs in in a terminal tab; Plenipo never types into it.
 - **`newest_version()`** — where the newest version comes from: the tool's own check

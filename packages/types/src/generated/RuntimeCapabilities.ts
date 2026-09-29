@@ -33,8 +33,9 @@ effortLevels: Array<Effort>,
  */
 knownModels: Array<KnownModel>, 
 /**
- * Who made the model the AI tool runs when none is named (ADR-081 §2); absent: the AI
- * tool's own company.
+ * Who made the model the AI tool runs when none is named (ADR-081 §2). Absent: the AI
+ * tool's own company for one that runs only its own company's models, and not known for
+ * one that runs other companies' models too (Antigravity, ADR-082).
  */
 defaultMaker?: Maker, 
 /**

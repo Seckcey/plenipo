@@ -867,19 +867,19 @@ impl Liaison {
     /// review by who made the models (Phase 6; ADR-081 §3).
     fn reviewed_work(&self, d: &Directive, task: &Task, correlation: &str) -> Vec<WorkDoneBy> {
         // The model a task asked for, else the one its latest run reported, else its AI
-        // tool's default (`None`).
+        // tool's default (`None`). Runs that cannot be read: the model is not known.
         let done_by = |t: &Task| -> Option<WorkDoneBy> {
-            let runtime_id = t.metadata["runtimeId"].as_str()?.to_owned();
-            let model = t.metadata["model"].as_str().map(str::to_owned).or_else(|| {
-                self.inner
-                    .ledger
-                    .executions_for_task(&t.id)
-                    .ok()?
-                    .into_iter()
-                    .rev()
-                    .find_map(|e| e.model)
-            });
-            Some(WorkDoneBy { runtime_id, model })
+            let runtime_id = t.metadata["runtimeId"].as_str()?;
+            if let Some(model) = t.metadata["model"].as_str() {
+                return Some(WorkDoneBy::new(runtime_id, Some(model)));
+            }
+            Some(match self.inner.ledger.executions_for_task(&t.id) {
+                Ok(runs) => {
+                    let model = runs.into_iter().rev().find_map(|e| e.model);
+                    WorkDoneBy::new(runtime_id, model.as_deref())
+                }
+                Err(_) => WorkDoneBy::unread(runtime_id),
+            })
         };
         let mut out: Vec<WorkDoneBy> = Vec::new();
         for c in &d.context {

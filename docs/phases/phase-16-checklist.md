@@ -1,10 +1,13 @@
 # Phase 16 — Implementation Checklist (Wave 1)
 
-**Status:** design written (2026-09-29); **choices 1 to 5 answered**. Waiting for the owner: the
-go-ahead to build, and the last Antigravity check on the owner's Windows PC (step E9, the
-`/credits` screenshot, and the Google plan's name). Parts A, B, C, and E1 to E8 are done; Gemini
-CLI got a [finding](ai-tools-gemini-finding.md). Nothing is built yet. Builds on v1.13.0 (Phase 20A); releases as **v1.14.0**. Built beside Phase 20B (Slack and
-Google), which another session is building at the same time, at the owner's direction.
+**Status:** **built (2026-09-29), v1.14.0.** Choices 1 to 5 answered; the owner's go-ahead to build
+("yes, I need you to start building. thats the whole point of this."). Every check on the owner's
+PC is done except Part D (Ollama's paid plan starts 2026-09-30, a small follow-up). Gemini CLI got
+a [finding](ai-tools-gemini-finding.md); Antigravity passed and is built (ADR-082). A review of
+four areas, each finding checked by a second reviewer, is done: see the
+[acceptance report](phase-16-acceptance-report.md). Builds on v1.13.0 (Phase 20A), beside Phase
+20B (Slack and Google), which another session is building at the same time, at the owner's
+direction.
 
 Source: `ROLLOUT_PLAN.md`, Phase 16 — Every AI Model Worth Having, **Wave 1 only** ("fits today's
 rules, no paid key"), and the records for it:
@@ -25,8 +28,8 @@ rules, no paid key"), and the records for it:
   the [guide for adding an AI tool](../development/adding-an-ai-tool.md), and the
   [Phase 19 checklist](phase-19-checklist.md) (how the AI tools page was built).
 
-**Numbers:** ADR-080 and ADR-081. The owner kept ADR-069 to ADR-079 for Phase 20 (20B and 20C; ADR-069
-then went to the website's record, pull request #98), so Phase 16 starts at 080; Antigravity CLI, if it passes its checks, gets ADR-082. **No new Ledger layout:** who
+**Numbers:** ADR-080, ADR-081, and ADR-082. The owner kept ADR-069 to ADR-079 for Phase 20 (20B and
+20C; ADR-069 then went to the website's record, pull request #98), so Phase 16 starts at 080. **No new Ledger layout:** who
 made a model is worked out from each AI tool's list every time, never saved.
 
 Dates are Pacific time.
@@ -44,7 +47,8 @@ paid key".
 
 **What happened first:** you asked me to start Phase 16 now, beside Phase 20B. I wrote that down
 as ADR-080 (building Phase 16's first wave alongside Phase 20) and changed the plan's order-of-work
-table to say so. Then I read the code and wrote this plan. Nothing is built yet.
+table to say so. Then I read the code and wrote this plan. After your answers and your go-ahead, I
+built it: see the [acceptance report](phase-16-acceptance-report.md).
 
 **What Wave 1 gives you:**
 
@@ -58,20 +62,21 @@ table to say so. Then I read the code and wrote this plan. Nothing is built yet.
   your choice.
 - **Exact Claude versions.** "Opus" shows the exact version it points to now, and you can pick an
   exact version so a role stays on it.
-- **Older OpenAI models** your ChatGPT sign-in really allows, each checked on your PC.
+- **Older OpenAI models** your ChatGPT sign-in really allows, each checked on your PC. (None was
+  allowed; Codex's newest model joins instead.)
 - **Google's Gemini models.** Gemini CLI can't be used any more: Google stopped serving it to
-  personal Google plans (the [finding](ai-tools-gemini-finding.md)). At your direction, Plenipo
-  checks Google's replacement, **Antigravity CLI**, as its Google AI tool — or writes a finding for
-  it too, if it can't pass the safety bar.
+  personal Google plans (the [finding](ai-tools-gemini-finding.md)). At your direction, Google's
+  replacement, **Antigravity**, joins as the sixth AI tool (ADR-082, Antigravity as an AI tool).
 - **More Ollama cloud models**, only if your paid Ollama plan is active.
 
 **What you need to do:**
 
 1. ~~Answer choices 1 to 3~~ — done: as recommended.
-2. **Finish the checks on your Windows PC** ([the steps](phase-16-owner-checks.md)): step E9 for
-   Antigravity, your `/credits` screenshot, and your Google plan's name. I build the maker, review,
-   and list parts as soon as you approve; Antigravity waits for E9, because I won't guess what your
-   plan allows.
+2. ~~Finish the checks on your Windows PC~~ — done (E9, the `/credits` screenshot, and the plan's
+   name).
+3. **Now:** accept or change ADR-082 (Antigravity as an AI tool), and try Wave 1 on your PC (the
+   [acceptance report](phase-16-acceptance-report.md) lists what to try). Part D (Ollama) once
+   your paid plan starts.
 
 ## Choices for you
 
@@ -114,7 +119,7 @@ recommended."
 5. **Gemini CLI can't sign in with a personal Google plan. Check Google's replacement,
    Antigravity CLI, in its place?** — **Answered (2026-09-29): yes, now.** The owner: "gemini is a
    critical AI LLM we need working in Plenipo so yes, do A now please." Antigravity CLI is checked
-   in this wave (Part E), gets its own decision record (ADR-082) if it passes, and a finding if
+   in this wave (Part E), gets its own decision record (ADR-082, Antigravity as an AI tool) if it passes, and a finding if
    not.
 
 Already decided, not a choice: version **1.14.0** (your instruction); the grouping choice is
@@ -148,7 +153,7 @@ subscriptions is Wave 3's routes (ADR-081 §4).
 - **Part C — Gemini CLI: done; it fails the bar.** Sign in with Google was refused: "This client is
   no longer supported for Gemini Code Assist for individuals." npm installed only Node.js shortcuts
   (no `gemini.exe`), and WinGet has no package. The [finding](ai-tools-gemini-finding.md).
-- **Part E — Antigravity CLI, step 0: E1 to E8 done; E9 to do.** On the owner's PC, signed in with
+- **Part E — Antigravity CLI, step 0: done (E1 to E9).** On the owner's PC, signed in with
   Google: version 1.2.13, a real `agy.exe` (`%LOCALAPPDATA%\agy\bin`); **one task with the words on
   standard input answered "OK" (`SUCCESS`), and a second task continued the same conversation by
   its ID and remembered it**; `agy models` listed fourteen models from **three companies**: Gemini
@@ -159,31 +164,34 @@ subscriptions is Wave 3's routes (ADR-081 §4).
   during the checks. The made-up-key half of E6 did not run (a command the older Windows
   PowerShell does not accept). On the build machine afterwards: self-updates stop with
   `AGY_CLI_DISABLE_AUTO_UPDATE=true`, and `useG1Credits` takes `true`/`false` (Google's settings page
-  says `on`/`off`, which the program refuses). **E9** runs it the way Plenipo would (its own
-  settings folder with paid credits off, self-updates off, read-only) and asks it to write a file.
-  Details: [evidence](evidence/phase-16/README.md). **I stop for Antigravity until E9 comes back.**
+  says `on`/`off`, which the program refuses). **E9** ran it the way Plenipo would (its own
+  settings folder, strict permissions, self-updates off, read-only): the same fourteen models, with
+  and without a made-up key in the environment; `init` said strict; asked to write a file, it tried
+  to run a program and was refused, and wrote nothing. The owner's screenshots: "AI Credits not
+  enabled", "Use AI Credits" off, plan "Antigravity Starter Quota". Details:
+  [evidence](evidence/phase-16/README.md).
 - **Part D — Ollama:** after the paid plan starts (choice 4).
 
 ## Code map (read at `936c8e6`, `main`, v1.13.0)
 
-| Area                      | File                                                                                                                                                                                                                           | Today                                                                                     | Wave 1                                                                                                                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A model an AI tool lists  | `crates/runtime/src/agent/dto.rs` (`KnownModel`, `RuntimeCapabilities`)                                                                                                                                                        | name, label, effort levels                                                                | + `maker` (ID and name, `None` when not known), + `points_to` (the exact model a name follows); the tool gains its default model's maker and "runs only its own company's models"       |
-| Each AI tool's list       | `crates/runtime/src/agent/{claude_code,codex,grok,kimi}.rs`, `ollama/mod.rs`                                                                                                                                                   | fixed lists (Claude Code 2.1.283, Codex 0.157.1, Grok 1.0.41, Kimi 0.34.0, Ollama 0.34.4) | every model gets its maker; Claude Code gains exact versions (Part A); Codex gains older models (Part B); Ollama more models (Part D)                                                   |
-| Models a tool reports     | `parse_models` in each adapter                                                                                                                                                                                                 | new models "not checked yet" (ADR-060 §5)                                                 | a reported model's maker: the tool's company when it runs only its own; not known for Ollama                                                                                            |
-| The contract suite        | `crates/runtime/tests/contract.rs`                                                                                                                                                                                             | identity, models, effort, no key variables                                                | + every listed model has a maker; one name per company across tools; a one-company tool lists only its company's models; key variables still refused for every subscription AI tool     |
-| The stand-in AI tool      | `crates/runtime/src/bin/plenipo-fake-agent.rs`                                                                                                                                                                                 | a persona per AI tool                                                                     | new reported models for the maker tests; an Antigravity persona only if it passes                                                                                                       |
-| The Router's view         | `crates/router/src/dto.rs` (`ToolInfo`, `ModelInfo`, `RouteChoice`)                                                                                                                                                            | a model's company is its tool's                                                           | a model's maker (worked out, never saved); `RouteChoice` says who made the chosen model                                                                                                 |
-| The decision              | `crates/router/src/engine.rs` (`route`, `same_company`, `never_by`)                                                                                                                                                            | compares `info.provider` (the AI tool's company) for review and never-use                 | review compares makers (§3); never-use per choice 2; the usage-limit rule unchanged                                                                                                     |
-| The Router service        | `crates/router/src/service.rs` (`RouteRequest::reviewed`), `config.rs` (`check_companies`)                                                                                                                                     | `reviewed: &[String]` (AI tools only); never-use accepts the tools' companies             | the reviewed work is an AI tool **and a model**; never-use also accepts makers (choice 2)                                                                                               |
-| Whose work is reviewed    | `crates/liaison/src/service.rs` (`reviewed_work`), `directory.rs` (`Directory::place`)                                                                                                                                         | the runtime IDs of the referenced tasks, or the requester's                               | each with its model: the task's `model`, else the model its result reported, else the AI tool's default                                                                                 |
-| Placing a worker          | `crates/workforce/src/directory.rs`, `service.rs`                                                                                                                                                                              | passes runtime IDs on                                                                     | passes the AI tool and model on                                                                                                                                                         |
-| Your models               | `apps/desktop/src/components/models/ModelList.tsx`                                                                                                                                                                             | one table: Name, AI tool, Model the tool runs, …                                          | **Group by: Who made it / AI tool** (the design system's `Segmented`), a heading per group, a "Who made it" column; remembered with `useStoredState` (choice 1)                         |
-| Model menus               | `apps/desktop/src/routing/format.ts` (`modelGroups`, `companies`), `components/models/ModelPicker.tsx`                                                                                                                         | "Claude Code's models", "Your models", "Seen in use"                                      | for a tool that runs several companies' models, each option says who made it; a name that points to the newest model says what it points to now; `companies()` offers makers (choice 2) |
-| AI tools page             | `apps/desktop/src/components/aiTools/ModelsTab.tsx`                                                                                                                                                                            | each model's label, name, and effort                                                      | + "made by …", + "now …" for Claude's names                                                                                                                                             |
-| Types for the screens     | `packages/types/src/generated` (`pnpm bindings`)                                                                                                                                                                               | —                                                                                         | regenerated                                                                                                                                                                             |
-| Tests                     | `crates/router/src/engine.rs` tests, `crates/liaison/tests/handoffs.rs`, `crates/workforce/tests/`, `apps/desktop/src/components/models/ModelSettings.test.tsx`, `aiTools/aiTools.test.tsx`, `tests/e2e/specs/routing.e2e.mjs` | cross-company review by AI tool                                                           | the plan's tests (below)                                                                                                                                                                |
-| Antigravity, if it passes | `crates/runtime/src/agent/antigravity.rs`, `mod.rs` (`builtin_adapters`), `docs/development/setup.md` §3                                                                                                                       | —                                                                                         | a new adapter, its persona, its ADR-082; or `docs/phases/ai-tools-antigravity-finding.md`. Gemini CLI: `docs/phases/ai-tools-gemini-finding.md` (written)                               |
+| Area                     | File                                                                                                                                                                                                                           | Today                                                                                     | Wave 1                                                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A model an AI tool lists | `crates/runtime/src/agent/dto.rs` (`KnownModel`, `RuntimeCapabilities`)                                                                                                                                                        | name, label, effort levels                                                                | + `maker` (ID and name, `None` when not known), + `points_to` (the exact model a name follows); the tool gains its default model's maker and "runs only its own company's models"       |
+| Each AI tool's list      | `crates/runtime/src/agent/{claude_code,codex,grok,kimi}.rs`, `ollama/mod.rs`                                                                                                                                                   | fixed lists (Claude Code 2.1.283, Codex 0.157.1, Grok 1.0.41, Kimi 0.34.0, Ollama 0.34.4) | every model gets its maker; Claude Code gains exact versions (Part A); Codex gains older models (Part B); Ollama more models (Part D)                                                   |
+| Models a tool reports    | `parse_models` in each adapter                                                                                                                                                                                                 | new models "not checked yet" (ADR-060 §5)                                                 | a reported model's maker: the tool's company when it runs only its own; not known for Ollama                                                                                            |
+| The contract suite       | `crates/runtime/tests/contract.rs`                                                                                                                                                                                             | identity, models, effort, no key variables                                                | + every listed model has a maker; one name per company across tools; a one-company tool lists only its company's models; key variables still refused for every subscription AI tool     |
+| The stand-in AI tool     | `crates/runtime/src/bin/plenipo-fake-agent.rs`                                                                                                                                                                                 | a persona per AI tool                                                                     | new reported models for the maker tests; an Antigravity persona (`agy`)                                                                                                                 |
+| The Router's view        | `crates/router/src/dto.rs` (`ToolInfo`, `ModelInfo`, `RouteChoice`)                                                                                                                                                            | a model's company is its tool's                                                           | a model's maker (worked out, never saved); `RouteChoice` says who made the chosen model                                                                                                 |
+| The decision             | `crates/router/src/engine.rs` (`route`, `same_company`, `never_by`)                                                                                                                                                            | compares `info.provider` (the AI tool's company) for review and never-use                 | review compares makers (§3); never-use per choice 2; the usage-limit rule unchanged                                                                                                     |
+| The Router service       | `crates/router/src/service.rs` (`RouteRequest::reviewed`), `config.rs` (`check_companies`)                                                                                                                                     | `reviewed: &[String]` (AI tools only); never-use accepts the tools' companies             | the reviewed work is an AI tool **and a model**; never-use also accepts makers (choice 2)                                                                                               |
+| Whose work is reviewed   | `crates/liaison/src/service.rs` (`reviewed_work`), `directory.rs` (`Directory::place`)                                                                                                                                         | the runtime IDs of the referenced tasks, or the requester's                               | each with its model: the task's `model`, else the model its result reported, else the AI tool's default                                                                                 |
+| Placing a worker         | `crates/workforce/src/directory.rs`, `service.rs`                                                                                                                                                                              | passes runtime IDs on                                                                     | passes the AI tool and model on                                                                                                                                                         |
+| Your models              | `apps/desktop/src/components/models/ModelList.tsx`                                                                                                                                                                             | one table: Name, AI tool, Model the tool runs, …                                          | **Group by: Who made it / AI tool** (the design system's `Segmented`), a heading per group, a "Who made it" column; remembered with `useStoredState` (choice 1)                         |
+| Model menus              | `apps/desktop/src/routing/format.ts` (`modelGroups`, `companies`), `components/models/ModelPicker.tsx`                                                                                                                         | "Claude Code's models", "Your models", "Seen in use"                                      | for a tool that runs several companies' models, each option says who made it; a name that points to the newest model says what it points to now; `companies()` offers makers (choice 2) |
+| AI tools page            | `apps/desktop/src/components/aiTools/ModelsTab.tsx`                                                                                                                                                                            | each model's label, name, and effort                                                      | + "made by …", + "now …" for Claude's names                                                                                                                                             |
+| Types for the screens    | `packages/types/src/generated` (`pnpm bindings`)                                                                                                                                                                               | —                                                                                         | regenerated                                                                                                                                                                             |
+| Tests                    | `crates/router/src/engine.rs` tests, `crates/liaison/tests/handoffs.rs`, `crates/workforce/tests/`, `apps/desktop/src/components/models/ModelSettings.test.tsx`, `aiTools/aiTools.test.tsx`, `tests/e2e/specs/routing.e2e.mjs` | cross-company review by AI tool                                                           | the plan's tests (below)                                                                                                                                                                |
+| Antigravity              | `crates/runtime/src/agent/antigravity.rs`, `mod.rs` (`builtin_adapters`), `docs/development/setup.md` §3                                                                                                                       | —                                                                                         | a new adapter, its persona, ADR-082 (Antigravity as an AI tool). Gemini CLI: `docs/phases/ai-tools-gemini-finding.md` (written)                                                         |
 
 **Not touched** (Phase 20's): `crates/capabilities/src/connections/`, `crates/guard/src/connections.rs`,
 the Vault, `apps/desktop/src/settings/connections/`, and the Connections tests.
@@ -193,8 +201,8 @@ the Vault, `apps/desktop/src/settings/connections/`, and the Connections tests.
 ### 1. Who made each model (ADR-081 §1, §2)
 
 - `KnownModel` gains `maker: Option<Maker>` (`Maker { id, label }`), and `RuntimeCapabilities`
-  gains `default_maker` (who made the tool's default model) and `own_models_only` (it runs only
-  its company's models).
+  gains `default_maker` (who made the tool's default model) and `runs_other_makers` (it runs other
+  companies' models too; false: only its company's).
 - The makers of today's checked models:
 
   | AI tool     | Models                                                                                                        | Who made them                                             |
@@ -288,22 +296,21 @@ desktop's `companies()` also offer every maker the AI tools list. The saved rule
   - **item 2 (structured output): met** — JSON lines with the conversation ID, the answer as it is
     written, errors, and token counts;
   - **item 5 (version, resume by ID, repeatable): met** — `--version`, `--conversation <ID>`;
-  - **item 3 (subscription only):** key mode needs a `modelProvider` setting **and** a key variable,
-    and Plenipo passes neither: it would give Antigravity its own settings folder (the sign-in stays
-    in Windows Credential Manager) holding `"useG1Credits": false`, so a task can never spend paid
-    credits past the plan's allowance. E9 confirms this on the owner's PC;
-  - **item 4 (a sign-in check that tells a subscription from a key):** `agy models` before each
-    task, as with Grok: it refuses when signed out, and with Plenipo's own settings folder and no
-    key variable, only the Google sign-in can answer. E9 confirms that a key in the environment
-    alone does not change it;
-  - **least privilege:** `--mode plan --sandbox` and `"toolPermission": "strict"`; E9 checks that a
-    file cannot be written. Plenipo's tools would reach it through its MCP support, each call
-    checked by Guard, as for the other AI tools;
+  - **item 3 (subscription only): met.** Key mode needs a `modelProvider` setting **and** a key
+    variable, and Plenipo passes neither: Antigravity gets its own settings folder (the sign-in
+    stays in Windows Credential Manager) with paid credits at their default, off. E9: the same
+    fourteen models with Plenipo's settings folder, with and without a made-up key variable;
+  - **item 4 (a sign-in check that tells a subscription from a key): met.** `agy models` before each
+    task, as with Grok: signed in to Google it lists other companies' models too, a key lists only
+    Gemini's, and signed out it says "Please sign in";
+  - **least privilege: met, with a known limit.** `--mode plan --sandbox`, strict permissions, and
+    every kind of its own tool denied; E9: asked to write a file, it tried to run a program and was
+    refused. Workers on it are conversation only. Its web search is not covered by any permission
+    rule found; if it runs, Plenipo stops the task (ADR-082 §8, for the owner's check);
   - **updates:** `AGY_CLI_DISABLE_AUTO_UPDATE=true` for every task and check (ADR-059).
-- **If it passes:** an adapter with its own decision record (ADR-082) for what differs from the
-  other AI tools, a persona in the stand-in AI tool, and the whole contract suite. Its models say
-  who made them (Google, and any other company its list offers).
-- **If it fails:** `docs/phases/ai-tools-antigravity-finding.md`, as Gemini CLI's.
+- **It passed:** an adapter with its own decision record, ADR-082 (Antigravity as an AI tool), a
+  persona in the stand-in AI tool, and the whole contract suite. Its models say who made them
+  (Google, Anthropic, OpenAI).
 
 ### 8. More Ollama cloud models (choice 4; Part D)
 
@@ -315,10 +322,11 @@ plan)" labels stay: those models still need a paid plan.
 
 Wave 1 adds no new reach: no new file access, program, network address, browser, or screen use.
 Model lists are data in the adapters. Every AI tool program is still started only by the
-supervisor as an approved program, through the same checks as today. If Antigravity lands, its
-program, its sign-in tab, and its updates go through exactly the paths Phase 19 built (the
-supervisor, `Guard::check_ai_tool_action`), and its file requests over ACP through Guard, as
-Kimi's do (ADR-027).
+supervisor as an approved program, through the same checks as today. Antigravity's program, its
+sign-in tab, and its updates go through exactly the paths Phase 19 built (the supervisor,
+`Guard::check_ai_tool_action`). It gets no Plenipo tools (conversation only), and its own tools are
+denied by its settings and stopped by Plenipo if one runs (ADR-082 §4). Plenipo writes one file
+for it, its settings, in Plenipo's own app data.
 
 ### 10. Nothing loaded while Plenipo runs (ADR-014)
 
@@ -360,75 +368,78 @@ versions, and `Cargo.lock`, keep both sides.
 
 ## Deliverables (plan, Wave 1)
 
-- [ ] `maker` on every known model: who made it, separate from the AI tool that runs it
-- [ ] Cross-company review counts the maker, not the AI tool (fixes a real hole in ADR-011 for
+- [x] `maker` on every known model: who made it, separate from the AI tool that runs it
+- [x] Cross-company review counts the maker, not the AI tool (fixes a real hole in ADR-011 for
       Ollama's models)
-- [ ] The model list groupable by maker or by the app that runs it, the owner's choice
+- [x] The model list groupable by maker or by the app that runs it, the owner's choice
       (remembered)
-- [ ] Exact Claude model versions beside the plain names (after Part A)
-- [ ] The older OpenAI models a ChatGPT sign-in really allows, each checked (after Part B)
+- [x] Exact Claude model versions beside the plain names (after Part A)
+- [x] The older OpenAI models a ChatGPT sign-in really allows, each checked (after Part B) —
+      **none allowed** (every one refused, Codex 0.145.0 and 0.159.0); Codex's newest model joins
 - [x] Google's Gemini CLI as an AI tool, or a written finding — **finding**
       ([ai-tools-gemini-finding.md](ai-tools-gemini-finding.md), 2026-09-29)
-- [ ] Added at the owner's direction (choice 5): Google's Antigravity CLI as an AI tool, or a
-      written finding (after Part E)
-- [ ] More Ollama cloud models once the owner's paid plan is active (choice 4, Part D)
+- [x] Added at the owner's direction (choice 5): Google's Antigravity CLI as an AI tool, or a
+      written finding (after Part E) — **an AI tool**, ADR-082 (Antigravity as an AI tool)
+- [ ] More Ollama cloud models once the owner's paid plan is active (choice 4, Part D) — **a
+      follow-up**: the plan starts 2026-09-30
 
 ## Technical implementation (plan, the parts for Wave 1)
 
-- [ ] **The maker field comes first.** Add `maker` to `KnownModel`, run `pnpm bindings`, and point
+- [x] **The maker field comes first.** Add `maker` to `KnownModel`, run `pnpm bindings`, and point
       cross-company review at it.
-- [ ] **New AI tools follow the existing guide** and ADR-014's bar, with step 0 run on the owner's
+- [x] **New AI tools follow the existing guide** and ADR-014's bar, with step 0 run on the owner's
       Windows PC before any code; the prompt goes in on standard input, directly or over ACP
       (ADR-015); a tool that fails the bar merges a finding, not a workaround.
 
 ## Tests (plan, Wave 1, and the owner's list)
 
-- [ ] Cross-company review: two models with the same maker on different AI tools count as one
+- [x] Cross-company review: two models with the same maker on different AI tools count as one
       company.
-- [ ] Two makers inside Ollama count as two.
-- [ ] The model list groups correctly by maker and by AI tool, with the same models in both.
-- [ ] The contract suite still refuses key variables for every subscription AI tool.
-- [ ] With the paid switch off, nothing changes (the payment switch still refuses a paid key, API
+- [x] Two makers inside Ollama count as two.
+- [x] The model list groups correctly by maker and by AI tool, with the same models in both.
+- [x] The contract suite still refuses key variables for every subscription AI tool.
+- [x] With the paid switch off, nothing changes (the payment switch still refuses a paid key, API
       billing stays off, and a tool signed in with a key is still skipped).
-- [ ] Vitest for the page (Settings → AI models, the AI tools page's Models tab).
-- [ ] End-to-end tests in the real app, with screenshots in `evidence/phase-16/`.
-- [ ] If Antigravity lands: it passes the whole contract suite with its own persona.
+- [x] Vitest for the page (Settings → AI models, the AI tools page's Models tab).
+- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-16/`.
+- [x] If Antigravity lands: it passes the whole contract suite with its own persona.
 
 ## Owner's rules for this wave
 
-- [ ] Plain words on screen (the word list gains the new pairs); ADRs named, never just numbered.
-- [ ] No passwords, keys, tokens, or secrets asked for in chat; nothing secret committed.
-- [ ] Anything touching files, programs, the network, the browser, or the screen goes through
+- [x] Plain words on screen (the word list gains the new pairs); ADRs named, never just numbered.
+- [x] No passwords, keys, tokens, or secrets asked for in chat; nothing secret committed.
+- [x] Anything touching files, programs, the network, the browser, or the screen goes through
       Guard and the capability broker (§9).
-- [ ] Nothing loads code into Plenipo while it runs (§10).
-- [ ] New desktop commands, if any, are the main window's alone; the sign window and web pages
+- [x] Nothing loads code into Plenipo while it runs (§10).
+- [x] New desktop commands, if any, are the main window's alone; the sign window and web pages
       are refused (IPC tests) (§12).
-- [ ] Logs and diagnostics files never hold secrets or anything typed in the terminal (§11).
-- [ ] No model names in commits, branch names, or pull requests (model names in the app's model
+- [x] Logs and diagnostics files never hold secrets or anything typed in the terminal (§11).
+- [x] No model names in commits, branch names, or pull requests (model names in the app's model
       list are the feature).
-- [ ] Nothing in Connections, the Vault, or Phase 20's tests (§15); `main` merged whenever it moves.
-- [ ] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
+- [x] Nothing in Connections, the Vault, or Phase 20's tests (§15); `main` merged whenever it moves.
+- [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked` (rerun until the whole suite finishes), and `pnpm bindings`
       with no diff (documentation-only pushes: `pnpm docs:check`).
-- [ ] A review across several areas, with a second reviewer checking each finding, before the
+- [x] A review across several areas, with a second reviewer checking each finding, before the
       final push; each confirmed finding fixed with a test, or recorded as a design limit.
 - [ ] Every GitHub check green, Windows included.
 
 ## Paperwork (at the end)
 
-- [ ] This checklist ticked; `docs/phases/phase-16-acceptance-report.md` (Wave 1).
-- [ ] `docs/releases/v1.14.0.md`; version 1.14.0 everywhere; a row in
+- [x] This checklist ticked; `docs/phases/phase-16-acceptance-report.md` (Wave 1).
+- [x] `docs/releases/v1.14.0.md`; version 1.14.0 everywhere; a row in
       `docs/development/versioning.md`.
-- [ ] The plan's Phase 16 status line and its state in the order of work.
-- [ ] "As built" sections in ADR-080 and ADR-081 (and ADR-082 if Antigravity lands).
-- [ ] New word pairs in `docs/design/vocabulary.md`.
+- [x] The plan's Phase 16 status line and its state in the order of work.
+- [x] "As built" sections in ADR-080 and ADR-081 (and ADR-082 if Antigravity lands).
+- [x] New word pairs in `docs/design/vocabulary.md`.
 - [ ] Before merging: check whether Phase 20B or 20C is still open, and tell the owner that they
       would move from 1.13.x to 1.14.x if this merges first.
 
 ## Left for the owner (on Windows)
 
-- The checks on [the check page](phase-16-owner-checks.md) (before the lists are built).
+- ~~The checks on [the check page](phase-16-owner-checks.md)~~ — done, except Part D (Ollama).
 - At acceptance: Settings → AI models grouped both ways; a cross-company review with an Ollama
-  model; a task on an exact Claude version and on an older OpenAI model; Antigravity, if it lands: one
-  task, a resumed task, cancel, and a refused sign-in.
+  model; a task on an exact Claude version; Antigravity: one task, a resumed task, cancel, a named
+  model, a refused sign-in, and asking it to search the web (ADR-082 §8); then accept or change
+  ADR-082 (Antigravity as an AI tool).
