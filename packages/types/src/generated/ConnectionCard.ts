@@ -8,9 +8,13 @@ import type { PermissionWords } from "./PermissionWords";
  */
 export type ConnectionCard = { connection: Connection, 
 /**
- * This copy has an app to sign in with (8 West's, or the organization's own).
+ * This copy has an app to sign in with (8 West's, or the owner's own).
  */
 hasApp: boolean, 
+/**
+ * This copy has 8 West's app for this service built in.
+ */
+builtInApp: boolean, 
 /**
  * A sign-in waits in the owner's browser.
  */
@@ -20,7 +24,7 @@ signingIn: boolean,
  */
 adminLink?: string, 
 /**
- * What went wrong with the last sign-in, in plain words.
+ * What went wrong with the last sign-in, or with cancelling one, in plain words.
  */
 problem?: string, parts: Array<PartCard>, 
 /**

@@ -477,6 +477,9 @@ pub fn configure<R: Runtime>(
             connections_commands::set_connection_access,
             connections_commands::set_connection_send_list,
             connections_commands::set_connection_own_app,
+            connections_commands::save_connection_app,
+            connections_commands::add_connection,
+            connections_commands::remove_connection,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -4101,7 +4104,7 @@ mod ipc_boundary_tests {
         assert!(page.auto_update);
     }
 
-    const PHASE_20: [&str; 8] = [
+    const PHASE_20: [&str; 11] = [
         "get_connections",
         "connect_connection",
         "cancel_connection_sign_in",
@@ -4110,13 +4113,17 @@ mod ipc_boundary_tests {
         "set_connection_access",
         "set_connection_send_list",
         "set_connection_own_app",
+        // Part 20B (ADR-069).
+        "save_connection_app",
+        "add_connection",
+        "remove_connection",
     ];
 
     /// Arguments that fit every Phase 20 command (each takes the ones it names).
     fn phase_20_args() -> serde_json::Value {
         serde_json::json!({
             "connectionId": "microsoft365", "kind": "work", "parts": { "mail": "readOnly" },
-            "access": [], "list": [], "app": null,
+            "access": [], "list": [], "app": null, "service": "slack",
         })
     }
 
@@ -4152,13 +4159,20 @@ mod ipc_boundary_tests {
                 assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
             }
         }
-        // Nothing the refused windows asked for changed anything.
+        // Nothing the refused windows asked for changed anything: the main window's own
+        // `add_connection` above added one Slack workspace, and no more.
         let page: plenipo_capabilities::connections::ConnectionsPage =
             body(invoke(&main, "get_connections"));
         assert_eq!(
             page.services[0].connections[0].connection.state,
             plenipo_guard::ConnectionState::NotConnected
         );
+        let slack: Vec<&str> = page.services[1]
+            .connections
+            .iter()
+            .map(|c| c.connection.id.as_str())
+            .collect();
+        assert_eq!(slack, ["slack", "slack-2"]);
     }
 
     #[test]
@@ -4186,8 +4200,13 @@ mod ipc_boundary_tests {
             ),
             (
                 "connect_connection",
-                serde_json::json!({ "connectionId": "slack", "kind": "work" }),
-                "Slack comes in a later update of Plenipo",
+                serde_json::json!({ "connectionId": "hubspot", "kind": "work" }),
+                "HubSpot comes in a later update of Plenipo",
+            ),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": "google", "kind": "work" }),
+                "no app ID for Google",
             ),
             (
                 "cancel_connection_sign_in",
@@ -4253,13 +4272,99 @@ mod ipc_boundary_tests {
                     "app": { "appId": "not-an-id", "tenant": "contoso.com" } }),
                 "the app ID must look like",
             ),
-            // No secret goes through Settings → Connections: an app's secret is refused by name.
+            // No secret goes through Microsoft's card: an app's secret is refused by name.
             (
                 "set_connection_own_app",
                 serde_json::json!({ "connectionId": id, "app": {
                     "appId": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "tenant": "contoso.com",
                     "clientSecret": "abc~123" } }),
                 "unknown field `clientSecret`",
+            ),
+            (
+                "set_connection_own_app",
+                serde_json::json!({ "connectionId": id, "app": {
+                    "appId": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "tenant": "contoso.com",
+                    "secretKept": true } }),
+                "a Microsoft app needs no secret",
+            ),
+            // Part 20B: the owner's own Slack or Google app, and Slack's workspaces.
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "../google",
+                    "app": { "clientId": "1.2" } }),
+                "invalid connection id",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "google", "app": {
+                    "clientId": "123456789012-a.apps.googleusercontent.com", "secret": "s",
+                    "tenant": "x" } }),
+                "unknown field `tenant`",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "google", "app": {
+                    "clientId": "evil.example", "secret": "GOCSPX-abc" } }),
+                "a Google app's client ID looks like",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "google", "app": {
+                    "clientId": "123456789012-a.apps.googleusercontent.com" } }),
+                "client secret too",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "google", "app": {
+                    "clientId": "123456789012-a.apps.googleusercontent.com",
+                    "secret": "x".repeat(201) } }),
+                "that secret is too long",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": "slack", "app": {
+                    "clientId": "1111111111.2222222222", "secret": "abc" } }),
+                "A Slack app signs in with no secret",
+            ),
+            (
+                "save_connection_app",
+                serde_json::json!({ "connectionId": id, "app": { "clientId": "1.2" } }),
+                "does not take a client ID here",
+            ),
+            (
+                "add_connection",
+                serde_json::json!({ "service": "myspace" }),
+                "unknown variant `myspace`",
+            ),
+            (
+                "add_connection",
+                serde_json::json!({ "service": "google" }),
+                "Plenipo keeps one Google account",
+            ),
+            (
+                "add_connection",
+                serde_json::json!({ "service": "stripe" }),
+                "Stripe comes in a later update of Plenipo",
+            ),
+            (
+                "remove_connection",
+                serde_json::json!({ "connectionId": id }),
+                "has one card",
+            ),
+            (
+                "remove_connection",
+                serde_json::json!({ "connectionId": "slack-x" }),
+                "invalid connection id",
+            ),
+            (
+                "set_connection_send_list",
+                serde_json::json!({ "connectionId": "slack", "list": ["#general"] }),
+                "its ID is at the bottom of About",
+            ),
+            (
+                "set_connection_parts",
+                serde_json::json!({ "connectionId": "slack", "parts": { "search": "fullAccess" } }),
+                "Search only reads",
             ),
         ] {
             let answer = invoke_json(&main, cmd, args.clone());
@@ -4290,6 +4395,55 @@ mod ipc_boundary_tests {
         );
         let has_app = guard_host::connections_config().microsoft_app_id.is_some();
         assert_eq!(page.services[0].connections[0].has_app, has_app);
+        // Google's secret goes to the Vault and never comes back out; a Slack channel goes on
+        // Slack's list by its ID; another Slack workspace gets its own card.
+        let secret = "GOCSPX-ipc-test-7f3e5b1c";
+        let answer = invoke_json(
+            &main,
+            "save_connection_app",
+            serde_json::json!({ "connectionId": "google", "app": {
+                "clientId": "123456789012-plenipotest.apps.googleusercontent.com",
+                "secret": secret } }),
+        )
+        .unwrap();
+        let tauri::ipc::InvokeResponseBody::Json(text) = &answer else {
+            panic!("a JSON answer");
+        };
+        assert!(!text.contains(secret), "the secret came back out");
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(Ok(answer));
+        let google = &page.services[2].connections[0];
+        assert!(google.has_app);
+        assert!(google.connection.own_app.as_ref().unwrap().secret_kept);
+        let page: plenipo_capabilities::connections::ConnectionsPage =
+            body(invoke(&main, "get_connections"));
+        assert!(!serde_json::to_string(&page).unwrap().contains(secret));
+        let _: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "save_connection_app",
+            serde_json::json!({ "connectionId": "google", "app": null }),
+        ));
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "set_connection_send_list",
+            serde_json::json!({ "connectionId": "slack", "list": ["c0100000001", "@clientco.com"] }),
+        ));
+        assert_eq!(
+            page.services[1].connections[0].connection.send_list,
+            ["C0100000001", "@clientco.com"]
+        );
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "add_connection",
+            serde_json::json!({ "service": "slack" }),
+        ));
+        assert!(page.services[1].many);
+        assert_eq!(page.services[1].connections.len(), 2);
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "remove_connection",
+            serde_json::json!({ "connectionId": "slack-2" }),
+        ));
+        assert_eq!(page.services[1].connections.len(), 1);
         let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
             &main,
             "set_connection_parts",

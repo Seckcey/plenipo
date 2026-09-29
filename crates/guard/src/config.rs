@@ -607,6 +607,13 @@ impl GuardConfig {
                     part.label()
                 )));
             }
+            if *level == PartLevel::FullAccess && !part.has_full_access() {
+                return Err(invalid(format!(
+                    "{}'s {} only reads: it is Off or Read only",
+                    c.label(),
+                    part.label()
+                )));
+            }
             c.parts.insert(*part, *level);
         }
         self.put_connection(c)
@@ -658,7 +665,7 @@ impl GuardConfig {
         }
         let mut entries: Vec<String> = Vec::new();
         for e in list {
-            let e = connections::send_entry(e).map_err(invalid)?;
+            let e = connections::send_entry(e, c.service).map_err(invalid)?;
             if !entries.iter().any(|x| x.eq_ignore_ascii_case(&e)) {
                 entries.push(e);
             }
@@ -692,16 +699,129 @@ impl GuardConfig {
                         "the app ID must look like 12345678-abcd-4ef0-9abc-0123456789ab",
                     ));
                 }
-                let tenant = a.tenant.trim().to_lowercase();
+                let tenant = a
+                    .tenant
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_lowercase();
                 if !(connections::is_guid(&tenant) || connections::is_domain(&tenant)) {
                     return Err(invalid(
                         "the organization must be its domain (contoso.com) or its ID",
                     ));
                 }
-                Some(OwnApp { app_id, tenant })
+                if a.secret_kept {
+                    return Err(invalid("a Microsoft app needs no secret"));
+                }
+                Some(OwnApp {
+                    app_id,
+                    tenant: Some(tenant),
+                    secret_kept: false,
+                })
             }
         };
         self.put_connection(c)
+    }
+
+    /// Use the owner's own Slack or Google app (`None`: none — 8 West's for Slack; Google has no
+    /// other), by its client ID. `secret_kept`: a Google app's secret is already in the Vault
+    /// (ADR-069 §4). Only while the connection is not connected.
+    pub fn set_connection_client_app(
+        &mut self,
+        id: &str,
+        client_id: Option<&str>,
+        secret_kept: bool,
+    ) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        if c.state != ConnectionState::NotConnected {
+            return Err(invalid(format!(
+                "Disconnect {} first: its sign-in belongs to the app it was made with",
+                c.label()
+            )));
+        }
+        c.own_app = match (c.service, client_id) {
+            (connections::Service::Slack | connections::Service::Google, None) => None,
+            (connections::Service::Slack, Some(id)) => {
+                let id = id.trim();
+                if !connections::is_slack_client_id(id) {
+                    return Err(invalid(
+                        "a Slack app's client ID looks like 1234567890.9876543210",
+                    ));
+                }
+                if secret_kept {
+                    return Err(invalid("a Slack app signs in with no secret"));
+                }
+                Some(OwnApp {
+                    app_id: id.to_owned(),
+                    tenant: None,
+                    secret_kept: false,
+                })
+            }
+            (connections::Service::Google, Some(id)) => {
+                let id = id.trim().to_lowercase();
+                if !connections::is_google_client_id(&id) {
+                    return Err(invalid(
+                        "a Google app's client ID looks like \
+                         1234567890-abc123.apps.googleusercontent.com",
+                    ));
+                }
+                if !secret_kept {
+                    return Err(invalid("a Google app needs its client secret too"));
+                }
+                Some(OwnApp {
+                    app_id: id,
+                    tenant: None,
+                    secret_kept: true,
+                })
+            }
+            _ => {
+                return Err(invalid(format!(
+                    "{} does not take a client ID here",
+                    c.label()
+                )))
+            }
+        };
+        self.put_connection(c)
+    }
+
+    /// Add another account of a service that may have more than one (Slack's workspaces): its
+    /// next free ID (`slack-2`, `slack-3`, …). The first one (`slack`), shown before anything was
+    /// kept, is kept first, so the new card is always a second one on screen.
+    pub fn add_connection(&mut self, service: connections::Service) -> Result<Connection> {
+        if !service.many() {
+            return Err(invalid(format!(
+                "Plenipo keeps one {} account",
+                service.label()
+            )));
+        }
+        let kept = |cfg: &Self, id: &str| cfg.connection(id).is_some();
+        if !self.connections.iter().any(|c| c.service == service) {
+            self.put_connection(Connection::new(service.id(), service))?;
+        }
+        let id = std::iter::once(service.id().to_owned())
+            .chain((2..=999).map(|n| format!("{}-{n}", service.id())))
+            .find(|id| !kept(self, id))
+            .ok_or_else(|| invalid(format!("at most 999 {} accounts", service.label())))?;
+        self.put_connection(Connection::new(&id, service))
+    }
+
+    /// Remove a card that is not connected (a Slack workspace the owner no longer wants).
+    pub fn remove_connection(&mut self, id: &str) -> Result<Connection> {
+        let c = self.connection_or_new(id)?;
+        if !c.service.many() {
+            return Err(invalid(format!(
+                "{} has one card; disconnect it instead",
+                c.label()
+            )));
+        }
+        if c.state != ConnectionState::NotConnected {
+            return Err(invalid(format!(
+                "Disconnect this {} workspace first",
+                c.label()
+            )));
+        }
+        self.connections.retain(|x| x.id != id);
+        Ok(c)
     }
 
     /// A sign-in finished: the account, and what the service granted.
@@ -1066,14 +1186,31 @@ mod tests {
                 "microsoft365",
                 Some(&OwnApp {
                     app_id: "nope".into(),
-                    tenant: "contoso.com".into()
+                    tenant: Some("contoso.com".into()),
+                    secret_kept: false,
                 })
             )
             .is_err());
         let app = OwnApp {
             app_id: "12345678-ABCD-4ef0-9abc-0123456789ab".into(),
-            tenant: "Contoso.com".into(),
+            tenant: Some("Contoso.com".into()),
+            secret_kept: false,
         };
+        // No organization, or a secret: refused.
+        for bad in [
+            OwnApp {
+                tenant: None,
+                ..app.clone()
+            },
+            OwnApp {
+                secret_kept: true,
+                ..app.clone()
+            },
+        ] {
+            assert!(c
+                .set_connection_own_app("microsoft365", Some(&bad))
+                .is_err());
+        }
         let m = c
             .set_connection_own_app("microsoft365", Some(&app))
             .unwrap();
@@ -1110,6 +1247,93 @@ mod tests {
         // Nothing like a token is ever part of the document.
         let doc = c.to_value().to_string();
         assert!(!doc.to_lowercase().contains("token"), "{doc}");
+    }
+
+    #[test]
+    fn slack_workspaces_and_the_owners_own_apps() {
+        use crate::connections::*;
+        let mut c = GuardConfig::default();
+        // Slack starts with Channels at Read only; Google with Gmail and Calendar.
+        let s = c.connection_or_new("slack").unwrap();
+        assert_eq!(s.part(Part::Channels), PartLevel::ReadOnly);
+        assert_eq!(s.part(Part::DirectMessages), PartLevel::Off);
+        let g = c.connection_or_new("google").unwrap();
+        assert_eq!(g.part(Part::Gmail), PartLevel::ReadOnly);
+        assert_eq!(g.part(Part::Calendar), PartLevel::ReadOnly);
+        assert_eq!(g.part(Part::Drive), PartLevel::Off);
+        // Search only reads; a part of another service is refused.
+        let mut full = BTreeMap::new();
+        full.insert(Part::Search, PartLevel::FullAccess);
+        assert!(c.set_connection_parts("slack", &full).is_err());
+        let mut mail = BTreeMap::new();
+        mail.insert(Part::Mail, PartLevel::ReadOnly);
+        assert!(c.set_connection_parts("google", &mail).is_err());
+        // Adding a workspace keeps the first card and makes the next free one.
+        assert_eq!(c.add_connection(Service::Slack).unwrap().id, "slack-2");
+        assert!(c.connection("slack").is_some());
+        assert_eq!(c.add_connection(Service::Slack).unwrap().id, "slack-3");
+        assert!(c.add_connection(Service::Google).is_err());
+        // Removing a card that is not connected; then its ID is free again.
+        c.remove_connection("slack-2").unwrap();
+        assert_eq!(c.add_connection(Service::Slack).unwrap().id, "slack-2");
+        assert!(c.remove_connection("google").is_err());
+        let account = Account {
+            name: "Frankie".into(),
+            address: "frankie@8westit.com".into(),
+            organization: Some("8 West IT".into()),
+            tenant: Some("T0800000001".into()),
+        };
+        c.connection_connected("slack-3", None, account, &["channels:read".into()], 1)
+            .unwrap();
+        assert!(c.remove_connection("slack-3").is_err());
+        // A Slack channel can be on a Slack list by its ID; never on Microsoft's or Google's.
+        let l = c
+            .set_connection_send_list("slack", &["c0100000001".into(), "@8westit.com".into()])
+            .unwrap();
+        assert_eq!(l.send_list, ["C0100000001", "@8westit.com"]);
+        assert!(c
+            .set_connection_send_list("slack", &["#general".into()])
+            .is_err());
+        assert!(c
+            .set_connection_send_list("google", &["C0100000001".into()])
+            .is_err());
+        assert!(c
+            .set_connection_send_list("microsoft365", &["C0100000001".into()])
+            .is_err());
+        // The owner's own apps: Slack's client ID with no secret; Google's with its secret kept.
+        let own = c
+            .set_connection_client_app("slack", Some("1234567890.9876543210"), false)
+            .unwrap();
+        assert_eq!(own.own_app.unwrap().tenant, None);
+        assert!(c
+            .set_connection_client_app("slack", Some("1234567890.9876543210"), true)
+            .is_err());
+        assert!(c
+            .set_connection_client_app("slack", Some("not-an-id"), false)
+            .is_err());
+        let gid = "123456789012-abcdef123.apps.googleusercontent.com";
+        assert!(c
+            .set_connection_client_app("google", Some(gid), false)
+            .is_err());
+        let own = c
+            .set_connection_client_app("google", Some(gid), true)
+            .unwrap();
+        assert!(own.own_app.unwrap().secret_kept);
+        assert!(c
+            .set_connection_client_app("google", Some("evil.example"), true)
+            .is_err());
+        assert!(c
+            .set_connection_client_app("microsoft365", Some(gid), true)
+            .is_err());
+        assert!(c
+            .set_connection_client_app("slack-3", Some("1.2"), false)
+            .is_err());
+        assert_eq!(
+            c.set_connection_client_app("google", None, false)
+                .unwrap()
+                .own_app,
+            None
+        );
     }
 
     #[test]

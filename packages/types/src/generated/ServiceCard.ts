@@ -9,4 +9,8 @@ export type ServiceCard = { service: Service, label: string,
 /**
  * Built into this copy (the rest come in a later update).
  */
-built: boolean, connections: Array<ConnectionCard>, };
+built: boolean, 
+/**
+ * The owner may add more than one (Slack's workspaces).
+ */
+many: boolean, connections: Array<ConnectionCard>, };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ConnectionsPage } from "@plenipo/types";
+import type { ConnectionsPage, Service } from "@plenipo/types";
 import { Button, TextField } from "@plenipo/ui";
 
 import { setConnectionSendList } from "../../api/commands";
@@ -8,18 +8,21 @@ import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
 
 /**
- * **Send without asking to** (ADR-062 §5): addresses, `@domains`, and channels a worker may send
- * to without asking you — only while the switch "Sending forms and messages (without asking)" is
- * on, and only when every recipient is on this list.
+ * **Send without asking to** (ADR-062 §5, ADR-069 §1): addresses and `@domains` — and, on a Slack
+ * card, channels by their ID — a worker may send to without asking you, only while the switch
+ * "Sending forms and messages (without asking)" is on, and only when every recipient is on this
+ * list.
  */
 export function SendList({
   id,
+  service,
   list,
   switchOn,
   go,
   onApply,
 }: {
   id: string;
+  service: Service;
   list: string[];
   switchOn: boolean;
   go: Go;
@@ -35,9 +38,10 @@ export function SendList({
         <strong>
           An email could trick a worker into writing to anyone on this list without asking you.
         </strong>{" "}
-        Add only addresses and domains you would be happy to receive anything a worker writes.
-        Everyone else, and every send with someone not on the list, still asks you. Posting in a
-        Teams channel always asks you.
+        {service === "slack"
+          ? "Add only addresses, domains, and channels you would be happy to receive anything a worker writes. A channel goes on the list by its ID (in Slack, click the channel's name; its ID is at the bottom of About), and a post there reaches everyone in it, guests from other organizations too. Everyone else, and every message with someone not on the list, still asks you."
+          : "Add only addresses and domains you would be happy to receive anything a worker writes. Everyone else, and every send with someone not on the list, still asks you."}
+        {service === "microsoft365" && " Posting in a Teams channel always asks you."}
       </p>
       <p className="muted">
         {switchOn
@@ -79,9 +83,17 @@ export function SendList({
         }}
       >
         <TextField
-          label="An address or an @domain"
+          label={
+            service === "slack"
+              ? "An address, an @domain, or a channel's ID"
+              : "An address or an @domain"
+          }
           value={entry}
-          placeholder="dana@clientco.com or @clientco.com"
+          placeholder={
+            service === "slack"
+              ? "dana@clientco.com, @clientco.com, or C0123ABCD"
+              : "dana@clientco.com or @clientco.com"
+          }
           onChange={setEntry}
         />
         <Button

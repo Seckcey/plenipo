@@ -1,7 +1,10 @@
 import type { ServiceCard } from "@plenipo/types";
-import { StatusPill } from "@plenipo/ui";
+import { Button, StatusPill } from "@plenipo/ui";
 
+import { addConnection } from "../../api/commands";
+import { Refusal } from "../../components/models/shared";
 import type { Go } from "../../components/views";
+import { useRun } from "../../guard/useRun";
 import { ConnectionCard } from "./ConnectionCard";
 import { useConnections } from "./useConnections";
 import { LATER } from "./words";
@@ -27,10 +30,10 @@ export function ConnectionsSettings({ go }: { go: Go }) {
         A worker uses a connection only if it is on the connection&apos;s <em>Who may use it</em>{" "}
         list, and only the parts you turned on. Reading is allowed at <em>Read only</em>; drafting
         and adding need <em>Full access</em>. Sending, posting, inviting people, adding a file to a
-        SharePoint site, and replacing a file ask you first — except a send to people who are all on
-        that connection&apos;s <em>Send without asking to</em> list, while you have that switch on.
-        Sign-ins are kept in {page.vaultLabel}: workers never see them, and neither does anything
-        Plenipo records.
+        SharePoint site, and replacing a file ask you first — except a send to people (or a Slack
+        channel) who are all on that connection&apos;s <em>Send without asking to</em> list, while
+        you have that switch on. Sign-ins are kept in {page.vaultLabel}: workers never see them, and
+        neither does anything Plenipo records.
       </p>
       <p className="notice-box" role="note">
         <strong>Mail, chats, calendars, and files are other people&apos;s words.</strong> Workers
@@ -94,6 +97,32 @@ function ServiceItem({
           go={go}
         />
       ))}
+      {s.many && <AddAnother service={s} onApply={onApply} />}
     </>
+  );
+}
+
+/** More than one account of a service (Slack's workspaces): each gets its own card. */
+function AddAnother({
+  service: s,
+  onApply,
+}: {
+  service: ServiceCard;
+  onApply: Parameters<typeof ConnectionCard>[0]["onApply"];
+}) {
+  const { pending, error, run } = useRun(onApply);
+  return (
+    <li className="connection connection--add" aria-label={`Add another ${s.label} workspace`}>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={pending}
+        onClick={() => void run(() => addConnection(s.service))}
+      >
+        Add another {s.label} workspace
+      </Button>
+      <span className="muted"> Each workspace gets its own card, sign-in, parts, and lists.</span>
+      <Refusal error={error} />
+    </li>
   );
 }

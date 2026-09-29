@@ -3,4 +3,4 @@
 /**
  * A part of a service (ADR-062 §1).
  */
-export type Part = "mail" | "calendar" | "onedrive" | "sharepoint" | "teams";
+export type Part = "mail" | "calendar" | "onedrive" | "sharepoint" | "teams" | "channels" | "directMessages" | "search" | "gmail" | "drive";

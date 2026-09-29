@@ -241,9 +241,38 @@ mod tests {
         c.send_list = vec!["dana@clientco.com".into()];
         c.own_app = Some(OwnApp {
             app_id: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0".into(),
-            tenant: "clientco.com".into(),
+            tenant: Some("clientco.com".into()),
+            secret_kept: false,
         });
-        let v = connections(&[c]);
+        // Part 20B: a Slack workspace and Google, with the owner's own apps.
+        let mut s = Connection::new("slack-2", Service::Slack);
+        s.state = ConnectionState::Connected;
+        s.account = Some(Account {
+            name: "Frankie Gonzalez".into(),
+            address: "frankie@8westit.com".into(),
+            organization: Some("Client Co".into()),
+            tenant: Some("T0900000002".into()),
+        });
+        s.send_list = vec!["C0100000001".into()];
+        s.own_app = Some(OwnApp {
+            app_id: "3333333333.4444444444".into(),
+            tenant: None,
+            secret_kept: false,
+        });
+        let mut g = Connection::new("google", Service::Google);
+        g.own_app = Some(OwnApp {
+            app_id: "123456789012-plenipotest.apps.googleusercontent.com".into(),
+            tenant: None,
+            secret_kept: true,
+        });
+        let v = connections(&[c, s, g]);
+        assert_eq!(v[1]["service"], "Slack");
+        assert_eq!(
+            v[1]["parts"][0],
+            json!({ "part": "Channels", "level": "Read only" })
+        );
+        assert_eq!(v[2]["service"], "Google");
+        assert_eq!(v[2]["ownApp"], true);
         assert_eq!(v[0]["service"], "Microsoft 365");
         assert_eq!(v[0]["state"], "connected");
         assert_eq!(v[0]["accountKind"], "work");
@@ -267,6 +296,11 @@ mod tests {
             "dana@",
             "clientco",
             "0f1e2d3c",
+            "Client Co",
+            "T0900000002",
+            "C0100000001",
+            "3333333333",
+            "123456789012",
         ] {
             assert!(!text.contains(never), "{never} is in {text}");
         }

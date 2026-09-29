@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-connection"
+description = "Enables the add_connection command without any pre-configured scope."
+commands.allow = ["add_connection"]
+
+[[permission]]
+identifier = "deny-add-connection"
+description = "Denies the add_connection command without any pre-configured scope."
+commands.deny = ["add_connection"]

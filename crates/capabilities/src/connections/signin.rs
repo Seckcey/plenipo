@@ -112,6 +112,32 @@ impl Listener {
         Err(last.unwrap_or_else(|| std::io::Error::other("no free port")))
     }
 
+    /// Listen on the first of `ports` free on both `127.0.0.1` and `[::1]` (Slack comes back
+    /// only to addresses written into its app, port included; ADR-069 §5.2). A port of `0` means
+    /// any port, as [`Listener::open`].
+    pub async fn open_on(ports: &[u16]) -> std::io::Result<Self> {
+        let mut last = None;
+        for port in ports {
+            if *port == 0 {
+                return Self::open().await;
+            }
+            let v4 = match TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, *port))).await {
+                Ok(v4) => v4,
+                Err(e) => {
+                    last = Some(e);
+                    continue;
+                }
+            };
+            match TcpListener::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, *port))).await {
+                Ok(v6) => return Ok(Self::new(*port, v4, Some(v6))),
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => last = Some(e),
+                // No IPv6 on this computer: `localhost` means `127.0.0.1` alone.
+                Err(_) => return Ok(Self::new(*port, v4, None)),
+            }
+        }
+        Err(last.unwrap_or_else(|| std::io::Error::other("no free port")))
+    }
+
     fn new(port: u16, v4: TcpListener, v6: Option<TcpListener>) -> Self {
         Self {
             port,
@@ -340,6 +366,25 @@ mod tests {
         assert!(page.contains("Signed in."));
         assert!(!page.contains("abc"), "the page never repeats the code");
         assert_eq!(waiting.await.unwrap(), Some(Callback::Code("abc".into())));
+    }
+
+    #[tokio::test]
+    async fn a_fixed_port_is_used_when_free_and_the_next_one_when_not() {
+        // A port another program holds is passed over for the next one.
+        let taken = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let busy = taken.local_addr().unwrap().port();
+        let free = {
+            let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let listener = Listener::open_on(&[busy, free]).await.unwrap();
+        assert_eq!(listener.port, free);
+        assert!(listener
+            .start_address()
+            .starts_with(&format!("http://localhost:{free}/start/")));
+        drop(listener);
+        // All of them taken: a plain error, never another port.
+        assert!(Listener::open_on(&[busy]).await.is_err());
     }
 
     #[tokio::test]

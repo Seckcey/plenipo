@@ -18,6 +18,8 @@ pub const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
     match service {
         Service::Microsoft365 => &["graph.microsoft.com"],
+        Service::Slack => &["slack.com"],
+        Service::Google => &["gmail.googleapis.com", "www.googleapis.com"],
         _ => &[],
     }
 }

@@ -321,6 +321,9 @@ struct Grant {
     /// (connection ID, capability) → the level this step was given through each connection
     /// (Phase 20, ADR-062 §3).
     connection_levels: BTreeMap<(String, Capability), Level>,
+    /// (connection ID, tool) → offered to this step: a Slack tool may be offered for one
+    /// workspace and not another.
+    connection_tools: std::collections::BTreeSet<(String, &'static str)>,
     /// Plenipo's note about its connections.
     connection_note: String,
     /// What it read through connections in this step ("email", "files"), in the order first
@@ -1100,6 +1103,7 @@ impl Broker {
             ssh: Arc::default(),
             stop_reason: None,
             connection_levels: offers.levels,
+            connection_tools: offers.pairs,
             connection_note: offers.note,
             read_outside: Vec::new(),
         };
@@ -1615,11 +1619,7 @@ impl Broker {
             .filter_map(|name| tools::find(name))
             .map(|t| {
                 let level = match connecting::connection_tool(t.name) {
-                    Some(c) => g
-                        .connection_levels
-                        .get(&(c.service.id().to_owned(), t.capability))
-                        .copied()
-                        .unwrap_or_default(),
+                    Some(_) => connecting::offered_level(g, t),
                     None => g.levels.get(&t.capability).copied().unwrap_or_default(),
                 };
                 let mut description = t.description.to_owned();

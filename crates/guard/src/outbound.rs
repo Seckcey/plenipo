@@ -41,10 +41,19 @@ impl Purpose {
     }
 }
 
-/// The only hosts a connection reaches: its sign-in and its service (ADR-065 §1).
+/// The only hosts a connection reaches: its sign-in and its service (ADR-065 §1, ADR-064 §3–§4).
 pub fn connection_hosts(service: Service) -> &'static [&'static str] {
     match service {
         Service::Microsoft365 => &["login.microsoftonline.com", "graph.microsoft.com"],
+        // Slack's sign-in, and its Web API, are both on slack.com.
+        Service::Slack => &["slack.com"],
+        // Google's sign-in and its token and cancel addresses; Gmail; Calendar and Drive.
+        Service::Google => &[
+            "accounts.google.com",
+            "oauth2.googleapis.com",
+            "gmail.googleapis.com",
+            "www.googleapis.com",
+        ],
         _ => &[],
     }
 }
@@ -347,13 +356,50 @@ mod tests {
         ] {
             assert!(rules.check(m, bad).is_err(), "{bad}");
         }
-        // A service not built reaches nothing.
+        // A service not built reaches nothing, and each built one only its own addresses.
         assert!(rules
             .check(
-                Purpose::Connection(Service::Slack),
-                "https://graph.microsoft.com/v1.0/me"
+                Purpose::Connection(Service::Hubspot),
+                "https://api.hubapi.com/crm/v3/objects/contacts"
             )
             .is_err());
+        let slack = Purpose::Connection(Service::Slack);
+        for ok in [
+            "https://slack.com/oauth/v2/authorize?client_id=1.2",
+            "https://slack.com/api/conversations.history?channel=C0100000001",
+        ] {
+            assert!(rules.check(slack, ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "https://graph.microsoft.com/v1.0/me",
+            "https://files.slack.com/files-pri/T1-F1/x.txt",
+            "https://8westit.slack.com/api/auth.test",
+            "https://slack.com.evil.example/api/auth.test",
+            "http://slack.com/api/auth.test",
+        ] {
+            assert!(rules.check(slack, bad).is_err(), "{bad}");
+        }
+        let google = Purpose::Connection(Service::Google);
+        for ok in [
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id=x",
+            "https://oauth2.googleapis.com/token",
+            "https://oauth2.googleapis.com/revoke",
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            "https://www.googleapis.com/drive/v3/files",
+        ] {
+            assert!(rules.check(google, ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "https://slack.com/api/auth.test",
+            "https://graph.microsoft.com/v1.0/me",
+            "https://drive.google.com/uc?id=1",
+            "https://doc-0s-4k-docs.googleusercontent.com/docs/x",
+            "https://googleapis.com/x",
+            "https://evil.googleapis.com/x",
+        ] {
+            assert!(rules.check(google, bad).is_err(), "{bad}");
+        }
         // A copy built for the tests: the stand-in, for the service's own hosts only.
         let test =
             OutboundRules::default().with_connections_stand_in(Some("http://127.0.0.1:8767"));

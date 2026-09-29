@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
 import { a11yProblems } from "../../test/a11y";
-import { connectedCard, sampleCard, samplePage } from "../../test/connectionFixtures";
+import {
+  SAMPLE_MANIFEST,
+  connectedCard,
+  googleCard,
+  sampleCard,
+  samplePage,
+  slackCard,
+} from "../../test/connectionFixtures";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { affectsConnections } from "./useConnections";
 
@@ -20,6 +27,9 @@ vi.mock("../../api/commands", async (importOriginal) => {
     setConnectionAccess: vi.fn(),
     setConnectionSendList: vi.fn(),
     setConnectionOwnApp: vi.fn(),
+    saveConnectionApp: vi.fn(),
+    addConnection: vi.fn(),
+    removeConnection: vi.fn(),
   };
 });
 vi.mock("../../api/events", () => ({
@@ -44,7 +54,7 @@ async function card() {
 }
 
 describe("Settings → Connections", () => {
-  it("lists every service, Microsoft 365 first, and the rest as coming later", async () => {
+  it("lists every service: Microsoft 365, Slack, and Google, then the rest as coming later", async () => {
     // As Settings shows it: under the page's heading and the section's.
     const { container } = render(
       <main>
@@ -55,15 +65,25 @@ describe("Settings → Connections", () => {
     );
     const m365 = await screen.findByRole("listitem", { name: "Microsoft 365" });
     expect(within(m365).getByText("Not connected")).toBeInTheDocument();
-    for (const later of ["Slack", "Google", "HubSpot", "Stripe", "WordPress and WooCommerce"]) {
+    for (const built of ["Slack", "Google"]) {
+      expect(screen.getByRole("listitem", { name: built })).toHaveTextContent("Not connected");
+    }
+    for (const later of ["HubSpot", "Stripe", "WordPress and WooCommerce"]) {
       const item = screen.getByRole("listitem", { name: `${later}, coming in a later update` });
       expect(item).toHaveTextContent("Coming in a later update");
     }
     expect(screen.getByText(/other people's words/)).toBeInTheDocument();
     expect(screen.getByText(/kept in Windows Credential Manager/)).toBeInTheDocument();
-    // Plain words, and never a place to type a password or a key.
-    expect(container.querySelector("input[type=password]")).toBeNull();
-    expect(container).not.toHaveTextContent(/password:|client secret|token|OAuth|MCP|plugin/i);
+    // Plain words; the only secret box is Google's app secret, on Google's card, hiding what you
+    // type; never a place for a password.
+    const secretBoxes = container.querySelectorAll("input[type=password]");
+    expect(secretBoxes).toHaveLength(1);
+    const google = screen.getByRole("listitem", { name: "Google" });
+    expect(within(google).getByLabelText("Client secret")).toBe(secretBoxes[0]);
+    // (The app description to paste into Slack is Slack's own format, copied as it is.)
+    const words = container.cloneNode(true) as HTMLElement;
+    words.querySelectorAll(".connection__manifest").forEach((m) => m.remove());
+    expect(words).not.toHaveTextContent(/password:|token|OAuth|MCP|plugin/i);
     expect(a11yProblems(container)).toEqual([]);
   });
 
@@ -309,14 +329,157 @@ describe("Settings → Connections", () => {
     expect(api.setConnectionOwnApp).toHaveBeenCalledWith("microsoft365", {
       appId: "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",
       tenant: "clientco.com",
+      secretKept: false,
     });
     expect(within(m365).queryByLabelText(/secret/i)).toBeNull();
+  });
+
+  it("connects Slack with one button, names the workspace, and says 8 West's app reads slowly", async () => {
+    const connected = slackCard(
+      "slack",
+      { channels: "fullAccess" },
+      {
+        connection: {
+          ...slackCard().connection,
+          state: "connected",
+          account: {
+            name: "Frankie Gonzalez",
+            address: "frankie@8westit.com",
+            organization: "8 West IT",
+          },
+        },
+      },
+    );
+    const both = samplePage(sampleCard(), {}, { slack: [connected, slackCard("slack-2")] });
+    api.getConnections.mockResolvedValue(both);
+    api.connectConnection.mockResolvedValue(both);
+    render(<ConnectionsSettings go={go} />);
+    const eight = await screen.findByRole("listitem", { name: "Slack — 8 West IT" });
+    expect(eight).toHaveTextContent("Connected as frankie@8westit.com (8 West IT).");
+    expect(eight).toHaveTextContent("Slack lets Plenipo read one channel or thread a minute");
+    // A connected workspace cannot be removed; the second, not connected, can.
+    expect(within(eight).queryByRole("button", { name: "Remove this workspace" })).toBeNull();
+    const second = screen.getByRole("listitem", { name: "Slack — workspace 2" });
+    expect(within(second).queryByRole("button", { name: /personal/ })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(within(second).getByRole("button", { name: "Connect" }));
+    expect(api.connectConnection).toHaveBeenCalledWith("slack-2", "work");
+    api.removeConnection.mockResolvedValue(both);
+    await user.click(within(second).getByRole("button", { name: "Remove this workspace" }));
+    expect(api.removeConnection).toHaveBeenCalledWith("slack-2");
+    // Search only reads: Off or Read only.
+    const search = within(eight).getByRole("group", { name: "Search: what workers may do" });
+    expect(within(search).queryByRole("button", { name: "Full access" })).toBeNull();
+    expect(within(search).getByRole("button", { name: "Read only" })).toBeInTheDocument();
+    // Disconnect says Slack cancels the sign-in too.
+    await user.click(within(eight).getByRole("button", { name: "Disconnect" }));
+    expect(eight).toHaveTextContent(
+      "removed from Windows Credential Manager and cancelled at Slack",
+    );
+  });
+
+  it("adds another Slack workspace on its own card", async () => {
+    api.addConnection.mockResolvedValue(
+      samplePage(sampleCard(), {}, { slack: [slackCard(), slackCard("slack-2")] }),
+    );
+    render(<ConnectionsSettings go={go} />);
+    const add = await screen.findByRole("listitem", { name: "Add another Slack workspace" });
+    await userEvent
+      .setup()
+      .click(within(add).getByRole("button", { name: "Add another Slack workspace" }));
+    expect(api.addConnection).toHaveBeenCalledWith("slack");
+    expect(
+      await screen.findByRole("listitem", { name: "Slack — workspace 2" }),
+    ).toBeInTheDocument();
+  });
+
+  it("puts a Slack channel on the list by its ID, and says a post reaches everyone in it", async () => {
+    api.setConnectionSendList.mockResolvedValue(samplePage());
+    render(<ConnectionsSettings go={go} />);
+    const slack = await screen.findByRole("listitem", { name: "Slack" });
+    const send = within(slack).getByRole("region", { name: "Send without asking to" });
+    expect(send).toHaveTextContent("its ID is at the bottom of About");
+    expect(send).toHaveTextContent("guests from other organizations too");
+    expect(send).not.toHaveTextContent("Teams");
+    const user = userEvent.setup();
+    await user.type(
+      within(send).getByLabelText("An address, an @domain, or a channel's ID"),
+      "C0100000001",
+    );
+    await user.click(within(send).getByRole("button", { name: "Add to the list" }));
+    expect(api.setConnectionSendList).toHaveBeenCalledWith("slack", ["C0100000001"]);
+  });
+
+  it("uses a workspace's own Slack app from Plenipo's app description, by its client ID", async () => {
+    api.saveConnectionApp.mockResolvedValue(samplePage());
+    const user = userEvent.setup();
+    render(<ConnectionsSettings go={go} />);
+    const slack = await screen.findByRole("listitem", { name: "Slack" });
+    await user.click(within(slack).getByText("Advanced"));
+    expect(within(slack).getByLabelText("Plenipo's app description for Slack")).toHaveTextContent(
+      "http://localhost:47211",
+    );
+    await user.click(within(slack).getByRole("button", { name: "Copy the app description" }));
+    expect(await navigator.clipboard.readText()).toBe(SAMPLE_MANIFEST);
+    await user.type(
+      within(slack).getByLabelText("Your Slack app's client ID"),
+      " 1234567890.9876543210 ",
+    );
+    await user.click(within(slack).getByRole("button", { name: "Use this app" }));
+    expect(api.saveConnectionApp).toHaveBeenCalledWith("slack", {
+      clientId: "1234567890.9876543210",
+    });
+    expect(within(slack).queryByLabelText(/secret/i)).toBeNull();
+  });
+
+  it("asks for your Google app first; its secret box hides what you type and is emptied", async () => {
+    const saved = googleCard(
+      {},
+      {
+        hasApp: true,
+        connection: {
+          ...googleCard().connection,
+          ownApp: { appId: "123456789012-abc.apps.googleusercontent.com", secretKept: true },
+        },
+      },
+    );
+    api.saveConnectionApp.mockResolvedValue(samplePage(sampleCard(), {}, { google: saved }));
+    render(<ConnectionsSettings go={go} />);
+    const google = await screen.findByRole("listitem", { name: "Google" });
+    expect(within(google).getByRole("button", { name: "Connect" })).toBeDisabled();
+    const app = within(google).getByRole("region", { name: "Your Google app" });
+    expect(app).toHaveTextContent("Setting up your Slack and Google apps");
+    const user = userEvent.setup();
+    await user.type(
+      within(app).getByLabelText("Client ID"),
+      "123456789012-abc.apps.googleusercontent.com",
+    );
+    const secret = within(app).getByLabelText("Client secret");
+    expect(secret).toHaveAttribute("type", "password");
+    expect(secret).toHaveAttribute("autocomplete", "off");
+    await user.type(secret, "GOCSPX-typed-secret");
+    await user.click(within(app).getByRole("button", { name: "Save" }));
+    expect(api.saveConnectionApp).toHaveBeenCalledWith("google", {
+      clientId: "123456789012-abc.apps.googleusercontent.com",
+      secret: "GOCSPX-typed-secret",
+    });
+    // Saved: the client ID and where the secret is — never the secret.
+    const after = await screen.findByRole("listitem", { name: "Google" });
+    expect(after).toHaveTextContent(
+      "Client ID: 123456789012-abc.apps.googleusercontent.com. Its secret is kept in Windows Credential Manager.",
+    );
+    expect(after).not.toHaveTextContent("GOCSPX-typed-secret");
+    expect(within(after).getByRole("button", { name: "Connect" })).toBeEnabled();
+    api.saveConnectionApp.mockResolvedValue(samplePage());
+    await user.click(within(after).getByRole("button", { name: "Remove this app" }));
+    expect(api.saveConnectionApp).toHaveBeenLastCalledWith("google", null);
   });
 
   it("looks again after connection events", () => {
     for (const e of [
       "connection.connected",
       "connection.sign_in_needed",
+      "connection.removed",
       "guard.switches_changed",
     ]) {
       expect(affectsConnections(e)).toBe(true);

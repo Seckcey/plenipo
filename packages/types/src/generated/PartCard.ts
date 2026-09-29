@@ -11,6 +11,10 @@ export type PartCard = { part: Part, label: string, level: PartLevel,
  */
 available: boolean, 
 /**
+ * It has a Full access level (Slack's Search only reads).
+ */
+fullAccess: boolean, 
+/**
  * What workers can read, and change, in plain words.
  */
 reads: string, changes: string, 
