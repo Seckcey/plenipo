@@ -134,6 +134,9 @@ export function renderReleaseNotes(markdown, version) {
   const parts = blocks(markdown);
   let title = `v${version}`;
   if (parts[0]?.type === "heading" && parts[0].level === 1) title = parts.shift().text;
+  // The section's heading already names the version: "v1.2.3 — Title" shows as "Title".
+  const prefix = `v${version} — `;
+  if (title.startsWith(prefix) && title.length > prefix.length) title = title.slice(prefix.length);
   const split = parts.findIndex((part) => part.type === "heading" && part.level <= 2);
   const intro = split === -1 ? parts : parts.slice(0, split);
   const rest = split === -1 ? [] : parts.slice(split);

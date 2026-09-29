@@ -29,7 +29,7 @@ test("release notes render their title, intro, and the rest under Read the full 
     ].join("\n"),
     "9.8.7",
   );
-  assert.match(html, /<h3 class="release-title">v9\.8\.7 — A <strong>big<\/strong> one<\/h3>/);
+  assert.match(html, /<h3 class="release-title">A <strong>big<\/strong> one<\/h3>/);
   assert.match(
     html,
     /<p>First line of the intro wraps here\. Uses <code>code<\/code> and <a href="https:\/\/example\.com\/a">a link<\/a>\.<\/p>/,
@@ -79,7 +79,7 @@ test("the page shows the notes of the version it is built for", async () => {
     const title = notes.split("\n")[0].replace(/^# */, "");
     assert.ok(html.includes(`What&rsquo;s new in v${product}`));
     assert.ok(html.includes(`<h3 class="release-title">`));
-    assert.ok(html.includes(title.split(" ")[0]));
+    assert.ok(html.includes(`<h3 class="release-title">${title.replace(`v${product} — `, "")}`));
     assert.ok(!html.includes("__RELEASE_NOTES__"));
     const release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
     assert.equal(release.releaseNotes, true);
@@ -101,7 +101,10 @@ test("a build without notes for its version links to GitHub; a named notes file 
     await writeFile(file, "# v9.8.7 — Named notes\n\nFrom a named file.\n");
     await buildWebsite(output, { env: { PLENIPO_VERSION: "9.8.7", PLENIPO_RELEASE_NOTES: file } });
     html = await readFile(join(output, "index.html"), "utf8");
-    assert.ok(html.includes("v9.8.7 — Named notes") && html.includes("<p>From a named file.</p>"));
+    assert.ok(
+      html.includes('<h3 class="release-title">Named notes</h3>') &&
+        html.includes("<p>From a named file.</p>"),
+    );
     release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
     assert.equal(release.releaseNotes, true);
 

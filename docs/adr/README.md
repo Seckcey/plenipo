@@ -83,3 +83,4 @@ architecture must be recorded here.
 | [066](ADR-066-add-on-tools.md)                           | Add-on tools you set up: other MCP servers, as approved programs, off by default (amends 013) | Accepted |
 | [067](ADR-067-phase-20-in-three-parts.md)                | Phase 20 in three parts: Microsoft 365, then Slack and Google, then the rest                  | Accepted |
 | [068](ADR-068-connections-are-pro.md)                    | Connections and add-on tools are part of Pro (amends 021)                                     | Accepted |
+| [069](ADR-069-website-follows-releases.md)               | The website follows new releases by itself, with each release's notes                         | Accepted |
