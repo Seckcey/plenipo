@@ -202,7 +202,11 @@ verify() { # verify <version> <revision> <image id>; prints what failed
   local body release container
   body="$(curl -fsS --max-time 10 "$ORIGIN/healthz")" || { echo "health check failed"; return 1; }
   body="$(curl -fsS --max-time 10 "$ORIGIN/")" || { echo "home page failed"; return 1; }
-  grep -q 'Your AI workforce' <<< "$body" || { echo "home page is missing its heading"; return 1; }
+  # Check stable page identity, so copy changes do not break verification or an older rollback.
+  grep -Fq '<link rel="canonical" href="https://plenipo.8westit.com/"' <<< "$body" \
+    || { echo "home page has the wrong identity"; return 1; }
+  grep -Eq '<h1 id="hero-title">[^<]*[^[:space:]<]' <<< "$body" \
+    || { echo "home page is missing its heading"; return 1; }
   grep -q 'id="whats-new"' <<< "$body" || { echo "home page is missing What's new"; return 1; }
   grep -q "What&rsquo;s new in v$1<" <<< "$body" || { echo "What's new shows the wrong version"; return 1; }
   release="$(curl -fsS --max-time 10 "$ORIGIN/release.json")" || { echo "release.json failed"; return 1; }

@@ -121,8 +121,8 @@
             <h1 id="hero-title">Hire your AI team.<br />Give it a goal.</h1>
           </div>
           <p class="hero-description">
-            Hire agents for the roles you need. A coordinator brings their work together across
-            AI providers, with model and effort choices guided by policies you control.
+            Hire agents for the roles you need. A coordinator brings their work together across AI
+            providers, with model and effort choices guided by policies you control.
           </p>
           <div class="button-row">
             <a
@@ -259,13 +259,13 @@
             <div class="feature-copy">
               <h3>Suggested defaults. <br />Your rules.</h3>
               <p>
-                Start with Plenipo's suggested role policies. Automatic agents use those policies
-                to select from your available models, with an explanation of the choice.
+                Start with Plenipo's suggested role policies. Automatic agents use those policies to
+                select from your available models, with an explanation of the choice.
               </p>
               <p>
-                Adjust model choices and reasoning effort for your organization, department,
-                role, or agent. Set first choices, backups, and providers to exclude. Where you
-                leave effort unset, the model or AI tool's default applies.
+                Adjust model choices and reasoning effort for your organization, department, role,
+                or agent. Set first choices, backups, and providers to exclude. Where you leave
+                effort unset, the model or AI tool's default applies.
               </p>
               <a class="text-link" href="#policies-faq"
                 >How model choices work <span aria-hidden="true">→</span></a
@@ -340,16 +340,19 @@
           <p class="demo-kicker">FOR EXAMPLE: BUILD A SERVICES PAGE</p>
           <h3>Hire a web developer. Add a second pair of eyes.</h3>
           <p>
-            Give your supervisor a brief: “Build a services page for our website.” Hire a
-            developer to implement it, a reviewer to check it, and a writer to document it.
-            The supervisor coordinates their tasks and brings back the changes and findings.
+            Give your supervisor a brief: “Build a services page for our website.” Hire a developer
+            to implement it, a reviewer to check it, and a writer to document it. The supervisor
+            coordinates their tasks and brings back the changes and findings.
           </p>
           <p>
-            Your policies could put the developer on Claude Code and the reviewer on Codex,
-            with a different effort level for each. The roles stay the same when you change
-            the model choices. You review the result and decide what happens next.
+            Your policies could put the developer on Claude Code and the reviewer on Codex, with a
+            different effort level for each. The roles stay the same when you change the model
+            choices. You review the result and decide what happens next.
           </p>
-          <p class="fine-print">Illustrative workflow. Available models and actions depend on your connected tools and permissions.</p>
+          <p class="fine-print">
+            Illustrative workflow. Available models and actions depend on your connected tools and
+            permissions.
+          </p>
         </div>
       </section>
 
@@ -409,18 +412,19 @@
           <div class="ai-copy">
             <h3>Connected roles. <br />Coordinated handoffs.</h3>
             <p>
-              A coordinator delegates to the team's roles and receives their results. Workers
-              can use different AI providers within the same project.
+              A coordinator delegates to the team's roles and receives their results. Workers can
+              use different AI providers within the same project.
             </p>
             <p>
-              For a second perspective, set a review policy to prefer or require another
-              provider. Permissions, approvals, and the activity record stay under your control
-              on your PC.
+              For a second perspective, set a review policy to prefer or require another provider.
+              Permissions, approvals, and the activity record stay under your control on your PC.
             </p>
             <p>
               AI requests still go to your selected AI company. Its plan and usage limits apply.
             </p>
-            <a class="text-link" href="https://github.com/Seckcey/plenipo/blob/main/docs/development/setup.md"
+            <a
+              class="text-link"
+              href="https://github.com/Seckcey/plenipo/blob/main/docs/development/setup.md"
               >Explore supported AI tools <span aria-hidden="true">→</span></a
             >
           </div>
@@ -441,29 +445,43 @@
 
       <section class="workspace section container" id="workspace" aria-labelledby="workspace-title">
         <div class="section-heading">
-          <h2 class="section-title" id="workspace-title">The team and its work.<br />In one development workspace.</h2>
+          <h2 class="section-title" id="workspace-title">
+            The team and its work.<br />In one development workspace.
+          </h2>
           <p>Follow the code, run commands, and inspect the result alongside your agents.</p>
         </div>
         <div class="workspace-grid">
           <article>
             <span class="step-number" aria-hidden="true">01</span>
             <h3>Separate working copies</h3>
-            <p>Development work uses Git branches and working copies, with changes and review findings brought back together.</p>
+            <p>
+              Development work uses Git branches and working copies, with changes and review
+              findings brought back together.
+            </p>
           </article>
           <article>
             <span class="step-number" aria-hidden="true">02</span>
             <h3>Terminals at hand</h3>
-            <p>Open your own terminal on your PC or a configured Linux or Unix server, beside the team's work.</p>
+            <p>
+              Open your own terminal on your PC or a configured Linux or Unix server, beside the
+              team's work.
+            </p>
           </article>
           <article>
             <span class="step-number" aria-hidden="true">03</span>
             <h3>Watch code take shape</h3>
-            <p>Follow a worker's file changes in the read-only Watch view. Streaming detail depends on the AI tool.</p>
+            <p>
+              Follow a worker's file changes in the read-only Watch view. Streaming detail depends
+              on the AI tool.
+            </p>
           </article>
           <article>
             <span class="step-number" aria-hidden="true">04</span>
             <h3>Review the outcome</h3>
-            <p>Inspect changes, test results, approvals, and task history before deciding the next step.</p>
+            <p>
+              Inspect changes, test results, approvals, and task history before deciding the next
+              step.
+            </p>
           </article>
         </div>
       </section>
@@ -569,20 +587,20 @@
             <summary>What does it mean to hire an agent?</summary>
             <p>
               You add an AI agent to a role in your organization, with responsibilities,
-              instructions, and permissions. Like staffing a team, you decide what the role
-              is there to do and who it reports to. A supervisor coordinates the work; the
-              connected AI model performs it.
+              instructions, and permissions. Like staffing a team, you decide what the role is there
+              to do and who it reports to. A supervisor coordinates the work; the connected AI model
+              performs it.
             </p>
           </details>
           <details id="policies-faq">
             <summary>How does Plenipo choose a model and effort level?</summary>
             <p>
               Automatic agents follow model policies. Plenipo supplies starting role preferences,
-              such as preferring another provider for code review. You can adjust choices for
-              the organization, department, role, or individual agent, or fix an agent to a
-              particular tool and model. Selection considers your rules and tool availability,
-              and records why a model was chosen. Supported effort levels follow your settings,
-              then model or tool defaults.
+              such as preferring another provider for code review. You can adjust choices for the
+              organization, department, role, or individual agent, or fix an agent to a particular
+              tool and model. Selection considers your rules and tool availability, and records why
+              a model was chosen. Supported effort levels follow your settings, then model or tool
+              defaults.
             </p>
           </details>
           <details>
