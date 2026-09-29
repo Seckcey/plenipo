@@ -3012,9 +3012,8 @@ mod tests {
         ));
         assert!(refusal_words("access_denied", "AADSTS65004").contains("did not approve"));
         use base64::Engine as _;
-        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            br#"{"name":"Alex","preferred_username":"alex@8westit.com","tid":"t-1"}"#,
-        );
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"name":"Alex","preferred_username":"alex@8westit.com","tid":"t-1"}"#);
         let (account, tenant) = account_from_id_token(&format!("x.{claims}.y"));
         assert_eq!(account.address, "alex@8westit.com");
         assert_eq!(account.name, "Alex");

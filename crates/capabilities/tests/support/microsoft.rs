@@ -791,9 +791,7 @@ fn graph(req: &Req, rest: &str, personal: bool, w: &mut World) -> Resp {
     let m = req.method.as_str();
     let q = &req.query;
     match (m, parts.as_slice()) {
-        ("GET", ["me"]) => {
-            ok(json!({ "id": "user-alex", "displayName": USER_NAME, "mail": USER }))
-        }
+        ("GET", ["me"]) => ok(json!({ "id": "user-alex", "displayName": USER_NAME, "mail": USER })),
         // ---- Mail
         ("GET", ["me", "mailFolders", folder, "messages"]) => {
             let filter = q.get("$filter").cloned().unwrap_or_default();
