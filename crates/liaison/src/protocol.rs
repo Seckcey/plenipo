@@ -32,7 +32,7 @@ pub const MAX_TITLE_CHARS: usize = 200;
 pub const MAX_ARTIFACTS: usize = 8;
 
 /// Capability names from the rollout plan (granted by Guard from Phase 7; none in Phase 4).
-pub const CAPABILITIES: [&str; 16] = [
+pub const CAPABILITIES: [&str; 18] = [
     "filesystem.read",
     "filesystem.write",
     "shell.exec",
@@ -46,6 +46,8 @@ pub const CAPABILITIES: [&str; 16] = [
     "browser.automate",
     "computer.observe",
     "computer.control",
+    "connections.read",
+    "connections.write",
     "mcp.invoke",
     "network.local",
     "process.manage",

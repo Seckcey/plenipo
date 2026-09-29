@@ -4,4 +4,4 @@
  * A permission a worker can hold. The wire form is the plan's dotted name, e.g.
  * `filesystem.read`.
  */
-export type Capability = "filesystem.read" | "filesystem.write" | "shell.exec" | "powershell.exec" | "git.read" | "git.write" | "github.read" | "github.write" | "ssh.connect" | "browser.navigate" | "browser.automate" | "computer.observe" | "computer.control" | "mcp.invoke" | "network.local" | "process.manage";
+export type Capability = "filesystem.read" | "filesystem.write" | "shell.exec" | "powershell.exec" | "git.read" | "git.write" | "github.read" | "github.write" | "ssh.connect" | "browser.navigate" | "browser.automate" | "computer.observe" | "computer.control" | "connections.read" | "connections.write" | "mcp.invoke" | "network.local" | "process.manage";

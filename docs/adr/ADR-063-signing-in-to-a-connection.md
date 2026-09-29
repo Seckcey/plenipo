@@ -1,8 +1,7 @@
 # ADR-063: Signing in to a connection in your own browser; its token kept only in the Vault
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 - **Carries out:** ROLLOUT_PLAN.md Phase 20, "**Sign-in** to each service in the owner's browser;
@@ -179,3 +178,29 @@ A test checks the Vault has no entry for the connection afterwards (the plan's t
   and Microsoft and Google discourage embedded web views for sign-in.
 - **Keep tokens in a file encrypted by Windows (DPAPI).** Not needed: the Vault already keeps long
   values in pieces, and one store is easier to audit and to remove on uninstall.
+
+## As built (v1.13.0, part 20A: Microsoft 365)
+
+Built as written, with these details:
+
+- **The listener** listens on `127.0.0.1` and `[::1]` at one port (a port another program holds on
+  either is never used; only a computer without IPv6 gets `127.0.0.1` alone). The redirect address
+  is `http://localhost:<port>`. The browser is opened at a **one-time start page with a random
+  key** (`/start/<key>`), which sends it on to Microsoft once and is "not found" after, so no other
+  program on this computer can learn the sign-in's `state` or PKCE challenge from it.
+- **Each sign-in, Cancel, and Disconnect takes a turn.** A sign-in or a renewal that Microsoft
+  answers after a newer one of these keeps nothing: no sign-in in the Vault, nothing in memory.
+- **Disconnect** marks the connection not connected and drops its access token first, so its tools
+  stop even when Windows Credential Manager does not answer; that failure is then reported, and
+  the value stays hidden in any text until it is removed.
+- **A renewal asks Microsoft only for what it already granted** (asking for more fails the renewal
+  and would cost the sign-in); a part turned on or up since the sign-in waits for Reconnect, and a
+  part turned down works with what was granted.
+- **Keeping a sign-in** is read back; if that fails, the previous one goes back (Microsoft does not
+  cancel it when it is used), so the Vault never holds a mix of two.
+- **Microsoft's "Need admin approval" page:** going back from it (AADSTS65004) also gives the link
+  for the organization's admin.
+- **Uninstalling with "delete my data"** removes every service's sign-in, even one kept before its
+  connection was.
+- **Copies built for the tests** use a stand-in browser that follows the sign-in on this computer;
+  the Release workflow sets the stand-in empty and refuses the tests' app ID.

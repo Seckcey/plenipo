@@ -1,9 +1,7 @@
 # ADR-067: Phase 20 in three parts — Microsoft 365 first, then Slack and Google, then the rest
 
-- **Status:** Proposed (2026-09-28): the owner's choice (the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you), choice 1). If the owner
-  chooses one release instead, this record is marked **Rejected** and Phase 20 ships as one
-  v1.13.0.
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20
 
@@ -59,3 +57,9 @@ wait on the slowest of those steps.
 - **A part per service (six parts).** More paperwork than it saves; Slack and Google share their
   shape (chat and mail from a big company with an app review), and the last three share theirs
   (keys the owner creates).
+
+## As built (v1.13.0)
+
+Part 20A (Settings → Connections, Guard's rules, signing in, and Microsoft 365) is version 1.13.0.
+Parts 20B (Slack and Google, 1.13.1) and 20C (HubSpot, Stripe, WordPress and WooCommerce, and
+add-on tools, 1.13.2) are next.

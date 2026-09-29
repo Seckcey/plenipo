@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-connection-access"
+description = "Enables the set_connection_access command without any pre-configured scope."
+commands.allow = ["set_connection_access"]
+
+[[permission]]
+identifier = "deny-set-connection-access"
+description = "Denies the set_connection_access command without any pre-configured scope."
+commands.deny = ["set_connection_access"]

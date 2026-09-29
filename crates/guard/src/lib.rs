@@ -15,6 +15,7 @@
 pub mod ai_tools;
 pub mod commands;
 pub mod config;
+pub mod connections;
 pub mod defaults;
 pub mod dto;
 pub mod engine;
@@ -31,9 +32,14 @@ pub mod websites;
 pub use ai_tools::{AiToolAction, AiToolBusy, AiToolRequest};
 pub use commands::CommandLine;
 pub use config::GuardConfig;
+pub use connections::{
+    Access, AccessLevel, Account, AccountKind, Connection, ConnectionAction, ConnectionCheck,
+    ConnectionRequest, ConnectionState, OwnApp, Part, PartLevel, Service, ToolKind, Who,
+};
 pub use dto::*;
 pub use engine::{
-    evaluate, level_for, levels_for, GrantState, LevelFor, Request, Scope, SiteCheck,
+    evaluate, level_for, level_for_connection, levels_for, GrantState, LevelFor, Request, Scope,
+    SiteCheck,
 };
 pub use error::{GuardError, Result};
 pub use outbound::{OutboundRules, Purpose};

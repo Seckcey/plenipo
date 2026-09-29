@@ -1,8 +1,7 @@
 # ADR-066: Add-on tools you set up — other MCP servers, as approved programs, off by default
 
-- **Status:** Proposed (2026-09-28). Becomes Accepted when the owner approves the Phase 20 design,
-  with the choices the owner makes in the
-  [Phase 20 checklist](../phases/phase-20-checklist.md#choices-for-you).
+- **Status:** Accepted (by the owner, 2026-09-28), with the owner's choices in the
+  [Phase 20 checklist](../phases/phase-20-checklist.md#owner-decisions-2026-09-28)
 - **Date:** 2026-09-28
 - **Phase:** 20 (in part 20C if the owner splits the phase; ADR-067)
 - **Carries out:** ROLLOUT_PLAN.md Phase 20, "**add-on tools the owner sets up** (the `mcp.invoke`
@@ -127,3 +126,8 @@ add-ons; installing programs for the owner.
   calls, files, and secrets away from another's, and nothing runs when no one needs it.
 - **Remote MCP servers as add-ons.** Deferred: their tools can change on the service's side at any
   moment, and each would need its own sign-in; built-in connections cover the named services.
+
+## As built (v1.13.0)
+
+Not built in part 20A: add-on tools come in part 20C
+([ADR-067 (Phase 20 in three parts)](ADR-067-phase-20-in-three-parts.md)).

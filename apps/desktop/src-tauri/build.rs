@@ -84,6 +84,15 @@ const COMMANDS: &[&str] = &[
     "cancel_ai_tool_update",
     "set_ai_tools_auto_update",
     "set_ai_tool_payment",
+    // Phase 20: Settings → Connections (signing in happens in the owner's own browser).
+    "get_connections",
+    "connect_connection",
+    "cancel_connection_sign_in",
+    "disconnect_connection",
+    "set_connection_parts",
+    "set_connection_access",
+    "set_connection_send_list",
+    "set_connection_own_app",
     "hire_position",
     "fill_position",
     "vacate_position",
@@ -166,6 +175,11 @@ fn main() {
     // workflow (ADR-038); a change to either rebuilds the app.
     println!("cargo:rerun-if-env-changed=PLENIPO_UPDATE_ENDPOINT");
     println!("cargo:rerun-if-env-changed=PLENIPO_UPDATER_PUBLIC_KEY");
+    // The app ID Plenipo signs in to Microsoft 365 with (public, not a secret), and the
+    // stand-in for the connections' services in copies built for the end-to-end tests
+    // (Phase 20, ADR-065 §6).
+    println!("cargo:rerun-if-env-changed=PLENIPO_MICROSOFT_APP_ID");
+    println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 

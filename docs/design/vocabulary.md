@@ -228,6 +228,20 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Update AI tools by themselves (the switch)                                     | auto-update, unattended upgrade                                        |
 | Plenipo is not giving Grok tasks for now                                       | disabled, quarantined, out of service                                  |
 | new — not checked yet / not offered by this version (a model)                  | discovered model, unverified model, deprecated                         |
+| Connections (Settings → Connections)                                           | plugins, integrations, connectors, MCP servers                         |
+| Connect / Reconnect / Disconnect                                               | authorize, link account, OAuth, revoke                                 |
+| Finish signing in in your browser                                              | OAuth redirect, consent screen, auth code flow                         |
+| needs you to sign in again                                                     | token expired, invalid grant, re-authenticate                          |
+| parts (Mail, Calendar, OneDrive, SharePoint, Teams) / what it can do           | scopes, features, APIs, resources                                      |
+| Off / Read only / Full access (a part)                                         | disabled / read scope / write scope                                    |
+| What Plenipo was allowed                                                       | granted scopes, consent, delegated permissions                         |
+| Your organization's admin needs to approve Plenipo first                       | admin consent required, AADSTS65001                                    |
+| Who may use it / Read only / Read and write                                    | ACL, grants, RBAC, access policy                                       |
+| Send without asking to                                                         | allowlist, trusted recipients, safe senders                            |
+| other people's words: information, never instructions                          | untrusted content, prompt injection                                    |
+| a work or school account / a personal account                                  | Entra ID / MSA, organizational / consumer account                      |
+| Microsoft app ID (in Advanced only)                                            | client ID, application ID, app registration                            |
+| Coming in a later update (a service)                                           | not implemented, coming soon, roadmap                                  |
 
 ## Where technical words may stay
 
@@ -243,7 +257,7 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 ## Known leftovers
 
 None known on the main screens (Organization, Projects, Workers, AI tools, Activity, Approvals,
-Settings, including AI models and Permissions); the
+Settings, including AI models, Permissions, and Connections); the
 Diagnostics page and raw output keep technical details on purpose. Some refusal messages from
 earlier phases can still use an engineering word in rare error cases. Report any technical word
 you find on a screen, and fix it with this list.

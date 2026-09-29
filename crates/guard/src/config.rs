@@ -7,6 +7,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::valid_rule;
+use crate::connections::{
+    self, Access, Account, AccountKind, Connection, ConnectionState, OwnApp, Part, PartLevel, Who,
+    MAX_ACCESS, MAX_CONNECTIONS, MAX_SEND_LIST,
+};
 use crate::defaults;
 use crate::dto::*;
 use crate::error::{GuardError, Result};
@@ -41,6 +45,9 @@ pub struct GuardConfig {
     pub switches: Switches,
     /// Which browser is Plenipo's browser (ADR-028). Missing in older documents: Automatic.
     pub browser_choice: BrowserChoice,
+    /// The owner's connections (Phase 20, ADR-062): never their sign-ins, which only the Vault
+    /// keeps. Missing in older documents: none.
+    pub connections: Vec<Connection>,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -556,6 +563,189 @@ impl GuardConfig {
         Ok(self.servers.remove(i))
     }
 
+    // ---- Connections (Phase 20) ---------------------------------------------------------------
+
+    pub fn connection(&self, id: &str) -> Option<&Connection> {
+        self.connections.iter().find(|c| c.id == id)
+    }
+
+    /// The connection `id`, or a new one when `id` belongs to a service Plenipo knows.
+    pub fn connection_or_new(&self, id: &str) -> Result<Connection> {
+        if let Some(c) = self.connection(id) {
+            return Ok(c.clone());
+        }
+        let service = connections::service_of(id)
+            .ok_or_else(|| invalid(format!("Plenipo has no connection called {id:?}")))?;
+        Ok(Connection::new(id, service))
+    }
+
+    fn put_connection(&mut self, c: Connection) -> Result<Connection> {
+        match self.connections.iter_mut().find(|x| x.id == c.id) {
+            Some(x) => *x = c.clone(),
+            None => {
+                if self.connections.len() >= MAX_CONNECTIONS {
+                    return Err(invalid(format!("at most {MAX_CONNECTIONS} connections")));
+                }
+                self.connections.push(c.clone());
+            }
+        }
+        Ok(c)
+    }
+
+    /// Set the levels of a connection's parts (parts not given keep theirs).
+    pub fn set_connection_parts(
+        &mut self,
+        id: &str,
+        parts: &BTreeMap<Part, PartLevel>,
+    ) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        for (part, level) in parts {
+            if !c.service.parts().contains(part) {
+                return Err(invalid(format!(
+                    "{} has no part called {}",
+                    c.label(),
+                    part.label()
+                )));
+            }
+            c.parts.insert(*part, *level);
+        }
+        self.put_connection(c)
+    }
+
+    /// Set a connection's **Who may use it** list. `roles` and `agents`: the IDs that exist.
+    pub fn set_connection_access(
+        &mut self,
+        id: &str,
+        access: &[Access],
+        roles: &[String],
+        agents: &[String],
+    ) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        if access.len() > MAX_ACCESS {
+            return Err(invalid(format!(
+                "at most {MAX_ACCESS} lines on Who may use it"
+            )));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for a in access {
+            // A line already on the list stays even when its role or agent is gone (it gives
+            // nobody anything, and the owner can remove it); a new one must exist.
+            let kept = c.access.iter().any(|x| x.who == a.who);
+            match &a.who {
+                Who::Role { id } if !kept && !roles.contains(id) => {
+                    return Err(invalid("a role you added no longer exists"))
+                }
+                Who::Agent { id } if !kept && !agents.contains(id) => {
+                    return Err(invalid("an agent you added no longer exists"))
+                }
+                _ => {}
+            }
+            if !seen.insert(&a.who) {
+                return Err(invalid("a role or an agent is on Who may use it only once"));
+            }
+        }
+        c.access = access.to_vec();
+        self.put_connection(c)
+    }
+
+    /// Set a connection's **Send without asking to** list.
+    pub fn set_connection_send_list(&mut self, id: &str, list: &[String]) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        if list.len() > MAX_SEND_LIST {
+            return Err(invalid(format!(
+                "at most {MAX_SEND_LIST} entries on Send without asking to"
+            )));
+        }
+        let mut entries: Vec<String> = Vec::new();
+        for e in list {
+            let e = connections::send_entry(e).map_err(invalid)?;
+            if !entries.iter().any(|x| x.eq_ignore_ascii_case(&e)) {
+                entries.push(e);
+            }
+        }
+        c.send_list = entries;
+        self.put_connection(c)
+    }
+
+    /// Use an organization's own app instead of 8 West's (`None`: 8 West's). Only while the
+    /// connection is not connected: its sign-in belongs to the app it was made with.
+    pub fn set_connection_own_app(&mut self, id: &str, app: Option<&OwnApp>) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        if c.service != connections::Service::Microsoft365 {
+            return Err(invalid(format!(
+                "{} does not take an organization's own app yet",
+                c.label()
+            )));
+        }
+        if c.state != ConnectionState::NotConnected {
+            return Err(invalid(format!(
+                "Disconnect {} first: its sign-in belongs to the app it was made with",
+                c.label()
+            )));
+        }
+        c.own_app = match app {
+            None => None,
+            Some(a) => {
+                let app_id = a.app_id.trim().to_lowercase();
+                if !connections::is_guid(&app_id) {
+                    return Err(invalid(
+                        "the app ID must look like 12345678-abcd-4ef0-9abc-0123456789ab",
+                    ));
+                }
+                let tenant = a.tenant.trim().to_lowercase();
+                if !(connections::is_guid(&tenant) || connections::is_domain(&tenant)) {
+                    return Err(invalid(
+                        "the organization must be its domain (contoso.com) or its ID",
+                    ));
+                }
+                Some(OwnApp { app_id, tenant })
+            }
+        };
+        self.put_connection(c)
+    }
+
+    /// A sign-in finished: the account, and what the service granted.
+    pub fn connection_connected(
+        &mut self,
+        id: &str,
+        kind: Option<AccountKind>,
+        account: Account,
+        granted: &[String],
+        now: u64,
+    ) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        c.state = ConnectionState::Connected;
+        c.account_kind = kind;
+        c.account = Some(account);
+        c.granted = granted.to_vec();
+        c.connected_at = Some(now);
+        self.put_connection(c)
+    }
+
+    /// The service refused the connection's sign-in. `None`: it was not connected.
+    pub fn connection_needs_sign_in(&mut self, id: &str) -> Result<Option<Connection>> {
+        let Some(mut c) = self.connection(id).cloned() else {
+            return Ok(None);
+        };
+        if c.state != ConnectionState::Connected {
+            return Ok(None);
+        }
+        c.state = ConnectionState::NeedsSignIn;
+        self.put_connection(c).map(Some)
+    }
+
+    /// Disconnected: the account and what was granted are forgotten; its parts, who may use
+    /// it, and its list stay, so connecting again restores them (ADR-063 §5).
+    pub fn connection_disconnected(&mut self, id: &str) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        c.state = ConnectionState::NotConnected;
+        c.account_kind = None;
+        c.account = None;
+        c.granted = Vec::new();
+        c.connected_at = None;
+        self.put_connection(c)
+    }
+
     pub fn remove_secret(&mut self, id: &str) -> Result<SecretInfo> {
         let i = self
             .secrets
@@ -755,6 +945,171 @@ mod tests {
             approval_minutes: 5,
         })
         .unwrap();
+    }
+
+    #[test]
+    fn connections_keep_settings_never_sign_ins() {
+        use crate::connections::*;
+        let mut c = GuardConfig::with_defaults();
+        let roles = vec!["writer".to_owned()];
+        let agents = vec!["pos-1".to_owned()];
+        // A known service's connection starts with Mail and Calendar at Read only.
+        let m = c.connection_or_new("microsoft365").unwrap();
+        assert_eq!(m.part(Part::Mail), PartLevel::ReadOnly);
+        assert_eq!(m.part(Part::Teams), PartLevel::Off);
+        assert!(c.connection_or_new("myspace").is_err());
+        // Parts.
+        let mut parts = BTreeMap::new();
+        parts.insert(Part::Teams, PartLevel::FullAccess);
+        let m = c.set_connection_parts("microsoft365", &parts).unwrap();
+        assert_eq!(m.part(Part::Teams), PartLevel::FullAccess);
+        assert_eq!(
+            m.part(Part::Mail),
+            PartLevel::ReadOnly,
+            "untouched parts keep their level"
+        );
+        // Who may use it: known roles and agents, once each.
+        let line = |who: Who| Access {
+            who,
+            level: AccessLevel::ReadOnly,
+        };
+        assert!(c
+            .set_connection_access(
+                "microsoft365",
+                &[line(Who::Role {
+                    id: "nobody".into()
+                })],
+                &roles,
+                &agents
+            )
+            .is_err());
+        assert!(c
+            .set_connection_access(
+                "microsoft365",
+                &[
+                    line(Who::Role {
+                        id: "writer".into()
+                    }),
+                    line(Who::Role {
+                        id: "writer".into()
+                    })
+                ],
+                &roles,
+                &agents
+            )
+            .is_err());
+        c.set_connection_access(
+            "microsoft365",
+            &[
+                line(Who::Role {
+                    id: "writer".into(),
+                }),
+                line(Who::Agent { id: "pos-1".into() }),
+            ],
+            &roles,
+            &agents,
+        )
+        .unwrap();
+        // The agent is removed later: its line stays (it gives nobody anything), and the owner
+        // can still change the other lines, or take it off; a new unknown one is refused, in
+        // words without its ID.
+        let gone: Vec<String> = Vec::new();
+        c.set_connection_access(
+            "microsoft365",
+            &[
+                Access {
+                    who: Who::Role {
+                        id: "writer".into(),
+                    },
+                    level: AccessLevel::ReadWrite,
+                },
+                line(Who::Agent { id: "pos-1".into() }),
+            ],
+            &roles,
+            &gone,
+        )
+        .unwrap();
+        c.set_connection_access(
+            "microsoft365",
+            &[line(Who::Role {
+                id: "writer".into(),
+            })],
+            &roles,
+            &gone,
+        )
+        .unwrap();
+        let err = c
+            .set_connection_access(
+                "microsoft365",
+                &[line(Who::Agent { id: "pos-2".into() })],
+                &roles,
+                &gone,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("an agent you added no longer exists"), "{err}");
+        assert!(!err.contains("pos-2"), "{err}");
+        // The list: checked, lower case, once each.
+        assert!(c
+            .set_connection_send_list("microsoft365", &["not an address".into()])
+            .is_err());
+        let m = c
+            .set_connection_send_list(
+                "microsoft365",
+                &["@8WestIT.com".into(), "@8westit.com".into()],
+            )
+            .unwrap();
+        assert_eq!(m.send_list, vec!["@8westit.com".to_owned()]);
+        // An organization's own app: a GUID and a domain, and only while not connected.
+        assert!(c
+            .set_connection_own_app(
+                "microsoft365",
+                Some(&OwnApp {
+                    app_id: "nope".into(),
+                    tenant: "contoso.com".into()
+                })
+            )
+            .is_err());
+        let app = OwnApp {
+            app_id: "12345678-ABCD-4ef0-9abc-0123456789ab".into(),
+            tenant: "Contoso.com".into(),
+        };
+        let m = c
+            .set_connection_own_app("microsoft365", Some(&app))
+            .unwrap();
+        assert_eq!(
+            m.own_app.unwrap().app_id,
+            "12345678-abcd-4ef0-9abc-0123456789ab"
+        );
+        // Connected, then disconnected: the account goes; the settings stay.
+        let account = Account {
+            name: "Frankie".into(),
+            address: "frankie@8westit.com".into(),
+            organization: Some("8 West IT".into()),
+            tenant: None,
+        };
+        c.connection_connected(
+            "microsoft365",
+            Some(AccountKind::Work),
+            account,
+            &["Mail.Read".into()],
+            1,
+        )
+        .unwrap();
+        assert!(c.set_connection_own_app("microsoft365", None).is_err());
+        assert!(c
+            .connection_needs_sign_in("microsoft365")
+            .unwrap()
+            .is_some());
+        let m = c.connection_disconnected("microsoft365").unwrap();
+        assert_eq!(m.state, ConnectionState::NotConnected);
+        assert_eq!(m.account, None);
+        assert!(m.granted.is_empty());
+        assert_eq!(m.access.len(), 1);
+        assert_eq!(m.send_list.len(), 1);
+        // Nothing like a token is ever part of the document.
+        let doc = c.to_value().to_string();
+        assert!(!doc.to_lowercase().contains("token"), "{doc}");
     }
 
     #[test]

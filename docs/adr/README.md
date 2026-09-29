@@ -76,9 +76,10 @@ architecture must be recorded here.
 | [059](ADR-059-plenipo-updates-the-ai-tools.md)           | Plenipo keeps the AI tools up to date, between tasks (amends 007, 023)                        | Accepted |
 | [060](ADR-060-usage-plan-left-and-new-models.md)         | Usage, "plan left", and new models, only from what the AI tools report (amends 007, 014)      | Accepted |
 | [061](ADR-061-connections-before-new-ai-models.md)       | Doing Connections before new AI models: Phase 20 moves ahead of Phase 16 (amends 039)         | Accepted |
-| [062](ADR-062-connections-one-set-of-rules.md)           | Connections: one set of rules for every connection (amends 013, 023)                          | Proposed |
-| [063](ADR-063-signing-in-to-a-connection.md)             | Signing in to a connection in your own browser; its token only in the Vault (amends 013)      | Proposed |
-| [064](ADR-064-how-each-connection-is-built.md)           | How each connection is built: into Plenipo, or the service's own MCP server                   | Proposed |
-| [065](ADR-065-microsoft-365-connection.md)               | The Microsoft 365 connection: 8 West's app, the fewest permissions, what admins approve       | Proposed |
-| [066](ADR-066-add-on-tools.md)                           | Add-on tools you set up: other MCP servers, as approved programs, off by default (amends 013) | Proposed |
-| [067](ADR-067-phase-20-in-three-parts.md)                | Phase 20 in three parts: Microsoft 365, then Slack and Google, then the rest                  | Proposed |
+| [062](ADR-062-connections-one-set-of-rules.md)           | Connections: one set of rules for every connection (amends 013, 023)                          | Accepted |
+| [063](ADR-063-signing-in-to-a-connection.md)             | Signing in to a connection in your own browser; its token only in the Vault (amends 013)      | Accepted |
+| [064](ADR-064-how-each-connection-is-built.md)           | How each connection is built: into Plenipo, or the service's own MCP server                   | Accepted |
+| [065](ADR-065-microsoft-365-connection.md)               | The Microsoft 365 connection: 8 West's app, the fewest permissions, what admins approve       | Accepted |
+| [066](ADR-066-add-on-tools.md)                           | Add-on tools you set up: other MCP servers, as approved programs, off by default (amends 013) | Accepted |
+| [067](ADR-067-phase-20-in-three-parts.md)                | Phase 20 in three parts: Microsoft 365, then Slack and Google, then the rest                  | Accepted |
+| [068](ADR-068-connections-are-pro.md)                    | Connections and add-on tools are part of Pro (amends 021)                                     | Accepted |

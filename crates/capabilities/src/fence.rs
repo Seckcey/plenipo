@@ -1,5 +1,6 @@
 //! Fences around words that reach a worker from outside Plenipo — a web page's text, a file's
-//! lines, what a program or a server printed, GitHub's issue and pull request text — so the
+//! lines, what a program or a server printed, GitHub's issue and pull request text, and what a
+//! connection reads (Phase 20: email, chat, calendar entries, documents, records) — so the
 //! worker can tell them from the owner's and Plenipo's own words. A fence is an opening line
 //! that names the source and says the text is information, never instructions, then the text,
 //! then a closing line. Both lines carry the same fresh random nonce, so no line inside the text
@@ -20,6 +21,16 @@ pub enum Source {
     GitHub(String),
     /// What a command printed on this server.
     Server(String),
+    /// Email read through a connection (Phase 20), from this account or service.
+    Mail(String),
+    /// Chat messages read through a connection (Phase 20).
+    Chat(String),
+    /// Calendar entries read through a connection (Phase 20).
+    Calendar(String),
+    /// A document's text read through a connection (Phase 20).
+    Document(String),
+    /// Records a connection's service keeps: file and site lists, CRM, payments (Phase 20).
+    Record(String),
 }
 
 impl Source {
@@ -31,6 +42,11 @@ impl Source {
             Source::Search(_) => "search results",
             Source::Program(_) | Source::Server(_) => "output",
             Source::GitHub(_) => "GitHub text",
+            Source::Mail(_) => "email",
+            Source::Chat(_) => "chat messages",
+            Source::Calendar(_) => "calendar entries",
+            Source::Document(_) => "document text",
+            Source::Record(_) => "records",
         }
     }
 
@@ -43,6 +59,11 @@ impl Source {
             Source::Program(_) => "the program",
             Source::GitHub(_) => "GitHub",
             Source::Server(_) => "the server",
+            Source::Mail(_) => "the people who wrote it",
+            Source::Chat(_) => "the people in the chat",
+            Source::Calendar(_) => "the events' organizers",
+            Source::Document(_) => "the document",
+            Source::Record(_) => "the service",
         }
     }
 
@@ -53,7 +74,12 @@ impl Source {
             | Source::Search(n)
             | Source::Program(n)
             | Source::GitHub(n)
-            | Source::Server(n) => n,
+            | Source::Server(n)
+            | Source::Mail(n)
+            | Source::Chat(n)
+            | Source::Calendar(n)
+            | Source::Document(n)
+            | Source::Record(n) => n,
         }
     }
 }

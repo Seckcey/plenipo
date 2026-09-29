@@ -29,7 +29,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
-| 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Next (ADR-061) |
+| 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | In progress: part 20A (Microsoft 365) delivered in v1.13.0; 20B (Slack, Google) next, then 20C (ADR-067) |
 | 6 | 16 | Every AI model worth having | Planned (ADR-036); after Phase 20 (ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
@@ -1139,6 +1139,7 @@ Make the Free and Pro split real. Pro is a subscription: a signed key in the Vau
 - single enforcement point: `Entitlements::check(limit)` -> Allowed, or Blocked with a plain-words reason
 - Free limits enforced in Workforce: 1 department, 1 project, 3 workers on the job at once
 - business departments (Sales on HubSpot and those after it) gated to Pro at the setup flow
+- Connections and add-on tools gated to Pro (ADR-068): **Connect** and **Add a program** blocked on Free; no Connection or add-on tools offered to a worker on Free; when Pro ends they pause (nothing deleted, running tasks finish, new work gets none, **Disconnect** always works) and resume when Pro returns
 - plain-words message on every blocked path, naming what Pro adds
 - Ledger events for every license action and check-in result, with the key redacted
 - lapse behavior that never deletes, hides, or breaks existing departments, projects, or history
@@ -1175,6 +1176,7 @@ Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, 
 - Free: the whole Development flow completes on 1 department, 1 project, 3 workers
 - Pro: departments, projects, and workers all unlimited
 - business department setup blocked on Free, allowed on Pro
+- Connections and add-on tools (ADR-068): Connect blocked on Free, allowed on Pro; no Connection tools offered on Free; Pro ends mid-task: the running task keeps its tools and finishes, the next gets none; Disconnect works on Free and removes the sign-in from the Vault; Pro back: the same connections work again
 - key entered -> Pro applies without restarting the app; key removed -> Free, with nothing deleted
 - lapse with three departments: everything still listed, readable, and runnable; only new creation blocked
 - **no internet: Pro stays on through day 30 and drops on day 31**
@@ -2000,7 +2002,9 @@ Phase 12's terminal panel (built). Phase 16 fills in the payment switch.
 
 # Phase 20 — Connections: Microsoft 365, Slack, Google, and More
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen.
+**Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen. **Connections and add-on tools are part of Pro** (ADR-068, 2026-09-28): every copy can use them until Phase 11A adds the license key and the lock.
+
+**Status: part 20A delivered in v1.13.0** (checklist and acceptance report in `docs/phases/phase-20-*`); parts 20B (Slack and Google, 1.13.1) and 20C (HubSpot, Stripe, WordPress and WooCommerce, and add-on tools, 1.13.2) are next (ADR-067, Phase 20 in three parts). Decisions: ADR-061 to ADR-068, accepted, with the owner's changes: every part is Off, Read only, or Full access; work or school and personal Microsoft accounts; Teams can read and send; any Slack workspace, more than one; and Connections are part of Pro (ADR-068). Part 20A built Settings → Connections, Guard's two new permissions (`connections.read`, `connections.write`) with each connection's **Who may use it** list and **Send without asking to** list, signing in in the owner's own browser with the sign-in kept only in the Vault, and 21 Microsoft 365 tools (Mail, Calendar, OneDrive, SharePoint, Teams) for Claude Code, Codex, Grok, and Kimi. No new Ledger layout (it stays at 11). Deviations, each recorded in its ADR as built. Registering 8 West's Microsoft app, and the walk-through with a real Microsoft 365 account on Windows, are the owner's.
 
 ## Goal
 

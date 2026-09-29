@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use plenipo_capabilities::browser::BrowserConfig;
+use plenipo_capabilities::connections::ConnectionsConfig;
 use plenipo_capabilities::control::ControlStatus;
 use plenipo_capabilities::watch::WatchUpdate;
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, OsSecretStore, SecretStore};
@@ -124,6 +125,9 @@ pub fn create<R: Runtime>(
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");
+    // Connections (Phase 20): the app ID this copy signs in to Microsoft 365 with, and the
+    // stand-in for the services in copies built for the end-to-end tests.
+    config.connections = connections_config();
     // The app's own tests reach the shell even on test machines that run everything as
     // administrator (GitHub's Windows machines do); Plenipo itself always refuses then.
     #[cfg(test)]
@@ -160,6 +164,25 @@ pub fn create<R: Runtime>(
         .set_listener(Arc::new(move |update: &WatchUpdate| hearing.send(update)));
     app.manage(subscribers);
     (guard, broker)
+}
+
+/// How this copy of Plenipo connects (ADR-065 §6): 8 West's Microsoft app ID (public, not a
+/// secret), and, in copies built for the end-to-end tests only, the stand-in for the services on
+/// this computer. Both are built in by the build (`PLENIPO_MICROSOFT_APP_ID`,
+/// `PLENIPO_CONNECTIONS_STAND_IN`): never a setting, never an environment variable at run time.
+/// A copy built without an app ID shows Microsoft 365 as not ready to sign in (an organization
+/// can still use its own app, Advanced).
+pub fn connections_config() -> ConnectionsConfig {
+    ConnectionsConfig {
+        microsoft_app_id: option_env!("PLENIPO_MICROSOFT_APP_ID")
+            .map(str::trim)
+            .filter(|id| plenipo_guard::connections::is_guid(id))
+            .map(str::to_lowercase),
+        stand_in: option_env!("PLENIPO_CONNECTIONS_STAND_IN")
+            .map(str::trim)
+            .filter(|b| b.starts_with("http://127.0.0.1:"))
+            .map(str::to_owned),
+    }
 }
 
 /// Open the tool server on the loopback address. Without it workers get no tools (and a

@@ -10,6 +10,7 @@ pub mod ai_tools_host;
 pub mod backup_host;
 pub mod canvas_commands;
 pub mod commands;
+pub mod connections_commands;
 pub mod diagnostics;
 pub mod guard_host;
 pub mod indicator;
@@ -468,6 +469,14 @@ pub fn configure<R: Runtime>(
             ai_tools_commands::cancel_ai_tool_update,
             ai_tools_commands::set_ai_tools_auto_update,
             ai_tools_commands::set_ai_tool_payment,
+            connections_commands::get_connections,
+            connections_commands::connect_connection,
+            connections_commands::cancel_connection_sign_in,
+            connections_commands::disconnect_connection,
+            connections_commands::set_connection_parts,
+            connections_commands::set_connection_access,
+            connections_commands::set_connection_send_list,
+            connections_commands::set_connection_own_app,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -778,6 +787,9 @@ mod ipc_boundary_tests {
             supervisor.clone(),
             &agents,
         );
+        // A copy built with an app ID would otherwise open the developer's real browser when a
+        // test presses Connect: these tests open nothing.
+        broker.set_connection_opener(Arc::new(NoBrowser));
         app.manage(Arc::new(notices::start(
             app.handle(),
             ledger.clone(),
@@ -803,6 +815,19 @@ mod ipc_boundary_tests {
         app.manage(router);
         app.manage(workforce);
         app
+    }
+
+    /// A browser that opens nothing.
+    struct NoBrowser;
+
+    impl plenipo_capabilities::connections::Opener for NoBrowser {
+        fn open(
+            &self,
+            _: String,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
@@ -2029,7 +2054,7 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let s = perms(invoke(&main, "get_permissions"));
-        assert_eq!(s.settings.capabilities.len(), 16);
+        assert_eq!(s.settings.capabilities.len(), 18);
         let ids: Vec<&str> = s.settings.sets.iter().map(|x| x.id.as_str()).collect();
         for id in [
             "read-only",
@@ -4074,6 +4099,236 @@ mod ipc_boundary_tests {
             serde_json::json!({ "on": true }),
         ));
         assert!(page.auto_update);
+    }
+
+    const PHASE_20: [&str; 8] = [
+        "get_connections",
+        "connect_connection",
+        "cancel_connection_sign_in",
+        "disconnect_connection",
+        "set_connection_parts",
+        "set_connection_access",
+        "set_connection_send_list",
+        "set_connection_own_app",
+    ];
+
+    /// Arguments that fit every Phase 20 command (each takes the ones it names).
+    fn phase_20_args() -> serde_json::Value {
+        serde_json::json!({
+            "connectionId": "microsoft365", "kind": "work", "parts": { "mail": "readOnly" },
+            "access": [], "list": [], "app": null,
+        })
+    }
+
+    #[test]
+    fn settings_connections_is_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let refused = |cmd: &str,
+                       answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                       from: &str| {
+            let err = answer.expect_err(from);
+            assert!(
+                err.to_string().contains("not allowed"),
+                "{cmd} from {from}: {err}"
+            );
+        };
+        for cmd in PHASE_20 {
+            let args = phase_20_args();
+            refused(
+                cmd,
+                invoke_json(&other, cmd, args.clone()),
+                "another window",
+            );
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+        // Nothing the refused windows asked for changed anything.
+        let page: plenipo_capabilities::connections::ConnectionsPage =
+            body(invoke(&main, "get_connections"));
+        assert_eq!(
+            page.services[0].connections[0].connection.state,
+            plenipo_guard::ConnectionState::NotConnected
+        );
+    }
+
+    #[test]
+    fn the_phase_20_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        let id = "microsoft365";
+        let line =
+            |who: serde_json::Value| serde_json::json!([{ "who": who, "level": "readOnly" }]);
+        for (cmd, args, why) in [
+            (
+                "disconnect_connection",
+                serde_json::json!({ "connectionId": "../microsoft365" }),
+                "invalid connection id",
+            ),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": "outlook", "kind": "work" }),
+                "invalid connection id",
+            ),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": id, "kind": "admin" }),
+                "unknown variant `admin`",
+            ),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": "slack", "kind": "work" }),
+                "Slack comes in a later update of Plenipo",
+            ),
+            (
+                "cancel_connection_sign_in",
+                serde_json::json!({ "connectionId": id }),
+                "No sign-in to Microsoft 365 is waiting",
+            ),
+            (
+                "set_connection_parts",
+                serde_json::json!({ "connectionId": id, "parts": { "mail": "everything" } }),
+                "unknown variant `everything`",
+            ),
+            (
+                "set_connection_parts",
+                serde_json::json!({ "connectionId": id, "parts": { "inbox": "readOnly" } }),
+                "unknown variant `inbox`",
+            ),
+            (
+                "set_connection_access",
+                serde_json::json!({ "connectionId": id,
+                    "access": line(serde_json::json!({ "kind": "role", "id": "../x" })) }),
+                "invalid role id",
+            ),
+            (
+                "set_connection_access",
+                serde_json::json!({ "connectionId": id,
+                    "access": line(serde_json::json!({ "kind": "everyone", "id": "x" })) }),
+                "a line is for a role or an agent",
+            ),
+            (
+                "set_connection_access",
+                serde_json::json!({ "connectionId": id,
+                    "access": line(serde_json::json!({ "kind": "role", "id": "x", "all": true })) }),
+                "unknown field `all`",
+            ),
+            (
+                "set_connection_access",
+                serde_json::json!({ "connectionId": id,
+                    "access": line(serde_json::json!({ "kind": "role",
+                        "id": "0f8fad5b-d9cb-469f-a165-70867728950e" })) }),
+                "no longer exists",
+            ),
+            (
+                "set_connection_access",
+                serde_json::json!({ "connectionId": id, "access": (0..201)
+                    .map(|n| serde_json::json!({ "who": { "kind": "role", "id": format!("r{n}") },
+                        "level": "readOnly" }))
+                    .collect::<Vec<_>>() }),
+                "at most 200 lines",
+            ),
+            (
+                "set_connection_send_list",
+                serde_json::json!({ "connectionId": id, "list": vec!["a@b.co"; 201] }),
+                "at most 200 entries",
+            ),
+            (
+                "set_connection_send_list",
+                serde_json::json!({ "connectionId": id, "list": ["everyone"] }),
+                "is not an email address or an @domain",
+            ),
+            (
+                "set_connection_own_app",
+                serde_json::json!({ "connectionId": id,
+                    "app": { "appId": "not-an-id", "tenant": "contoso.com" } }),
+                "the app ID must look like",
+            ),
+            // No secret goes through Settings → Connections: an app's secret is refused by name.
+            (
+                "set_connection_own_app",
+                serde_json::json!({ "connectionId": id, "app": {
+                    "appId": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "tenant": "contoso.com",
+                    "clientSecret": "abc~123" } }),
+                "unknown field `clientSecret`",
+            ),
+        ] {
+            let answer = invoke_json(&main, cmd, args.clone());
+            let err = answer.expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
+            );
+        }
+        // From the main window: the page, a part's level, the list, and Disconnect (always
+        // allowed). Connecting needs this copy's app ID.
+        let page: plenipo_capabilities::connections::ConnectionsPage =
+            body(invoke(&main, "get_connections"));
+        let labels: Vec<&str> = page.services.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Microsoft 365",
+                "Slack",
+                "Google",
+                "HubSpot",
+                "Stripe",
+                "WordPress and WooCommerce"
+            ]
+        );
+        let has_app = guard_host::connections_config().microsoft_app_id.is_some();
+        assert_eq!(page.services[0].connections[0].has_app, has_app);
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "set_connection_parts",
+            serde_json::json!({ "connectionId": id, "parts": { "teams": "fullAccess" } }),
+        ));
+        assert_eq!(
+            page.services[0].connections[0]
+                .connection
+                .part(plenipo_guard::Part::Teams),
+            plenipo_guard::PartLevel::FullAccess
+        );
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "set_connection_send_list",
+            serde_json::json!({ "connectionId": id, "list": ["@ClientCo.com"] }),
+        ));
+        assert_eq!(
+            page.services[0].connections[0].connection.send_list,
+            ["@clientco.com"]
+        );
+        let _: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "disconnect_connection",
+            serde_json::json!({ "connectionId": id }),
+        ));
+        if !has_app {
+            let err = invoke_json(
+                &main,
+                "connect_connection",
+                serde_json::json!({ "connectionId": id, "kind": "work" }),
+            )
+            .unwrap_err();
+            assert!(
+                err["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("no app ID for Microsoft 365")),
+                "{err}"
+            );
+        }
     }
 
     #[test]

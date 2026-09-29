@@ -17,6 +17,7 @@ import {
   LocalPathsSettings,
   OrganizationSettings,
 } from "../settings/InfoSettings";
+import { ConnectionsSettings } from "../settings/connections/ConnectionsSettings";
 import { NotificationSettings } from "../settings/NotificationSettings";
 import {
   SETTINGS_SECTIONS,
@@ -31,7 +32,8 @@ import { UpdateSettings } from "../upkeep/UpdateSettings";
 /**
  * Settings in one place (Phase 12): a list of sections on the left, one section at a time, and
  * the last one comes back. Another page can open a section (Home: "Fix it in Settings →
- * Servers"). Settings → Servers is the same as before, in its own section.
+ * Servers"). Settings → Servers is the same as before, in its own section; Connections follows
+ * it (Phase 20).
  */
 export function SettingsView({
   go,
@@ -104,6 +106,7 @@ export function SettingsView({
           {current === "permissions" && <PermissionSettings />}
           {current === "organization" && <OrganizationSettings go={go} />}
           {current === "servers" && <ServerSettings />}
+          {current === "connections" && <ConnectionsSettings go={go} />}
           {current === "switches" && (
             <SwitchSettings learning={<LearningSwitch learning={learning} />} />
           )}

@@ -282,9 +282,10 @@ impl Ledger {
         })
     }
 
-    /// The task, or any task handed on from it, used Plenipo's browser, saw the screen, or ran
-    /// commands on a server (Phase 11). Its lessons may carry what a website, another program, or
-    /// a server said, so they always wait for the owner, with a warning (`Lesson::from_web`).
+    /// The task, or any task handed on from it, used Plenipo's browser, saw the screen, ran
+    /// commands on a server (Phase 11), or used a connection (Phase 20: mail, chat, calendars,
+    /// files). Its lessons may carry what a website, another program, a server, or another
+    /// person said, so they always wait for the owner, with a warning (`Lesson::from_web`).
     pub fn task_used_web_screen_or_servers(&self, task_id: &str) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
@@ -295,7 +296,8 @@ impl Ledger {
                    WHERE (event_type = 'capability.used' \
                      AND (json_extract(payload, '$.capability') LIKE 'browser.%' \
                        OR json_extract(payload, '$.capability') LIKE 'computer.%' \
-                       OR json_extract(payload, '$.capability') LIKE 'ssh.%')) \
+                       OR json_extract(payload, '$.capability') LIKE 'ssh.%' \
+                       OR json_extract(payload, '$.capability') LIKE 'connections.%')) \
                    OR event_type = 'control.started' \
                    OR event_type LIKE 'ssh.%')",
                 [task_id],

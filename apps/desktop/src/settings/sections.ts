@@ -7,6 +7,7 @@ export type SettingsSection =
   | "permissions"
   | "organization"
   | "servers"
+  | "connections"
   | "switches"
   | "notifications"
   | "terminal"
@@ -53,6 +54,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "Servers",
     icon: "server",
     lead: "The servers workers may reach, how Plenipo signs in, and the rules for each.",
+  },
+  {
+    id: "connections",
+    label: "Connections",
+    icon: "link",
+    lead: "Your business accounts workers may use, like Microsoft 365. You sign in on the service's own page in your browser; Plenipo never sees your password.",
   },
   {
     id: "switches",

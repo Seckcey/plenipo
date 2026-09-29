@@ -5,8 +5,10 @@ import { CAPABILITIES, capabilityLabel, setSummary, timeLeft } from "./format";
 
 describe("permission words", () => {
   it("names every capability of the plan", () => {
-    expect(CAPABILITIES).toHaveLength(16);
+    expect(CAPABILITIES).toHaveLength(18);
     expect(capabilityLabel("git.write")).toBe("Save to git");
+    expect(capabilityLabel("connections.read")).toBe("Read through Connections");
+    expect(capabilityLabel("connections.write")).toBe("Write through Connections");
     expect(capabilityLabel("something.new")).toBe("something.new");
   });
 

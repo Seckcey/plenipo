@@ -11,6 +11,7 @@
 pub mod ai_tools;
 pub mod broker;
 pub mod browser;
+pub mod connections;
 pub mod control;
 pub mod desktop;
 pub mod dto;

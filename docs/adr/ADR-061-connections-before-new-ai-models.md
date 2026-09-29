@@ -67,3 +67,9 @@ not depend on each other:
 - **Keep the order (Phase 16 next).** Not chosen: the owner's choice.
 - **Build both at once.** Rejected: two large phases in flight at once make larger reviews and
   more merge conflicts, and the plan's rule is one phase at a time.
+
+## As built (v1.13.0)
+
+Followed: Phase 20 came before Phase 16. Its first part, 20A (Microsoft 365), is version 1.13.0;
+parts 20B and 20C follow ([ADR-067 (Phase 20 in three parts)](ADR-067-phase-20-in-three-parts.md)),
+then Phase 16.

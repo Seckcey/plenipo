@@ -218,8 +218,9 @@ pub fn erase(store: &dyn SecretStore, id: &str) -> std::result::Result<(), Strin
     store.delete(id)
 }
 
-/// Every value Plenipo keeps in `store` for `config`: the owner's secrets and the servers'
-/// sign-ins. Uninstalling with "delete my data" removes them all (Phase 13).
+/// Every value Plenipo keeps in `store` for `config`: the owner's secrets, the servers'
+/// sign-ins, and the connections' sign-ins (Phase 20). Uninstalling with "delete my data"
+/// removes them all (Phase 13).
 pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
     config
         .secrets
@@ -231,6 +232,7 @@ pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
                 .iter()
                 .flat_map(|s| crate::broker::servers::vault_ids(&s.id)),
         )
+        .chain(crate::connections::Connections::vault_ids(config))
         .collect()
 }
 
@@ -256,6 +258,21 @@ pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
                 .iter()
                 .flat_map(|s| crate::broker::servers::vault_ids(s)),
         )
+        .chain({
+            // Each kept connection's, and each service's own, in case a sign-in was kept
+            // before its connection was.
+            let mut conns: Vec<String> = ids("connections")
+                .iter()
+                .map(|c| crate::connections::vault_id(c))
+                .collect();
+            for s in plenipo_guard::Service::ALL {
+                let id = crate::connections::vault_id(s.id());
+                if !conns.contains(&id) {
+                    conns.push(id);
+                }
+            }
+            conns
+        })
         .collect()
 }
 
