@@ -240,8 +240,9 @@ pub fn refusal_words(error: &str) -> String {
             "Slack does not know this app's client ID. Check it under Advanced.".into()
         }
         "bad_redirect_uri" | "redirect_uri_mismatch" | "invalid_redirect_uri" => format!(
-            "The Slack app does not list Plenipo's sign-in addresses. Add {} to the app's \
-             Redirect URLs (OAuth & Permissions).",
+            "The Slack app does not list Plenipo's sign-in addresses. Paste Plenipo's app \
+             description into your Slack app again (Advanced), or add {} to the app's \
+             \"Redirect URLs\" (Slack's words).",
             REDIRECT_PORTS
                 .iter()
                 .map(|p| format!("http://localhost:{p}"))
@@ -256,9 +257,14 @@ pub fn refusal_words(error: &str) -> String {
         "invalid_code" | "code_already_used" | "code_expired" => {
             "Slack's sign-in expired before Plenipo could finish it. Connect again.".into()
         }
-        "pkce_required" | "invalid_code_verifier" | "code_verifier_mismatch" => {
-            "The Slack app needs PKCE turned on (OAuth & Permissions → PKCE).".into()
-        }
+        // A Slack app without Plenipo's sign-in with no secret turned on asks for a secret.
+        "pkce_required"
+        | "invalid_code_verifier"
+        | "code_verifier_mismatch"
+        | "bad_client_secret" => "The Slack app needs sign-in without a secret turned on. \
+                                  Paste Plenipo's app description into your Slack app again \
+                                  (Advanced)."
+            .into(),
         "no_scopes" | "invalid_scope" => {
             "The Slack app does not have the permissions Plenipo asked for. Paste Plenipo's app \
              description again (Advanced)."
@@ -732,6 +738,39 @@ impl Api<'_> {
         p
     }
 
+    /// The owner's conversations of `types`, page by page (Slack may give fewer than asked for
+    /// before the end), up to `max`. With whether more were left out.
+    async fn conversations_of(
+        &self,
+        types: &str,
+        max: usize,
+    ) -> Result<(Vec<Value>, bool), String> {
+        const MAX_PAGES: usize = 10;
+        let mut all = Vec::new();
+        let mut cursor = String::new();
+        for _ in 0..MAX_PAGES {
+            let mut params = vec![
+                ("types", types.to_owned()),
+                ("exclude_archived", "true".to_owned()),
+                ("limit", "200".to_owned()),
+            ];
+            if !cursor.is_empty() {
+                params.push(("cursor", cursor.clone()));
+            }
+            let v = self.get("users.conversations", &params).await?;
+            all.extend(v["channels"].as_array().cloned().unwrap_or_default());
+            cursor = v["response_metadata"]["next_cursor"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            if cursor.is_empty() || all.len() > max {
+                break;
+            }
+        }
+        let more = all.len() > max || !cursor.is_empty();
+        Ok((all, more))
+    }
+
     async fn conversation(&self, id: &str) -> Result<Conversation, String> {
         let v = self
             .get(
@@ -741,7 +780,17 @@ impl Api<'_> {
                     ("include_num_members", "true".into()),
                 ],
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                // Plenipo may look only at the kinds of conversation whose part is on.
+                if e == Self::words("missing_scope") {
+                    "Slack did not let Plenipo look at that conversation: it is of a kind whose \
+                     part is off here (a direct or group message, or a private channel)"
+                        .to_owned()
+                } else {
+                    e
+                }
+            })?;
         let c = &v["channel"];
         let flag = |k: &str| c[k].as_bool() == Some(true);
         Ok(Conversation {
@@ -765,8 +814,8 @@ impl Api<'_> {
     }
 
     /// Everyone a message in a direct or group conversation reaches besides the owner: each by
-    /// the email address Slack gives, or — someone it gives none for — by name, marked so they
-    /// are never on a list.
+    /// the email address Slack gives, or — someone it gives none for — by name and Slack ID
+    /// (two people can share a name), marked so they are never on a list.
     async fn people_in(&self, c: &Conversation) -> Result<Vec<String>, String> {
         let me = self.me().await?;
         let ids: Vec<String> = if c.direct {
@@ -791,15 +840,21 @@ impl Api<'_> {
         let mut out = Vec::new();
         for id in ids.iter().filter(|u| **u != me) {
             let p = self.person(&mut cache, id).await;
-            out.push(match (p.email, p.app) {
-                (Some(e), false) => e,
-                (_, true) => format!("{} (a Slack app, no email address)", p.name),
-                (None, false) => format!("{} (no email address in Slack)", p.name),
-            });
+            out.push(person_entry(id, &p.name, p.email, p.app));
         }
         out.sort();
         out.dedup();
         Ok(out)
+    }
+}
+
+/// One person a Slack message reaches, as the card lists them and Guard checks them: the email
+/// address Slack gives, else their name and Slack ID (never on a list).
+fn person_entry(id: &str, name: &str, email: Option<String>, app: bool) -> String {
+    match (email, app) {
+        (Some(e), false) => e,
+        (_, true) => format!("{name} (a Slack app, no email address; ID {id})"),
+        (None, false) => format!("{name} (no email address in Slack; ID {id})"),
     }
 }
 
@@ -810,7 +865,28 @@ pub type Planned = Plan<Call>;
 
 /// Check the conversation is of the kind the tool's part covers.
 fn of_part(c: &Conversation, part: Part) -> Result<(), String> {
-    let dm = c.direct || c.group;
+    kind_fits(part, c.direct || c.group)
+}
+
+/// Whether a conversation Slack describes is a group message: Slack says so, and an older one
+/// is also known by its name (`mpdm-…`).
+fn is_group_message(c: &Value) -> bool {
+    c["is_mpim"].as_bool() == Some(true)
+        || c["name"].as_str().is_some_and(|n| n.starts_with("mpdm-"))
+}
+
+/// Whether an ID can be of `part` by its first letter, told before Slack is asked: a direct
+/// message's starts with `D`, a public channel's with `C` (a `G` can be either).
+fn id_of_part(id: &str, part: Part) -> Result<(), String> {
+    match (part, id.chars().next()) {
+        (Part::Channels, Some('D')) => kind_fits(part, true),
+        (Part::DirectMessages, Some('C')) => kind_fits(part, false),
+        _ => Ok(()),
+    }
+}
+
+/// Whether a direct or group message (`dm`), or a channel, belongs to `part`'s tools.
+fn kind_fits(part: Part, dm: bool) -> Result<(), String> {
     match (part, dm) {
         (Part::Channels, true) => Err(
             "that is a direct or group message: use the direct message tools (slack_dm_messages, \
@@ -843,6 +919,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
         Call::ChannelMessages {
             channel, thread, ..
         } => {
+            id_of_part(channel, Part::Channels)?;
             let c = api.conversation(channel).await?;
             of_part(&c, Part::Channels)?;
             read(
@@ -868,6 +945,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             thread,
             ..
         } => {
+            id_of_part(conversation, Part::DirectMessages)?;
             let c = api.conversation(conversation).await?;
             of_part(&c, Part::DirectMessages)?;
             read(
@@ -893,6 +971,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             thread,
             text,
         } => {
+            id_of_part(channel, Part::Channels)?;
             let c = api.conversation(channel).await?;
             of_part(&c, Part::Channels)?;
             if c.archived {
@@ -939,6 +1018,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             thread,
             text,
         } => {
+            id_of_part(conversation, Part::DirectMessages)?;
             let c = api.conversation(conversation).await?;
             of_part(&c, Part::DirectMessages)?;
             let recipients = api.people_in(&c).await?;
@@ -1015,7 +1095,14 @@ fn readable(text: &str, names: &HashMap<String, Person>) -> String {
                 format!("#{label}")
             }
         } else if let Some(special) = target.strip_prefix('!') {
-            format!("@{}", special.split('^').next().unwrap_or(special))
+            let kind = special.split('^').next().unwrap_or(special);
+            match (kind, label) {
+                (_, "") => format!("@{kind}"),
+                // A date or time, as Slack wrote it for people without it.
+                ("date", l) => l.to_owned(),
+                (_, l) if l.starts_with('@') => l.to_owned(),
+                (_, l) => format!("@{l}"),
+            }
         } else if label.is_empty() {
             target.to_owned()
         } else {
@@ -1138,13 +1225,22 @@ async fn read_messages(
         .iter()
         .map(|m| format!("{conversation}/{}", m["ts"].as_str().unwrap_or_default()))
         .collect();
+    let more = v["has_more"].as_bool() == Some(true)
+        || v["response_metadata"]["next_cursor"]
+            .as_str()
+            .is_some_and(|c| !c.is_empty());
     let head = format!(
-        "{} message(s){}.",
+        "{} message(s){}{}.",
         messages.len(),
         if thread.is_some() {
             " in the thread"
         } else {
             ""
+        },
+        match (more, thread.is_some()) {
+            (false, _) => "",
+            (true, true) => " (the first ones: the thread has more replies)",
+            (true, false) => " (the newest ones: there are older messages too)",
         }
     );
     let mut text = if lines.is_empty() {
@@ -1170,17 +1266,9 @@ async fn read_messages(
 pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, String> {
     match &planned.call {
         Call::Channels => {
-            let v = api
-                .get(
-                    "users.conversations",
-                    &[
-                        ("types", "public_channel,private_channel".into()),
-                        ("exclude_archived", "true".into()),
-                        ("limit", "200".into()),
-                    ],
-                )
+            let (mut channels, more) = api
+                .conversations_of("public_channel,private_channel", MAX_LISTED)
                 .await?;
-            let mut channels: Vec<Value> = v["channels"].as_array().cloned().unwrap_or_default();
             channels.truncate(MAX_LISTED);
             let lines: Vec<String> = channels
                 .iter()
@@ -1209,9 +1297,14 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 .collect();
             let links: Vec<String> = ids.iter().map(|i| api.link(i)).collect();
             let head = format!(
-                "{} channel(s) in {}. Read one with slack_channel_messages and its id.",
+                "{} channel(s) in {}{}. Read one with slack_channel_messages and its id.",
                 channels.len(),
-                api.workspace
+                api.workspace,
+                if more {
+                    format!(" (the first {MAX_LISTED}; the owner is in more)")
+                } else {
+                    String::new()
+                }
             );
             Ok(Done {
                 text: if lines.is_empty() {
@@ -1238,17 +1331,10 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
             limit,
         } => read_messages(api, conversation, thread.as_ref(), *limit).await,
         Call::DirectMessages { limit } => {
-            let v = api
-                .get(
-                    "users.conversations",
-                    &[
-                        ("types", "im,mpim".into()),
-                        ("exclude_archived", "true".into()),
-                        ("limit", "200".into()),
-                    ],
-                )
-                .await?;
-            let mut list: Vec<Value> = v["channels"].as_array().cloned().unwrap_or_default();
+            let (mut list, mut more) = api.conversations_of("im,mpim", 1000).await?;
+            // The most recently active first, when Slack says.
+            list.sort_by_key(|c| std::cmp::Reverse(c["updated"].as_u64().unwrap_or(0)));
+            more |= list.len() > *limit as usize;
             list.truncate(*limit as usize);
             let me = api.me().await.unwrap_or_default();
             let mut cache = HashMap::new();
@@ -1289,9 +1375,15 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 .filter_map(|c| c["id"].as_str().map(str::to_owned))
                 .collect();
             let head = format!(
-                "{} direct or group message(s) in {}. Read one with slack_dm_messages and its id.",
+                "{} direct or group message(s) in {}{}. Read one with slack_dm_messages and its \
+                 id.",
                 list.len(),
-                api.workspace
+                api.workspace,
+                if more {
+                    " (the most recent; there are more: ask for a bigger limit, up to 25)"
+                } else {
+                    ""
+                }
             );
             Ok(Done {
                 text: if lines.is_empty() {
@@ -1329,7 +1421,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     let c = &m["channel"];
                     let id = c["id"].as_str().unwrap_or_default();
                     let dm = c["is_im"].as_bool() == Some(true)
-                        || c["is_mpim"].as_bool() == Some(true)
+                        || is_group_message(c)
                         || id.starts_with('D');
                     // Only from the parts that are on (ADR-069 §5.3).
                     if dm {
@@ -1348,7 +1440,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     let id = c["id"].as_str().unwrap_or_default();
                     let place = if id.starts_with('D') || c["is_im"].as_bool() == Some(true) {
                         format!("a direct message ({id})")
-                    } else if c["is_mpim"].as_bool() == Some(true) {
+                    } else if is_group_message(c) {
                         format!("a group message ({id})")
                     } else {
                         format!("#{} ({id})", c["name"].as_str().unwrap_or_default())
@@ -1495,6 +1587,39 @@ mod tests {
     use plenipo_guard::{Connection, Service};
 
     #[test]
+    fn a_group_message_is_known_by_slacks_flag_or_its_name() {
+        assert!(is_group_message(&json!({ "id": "G1", "is_mpim": true })));
+        assert!(is_group_message(
+            &json!({ "id": "G1", "name": "mpdm-dana--frankie-1" })
+        ));
+        assert!(!is_group_message(
+            &json!({ "id": "G1", "name": "client-co", "is_private": true })
+        ));
+        assert!(id_of_part("D0300000003", Part::Channels).is_err());
+        assert!(id_of_part("C0200000002", Part::DirectMessages).is_err());
+        assert!(id_of_part("G0400000004", Part::Channels).is_ok());
+    }
+
+    /// Two people Slack gives no address for, with the same name, are two on the card.
+    #[test]
+    fn people_without_an_address_are_told_apart_by_their_slack_id() {
+        let mut out = vec![
+            person_entry("U1", "Alex", None, false),
+            person_entry("U2", "Alex", None, false),
+            person_entry("U3", "Dana", Some("dana@clientco.com".into()), false),
+            person_entry("B4", "Alex", None, true),
+        ];
+        out.sort();
+        out.dedup();
+        assert_eq!(out.len(), 4, "{out:?}");
+        assert!(out.contains(&"Alex (no email address in Slack; ID U2)".to_owned()));
+        assert!(out
+            .iter()
+            .filter(|p| p.contains('('))
+            .all(|p| !plenipo_guard::connections::is_address(p)));
+    }
+
+    #[test]
     fn permissions_follow_the_parts_and_email_only_for_sending() {
         let mut c = Connection::new("slack", Service::Slack);
         // Channels starts at Read only: reading only, and no email addresses.
@@ -1585,6 +1710,14 @@ mod tests {
             ),
             "Hi @Dana Client, see #general and the doc (https://x.example) & @channel <3"
         );
+        // A group's mention and a date keep the words Slack shows people.
+        assert_eq!(
+            readable(
+                "<!subteam^S1|@support> <!date^1790000000^{date}|Sep 21> <!here> <!subteam^S2|ops>",
+                &names
+            ),
+            "@support Sep 21 @here @ops"
+        );
         // A worker can never mention everyone, a person, or draw a link.
         assert_eq!(
             escaped("<!channel> <@U1> a&b"),
@@ -1649,6 +1782,26 @@ mod tests {
     fn sign_in_words_and_tokens() {
         assert!(refusal_words("access_denied").contains("did not approve"));
         assert!(refusal_words("bad_redirect_uri").contains("http://localhost:47213"));
+        // A workspace's own app without sign-in with no secret asks for one: the same fix.
+        assert_eq!(
+            refusal_words("bad_client_secret"),
+            refusal_words("pkce_required")
+        );
+        // Plain words on screen: no sign-in jargon in any of them.
+        for code in [
+            "access_denied",
+            "invalid_client_id",
+            "bad_redirect_uri",
+            "invalid_team_for_non_distributed_app",
+            "invalid_code",
+            "pkce_required",
+            "no_scopes",
+        ] {
+            let words = refusal_words(code);
+            for jargon in ["OAuth", "PKCE", "token", "scope"] {
+                assert!(!words.contains(jargon), "{code}: {words}");
+            }
+        }
         assert_eq!(
             refusal_words("weird<script>"),
             "Slack did not sign you in (weirdscript)."

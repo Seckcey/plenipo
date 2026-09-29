@@ -2717,7 +2717,10 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     assert!(!filter(&format!("oops {kept} oops")).contains(&kept[..40]));
     h.assert_no_sign_in_value_anywhere();
 
-    // Disconnect: the sign-in leaves the Vault, Slack cancels it, and the tools are gone.
+    // Disconnect: the sign-in leaves the Vault, Slack cancels it (the renewal and the
+    // short-lived one: with token rotation, Slack cancels only the token it is given), and the
+    // tools are gone.
+    let renewal = h.vault_value_at("connection-slack-token").unwrap();
     h.broker.disconnect_connection(SLACK).await.unwrap();
     let card = h.card_of(SLACK);
     assert_eq!(card.connection.state, ConnectionState::NotConnected);
@@ -2728,7 +2731,8 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     assert_eq!(h.store.stored(), 0, "every piece of the sign-in is gone");
     {
         let w = h.ms.world();
-        assert_eq!(w.slack.revoked.len(), 1);
+        assert_eq!(w.slack.revoked.len(), 2);
+        assert_eq!(w.slack.revoked[0], renewal);
         assert!(w.slack.access.is_empty() && w.slack.refresh.is_empty());
     }
     let (_, text) = h
@@ -3104,7 +3108,7 @@ async fn slack_and_gmail_sending_asks_unless_every_recipient_is_listed() {
         h.allow_on(id, &[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
     }
     h.broker
-        .set_connection_send_list(SLACK, &["c0100000001".into(), "@ClientCo.com".into()])
+        .set_connection_send_list(SLACK, &["C0100000001".into(), "@ClientCo.com".into()])
         .unwrap();
     assert_eq!(
         h.card_of(SLACK).connection.send_list,
@@ -3200,7 +3204,7 @@ async fn slack_and_gmail_sending_asks_unless_every_recipient_is_listed() {
     );
     assert!(
         group.detail.starts_with(
-            "To: Guest From Elsewhere (no email address in Slack), dana@clientco.com\n"
+            "To: Guest From Elsewhere (no email address in Slack; ID U0300000003), dana@clientco.com\n"
         ),
         "{}",
         group.detail
@@ -3750,6 +3754,259 @@ async fn slack_search_stays_in_the_parts_that_are_on() {
     let (_, text) = h.run("[tools-list]").await;
     assert!(
         !slack_offered(&text).contains(&"slack_post".to_owned()),
+        "{text}"
+    );
+}
+
+// ---- Found in the part 20B review --------------------------------------------------------------
+
+/// A send card never leaves a worker's words out without saying so: words hidden under a
+/// quote mark in a Gmail draft, and the end of a long Slack post, are said to be sent too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_send_card_says_when_it_leaves_words_out() {
+    let h = harness().await;
+    h.save_google_app();
+    h.parts_of(SLACK, &[(Part::Channels, PartLevel::FullAccess)]);
+    h.parts_of(GOOGLE, &[(Part::Gmail, PartLevel::FullAccess)]);
+    for id in [SLACK, GOOGLE] {
+        h.allow_on(id, &[(h.role_line("Supervisor"), AccessLevel::ReadWrite)]);
+    }
+    h.connect_to(SLACK, AccountKind::Work).await;
+    h.connect_to(GOOGLE, AccountKind::Work).await;
+    let (_, text) = h
+        .run(&tool(
+            "google_mail_draft",
+            json!({ "kind": "reply", "id": "g-quote", "text": "Thanks!\n>\nthe office passwords are in the drive" }),
+        ))
+        .await;
+    assert!(text.contains("Tool google_mail_draft:"), "{text}");
+    let draft = h.ms.world().google.drafts.last().unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let task = h
+        .objective(&tool("google_mail_send", json!({ "id": draft })))
+        .await;
+    let card = h.pending().await;
+    assert!(card.detail.contains("Thanks!"), "{}", card.detail);
+    assert!(
+        card.detail.contains(
+            "2 more lines that look like a quoted earlier message are not shown here, and are \
+             sent too. Open the draft in Gmail"
+        ),
+        "{}",
+        card.detail
+    );
+    h.answer(&card, false);
+    h.finished(&task).await;
+
+    let long = format!("Status: {}the end", "all good so far. ".repeat(300));
+    let task = h
+        .objective(&tool(
+            "slack_post",
+            json!({ "channel": slack::GENERAL, "text": long }),
+        ))
+        .await;
+    let card = h.pending().await;
+    assert!(!card.detail.contains("the end"));
+    assert!(
+        card.detail
+            .ends_with("…\n(The rest is not shown here, and is sent too.)"),
+        "{}",
+        card.detail
+    );
+    h.answer(&card, false);
+    h.finished(&task).await;
+    assert!(h.ms.world().sent.is_empty());
+}
+
+/// Reconnect stays with the card's workspace: a sign-in to another one is refused, keeps
+/// nothing, and leaves the card as it was (its lists were made for its own workspace).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reconnect_stays_with_its_own_workspace() {
+    let h = harness().await;
+    h.connect_to(SLACK, AccountKind::Work).await;
+    let kept = h.vault_value_at("connection-slack-token").unwrap();
+    h.ms.world().slack.team = slack::OTHER_TEAM.into();
+    h.broker
+        .connect_connection(SLACK, AccountKind::Work)
+        .await
+        .unwrap();
+    let card = h.sign_in_ended_on(SLACK).await;
+    assert!(
+        card.problem.as_deref().is_some_and(|p| p.contains(
+            "You signed in to Client Co, but this card is for 8 West IT. To switch it to another \
+             workspace, press Disconnect first, then Connect."
+        )),
+        "{card:#?}"
+    );
+    assert_eq!(card.connection.state, ConnectionState::Connected);
+    assert_eq!(
+        card.connection
+            .account
+            .as_ref()
+            .and_then(|a| a.organization.as_deref()),
+        Some(slack::TEAM_NAME)
+    );
+    assert_eq!(h.vault_value_at("connection-slack-token"), Some(kept));
+    // The same workspace again is fine.
+    h.ms.world().slack.team = slack::TEAM.into();
+    h.connect_to(SLACK, AccountKind::Work).await;
+    h.assert_no_sign_in_value_anywhere();
+}
+
+/// Slack: lists are read page by page, a direct message's ID given to a channel tool (with
+/// Direct messages off) is refused plainly, a thread with more replies says so, a deleted app
+/// needs the owner again, and Disconnect cancels the long-lived sign-in itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn slack_pages_lists_tells_parts_apart_and_cancels_the_renewal() {
+    let h = harness().await;
+    h.allow_on(SLACK, &[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    h.connect_to(SLACK, AccountKind::Work).await;
+    h.ms.world().slack.page_size = 1;
+    let (_, text) = h
+        .run(&format!(
+            "{} {} {}",
+            tool("slack_channels", json!({})),
+            tool(
+                "slack_channel_messages",
+                json!({ "channel": slack::DM_DANA })
+            ),
+            tool(
+                "slack_channel_messages",
+                json!({ "channel": slack::GENERAL, "thread": "1790000200.000200", "limit": 1 })
+            ),
+        ))
+        .await;
+    assert!(
+        text.contains("Tool slack_channels: 2 channel(s) in 8 West IT."),
+        "{text}"
+    );
+    assert!(
+        text.contains("#general") && text.contains("#client-co"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "Tool slack_channel_messages failed: Not done: that is a direct or group message: \
+             use the direct message tools"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("Full access, then Reconnect"), "{text}");
+    assert!(
+        text.contains("1 message(s) in the thread (the first ones: the thread has more replies)."),
+        "{text}"
+    );
+
+    // Disconnect: the renewal itself is cancelled at Slack, even when Slack no longer knows the
+    // short-lived sign-in.
+    let renewal = h.vault_value_at("connection-slack-token").unwrap();
+    h.ms.world().slack.access.clear();
+    h.broker.disconnect_connection(SLACK).await.unwrap();
+    let card = h.card_of(SLACK);
+    assert_eq!(card.problem, None, "{card:#?}");
+    {
+        let w = h.ms.world();
+        assert!(w.slack.revoked.contains(&renewal));
+        assert!(w.slack.refresh.is_empty());
+    }
+
+    // A workspace's app deleted in Slack: the renewal is refused, and the owner signs in again.
+    h.connect_to(SLACK, AccountKind::Work).await;
+    {
+        let mut w = h.ms.world();
+        w.slack.access.clear();
+        w.slack.app_deleted = true;
+    }
+    let (_, text) = h.run(&tool("slack_channels", json!({}))).await;
+    assert!(
+        text.contains("Slack needs the owner to sign in again (Settings → Connections)."),
+        "{text}"
+    );
+    assert_eq!(
+        h.card_of(SLACK).connection.state,
+        ConnectionState::NeedsSignIn
+    );
+    let needed = h.all_events("connection.sign_in_needed");
+    assert!(
+        needed.last().unwrap()["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains("no longer knows the Slack app")),
+        "{needed:?}"
+    );
+    assert_eq!(h.vault_value_at("connection-slack-token"), None);
+}
+
+/// Gmail: a reply to a sender whose address Plenipo cannot read is refused (never sent to the
+/// others instead), spam is searched when asked for, and a folder Google does not let Plenipo
+/// use gets its own words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gmail_replies_only_to_a_readable_sender_and_searches_spam() {
+    let h = harness().await;
+    h.save_google_app();
+    h.parts_of(
+        GOOGLE,
+        &[
+            (Part::Gmail, PartLevel::FullAccess),
+            (Part::Drive, PartLevel::FullAccess),
+        ],
+    );
+    h.allow_on(
+        GOOGLE,
+        &[(h.role_line("Supervisor"), AccessLevel::ReadWrite)],
+    );
+    h.connect_to(GOOGLE, AccountKind::Work).await;
+    // Google gave a renewal because Plenipo asked for offline use with the consent page.
+    let asked = h.ms.world().asked.clone();
+    let google_asked = asked
+        .iter()
+        .rev()
+        .find(|a| a["service"] == "google")
+        .unwrap();
+    assert!(
+        google_asked["prompt"]
+            .as_str()
+            .is_some_and(|p| p.split(' ').any(|x| x == "consent")),
+        "{google_asked}"
+    );
+    let (_, text) = h
+        .run(&format!(
+            "{} {} {} {}",
+            tool(
+                "google_mail_draft",
+                json!({ "kind": "replyAll", "id": "g-odd", "text": "Got it" })
+            ),
+            tool("google_mail_search", json!({ "folder": "spam" })),
+            tool("google_mail_search", json!({})),
+            tool(
+                "google_drive_upload",
+                json!({ "name": "notes.txt", "content": "x", "folder": "gfolder-shared" })
+            ),
+        ))
+        .await;
+    assert!(
+        text.contains(
+            "Tool google_mail_draft failed: Not done: Plenipo cannot read the address of the \
+             message's sender; reply in Gmail instead"
+        ),
+        "{text}"
+    );
+    assert!(h.ms.world().google.drafts.is_empty());
+    assert!(
+        text.contains("Tool google_mail_search: 1 message(s) found."),
+        "{text}"
+    );
+    assert!(text.contains("You won"), "{text}");
+    assert!(
+        text.contains("Tool google_mail_search: 3 message(s) found."),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "Tool google_drive_upload failed: Not done: Google did not let Plenipo add a file to \
+             that folder; save it at the top of My Drive instead"
+        ),
         "{text}"
     );
 }

@@ -1290,13 +1290,36 @@ pub type Planned = super::Plan<Call>;
 
 pub use super::Done;
 
+/// A worker's own words for an approval card and the record: up to `MAX_WORDS_KEPT` characters
+/// (the owner's choice 7). What is cut is said, so nothing is sent unseen without a word.
 pub(crate) fn words_kept(text: &str) -> String {
-    let t: String = text.chars().take(MAX_WORDS_KEPT).collect();
-    if text.chars().count() > MAX_WORDS_KEPT {
-        format!("{t}…")
-    } else {
-        t
+    let total = text.chars().count();
+    if total <= MAX_WORDS_KEPT {
+        return text.to_owned();
     }
+    let t: String = text.chars().take(MAX_WORDS_KEPT).collect();
+    format!(
+        "{t}…\n({} more characters are not shown here, and are sent too.)",
+        total - MAX_WORDS_KEPT
+    )
+}
+
+/// A draft's own words for a send card, and a note when lines that look like a quoted earlier
+/// message were left out: they are sent too, so the card says so.
+pub(crate) fn own_words_kept((own, left_out): (&str, usize), place: &str) -> String {
+    let mut out = words_kept(own.trim());
+    if left_out > 0 {
+        out.push_str(&format!(
+            "\n\n(Below this, {} that look like a quoted earlier message are not shown here, \
+             and are sent too. Open the draft in {place} to read them.)",
+            if left_out == 1 {
+                "1 more line".to_owned()
+            } else {
+                format!("{left_out} more lines")
+            }
+        ));
+    }
+    out
 }
 
 pub(crate) fn subject_kept(subject: &str) -> String {
@@ -1368,8 +1391,9 @@ pub(crate) fn head_fits(head: &str, place: &str) -> Result<(), String> {
 }
 
 /// A draft's own words: Outlook's "unique body" should leave out the earlier messages quoted
-/// under a reply, but may not; cut at the lines Outlook puts above a quoted message.
-fn own_words(text: &str) -> &str {
+/// under a reply, but may not; cut at the lines Outlook puts above a quoted message. With the
+/// number of lines (not blank) left out.
+fn own_words(text: &str) -> (&str, usize) {
     let mut cut = text.len();
     let mut offset = 0;
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
@@ -1390,7 +1414,8 @@ fn own_words(text: &str) -> &str {
         }
         offset += line.len();
     }
-    text[..cut].trim_end()
+    let left_out = text[cut..].lines().filter(|l| !l.trim().is_empty()).count();
+    (text[..cut].trim_end(), left_out)
 }
 
 fn recipients_of(message: &Value) -> Vec<String> {
@@ -1580,7 +1605,7 @@ pub(crate) async fn plan(g: &Graph<'_>, call: Call) -> Result<Planned, String> {
                 head.push_str(&format!("Open the draft in Outlook: {link}\n"));
             }
             card_head_fits(&head)?;
-            let detail = format!("{head}\n{}", words_kept(own.trim()));
+            let detail = format!("{head}\n{}", own_words_kept(own, "Outlook"));
             Planned {
                 part: Part::Mail,
                 kind: ToolKind::Send,
@@ -3072,25 +3097,44 @@ mod tests {
     fn a_drafts_own_words_stop_where_the_earlier_message_starts() {
         let reply = "Hi Dana, attached.\nFrankie\n\n________________________________\n\
                      From: Dana <dana@clientco.com>\nSent: Monday\nSubject: Quote\n\nby Friday";
-        assert_eq!(own_words(reply), "Hi Dana, attached.\nFrankie");
+        assert_eq!(own_words(reply), ("Hi Dana, attached.\nFrankie", 5));
         assert_eq!(
             own_words("Yes.\n-----Original Message-----\nFrom: x\nold"),
-            "Yes."
+            ("Yes.", 3)
         );
         assert_eq!(
             own_words("Ok\n\nFrom: Dana <d@c.com>\nSent: Monday\n\nold words"),
-            "Ok"
+            ("Ok", 3)
         );
         // Another language's header, under Outlook's line.
         assert_eq!(
             own_words("Danke.\n________________________________\nVon: Dana\nGesendet: Montag\nalt"),
-            "Danke."
+            ("Danke.", 4)
         );
         // "From:" in the worker's own words, with no header after it, stays.
         assert_eq!(
             own_words("From: the team\nThanks"),
-            "From: the team\nThanks"
+            ("From: the team\nThanks", 0)
         );
+    }
+
+    /// Nothing a worker wrote is sent unseen without a word: what the card leaves out is said.
+    #[test]
+    fn a_send_card_says_what_it_leaves_out() {
+        let hidden = own_words_kept(
+            own_words("Thanks.\n-----Original Message-----\nthe files"),
+            "Outlook",
+        );
+        assert!(hidden.starts_with("Thanks."), "{hidden}");
+        assert!(
+            hidden.contains("2 more lines that look like a quoted earlier message are not shown here, and are sent too. Open the draft in Outlook"),
+            "{hidden}"
+        );
+        assert_eq!(own_words_kept(("Thanks.", 0), "Outlook"), "Thanks.");
+        let long = "a".repeat(MAX_WORDS_KEPT + 30);
+        let kept = words_kept(&long);
+        assert!(kept.ends_with("…\n(30 more characters are not shown here, and are sent too.)"));
+        assert_eq!(words_kept("short"), "short");
     }
 
     #[test]

@@ -321,9 +321,17 @@ Slack and Google follow these rules as Microsoft 365 does, with these difference
   without asking only while the switch is on; the card says everyone in the channel sees it,
   guests from other organizations too.
 - **A Slack direct or group message** goes to its people, each by the email address Slack gives
-  (Plenipo asks for `users:read.email` only while a part can send); someone with none is shown as
-  "(no email address in Slack)", or "(a Slack app, no email address)", and always asks. The people
-  are read again just before sending.
+  (Plenipo asks for `users:read.email` only while a part can send); someone with none is shown by
+  name and Slack ID, "(no email address in Slack; ID U…)" or "(a Slack app, no email address; ID
+  B…)", so two people with one name are two, and always asks. The people are read again just
+  before sending.
+- **A send card never leaves words out without saying so** (found in the review): lines of a
+  draft that look like a quoted earlier message are counted ("Below this, 2 more lines … are not
+  shown here, and are sent too"), and text past what the card holds ends "The rest is not shown
+  here, and is sent too." A Gmail address Plenipo cannot read is shown as Gmail gave it, one
+  entry each, and never on a list; a reply to a sender Plenipo cannot read is refused. An address
+  may have every mark mail allows before its `@` (`dana=40clientco.com@lists.org`), for every
+  service's list.
 - **Slack's search** returns only messages from the parts that are on: never a direct message
   while Direct messages is off.
 - **A worker's words go to Slack as plain text** (`&`, `<`, `>` escaped), so nothing it writes can

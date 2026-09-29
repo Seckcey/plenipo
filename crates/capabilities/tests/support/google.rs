@@ -31,6 +31,9 @@ pub struct Code {
     pub challenge: String,
     pub redirect: String,
     pub scopes: Vec<String>,
+    /// Asked for offline use with the consent page shown: as Google, only then is a renewal
+    /// (refresh token) given.
+    pub offline: bool,
 }
 
 /// Everything the stand-in Google keeps.
@@ -86,6 +89,20 @@ fn gmail_message(
     })
 }
 
+fn labelled(mut m: Value, labels: &[&str]) -> Value {
+    m["labelIds"] = json!(labels);
+    m
+}
+
+fn with_to(mut m: Value, to: &str) -> Value {
+    if let Some(h) = m["payload"]["headers"].as_array_mut() {
+        for x in h.iter_mut().filter(|x| x["name"] == "To") {
+            x["value"] = json!(to);
+        }
+    }
+    m
+}
+
 impl Google {
     pub fn seeded() -> Self {
         Google {
@@ -113,6 +130,32 @@ impl Google {
                     "Deals on cables.",
                     false,
                     6,
+                ),
+                labelled(
+                    gmail_message(
+                        "g-spam",
+                        "Prize Desk <win@prize.test>",
+                        "You won",
+                        "Claim your prize.",
+                        false,
+                        5,
+                    ),
+                    &["SPAM"],
+                ),
+                // Archived: from an address Plenipo cannot read, to the owner and a colleague.
+                with_to(
+                    labelled(
+                        gmail_message(
+                            "g-odd",
+                            "Relay <dana@[10.0.0.1]>",
+                            "Forwarded note",
+                            "A note through a relay.",
+                            false,
+                            4,
+                        ),
+                        &[],
+                    ),
+                    &format!("Frankie Gonzalez <{USER}>, Bob <bob@clientco.com>"),
                 ),
             ],
             events: vec![json!({
@@ -178,6 +221,8 @@ fn parse_raw(raw: &str) -> (Vec<(String, String)>, String) {
         .unwrap_or_default();
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    // A line starting with a space goes on the header before it (folding).
+    let head = head.replace("\r\n ", " ").replace("\r\n\t", " ");
     let headers: Vec<(String, String)> = head
         .split("\r\n")
         .filter_map(|l| l.split_once(": "))
@@ -217,6 +262,7 @@ pub fn route(req: &Req, path: &str, w: &mut World) -> Resp {
         w.asked.push(json!({
             "service": "google", "scope": q("scope"), "redirect": redirect_uri,
             "accessType": q("access_type"), "method": q("code_challenge_method"),
+            "prompt": q("prompt"),
         }));
         if w.decline_consent {
             return fail("access_denied");
@@ -233,6 +279,8 @@ pub fn route(req: &Req, path: &str, w: &mut World) -> Resp {
                 challenge: q("code_challenge"),
                 redirect: redirect_uri.clone(),
                 scopes,
+                offline: q("access_type") == "offline"
+                    && q("prompt").split(' ').any(|p| p == "consent"),
             },
         );
         return redirect(&format!("{redirect_uri}?state={}&code={code}", q("state")));
@@ -305,19 +353,23 @@ fn token(req: &Req, w: &mut World) -> Resp {
                 return json_resp("400 Bad Request", json!({ "error": "invalid_grant" }));
             }
             let access = w.token("ya29.a0");
-            let refresh = w.token("1//0g");
             w.google.access.insert(access.clone(), code.scopes.clone());
-            w.google
-                .refresh
-                .insert(refresh.clone(), code.scopes.clone());
-            ok(json!({
-                "access_token": access, "expires_in": 3599, "refresh_token": refresh,
+            let mut answer = json!({
+                "access_token": access, "expires_in": 3599,
                 "scope": code.scopes.join(" "), "token_type": "Bearer",
                 "id_token": id_token(json!({
                     "email": USER, "name": "Frankie Gonzalez", "hd": "8westit.com",
                     "email_verified": true,
                 })),
-            }))
+            });
+            if code.offline {
+                let refresh = w.token("1//0g");
+                w.google
+                    .refresh
+                    .insert(refresh.clone(), code.scopes.clone());
+                answer["refresh_token"] = json!(refresh);
+            }
+            ok(answer)
         }
         "refresh_token" => {
             if w.refuse_refresh {
@@ -362,8 +414,20 @@ fn gmail(
                 .messages
                 .iter()
                 .filter(|m| {
+                    let labelled = |l: &str| {
+                        m["labelIds"]
+                            .as_array()
+                            .is_some_and(|ls| ls.iter().any(|x| x == l))
+                    };
+                    // As Gmail: spam and the bin only when asked for, and then only there.
+                    let spam_or_bin = labelled("SPAM") || labelled("TRASH");
+                    if spam_or_bin && q("includeSpamTrash") != "true" {
+                        return false;
+                    }
                     words.iter().all(|term| match term.split_once(':') {
-                        Some(("in", "inbox")) => true,
+                        Some(("in", "inbox")) => labelled("INBOX"),
+                        Some(("in", "spam")) => labelled("SPAM"),
+                        Some(("in", "trash")) => labelled("TRASH"),
                         Some(("is", "unread")) => m["labelIds"]
                             .as_array()
                             .is_some_and(|l| l.iter().any(|x| x == "UNREAD")),
@@ -433,6 +497,7 @@ fn gmail(
             w.sent.push(json!({
                 "service": "google", "kind": "mail",
                 "to": addresses(&header_of(m, "To")), "cc": addresses(&header_of(m, "Cc")),
+                "bcc": addresses(&header_of(m, "Bcc")),
                 "subject": header_of(m, "Subject"), "inReplyTo": header_of(m, "In-Reply-To"),
                 "text": text,
             }));

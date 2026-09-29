@@ -17,7 +17,7 @@ use plenipo_guard::{
 use plenipo_ledger::{ApprovalState, NewEvent};
 use serde_json::{json, Value};
 
-use super::{cap, CallResult, Grant, NotAsked, Prepared, Work, MAX_DETAIL};
+use super::{CallResult, Grant, NotAsked, Prepared, Work, MAX_DETAIL};
 use crate::connections::{
     self, google, microsoft365, slack, AppInput, ConnectionsPage, Done, Graph, Opener,
 };
@@ -634,15 +634,16 @@ impl Broker {
             }
             Verdict::Ask => {
                 // The card says when outside words were read in this step (ADR-062 §6).
-                if !cx.read_outside.is_empty() {
-                    let line = format!(
+                let line = if cx.read_outside.is_empty() {
+                    String::new()
+                } else {
+                    format!(
                         "\n\nThis worker read {} in this step. Check that the recipients and \
                          the words are what you want.",
                         and_list(&cx.read_outside)
-                    );
-                    let room = MAX_DETAIL.saturating_sub(line.len() + "…".len());
-                    detail = cap(&detail, room) + &line;
-                }
+                    )
+                };
+                detail = cap_said(&detail, MAX_DETAIL.saturating_sub(line.len())) + &line;
                 let prepared = Prepared {
                     capability: tool.def.capability,
                     risk: tool.def.risk,
@@ -751,7 +752,7 @@ impl Broker {
                 "tool": tool.def.name,
                 "capability": tool.def.capability,
                 "summary": self.redact(summary),
-                "detail": cap(&self.redact(&detail), MAX_DETAIL),
+                "detail": cap_said(&self.redact(&detail), MAX_DETAIL),
                 "ok": ok,
                 // Plenipo's own words, never the text the service sent (ADR-062 §7).
                 "result": self.redact(&result),
@@ -820,4 +821,18 @@ fn request<'a>(
             recipients,
         }),
     }
+}
+
+/// A connection card's detail cut to `max` bytes. What a worker wrote is sent whole, so the card
+/// never cuts it without saying so.
+fn cap_said(text: &str, max: usize) -> String {
+    const REST: &str = "…\n(The rest is not shown here, and is sent too.)";
+    if text.len() <= max {
+        return text.to_owned();
+    }
+    let mut end = max.saturating_sub(REST.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{REST}", &text[..end])
 }

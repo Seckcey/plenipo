@@ -144,7 +144,12 @@ export function SlackOwnApp({
         Information, App Credentials) here. A client ID is not a secret; Plenipo never asks for a
         Slack app&apos;s secret. The steps: {APP_STEPS}.
       </p>
-      <pre className="connection__manifest" aria-label="Plenipo's app description for Slack">
+      <pre
+        className="connection__manifest"
+        role="region"
+        tabIndex={0}
+        aria-label="Plenipo's app description for Slack"
+      >
         {page.slackManifest}
       </pre>
       <Button variant="secondary" size="sm" onClick={() => void copy()}>

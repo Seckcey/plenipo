@@ -4425,7 +4425,7 @@ mod ipc_boundary_tests {
         let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
             &main,
             "set_connection_send_list",
-            serde_json::json!({ "connectionId": "slack", "list": ["c0100000001", "@clientco.com"] }),
+            serde_json::json!({ "connectionId": "slack", "list": ["C0100000001", "@clientco.com"] }),
         ));
         assert_eq!(
             page.services[1].connections[0].connection.send_list,

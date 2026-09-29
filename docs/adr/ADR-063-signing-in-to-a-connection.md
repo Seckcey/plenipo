@@ -227,9 +227,16 @@ Built as written for Slack and Google, with these details
 - **One Slack workspace per card:** a sign-in to a workspace already connected on another card is
   refused, and nothing is kept.
 - **Disconnect cancels the sign-in at the service.** Plenipo stops the tools, removes the sign-in
-  from the Vault, then calls Slack's `auth.revoke` (renewing once first if no short-lived sign-in is
-  in memory) or Google's revoke address, waiting at most 15 seconds. A service that cannot be
-  reached leaves a note on the card saying how to remove Plenipo there.
+  from the Vault, then calls Slack's `auth.revoke` or Google's revoke address, waiting at most 15
+  seconds. With token rotation Slack cancels only the token it is given, so Plenipo cancels the
+  long-lived renewal itself, then the short-lived sign-in if one is still in memory and has not run
+  out; it never renews just to cancel. A service that cannot be reached leaves a note on the card
+  saying how to remove Plenipo there.
+- **Reconnect stays with the card's account** (found in the review): a sign-in to another Slack
+  workspace, or another Google or Microsoft account, on a connected card is refused and nothing is
+  kept — its lists were made for its own account. Disconnect first to switch. The check that a
+  Slack workspace is on one card only is made again as the sign-in is kept, so two sign-ins at
+  once cannot both win.
 - **The owner's Google app's secret** (`connection-google-app-secret`) is kept only in the Vault,
   read back when saved, hidden in every text Plenipo records, never returned by a command, and
   removed with the app or by uninstalling with "delete my data".

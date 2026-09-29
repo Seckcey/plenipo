@@ -1000,6 +1000,16 @@ impl Connections {
             if lock(&self.state).turn(id) != s.turn {
                 return Ok(Signed::Stopped);
             }
+            // The account this card is for, checked where nothing can change it meanwhile.
+            let a = &traded.account;
+            let (who, shown) = match conn.service {
+                Service::Slack => (
+                    a.tenant.as_deref().unwrap_or_default(),
+                    a.organization.as_deref().unwrap_or("a Slack workspace"),
+                ),
+                _ => (a.address.as_str(), a.address.as_str()),
+            };
+            self.account_fits(id, conn.service, who, shown)?;
             let previous = vault::read(self.store.as_ref(), &vault_id(id))
                 .ok()
                 .flatten();
@@ -1021,6 +1031,67 @@ impl Connections {
         }
         self.changed();
         Ok(Signed::In)
+    }
+
+    /// Whether a sign-in to `who` (a Slack workspace's ID, else the account's address) may be
+    /// kept on card `id`: a card that is connected stays with its own workspace or account (its
+    /// lists were made for it), and a Slack workspace is on one card only.
+    fn account_fits(
+        &self,
+        id: &str,
+        service: Service,
+        who: &str,
+        shown: &str,
+    ) -> Result<(), String> {
+        let conns = self.guard().connections().unwrap_or_default();
+        let key = |a: &Account| -> String {
+            match service {
+                Service::Slack => a.tenant.clone().unwrap_or_default(),
+                _ => a.address.to_lowercase(),
+            }
+        };
+        let who = if service == Service::Slack {
+            who.to_owned()
+        } else {
+            who.to_lowercase()
+        };
+        if let Some(now) = conns
+            .iter()
+            .find(|c| c.id == id && c.state != ConnectionState::NotConnected)
+            .and_then(|c| c.account.as_ref())
+        {
+            let was = key(now);
+            if !was.is_empty() && !who.is_empty() && was != who {
+                let (place, kind) = match service {
+                    Service::Slack => (
+                        now.organization
+                            .clone()
+                            .unwrap_or_else(|| "another workspace".into()),
+                        "workspace",
+                    ),
+                    _ => (now.address.clone(), "account"),
+                };
+                return Err(format!(
+                    "You signed in to {shown}, but this card is for {place}. To switch it to \
+                     another {kind}, press Disconnect first, then Connect. Nothing was kept."
+                ));
+            }
+        }
+        if service == Service::Slack && !who.is_empty() {
+            let elsewhere = conns.iter().any(|c| {
+                c.id != id
+                    && c.service == Service::Slack
+                    && c.state != ConnectionState::NotConnected
+                    && c.account.as_ref().and_then(|a| a.tenant.as_deref()) == Some(who.as_str())
+            });
+            if elsewhere {
+                return Err(format!(
+                    "{shown}'s Slack is already connected on another card. Use that card, or \
+                     disconnect it first."
+                ));
+            }
+        }
+        Ok(())
     }
 
     async fn post_form(
@@ -1142,23 +1213,8 @@ impl Connections {
             .as_str()
             .unwrap_or("a Slack workspace")
             .to_owned();
-        // One workspace per card.
-        let others = self.guard().connections().unwrap_or_default();
-        if let Some(other) = others.iter().find(|c| {
-            c.id != s.id
-                && c.service == Service::Slack
-                && c.state != ConnectionState::NotConnected
-                && c.account
-                    .as_ref()
-                    .and_then(|a| a.tenant.as_deref())
-                    .is_some_and(|t| !team_id.is_empty() && t == team_id)
-        }) {
-            let _ = other;
-            return Err(format!(
-                "{team_name}'s Slack is already connected on another card. Use that card, or \
-                 disconnect it first."
-            ));
-        }
+        // One workspace per card: said early here, and checked again as it is kept.
+        self.account_fits(s.id, Service::Slack, &team_id, &team_name)?;
         // Who signed in: their name and, when Slack allows it, their email address.
         let user_id = user["id"].as_str().unwrap_or_default().to_owned();
         let who = self
@@ -1305,7 +1361,6 @@ impl Connections {
     /// either way.
     pub async fn disconnect(&self, id: &str) -> Result<(), String> {
         let conn = self.guard().connection(id).ok();
-        let app_id = conn.as_ref().and_then(|c| self.app_id(c));
         let marked;
         let erased;
         let kept;
@@ -1318,7 +1373,12 @@ impl Connections {
                 if let Some((_, tx)) = s.waiting.remove(id) {
                     let _ = tx.send(());
                 }
-                access = s.tokens.remove(id).map(|(t, _)| t);
+                // Only one that has not run out is worth cancelling too.
+                access = s
+                    .tokens
+                    .remove(id)
+                    .filter(|(_, until)| *until > Instant::now())
+                    .map(|(t, _)| t);
                 s.admin.remove(id);
                 s.problem.remove(id);
             }
@@ -1341,7 +1401,7 @@ impl Connections {
         if let (Some(conn), Some(kept)) = (conn, kept) {
             let cancelled = tokio::time::timeout(
                 CANCEL_WAIT,
-                self.cancel_at_service(conn.service, app_id.as_deref(), &kept, access.as_deref()),
+                self.cancel_at_service(conn.service, &kept, access.as_deref()),
             )
             .await
             .unwrap_or_else(|_| Err(format!("{} took too long to answer", conn.label())));
@@ -1365,66 +1425,54 @@ impl Connections {
         marked.and(erased)
     }
 
-    /// Cancel a sign-in at the service: Slack's `auth.revoke` (with an access token, renewed
-    /// first from `kept` when none is in memory), or Google's revoke address. Nothing is kept
-    /// from it.
+    /// Cancel a sign-in at the service. Slack: `auth.revoke` for the long-lived sign-in (with
+    /// token rotation Slack cancels only the one it is given, so the renewal itself), then for
+    /// the short-lived one still in memory. Google: its revoke address. Nothing is kept from it.
     async fn cancel_at_service(
         &self,
         service: Service,
-        app_id: Option<&str>,
         kept: &str,
         access: Option<&str>,
     ) -> Result<(), String> {
         match service {
             Service::Slack => {
-                let token = match access {
-                    Some(a) => a.to_owned(),
-                    None if slack::lasting(kept) => kept.to_owned(),
-                    None => {
-                        let form = vec![
-                            (
-                                "client_id".to_owned(),
-                                app_id.unwrap_or_default().to_owned(),
-                            ),
-                            ("grant_type".to_owned(), "refresh_token".to_owned()),
-                            ("refresh_token".to_owned(), kept.to_owned()),
-                        ];
-                        let answer = self.post_form(service, slack::ACCESS, form).await?.json();
-                        slack::user_tokens(&answer)["access_token"]
-                            .as_str()
-                            .map(str::to_owned)
-                            .ok_or_else(|| "Slack did not renew the sign-in".to_owned())?
-                    }
-                };
-                let reply = self
-                    .http
-                    .send(
-                        service,
-                        reqwest::Method::POST,
-                        &slack::method_address("auth.revoke", &[]),
-                        Some(&token),
-                        &[],
-                        Body::Empty,
-                        MAX_TOKEN_ANSWER,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                let answer = reply.json();
                 // Already gone at Slack counts as cancelled.
-                match answer["ok"].as_bool() {
-                    Some(true) => Ok(()),
-                    _ if matches!(
-                        answer["error"].as_str(),
-                        Some("invalid_auth" | "token_revoked" | "account_inactive")
-                    ) =>
-                    {
-                        Ok(())
+                let gone = |e: &str| {
+                    matches!(
+                        e,
+                        "invalid_auth" | "token_revoked" | "account_inactive" | "token_expired"
+                    )
+                };
+                let mut first = Ok(());
+                for (n, token) in std::iter::once(kept).chain(access).enumerate() {
+                    let reply = self
+                        .http
+                        .send(
+                            service,
+                            reqwest::Method::POST,
+                            &slack::method_address("auth.revoke", &[]),
+                            Some(token),
+                            &[],
+                            Body::Empty,
+                            MAX_TOKEN_ANSWER,
+                        )
+                        .await
+                        .map_err(|e| e.to_string());
+                    let done = reply.and_then(|r| {
+                        let answer = r.json();
+                        let error = answer["error"].as_str().unwrap_or("nothing");
+                        if answer["ok"].as_bool() == Some(true) || gone(error) {
+                            Ok(())
+                        } else {
+                            Err(format!("Slack answered {}", slack::clean_code(error)))
+                        }
+                    });
+                    // The long-lived sign-in is what must be cancelled.
+                    if n == 0 {
+                        first = done;
                     }
-                    _ => Err(format!(
-                        "Slack answered {}",
-                        slack::clean_code(answer["error"].as_str().unwrap_or("nothing"))
-                    )),
                 }
+                first
             }
             Service::Google => {
                 let reply = self
@@ -1613,7 +1661,11 @@ impl Connections {
                 error,
                 "invalid_grant" | "interaction_required" | "consent_required"
             ),
-            Service::Slack => slack::sign_in_gone(error) || error == "invalid_refresh_token",
+            // `invalid_client_id`: the workspace's own Slack app was deleted, or changed.
+            Service::Slack => {
+                slack::sign_in_gone(error)
+                    || matches!(error, "invalid_refresh_token" | "invalid_client_id")
+            }
             _ => matches!(
                 error,
                 "invalid_grant" | "invalid_client" | "unauthorized_client"
@@ -1623,6 +1675,10 @@ impl Connections {
             return format!("{name} did not renew the sign-in ({status}).");
         }
         let reason = match (service, error) {
+            (Service::Slack, "invalid_client_id") => format!(
+                "{name} no longer knows the Slack app Plenipo signed in with (it was deleted, or \
+                 its client ID changed)."
+            ),
             (Service::Google, "invalid_client" | "unauthorized_client") => format!(
                 "{name} no longer accepts your Google app (its client ID or secret changed, or it \
                  was deleted)."

@@ -644,7 +644,8 @@ by a released copy.
       `phase-20b-acceptance-report.md` with `evidence/phase-20b/`), "As built" in the ADRs, and the
       word list — in Pacific time.
 - [x] A review across several areas, with a second reviewer checking each finding, before the
-      final push; each confirmed finding fixed with a test, or recorded as a design limit.
+      final push; each confirmed finding fixed with a test, or recorded as a design limit (20A:
+      its report; 20B: [its report, section 6](phase-20b-acceptance-report.md#6-defects-found-and-fixed-during-part-20b)).
 - [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:

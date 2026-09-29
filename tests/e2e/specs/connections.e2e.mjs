@@ -23,6 +23,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -65,8 +66,17 @@ function startServices() {
   });
   return new Promise((done, fail) => {
     child.once("error", fail);
+    child.once("exit", (code) => fail(new Error(`the stand-in stopped (${code})`)));
     createInterface({ input: child.stdout }).once("line", () => done(child));
   });
+}
+
+/** Stop the stand-in and wait until its port is free for the next group. */
+async function stopServices(child) {
+  if (!child || child.exitCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill();
+  await exited;
 }
 
 /** What the stand-in saw and sent. */
@@ -250,7 +260,7 @@ describe(
     });
     after(async () => {
       await app?.close();
-      services?.kill();
+      await stopServices(services);
     });
 
     it("Settings → Connections lists Microsoft 365, and the services coming later", async () => {
@@ -527,7 +537,7 @@ describe(
     });
     after(async () => {
       await app?.close();
-      services?.kill();
+      await stopServices(services);
     });
 
     it("Settings → Connections shows Slack and Google, and Google asks for your own app", async () => {
@@ -677,6 +687,8 @@ describe(
             id: "g-quote",
             text: "Hi Dana, yes: Monday works. Frankie",
           }),
+          // The stand-in numbers what it makes in turn: Slack's sign-in code (1), Google's (2),
+          // then this draft (3).
           tool("google_mail_send", { id: "r-draft-3" }),
         ].join(" "),
       );
@@ -736,9 +748,21 @@ describe(
         await onCardOf(browser, id, "Yes, disconnect");
         await waitForText(browser, card, "Not connected", 30_000);
       }
-      const w = await world();
-      assert.equal(w.slackRevoked, 1);
-      assert.equal(w.googleRevoked, 1);
+      // The card says "Not connected" as soon as the sign-in is gone from the Vault; the cancel
+      // at the service follows.
+      // Slack cancels only the token it is given: the long-lived renewal must be among them.
+      const cancelled = async () => {
+        const w = await world();
+        return w.slackRevoked >= 1 && w.slackRenewalsLeft === 0 && w.googleRevoked === 1;
+      };
+      await waitUntil(cancelled, "the cancels at Slack and Google", 30_000).catch(async (e) => {
+        const w = await world();
+        const cards = await textOf(browser, ".connections");
+        throw new Error(
+          `${e.message}: Slack ${w.slackRevoked}, Google ${w.googleRevoked}; ` +
+            `${w.requests.filter((r) => /revoke|slack\.com\/api\/(auth|oauth)/.test(r)).join(" | ")}; ${cards}`,
+        );
+      });
       await screenshot(browser, "slack-google-disconnected", SLACK_CARD);
     });
   },

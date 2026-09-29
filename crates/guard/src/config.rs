@@ -1288,11 +1288,15 @@ mod tests {
         assert!(c.remove_connection("slack-3").is_err());
         // A Slack channel can be on a Slack list by its ID; never on Microsoft's or Google's.
         let l = c
-            .set_connection_send_list("slack", &["c0100000001".into(), "@8westit.com".into()])
+            .set_connection_send_list("slack", &["C0100000001".into(), "@8westit.com".into()])
             .unwrap();
         assert_eq!(l.send_list, ["C0100000001", "@8westit.com"]);
         assert!(c
             .set_connection_send_list("slack", &["#general".into()])
+            .is_err());
+        // A channel's name in small letters, shaped like an ID, is still a name.
+        assert!(c
+            .set_connection_send_list("slack", &["c0100000001".into()])
             .is_err());
         assert!(c
             .set_connection_send_list("google", &["C0100000001".into()])

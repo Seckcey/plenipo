@@ -175,17 +175,17 @@ check (see "Risks" at the end).
 
 ### What Plenipo asks Google for
 
-Each only when its part is on, at that level:
+Each only while its part is on at that level (Full access asks for the Read only permission too):
 
-| Permission                   | What it lets Plenipo do, as you        | Part and level        | Google calls it |
-| ---------------------------- | -------------------------------------- | --------------------- | --------------- |
-| `openid`, `email`, `profile` | Sign you in, see your name and address | always                | —               |
-| `gmail.readonly`             | Read your Gmail                        | Gmail, Read only      | Restricted      |
-| `gmail.compose`              | Save drafts and send them              | Gmail, Full access    | Restricted      |
-| `calendar.events.readonly`   | Read your calendar                     | Calendar, Read only   | Sensitive       |
-| `calendar.events`            | Read your calendar and add events      | Calendar, Full access | Sensitive       |
-| `drive.readonly`             | Read your Drive                        | Drive, Read only      | Restricted      |
-| `drive.file`                 | Add new files                          | Drive, Full access    | Not sensitive   |
+| Permission                   | What it lets Plenipo do, as you        | Part and level                  | Google calls it |
+| ---------------------------- | -------------------------------------- | ------------------------------- | --------------- |
+| `openid`, `email`, `profile` | Sign you in, see your name and address | always                          | —               |
+| `gmail.readonly`             | Read your Gmail                        | Gmail, Read only or Full access | Restricted      |
+| `gmail.compose`              | Save drafts and send them              | Gmail, Full access              | Restricted      |
+| `calendar.events.readonly`   | Read your calendar                     | Calendar, Read only             | Sensitive       |
+| `calendar.events`            | Read your calendar and add events      | Calendar, Full access           | Sensitive       |
+| `drive.readonly`             | Read your Drive                        | Drive, Read only or Full access | Restricted      |
+| `drive.file`                 | Add new files                          | Drive, Full access              | Not sensitive   |
 
 Sending a draft, and inviting guests, still ask you first unless everyone is on that
 connection's **Send without asking to** list and the switch is on.

@@ -112,8 +112,8 @@ Slack's and Google's own pages, read on 2026-09-29:
 ### 4. Your own Google app (the owner's answer 4: as recommended)
 
 - **Where:** the Google card gets **Your Google app**: a **Client ID** box, a **Client secret** box
-  that hides what you type, and **Save**. Until it is saved, **Connect** is off and the card links
-  to the setup steps. After saving, the card shows the client ID and "Its secret is kept in Windows
+  that hides what you type, and **Save**. Until it is saved, **Connect** is off and the card names
+  the setup steps (Plenipo opens no web pages of its own; the release notes link to them). After saving, the card shows the client ID and "Its secret is kept in Windows
   Credential Manager"; the secret is never shown again and never leaves the Vault except to Google's
   token address. **Remove this app** erases both.
 - **The command:** `save_connection_app(connectionId, app)`, the main window's alone. `app` is
@@ -222,8 +222,16 @@ Built as decided. Where each choice lives:
 - **§5, the fits:** Slack's fixed ports 47211–47213 (`Listener::open_on`); Slack's
   `oauth/v2/authorize` and `oauth.v2.access` with PKCE and token rotation (a lasting token is kept
   as is when Slack gives no refresh value); `add_connection` / `remove_connection` (11 Connections
-  commands); Disconnect cancels at the service (`auth.revoke`, Google's revoke address) after the
-  Vault is cleared, with a 15-second limit and a note on the card if it fails.
+  commands); Disconnect cancels at the service (`auth.revoke` for the renewal itself and the
+  short-lived sign-in, since Slack cancels only the token it is given; Google's revoke address)
+  after the Vault is cleared, with a 15-second limit and a note on the card if it fails.
+- **Found in the review, and fixed:** a Slack channel's ID is taken only in capitals, as Slack
+  shows it ("companynews" is a name); Slack's lists are read page by page and say when there are
+  more; a channel tool refuses a direct message's ID (and the other way round) before asking
+  Slack; a Slack app deleted in Slack needs the owner again; Reconnect stays with the card's
+  workspace or account; Gmail reads Western European mail and encoded subjects, searches spam and
+  the bin when asked, and folds long subjects and thread IDs; the card's words say "Slack's
+  words" where Plenipo quotes Slack's own button or page names.
 - **Tests:** `crates/capabilities/tests/connections.rs` (the Slack and Google tests), Guard's
   `a_slack_channel_is_on_a_slack_list_by_its_id_only` and `slack_workspaces_and_the_owners_own_apps`,
   the desktop IPC tests, and `tests/e2e/specs/connections.e2e.mjs` part 20B. See the

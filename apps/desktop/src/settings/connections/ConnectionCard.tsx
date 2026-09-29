@@ -57,6 +57,8 @@ export function ConnectionCard({
   const id = c.id;
   const { pending, error, run } = useRun(onApply);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  // Slack and Google: Plenipo cancels the sign-in at the service, which can take a moment.
+  const [cancelling, setCancelling] = useState(false);
   const connected = c.state === "connected";
   const signedInOnce = c.state !== "notConnected";
   const partsOn = card.parts.some((p) => p.available && p.level !== "off");
@@ -181,9 +183,13 @@ export function ConnectionCard({
                 variant="danger"
                 size="sm"
                 disabled={pending}
-                onClick={() =>
-                  void run(() => disconnectConnection(id)).then(() => setConfirmDisconnect(false))
-                }
+                onClick={() => {
+                  setCancelling(!microsoft);
+                  void run(() => disconnectConnection(id)).then(() => {
+                    setCancelling(false);
+                    setConfirmDisconnect(false);
+                  });
+                }}
               >
                 Yes, disconnect
               </Button>
@@ -207,6 +213,11 @@ export function ConnectionCard({
           </Button>
         )}
       </div>
+      {cancelling && pending && (
+        <p className="muted" role="status">
+          Cancelling the sign-in at {service.label}…
+        </p>
+      )}
       <Refusal error={error} />
 
       <section className="connection__section" aria-labelledby={`${id}-parts`}>

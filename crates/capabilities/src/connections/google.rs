@@ -16,8 +16,9 @@ use serde_json::{json, Value};
 
 use super::http::{Body, Reply};
 use super::microsoft365::{
-    clip_text, head_fits, iso, pct, people, query, record, shown, subject_kept, today, when,
-    words_kept, Args, MAX_ITEMS, MAX_READ_BYTES, MAX_TEXT_CHARS, MAX_UPLOAD_BYTES, MAX_WORDS,
+    clip_text, head_fits, iso, own_words_kept, pct, people, query, record, shown, subject_kept,
+    today, when, words_kept, Args, MAX_ITEMS, MAX_READ_BYTES, MAX_TEXT_CHARS, MAX_UPLOAD_BYTES,
+    MAX_WORDS,
 };
 use super::text::{decode_entities, docx_text, html_to_text, MAX_DOCX_BYTES};
 use super::{Connections, Done, Plan, Tool, MAX_ANSWER};
@@ -41,8 +42,9 @@ const GOOGLE_DOC: &str = "application/vnd.google-apps.document";
 const FOLDER: &str = "application/vnd.google-apps.folder";
 /// Separates a new file's details from its text when it is sent to Drive.
 const BOUNDARY: &str = "plenipo-part-7f3e5b1c9a2d";
-/// A recipient Gmail gave no address for.
-const NO_ADDRESS: &str = "(someone Gmail gave no address for)";
+/// How an address Plenipo cannot read is marked, after the words Gmail gave for it: never on a
+/// list, so a send to it asks, and each one is shown and counted.
+const NO_ADDRESS: &str = "(an address Plenipo cannot read)";
 
 // ---- Permissions ------------------------------------------------------------------------------
 
@@ -184,9 +186,8 @@ pub fn refusal_words(error: &str) -> String {
         "org_internal" => "Your Google app is Internal: only accounts in its own Google Workspace \
                            organization can use it."
             .into(),
-        "redirect_uri_mismatch" => "Your Google app must be a Desktop app (Google Cloud → \
-                                    Credentials → Create credentials → OAuth client ID → Desktop \
-                                    app)."
+        "redirect_uri_mismatch" => "Your Google app must be a Desktop app (in Google Cloud: \
+                                    Clients, then Create client, then Desktop app)."
             .into(),
         other => format!(
             "Google did not sign you in ({}).",
@@ -768,7 +769,12 @@ fn drive(path: &[&str], pairs: &[(&str, String)]) -> String {
 
 /// A header of a Gmail message, by name.
 fn header(message: &Value, name: &str) -> String {
-    message["payload"]["headers"]
+    decode_words(&part_header(&message["payload"], name))
+}
+
+/// A header of one part of a message, as Gmail gave it.
+fn part_header(part: &Value, name: &str) -> String {
+    part["headers"]
         .as_array()
         .and_then(|h| {
             h.iter().find(|x| {
@@ -816,10 +822,29 @@ fn addresses_in(header: &str) -> Vec<String> {
             if plenipo_guard::connections::is_address(&address) {
                 address
             } else {
-                NO_ADDRESS.to_owned()
+                unreadable(i)
             }
         })
         .collect()
+}
+
+/// An address Plenipo cannot read, as Gmail gave it (one line, not too long), then the mark.
+fn unreadable(given: &str) -> String {
+    let words: String = given
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(80)
+        .collect();
+    let words = words.trim();
+    if words.is_empty() {
+        NO_ADDRESS.to_owned()
+    } else {
+        format!("{words} {NO_ADDRESS}")
+    }
+}
+
+fn is_unreadable(a: &str) -> bool {
+    a.ends_with(NO_ADDRESS)
 }
 
 /// Every recipient of a message (To, Cc, and Bcc), sorted, once each.
@@ -833,11 +858,108 @@ fn recipients_of(message: &Value) -> Vec<String> {
     all
 }
 
-fn decode_body(data: &str) -> String {
+fn decode_body(data: &str, charset: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(data.trim_end_matches('='))
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .map(|b| in_charset(&b, charset))
         .unwrap_or_default()
+}
+
+/// A part's character set, from its `Content-Type` (`text/plain; charset="windows-1252"`).
+fn charset_of(part: &Value) -> String {
+    let t = part_header(part, "Content-Type").to_lowercase();
+    t.split(';')
+        .filter_map(|p| p.trim().strip_prefix("charset="))
+        .map(|c| c.trim().trim_matches('"').to_owned())
+        .next()
+        .unwrap_or_default()
+}
+
+/// Text in `charset`: UTF-8, or Western European mail (ISO-8859-1 and Windows-1252, read as
+/// Windows-1252, as web browsers do). Anything else is read as UTF-8, marking what is not.
+fn in_charset(bytes: &[u8], charset: &str) -> String {
+    const WINDOWS_1252: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž',
+        '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}',
+        'ž', 'Ÿ',
+    ];
+    match charset {
+        "iso-8859-1" | "iso8859-1" | "latin1" | "latin-1" | "windows-1252" | "cp1252"
+        | "us-ascii" | "ascii" => bytes
+            .iter()
+            .map(|&b| match b {
+                0x80..=0x9f => WINDOWS_1252[usize::from(b - 0x80)],
+                _ => char::from(b),
+            })
+            .collect(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+/// A header's encoded words (`=?UTF-8?B?…?=`, RFC 2047) as text, in case Gmail gives them as
+/// sent. Anything else is kept as it is.
+fn decode_words(value: &str) -> String {
+    if !value.contains("=?") {
+        return value.to_owned();
+    }
+    let mut out = String::new();
+    let mut rest = value;
+    let mut after_word = false;
+    while let Some(start) = rest.find("=?") {
+        let (before, word) = rest.split_at(start);
+        let decoded = word[2..].split_once('?').and_then(|(charset, w)| {
+            let (enc, w) = w.split_once('?')?;
+            let (text, after) = w.split_once("?=")?;
+            let bytes = match enc {
+                "B" | "b" => base64::engine::general_purpose::STANDARD
+                    .decode(text)
+                    .ok()?,
+                "Q" | "q" => q_bytes(text)?,
+                _ => return None,
+            };
+            let charset = charset.split('*').next().unwrap_or_default().to_lowercase();
+            Some((in_charset(&bytes, &charset), after))
+        });
+        match decoded {
+            Some((text, after)) => {
+                // Space between two encoded words is not part of the text.
+                if !(after_word && before.trim().is_empty()) {
+                    out.push_str(before);
+                }
+                out.push_str(&text);
+                rest = after;
+                after_word = true;
+            }
+            None => {
+                out.push_str(before);
+                out.push_str("=?");
+                rest = &word[2..];
+                after_word = false;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A "Q" encoded word's bytes: `_` is a space and `=XX` a byte.
+fn q_bytes(text: &str) -> Option<Vec<u8>> {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'_' => out.push(b' '),
+            b'=' => {
+                let hex = std::str::from_utf8(b.get(i + 1..i + 3)?).ok()?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 2;
+            }
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    Some(out)
 }
 
 /// A message's text: its plain text part, else its web page part's words.
@@ -845,7 +967,7 @@ fn body_text(payload: &Value) -> String {
     fn find(p: &Value, mime: &str) -> Option<String> {
         if p["mimeType"].as_str() == Some(mime) && p["filename"].as_str().unwrap_or("").is_empty() {
             if let Some(d) = p["body"]["data"].as_str() {
-                return Some(decode_body(d));
+                return Some(decode_body(d, &charset_of(p)));
             }
         }
         p["parts"]
@@ -874,8 +996,10 @@ fn attachments_of(payload: &Value) -> Vec<String> {
     out
 }
 
-/// A draft's own words: cut at the lines mail programs put above a quoted message.
-fn own_words(text: &str) -> &str {
+/// A draft's own words: cut at the lines mail programs put above a quoted message (a draft
+/// made in Gmail may quote one; Plenipo's never do). With the number of lines (not blank) left
+/// out, which the card says, since they are sent too.
+fn own_words(text: &str) -> (&str, usize) {
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
         let l = line.trim();
@@ -883,11 +1007,15 @@ fn own_words(text: &str) -> &str {
             || l.starts_with("---------- Forwarded message")
             || (l.starts_with("On ") && l.ends_with("wrote:"))
         {
-            return text[..offset].trim_end();
+            let left_out = text[offset..]
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count();
+            return (text[..offset].trim_end(), left_out);
         }
         offset += line.len();
     }
-    text.trim_end()
+    (text.trim_end(), 0)
 }
 
 /// Gmail's link to a message, or to the drafts.
@@ -906,17 +1034,65 @@ fn clean_header(v: &str) -> String {
         .collect()
 }
 
-/// A subject as a mail header: as it is when plain, else encoded (RFC 2047); never two lines.
+/// A subject as a mail header: as it is when plain and short, else in encoded words (RFC 2047)
+/// of at most 75 characters each, one to a folded line. Nothing in it can start a header.
 fn subject_header(subject: &str) -> String {
     let one: String = subject.chars().filter(|c| !c.is_control()).collect();
-    if one.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
-        one
-    } else {
-        format!(
-            "=?UTF-8?B?{}?=",
-            base64::engine::general_purpose::STANDARD.encode(one.as_bytes())
-        )
+    if one.len() <= 900 && one.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+        return one;
     }
+    // 45 bytes of text make 60 of base64: with `=?UTF-8?B?` and `?=`, 72 characters.
+    let mut words = Vec::new();
+    let mut piece = String::new();
+    for c in one.chars() {
+        if piece.len() + c.len_utf8() > 45 {
+            words.push(std::mem::take(&mut piece));
+        }
+        piece.push(c);
+    }
+    if !piece.is_empty() {
+        words.push(piece);
+    }
+    words
+        .iter()
+        .map(|w| {
+            format!(
+                "=?UTF-8?B?{}?=",
+                base64::engine::general_purpose::STANDARD.encode(w.as_bytes())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n ")
+}
+
+/// A reply's `References`: the thread's first message and its newest ones, ending with the
+/// message replied to, each a whole ID, folded so no line is too long.
+fn references_header(earlier: &str, parent: &str) -> String {
+    const ROOM: usize = 900;
+    let mut ids: Vec<String> = earlier
+        .split_whitespace()
+        .chain(std::iter::once(parent))
+        .map(clean_header)
+        .filter(|id| id.len() > 2 && id.len() <= 250 && id.starts_with('<') && id.ends_with('>'))
+        .collect();
+    ids.dedup();
+    let Some(first) = ids.first().cloned() else {
+        return String::new();
+    };
+    let mut newest: Vec<String> = Vec::new();
+    let mut used = first.len();
+    for id in ids.iter().skip(1).rev() {
+        if used + id.len() + 1 > ROOM {
+            break;
+        }
+        used += id.len() + 1;
+        newest.push(id.clone());
+    }
+    newest.reverse();
+    std::iter::once(first)
+        .chain(newest)
+        .collect::<Vec<_>>()
+        .join("\r\n ")
 }
 
 /// A plain-text message, as Gmail takes it (`raw`, base64url).
@@ -936,7 +1112,9 @@ fn raw_message(
     if let Some((in_reply_to, references)) = reply {
         if !in_reply_to.is_empty() {
             m.push_str(&format!("In-Reply-To: {in_reply_to}\r\n"));
-            m.push_str(&format!("References: {references}\r\n"));
+            if !references.is_empty() {
+                m.push_str(&format!("References: {references}\r\n"));
+            }
         }
     }
     m.push_str("MIME-Version: 1.0\r\n");
@@ -1042,9 +1220,9 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             };
             let attachments = attachments_of(&m["payload"]);
             // The draft's own words only, never an earlier message quoted under a reply (the
-            // owner's choice 7). Every recipient, the subject, and the attachments come first.
+            // owner's choice 7), saying how many lines were left out. Every recipient, the
+            // subject, and the attachments come first.
             let body = body_text(&m["payload"]);
-            let own = own_words(&body);
             let mut head = format!(
                 "{}{}{}Subject: {}\n",
                 line("To", "To"),
@@ -1065,7 +1243,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
                     subject_kept(&subject),
                     people(recipients.len())
                 ),
-                detail: format!("{head}\n{}", words_kept(own.trim())),
+                detail: format!("{head}\n{}", own_words_kept(own_words(&body), "Gmail")),
                 recipients: recipients.clone(),
                 call: call.clone(),
                 approved_as: Some((recipients, subject)),
@@ -1294,12 +1472,12 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
             limit,
         } => {
             let q = gmail_query(folder, from.as_ref(), *unread, *since, text.as_ref());
-            let list = api
-                .get_json(&gmail(
-                    &["messages"],
-                    &[("q", q), ("maxResults", limit.to_string())],
-                ))
-                .await?;
+            let mut params = vec![("q", q), ("maxResults", limit.to_string())];
+            // Gmail leaves spam and the bin out of every search unless it is asked.
+            if ["spam", "trash", "anywhere"].contains(&folder.as_str()) {
+                params.push(("includeSpamTrash", "true".into()));
+            }
+            let list = api.get_json(&gmail(&["messages"], &params)).await?;
             let mut found = Vec::new();
             for m in list["messages"]
                 .as_array()
@@ -1439,19 +1617,25 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                         .await?;
                     let back = {
                         let r = addresses_in(&header(&m, "Reply-To"));
-                        if r.is_empty() || r.iter().any(|a| a == NO_ADDRESS) {
+                        if r.is_empty() || r.iter().any(|a| is_unreadable(a)) {
                             addresses_in(&header(&m, "From"))
                         } else {
                             r
                         }
                     };
-                    let mut to: Vec<String> =
-                        back.into_iter().filter(|a| a != NO_ADDRESS).collect();
+                    if back.is_empty() || back.iter().any(|a| is_unreadable(a)) {
+                        return Err(
+                            "Plenipo cannot read the address of the message's sender; reply in \
+                             Gmail instead"
+                                .into(),
+                        );
+                    }
+                    let mut to = back;
                     if to.iter().all(|a| *a == api.me) {
                         // A reply to the owner's own message goes to its recipients.
                         to = addresses_in(&header(&m, "To"))
                             .into_iter()
-                            .filter(|a| a != NO_ADDRESS && *a != api.me)
+                            .filter(|a| !is_unreadable(a) && *a != api.me)
                             .collect();
                     }
                     let mut cc = Vec::new();
@@ -1460,7 +1644,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                             .into_iter()
                             .chain(addresses_in(&header(&m, "Cc")))
                         {
-                            if a != NO_ADDRESS
+                            if !is_unreadable(&a)
                                 && a != api.me
                                 && !to.contains(&a)
                                 && !cc.contains(&a)
@@ -1479,8 +1663,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                         format!("Re: {original_subject}")
                     };
                     let message_id = clean_header(&header(&m, "Message-ID"));
-                    let references =
-                        clean_header(format!("{} {message_id}", header(&m, "References")).trim());
+                    let references = references_header(&header(&m, "References"), &message_id);
                     (
                         to,
                         cc,
@@ -1790,7 +1973,10 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 )
                 .await
                 .map_err(|e| {
-                    if folder.is_some() && e.contains("did not allow") {
+                    // With `drive.file`, a folder Plenipo may not use is refused, or not found.
+                    if folder.is_some()
+                        && (e.contains("did not allow") || e.contains("found nothing there"))
+                    {
                         "Google did not let Plenipo add a file to that folder; save it at the top \
                          of My Drive instead"
                             .to_owned()
@@ -1894,7 +2080,19 @@ mod tests {
             addresses_in("Dana <Dana@ClientCo.com>, \"Doe, J\" <j@x.co>, plain@y.co"),
             ["dana@clientco.com", "j@x.co", "plain@y.co"]
         );
-        assert_eq!(addresses_in("undisclosed-recipients:;"), [NO_ADDRESS]);
+        assert_eq!(
+            addresses_in("undisclosed-recipients:;"),
+            ["undisclosed-recipients:; (an address Plenipo cannot read)"]
+        );
+        // Each address Plenipo cannot read is shown as Gmail gave it, and counted.
+        let odd = addresses_in("x@[10.0.0.1], y@[10.0.0.2], Dana <dana=40c.com@lists.org>");
+        assert_eq!(odd.len(), 3, "{odd:?}");
+        assert_eq!(odd[0], "x@[10.0.0.1] (an address Plenipo cannot read)");
+        assert_eq!(odd[2], "dana=40c.com@lists.org");
+        assert!(odd
+            .iter()
+            .take(2)
+            .all(|a| !plenipo_guard::connections::is_address(a)));
         assert!(addresses_in("").is_empty());
     }
 
@@ -1917,10 +2115,46 @@ mod tests {
         assert!(m.contains("In-Reply-To: <a@b>\r\n"));
         assert_eq!(clean_header("<a@b>\r\nBcc: x@y"), "<a@b>Bcc: x@y");
         assert!(subject_header("Précis").starts_with("=?UTF-8?B?"));
+        // A long subject: encoded words of at most 75 characters, folded, that read back whole.
+        let long = "Réponse: ".repeat(40);
+        let folded = subject_header(&long);
+        assert!(folded
+            .split("\r\n ")
+            .all(|w| w.len() <= 75 && w.starts_with("=?UTF-8?B?")));
+        assert_eq!(decode_words(&folded.replace("\r\n", "")), long);
+        assert_eq!(
+            decode_words("=?iso-8859-1?Q?caf=E9_cr=E8me?= ok"),
+            "café crème ok"
+        );
+        assert_eq!(decode_words("a =?x?"), "a =?x?");
+        // References: the first and the newest whole IDs, ending with the message replied to.
+        let many: Vec<String> = (0..100)
+            .map(|n| format!("<id{n}@mail.example.com>"))
+            .collect();
+        let refs = references_header(&many.join(" "), "<parent@x.com>");
+        assert!(refs.starts_with("<id0@mail.example.com>\r\n "));
+        assert!(refs.ends_with("<id99@mail.example.com>\r\n <parent@x.com>"));
+        assert!(refs.len() < 1100 && !refs.contains("<id50@"));
+        assert!(refs
+            .split("\r\n ")
+            .all(|id| id.starts_with('<') && id.ends_with('>')));
+        assert_eq!(references_header("", "<p@x>"), "<p@x>");
+        assert_eq!(references_header("", ""), "");
+        // A Western European message reads as it was written.
+        assert_eq!(
+            in_charset(b"caf\xe9 \x93ok\x94", "windows-1252"),
+            "café “ok”"
+        );
+        assert_eq!(in_charset(b"caf\xe9", "iso-8859-1"), "café");
+        assert_eq!(in_charset("café".as_bytes(), "utf-8"), "café");
         assert_eq!(
             own_words("Sure.\n\nOn Mon, Dana wrote:\n> earlier"),
-            "Sure."
+            ("Sure.", 2)
         );
+        // Words a worker hid under a quote mark are said, never left out quietly.
+        let card = own_words_kept(own_words("Thanks!\n>\nthe office passwords"), "Gmail");
+        assert!(card.starts_with("Thanks!"), "{card}");
+        assert!(card.contains("2 more lines that look like a quoted earlier message are not shown here, and are sent too. Open the draft in Gmail"), "{card}");
     }
 
     #[test]

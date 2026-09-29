@@ -490,9 +490,17 @@ pub fn is_address(s: &str) -> bool {
         && name.len() <= 64
         && name
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-'".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || ADDRESS_MARKS.contains(c))
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.contains("..")
         && is_domain(domain)
 }
+
+/// The marks an address may have before its `@` besides letters and digits (RFC 5322's
+/// "atext" and the dot): `dana=40x.com@lists.org` and `bounce+id@mail.co` are real addresses.
+/// Never a space, comma, quotation mark, angle bracket, or line break.
+const ADDRESS_MARKS: &str = ".!#$%&'*+-/=?^_`{|}~";
 
 /// One entry of a `service`'s **Send without asking to** list, as kept: an address or an
 /// `@domain`, in lower case, or — Slack only — a channel's ID, in capitals. `Err`: why it is not
@@ -504,8 +512,10 @@ pub fn send_entry(entry: &str, service: Service) -> Result<String, String> {
     if e.is_empty() || e.chars().count() > 200 || e.chars().any(char::is_control) {
         return Err("each entry must be one line of 1–200 characters".into());
     }
-    if service == Service::Slack && is_slack_channel(&e.to_uppercase()) && !e.contains('@') {
-        return Ok(e.to_uppercase());
+    // As Slack shows it, in capitals: a channel's name is in small letters, so "companynews"
+    // is a name, never taken for an ID.
+    if service == Service::Slack && is_slack_channel(e) {
+        return Ok(e.to_owned());
     }
     let lower = e.to_lowercase();
     if let Some(domain) = lower.strip_prefix('@') {
@@ -527,8 +537,8 @@ pub fn send_entry(entry: &str, service: Service) -> Result<String, String> {
     if service == Service::Slack {
         return Err(format!(
             "{e:?} is not an email address, an @domain, or a Slack channel's ID (write it like \
-             dana@clientco.com, @clientco.com, or C0123ABCD: in Slack, click the channel's name; \
-             its ID is at the bottom of About)"
+             dana@clientco.com, @clientco.com, or C0123ABCD in capitals, as Slack shows it: in \
+             Slack, click the channel's name; its ID is at the bottom of About)"
         ));
     }
     if e.starts_with('#') || e.contains('›') {
@@ -1136,24 +1146,41 @@ mod tests {
             "not an address",
             "a\nb",
             "@-x.com",
+            "a,b@x.com",
+            "\"a\"@x.com",
+            "<a@x.com>",
+            ".a@x.com",
+            "a..b@x.com",
         ] {
             assert!(send_entry(bad, m).is_err(), "{bad:?}");
+        }
+        // Real addresses with marks before the @ (a mailing list's, a bounce address).
+        for good in [
+            "dana=40clientco.com@lists.org",
+            "bounce+x&y@mail.co",
+            "o'neil@x.com",
+        ] {
+            assert_eq!(send_entry(good, m).unwrap(), good);
+            assert!(is_address(good), "{good}");
         }
     }
 
     #[test]
     fn a_slack_channel_is_on_a_slack_list_by_its_id_only() {
         let s = Service::Slack;
-        assert_eq!(send_entry(" c0100000001 ", s).unwrap(), "C0100000001");
+        assert_eq!(send_entry(" C0100000001 ", s).unwrap(), "C0100000001");
         assert_eq!(send_entry("G0400000004", s).unwrap(), "G0400000004");
         assert_eq!(
             send_entry("dana@ClientCo.com", s).unwrap(),
             "dana@clientco.com"
         );
-        // A name, a direct message's ID, or something close is not a channel ID.
+        // A name, a direct message's ID, or something close is not a channel ID. A name in
+        // small letters that is shaped like an ID is still a name.
         for bad in [
             "#general",
             "general",
+            "companynews",
+            "c0100000001",
             "D0300000003",
             "C01",
             "C0100000001X9Z",

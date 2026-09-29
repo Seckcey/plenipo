@@ -337,9 +337,8 @@ struct Grant {
 /// "Read Microsoft 365" or "Write in Slack (Client Co)": a step's use of one connection, in the
 /// permissions the owner sees.
 fn connection_permission_label(id: &str, name: Option<&str>, capability: Capability) -> String {
-    let service = name.unwrap_or_else(|| {
-        plenipo_guard::connections::service_of(id).map_or(id, |s| s.label())
-    });
+    let service = name
+        .unwrap_or_else(|| plenipo_guard::connections::service_of(id).map_or(id, |s| s.label()));
     if capability == Capability::ConnectionsWrite {
         format!("Write in {service}")
     } else {

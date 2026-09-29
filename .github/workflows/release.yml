@@ -110,12 +110,15 @@ jobs:
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
         run: |
-          # A release never signs in with the end-to-end tests' stand-in app IDs (Phase 20).
-          if [ "$PLENIPO_MICROSOFT_APP_ID" = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" ]; then
+          # A release never signs in with the end-to-end tests' stand-in app IDs (Phase 20),
+          # compared as the build reads them: without spaces, the Microsoft one in small letters.
+          microsoft_id="$(printf %s "$PLENIPO_MICROSOFT_APP_ID" | tr -d '[:space:]' | tr 'A-F' 'a-f')"
+          slack_id="$(printf %s "$PLENIPO_SLACK_CLIENT_ID" | tr -d '[:space:]')"
+          if [ "$microsoft_id" = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" ]; then
             echo "::error::Repository variable PLENIPO_MICROSOFT_APP_ID is the tests' stand-in ID; set 8 West's app ID (docs/phases/phase-20-microsoft-app-registration.md)"
             exit 1
           fi
-          if [ "$PLENIPO_SLACK_CLIENT_ID" = "1111111111.2222222222" ]; then
+          if [ "$slack_id" = "1111111111.2222222222" ]; then
             echo "::error::Repository variable PLENIPO_SLACK_CLIENT_ID is the tests' stand-in ID; set 8 West's Slack app's client ID (docs/phases/phase-20-slack-and-google-apps.md)"
             exit 1
           fi

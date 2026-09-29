@@ -74,8 +74,14 @@ pub struct Slack {
     pub access: HashMap<String, Grant>,
     /// Refresh token → its sign-in.
     pub refresh: HashMap<String, Grant>,
-    /// Every token cancelled with `auth.revoke`.
+    /// Every token cancelled with `auth.revoke` (with token rotation, Slack cancels only the one
+    /// it is given).
     pub revoked: Vec<String>,
+    /// Lists give this many conversations a page, with a cursor for the rest, as Slack may
+    /// (0: all at once).
+    pub page_size: usize,
+    /// The app a sign-in was made with is gone: renewals answer `invalid_client_id`.
+    pub app_deleted: bool,
     /// Conversation → its messages, newest first.
     pub messages: HashMap<String, Vec<Value>>,
     /// Thread (`channel/ts`) → its replies, oldest first.
@@ -300,6 +306,19 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
         .map(str::to_owned)
         .or_else(|| body.get("token").cloned())
         .unwrap_or_default();
+    if method == "auth.revoke" {
+        // With token rotation, only the token given is cancelled: a renewal, or an access token.
+        let found = w
+            .slack
+            .refresh
+            .remove(&token)
+            .or_else(|| w.slack.access.remove(&token));
+        if found.is_none() {
+            return slack_error("invalid_auth");
+        }
+        w.slack.revoked.push(token);
+        return ok(json!({ "ok": true, "revoked": true }));
+    }
     let Some(grant) = w.slack.access.get(&token).cloned() else {
         return slack_error("invalid_auth");
     };
@@ -317,14 +336,6 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
             "ok": true, "user_id": ME, "team_id": grant.team,
             "team": if grant.team == TEAM { TEAM_NAME } else { OTHER_TEAM_NAME },
         })),
-        "auth.revoke" => {
-            // The sign-in is cancelled: its access tokens and its renewals.
-            let team = grant.team.clone();
-            w.slack.access.retain(|_, g| g.team != team);
-            w.slack.refresh.retain(|_, g| g.team != team);
-            w.slack.revoked.push(token);
-            ok(json!({ "ok": true, "revoked": true }))
-        }
         "users.info" => {
             if !has("users:read") {
                 return slack_error("missing_scope");
@@ -347,7 +358,26 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
                 .filter(|c| types.iter().any(|t| t == c.kind))
                 .map(conv_json)
                 .collect();
-            ok(json!({ "ok": true, "channels": list }))
+            // A page at a time when asked to, as Slack may: first an empty page with a cursor,
+            // then `page_size` at a time.
+            let size = w.slack.page_size;
+            if size == 0 {
+                return ok(json!({ "ok": true, "channels": list }));
+            }
+            let (page, next): (Vec<Value>, Option<usize>) = match arg("cursor")
+                .strip_prefix("page-")
+                .and_then(|n| n.parse().ok())
+            {
+                None => (Vec::new(), Some(0)),
+                Some(from) => (
+                    list.iter().skip(from).take(size).cloned().collect(),
+                    (from + size < list.len()).then_some(from + size),
+                ),
+            };
+            let cursor = next.map(|n| format!("page-{n}")).unwrap_or_default();
+            ok(
+                json!({ "ok": true, "channels": page, "response_metadata": { "next_cursor": cursor } }),
+            )
         }
         "conversations.info"
         | "conversations.members"
@@ -383,8 +413,9 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
                             None => return slack_error("thread_not_found"),
                         }
                     };
+                    let more = list.len() > limit;
                     let list: Vec<Value> = list.into_iter().take(limit).collect();
-                    ok(json!({ "ok": true, "messages": list, "has_more": false }))
+                    ok(json!({ "ok": true, "messages": list, "has_more": more }))
                 }
             }
         }
@@ -502,6 +533,9 @@ fn access(req: &Req, w: &mut World) -> Resp {
         "refresh_token" => {
             if w.refuse_refresh {
                 return slack_error("invalid_refresh_token");
+            }
+            if w.slack.app_deleted {
+                return slack_error("invalid_client_id");
             }
             let Some(grant) = w.slack.refresh.remove(&get("refresh_token")) else {
                 return slack_error("invalid_refresh_token");

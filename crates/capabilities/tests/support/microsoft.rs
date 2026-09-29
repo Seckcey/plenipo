@@ -513,6 +513,7 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
             ("GET", "world") => ok(json!({
                 "sent": w.sent, "requests": w.requests, "issued": w.issued, "asked": w.asked,
                 "slackRevoked": w.slack.revoked.len(), "googleRevoked": w.google.revoked.len(),
+                "slackRenewalsLeft": w.slack.refresh.len(),
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
             ("POST", "knobs") => {

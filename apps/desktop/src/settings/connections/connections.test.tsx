@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -450,6 +450,17 @@ describe("Settings → Connections", () => {
     const app = within(google).getByRole("region", { name: "Your Google app" });
     expect(app).toHaveTextContent("Setting up your Slack and Google apps");
     const user = userEvent.setup();
+    // Refused: the reason shows, and the secret box is emptied all the same.
+    api.saveConnectionApp.mockRejectedValueOnce({
+      kind: "invalidInput",
+      message: "That is not a Google client ID.",
+    });
+    await user.type(within(app).getByLabelText("Client ID"), "not-an-id");
+    await user.type(within(app).getByLabelText("Client secret"), "GOCSPX-first-try");
+    await user.click(within(app).getByRole("button", { name: "Save" }));
+    expect(await within(google).findByText("That is not a Google client ID.")).toBeInTheDocument();
+    expect(within(app).getByLabelText("Client secret")).toHaveValue("");
+    await user.clear(within(app).getByLabelText("Client ID"));
     await user.type(
       within(app).getByLabelText("Client ID"),
       "123456789012-abc.apps.googleusercontent.com",
@@ -473,6 +484,37 @@ describe("Settings → Connections", () => {
     api.saveConnectionApp.mockResolvedValue(samplePage());
     await user.click(within(after).getByRole("button", { name: "Remove this app" }));
     expect(api.saveConnectionApp).toHaveBeenLastCalledWith("google", null);
+    // The form is back, and its secret box is empty.
+    const again = await screen.findByRole("listitem", { name: "Google" });
+    expect(await within(again).findByLabelText("Client secret")).toHaveValue("");
+  });
+
+  it("says it is cancelling the sign-in at Slack while Disconnect waits for Slack", async () => {
+    const connected = slackCard(
+      "slack",
+      {},
+      {
+        connection: {
+          ...slackCard().connection,
+          state: "connected",
+          account: { name: "Frankie", address: "frankie@8westit.com", organization: "8 West IT" },
+        },
+      },
+    );
+    api.getConnections.mockResolvedValue(samplePage(sampleCard(), {}, { slack: [connected] }));
+    let done: (page: ReturnType<typeof samplePage>) => void = () => {};
+    api.disconnectConnection.mockReturnValue(new Promise((resolve) => (done = resolve)));
+    render(<ConnectionsSettings go={go} />);
+    const slack = await screen.findByRole("listitem", { name: "Slack — 8 West IT" });
+    const user = userEvent.setup();
+    await user.click(within(slack).getByRole("button", { name: "Disconnect" }));
+    expect(slack).toHaveTextContent("and cancelled at Slack");
+    await user.click(within(slack).getByRole("button", { name: "Yes, disconnect" }));
+    expect(within(slack).getByRole("status")).toHaveTextContent("Cancelling the sign-in at Slack…");
+    done(samplePage());
+    await waitFor(() =>
+      expect(screen.queryByText("Cancelling the sign-in at Slack…")).not.toBeInTheDocument(),
+    );
   });
 
   it("looks again after connection events", () => {
