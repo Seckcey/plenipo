@@ -1,6 +1,6 @@
 # Automatic homepage demo release - September 28, 2026
 
-The owner requested the working demo as soon as the homepage opens. PR [#92](https://github.com/Seckcey/plenipo/pull/92)
+The maintainers requested the working demo as soon as the homepage opens. PR [#92](https://github.com/Seckcey/plenipo/pull/92)
 was normally merged and the exact merge deployed to <https://plenipo.8westit.com/>. The demo starts
 on entry without a click, scroll, or idle gate. Readable content remains during network transfer;
 returning to static stays static until explicit reopening. Automatic loading leaves keyboard focus
@@ -14,7 +14,7 @@ and scroll alone. Explicit reopening focuses the sample only while the visitor s
 - Image: `plenipo-website:0a018ad3bb61b461de76928e1aef377dc98839a7`.
 - Image ID: `sha256:0e8e56aadcd2dc6f8f58d5400516d3fb3e3827b5d2ced37cdb455c2986ffcd38`.
 - Container: `1080d748fad193d5137912a687b1348315ca47b92f341e3a512ca3a1856adef8`.
-- Host: verified `coastline`, user `seckcey`, Docker local Unix socket, Compose 5.3.1.
+- Host: verified `coastline`, the deploy account, Docker local Unix socket, Compose 5.3.1.
 - Service: `/srv/8west/apps/plenipo-website`, project `plenipo-website`, loopback `127.0.0.1:14380` to port 8080.
 - Network: `plenipo-website_default`, `10.204.229.0/28`; existing host `cloudflared` unchanged.
 - Runtime: healthy, zero restarts, user `10001:10001`, read-only, 64 MiB limit, 0.5 CPU, no data mounts, `unless-stopped`.

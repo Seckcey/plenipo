@@ -1,6 +1,6 @@
 # Website brand assets
 
-The approved branding masters are in `assets/`, imported byte for byte from the owner's local
+The approved branding masters are in `assets/`, imported byte for byte from the maintainers' local
 asset folder. The original 47-file kit contains 15 transparent Pip poses, horizontal and square
 logos for light/dark surfaces, and matching P-only favicons. Its original README and manifests
 describe that earlier asset-only delivery; this page documents the later website integration.
@@ -13,7 +13,7 @@ The simpler P-only favicons retain legibility at browser-tab sizes. The desktop 
 unchanged by this website update.
 
 `assets/providers/` extends the kit with four new transparent PNGs: Pip holding Anthropic's
-AI symbol, OpenAI's Blossom, the current SpaceXAI symbol selected by the owner, and Moonshot AI's
+AI symbol, OpenAI's Blossom, the current SpaceXAI symbol selected for Plenipo, and Moonshot AI's
 striped sphere. Saved prompts, reference provenance, alpha checks, and a light/dark proof sheet
 live beside the artwork. These identify tools and do not assert an official partnership.
 
@@ -62,6 +62,6 @@ states. They are product media, not interactive application controls.
 | `approvals.webp`    | `docs/phases/evidence/phase-7/approval-card.png`            |
 | `activity.webp`     | `docs/phases/evidence/phase-7/guard-trail.png`              |
 
-The owner's supplied current screenshots informed content and layout. The AI tools screenshot
+The supplied current screenshots informed content and layout. The AI tools screenshot
 contained personal local paths and is not published. Replace marketing screenshots with fresh
 sanitized app captures when the UI changes, keeping real text and truthful feature/version labels.

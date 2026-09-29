@@ -1050,7 +1050,7 @@ impl Graph<'_> {
         &self.me
     }
 
-    /// The fence's name for this account: "Microsoft 365 (frankie@8westit.com)".
+    /// The fence's name for this account: "Microsoft 365 (alex@8westit.com)".
     pub fn account_label(&self) -> String {
         if self.me.is_empty() {
             "Microsoft 365".into()

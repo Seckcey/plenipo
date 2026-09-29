@@ -250,9 +250,9 @@ pub struct Access {
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct Account {
-    /// "Frankie Gonzalez".
+    /// "Alex Rivera".
     pub name: String,
-    /// "frankie@8westit.com".
+    /// "alex@8westit.com".
     pub address: String,
     /// The organization it belongs to, when known.
     #[ts(optional)]
@@ -930,7 +930,7 @@ mod tests {
             &c,
             Part::Mail,
             ToolKind::Send,
-            &["Frankie@8WestIT.com", "client@example.com"],
+            &["Alex@8WestIT.com", "client@example.com"],
         )
         else {
             panic!()

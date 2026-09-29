@@ -324,7 +324,7 @@ describe(
       await knobs({ slowSignInMs: 0 });
 
       await onCard(browser, "Connect a work or school account");
-      await waitForText(browser, CARD, "Connected as frankie@8westit.com", 30_000);
+      await waitForText(browser, CARD, "Connected as alex@8westit.com", 30_000);
       await waitForText(browser, CARD, "What Plenipo was allowed");
       await waitForText(browser, CARD, "Send mail as you (asks you first");
       await screenshot(browser, "connections-connected", CARD);
@@ -382,7 +382,7 @@ describe(
           tool("m365_mail_draft", {
             kind: "reply",
             id: "msg-quote",
-            text: "Hi Dana, the quote is attached. Frankie",
+            text: "Hi Dana, the quote is attached. Alex",
           }),
           tool("m365_mail_send", { id: "draft-2" }),
         ].join(" "),
@@ -417,7 +417,7 @@ describe(
       const about = JSON.parse(files["about.json"]);
       assert.equal(about.connections[0].service, "Microsoft 365");
       assert.equal(about.connections[0].state, "connected");
-      assert.doesNotMatch(files["about.json"], /frankie@8westit\.com|clientco/);
+      assert.doesNotMatch(files["about.json"], /alex@8westit\.com|clientco/);
       const probes = (await world()).issued.map((t) => t.slice(0, 60));
       assert.ok(probes.length >= 4, "codes, sign-ins, and access tokens were issued");
       for (const [name, text] of Object.entries(files)) {

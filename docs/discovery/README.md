@@ -1,6 +1,6 @@
 # Repository presentation assets
 
-The README uses Frankie's approved Plenipo/Pip branding, copied without changing the original
+The README uses the approved Plenipo/Pip branding, copied without changing the original
 files from the supplied `assets/logos` kit. The source kit remains owned by the branding work.
 
 | File                                     | Source and meaning                                                                                                                 |

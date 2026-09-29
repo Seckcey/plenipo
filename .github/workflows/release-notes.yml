@@ -1,0 +1,50 @@
+name: Release notes
+
+# Puts docs/releases/vX.Y.Z.md on the GitHub release page of each published release (title from
+# its first line, the rest as the notes, the same split the Release workflow makes), so a
+# correction to the notes in the repository reaches the release pages too (ADR-069). It changes
+# only the title and notes of releases that differ: never their files, tags, or signatures.
+# Runs when notes change on main, or from Actions → Release notes → Run workflow.
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/releases/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-notes
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Release pages match docs/releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Update each release page whose notes differ
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --exclude-drafts --limit 500 --json tagName -q '.[].tagName' |
+            while read -r tag; do
+              notes="docs/releases/$tag.md"
+              if [ ! -f "$notes" ]; then
+                echo "$tag: no $notes; left as it is"
+                continue
+              fi
+              title="$(head -n 1 "$notes" | sed 's/^# *//')"
+              tail -n +2 "$notes" > "$RUNNER_TEMP/notes.md"
+              page="$(gh release view "$tag" --json name,body)"
+              if [ "$(jq -r .name <<< "$page")" = "$title" ] &&
+                [ "$(jq -r .body <<< "$page" | sed -e 's/[[:space:]]*$//')" = "$(sed -e 's/[[:space:]]*$//' "$RUNNER_TEMP/notes.md")" ]; then
+                echo "$tag: already matches"
+                continue
+              fi
+              gh release edit "$tag" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" > /dev/null
+              echo "$tag: updated"
+            done

@@ -923,8 +923,8 @@ mod tests {
         let mut c = config();
         let m = microsoft();
         let s = writer("pos-1", None);
-        let team = vec!["frankie@8westit.com".to_owned()];
-        let outside = vec!["frankie@8westit.com".to_owned(), "x@evil.test".to_owned()];
+        let team = vec!["alex@8westit.com".to_owned()];
+        let outside = vec!["alex@8westit.com".to_owned(), "x@evil.test".to_owned()];
         let d = connection_eval(&c, &s, &m, ToolKind::Send, &team);
         assert_eq!(d.verdict, Verdict::Ask);
         assert_eq!(d.sensitive, Some(SensitiveKind::Outbound));
@@ -968,7 +968,7 @@ mod tests {
         c.switches.buy_without_asking = true;
         let m = microsoft();
         let s = writer("pos-1", None);
-        let team = vec!["frankie@8westit.com".to_owned()];
+        let team = vec!["alex@8westit.com".to_owned()];
         for kind in [ToolKind::Delete, ToolKind::Pay] {
             let d = connection_eval(&c, &s, &m, kind, &team);
             assert_eq!(d.verdict, Verdict::Ask, "{kind:?}: {}", d.reason);
