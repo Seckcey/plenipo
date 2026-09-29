@@ -9,7 +9,7 @@ A committed README and GitHub settings are separate; editing a file does not upd
 Description:
 
 ```text
-Coordinate Claude Code, Codex, Grok, Kimi, and Ollama in one local-first Windows desktop app. Organize AI workers, route models, set permissions, review approvals, and keep a local activity record.
+Coordinate Claude Code, Codex, Grok, Kimi, Ollama, and Antigravity in one local-first Windows desktop app. Organize AI workers, route models, set permissions, review approvals, and keep a local activity record.
 ```
 
 Homepage: <https://plenipo.8westit.com>.

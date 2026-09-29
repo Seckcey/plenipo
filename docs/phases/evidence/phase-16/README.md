@@ -177,7 +177,7 @@ folder. The program came from Google's own release list (the one its installer r
 
 - **A real program on Windows.** Google's Windows list points to `cli_windows_x64.exe` (version
   1.2.13); the installer (`irm https://antigravity.google/cli/install.ps1 | iex`) puts it in
-  `%LOCALAPPDATA%gyin`, as the command `agy`. It is built in Go, with no Node.js.
+  `%LOCALAPPDATA%\agy\bin`, as the command `agy`. It is built in Go, with no Node.js.
 - **The task can go in on standard input only.** `-p` always wants a value, but `-p=` (empty) with
   `--input-format stream-json` reads the task from standard input, one JSON line per message:
   `{"event":"user","message":{"role":"user","content":"…"}}`. Plain text on standard input is
@@ -274,8 +274,7 @@ Error: Please sign in to view available models. Launch the CLI without arguments
 
 ## One task, the words on standard input, signed out
 
-`printf '%s
-' '{"event":"user","message":{"role":"user","content":"Reply with the single word OK."}}' | agy -p= --input-format stream-json --output-format stream-json --mode plan`:
+`printf '%s\n' '{"event":"user","message":{"role":"user","content":"Reply with the single word OK."}}' | agy -p= --input-format stream-json --output-format stream-json --mode plan`:
 
 ```text
 Error: authentication required. Run 'antigravity' to log in, then retry.
@@ -395,3 +394,64 @@ exit code: 0
   lists: `"useG1Credits": "off"` (and `"false"`, `"never"`, `"disabled"`) was refused ("failed to
   load cli settings, using defaults: invalid settings: useG1Credits: invalid value "off"").
   `"useG1Credits": false` loaded with no error, next to `"toolPermission": "strict"`.
+
+# Antigravity run the way Plenipo would (Part E9, the owner's PC, 2026-09-29)
+
+From the owner's Windows PC, Antigravity CLI 1.2.13, with `USERPROFILE` pointed at a settings folder
+of Plenipo's own (`{"useG1Credits": false, "toolPermission": "strict"}`) and
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`, in an empty work folder. The home folder's path is hidden.
+
+- **The sign-in check with Plenipo's own settings folder:** `agy models` listed the same fourteen
+  models, exit code 0. The owner's sign-in still works from another home folder.
+- **With a made-up key in `GEMINI_API_KEY`** (and no `modelProvider` setting): the same fourteen
+  models, exit code 0. A key variable alone does not switch it to pay-per-use.
+- **Asked to write a file, read-only (`--mode plan --sandbox`):** `init` reported
+  `"permission_mode":"strict"` (Plenipo's settings were read). It tried to run a program
+  (`run_command`, `Get-ChildItem`); one-task mode refused it ("a tool required the "command"
+  permission that headless mode cannot prompt for, so it was auto-denied"). The task ended
+  `SUCCESS` with an empty answer and `denied_actions: [{"action":"command"}]`, exit code 0, and
+  `proof.txt written: False`.
+
+```text
+{"event":"init","conversation_id":"c875ec1e-6329-46e0-b6f6-5136322c6a92","init":{"cwd":"<home>\\Desktop\\plenipo-checks\\agy-work","tools":["… 57 tools, including run_command, view_file, write_to_file, read_url_content, search_web, and browser tools"],"permission_mode":"strict"}}
+{"event":"step_update","step_update":{"conversation_id":"c875ec1e-6329-46e0-b6f6-5136322c6a92","step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"Get-ChildItem"}}}}
+{"event":"step_update","step_update":{"conversation_id":"c875ec1e-6329-46e0-b6f6-5136322c6a92","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"run_command","duration_seconds":0.0813935,"tool_info":{"name":"run_command","parameters":{"CommandLine":"Get-ChildItem"},"error":{"type":"TOOL_ERROR","message":"permission check failed for command \"Get-ChildItem\": user denied permission to run command: …"}}}}
+{"event":"result","result":{"conversation_id":"c875ec1e-6329-46e0-b6f6-5136322c6a92","status":"SUCCESS","response":"","duration_seconds":3.0492578,"num_turns":1,"usage":{"input_tokens":13772,"output_tokens":478,"thinking_tokens":407,"cache_read_tokens":0,"total_tokens":14250},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}
+exit code: 0
+proof.txt written: False
+```
+
+## Found on the build machine while building (2026-09-29)
+
+Signed out, Antigravity CLI 1.2.13, a settings folder of Plenipo's own, `env -i` (a cleared
+environment).
+
+- **It rewrites its settings file after reading it,** keeping only what it understands. Of
+  `permissions.deny: ["command(*)", "read_url(*)", "url(*)", "mcp(*)", "file(*)"]` it kept
+  `command(*)`, `read_url(*)`, and `mcp(*)`. The rule kinds its program names are `command`,
+  `read_url`, `read_file`, `write_file`, and `mcp`; with those five, all five were kept, and its
+  log said `CLI settings initialized: permissions=&{Allow:[] Deny:[command(*) read_url(*)
+read_file(*) write_file(*) mcp(*)] Ask:[]}, toolPermission=strict`.
+- **Plenipo's settings make `init` report strict permissions.** With Plenipo's settings file
+  (plus `"modelProvider": "gemini"` and a made-up `GEMINI_API_KEY`, only so that a signed-out task
+  gets as far as `init`), `init` said `"permission_mode":"strict"`; with only
+  `{"modelProvider": "gemini"}`, it said `"request-review"`. Plenipo stops any task whose `init`
+  does not say `strict`.
+- **`useG1Credits: false` is its default:** a rewrite drops it (`{"useG1Credits": false}` became
+  `{}`), and keeps `{"useG1Credits": true}`. Plenipo writes `false` before every run anyway.
+- **A setting it does not know is kept, and does not stop the rest from loading**
+  (`"bogusKey": 1` next to `"toolPermission": "strict"` gave `toolPermission=strict`).
+- **`agy update` works with self-updates off:** with and without `AGY_CLI_DISABLE_AUTO_UPDATE=true`,
+  signed out, standard input closed: "Checking for updates... (current version 1.2.13) — You are
+  already on the latest version.", exit code 0. It has no check-only form (`agy update --help`
+  lists no options).
+- **A Gemini API key lists only Gemini's models.** With `"modelProvider": "gemini"` and a made-up
+  `GEMINI_API_KEY` (an earlier check), `agy models` listed the eleven Gemini models and no
+  Anthropic or OpenAI model; signed in to Google (the owner's PC), it lists all fourteen.
+- **Where it keeps things:** its settings, conversations, and logs under
+  `<home>/.gemini/antigravity-cli/`, and shared settings under `<home>/.gemini/config/`, so a home
+  folder of Plenipo's own holds none of the owner's hooks, add-ons, or conversations.
+- **`excludeTools`** in the settings file (listing `search_web`, `read_url_content`,
+  `open_browser_url`, `browser_subagent`, `run_command`, `generate_image`) removed nothing: in a
+  task run with a made-up Gemini API key, which gets as far as `init` before Google refuses the
+  key, `init` still listed all 57 tools. Plenipo does not rely on it.

@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
@@ -235,6 +236,9 @@ pub struct AgentConfig {
     /// Plenipo's bridge for AI tools reached through a service on this PC (ADR-017): the
     /// program and its first arguments. Without it, such AI tools are shown as not usable.
     pub bridge: Option<Bridge>,
+    /// Where AI tools with a home folder of their own keep it, one folder per tool
+    /// ([`RuntimeAdapter::own_home`], ADR-082). Next to the workspaces by default.
+    pub tool_homes: PathBuf,
     /// How long a task waits, at most, while its AI tool is held ([`HOLD_WAIT`]).
     pub hold_wait: Duration,
 }
@@ -249,8 +253,10 @@ pub struct Bridge {
 
 impl AgentConfig {
     pub fn new(workspace_root: PathBuf) -> Self {
+        let tool_homes = workspace_root.with_file_name("ai-tool-homes");
         Self {
             workspace_root,
+            tool_homes,
             turn_timeout: Duration::from_secs(30 * 60),
             probe_timeout: Duration::from_secs(20),
             max_active_turns: 4,
@@ -777,8 +783,19 @@ impl AgentRuntime {
             }
         };
         let shown = executable.display().to_string();
-        let mut env = runtime_env(adapter, host);
-        env.extend(self.inner.config.extra_env.iter().cloned());
+        let env = match self.tool_env(adapter) {
+            Ok(env) => env,
+            Err(detail) => {
+                info.installation = Installation {
+                    state: InstallState::Broken,
+                    executable: Some(shown),
+                    version: None,
+                    detail: Some(detail),
+                };
+                info.auth = not_checked;
+                return (info, None);
+            }
+        };
         let workdir = self.probe_dir();
         let timeout = self.inner.config.probe_timeout;
 
@@ -870,6 +887,68 @@ impl AgentRuntime {
             billing_confirmed,
         });
         (info, ready)
+    }
+
+    /// Every process of an AI tool gets this environment: its own variables ([`runtime_env`]),
+    /// its home folder when it has one of its own ([`Self::own_home`]), then the configured
+    /// extras.
+    fn tool_env(&self, adapter: &dyn RuntimeAdapter) -> Result<Vec<(String, String)>, String> {
+        let mut env = runtime_env(adapter, &self.inner.host);
+        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let extra = &self.inner.config.extra_env;
+        // A home folder the extras choose (tests) is where the tool's own settings go too.
+        let chosen = extra
+            .iter()
+            .rev()
+            .find(|(k, _)| k.eq_ignore_ascii_case(var))
+            .map(|(_, v)| PathBuf::from(v));
+        if let Some(home) = self.own_home(adapter, chosen)? {
+            env.retain(|(k, _)| !k.eq_ignore_ascii_case(var));
+            env.push((var.to_owned(), home.display().to_string()));
+        }
+        env.extend(extra.iter().cloned());
+        Ok(env)
+    }
+
+    /// The AI tool's own home folder, with its settings files written afresh
+    /// ([`RuntimeAdapter::own_home`], ADR-082): `chosen`, or its folder under
+    /// [`AgentConfig::tool_homes`]. `None` for a tool that uses the owner's home folder. Each
+    /// file is written whole and then moved into place, so a run never reads half of one.
+    fn own_home(
+        &self,
+        adapter: &dyn RuntimeAdapter,
+        chosen: Option<PathBuf>,
+    ) -> Result<Option<PathBuf>, String> {
+        let files = adapter.own_home();
+        if files.is_empty() {
+            return Ok(None);
+        }
+        let home = chosen.unwrap_or_else(|| self.inner.config.tool_homes.join(adapter.id()));
+        let failed = |e: std::io::Error| {
+            format!(
+                "Plenipo could not prepare {}'s own settings folder ({}): {e}",
+                adapter.label(),
+                home.display()
+            )
+        };
+        static DRAFTS: AtomicU64 = AtomicU64::new(0);
+        for (place, contents) in files {
+            let file = home.join(place);
+            let dir = file.parent().unwrap_or(&home);
+            std::fs::create_dir_all(dir).map_err(failed)?;
+            let draft = dir.join(format!(
+                ".plenipo-{}-{}.tmp",
+                std::process::id(),
+                DRAFTS.fetch_add(1, Ordering::Relaxed)
+            ));
+            let written = std::fs::write(&draft, contents.as_bytes())
+                .and_then(|()| std::fs::rename(&draft, &file));
+            if let Err(e) = written {
+                let _ = std::fs::remove_file(&draft);
+                return Err(failed(e));
+            }
+        }
+        Ok(Some(home))
     }
 
     fn probe_dir(&self) -> PathBuf {
@@ -1065,8 +1144,7 @@ impl AgentRuntime {
             .supervisor
             .allow_executable(&executable)
             .map_err(|e| e.to_string())?;
-        let mut env = runtime_env(adapter.as_ref(), host);
-        env.extend(self.inner.config.extra_env.iter().cloned());
+        let env = self.tool_env(adapter.as_ref())?;
         Ok(ToolProgram {
             label: adapter.label().to_owned(),
             executable,
@@ -1980,7 +2058,7 @@ impl AgentRuntime {
         // A task that talks (ADR-015) opens with the parser's own lines and keeps stdin open;
         // otherwise the prompt is the whole of stdin.
         let (stdin, input) = match parser.open(&prompt) {
-            None => (Some(prompt.into_bytes()), None),
+            None => (Some(parser.input(prompt).into_bytes()), None),
             Some(opening) => {
                 let (tx, feed) = StdinFeed::new();
                 for line in opening {

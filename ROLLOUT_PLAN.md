@@ -1167,7 +1167,7 @@ Free limits count live positions, not history. Three workers on the job means th
 
 No hardware binding, no machine fingerprinting, no anti-tamper beyond the signature check. The Elastic License 2.0 makes working around the check a breach of licence; the code marks the boundary, the licence enforces it. Obfuscation would cost real support pain for no real protection on a source-available desktop app.
 
-Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them. All five AI tools stay in Free.
+Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them. Every AI tool stays in Free.
 
 ## Tests
 

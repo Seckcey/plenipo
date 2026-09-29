@@ -14,7 +14,7 @@ offline inference or that no project content leaves the computer. Provider terms
 availability, and usage limits still apply.
 
 The Ollama adapter currently uses **Ollama cloud models**, not local models. Its workers answer
-in text and cannot read files or run programs. See the [AI tool setup guide](development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-and-ollama-optional).
+in text and cannot read files or run programs. See the [AI tool setup guide](development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional).
 
 ## Do I need API keys or all five providers?
 

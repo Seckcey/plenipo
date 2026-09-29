@@ -1,4 +1,4 @@
-// AI tools page fixtures (Phase 19): the five AI tools, as their checks and the page report them.
+// AI tools page fixtures (Phase 19): the six AI tools, as their checks and the page report them.
 import type {
   AgentRuntimeInfo,
   AiToolsPage,
@@ -26,6 +26,14 @@ const MODELS: Record<string, KnownModel[]> = {
   grok: [{ name: "grok-4", label: "Grok 4", effortLevels: [] }],
   kimi: [{ name: "kimi-code/k2", label: "K2", effortLevels: [] }],
   ollama: [],
+  antigravity: [
+    {
+      name: "gemini-3.1-pro-high",
+      label: "Gemini 3.1 Pro (High)",
+      effortLevels: [],
+      maker: { id: "google", label: "Google" },
+    },
+  ],
 };
 
 const FACTS: Record<
@@ -67,9 +75,23 @@ const FACTS: Record<
     signIn: "ollama signin",
     signOut: "ollama signout",
   },
+  antigravity: {
+    label: "Antigravity",
+    provider: "google",
+    providerLabel: "Google",
+    signIn: "agy",
+    signOut: null,
+  },
 };
 
-export const AI_TOOL_IDS = ["claude-code", "codex", "grok", "kimi", "ollama"] as const;
+export const AI_TOOL_IDS = [
+  "claude-code",
+  "codex",
+  "grok",
+  "kimi",
+  "ollama",
+  "antigravity",
+] as const;
 
 /** An AI tool's check: installed at `version`, signed in with a subscription. */
 export function aiRuntime(
@@ -94,7 +116,7 @@ export function aiRuntime(
       toolPosture: "Conversation only",
       effortLevels: [],
       knownModels: MODELS[id] ?? [],
-      runsOtherMakers: id === "ollama",
+      runsOtherMakers: id === "ollama" || id === "antigravity",
     },
     installHint: `Install ${f.label}.`,
     loginHint: `Open a terminal, run: ${f.signIn}`,
@@ -125,7 +147,8 @@ export const idle = (patch: Partial<AiToolUpdate> = {}): AiToolUpdate => ({
 export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolState {
   return {
     runtimeId: id,
-    newestFrom: id === "grok" ? "own" : id === "kimi" ? "updateChecks" : "published",
+    newestFrom:
+      id === "grok" ? "own" : id === "kimi" || id === "antigravity" ? "updateChecks" : "published",
     newest: null,
     newestCheckedAt: T0,
     newestProblem: null,

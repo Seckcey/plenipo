@@ -27,7 +27,7 @@ with placeholders.
 
 Open **AI tools**, choose **Re-check**, and read the card's explanation. Confirm the tool is
 installed and signed in with its supported account, then follow the provider-specific section
-of the [setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-and-ollama-optional).
+of the [setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional).
 Provider outages, subscription access, and usage limits need to be resolved with that provider.
 
 Support is provided through the repository. Response times are not guaranteed.

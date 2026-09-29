@@ -49,24 +49,26 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. AI tools: Claude Code, Codex, Grok, Kimi, and Ollama (optional)
+## 3. AI tools: Claude Code, Codex, Grok, Kimi, Ollama, and Antigravity (optional)
 
 <a id="3-ai-tools-claude-code-and-codex-phase-3-optional"></a>
 <a id="3-ai-tools-claude-code-codex-and-grok-optional"></a>
 <a id="3-ai-tools-claude-code-codex-grok-and-ollama-optional"></a>
+<a id="3-ai-tools-claude-code-codex-grok-kimi-and-ollama-optional"></a>
 
-The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, and Ollama tools that are
+The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, Ollama, and Antigravity tools that are
 already installed **and signed in with your subscription** on this computer. Plenipo never asks
 for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
 apps do not need to be open.
 
-| AI tool     | Install (PowerShell)                                            | Sign in (once, in a terminal)                                                  |
-| ----------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build)       | `claude auth login` — choose your Claude account                               |
-| Codex       | `npm install -g @openai/codex` (needs Node.js)                  | `codex login` — choose **Sign in with ChatGPT**                                |
-| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)          | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
-| Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code) | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
-| Ollama      | The installer from ollama.com/download                          | `ollama signin` — finish in the browser                                        |
+| AI tool     | Install (PowerShell)                                                      | Sign in (once, in a terminal)                                                  |
+| ----------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build)                 | `claude auth login` — choose your Claude account                               |
+| Codex       | `npm install -g @openai/codex` (needs Node.js)                            | `codex login` — choose **Sign in with ChatGPT**                                |
+| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)                    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
+| Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code)           | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
+| Ollama      | The installer from ollama.com/download                                    | `ollama signin` — finish in the browser                                        |
+| Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` (Antigravity CLI) | `agy` — sign in with your Google account, then type `/exit`                    |
 
 Then open **AI tools** in Plenipo and choose **Check again**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -88,6 +90,31 @@ Notes:
   (`.plenipo-ollama-<id>.json`) and sends it with every task. To use another cloud model, name
   it for a position (details panel → **Edit title, AI tool, or model**) exactly as
   `ollama list` shows it after `ollama pull <name>`.
+- Antigravity (Google's Antigravity CLI, checked with version 1.2.13; [ADR-082](../adr/ADR-082-antigravity-as-an-ai-tool.md),
+  Antigravity as an AI tool). Google's Gemini CLI no longer serves personal Google accounts
+  ([the finding](../phases/ai-tools-gemini-finding.md)); Antigravity is its replacement. It runs
+  Google's Gemini models and some of Anthropic's and OpenAI's under your Google sign-in. The
+  installer puts `agy.exe` in `%LOCALAPPDATA%\agy\bin`; open a new PowerShell window afterwards so
+  `agy` works there (Plenipo also looks in that folder). Its card's **Sign in** opens `agy` in a
+  tab: sign in there, then type `/exit`. What Plenipo checks and does:
+  - Before every task it runs `agy models`. Signed in to Google, it lists Gemini's models and other
+    companies'. A list with only Gemini's models is what a Gemini API key gives (billed per use),
+    and Plenipo refuses it. Plenipo never passes `GEMINI_API_KEY`.
+  - It gives Antigravity a settings folder of its own, in Plenipo's app data
+    (`runtime\ai-tool-homes\antigravity`), written again before every run: paid AI credits off,
+    strict permissions, and every kind of its own tool denied (programs, web pages, reading and
+    writing files, add-ons). Your own Antigravity settings, hooks, and add-ons are not used. Your
+    Google sign-in stays in Windows Credential Manager, so it still works there.
+  - One task is one program, read-only (`--mode plan --sandbox`), and the task's words go in on its
+    input. A conversation goes on by its ID.
+  - Antigravity workers are conversation only: they answer in text and cannot read files, run
+    programs, or open web pages. If Antigravity uses one of its own tools anyway, or starts without
+    Plenipo's settings, Plenipo stops the task.
+  - It no longer updates itself during tasks (`AGY_CLI_DISABLE_AUTO_UPDATE=true`); **Update** on
+    its card runs `agy update` between tasks.
+  - Models (1.2.13, signed in): eleven Gemini models whose names carry their thinking level (for
+    example **gemini-3.1-pro-high**), **claude-sonnet-4-6** and **claude-opus-4-6-thinking**
+    (Anthropic's), and **gpt-oss-120b-medium** (OpenAI's). Plenipo sets no effort for them.
 - On Windows, Plenipo runs only native `.exe` builds. An npm-installed Claude Code (`claude.cmd`)
   is reported as unsupported — install the native build above. For Codex, Plenipo uses the
   native binary inside the npm package automatically.

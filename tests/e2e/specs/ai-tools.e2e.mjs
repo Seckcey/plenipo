@@ -192,6 +192,46 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await screenshot(browser, "ai-tools-page");
   });
 
+  it("shows Antigravity with its Google sign-in, who made each of its models, and Plenipo's own settings for it (ADR-082)", async () => {
+    const { browser } = app;
+    await openAiTools(browser);
+    await waitForText(browser, card("Antigravity"), "Google sign-in");
+    await waitForText(browser, card("Antigravity"), "Antigravity has no sign-out command");
+    await cardTab(browser, "Antigravity", "Models");
+    await waitForText(browser, card("Antigravity"), "made by Anthropic");
+    const models = await textOf(browser, card("Antigravity"));
+    assert.match(models, /Gemini 3\.8 Flash \(High\) gemini-3\.8-flash-high · made by Google/);
+    assert.match(models, /GPT-OSS 120B \(Medium\) gpt-oss-120b-medium · made by OpenAI/);
+    await showCard(browser, "Antigravity");
+    await screenshot(browser, "ai-tools-antigravity-models");
+    await cardTab(browser, "Antigravity", "Overview");
+    // Its settings folder is Plenipo's own, in Plenipo's app data, written before each run:
+    // paid AI credits off, strict permissions, its own tools denied. The owner's is untouched.
+    const settings = join(
+      home,
+      ".local",
+      "share",
+      "com.eightwest.plenipo",
+      "runtime",
+      "ai-tool-homes",
+      "antigravity",
+      ".gemini",
+      "antigravity-cli",
+      "settings.json",
+    );
+    const written = JSON.parse(readFileSync(settings, "utf8"));
+    assert.equal(written.useG1Credits, false);
+    assert.equal(written.toolPermission, "strict");
+    assert.deepEqual(written.permissions.deny, [
+      "command(*)",
+      "read_url(*)",
+      "read_file(*)",
+      "write_file(*)",
+      "mcp(*)",
+    ]);
+    assert.equal(existsSync(join(home, ".gemini")), false, "the owner's own settings untouched");
+  });
+
   it("signs Codex out and back in from its card, in a tab that runs only Codex's own command", async () => {
     const { browser } = app;
     await openAiTools(browser);

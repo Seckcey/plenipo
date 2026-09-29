@@ -19,7 +19,7 @@ import { TerminalPanel } from "../../terminal/TerminalPanel";
 import { TerminalProvider } from "../../terminal/TerminalProvider";
 import { a11yProblems } from "../../test/a11y";
 import { session } from "../../test/agentFixtures";
-import { aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
+import { AI_TOOL_IDS, aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { RuntimesView } from "../../views/RuntimesView";
 import { firstSentence, isNewerVersion, planLeft, planWindowName } from "./words";
@@ -134,7 +134,7 @@ function agents(update: AgentUpdate) {
   act(() => agentListeners.forEach((h) => h(update)));
 }
 
-/** The five AI tools, as their checks say. */
+/** The six AI tools, as their checks say. */
 function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentRuntimeInfo[] {
   return [
     aiRuntime("claude-code", "2.1.283", patch["claude-code"]),
@@ -142,19 +142,18 @@ function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentR
     aiRuntime("grok", "1.0.41", patch.grok),
     aiRuntime("kimi", "0.34.0", patch.kimi),
     aiRuntime("ollama", "0.34.4", patch.ollama),
+    aiRuntime("antigravity", "1.2.13", patch.antigravity),
   ];
 }
 
 function page(patch: Record<string, Parameters<typeof aiTool>[1]> = {}): AiToolsPage {
-  return aiPage(
-    ["claude-code", "codex", "grok", "kimi", "ollama"].map((id) => aiTool(id, patch[id])),
-  );
+  return aiPage(AI_TOOL_IDS.map((id) => aiTool(id, patch[id])));
 }
 
 function routing(patch: Record<string, Parameters<typeof route>[1]> = {}) {
   return {
     ...sampleRouting(),
-    tools: ["claude-code", "codex", "grok", "kimi", "ollama"].map((id) => route(id, patch[id])),
+    tools: AI_TOOL_IDS.map((id) => route(id, patch[id])),
   };
 }
 
@@ -257,6 +256,7 @@ describe("the AI tools page: signing in (ADR-058)", () => {
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         grok: { auth: { state: "signedOut", method: null, detail: null }, ready: false },
+        antigravity: { auth: { state: "signedOut", method: null, detail: null }, ready: false },
         ollama: {
           installation: {
             state: "notInstalled",
@@ -293,6 +293,17 @@ describe("the AI tools page: signing in (ADR-058)", () => {
     expect(within(kimi).getByRole("button", { name: "Reconnect Kimi" })).toBeEnabled();
     expect(within(kimi).queryByRole("button", { name: "Sign out of Kimi" })).toBeNull();
     expect(within(kimi).getByText("Kimi has no sign-out command.")).toBeInTheDocument();
+    // Antigravity signs in when started on its own (ADR-082), and has no sign-out command.
+    const antigravity = card("Antigravity");
+    expect(
+      within(antigravity).getByRole("button", { name: "Sign in to Antigravity" }),
+    ).toBeEnabled();
+    expect(antigravity).toHaveTextContent(
+      "Opens a tab at the bottom that runs agy. You sign in there, and in your browser; Plenipo never sees it.",
+    );
+    expect(
+      within(antigravity).queryByRole("button", { name: "Sign out of Antigravity" }),
+    ).toBeNull();
     // Not installed: the button is there, off, with the reason.
     const ollama = card("Ollama");
     expect(within(ollama).getByRole("button", { name: "Sign in to Ollama" })).toBeDisabled();
@@ -749,7 +760,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     const switches = screen.getAllByRole("switch", {
       name: /^Paid AI key for .+ \(pay per use\)$/,
     });
-    expect(switches).toHaveLength(5);
+    expect(switches).toHaveLength(AI_TOOL_IDS.length);
     const codexKey = within(card("Codex")).getByRole("switch", {
       name: "Paid AI key for Codex (pay per use)",
     });

@@ -117,6 +117,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     assert.match(text, /Grok[\s\S]*xAI[\s\S]*grok\.com sign-in[\s\S]*Installed 1\.0\.99/);
     assert.match(text, /Kimi[\s\S]*Moonshot AI[\s\S]*Kimi sign-in[\s\S]*Installed 0\.34\.99/);
     assert.match(text, /Ollama[\s\S]*Installed 0\.34\.4/);
+    assert.match(text, /Antigravity[\s\S]*Google[\s\S]*Google sign-in[\s\S]*Installed 1\.2\.99/);
     assert.doesNotMatch(text, /owner@example\.com/, "no account identifiers shown");
     await screenshot(browser, "agent-runtimes");
   });
@@ -155,6 +156,25 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     assert.match(t.text, /30 in \(12 cached\) · 9 out/);
     await waitForText(browser, ".detail__header", "Grok conversation");
     await screenshot(browser, "worker-result-grok");
+  });
+
+  it("launches an Antigravity task, text only, with Plenipo's own settings for it (ADR-082)", async () => {
+    const { browser } = app;
+    await startTask(browser, "Antigravity", "Hello Antigravity [refused-tool] [settings]");
+    const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Antigravity result");
+    assert.match(
+      t.text,
+      /Turn 1: you said "Hello Antigravity \[refused-tool\] \[settings\]"\. Previous: None\./,
+    );
+    // It ran with Plenipo's settings for it: strict permissions, paid AI credits off.
+    assert.match(t.text, /"toolPermission":"strict"/);
+    assert.match(t.text, /"useG1Credits":false/);
+    assert.match(t.text, /20 in \(8 cached\) · 9 out/);
+    await waitForText(browser, ".detail__header", "Antigravity conversation");
+    // The tool it asked for was refused, and that is in the task's activity, in plain words.
+    await (await browser.$('//summary[contains(., "Live activity")]')).click();
+    await waitForText(browser, TURNS, "they are off for Plenipo's tasks");
+    await screenshot(browser, "worker-result-antigravity");
   });
 
   it("launches a Kimi task over ACP, and Plenipo refuses Kimi's own shell", async () => {
