@@ -65,6 +65,13 @@ Three ways to update it automatically were weighed:
    they describe Plenipo, and name no maintainer or person: "accepted", not "accepted by you";
    "not yet checked on a real Windows PC", not "please try on your PC".
 
+9. **Pages on GitHub never go stale either.** The README shows a latest-release badge (shields.io
+   reads GitHub Releases each time the page is shown) instead of a typed version, and points to
+   GitHub Releases and `docs/releases` instead of keeping its own list of versions. The README,
+   `SUPPORT.md`, `SECURITY.md`, `CONTRIBUTING.md`, `docs/faq.md`, and `docs/roadmap.md` never
+   name the latest version by hand; `pnpm versions:check` fails if one does. Nothing commits to
+   the repository on its own after a release.
+
 ## Consequences
 
 - Releasing no longer needs a second, manual website step. A maintainer installs the timer once.
