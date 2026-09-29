@@ -24,6 +24,6 @@ vaultAvailable: boolean,
 vaultLabel: string, 
 /**
  * The app description (Slack's "manifest") to paste when a workspace makes its own Slack
- * app for Plenipo (ADR-069 §3). Holds no secret.
+ * app for Plenipo (ADR-070 §3). Holds no secret.
  */
 slackManifest: string, };

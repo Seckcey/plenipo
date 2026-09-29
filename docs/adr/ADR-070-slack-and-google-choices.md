@@ -1,4 +1,4 @@
-# ADR-069: Slack and Google — the owner's choices, and what their sign-ins need
+# ADR-070: Slack and Google — the owner's choices, and what their sign-ins need
 
 - **Status:** Accepted (by the owner, 2026-09-29: "Allow a Slack channel by its ID", "Add the
   permission", "Both. This app needs to be able to be used by other people and orgs. Not just me

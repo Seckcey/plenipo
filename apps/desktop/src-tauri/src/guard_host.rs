@@ -166,13 +166,13 @@ pub fn create<R: Runtime>(
     (guard, broker)
 }
 
-/// How this copy of Plenipo connects (ADR-065 §6, ADR-069 §3): 8 West's Microsoft app ID and
+/// How this copy of Plenipo connects (ADR-065 §6, ADR-070 §3): 8 West's Microsoft app ID and
 /// Slack app's client ID (public, not secrets), and, in copies built for the end-to-end tests
 /// only, the stand-in for the services on this computer. All are built in by the build
 /// (`PLENIPO_MICROSOFT_APP_ID`, `PLENIPO_SLACK_CLIENT_ID`, `PLENIPO_CONNECTIONS_STAND_IN`): never a
 /// setting, never an environment variable at run time. A copy built without one shows that
 /// service as not ready to sign in (an organization or workspace can still use its own app,
-/// Advanced). Google has no 8 West app: the owner saves their own (ADR-069 §4).
+/// Advanced). Google has no 8 West app: the owner saves their own (ADR-070 §4).
 pub fn connections_config() -> ConnectionsConfig {
     ConnectionsConfig {
         microsoft_app_id: option_env!("PLENIPO_MICROSOFT_APP_ID")
@@ -183,7 +183,7 @@ pub fn connections_config() -> ConnectionsConfig {
             .map(str::trim)
             .filter(|id| plenipo_guard::connections::is_slack_client_id(id))
             .map(str::to_owned),
-        // Slack's own fixed sign-in ports (ADR-069 §5.2).
+        // Slack's own fixed sign-in ports (ADR-070 §5.2).
         slack_ports: None,
         stand_in: option_env!("PLENIPO_CONNECTIONS_STAND_IN")
             .map(str::trim)

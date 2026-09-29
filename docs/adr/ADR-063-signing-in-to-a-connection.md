@@ -208,7 +208,7 @@ Built as written, with these details:
 ## As built (v1.13.1, part 20B: Slack and Google)
 
 Built as written for Slack and Google, with these details
-([ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md) §5):
+([ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md) §5):
 
 - **Slack comes back to a fixed port.** Slack sends the sign-in only to an address written into
   its app, port included, so Slack's listener uses the first of `http://localhost:47211`, `47212`,

@@ -1,4 +1,4 @@
-//! Connections in the broker (Phase 20; ADR-062 to ADR-065, ADR-069): which connection tools a
+//! Connections in the broker (Phase 20; ADR-062 to ADR-065, ADR-070): which connection tools a
 //! worker's step is offered — none unless the connection's **Who may use it** list allows the
 //! worker, the connection is connected, and the part is on — Guard's decision on each call, the
 //! owner's approval when Guard asks, the call itself, and its record (IDs, links, counts, and
@@ -299,7 +299,7 @@ impl Broker {
     }
 
     /// Disconnect: its tools stop at once, its sign-in leaves the Vault, and the service cancels
-    /// it where it can (ADR-063 §5, ADR-069 §5.8).
+    /// it where it can (ADR-063 §5, ADR-070 §5.8).
     pub async fn disconnect_connection(&self, id: &str) -> Result<ConnectionsPage> {
         self.check_owner(id, ConnectionAction::Disconnect, true)?;
         self.inner
@@ -360,7 +360,7 @@ impl Broker {
     }
 
     /// Keep the owner's own Slack or Google app (its client ID, and a Google app's secret,
-    /// which goes straight to the Vault), or remove it (ADR-069 §3–§4).
+    /// which goes straight to the Vault), or remove it (ADR-070 §3–§4).
     pub fn save_connection_app(&self, id: &str, app: Option<&AppInput>) -> Result<ConnectionsPage> {
         self.check_owner(id, ConnectionAction::Change, true)?;
         self.not_while_signing_in(id)?;

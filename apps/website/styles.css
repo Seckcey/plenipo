@@ -722,6 +722,87 @@ figcaption {
   display: inline-block;
   margin-top: 6px;
 }
+.whats-new {
+  padding-top: 124px;
+}
+.whats-new .section-title {
+  margin-bottom: 28px;
+}
+.release-notes {
+  max-width: 900px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.8;
+}
+.release-notes .release-title {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+.release-notes p,
+.release-notes ul,
+.release-notes ol,
+.release-notes pre {
+  margin-bottom: 14px;
+}
+.release-notes ul,
+.release-notes ol {
+  padding-left: 22px;
+}
+.release-notes li ul {
+  margin: 6px 0 0;
+}
+.release-notes li + li {
+  margin-top: 6px;
+}
+.release-notes strong,
+.release-notes h4,
+.release-notes h5 {
+  color: var(--ink);
+  font-weight: 600;
+}
+.release-notes h4 {
+  font-size: 17px;
+  margin: 26px 0 10px;
+}
+.release-notes h5 {
+  font-size: 15px;
+  margin: 20px 0 8px;
+}
+.release-notes code {
+  font-size: 0.92em;
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+.release-notes pre {
+  overflow-x: auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.release-notes pre code {
+  padding: 0;
+}
+.release-more {
+  border-block: 1px solid var(--line);
+  margin: 8px 0 4px;
+}
+.release-more summary {
+  padding: 16px 0;
+  color: var(--blue);
+  font-size: 15px;
+}
+.release-more[open] summary {
+  margin-bottom: 4px;
+}
+.release-notes .release-link {
+  font-size: 13px;
+  margin-top: 14px;
+}
 .download-section {
   margin-top: 74px;
 }

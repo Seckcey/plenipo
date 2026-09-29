@@ -19,14 +19,14 @@ in the order of work since ADR-061), and the records written for it:
 - [ADR-067 (Phase 20 in three parts)](../adr/ADR-067-phase-20-in-three-parts.md)
 - [ADR-068 (Connections and add-on tools are part of Pro)](../adr/ADR-068-connections-are-pro.md) —
   the owner's direction while approving the design
-- [ADR-069 (Slack and Google: the owner's choices, and what their sign-ins need)](../adr/ADR-069-slack-and-google-choices.md) —
+- [ADR-070 (Slack and Google: the owner's choices, and what their sign-ins need)](../adr/ADR-070-slack-and-google-choices.md) —
   the owner's answers before part 20B; **accepted**
 - [Registering Plenipo with Microsoft](phase-20-microsoft-app-registration.md) — click-by-click
   steps for 8 West, and a page for clients' admins
 - [Setting up your Slack and Google apps](phase-20-slack-and-google-apps.md) — click-by-click steps
   for 8 West's Slack app, a workspace's own Slack app, and your own Google app (part 20B)
 
-**Numbers:** ADR-061 to ADR-068, and ADR-069 for part 20B. `main` ends at ADR-060 (usage, "plan
+**Numbers:** ADR-061 to ADR-068, and ADR-070 for part 20B. `main` ends at ADR-060 (usage, "plan
 left", and new models, accepted 2026-09-28), so the next free number is 061. **No new Ledger layout** (it stays at 11):
 connections are kept in Guard's settings, like servers, and their sign-ins in the Vault.
 
@@ -98,7 +98,7 @@ the license key; when Pro ends, Connections pause (nothing deleted, running task
 ### Before part 20B (2026-09-29)
 
 The design was checked against what 20A built and against Slack's and Google's own pages. The
-owner answered four questions ([ADR-069](../adr/ADR-069-slack-and-google-choices.md)):
+owner answered four questions ([ADR-070](../adr/ADR-070-slack-and-google-choices.md)):
 
 1. **Slack channels on "Send without asking to":** "Allow a Slack channel by its ID."
 2. **Slack people on that list:** "Add the permission" (`users:read.email`, asked only while a
@@ -108,7 +108,7 @@ owner answered four questions ([ADR-069](../adr/ADR-069-slack-and-google-choices
 4. **Google:** "Go with whatever you recommend" — your own Google app; its client ID in the
    settings, its secret only in the Vault, through the new command `save_connection_app`.
 
-The check also found what the design had to fit (ADR-069 §5): Slack's sign-in addresses are
+The check also found what the design had to fit (ADR-070 §5): Slack's sign-in addresses are
 `oauth/v2/authorize` and `oauth.v2.access`; Slack needs a fixed port (47211–47213); Slack's parts
 follow Off, Read only, and Full access (Posting is Full access on Channels and Direct messages);
 Google Calendar at Read only asks `calendar.events.readonly`; and more than one Slack workspace
@@ -554,9 +554,9 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
       paying ask the owner by default (the switches from ADR-023 apply). [20A]
 - [x] **Microsoft 365:** Outlook mail, Outlook calendar, OneDrive, SharePoint, Teams. [20A]
 - [x] **Slack.** [20B] Any workspace, more than one; Channels, Direct messages, and Search; 7
-      tools (ADR-064 §3, ADR-069).
+      tools (ADR-064 §3, ADR-070).
 - [x] **Google:** Gmail, Google Calendar, Google Drive. [20B] Your own Google app; 10 tools
-      (ADR-064 §4, ADR-069).
+      (ADR-064 §4, ADR-070).
 - [ ] **HubSpot** (then Phase 9 uses it). [20C]
 - [ ] **Stripe.** [20C]
 - [ ] **WordPress and WooCommerce.** [20C]

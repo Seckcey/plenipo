@@ -2,7 +2,7 @@
 
 /**
  * The owner's own app, used instead of 8 West's: an organization's own Microsoft app (choice 4),
- * a Slack workspace's own app, or the owner's Google app (ADR-069 §3–§4). Not a secret: a Google
+ * a Slack workspace's own app, or the owner's Google app (ADR-070 §3–§4). Not a secret: a Google
  * app's secret is kept only in the Vault, and this says only that it is there.
  */
 export type OwnApp = { 

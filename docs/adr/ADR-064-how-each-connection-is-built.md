@@ -217,7 +217,7 @@ Google come in part 20B; HubSpot, Stripe, and WordPress and WooCommerce in part 
 ## As built (v1.13.1, part 20B: Slack and Google)
 
 Part 20B built Slack and Google into Plenipo as §3 and §4 say, with the owner's answers and the
-fits recorded in [ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md):
+fits recorded in [ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md):
 
 - **Slack's parts** are **Channels**, **Direct messages**, and **Search** (Search is Off or Read
   only). "Posting" is Full access on Channels and Direct messages (`chat:write`), and

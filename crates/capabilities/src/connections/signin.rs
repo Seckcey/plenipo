@@ -113,7 +113,7 @@ impl Listener {
     }
 
     /// Listen on the first of `ports` free on both `127.0.0.1` and `[::1]` (Slack comes back
-    /// only to addresses written into its app, port included; ADR-069 §5.2). A port of `0` means
+    /// only to addresses written into its app, port included; ADR-070 §5.2). A port of `0` means
     /// any port, as [`Listener::open`].
     pub async fn open_on(ports: &[u16]) -> std::io::Result<Self> {
         let mut last = None;

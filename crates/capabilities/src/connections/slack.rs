@@ -1,4 +1,4 @@
-//! The Slack connection (Phase 20 part 20B; ADR-064 §3, ADR-069): any workspace, and more than
+//! The Slack connection (Phase 20 part 20B; ADR-064 §3, ADR-070): any workspace, and more than
 //! one, signed in as the person with 8 West's Slack app or the workspace's own, with PKCE and no
 //! secret, calling Slack's Web API with a user token. Each part — Channels, Direct messages,
 //! Search — is off, **Read only**, or **Full access** (Search only reads), and Plenipo asks Slack
@@ -28,12 +28,12 @@ pub const SIGN_IN: &str = "https://slack.com/oauth/v2/authorize";
 pub const ACCESS: &str = "https://slack.com/api/oauth.v2.access";
 pub const API: &str = "https://slack.com/api";
 /// The ports Slack's sign-in comes back to, `http://localhost:<port>`: Slack needs the exact
-/// address, port included, written into the app (ADR-069 §5.2).
+/// address, port included, written into the app (ADR-070 §5.2).
 pub const REDIRECT_PORTS: [u16; 3] = [47211, 47212, 47213];
 /// Asked at every sign-in: people's names instead of their IDs.
 pub const ALWAYS: [&str; 1] = ["users:read"];
 /// People's email addresses, to match the **Send without asking to** list: asked only while a
-/// part is at Full access (ADR-069 §2).
+/// part is at Full access (ADR-070 §2).
 pub const EMAIL: &str = "users:read.email";
 /// The most channels or conversations a list shows.
 const MAX_LISTED: usize = 100;
@@ -44,7 +44,7 @@ const MAX_PEOPLE: usize = 50;
 
 // ---- Permissions ------------------------------------------------------------------------------
 
-/// The permissions (user scopes) a part needs at a level (ADR-069 §5.3).
+/// The permissions (user scopes) a part needs at a level (ADR-070 §5.3).
 pub fn permissions(part: Part, level: PartLevel) -> &'static [&'static str] {
     use Part::*;
     use PartLevel::*;
@@ -1007,7 +1007,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
                     api.workspace
                 ),
                 detail: format!("{head}\n{}", words_kept(text)),
-                // The channel, by its ID: only that can be on a list (ADR-069 §1).
+                // The channel, by its ID: only that can be on a list (ADR-070 §1).
                 recipients: vec![c.id.clone()],
                 call: call.clone(),
                 approved_as: Some((vec![c.id], c.name)),
@@ -1423,7 +1423,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     let dm = c["is_im"].as_bool() == Some(true)
                         || is_group_message(c)
                         || id.starts_with('D');
-                    // Only from the parts that are on (ADR-069 §5.3).
+                    // Only from the parts that are on (ADR-070 §5.3).
                     if dm {
                         dms_on
                     } else {

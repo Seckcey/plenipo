@@ -1,4 +1,4 @@
-//! The Google connection (Phase 20 part 20B; ADR-064 §4, ADR-069): the owner's own Google app (a
+//! The Google connection (Phase 20 part 20B; ADR-064 §4, ADR-070): the owner's own Google app (a
 //! Desktop app client; its secret kept only in the Vault), signed in as the person with PKCE and
 //! the loopback address, calling the Gmail, Google Calendar, and Google Drive APIs. Each part —
 //! Gmail, Calendar, Drive — is off, **Read only**, or **Full access**, and Plenipo asks Google only
@@ -48,7 +48,7 @@ const NO_ADDRESS: &str = "(an address Plenipo cannot read)";
 
 // ---- Permissions ------------------------------------------------------------------------------
 
-/// The permissions a part needs at a level (ADR-069 §5.5), in Google's short names.
+/// The permissions a part needs at a level (ADR-070 §5.5), in Google's short names.
 pub fn permissions(part: Part, level: PartLevel) -> &'static [&'static str] {
     use Part::*;
     use PartLevel::*;

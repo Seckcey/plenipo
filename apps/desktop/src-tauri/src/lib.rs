@@ -4113,7 +4113,7 @@ mod ipc_boundary_tests {
         "set_connection_access",
         "set_connection_send_list",
         "set_connection_own_app",
-        // Part 20B (ADR-069).
+        // Part 20B (ADR-070).
         "save_connection_app",
         "add_connection",
         "remove_connection",

@@ -161,7 +161,7 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           # The updater key's public half, built into Plenipo (ADR-038).
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
-          # 8 West's Microsoft app ID (ADR-065 §6) and Slack app's client ID (ADR-069 §3): public,
+          # 8 West's Microsoft app ID (ADR-065 §6) and Slack app's client ID (ADR-070 §3): public,
           # not secrets. Until the owner adds a variable, Plenipo says it has no app for that
           # service yet (an organization or workspace can use its own).
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}

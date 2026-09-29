@@ -312,7 +312,7 @@ decided again when answered.
 ## As built (v1.13.1, part 20B: Slack and Google)
 
 Slack and Google follow these rules as Microsoft 365 does, with these differences
-([ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md)):
+([ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md)):
 
 - **A Slack channel can be on "Send without asking to", by its ID** (`C…` or `G…`, kept in
   capitals; `#general` is refused with where to find the ID). Slack IDs are fixed and never

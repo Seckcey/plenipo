@@ -200,7 +200,7 @@ export function SlackOwnApp({
 }
 
 /**
- * **Your Google app** (ADR-069 §4): the owner's own Google app, by its client ID and its secret.
+ * **Your Google app** (ADR-070 §4): the owner's own Google app, by its client ID and its secret.
  * The secret goes straight to the Vault and is never shown again; the box hides what you type.
  */
 export function GoogleApp({

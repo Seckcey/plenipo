@@ -82,7 +82,7 @@ export function noAppWords(service: Service): string | null {
   }
 }
 
-/** Slack's limit on 8 West's app while it is outside Slack's Marketplace (ADR-069 §3). */
+/** Slack's limit on 8 West's app while it is outside Slack's Marketplace (ADR-070 §3). */
 export const SLACK_SLOW =
   "With 8 West's Slack app, Slack lets Plenipo read one channel or thread a minute, 15 messages at a time. Your workspace's own Slack app (Advanced) reads at Slack's normal speed.";
 

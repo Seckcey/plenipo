@@ -8,7 +8,7 @@ import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
 
 /**
- * **Send without asking to** (ADR-062 §5, ADR-069 §1): addresses and `@domains` — and, on a Slack
+ * **Send without asking to** (ADR-062 §5, ADR-070 §1): addresses and `@domains` — and, on a Slack
  * card, channels by their ID — a worker may send to without asking you, only while the switch
  * "Sending forms and messages (without asking)" is on, and only when every recipient is on this
  * list.

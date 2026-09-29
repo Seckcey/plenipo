@@ -1,7 +1,7 @@
 # Setting up your Slack and Google apps — steps for 8 West, and for anyone who uses Plenipo
 
 Written 2026-09-29 (Pacific time) for Phase 20, part 20B
-([ADR-069 (Slack and Google: the owner's choices)](../adr/ADR-069-slack-and-google-choices.md)).
+([ADR-070 (Slack and Google: the owner's choices)](../adr/ADR-070-slack-and-google-choices.md)).
 You do these steps yourself, in your own browser. **Nothing here goes into a chat.**
 
 - **Slack** needs no secret at all. The only value is a Slack app's **Client ID**, which is public.

@@ -178,7 +178,7 @@ impl Part {
     }
 
     /// Whether it has a **Full access** level: every part but Slack's Search, which only reads
-    /// (ADR-069 §5.3).
+    /// (ADR-070 §5.3).
     pub fn has_full_access(self) -> bool {
         self != Self::Search
     }
@@ -309,7 +309,7 @@ pub enum ConnectionState {
 }
 
 /// The owner's own app, used instead of 8 West's: an organization's own Microsoft app (choice 4),
-/// a Slack workspace's own app, or the owner's Google app (ADR-069 §3–§4). Not a secret: a Google
+/// a Slack workspace's own app, or the owner's Google app (ADR-070 §3–§4). Not a secret: a Google
 /// app's secret is kept only in the Vault, and this says only that it is there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -450,7 +450,7 @@ pub fn is_domain(s: &str) -> bool {
 
 /// A Slack channel's ID (`C0123ABCD`, or `G…` for older private channels): fixed for the
 /// channel's life and never reused, so it can be on a **Send without asking to** list
-/// (ADR-069 §1). Direct messages (`D…`) cannot: their people decide.
+/// (ADR-070 §1). Direct messages (`D…`) cannot: their people decide.
 pub fn is_slack_channel(s: &str) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some('C' | 'G'))
@@ -506,7 +506,7 @@ const ADDRESS_MARKS: &str = ".!#$%&'*+-/=?^_`{|}~";
 /// `@domain`, in lower case, or — Slack only — a channel's ID, in capitals. `Err`: why it is not
 /// one. A Teams channel cannot be on a list: it is known only by names anyone can reuse, so
 /// posting in one always asks (as built, part 20A). A Slack channel can, by its ID, which never
-/// changes and is never reused (ADR-069 §1).
+/// changes and is never reused (ADR-070 §1).
 pub fn send_entry(entry: &str, service: Service) -> Result<String, String> {
     let e = entry.trim();
     if e.is_empty() || e.chars().count() > 200 || e.chars().any(char::is_control) {
@@ -844,7 +844,7 @@ impl Guard {
         .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
     }
 
-    /// Use the owner's own Slack or Google app, or none (ADR-069 §3–§4). Records
+    /// Use the owner's own Slack or Google app, or none (ADR-070 §3–§4). Records
     /// `connection.changed` (the client ID, never a secret).
     pub fn set_connection_client_app(
         &self,

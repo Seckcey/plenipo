@@ -725,7 +725,7 @@ impl GuardConfig {
 
     /// Use the owner's own Slack or Google app (`None`: none — 8 West's for Slack; Google has no
     /// other), by its client ID. `secret_kept`: a Google app's secret is already in the Vault
-    /// (ADR-069 §4). Only while the connection is not connected.
+    /// (ADR-070 §4). Only while the connection is not connected.
     pub fn set_connection_client_app(
         &mut self,
         id: &str,

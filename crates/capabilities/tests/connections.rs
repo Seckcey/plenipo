@@ -1924,7 +1924,7 @@ async fn later_services_wait_and_disconnect_always_works() {
         .unwrap_err()
         .to_string();
     assert!(later.contains("comes in a later update"), "{later}");
-    // Google needs the owner's own app first (ADR-069 §4).
+    // Google needs the owner's own app first (ADR-070 §4).
     let no_app = h
         .broker
         .connect_connection("google", AccountKind::Work)
@@ -2383,7 +2383,7 @@ async fn acceptance_a_worker_reads_the_day_drafts_a_reply_and_it_is_sent_only_wh
     }
 }
 
-// ---- Part 20B: Slack and Google (ADR-064 §3–§4, ADR-069) ------------------------------------------
+// ---- Part 20B: Slack and Google (ADR-064 §3–§4, ADR-070) ------------------------------------------
 
 /// Slack's first workspace, and Google's connection.
 const SLACK: &str = "slack";

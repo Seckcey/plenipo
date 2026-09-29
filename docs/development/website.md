@@ -66,8 +66,9 @@ for fresh-navigation measurements and fallback checks.
 ## Content and search
 
 The page links to the published Windows installer, explains the current free release, and labels
-the proposed Free/Pro limits as planned. Build-time version templating is used; the automatic-entry
-release deliberately passes `PLENIPO_VERSION=1.6.0` to preserve its authorized content scope.
+the proposed Free/Pro limits as planned. Build-time version templating is used. Since
+[ADR-069 (the website follows new releases)](../adr/ADR-069-website-follows-releases.md), Coastline
+builds each new published release on its own (see [Automatic updates](#automatic-updates)).
 Nobody types the version into the page: both download
 buttons, both version labels, the structured data, and `release.json` come from the version the
 build is given (the root `package.json`, or `PLENIPO_VERSION`). A merge containing a desktop
@@ -108,8 +109,16 @@ SOURCE_REVISION="$(git rev-parse HEAD)" pnpm --filter @plenipo/website build
 ```
 
 The build reads the version from the root `package.json` (or `PLENIPO_VERSION`), copies public
-files to `apps/website/dist`, and writes `release.json`, which names its source and the version
-it shows. The website workflow also builds and starts the production image with the root version,
+files to `apps/website/dist`, and writes `release.json`, which names its source, the version it
+shows, and whether the page has that version's notes (`releaseNotes`).
+
+The "What's new" section shows the notes of the version the page shows. The build looks for them
+in `PLENIPO_RELEASE_NOTES` (a file it must be able to read), then
+`apps/website/release-notes/vX.Y.Z.md` (where the automatic update puts them, because a container
+build sees only `apps/website`), then the repository's `docs/releases/vX.Y.Z.md`. With no notes,
+the section links to the release on GitHub. `scripts/release-notes.mjs` renders them: every
+character is escaped, and only headings, paragraphs, lists, code, bold, and http(s) links are
+rendered. The website workflow also builds and starts the production image with the root version,
 checks health, the home page, sitemap, `release.json`'s version, and a genuine HTTP 404
 response. Existing repository checks still cover formatting,
 linting, the workspace, and the desktop application.
@@ -197,5 +206,73 @@ the port is loopback only, logs are clean, and restart count is stable. Record p
 separately after the Tunnel is configured. For a failed update, point only this Compose project
 back to the retained prior image/configuration and repeat health checks. Do not prune images,
 stop other services, modify firewall/DNS, or restart the Tunnel as part of a website release.
+
+## Automatic updates
+
+[ADR-069 (the website follows new releases)](../adr/ADR-069-website-follows-releases.md): a systemd
+timer on Coastline runs [`apps/website/deploy/auto-release.sh`](../../apps/website/deploy/auto-release.sh)
+every 15 minutes. When GitHub's latest published release (not a draft or pre-release, with its
+installer attached) is newer than what `release.json` shows, or the page has no notes, it:
+
+1. exports the website from `main` and the release's `docs/releases/vX.Y.Z.md` (read at the
+   release's tag) into a new read-only folder, `releases/<commit>-v<version>`;
+2. builds `plenipo-website:<commit>-v<version>` with that version;
+3. swaps the container while holding `/srv/8west/port-allocations/allocations.lock`;
+4. checks health, the home page and its "What's new" for this version, `release.json`'s version,
+   source, and notes, a real 404, the image, the restart count, and the loopback-only port;
+5. if anything fails, puts the previous image back (with the Compose files it was started from)
+   and checks its health.
+
+It keeps `auto-release/current.env` (what runs now and what ran before), `auto-release/release.json`
+(the live answer after the last update), and `auto-release/history.jsonl` (one line per update,
+including roll-backs). It reads GitHub without a login, never prunes images, and never touches
+other services, the firewall, DNS, or the Tunnel. It needs `curl`, `jq`, `git`, `docker` with
+Compose, `flock`, and `sha256sum`, and says which is missing.
+
+Options: `--check` (say what would happen, change nothing), `--force` (rebuild even if up to date),
+`--version X.Y.Z` (show an older published release, for example to go back), and
+`--source-ref REF` (website code from another branch, tag, or commit). Settings such as `PORT`,
+`SUBNET`, and `ALLOCATION_LOCK` default to the values in [Coastline origin](#coastline-origin) and
+can be changed in `/srv/8west/apps/plenipo-website/auto-release.env`.
+
+### Install it on Coastline (once)
+
+After this is merged to `main`, on Coastline:
+
+```sh
+ssh coastline
+command -v jq || sudo apt install -y jq
+cd /srv/8west/apps/plenipo-website
+raw=https://raw.githubusercontent.com/Seckcey/plenipo/main/apps/website/deploy
+mkdir -p bin
+curl -fsSL "$raw/auto-release.sh" -o bin/auto-release.sh && chmod 755 bin/auto-release.sh
+bin/auto-release.sh --check      # says what it would do; changes nothing
+bin/auto-release.sh              # the first update, now
+sudo curl -fsSL "$raw/plenipo-website-update.service" -o /etc/systemd/system/plenipo-website-update.service
+sudo curl -fsSL "$raw/plenipo-website-update.timer" -o /etc/systemd/system/plenipo-website-update.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now plenipo-website-update.timer
+systemctl list-timers plenipo-website-update.timer
+```
+
+The service runs as `seckcey`, who must be able to write to `/srv/8west/apps/plenipo-website`
+and use Docker. To change the script later, copy it again the same way; a merge alone never
+changes what runs on Coastline.
+
+### Check on it, pause it, go back
+
+```sh
+systemctl status plenipo-website-update          # the last run: finished, or why it stopped
+journalctl -u plenipo-website-update -n 100      # what each run did
+tail -n 5 /srv/8west/apps/plenipo-website/auto-release/history.jsonl
+sudo systemctl disable --now plenipo-website-update.timer    # pause automatic updates
+/srv/8west/apps/plenipo-website/bin/auto-release.sh --version 1.10.0   # show an older release
+```
+
+Release folders are made read-only so nothing edits them after they are built; to delete an old
+one, run `chmod -R u+w` on it first. Keep the current and previous ones (`auto-release/current.env`).
+
+Going back to an older release while the timer is on lasts only until the next run, which shows
+the latest release again; pause the timer first to stay on it.
 
 See [brand assets](../brand/website-assets.md) for provenance and downloadable variants.

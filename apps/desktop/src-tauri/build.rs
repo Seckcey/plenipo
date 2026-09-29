@@ -183,7 +183,7 @@ fn main() {
     // stand-in for the connections' services in copies built for the end-to-end tests
     // (Phase 20, ADR-065 §6).
     println!("cargo:rerun-if-env-changed=PLENIPO_MICROSOFT_APP_ID");
-    // 8 West's Slack app's client ID (public, not a secret; ADR-069 §3).
+    // 8 West's Slack app's client ID (public, not a secret; ADR-070 §3).
     println!("cargo:rerun-if-env-changed=PLENIPO_SLACK_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")

@@ -6,7 +6,7 @@
 //!
 //! None takes a password, a token, a program, or an address: a sign-in happens on the service's
 //! own page in the owner's browser, and its token goes only into the Vault. The one secret any
-//! of them takes — the owner's own Google app's secret (ADR-069 §4) — goes straight to the Vault
+//! of them takes — the owner's own Google app's secret (ADR-070 §4) — goes straight to the Vault
 //! and never comes back out. Guard decides each action and records it (never a token or a
 //! secret, never the account's address).
 

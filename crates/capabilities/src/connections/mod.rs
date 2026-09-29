@@ -1,4 +1,4 @@
-//! Connections (Phase 20; ADR-062 to ADR-065, ADR-069): the business's own accounts that
+//! Connections (Phase 20; ADR-062 to ADR-065, ADR-070): the business's own accounts that
 //! Plenipo signs in to for the owner — Microsoft 365, Slack, and Google — and the calls workers
 //! make through them.
 //!
@@ -43,7 +43,7 @@ pub fn vault_id(connection_id: &str) -> String {
     format!("connection-{connection_id}-token")
 }
 
-/// The Vault ID of the secret of the owner's own app for a connection (Google, ADR-069 §4).
+/// The Vault ID of the secret of the owner's own app for a connection (Google, ADR-070 §4).
 pub fn app_secret_id(connection_id: &str) -> String {
     format!("connection-{connection_id}-app-secret")
 }
@@ -81,7 +81,7 @@ const CANCEL_WAIT: Duration = Duration::from_secs(15);
 pub struct ConnectionsConfig {
     /// 8 West's Microsoft app ID ("Application (client) ID"). Public, not a secret.
     pub microsoft_app_id: Option<String>,
-    /// 8 West's Slack app's client ID (ADR-069 §3). Public, not a secret.
+    /// 8 West's Slack app's client ID (ADR-070 §3). Public, not a secret.
     pub slack_client_id: Option<String>,
     /// The ports Slack's sign-in comes back to (`None`: [`slack::REDIRECT_PORTS`]); the Rust
     /// tests use `Some(vec![0])` (any port), so sign-ins in parallel tests never meet.
@@ -326,7 +326,7 @@ pub struct ConnectionsPage {
     /// "Windows Credential Manager".
     pub vault_label: String,
     /// The app description (Slack's "manifest") to paste when a workspace makes its own Slack
-    /// app for Plenipo (ADR-069 §3). Holds no secret.
+    /// app for Plenipo (ADR-070 §3). Holds no secret.
     pub slack_manifest: String,
 }
 
@@ -415,7 +415,7 @@ pub struct PersonOption {
     pub archived: bool,
 }
 
-/// The owner's own app for a connection, as typed into its card (ADR-069 §4): Slack's client ID,
+/// The owner's own app for a connection, as typed into its card (ADR-070 §4): Slack's client ID,
 /// or Google's client ID and secret. The secret goes straight to the Vault.
 #[derive(Clone, PartialEq, Eq, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -573,7 +573,7 @@ impl Connections {
     }
 
     /// 8 West's app for `service`, as built into this copy (none for Google: the owner makes
-    /// their own, ADR-069 §4).
+    /// their own, ADR-070 §4).
     pub fn built_in_app(&self, service: Service) -> Option<String> {
         match service {
             Service::Microsoft365 => self
@@ -671,7 +671,7 @@ impl Connections {
 
     // ---- The owner's own app ---------------------------------------------------------------------
 
-    /// Keep the owner's own Slack or Google app for `id` (ADR-069 §3–§4), or remove it (`None`).
+    /// Keep the owner's own Slack or Google app for `id` (ADR-070 §3–§4), or remove it (`None`).
     /// A Google app's secret goes straight to the Vault and is read back; it is never returned.
     /// The caller has asked Guard, and checked no sign-in waits.
     pub fn save_app(&self, id: &str, app: Option<&AppInput>) -> Result<(), String> {
@@ -1178,7 +1178,7 @@ impl Connections {
         code: &str,
         verifier: &str,
     ) -> Result<Traded, String> {
-        // PKCE: no client secret (ADR-069 §5.1).
+        // PKCE: no client secret (ADR-070 §5.1).
         let form = vec![
             ("client_id".to_owned(), s.app_id.to_owned()),
             ("grant_type".to_owned(), "authorization_code".to_owned()),
@@ -1355,7 +1355,7 @@ impl Connections {
 
     /// Disconnect: its tools stop at once — it is marked not connected, and its access token and
     /// any sign-in under way are dropped — then its sign-in leaves the Vault (with its pieces),
-    /// and then, where the service can, the sign-in is cancelled there (Slack, Google; ADR-069
+    /// and then, where the service can, the sign-in is cancelled there (Slack, Google; ADR-070
     /// §5.8). Microsoft has no way to cancel one sign-in, so nothing is sent. A service that
     /// cannot be reached leaves a note on the card; the sign-in is gone from this computer
     /// either way.
