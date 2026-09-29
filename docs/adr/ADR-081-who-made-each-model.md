@@ -1,7 +1,9 @@
 # ADR-081: Who made each model — the maker on every model, cross-company review by maker, and the model list two ways
 
-- **Status:** Proposed (2026-09-29). The owner's answers to the choices in the
-  [Phase 16 checklist](../phases/phase-16-checklist.md#choices-for-you) decide §5, §6, and §7.
+- **Status:** Proposed (2026-09-29). The owner answered its three choices on 2026-09-29, **all as
+  recommended** ([Phase 16 checklist](../phases/phase-16-checklist.md#choices-for-you)): §6 Your
+  models gets the grouping; §5 "never use" counts who made a model too; §7 a model whose maker is
+  not known plays it safe.
 - **Date:** 2026-09-29
 - **Phase:** 16, Wave 1 (built beside Phase 20 by
   [ADR-080 (building Phase 16's first wave alongside Phase 20)](ADR-080-phase-16-wave-1-alongside-phase-20.md))

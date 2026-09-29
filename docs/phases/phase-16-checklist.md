@@ -1,10 +1,9 @@
 # Phase 16 — Implementation Checklist (Wave 1)
 
-**Status:** design written (2026-09-29), **waiting for the owner**: choices 1 to 3 below, and the
-last Antigravity check on the owner's Windows PC (Part E's step E9, the `/credits` screenshot, and
-the Google plan's name; [the steps](phase-16-owner-checks.md)). Parts A, B, C, and E1 to E8 are
-done; Gemini CLI got a [finding](ai-tools-gemini-finding.md); choices 4 and 5 are answered. Nothing
-is built yet. Builds on v1.13.0 (Phase 20A); releases as **v1.14.0**. Built beside Phase 20B (Slack and
+**Status:** design written (2026-09-29); **choices 1 to 5 answered**. Waiting for the owner: the
+go-ahead to build, and the last Antigravity check on the owner's Windows PC (step E9, the
+`/credits` screenshot, and the Google plan's name). Parts A, B, C, and E1 to E8 are done; Gemini
+CLI got a [finding](ai-tools-gemini-finding.md). Nothing is built yet. Builds on v1.13.0 (Phase 20A); releases as **v1.14.0**. Built beside Phase 20B (Slack and
 Google), which another session is building at the same time, at the owner's direction.
 
 Source: `ROLLOUT_PLAN.md`, Phase 16 — Every AI Model Worth Having, **Wave 1 only** ("fits today's
@@ -68,7 +67,7 @@ table to say so. Then I read the code and wrote this plan. Nothing is built yet.
 
 **What you need to do:**
 
-1. **Answer choices 1 to 3 below** (or say "as recommended").
+1. ~~Answer choices 1 to 3~~ — done: as recommended.
 2. **Finish the checks on your Windows PC** ([the steps](phase-16-owner-checks.md)): step E9 for
    Antigravity, your `/credits` screenshot, and your Google plan's name. I build the maker, review,
    and list parts as soon as you approve; Antigravity waits for E9, because I won't guess what your
@@ -78,6 +77,9 @@ table to say so. Then I read the code and wrote this plan. Nothing is built yet.
 
 Each choice has my recommendation first. Say "as recommended" to take them all, or name the ones
 you want different.
+
+**Answered (2026-09-29): choices 1 to 3 as recommended.** The owner: "Choices 1 to 3 are as
+recommended."
 
 1. **Which list gets "Group by: Who made it / AI tool"?** (ADR-081 §6)
    - **Recommended:** **Settings → AI models → Your models**, the list your roles choose from.
