@@ -1,7 +1,7 @@
 //! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
 //! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`, `grok`,
-//! `kimi`, `ollama`; `.exe` on Windows); it answers like the real CLI named by its file stem:
+//! `kimi`, `ollama`, `agy`; `.exe` on Windows); it answers like the real CLI named by its file stem:
 //! `--version`, the sign-in status command, and one turn in the provider's JSON-lines stream
 //! format with the prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent …
 //! stdio` answers `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and
@@ -85,6 +85,16 @@
 //! `[settings]` adds the model, thinking level, and mode it ran with; `[yolo]` makes it switch
 //! itself to its "yolo" mode. Its `last-acp.json` also has `initialize` and `settings`.
 //!
+//! Antigravity (ADR-082): `agy -p= --input-format stream-json …` reads one JSON message on
+//! stdin and answers in its JSON lines. It reads Plenipo's settings for it from
+//! `<home>/.gemini/antigravity-cli/settings.json` and reports strict permissions only when they
+//! say so; `[own-tool]` makes one of its own tools finish (Plenipo must stop the task),
+//! `[refused-tool]` makes one be refused, and `[settings]` adds the settings it ran with to the
+//! answer. `agy models` lists only Gemini's models when signed in with an API key, as the real
+//! one does; `agy` alone is its sign-in. Plenipo gives Antigravity a home folder of its own
+//! (ADR-082), so in the app its state is in that folder's `.plenipo-fake-agent`, not the tests'
+//! home (the Rust harnesses choose the home folder, and Plenipo writes its settings there).
+//!
 //! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
 //! bridge (`--plenipo-ollama auth`, `models`, and `chat …`) in the bridge's output format, so
 //! tests point `AgentConfig::bridge` at it. It has no tools.
@@ -127,6 +137,7 @@ const PERSONAS: &[(&str, Answer)] = &[
     ("grok", grok),
     ("kimi", kimi),
     ("ollama", ollama),
+    ("agy", agy),
 ];
 
 /// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
@@ -3010,5 +3021,263 @@ fn ollama_turn(args: &[String]) -> i32 {
         &json!({ "type": "done", "reason": "stop", "inputTokens": 20, "cachedTokens": 8,
                  "outputTokens": 9, "durationMs": 5 }),
     );
+    0
+}
+
+// ---- Antigravity (ADR-082) ----------------------------------------------------------------
+
+const AGY_VERSION: &str = "1.2.99";
+
+/// `agy models`, signed in to Google (1.2.13, trimmed): Gemini's models and other companies'.
+const AGY_MODELS: &[(&str, &str)] = &[
+    ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+    ("gemini-3.1-pro-low", "Gemini 3.1 Pro (Low)"),
+    ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"),
+    ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"),
+];
+
+fn agy(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("--version") => print_version("agy", &fake_version("agy", AGY_VERSION)),
+        None => fake_sign_in("agy", args),
+        Some("models") if args.len() == 1 => agy_models(),
+        Some("update") if args.len() == 1 => fake_update("agy", AGY_VERSION, args),
+        Some("-p=") => agy_turn(args),
+        _ => {
+            eprintln!("fake agy: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+fn agy_models() -> i32 {
+    println!("Fetching available models...");
+    match auth_mode() {
+        "signed-out" => {
+            eprintln!(
+                "Error: Please sign in to view available models. Launch the CLI without \
+                 arguments to sign in."
+            );
+            1
+        }
+        "unknown-status" => {
+            eprintln!(
+                "Error: There was a network issue connecting to the server, please try again."
+            );
+            1
+        }
+        mode => {
+            // A Gemini API key lists only Gemini's models.
+            let key = mode == "api-key";
+            for (name, label) in AGY_MODELS {
+                if !key || name.starts_with("gemini-") {
+                    println!("{name}\t{label}");
+                }
+            }
+            for m in extra_models("agy") {
+                println!("{m}\t{m}");
+            }
+            0
+        }
+    }
+}
+
+/// Plenipo's settings for Antigravity, from the home folder it was given.
+fn agy_settings() -> Value {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    std::fs::read_to_string(
+        home.join(".gemini")
+            .join("antigravity-cli")
+            .join("settings.json"),
+    )
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or(Value::Null)
+}
+
+fn agy_turn(args: &[String]) -> i32 {
+    record_invocation(args);
+    if flag(args, "--input-format").as_deref() != Some("stream-json")
+        || flag(args, "--output-format").as_deref() != Some("stream-json")
+        || flag(args, "--mode").as_deref() != Some("plan")
+        || !args.iter().any(|a| a == "--sandbox")
+    {
+        eprintln!("fake agy: expected stream-json in and out, --mode plan, and --sandbox");
+        return 2;
+    }
+    let result = |id: &str, status: &str, response: &str, error: &str, extra: Value| {
+        let mut r = json!({ "conversation_id": id, "status": status, "response": response,
+                            "error": error, "duration_seconds": 0.5, "num_turns": 1,
+                            "usage": { "input_tokens": 20, "output_tokens": 9,
+                                       "thinking_tokens": 4, "cache_read_tokens": 8,
+                                       "total_tokens": 29 } });
+        if let (Some(r), Some(extra)) = (r.as_object_mut(), extra.as_object()) {
+            r.extend(extra.clone());
+        }
+        out(&json!({ "event": "result", "result": r }));
+    };
+    // One JSON message on stdin; plain text is not a task.
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    let prompt = input
+        .lines()
+        .find_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|m| m["event"] == "user")
+        .and_then(|m| m["message"]["content"].as_str().map(str::to_owned));
+    let Some(prompt) = prompt else {
+        eprintln!("Error: empty prompt");
+        return 1;
+    };
+    let size = prompt.len();
+    let prompt = prompt.trim().to_owned();
+    if auth_mode() == "signed-out" {
+        eprintln!("Error: authentication required. Run 'antigravity' to log in, then retry.");
+        result(
+            "",
+            "ERROR",
+            "",
+            "authentication failed or timed out",
+            json!({}),
+        );
+        return 1;
+    }
+    let id = match flag(args, "--conversation") {
+        Some(id) => {
+            if load_session(&id).is_none() {
+                eprintln!("Error: conversation {id} not found");
+                return 1;
+            }
+            id
+        }
+        None => format!("agy-{:08x}-{}", std::process::id(), prompt.len()),
+    };
+    let (_, prompt) = strip_note(&prompt);
+    let (mode, said) = view(&prompt);
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
+    if own.contains("[malformed]") {
+        raw("{not json at all");
+        return 0;
+    }
+    let settings = agy_settings();
+    let permissions = if settings["toolPermission"] == "strict" {
+        "strict"
+    } else {
+        "request-review"
+    };
+    let cwd = std::env::current_dir()
+        .map(|d| d.display().to_string())
+        .unwrap_or_default();
+    out(&json!({ "event": "init", "conversation_id": id,
+                 "init": { "cwd": cwd, "tools": ["run_command", "view_file", "search_web"],
+                           "permission_mode": permissions } }));
+    let step = |index: u32, v: Value| {
+        let mut s = json!({ "conversation_id": id, "step_index": index });
+        if let (Some(s), Some(v)) = (s.as_object_mut(), v.as_object()) {
+            s.extend(v.clone());
+        }
+        out(&json!({ "event": "step_update", "step_update": s }));
+    };
+    step(0, json!({ "state": "DONE", "step_type": "user_input" }));
+    let failed = |message: &str, code: i32| {
+        eprintln!(
+            "AGY_ERROR: {}",
+            json!({ "short_error": message, "retryable": false })
+        );
+        result(&id, "ERROR", "", message, json!({}));
+        code
+    };
+    if own.contains("[crash]") {
+        eprintln!("panic: runtime error: invalid memory address or nil pointer dereference");
+        return 2;
+    }
+    if own.contains("[usage-limit]") {
+        return failed(
+            "agent executor error: Error 429, Message: Resource has been exhausted (e.g. check \
+             quota)., Status: RESOURCE_EXHAUSTED",
+            3,
+        );
+    }
+    if own.contains("[auth-expired]") {
+        eprintln!("Error: authentication required. Run 'antigravity' to log in, then retry.");
+        return failed("authentication failed or timed out", 1);
+    }
+    if own.contains("[offline]") {
+        return failed(
+            "There was a network issue connecting to the server, please try again.",
+            3,
+        );
+    }
+    if own.contains("[slow]") {
+        slow_ticks(|i| {
+            step(
+                1,
+                json!({ "state": "ACTIVE", "step_type": "agent_response",
+                            "text_delta": format!("tick {i} ") }),
+            )
+        });
+        return 0;
+    }
+    if own.contains("[unknown]") {
+        out(&json!({ "event": "something_new" }));
+    }
+    if own.contains("[own-tool]") {
+        step(
+            1,
+            json!({ "state": "DONE", "step_type": "tool", "tool_name": "search_web" }),
+        );
+    }
+    let mut refused = json!({});
+    if own.contains("[refused-tool]") {
+        let info = json!({ "name": "run_command", "parameters": { "CommandLine": "dir" } });
+        step(
+            1,
+            json!({ "state": "ACTIVE", "step_type": "tool", "tool_name": "run_command",
+                        "tool_info": info }),
+        );
+        step(
+            1,
+            json!({ "state": "ERROR", "step_type": "tool", "tool_name": "run_command",
+                        "tool_info": { "name": "run_command", "error": { "type": "TOOL_ERROR",
+                            "message": "permission check failed for command \"dir\": user \
+                                        denied permission to run command" } } }),
+        );
+        refused =
+            json!({ "denied_actions": [{ "action": "command", "display_name": "RunCommand" }] });
+    }
+    delay(&own);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said, size);
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
+        "B".repeat(1024 * 1024)
+    } else {
+        answer(n, &mode, &said, previous.as_deref(), &first)
+    };
+    if own.contains("[settings]") {
+        text = format!("{text}\nSettings: {settings}");
+    }
+    // The answer streams in two pieces.
+    let half = (0..=text.len() / 2)
+        .rev()
+        .find(|i| text.is_char_boundary(*i))
+        .unwrap_or(0);
+    step(
+        2,
+        json!({ "state": "ACTIVE", "step_type": "agent_response",
+                    "text_delta": &text[..half] }),
+    );
+    step(
+        2,
+        json!({ "state": "DONE", "step_type": "agent_response",
+                    "text_delta": &text[half..] }),
+    );
+    result(&id, "SUCCESS", &text, "", refused);
     0
 }

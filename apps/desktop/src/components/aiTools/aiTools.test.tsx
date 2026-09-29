@@ -19,7 +19,7 @@ import { TerminalPanel } from "../../terminal/TerminalPanel";
 import { TerminalProvider } from "../../terminal/TerminalProvider";
 import { a11yProblems } from "../../test/a11y";
 import { session } from "../../test/agentFixtures";
-import { aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
+import { AI_TOOL_IDS, aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { RuntimesView } from "../../views/RuntimesView";
 import { firstSentence, isNewerVersion, planLeft, planWindowName } from "./words";
@@ -134,7 +134,7 @@ function agents(update: AgentUpdate) {
   act(() => agentListeners.forEach((h) => h(update)));
 }
 
-/** The five AI tools, as their checks say. */
+/** The six AI tools, as their checks say. */
 function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentRuntimeInfo[] {
   return [
     aiRuntime("claude-code", "2.1.283", patch["claude-code"]),
@@ -142,19 +142,18 @@ function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentR
     aiRuntime("grok", "1.0.41", patch.grok),
     aiRuntime("kimi", "0.34.0", patch.kimi),
     aiRuntime("ollama", "0.34.4", patch.ollama),
+    aiRuntime("antigravity", "1.2.13", patch.antigravity),
   ];
 }
 
 function page(patch: Record<string, Parameters<typeof aiTool>[1]> = {}): AiToolsPage {
-  return aiPage(
-    ["claude-code", "codex", "grok", "kimi", "ollama"].map((id) => aiTool(id, patch[id])),
-  );
+  return aiPage(AI_TOOL_IDS.map((id) => aiTool(id, patch[id])));
 }
 
 function routing(patch: Record<string, Parameters<typeof route>[1]> = {}) {
   return {
     ...sampleRouting(),
-    tools: ["claude-code", "codex", "grok", "kimi", "ollama"].map((id) => route(id, patch[id])),
+    tools: AI_TOOL_IDS.map((id) => route(id, patch[id])),
   };
 }
 
@@ -257,6 +256,7 @@ describe("the AI tools page: signing in (ADR-058)", () => {
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         grok: { auth: { state: "signedOut", method: null, detail: null }, ready: false },
+        antigravity: { auth: { state: "signedOut", method: null, detail: null }, ready: false },
         ollama: {
           installation: {
             state: "notInstalled",
@@ -293,6 +293,17 @@ describe("the AI tools page: signing in (ADR-058)", () => {
     expect(within(kimi).getByRole("button", { name: "Reconnect Kimi" })).toBeEnabled();
     expect(within(kimi).queryByRole("button", { name: "Sign out of Kimi" })).toBeNull();
     expect(within(kimi).getByText("Kimi has no sign-out command.")).toBeInTheDocument();
+    // Antigravity signs in when started on its own (ADR-082), and has no sign-out command.
+    const antigravity = card("Antigravity");
+    expect(
+      within(antigravity).getByRole("button", { name: "Sign in to Antigravity" }),
+    ).toBeEnabled();
+    expect(antigravity).toHaveTextContent(
+      "Opens a tab at the bottom that runs agy. You sign in there, and in your browser; Plenipo never sees it.",
+    );
+    expect(
+      within(antigravity).queryByRole("button", { name: "Sign out of Antigravity" }),
+    ).toBeNull();
     // Not installed: the button is there, off, with the reason.
     const ollama = card("Ollama");
     expect(within(ollama).getByRole("button", { name: "Sign in to Ollama" })).toBeDisabled();
@@ -749,7 +760,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     const switches = screen.getAllByRole("switch", {
       name: /^Paid AI key for .+ \(pay per use\)$/,
     });
-    expect(switches).toHaveLength(5);
+    expect(switches).toHaveLength(AI_TOOL_IDS.length);
     const codexKey = within(card("Codex")).getByRole("switch", {
       name: "Paid AI key for Codex (pay per use)",
     });
@@ -1057,7 +1068,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
         .getAllByRole("listitem")
         .find((i) => i.textContent?.startsWith(label))!;
     expect(item("GPT-6-Sol")).toHaveTextContent(
-      "GPT-6-Sol gpt-6-sol · Effort: Low, Medium, High, Extra high, Max, Ultra",
+      "GPT-6-Sol gpt-6-sol · made by OpenAI · Effort: Low, Medium, High, Extra high, Max, Ultra",
     );
     expect(item("GPT-6-Sol")).not.toHaveTextContent("not offered");
     expect(item("GPT-6-Luna")).toHaveTextContent("not offered by this version");
@@ -1078,6 +1089,83 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     expect(kimi).toHaveTextContent(
       "Asking Kimi for its models leaves an empty conversation in Kimi's own history, so Plenipo asks only after an update and when you press Check again.",
     );
+  });
+  it("names the exact model a short name points to now, and who made each of Ollama's models (ADR-081)", async () => {
+    const anthropic = { id: "anthropic", label: "Anthropic" };
+    const deepseek = { id: "deepseek", label: "DeepSeek" };
+    const claudeCaps = aiRuntime("claude-code", "2.1.283").capabilities;
+    const ollamaCaps = aiRuntime("ollama", "0.34.4").capabilities;
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        "claude-code": {
+          capabilities: {
+            ...claudeCaps,
+            knownModels: [
+              {
+                name: "opus",
+                label: "Opus",
+                effortLevels: ["low", "high"],
+                maker: anthropic,
+                pointsTo: "claude-opus-5-5",
+              },
+              {
+                name: "claude-opus-5-5",
+                label: "Opus 5.5",
+                effortLevels: ["low", "high"],
+                maker: anthropic,
+              },
+            ],
+          },
+        },
+        ollama: {
+          capabilities: {
+            ...ollamaCaps,
+            knownModels: [
+              {
+                name: "deepseek-v4-pro:cloud",
+                label: "DeepSeek V4 Pro",
+                effortLevels: [],
+                maker: deepseek,
+              },
+            ],
+          },
+        },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    api.getRouting.mockResolvedValue(
+      routing({
+        ollama: {
+          newModels: [{ name: "mystery:cloud", label: "mystery:cloud", effortLevels: [] }],
+        },
+      }),
+    );
+    await show();
+    const user = userEvent.setup();
+    const claude = card("Claude Code");
+    await user.click(within(claude).getByRole("tab", { name: "Models" }));
+    const claudeModels = within(claude).getByRole("list", { name: "Claude Code's models" });
+    expect(
+      within(claudeModels)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      // Each says who made it; a short name also says what it is now.
+      "Opus opus · now Opus 5.5 · made by Anthropic · Effort: Low, High",
+      "Opus 5.5 claude-opus-5-5 · made by Anthropic · Effort: Low, High",
+    ]);
+    const ollama = card("Ollama");
+    await user.click(within(ollama).getByRole("tab", { name: "Models" }));
+    const ollamaModels = within(ollama).getByRole("list", { name: "Ollama's models" });
+    expect(
+      within(ollamaModels)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      "DeepSeek V4 Pro deepseek-v4-pro:cloud · made by DeepSeek · No effort setting",
+      "mystery:cloud · who made it is not known · No effort setting new — not checked yet",
+    ]);
   });
 });
 

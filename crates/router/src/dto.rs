@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use plenipo_runtime::agent::{AuthState, Effort, KnownModel};
+use plenipo_runtime::agent::{AuthState, Effort, KnownModel, Maker};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -108,6 +108,11 @@ pub struct ModelInfo {
     /// One per AI tool, added by Plenipo; it can be edited but not removed.
     #[serde(default)]
     pub built_in: bool,
+    /// Who made it (ADR-081 §2), worked out from its AI tool's list for the screens; absent:
+    /// not known. Never saved: only a snapshot fills it in, and routing works it out itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub maker: Option<Maker>,
 }
 
 /// Add a model (`id` absent) or change one.
@@ -293,6 +298,10 @@ pub struct ToolInfo {
     /// Checked models the AI tool no longer lists (only when its list is complete): "not offered
     /// by this version".
     pub unlisted_models: Vec<String>,
+    /// It runs other companies' models too, so each of its models says who made it on screen
+    /// (ADR-081 §6).
+    #[serde(default)]
+    pub runs_other_makers: bool,
 }
 
 impl ToolInfo {
@@ -309,6 +318,14 @@ impl ToolInfo {
             .iter()
             .filter(|m| !known.iter().any(|k| k.name == m.name))
             .cloned()
+            .map(|mut m| {
+                // Who made it, when Plenipo can tell (ADR-081 §2): a tool that runs only its
+                // own company's models made this one too.
+                if m.maker.is_none() {
+                    m.maker = crate::makers::maker_of(info, Some(&m.name));
+                }
+                m
+            })
             .collect();
         let unlisted = if reported.complete {
             known
@@ -361,6 +378,10 @@ pub struct RouteChoice {
     pub effort: Option<Effort>,
     /// e.g. "Opus (Claude Code)".
     pub label: String,
+    /// Who made the model (ADR-081); absent: not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub maker: Option<Maker>,
 }
 
 /// The router's decision and its reasons.
@@ -430,6 +451,9 @@ pub struct RoutingSnapshot {
     /// The agents that have a rule of their own.
     pub agents: Vec<AgentRuleView>,
     pub seen: Vec<ModelSeen>,
+    /// Every AI company this version knows, by name: the AI tools' and the makers of the models
+    /// they list (ADR-081 §5). "AI companies never to use" offers these.
+    pub companies: Vec<Maker>,
     pub options: RoutingOptions,
     /// Pay-per-use API billing (always off in this version; ADR-007).
     pub api_billing: bool,
@@ -476,6 +500,8 @@ mod reported_models_tests {
                     KnownModel::new("grok-4.7", "Grok 4.7", &[Effort::Low]),
                     KnownModel::new("grok-4.5", "Grok 4.5", &[Effort::Low]),
                 ],
+                default_maker: None,
+                runs_other_makers: false,
             },
             install_hint: String::new(),
             login_hint: String::new(),
@@ -500,9 +526,10 @@ mod reported_models_tests {
             checked_at: 1,
         };
         let (new, unlisted) = ToolInfo::reported(&info(Some(reported.clone())));
+        // Grok runs only xAI's models, so a new one is xAI's too (ADR-081 §2).
         assert_eq!(
             new,
-            vec![KnownModel::new("grok-5", "Grok 5", &[Effort::High])]
+            vec![KnownModel::new("grok-5", "Grok 5", &[Effort::High]).by(("xai", "xAI"))]
         );
         assert_eq!(unlisted, vec!["grok-4.5".to_owned()]);
         // A list of only some models (Ollama's, of this PC) never says one is gone.

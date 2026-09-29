@@ -155,6 +155,11 @@ pub trait TurnParser: Send {
     fn open(&mut self, _prompt: &str) -> Option<Vec<String>> {
         None
     }
+    /// All of stdin for a task that does not talk ([`Self::open`] is `None`): the prompt itself
+    /// by default. Antigravity reads it as one JSON message (ADR-082).
+    fn input(&mut self, prompt: String) -> String {
+        prompt
+    }
     /// Lines that ask the AI tool to stop the task before Plenipo ends the process (ADR-015
     /// §7). Empty (the default): the process tree is ended right away.
     fn cancel(&mut self) -> Vec<String> {
@@ -230,6 +235,15 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn passthrough_env(&self) -> Vec<&'static str>;
     /// Variables Plenipo sets for this runtime's processes.
     fn fixed_env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// Settings files the AI tool reads from its home folder (ADR-082): each file's place in
+    /// that folder and its contents. Not empty: the tool gets a home folder of its own, kept by
+    /// Plenipo, where these files are written afresh before each run, and every process of the
+    /// tool (its checks, tasks, sign-in, and update) has its home folder variable
+    /// (`USERPROFILE` on Windows, `HOME` elsewhere) pointed there, so none of the owner's own
+    /// settings for the tool apply. Never credentials.
+    fn own_home(&self) -> Vec<(&'static str, String)> {
         Vec::new()
     }
 

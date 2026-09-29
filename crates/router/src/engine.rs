@@ -9,10 +9,13 @@
 //! 1. **Candidates.** The closest layer's models in its order (first choice, then the backups);
 //!    without a list anywhere, every registered model, cheapest or dearest first as the role
 //!    prefers.
-//! 2. **Cross-company review.** When the worker reviews work done by some AI companies and the
-//!    role prefers another company, models from other companies go first; when it requires
-//!    one, models from the same companies are skipped.
-//! 3. **Checks, per model:** its AI tool exists; its company is on no layer's never-use list;
+//! 2. **Cross-company review,** by who made the models (ADR-081 §3): when the worker reviews
+//!    work made by some AI companies and the role prefers another company, models by other
+//!    companies go first; when it requires one, models by the same companies are skipped. A
+//!    model whose maker is not known, or work by one, is never counted as another company's
+//!    (ADR-081 §7).
+//! 3. **Checks, per model:** its AI tool exists; neither its AI tool's company nor the company
+//!    that made it is on a layer's never-use list (ADR-081 §5);
 //!    the project allows the tool; it can do what the role needs and takes enough
 //!    context; the tool is installed and signed in with a subscription (API-key sign-ins are
 //!    refused: pay-per-use billing is off); the tool is not at a usage limit.
@@ -25,10 +28,13 @@
 
 use std::collections::BTreeMap;
 
-use plenipo_runtime::agent::{AgentRuntimeInfo, AuthState, Effort, InstallState};
+use plenipo_runtime::agent::{
+    AgentRuntimeInfo, AuthState, Effort, InstallState, Maker, WorkDoneBy,
+};
 
 use crate::dto::*;
 use crate::limits::duration_words;
+use crate::makers::maker_of;
 
 /// One AI tool as the router sees it: detection state and any usage limit.
 #[derive(Debug, Clone)]
@@ -63,8 +69,8 @@ pub struct RouteInput<'a> {
     pub tools: &'a [ToolState],
     /// When the work belongs to a project: its name and allowed runtimes.
     pub project: Option<(&'a str, &'a [String])>,
-    /// Runtimes whose work this worker reviews (for cross-company review).
-    pub reviewed: &'a [String],
+    /// The work this worker reviews: each AI tool and the model it ran (cross-company review).
+    pub reviewed: &'a [WorkDoneBy],
     pub on_limit: LimitBehavior,
     pub now: u64,
 }
@@ -228,6 +234,16 @@ pub fn never_by(layers: &[Layer<'_>], company: &str) -> Option<String> {
         .map(|l| l.source.name.clone())
 }
 
+/// The closest layer that names an AI company never to use, other than `company` (a model's AI
+/// tool's own, checked on its own): who sets it. A model whose maker is not known could have
+/// been made by any of them.
+pub fn never_other_than(layers: &[Layer<'_>], company: &str) -> Option<String> {
+    layers
+        .iter()
+        .find(|l| l.never.iter().any(|c| c != company))
+        .map(|l| l.source.name.clone())
+}
+
 /// The effort for model `model_id` (`""` for a model not in the owner's list): from the closest
 /// layer that sets one it takes, else its own setting. Also the first level set for it that it
 /// does not take, and by whom, to say so.
@@ -306,7 +322,9 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     let policy = input.policy;
     let layers = layers(input);
     let tool = |id: &str| input.tools.iter().find(|t| t.info.id == id);
-    let company = |m: &ModelInfo| tool(&m.runtime_id).map(|t| t.info.provider.as_str());
+    // Who made a model in the owner's list (`None`: not known).
+    let maker =
+        |m: &ModelInfo| tool(&m.runtime_id).and_then(|t| maker_of(&t.info, m.name.as_deref()));
 
     // 1. Candidates: the closest layer's list, else the whole registry.
     let listing = layers.iter().find(|l| !l.models.is_empty());
@@ -336,29 +354,48 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             .collect()
     };
 
-    // 2. Cross-company review.
-    let mut reviewed: Vec<(&str, &str)> = Vec::new();
-    for t in input.reviewed.iter().filter_map(|r| tool(r)) {
-        let c = (t.info.provider.as_str(), t.info.provider_label.as_str());
-        if !reviewed.contains(&c) {
-            reviewed.push(c);
+    // 2. Cross-company review, by who made the models (ADR-081 §3).
+    let mut reviewed: Vec<Maker> = Vec::new();
+    let mut reviewed_unknown = false;
+    for w in input.reviewed {
+        let Some(t) = tool(&w.runtime_id) else {
+            continue;
+        };
+        let made = if w.model_unread && t.info.capabilities.runs_other_makers {
+            None
+        } else {
+            maker_of(&t.info, w.model.as_deref())
+        };
+        match made {
+            Some(m) if !reviewed.iter().any(|r| r.id == m.id) => reviewed.push(m),
+            Some(_) => {}
+            None => reviewed_unknown = true,
         }
     }
-    let cross = if reviewed.is_empty() {
+    let cross = if reviewed.is_empty() && !reviewed_unknown {
         CrossCompany::Off
     } else {
         policy.cross_company
     };
-    let reviewed_names = list(
-        &reviewed
-            .iter()
-            .map(|(_, l)| (*l).to_owned())
-            .collect::<Vec<_>>(),
-    );
-    let same_company =
-        |m: &ModelInfo| company(m).is_some_and(|c| reviewed.iter().any(|(r, _)| *r == c));
+    let mut names: Vec<String> = reviewed.iter().map(|m| m.label.clone()).collect();
+    if reviewed_unknown {
+        names.push("an AI company Plenipo doesn't know".into());
+    }
+    let reviewed_names = list(&names);
+    // Could be the same company as the work it reviews. A model whose maker is not known, and
+    // work by one, can never be told apart, so they count as the same (ADR-081 §7).
+    let same_company = |m: &ModelInfo| match maker(m) {
+        None => true,
+        Some(made) => reviewed_unknown || reviewed.iter().any(|r| r.id == made.id),
+    };
     if cross == CrossCompany::Prefer {
-        candidates.sort_by_key(|c| c.model.is_some_and(same_company));
+        // Another company first, then the same one, and a model whose maker is not known last
+        // (ADR-081 §7).
+        candidates.sort_by_key(|c| match c.model {
+            Some(m) if maker(m).is_none() => 2,
+            Some(m) if same_company(m) => 1,
+            _ => 0,
+        });
     }
 
     // 3–5. Checks.
@@ -402,8 +439,24 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             continue;
         };
         let info = &t.info;
+        let made_by = maker(m);
         let skip = if let Some(who) = never_by(&layers, &info.provider) {
             Some(format!("{who} never uses {}", info.provider_label))
+        } else if let Some((who, made)) = made_by
+            .as_ref()
+            .filter(|made| made.id != info.provider)
+            .and_then(|made| never_by(&layers, &made.id).map(|who| (who, made)))
+        {
+            Some(format!("{who} never uses {}, which made it", made.label))
+        } else if let Some(who) = made_by
+            .is_none()
+            .then(|| never_other_than(&layers, &info.provider))
+            .flatten()
+        {
+            // It could have been made by a company on the list (ADR-081 §7: play it safe).
+            Some(format!(
+                "{who} has AI companies never to use, and who made this model is not known"
+            ))
         } else if let Some((name, _)) = input
             .project
             .filter(|(_, allowed)| !allowed.contains(&info.id))
@@ -426,10 +479,24 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 ),
             })
         } else if cross == CrossCompany::Require && same_company(m) {
-            Some(format!(
-                "{} needs a different AI company than the work it reviews ({reviewed_names})",
-                input.role
-            ))
+            Some(if made_by.is_none() {
+                format!(
+                    "{} needs a different AI company than the work it reviews \
+                     ({reviewed_names}), and who made this model is not known",
+                    input.role
+                )
+            } else if reviewed_unknown {
+                format!(
+                    "{} needs a different AI company than the work it reviews \
+                     ({reviewed_names}), and who made that work is not known",
+                    input.role
+                )
+            } else {
+                format!(
+                    "{} needs a different AI company than the work it reviews ({reviewed_names})",
+                    input.role
+                )
+            })
         } else if let Some(why) = not_ready(info) {
             Some(why)
         } else if let Some(limit) = &t.limit {
@@ -463,6 +530,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                         model: m.name.clone(),
                         effort,
                         label: label.clone(),
+                        maker: made_by.clone(),
                     },
                     c.rank,
                 ));
@@ -513,11 +581,24 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 &choice.label,
             ));
             if cross != CrossCompany::Off {
-                let other = !reviewed.iter().any(|(c, _)| *c == choice.company);
+                let other = choice.maker.as_ref().is_some_and(|made| {
+                    !reviewed_unknown && !reviewed.iter().any(|r| r.id == made.id)
+                });
                 if other {
                     reason.push_str(&format!(
                         " It comes from a different AI company than the work it reviews \
                          ({reviewed_names})."
+                    ));
+                } else if choice.maker.is_none() || reviewed_unknown {
+                    reason.push_str(&format!(
+                        " Plenipo cannot tell whether it comes from a different AI company than \
+                         the work it reviews ({reviewed_names}), because who made {} is not \
+                         known.",
+                        if choice.maker.is_none() {
+                            "it"
+                        } else {
+                            "that work"
+                        }
                     ));
                 } else {
                     reason.push_str(&format!(
@@ -623,6 +704,8 @@ mod tests {
                     tool_posture: String::new(),
                     effort_levels: vec![Effort::Low, Effort::High],
                     known_models: vec![KnownModel::new("sonnet", "Sonnet", &[])],
+                    default_maker: None,
+                    runs_other_makers: false,
                 },
                 install_hint: String::new(),
                 login_hint: String::new(),
@@ -648,6 +731,7 @@ mod tests {
             cost: CostClass::Standard,
             effort: None,
             built_in: false,
+            maker: None,
         }
     }
 
@@ -678,6 +762,8 @@ mod tests {
         reviewed: &[String],
         on_limit: LimitBehavior,
     ) -> RouteDecision {
+        // The work under review, on each AI tool's default model.
+        let reviewed: Vec<WorkDoneBy> = reviewed.iter().map(|r| WorkDoneBy::new(r, None)).collect();
         route(&RouteInput {
             role: "Senior Developer",
             role_id: "dev",
@@ -688,7 +774,7 @@ mod tests {
             models: &w.models,
             tools: &w.tools,
             project,
-            reviewed,
+            reviewed: &reviewed,
             on_limit,
             now: NOW,
         })
@@ -1224,6 +1310,218 @@ mod tests {
         assert_eq!(
             d.candidates[1].note,
             "the Development department never uses ACME"
+        );
+    }
+
+    // ---- Who made each model (ADR-081) -------------------------------------------------------
+
+    /// Kimi (only Moonshot AI's models) and an Ollama-like AI tool that runs other companies'
+    /// models: Kimi K3 (Moonshot AI), DeepSeek V4 Pro (DeepSeek), GLM-5.3 (Z.ai), gpt-oss
+    /// (OpenAI, its default).
+    fn makers_world() -> World {
+        use plenipo_runtime::agent::makers;
+        let mut kimi = tool("kimi", "moonshot");
+        kimi.info.provider_label = "Moonshot AI".into();
+        kimi.info.capabilities.known_models =
+            vec![KnownModel::new("kimi-code/k3", "K3", &[]).by(makers::MOONSHOT)];
+        let mut ollama = tool("ollama", "ollama");
+        ollama.info.provider_label = "Ollama".into();
+        ollama.info.capabilities.runs_other_makers = true;
+        ollama.info.capabilities.default_maker =
+            Some(Maker::new(makers::OPENAI.0, makers::OPENAI.1));
+        ollama.info.capabilities.known_models = vec![
+            KnownModel::new("gpt-oss", "gpt-oss", &[]).by(makers::OPENAI),
+            KnownModel::new("kimi-k3:cloud", "Kimi K3", &[]).by(makers::MOONSHOT),
+            KnownModel::new("deepseek-v4-pro:cloud", "DeepSeek V4 Pro", &[]).by(makers::DEEPSEEK),
+            KnownModel::new("glm-5.3:cloud", "GLM-5.3", &[]).by(makers::ZAI),
+        ];
+        let m = |id: &str, runtime: &str, name: &str, label: &str| {
+            let mut x = model(id, runtime, label);
+            x.name = Some(name.into());
+            x
+        };
+        World {
+            models: vec![
+                m("k3-on-ollama", "ollama", "kimi-k3:cloud", "Kimi K3"),
+                m(
+                    "deepseek",
+                    "ollama",
+                    "deepseek-v4-pro:cloud",
+                    "DeepSeek V4 Pro",
+                ),
+                m("glm", "ollama", "glm-5.3:cloud", "GLM-5.3"),
+                m("mystery", "ollama", "llama9:cloud", "Llama 9"),
+                m("gpt-oss", "ollama", "gpt-oss", "gpt-oss"),
+            ],
+            tools: vec![kimi, ollama],
+        }
+    }
+
+    fn review(w: &World, policy: &RolePolicy, reviewed: &[WorkDoneBy]) -> RouteDecision {
+        route(&RouteInput {
+            role: "Code Reviewer",
+            role_id: "reviewer",
+            policy,
+            agent: None,
+            department: None,
+            organization: None,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed,
+            on_limit: LimitBehavior::Wait,
+            now: NOW,
+        })
+    }
+
+    fn requiring(ids: &[&str]) -> RolePolicy {
+        RolePolicy {
+            cross_company: CrossCompany::Require,
+            ..prefer(ids)
+        }
+    }
+
+    #[test]
+    fn the_same_maker_on_two_ai_tools_counts_as_one_company() {
+        let w = makers_world();
+        // Work done by K3 on Kimi; Kimi K3 on Ollama is the same company (Moonshot AI).
+        let reviewed = [WorkDoneBy::new("kimi", Some("kimi-code/k3"))];
+        let d = review(&w, &requiring(&["k3-on-ollama", "deepseek"]), &reviewed);
+        assert_eq!(chosen(&d), Some("deepseek"));
+        assert!(d.candidates[0]
+            .note
+            .contains("needs a different AI company than the work it reviews (Moonshot AI)"));
+        assert!(d.reason.ends_with(
+            "It comes from a different AI company than the work it reviews (Moonshot AI)."
+        ));
+        assert_eq!(d.choice.unwrap().maker.unwrap().label, "DeepSeek");
+        // Before ADR-081, both counted by their AI tool (Moonshot AI and Ollama), so Kimi K3 on
+        // Ollama would have reviewed Moonshot AI's own work.
+    }
+
+    #[test]
+    fn two_makers_inside_ollama_count_as_two() {
+        let w = makers_world();
+        // DeepSeek's work, reviewed by Z.ai's GLM: both on Ollama, two companies.
+        let reviewed = [WorkDoneBy::new("ollama", Some("deepseek-v4-pro:cloud"))];
+        let d = review(&w, &requiring(&["deepseek", "glm"]), &reviewed);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert!(d.reason.contains("(DeepSeek)"));
+        // Ollama's default (gpt-oss) is OpenAI's, so it may review DeepSeek's work too.
+        let d = review(
+            &w,
+            &requiring(&["gpt-oss"]),
+            &[WorkDoneBy::new("ollama", Some("deepseek-v4-pro:cloud"))],
+        );
+        assert_eq!(chosen(&d), Some("gpt-oss"));
+    }
+
+    #[test]
+    fn a_model_whose_maker_is_not_known_plays_safe() {
+        let w = makers_world();
+        let deepseek_work = [WorkDoneBy::new("ollama", Some("deepseek-v4-pro:cloud"))];
+        // Require: a model nobody is known to have made is never "another company".
+        let d = review(&w, &requiring(&["mystery", "glm"]), &deepseek_work);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert!(d.candidates[0]
+            .note
+            .contains("who made this model is not known"));
+        // Work whose model Plenipo could not read: on Ollama, not known; on Kimi, still Moonshot
+        // AI's (it runs only its own company's models).
+        let d = review(&w, &requiring(&["glm"]), &[WorkDoneBy::unread("ollama")]);
+        assert_eq!(chosen(&d), None);
+        let d = review(&w, &requiring(&["glm"]), &[WorkDoneBy::unread("kimi")]);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert!(d.reason.contains("(Moonshot AI)"), "{}", d.reason);
+        // Work done by such a model: nothing can be told apart from it, so nobody reviews it,
+        // and the reason says why.
+        let mystery_work = [WorkDoneBy::new("ollama", Some("llama9:cloud"))];
+        let d = review(&w, &requiring(&["glm", "deepseek"]), &mystery_work);
+        assert_eq!(chosen(&d), None);
+        assert_eq!(
+            d.candidates[0].note,
+            "Code Reviewer needs a different AI company than the work it reviews (an AI company \
+             Plenipo doesn't know), and who made that work is not known"
+        );
+        // Known and unknown work together: the known company is still named.
+        let both = [
+            WorkDoneBy::new("ollama", Some("deepseek-v4-pro:cloud")),
+            WorkDoneBy::new("ollama", Some("llama9:cloud")),
+        ];
+        let d = review(&w, &requiring(&["glm"]), &both);
+        assert!(d.candidates[0]
+            .note
+            .contains("(DeepSeek and an AI company Plenipo doesn't know)"));
+        // Prefer: known other companies first, then the same company, the unknown one last,
+        // and the reason is honest.
+        let preferring = RolePolicy {
+            cross_company: CrossCompany::Prefer,
+            ..prefer(&["mystery", "glm"])
+        };
+        let d = review(&w, &preferring, &deepseek_work);
+        assert_eq!(chosen(&d), Some("glm"));
+        let d = review(&w, &preferring, &mystery_work);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert!(d
+            .reason
+            .contains("Plenipo cannot tell whether it comes from a different AI company"));
+        // Moonshot AI's work: its own K3 on Ollama comes before a model nobody is known to have
+        // made (ADR-081 §7: the unknown one last).
+        let kimi_work = [WorkDoneBy::new("kimi", Some("kimi-code/k3"))];
+        let preferring = RolePolicy {
+            cross_company: CrossCompany::Prefer,
+            ..prefer(&["mystery", "k3-on-ollama"])
+        };
+        let d = review(&w, &preferring, &kimi_work);
+        assert_eq!(chosen(&d), Some("k3-on-ollama"));
+        // The words on screen never say "maker".
+        for d in [
+            review(&w, &preferring, &kimi_work),
+            review(&w, &requiring(&["mystery", "glm"]), &mystery_work),
+            review(&w, &requiring(&["glm"]), &both),
+        ] {
+            let shown = std::iter::once(d.reason.clone())
+                .chain(d.candidates.iter().map(|c| c.note.clone()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(!shown.to_lowercase().contains("maker"), "{shown}");
+        }
+    }
+
+    #[test]
+    fn a_company_never_to_use_is_skipped_as_the_maker_too() {
+        let w = makers_world();
+        let policy = RolePolicy {
+            never_companies: vec!["openai".into()],
+            ..prefer(&["gpt-oss", "glm"])
+        };
+        let d = review(&w, &policy, &[]);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert_eq!(
+            d.candidates[0].note,
+            "Code Reviewer never uses OpenAI, which made it"
+        );
+        // The AI tool's company still counts on its own.
+        let policy = RolePolicy {
+            never_companies: vec!["ollama".into()],
+            ..prefer(&["glm"])
+        };
+        assert_eq!(chosen(&review(&w, &policy, &[])), None);
+        // A model whose maker is not known could be DeepSeek's: skipped too (play it safe).
+        let policy = RolePolicy {
+            never_companies: vec!["deepseek".into()],
+            ..prefer(&["mystery", "glm"])
+        };
+        let d = review(&w, &policy, &[]);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert_eq!(
+            d.candidates[0].note,
+            "Code Reviewer has AI companies never to use, and who made this model is not known"
+        );
+        // Without such a list it may be used.
+        assert_eq!(
+            chosen(&review(&w, &prefer(&["mystery"]), &[])),
+            Some("mystery")
         );
     }
 }

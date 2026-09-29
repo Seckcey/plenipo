@@ -71,6 +71,11 @@ pub fn create<R: Runtime>(
         ),
     };
     let mut config = AgentConfig::new(workspace_root);
+    // AI tools with a settings folder of their own keep it beside the workspaces (ADR-082);
+    // a folder only Plenipo uses, even when the app data folder is not found.
+    if config.tool_homes.parent() == Some(std::env::temp_dir().as_path()) {
+        config.tool_homes = std::env::temp_dir().join("plenipo-ai-tool-homes");
+    }
     // Plenipo itself is the Ollama bridge (ADR-017): `main` runs it before Tauri starts.
     config.bridge = std::env::current_exe().ok().map(|executable| Bridge {
         executable,

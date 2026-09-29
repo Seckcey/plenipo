@@ -106,6 +106,63 @@ fn known_models_are_valid_distinct_and_within_the_tools_effort_levels() {
     }
 }
 
+/// Every model an AI tool lists says who made it (ADR-081 §1): one name per company across all
+/// AI tools, the same as an AI tool's company name when the IDs match; a tool that runs only its
+/// own company's models lists only models its company made; and a name that points to the
+/// newest model points to one that is listed too.
+#[test]
+fn every_listed_model_says_who_made_it() {
+    let adapters = builtin_adapters();
+    let mut names: BTreeMap<String, String> = adapters
+        .iter()
+        .map(|a| (a.provider().to_owned(), a.provider_label().to_owned()))
+        .collect();
+    for a in &adapters {
+        let id = a.id();
+        let caps = a.capabilities();
+        for m in &caps.known_models {
+            let maker = m
+                .maker
+                .as_ref()
+                .unwrap_or_else(|| panic!("{id}: {} says nobody made it", m.name));
+            assert!(
+                !maker.id.trim().is_empty() && !maker.label.trim().is_empty(),
+                "{id}: {} has an empty maker",
+                m.name
+            );
+            let name = names
+                .entry(maker.id.clone())
+                .or_insert_with(|| maker.label.clone());
+            assert_eq!(
+                *name, maker.label,
+                "{id}: company {} has two names",
+                maker.id
+            );
+            if !caps.runs_other_makers {
+                assert_eq!(
+                    maker.id,
+                    a.provider(),
+                    "{id} runs only its own company's models, but {} is by {}",
+                    m.name,
+                    maker.label
+                );
+            }
+            if let Some(exact) = &m.points_to {
+                assert!(
+                    caps.known_models.iter().any(|k| &k.name == exact),
+                    "{id}: {} points to {exact}, which is not listed",
+                    m.name
+                );
+            }
+        }
+        // Its default model's maker, when it says (ADR-081 §2): its own company, for an AI tool
+        // that runs only its own company's models. Not saying is allowed: not known.
+        if let (false, Some(d)) = (caps.runs_other_makers, &caps.default_maker) {
+            assert_eq!(d.id, a.provider(), "{id}'s default is by {}", d.label);
+        }
+    }
+}
+
 // ---- Launch: arguments and environment --------------------------------------------------------
 
 /// Every shape of turn: new (with and without an ID Plenipo chose) and resumed, with the
@@ -544,6 +601,113 @@ async fn prompts_go_on_stdin_and_limits_and_sign_in_errors_are_normalized() {
     }
 }
 
+/// Antigravity runs with a home folder of its own that holds Plenipo's settings for it, written
+/// again before each run, never with the owner's (ADR-082 §4). As in the app: the tests choose
+/// no home folder for the AI tools here.
+#[tokio::test]
+async fn antigravity_runs_with_a_home_folder_of_its_own() {
+    let fakes = Fakes::with("subscription", |c| c.extra_env.clear());
+    let own = fakes.dir.path().join("ai-tool-homes").join("antigravity");
+    let settings = own
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("settings.json");
+    let read = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap()
+    };
+    let program = fakes.rt.tool_program("antigravity").unwrap();
+    let homes: Vec<&(String, String)> = program.env.iter().filter(|(k, _)| k == HOME_VAR).collect();
+    assert_eq!(homes, [&(HOME_VAR.to_owned(), own.display().to_string())]);
+    let written = || std::fs::read_to_string(&settings).unwrap();
+    assert_eq!(
+        written(),
+        plenipo_runtime::agent::antigravity::SETTINGS_TEXT
+    );
+    assert_eq!(read()["toolPermission"], "strict");
+    // Paid AI credits turned on by hand: put back before the check.
+    std::fs::write(&settings, r#"{"useG1Credits": true}"#).unwrap();
+    let (_, info) = fakes.rt.recheck("antigravity").await.unwrap();
+    assert_eq!(info.auth.state, AuthState::Subscription, "{info:#?}");
+    assert!(read().get("useG1Credits").is_none());
+    // The owner's own home folder is never touched.
+    assert!(!fakes.dir.path().join("home").join(".gemini").exists());
+
+    // ... and before each task: the task reads Plenipo's settings, strict, so it runs.
+    std::fs::write(
+        &settings,
+        r#"{"useG1Credits": true, "toolPermission": "request-review"}"#,
+    )
+    .unwrap();
+    let (text, outcome) = run_antigravity(&fakes, "Hello [settings]").await;
+    assert_eq!(outcome, TurnOutcome::Completed, "{text:?}");
+    let text = text.unwrap();
+    assert!(
+        text.contains("Hello") && text.contains(r#""toolPermission":"strict""#),
+        "{text}"
+    );
+    assert!(!text.contains("useG1Credits"), "{text}");
+    assert_eq!(
+        written(),
+        plenipo_runtime::agent::antigravity::SETTINGS_TEXT
+    );
+    // One of its own tools refused: the task goes on. One that finished: stopped.
+    let (_, outcome) = run_antigravity(&fakes, "Look around [refused-tool]").await;
+    assert_eq!(outcome, TurnOutcome::Completed);
+    let (_, outcome) = run_antigravity(&fakes, "Search [own-tool]").await;
+    assert_eq!(outcome, TurnOutcome::Failed);
+    // Its sign-in check and tasks never get a key or its self-update.
+    let env =
+        std::fs::read_to_string(own.join(".plenipo-fake-agent").join("last-env.txt")).unwrap();
+    assert!(
+        env.lines().any(|n| n == "AGY_CLI_DISABLE_AUTO_UPDATE"),
+        "{env}"
+    );
+    assert!(
+        !env.lines()
+            .any(|n| n.contains("KEY") || n.starts_with("GEMINI")),
+        "{env}"
+    );
+
+    // Settings that cannot be written: the check says why, and no task runs.
+    std::fs::remove_file(&settings).unwrap();
+    std::fs::create_dir_all(settings.join("in-the-way")).unwrap();
+    let (_, info) = fakes.rt.recheck("antigravity").await.unwrap();
+    assert_eq!(info.installation.state, InstallState::Broken, "{info:#?}");
+    assert!(!info.ready);
+    let detail = info.installation.detail.unwrap_or_default();
+    assert!(
+        detail.contains("could not prepare Antigravity's own settings folder"),
+        "{detail}"
+    );
+    assert!(fakes
+        .rt
+        .start_session("antigravity", "Hello", None)
+        .await
+        .is_err());
+}
+
+/// Run one Antigravity task on `fakes` (whose home folder is Antigravity's own) to its end.
+async fn run_antigravity(fakes: &Fakes, objective: &str) -> (Option<String>, TurnOutcome) {
+    let id = fakes
+        .rt
+        .start_session("antigravity", objective, None)
+        .await
+        .unwrap()
+        .session
+        .id;
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let detail = fakes.rt.session(&id).await.unwrap();
+        if let Some(result) = detail.turns.first().and_then(|t| t.result.clone()) {
+            if detail.session.active_task_id.is_none() {
+                return (result.text, result.outcome);
+            }
+        }
+        assert!(Instant::now() < deadline, "{detail:#?}");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------------
 
 /// Flags that would sign in, or update, for pay-per-use billing or with a secret.
@@ -560,7 +724,14 @@ fn every_ai_tool_signs_in_with_its_own_command_and_never_for_api_billing() {
         let sign_in = a
             .account_command(AccountAction::SignIn)
             .unwrap_or_else(|| panic!("{id}: every AI tool signs in with its own command"));
-        assert!(!sign_in.is_empty(), "{id}");
+        // No words at all: the tool started on its own is its sign-in (Antigravity: "Launch
+        // the CLI without arguments to sign in", ADR-082). Signing out always has words.
+        if sign_in.is_empty() {
+            assert_eq!(a.id(), "antigravity", "{id}: its sign-in has no command");
+        }
+        if let Some(sign_out) = a.account_command(AccountAction::SignOut) {
+            assert!(!sign_out.is_empty(), "{id}");
+        }
         for action in [AccountAction::SignIn, AccountAction::SignOut] {
             for arg in a.account_command(action).unwrap_or_default() {
                 assert!(!billing_flag(&arg), "{id}: {arg:?} changes what is billed");

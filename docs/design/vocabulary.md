@@ -90,6 +90,15 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | why this model                                                                 | routing explanation                                                    |
 | effort (how hard the model thinks)                                             | reasoning effort, thinking budget                                      |
 | the AI tool's models (e.g. Claude Code's)                                      | known models, model aliases, presets                                   |
+| Who made it (the AI company that made a model)                                 | maker, vendor, provider (for a model)                                  |
+| made by DeepSeek                                                               | vendor: deepseek, provider: deepseek                                   |
+| Group by: Who made it / AI tool                                                | group by maker, group by provider, group by runtime                    |
+| not known (who made a model)                                                   | unknown maker, null provider                                           |
+| now Opus 5.5 (what a name like "opus" points to now)                           | alias target, resolves to, snapshot                                    |
+| exact version (of a model, e.g. claude-opus-5-5)                               | pinned model, snapshot, model ID                                       |
+| Antigravity (Google's AI tool)                                                 | agy, Antigravity CLI, Jetski                                           |
+| paid AI credits                                                                | G1 credits, overage                                                    |
+| Antigravity's own settings folder                                              | isolated home, HOME override, sandbox profile                          |
 | Ultra (effort)                                                                 | ultra                                                                  |
 | Extra high (effort)                                                            | xhigh                                                                  |
 | working copy (of the project folder)                                           | worktree, git worktree                                                 |

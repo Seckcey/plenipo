@@ -162,6 +162,7 @@ impl RoutingConfig {
                     cost: CostClass::Standard,
                     effort: None,
                     built_in: true,
+                    maker: None,
                 };
                 self.models.push(m.clone());
                 added.push(m);
@@ -246,6 +247,7 @@ impl RoutingConfig {
             cost: input.cost,
             effort: input.effort,
             built_in: existing.is_some_and(|i| self.models[i].built_in),
+            maker: None,
         };
         // A role's or a rule's effort for this model must still suit it (its AI tool may be new).
         let levels: Vec<Effort> = tools

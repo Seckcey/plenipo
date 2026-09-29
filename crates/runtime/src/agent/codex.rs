@@ -20,8 +20,8 @@ use crate::agent::adapter::{
 use crate::agent::claude_code::epoch_ms;
 use crate::agent::discovery::{npm_target_triple, HostEnv};
 use crate::agent::dto::{
-    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, PlanReport,
-    PlanWindow, RuntimeCapabilities, TurnResult,
+    makers, AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel,
+    PlanReport, PlanWindow, RuntimeCapabilities, TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -92,9 +92,12 @@ impl RuntimeAdapter for Codex {
             // `codex exec -c model_reasoning_effort=<level>`: every level one of its models
             // accepts. Codex passes any value on, so Plenipo keeps to these.
             effort_levels: ULTRA.to_vec(),
-            // The models Codex's own model picker lists (Codex 0.157.1), in its order, with the
-            // effort levels each accepts.
+            // The models Codex's own model picker lists (Codex 0.159.0, its app server's
+            // `model/list` on the owner's PC), in its order, with the effort levels each accepts.
+            // Every Codex model is OpenAI's. Older models (GPT-5.4 and before) are refused on a
+            // ChatGPT sign-in, so none is listed (ADR-081 §9).
             known_models: vec![
+                KnownModel::new("gpt-6.1-sol", "GPT-6.1-Sol", ULTRA),
                 KnownModel::new("gpt-6-astra", "GPT-6-Astra", ULTRA),
                 KnownModel::new("gpt-6-sol", "GPT-6-Sol", ULTRA),
                 KnownModel::new("gpt-6-luna", "GPT-6-Luna", MAX),
@@ -102,12 +105,17 @@ impl RuntimeAdapter for Codex {
                 KnownModel::new("gpt-5.6-terra", "GPT-5.6-Terra", ULTRA),
                 KnownModel::new("gpt-5.6-luna", "GPT-5.6-Luna", MAX),
                 KnownModel::new("gpt-5.5", "GPT-5.5", XHIGH),
-            ],
+            ]
+            .into_iter()
+            .map(|m| m.by(makers::OPENAI))
+            .collect(),
+            default_maker: None,
+            runs_other_makers: false,
         }
     }
 
     fn checked_version(&self) -> &'static str {
-        "0.157.1"
+        "0.159.0"
     }
 
     fn install_hint(&self) -> &'static str {
@@ -407,6 +415,8 @@ fn parse_models(out: &ProbeOutput) -> Option<Vec<KnownModel>> {
                     name,
                     label,
                     effort_levels: efforts,
+                    maker: None,
+                    points_to: None,
                 })
             })
             .collect(),
@@ -904,7 +914,7 @@ mod tests {
     #[test]
     fn known_models_are_valid_names_within_codex_effort_levels() {
         let caps = Codex.capabilities();
-        assert_eq!(caps.known_models[0].name, "gpt-6-astra");
+        assert_eq!(caps.known_models[0].name, "gpt-6.1-sol");
         for m in &caps.known_models {
             assert_eq!(
                 crate::agent::service::validate_model(&m.name).unwrap(),

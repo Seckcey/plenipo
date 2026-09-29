@@ -131,6 +131,6 @@ script runners only for projects you trust.
 
 - Whatever the AI models themselves decide to write or say. Plenipo constrains what a worker
   _can do_, not what a model thinks.
-- Problems in Claude Code, Codex, Grok, Kimi, or Ollama themselves — report those to their
+- Problems in Claude Code, Codex, Grok, Kimi, Ollama, or Antigravity themselves — report those to their
   vendors.
 - Anything that needs an attacker to already be signed in as the owner on that Windows account.

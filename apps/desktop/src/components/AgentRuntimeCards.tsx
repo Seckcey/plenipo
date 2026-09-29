@@ -13,7 +13,7 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 import { Toggle } from "./SwitchSettings";
 
 /**
- * Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama) in one place (Phase 19): sign in, see its
+ * Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity) in one place (Phase 19): sign in, see its
  * usage, see how it is paid for, keep it up to date, and see its models. `focusId`: the tool whose
  * card to show (another page asked for it).
  */

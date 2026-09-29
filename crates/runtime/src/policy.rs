@@ -170,6 +170,16 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// PowerShell 7's module path breaks the older Windows PowerShell that some AI tools' own
+    /// updaters start (`codex update` runs OpenAI's installer in it: "Get-FileHash is not
+    /// recognized", seen on the owner's PC, Phase 16). Programs Plenipo starts never get it.
+    #[test]
+    fn programs_never_get_powershell_7s_module_path() {
+        assert!(!BASELINE_ENV
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("PSModulePath")));
+    }
+
     fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let allowed = dir.path().join("allowed.exe");

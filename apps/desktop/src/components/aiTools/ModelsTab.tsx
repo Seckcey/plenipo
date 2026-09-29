@@ -3,6 +3,7 @@ import type {
   AiToolsPage,
   AiToolState,
   KnownModel,
+  Maker,
   ToolInfo,
 } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
@@ -10,11 +11,24 @@ import { Button, StatusPill } from "@plenipo/ui";
 import { checkAiTool } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { when } from "../../pages/words";
-import { EFFORT_LABEL } from "../../routing/format";
+import { EFFORT_LABEL, madeByWords } from "../../routing/format";
 import { Refusal } from "../models/shared";
 
-/** "Opus (opus) · Effort: Low, Medium, High". */
-function ModelWords({ model }: { model: KnownModel }) {
+/**
+ * "Opus (opus) · now Opus 5.5 · made by Anthropic · Effort: Low, Medium, High" (ADR-081 §6, §8).
+ */
+function ModelWords({
+  model,
+  listed,
+  unlisted,
+}: {
+  model: KnownModel;
+  /** The AI tool's checked models, to name the exact model a name points to now. */
+  listed: KnownModel[];
+  /** Who made a model its list does not name: its own company, or not known. */
+  unlisted: Maker | null;
+}) {
+  const now = model.pointsTo ? listed.find((k) => k.name === model.pointsTo) : undefined;
   return (
     <>
       <strong>{model.label}</strong>
@@ -25,6 +39,8 @@ function ModelWords({ model }: { model: KnownModel }) {
         </>
       )}
       <span className="muted">
+        {now && ` · now ${now.label}`}
+        {` · ${madeByWords(model.maker ?? unlisted)}`}
         {" · "}
         {model.effortLevels.length > 0
           ? `Effort: ${model.effortLevels.map((e) => EFFORT_LABEL[e]).join(", ")}`
@@ -58,6 +74,11 @@ export function ModelsTab({
     ? route.newModels
     : (info.reportedModels?.models ?? []).filter((m) => !known.some((k) => k.name === m.name));
   const reported = info.reportedModels;
+  // Who made a model the list does not name: the AI tool's own company, unless it runs other
+  // companies' models too (ADR-081 §2).
+  const unlistedMaker: Maker | null = info.capabilities.runsOtherMakers
+    ? null
+    : { id: info.provider, label: info.providerLabel };
 
   return (
     <div className="ai-tool__block">
@@ -67,7 +88,7 @@ export function ModelsTab({
         <ul className="ai-tool__list" aria-label={`${label}'s models`}>
           {known.map((m) => (
             <li key={m.name}>
-              <ModelWords model={m} />
+              <ModelWords model={m} listed={known} unlisted={unlistedMaker} />
               {unlisted.has(m.name) && (
                 <>
                   {" "}
@@ -78,7 +99,8 @@ export function ModelsTab({
           ))}
           {fresh.map((m) => (
             <li key={m.name}>
-              <ModelWords model={m} /> <StatusPill status="pending" label="new — not checked yet" />
+              <ModelWords model={m} listed={known} unlisted={unlistedMaker} />{" "}
+              <StatusPill status="pending" label="new — not checked yet" />
             </li>
           ))}
         </ul>

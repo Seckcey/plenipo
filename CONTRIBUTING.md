@@ -39,7 +39,7 @@ pnpm dev
 
 You do not need any API keys, provider accounts, or a `.env` file to build and launch Plenipo. To
 actually run workers you need at least one AI tool installed and signed in — Claude Code, Codex,
-Grok, Kimi, or Ollama.
+Grok, Kimi, Ollama, or Antigravity.
 
 ## The checks your change must pass
 
