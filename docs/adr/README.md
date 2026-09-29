@@ -83,3 +83,5 @@ architecture must be recorded here.
 | [066](ADR-066-add-on-tools.md)                           | Add-on tools you set up: other MCP servers, as approved programs, off by default (amends 013) | Accepted |
 | [067](ADR-067-phase-20-in-three-parts.md)                | Phase 20 in three parts: Microsoft 365, then Slack and Google, then the rest                  | Accepted |
 | [068](ADR-068-connections-are-pro.md)                    | Connections and add-on tools are part of Pro (amends 021)                                     | Accepted |
+| [080](ADR-080-phase-16-wave-1-alongside-phase-20.md)     | Building Phase 16's first wave alongside Phase 20 (amends 061)                                | Proposed |
+| [081](ADR-081-who-made-each-model.md)                    | Who made each model: cross-company review by maker; the list two ways (amends 011)            | Proposed |

@@ -21,7 +21,7 @@
 
 ## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061)
 
-Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models).
+Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models). On 2026-09-29, after Phase 20A, the owner told Plenipo's builder to build Phase 16's first wave now, beside Phase 20, as rule §8.3 allows when the owner says so: ADR-080 (building Phase 16's first wave alongside Phase 20). Waves 2 to 4 still come after Phase 20.
 
 | Order | Phase | What | State |
 |---|---|---|---|
@@ -30,7 +30,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | In progress: part 20A (Microsoft 365) delivered in v1.13.0; 20B (Slack, Google) next, then 20C (ADR-067) |
-| 6 | 16 | Every AI model worth having | Planned (ADR-036); after Phase 20 (ADR-061) |
+| 6 | 16 | Every AI model worth having | In progress beside Phase 20: Wave 1 now (ADR-080); Waves 2 to 4 after Phase 20 (ADR-036, ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
@@ -1703,7 +1703,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 still wait for Phase 20.
 
 ## Goal
 
