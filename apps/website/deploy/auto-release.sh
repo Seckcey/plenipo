@@ -4,11 +4,11 @@
 # Runs on Coastline from a systemd timer (plenipo-website-update.timer), every 15 minutes. Each run:
 #   1. asks GitHub for the latest published release (not a draft or pre-release) and checks its
 #      Windows installer is attached;
-#   2. reads the running site's /release.json; if it already shows that version with its notes,
-#      it stops there (nothing changes);
-#   3. otherwise exports the website from `main` (the reviewed website code) and the release's own
-#      notes (docs/releases/vX.Y.Z.md at the release's tag) into a new, never-edited release
-#      folder, and builds the image with that version;
+#   2. reads the release's notes, docs/releases/vX.Y.Z.md, from `main` (so a correction made after
+#      the release shows), or from the release's tag if `main` has none;
+#   3. if the running site already shows that version with those same notes, it stops there
+#      (nothing changes); otherwise it exports the website from `main` (the reviewed website code)
+#      and the notes into a new, never-edited release folder, and builds the image;
 #   4. swaps the running container while holding the shared port-allocation lock, then checks
 #      health, pages, version, notes, source, image, a real 404, and the loopback-only binding;
 #   5. if any check fails, puts the previous image back and checks it again.
@@ -61,6 +61,10 @@ done
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail() { log "STOPPED: $*"; exit 1; }
 
+# Files made as root would lock out the deploy user the timer runs as.
+if [[ "$(id -u)" == 0 ]]; then
+  fail "Do not run this as root; run it as the account that owns $APP_DIR (sudo -u <that account> $0)"
+fi
 for tool in curl jq git docker flock sha256sum; do
   command -v "$tool" > /dev/null || fail "$tool is not installed (sudo apt install $tool)"
 done
@@ -96,18 +100,7 @@ jq -e --arg name "$installer" '.assets | any(.name == $name and .state == "uploa
 curl -fsSL --max-time 60 -r 0-0 -o /dev/null "https://github.com/Seckcey/plenipo/releases/download/$tag/$installer" \
   || fail "The $installer download link does not work"
 
-# --- 2. What the site shows now ---------------------------------------------------------------
-current_json="$(curl -fsS --max-time 10 "$ORIGIN/release.json" 2> /dev/null || true)"
-jq -e 'type == "object"' <<< "$current_json" > /dev/null 2>&1 || current_json='{}'
-current_version="$(jq -r '.version // empty' <<< "$current_json")"
-current_notes="$(jq -r '.releaseNotes // false' <<< "$current_json")"
-log "Latest release: $tag. The site shows: ${current_version:-nothing (not running?)}, notes: ${current_notes:-false}."
-if [[ "$current_version" == "$version" && "$current_notes" == true && "$force" == false ]]; then
-  log "Up to date. Nothing to do."
-  exit 0
-fi
-
-# --- 3. Source, notes, and image --------------------------------------------------------------
+# --- 2. Source and notes -----------------------------------------------------------------------
 if [[ ! -d "$SOURCE_GIT" ]]; then
   log "First run: making a local copy of $REPO_URL"
   git clone --quiet --bare "$REPO_URL" "$SOURCE_GIT"
@@ -118,13 +111,38 @@ revision="$(git --git-dir="$SOURCE_GIT" rev-parse --verify --quiet "$SOURCE_REF^
   || fail "$SOURCE_REF is not a branch, tag, or commit in $REPO_URL"
 git --git-dir="$SOURCE_GIT" rev-parse --verify --quiet "refs/tags/$tag^{commit}" > /dev/null \
   || fail "The tag $tag is not in $REPO_URL"
-notes="$(git --git-dir="$SOURCE_GIT" show "refs/tags/$tag:docs/releases/$tag.md" 2> /dev/null)" \
-  || fail "$tag has no docs/releases/$tag.md"
+# The notes as they read now on the website's source (a correction after the release shows), or
+# as they were at the release's tag.
+if notes="$(git --git-dir="$SOURCE_GIT" show "$revision:docs/releases/$tag.md" 2> /dev/null)"; then
+  notes_from="$SOURCE_REF"
+elif notes="$(git --git-dir="$SOURCE_GIT" show "refs/tags/$tag:docs/releases/$tag.md" 2> /dev/null)"; then
+  notes_from="$tag"
+else
+  fail "Neither $SOURCE_REF nor $tag has docs/releases/$tag.md"
+fi
 notes_sha="$(printf '%s\n' "$notes" | sha256sum | cut -d' ' -f1)"
 image="plenipo-website:${revision}-v${version}"
 release_dir="$RELEASES_DIR/${revision}-v${version}"
 
-log "Plan: website code $SOURCE_REF at $revision, version $version, notes from $tag."
+# --- 3. What the site shows now ---------------------------------------------------------------
+current_json="$(curl -fsS --max-time 10 "$ORIGIN/release.json" 2> /dev/null || true)"
+jq -e 'type == "object"' <<< "$current_json" > /dev/null 2>&1 || current_json='{}'
+current_version="$(jq -r '.version // empty' <<< "$current_json")"
+current_notes="$(jq -r '.releaseNotes // false' <<< "$current_json")"
+shown_notes_sha=""
+if [[ -f "$STATE_DIR/current.env" ]]; then
+  shown_notes_sha="$(sed -n 's/^NOTES_SHA256=//p' "$STATE_DIR/current.env")"
+fi
+log "Latest release: $tag. The site shows: ${current_version:-nothing (not running?)}, notes: ${current_notes:-false}."
+if [[ "$current_version" == "$version" && "$current_notes" == true && "$shown_notes_sha" == "$notes_sha" && "$force" == false ]]; then
+  log "Up to date. Nothing to do."
+  exit 0
+fi
+if [[ "$current_version" == "$version" && "$shown_notes_sha" != "$notes_sha" ]]; then
+  log "The notes for $tag changed since they were shown; showing the new wording."
+fi
+
+log "Plan: website code $SOURCE_REF at $revision, version $version, notes from $notes_from."
 log "      release folder $release_dir, image $image."
 if [[ "$check_only" == true ]]; then
   log "Check only: nothing was changed."

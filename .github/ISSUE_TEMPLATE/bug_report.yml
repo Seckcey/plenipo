@@ -32,7 +32,7 @@ body:
     attributes:
       label: Plenipo version
       description: Settings → About, or the release you installed.
-      placeholder: v1.3.0
+      placeholder: vX.Y.Z
     validations:
       required: true
   - type: dropdown

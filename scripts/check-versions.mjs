@@ -42,6 +42,28 @@ if (!websiteHtml.includes("__PLENIPO_VERSION__") || typedVersion.test(websiteHtm
   );
 }
 
+// Pages people read on GitHub never say which version is the latest by typing it: that goes
+// stale with the next release. They link to the latest release (or show its badge) instead.
+const claim =
+  /\b(?:latest|published|current)\b[^.\n]{0,40}?\bv?\d+\.\d+\.\d+\b|\bv?\d+\.\d+\.\d+\b[^.\n]{0,40}?\b(?:is|was) the (?:latest|current)\b/i;
+for (const page of [
+  "README.md",
+  "SUPPORT.md",
+  "SECURITY.md",
+  "CONTRIBUTING.md",
+  "docs/faq.md",
+  "docs/roadmap.md",
+]) {
+  const line = read(page)
+    .split("\n")
+    .find((l) => claim.test(l));
+  if (line) {
+    errors.push(
+      `${page} names the latest version by hand ("${line.trim()}"); link to the latest release instead`,
+    );
+  }
+}
+
 if (errors.length) {
   console.error("Version check FAILED:\n  " + errors.join("\n  "));
   process.exit(1);

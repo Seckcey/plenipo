@@ -1083,8 +1083,8 @@ mod tests {
         );
         // Connected, then disconnected: the account goes; the settings stay.
         let account = Account {
-            name: "Frankie".into(),
-            address: "frankie@8westit.com".into(),
+            name: "Alex".into(),
+            address: "alex@8westit.com".into(),
             organization: Some("8 West IT".into()),
             tenant: None,
         };

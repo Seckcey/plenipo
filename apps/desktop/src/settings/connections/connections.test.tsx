@@ -96,7 +96,7 @@ describe("Settings → Connections", () => {
     api.disconnectConnection.mockResolvedValue(samplePage());
     const m365 = await card();
     expect(m365).toHaveTextContent(
-      "Connected as frankie@8westit.com (a work or school account, 8 West IT).",
+      "Connected as alex@8westit.com (a work or school account, 8 West IT).",
     );
     expect(within(m365).getByText("Connected")).toBeInTheDocument();
     const allowed = within(m365).getByRole("region", { name: "What Plenipo was allowed" });

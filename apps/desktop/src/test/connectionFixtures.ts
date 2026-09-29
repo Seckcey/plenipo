@@ -85,8 +85,8 @@ export function connectedCard(extra: Partial<ConnectionCard> = {}): ConnectionCa
       state: "connected",
       accountKind: "work",
       account: {
-        name: "Frankie Gonzalez",
-        address: "frankie@8westit.com",
+        name: "Alex Rivera",
+        address: "alex@8westit.com",
         organization: "8 West IT",
       },
       granted: ["Mail.ReadWrite", "Mail.Send", "Calendars.Read"],

@@ -15,7 +15,7 @@ pub mod microsoft365;
 pub mod signin;
 pub(crate) mod text;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
@@ -523,13 +523,17 @@ impl Connections {
                     Err(microsoft365::refusal_words(&error, &description))
                 }
             };
-            let current = {
+            // What went wrong is kept in the same step that ends the sign-in, so nothing reading
+            // the card sees it ended with neither a connection nor a problem.
+            {
                 let mut s = lock(&this.state);
                 if s.waiting.get(&id).is_some_and(|(t, _)| *t == turn) {
                     s.waiting.remove(&id);
                 }
-                s.turn(&id) == turn
-            };
+                if let (true, Err(why)) = (s.turn(&id) == turn, &outcome) {
+                    s.problem.insert(id.clone(), why.clone());
+                }
+            }
             match outcome {
                 Ok(Signed::In) => {}
                 Ok(Signed::Stopped) => {
@@ -545,9 +549,6 @@ impl Connections {
                         });
                 }
                 Err(why) => {
-                    if current {
-                        lock(&this.state).problem.insert(id.clone(), why.clone());
-                    }
                     let _ = this.guard().ledger().append_event(plenipo_ledger::NewEvent {
                         source: "plenipo".into(),
                         event_type: "connection.sign_in_failed".into(),
@@ -919,6 +920,16 @@ impl Connections {
 
     /// What Settings → Connections shows.
     pub fn page(&self, vault_available: bool) -> Result<ConnectionsPage, String> {
+        // Sign-ins first, then the saved connections: a sign-in saves its connection before it
+        // stops waiting, so a page never shows one done signing in but not yet connected.
+        let (waiting, admin, problem) = {
+            let s = lock(&self.state);
+            (
+                s.waiting.keys().cloned().collect::<HashSet<String>>(),
+                s.admin.clone(),
+                s.problem.clone(),
+            )
+        };
         let config = self.guard().config().map_err(|e| e.to_string())?;
         let records = self
             .guard()
@@ -953,7 +964,6 @@ impl Connections {
                     archived: p.archived_at.is_some(),
                 }),
         );
-        let state = lock(&self.state);
         let services = Service::ALL
             .iter()
             .map(|service| {
@@ -1012,9 +1022,9 @@ impl Connections {
                                 .collect();
                             ConnectionCard {
                                 has_app: self.app_id(&c).is_some(),
-                                signing_in: state.waiting.contains_key(&c.id),
-                                admin_link: state.admin.get(&c.id).cloned(),
-                                problem: state.problem.get(&c.id).cloned(),
+                                signing_in: waiting.contains(&c.id),
+                                admin_link: admin.get(&c.id).cloned(),
+                                problem: problem.get(&c.id).cloned(),
                                 parts,
                                 reconnect_for,
                                 granted,
@@ -1050,7 +1060,7 @@ impl Graph<'_> {
         &self.me
     }
 
-    /// The fence's name for this account: "Microsoft 365 (frankie@8westit.com)".
+    /// The fence's name for this account: "Microsoft 365 (alex@8westit.com)".
     pub fn account_label(&self) -> String {
         if self.me.is_empty() {
             "Microsoft 365".into()
