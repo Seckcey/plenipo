@@ -3,6 +3,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { noReleaseNotes, renderReleaseNotes } from "./release-notes.mjs";
 
 export const websiteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const rootPackage = resolve(websiteRoot, "..", "..", "package.json");
@@ -11,6 +12,8 @@ export const rootPackage = resolve(websiteRoot, "..", "..", "package.json");
 // when it is given (a container build has no repository around it; a deploy passes the release
 // it checked on GitHub Releases, docs/development/website.md).
 const VERSION_MARK = "__PLENIPO_VERSION__";
+// Where the "What's new" section goes: the notes of the version the page shows.
+const NOTES_MARK = "<!-- __RELEASE_NOTES__ -->";
 // A release version as the Release workflow tags it: 1.2.3, or a pre-release such as 1.2.3-beta.1.
 // Nothing else goes into the page's links and structured data.
 const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
@@ -37,6 +40,31 @@ export async function releaseVersion({ env = process.env, packageFile = rootPack
   return version;
 }
 
+// The notes for a version, looked for in order: PLENIPO_RELEASE_NOTES (a file a deploy names),
+// release-notes/vX.Y.Z.md beside the website (the automatic update puts the release's own notes
+// there, since a container build sees only this folder), then the repository's
+// docs/releases/vX.Y.Z.md. A named file must exist; otherwise no notes is allowed.
+export async function releaseNotes(version, { env = process.env } = {}) {
+  const named = (env.PLENIPO_RELEASE_NOTES || "").trim();
+  const candidates = named
+    ? [resolve(named)]
+    : [
+        resolve(websiteRoot, "release-notes", `v${version}.md`),
+        resolve(websiteRoot, "..", "..", "docs", "releases", `v${version}.md`),
+      ];
+  for (const file of candidates) {
+    try {
+      return await readFile(file, "utf8");
+    } catch (error) {
+      if (named)
+        throw new Error(`PLENIPO_RELEASE_NOTES names ${file}, which cannot be read`, {
+          cause: error,
+        });
+    }
+  }
+  return null;
+}
+
 export async function buildWebsite(output = resolve(websiteRoot, "dist"), options = {}) {
   const version = await releaseVersion(options);
   // Only the known website output folder is replaceable. Tests use their own
@@ -49,6 +77,12 @@ export async function buildWebsite(output = resolve(websiteRoot, "dist"), option
     throw new Error(`index.html has no ${VERSION_MARK} to fill in`);
   }
   html = html.replaceAll(VERSION_MARK, version);
+  if (!html.includes(NOTES_MARK)) throw new Error(`index.html has no ${NOTES_MARK} to fill in`);
+  const notes = await releaseNotes(version, options);
+  html = html.replace(
+    NOTES_MARK,
+    notes ? renderReleaseNotes(notes, version) : noReleaseNotes(version),
+  );
   const bundle = await build({
     entryPoints: [resolve(websiteRoot, "src/mount.tsx")],
     outdir: resolve(output, "demo"),
@@ -88,6 +122,7 @@ export async function buildWebsite(output = resolve(websiteRoot, "dist"), option
         downloadUrl: structuredData.downloadUrl,
         operatingSystem: structuredData.operatingSystem,
         architecture: structuredData.processorRequirements,
+        releaseNotes: Boolean(notes),
       },
       null,
       2,
