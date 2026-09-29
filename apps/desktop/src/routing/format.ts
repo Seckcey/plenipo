@@ -3,7 +3,9 @@ import type {
   CostPreference,
   CrossCompany,
   Effort,
+  KnownModel,
   LimitBehavior,
+  Maker,
   ModelFeature,
   ModelInfo,
   ModelRule,
@@ -72,12 +74,23 @@ export function modelGroups(
     label,
     options: options.filter((o) => !shown.has(o.name) && shown.add(o.name)),
   });
+  // Who made a name the tool's list does not name: its company, for an AI tool that runs only
+  // its own company's models; not known for one that runs other companies' too (ADR-081 §2).
+  const unlisted = companyOnly(tool);
+  // "opus — now Opus 5.5 — made by Anthropic" (ADR-081 §6, §8).
+  const words = (k: KnownModel) => {
+    const parts = [k.name];
+    const now = k.pointsTo && tool?.knownModels.find((x) => x.name === k.pointsTo);
+    if (now) parts.push(`now ${now.label}`);
+    parts.push(madeByWords(k.maker ?? unlisted));
+    return parts.join(" — ");
+  };
   const groups = [
     group(`${tool?.label ?? "The AI tool"}'s models`, [
-      ...(tool?.knownModels ?? []).map((k) => ({ name: k.name, label: k.name })),
+      ...(tool?.knownModels ?? []).map((k) => ({ name: k.name, label: words(k) })),
       ...(tool?.newModels ?? []).map((k) => ({
         name: k.name,
-        label: `${k.name} — new, not checked yet`,
+        label: `${words(k)} — new, not checked yet`,
       })),
     ]),
     group(
@@ -85,7 +98,12 @@ export function modelGroups(
       yours
         ? snapshot.models.flatMap((m) =>
             m.runtimeId === runtimeId && m.name
-              ? [{ name: m.name, label: m.label === m.name ? m.name : `${m.label} — ${m.name}` }]
+              ? [
+                  {
+                    name: m.name,
+                    label: `${m.label === m.name ? m.name : `${m.label} — ${m.name}`} — ${madeByWords(m.maker)}`,
+                  },
+                ]
               : [],
           )
         : [],
@@ -94,7 +112,7 @@ export function modelGroups(
       "Seen in use",
       snapshot.seen
         .filter((s) => s.runtimeId === runtimeId)
-        .map((s) => ({ name: s.name, label: s.name })),
+        .map((s) => ({ name: s.name, label: `${s.name} — ${madeByWords(unlisted)}` })),
     ),
   ];
   return groups.filter((g) => g.options.length > 0);
@@ -158,13 +176,73 @@ export function until(ms: number, now: number = Date.now()): string {
   return `in ${Math.round(hours / 24)} d`;
 }
 
-/** Each AI company once, in the AI tools' order. */
-export function companies(snapshot: RoutingSnapshot): { id: string; label: string }[] {
-  const out: { id: string; label: string }[] = [];
-  for (const t of snapshot.tools) {
-    if (!out.some((c) => c.id === t.company)) out.push({ id: t.company, label: t.companyLabel });
+/**
+ * Every AI company this version of Plenipo knows, by name: the AI tools' own and the companies
+ * that made the models they list (ADR-081 §5). "AI companies never to use" offers these.
+ */
+export function companies(snapshot: RoutingSnapshot): Maker[] {
+  return snapshot.companies;
+}
+
+/** Who made a model, as a column or heading: its company's name, or "Not known" (ADR-081 §7). */
+export function makerWords(maker: Maker | null | undefined): string {
+  return maker?.label ?? "Not known";
+}
+
+/** Who made a model, inside a sentence: "made by DeepSeek", or "who made it is not known". */
+export function madeByWords(maker: Maker | null | undefined): string {
+  return maker ? `made by ${maker.label}` : "who made it is not known";
+}
+
+/**
+ * Who made any model an AI tool runs, when that is its own company (it runs no other company's
+ * models); `null` for an AI tool that runs other companies' models too, or none.
+ */
+export function companyOnly(
+  tool: { company: string; companyLabel: string; runsOtherMakers: boolean } | undefined,
+): Maker | null {
+  return tool && !tool.runsOtherMakers ? { id: tool.company, label: tool.companyLabel } : null;
+}
+
+/** How the model list is grouped (ADR-081 §6). */
+export type GroupBy = "maker" | "tool";
+
+export const GROUP_BY_LABEL: Record<GroupBy, string> = {
+  maker: "Who made it",
+  tool: "AI tool",
+};
+
+export function isGroupBy(v: unknown): v is GroupBy {
+  return v === "maker" || v === "tool";
+}
+
+/** One heading of the grouped model list and its models, in the list's own order. */
+export interface ModelListGroup {
+  key: string;
+  label: string;
+  models: ModelInfo[];
+}
+
+/**
+ * The owner's models grouped by who made them or by the AI tool that runs them (ADR-081 §6).
+ * Both groupings hold exactly the same models; groups are in name order, a model whose maker is
+ * not known last, and each group keeps the list's order.
+ */
+export function groupModels(snapshot: RoutingSnapshot, by: GroupBy): ModelListGroup[] {
+  const groups = new Map<string, ModelListGroup>();
+  for (const m of snapshot.models) {
+    const tool = snapshot.tools.find((t) => t.runtimeId === m.runtimeId);
+    const [key, label] =
+      by === "tool"
+        ? [m.runtimeId, tool?.label ?? m.runtimeId]
+        : [m.maker?.id ?? "", makerWords(m.maker)];
+    const group = groups.get(key) ?? { key, label, models: [] };
+    group.models.push(m);
+    groups.set(key, group);
   }
-  return out;
+  return [...groups.values()].sort((a, b) =>
+    a.key === "" ? 1 : b.key === "" ? -1 : a.label.localeCompare(b.label),
+  );
 }
 
 // ---- Model and effort rules (Phase 17, ADR-041) ----------------------------------------------
@@ -221,7 +299,7 @@ export function ruleSummary(snapshot: RoutingSnapshot, rule: ModelRule): string 
     if (effort) parts.push(`${EFFORT_LABEL[effort].toLowerCase()} effort for ${name(id)}`);
   }
   if (rule.neverCompanies.length > 0) {
-    const label = (id: string) => snapshot.tools.find((t) => t.company === id)?.companyLabel ?? id;
+    const label = (id: string) => snapshot.companies.find((c) => c.id === id)?.label ?? id;
     parts.push(`never ${rule.neverCompanies.map(label).join(" or ")}`);
   }
   return parts.length > 0 ? parts.join(" · ") : "Sets nothing";

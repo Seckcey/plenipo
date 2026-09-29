@@ -118,7 +118,7 @@ describe("Workers view", () => {
     await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Say hello");
     await user.click(within(form).getByText("Advanced"));
     const model = within(form).getByRole("combobox", { name: "Model" });
-    await within(model).findByRole("option", { name: "haiku" });
+    await within(model).findByRole("option", { name: "haiku — made by Anthropic" });
     await user.selectOptions(model, "haiku");
     await user.click(within(form).getByRole("button", { name: "Start task" }));
     expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say hello", "haiku", false);

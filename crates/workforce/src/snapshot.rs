@@ -735,6 +735,8 @@ mod tests {
                 tool_posture: String::new(),
                 effort_levels: Vec::new(),
                 known_models: Vec::new(),
+                default_maker: None,
+                runs_other_makers: false,
             },
             install_hint: String::new(),
             login_hint: String::new(),

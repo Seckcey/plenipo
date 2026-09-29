@@ -10,7 +10,7 @@ use plenipo_liaison::context::Destination;
 use plenipo_liaison::protocol::PROTOCOL;
 use plenipo_liaison::{Directory, MemberConversation, Placement, Team};
 use plenipo_router::{ModelFeature, Planner, RouteDecision, RouteRequest, Router};
-use plenipo_runtime::agent::SessionStart;
+use plenipo_runtime::agent::{SessionStart, WorkDoneBy};
 use serde_json::{json, Value};
 
 use crate::conversation;
@@ -82,12 +82,13 @@ pub(crate) fn allowed(project: Option<&Project>, runtime_id: &str) -> bool {
 }
 
 /// What a decision about `position` depends on: its role, its own rule, its department's rule
-/// (ADR-041), `project`'s AI tools, and `reviewed`, the runtimes whose work it would review.
+/// (ADR-041), `project`'s AI tools, and `reviewed`, the work it would review (its AI tools and
+/// models, ADR-081).
 pub(crate) fn request<'a>(
     view: &OrgView<'a>,
     position: &'a Position,
     project: Option<&'a Project>,
-    reviewed: &'a [String],
+    reviewed: &'a [WorkDoneBy],
 ) -> RouteRequest<'a> {
     RouteRequest {
         role_id: &position.role_id,
@@ -108,7 +109,7 @@ pub(crate) fn decide(
     view: &OrgView<'_>,
     position: &Position,
     project: Option<&Project>,
-    reviewed: &[String],
+    reviewed: &[WorkDoneBy],
 ) -> RouteDecision {
     let request = request(view, position, project, reviewed);
     match &position.runtime_id {
@@ -272,7 +273,7 @@ impl Directory for WorkforceDirectory {
         workforce: &Value,
         requester: &Task,
         name: &str,
-        reviewed: &[String],
+        reviewed: &[WorkDoneBy],
     ) -> Result<Placement, String> {
         let position_id = workforce["positionId"]
             .as_str()

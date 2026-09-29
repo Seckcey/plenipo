@@ -26,7 +26,7 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities,
+    makers, AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities,
 };
 
 pub const ID: &str = "grok";
@@ -118,7 +118,12 @@ impl RuntimeAdapter for Grok {
                 KnownModel::new("grok-4.7-build-fast", "Grok 4.7 Fast", FULL_EFFORT),
                 KnownModel::new("grok-4.6", "Grok 4.6", FULL_EFFORT),
                 KnownModel::new("grok-4.5", "Grok 4.5", GROK_4_5_EFFORT),
-            ],
+            ]
+            .into_iter()
+            .map(|m| m.by(makers::XAI))
+            .collect(),
+            default_maker: None,
+            runs_other_makers: false,
         }
     }
 
@@ -277,6 +282,8 @@ impl RuntimeAdapter for Grok {
                         name,
                         label,
                         effort_levels: efforts,
+                        maker: None,
+                        points_to: None,
                     })
                 })
                 .collect(),

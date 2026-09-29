@@ -25,6 +25,7 @@ export const runtime = (id: string, ready = true): AgentRuntimeInfo => ({
     toolPosture: "Conversation only",
     effortLevels: [],
     knownModels: [],
+    runsOtherMakers: false,
   },
   installHint: "Install it.",
   loginHint: "Run the login command.",

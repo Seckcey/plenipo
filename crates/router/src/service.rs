@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 use crate::config::{check_model_effort, RoutingConfig, ToolEfforts, ToolLevels};
 use crate::dto::*;
 use crate::engine::{
-    effort_for, effort_words, layers, limit_words, never_by, not_ready, route, DepartmentRule,
-    RouteInput, ToolState,
+    effort_for, effort_words, layers, limit_words, never_by, never_other_than, not_ready, route,
+    DepartmentRule, RouteInput, ToolState,
 };
 use crate::error::{Result, RouterError};
 use crate::limits;
@@ -46,8 +46,8 @@ pub struct RouteRequest<'a> {
     pub department: Option<(&'a str, &'a str)>,
     /// When the work belongs to a project: its name and allowed runtimes.
     pub project: Option<(&'a str, &'a [String])>,
-    /// Runtimes whose work the worker reviews (cross-company review).
-    pub reviewed: &'a [String],
+    /// The work the worker reviews: each AI tool and the model it ran (cross-company review).
+    pub reviewed: &'a [plenipo_runtime::agent::WorkDoneBy],
 }
 
 /// The configuration, AI tool state, and roles, read once for several decisions.
@@ -176,13 +176,46 @@ impl Planner {
             name: "you".into(),
             id: request.position_id.map(str::to_owned),
         };
-        if let Some(who) = (!company.is_empty())
-            .then(|| never_by(&layers, &company))
+        // Who made the model (ADR-081): a company never to use blocks it too (§5).
+        let made_by = self
+            .tool(runtime_id)
+            .and_then(|t| crate::makers::maker_of(&t.info, model));
+        let never = (!company.is_empty())
+            .then(|| never_by(&layers, &company).map(|who| (who, company_label.clone())))
             .flatten()
-        {
+            .or_else(|| {
+                made_by
+                    .as_ref()
+                    .filter(|made| made.id != company)
+                    .and_then(|made| {
+                        never_by(&layers, &made.id).map(|who| (who, made.label.clone()))
+                    })
+            });
+        // Who made it is not known: it could be a company on such a list (ADR-081 §7).
+        let unknown = if never.is_none() && made_by.is_none() {
+            never_other_than(&layers, &company)
+        } else {
+            None
+        };
+        if let Some(who) = unknown {
             return RouteDecision {
                 reason: format!(
-                    "You set {title} to always use {label}, but {who} never uses {company_label}. \
+                    "You set {title} to always use {label}, but {who} has AI companies never to \
+                     use, and who made {label} is not known. Change one of them (Settings → AI \
+                     models)."
+                ),
+                choice: None,
+                rank: None,
+                candidates: Vec::new(),
+                fixed: true,
+                model_from: Some(fixed_by),
+                effort_from: None,
+            };
+        }
+        if let Some((who, never_label)) = never {
+            return RouteDecision {
+                reason: format!(
+                    "You set {title} to always use {label}, but {who} never uses {never_label}. \
                      Change one of them (Settings → AI models)."
                 ),
                 choice: None,
@@ -220,6 +253,7 @@ impl Planner {
                 model: model.map(str::to_owned),
                 effort,
                 label,
+                maker: made_by,
             }),
             rank: None,
             candidates: Vec::new(),
@@ -291,12 +325,13 @@ impl Router {
             .collect()
     }
 
-    /// The AI companies this build knows (provider IDs).
+    /// The AI companies this build knows: the AI tools' own and the makers of the models they
+    /// list (ADR-081 §5).
     fn companies(&self) -> Vec<String> {
-        let mut companies: Vec<String> = self.tools().into_iter().map(|t| t.provider).collect();
-        companies.sort();
-        companies.dedup();
-        companies
+        crate::makers::companies(&self.tools())
+            .into_iter()
+            .map(|m| m.id)
+            .collect()
     }
 
     /// The stored configuration.
@@ -439,6 +474,7 @@ impl Router {
                     known_models: t.info.capabilities.known_models.clone(),
                     new_models: ToolInfo::reported(&t.info).0,
                     unlisted_models: ToolInfo::reported(&t.info).1,
+                    runs_other_makers: t.info.capabilities.runs_other_makers,
                 }
             })
             .collect();
@@ -507,7 +543,26 @@ impl Router {
             }
         }
         agents.sort_by(|a, b| a.title.cmp(&b.title));
-        let models = planner.config.models.clone();
+        // Who made each model, for the screens (ADR-081 §6); never saved.
+        let models = planner
+            .config
+            .models
+            .iter()
+            .cloned()
+            .map(|mut m| {
+                m.maker = planner
+                    .tool(&m.runtime_id)
+                    .and_then(|t| crate::makers::maker_of(&t.info, m.name.as_deref()));
+                m
+            })
+            .collect();
+        let companies = crate::makers::companies(
+            &planner
+                .tools
+                .iter()
+                .map(|t| t.info.clone())
+                .collect::<Vec<_>>(),
+        );
         let notices = self
             .inner
             .notices
@@ -522,6 +577,7 @@ impl Router {
             departments,
             agents,
             seen,
+            companies,
             options: planner.config.options,
             api_billing: false,
             notices,
@@ -714,6 +770,8 @@ mod tests {
                 tool_posture: String::new(),
                 effort_levels: vec![Effort::Low, Effort::High],
                 known_models: vec![KnownModel::new("quick", "Quick", &[Effort::Low])],
+                default_maker: None,
+                runs_other_makers: false,
             },
             install_hint: String::new(),
             login_hint: String::new(),
@@ -1010,6 +1068,57 @@ mod tests {
             .unavailable("gamma")
             .unwrap()
             .contains("not available"));
+    }
+
+    /// ADR-081 §5, §7: a position fixed to a model is refused when its maker is a company never
+    /// to use, or when who made it is not known and there are companies never to use.
+    #[test]
+    fn a_fixed_model_is_refused_by_who_made_it() {
+        use plenipo_runtime::agent::makers;
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let router = Router::with_tools(
+            Arc::clone(&ledger),
+            Arc::new(|| {
+                let mut hub = info("hub", "Hub", "hub", true);
+                hub.capabilities.runs_other_makers = true;
+                hub.capabilities.known_models =
+                    vec![KnownModel::new("deep", "Deep", &[]).by(makers::DEEPSEEK)];
+                vec![hub]
+            }),
+        );
+        let never = |companies: &[&str]| {
+            router
+                .set_rule(
+                    &RuleTarget::Organization,
+                    &ModelRule {
+                        never_companies: companies.iter().map(|c| (*c).to_owned()).collect(),
+                        ..ModelRule::default()
+                    },
+                )
+                .unwrap();
+        };
+        let fixed = |model: &str| {
+            router.planner().unwrap().fixed(
+                &RouteRequest::default(),
+                "Code Reviewer",
+                "hub",
+                Some(model),
+            )
+        };
+        // Nothing never to use: both may be used.
+        assert!(fixed("deep").choice.is_some());
+        assert!(fixed("mystery").choice.is_some());
+        never(&["deepseek"]);
+        let d = fixed("deep");
+        assert!(d.choice.is_none());
+        assert!(d.reason.contains("never uses DeepSeek"), "{}", d.reason);
+        let d = fixed("mystery");
+        assert!(d.choice.is_none());
+        assert!(
+            d.reason.contains("who made mystery (Hub) is not known"),
+            "{}",
+            d.reason
+        );
     }
 
     /// ADR-041: the organization's, a department's, and an agent's rules are saved, checked, and

@@ -290,18 +290,18 @@ describe("Organization view", () => {
     );
     // Claude Code's own models, your models, and the models seen in use.
     const model = within(dialog).getByRole("combobox", { name: "Model" });
-    await within(model).findByRole("option", { name: "sonnet" });
+    await within(model).findByRole("option", { name: "sonnet — made by Anthropic" });
     expect(
       within(model)
         .getAllByRole("option")
         .map((o) => o.textContent),
     ).toEqual([
       "The AI tool's default",
-      "fable",
-      "opus",
-      "sonnet",
-      "haiku",
-      "claude-opus-5-5",
+      "fable — made by Anthropic",
+      "opus — made by Anthropic",
+      "sonnet — made by Anthropic",
+      "haiku — made by Anthropic",
+      "claude-opus-5-5 — made by Anthropic",
       "Type another name…",
     ]);
     await user.selectOptions(model, "sonnet");

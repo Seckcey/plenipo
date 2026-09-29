@@ -258,12 +258,18 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       `//form[@aria-label="Add a model"]//label[.//span[normalize-space()="Model"]]//select`,
     );
     const options = await browser.execute((el) => [...el.options].map((o) => o.textContent), menu);
-    assert.deepEqual(options.slice(0, 6), [
+    // Each short name says which exact version it is now, the exact versions follow, and each
+    // says who made it (ADR-081 §6, §8).
+    assert.deepEqual(options.slice(0, 10), [
       "The AI tool's default (already in your list)",
-      "fable",
-      "opus",
-      "sonnet",
-      "haiku",
+      "fable — now Fable 5.1 — made by Anthropic",
+      "opus — now Opus 5.5 — made by Anthropic",
+      "sonnet — now Sonnet 5.5 — made by Anthropic",
+      "haiku — now Haiku 4.5 — made by Anthropic",
+      "claude-fable-5-1 — made by Anthropic",
+      "claude-opus-5-5 — made by Anthropic",
+      "claude-sonnet-5-5 — made by Anthropic",
+      "claude-haiku-4-5-20251001 — made by Anthropic",
       "Type another name…",
     ]);
     await menu.selectByAttribute("value", "sonnet");
@@ -296,35 +302,46 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       ).selectByVisibleText(label);
     await chooseTool("Grok");
     await waitUntil(
-      async () => (await menuOptions()).includes("grok-4.7"),
+      async () => (await menuOptions()).includes("grok-4.7 — made by xAI"),
       "Grok's models in the menu",
     );
     assert.deepEqual((await menuOptions()).slice(0, 6), [
       "The AI tool's default (already in your list)",
-      "grok-4.7",
-      "grok-4.7-build-fast",
-      "grok-4.6",
-      "grok-4.5",
+      "grok-4.7 — made by xAI",
+      "grok-4.7-build-fast — made by xAI",
+      "grok-4.6 — made by xAI",
+      "grok-4.5 — made by xAI",
       "Type another name…",
     ]);
     await screenshot(browser, "models-add-menu-grok");
     // Kimi's models carry their provider's name (ADR-027): only the Kimi subscription's.
     await chooseTool("Kimi");
     await waitUntil(
-      async () => (await menuOptions()).includes("kimi-code/k3"),
+      async () => (await menuOptions()).includes("kimi-code/k3 — made by Moonshot AI"),
       "Kimi's models in the menu",
     );
     assert.deepEqual((await menuOptions()).slice(0, 6), [
       "The AI tool's default (already in your list)",
-      "kimi-code/k3",
-      "kimi-code/k3-256k",
-      "kimi-code/kimi-for-coding",
-      "kimi-code/kimi-for-coding-highspeed",
+      "kimi-code/k3 — made by Moonshot AI",
+      "kimi-code/k3-256k — made by Moonshot AI",
+      "kimi-code/kimi-for-coding — made by Moonshot AI",
+      "kimi-code/kimi-for-coding-highspeed — made by Moonshot AI",
       "Type another name…",
     ]);
+    // Antigravity runs several companies' models: each says who made it (ADR-081, ADR-082).
+    await chooseTool("Antigravity");
+    await waitUntil(
+      async () => (await menuOptions()).some((o) => o.startsWith("gemini-3.8-flash-high")),
+      "Antigravity's models in the menu",
+    );
+    const antigravity = await menuOptions();
+    assert.equal(antigravity[1], "gemini-3.8-flash-high — made by Google");
+    assert.ok(antigravity.includes("claude-sonnet-4-6 — made by Anthropic"), `${antigravity}`);
+    assert.ok(antigravity.includes("gpt-oss-120b-medium — made by OpenAI"), `${antigravity}`);
+    await screenshot(browser, "models-add-menu-antigravity");
     await chooseTool("Claude Code");
     await waitUntil(
-      async () => (await menuOptions()).includes("sonnet"),
+      async () => (await menuOptions()).includes("sonnet — now Sonnet 5.5 — made by Anthropic"),
       "Claude Code's models back in the menu",
     );
     await (await browser.$(MENU)).selectByAttribute("value", "sonnet");
@@ -335,6 +352,60 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     );
     await submit(browser, form);
     await waitForText(browser, '[aria-labelledby="models-title"]', "Sonnet");
+  });
+
+  it("Your models can be grouped by who made them or by AI tool, and the choice is kept (ADR-081)", async () => {
+    const { browser } = app;
+    const MODELS = '[aria-labelledby="models-title"]';
+    await waitForText(browser, MODELS, "Sonnet");
+    /** Each group's heading and its models' names, in order. */
+    const groups = () =>
+      browser.execute(() =>
+        [...document.querySelectorAll('table[aria-label="Your models"] tbody')].map((g) => [
+          g.getAttribute("aria-label"),
+          [...g.querySelectorAll('th[scope="row"]')].map((h) => h.firstChild?.textContent ?? ""),
+        ]),
+      );
+    const groupBy = async (label) => {
+      const button = await browser.$(
+        `//div[@role="group"][@aria-label="Group your models by"]//button[normalize-space()="${label}"]`,
+      );
+      await button.waitForClickable({ timeout: 10_000 });
+      await button.click();
+      await waitUntil(async () => (await button.getAttribute("aria-pressed")) === "true", label);
+    };
+    // By AI tool to begin with, each AI tool by name.
+    const byTool = await groups();
+    assert.deepEqual(
+      byTool.map(([label]) => label),
+      ["Antigravity", "Claude Code", "Codex", "Grok", "Kimi", "Ollama"],
+    );
+    await scrollTo(browser, "#models-title");
+    await screenshot(browser, "models-grouped-by-tool");
+    // By who made them: Ollama's default (OpenAI's gpt-oss) sits with Codex's; Antigravity's
+    // default model is not known, so it comes last.
+    await groupBy("Who made it");
+    const byMaker = await groups();
+    assert.deepEqual(
+      byMaker.map(([label]) => label),
+      ["Anthropic", "Moonshot AI", "OpenAI", "xAI", "Not known"],
+    );
+    const openai = byMaker.find(([label]) => label === "OpenAI")[1];
+    assert.deepEqual(openai, ["Codex (default model)", "Ollama (default model)"]);
+    assert.deepEqual(byMaker.at(-1)[1], ["Antigravity (default model)"]);
+    // The same models, both ways.
+    const names = (g) => g.flatMap(([, models]) => models).sort();
+    assert.deepEqual(names(byMaker), names(byTool));
+    await scrollTo(browser, "#models-title");
+    await screenshot(browser, "models-grouped-by-maker");
+    // Kept on this PC: shown again after the window reloads.
+    await browser.refresh();
+    await waitForShell(browser);
+    await openSettings(browser, "AI models");
+    await waitForText(browser, MODELS, "Sonnet");
+    assert.equal((await groups())[0][0], "Anthropic");
+    await groupBy("AI tool");
+    assert.equal((await groups())[0][0], "Antigravity");
   });
 
   it("builds a team whose positions follow their roles' model choices", async () => {
