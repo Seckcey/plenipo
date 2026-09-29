@@ -1,9 +1,10 @@
 # Phase 16 — Implementation Checklist (Wave 1)
 
-**Status:** design written (2026-09-29), **waiting for the owner**: choices 1 to 4 below, and the
-rest of the checks on the owner's Windows PC ([the steps](phase-16-owner-checks.md)): Part B again
-after updating Codex, and Part E (Antigravity CLI). Parts A and C are done; Gemini CLI got a
-[finding](ai-tools-gemini-finding.md); choice 5 is answered. Nothing is built yet. Builds on v1.13.0 (Phase 20A); releases as **v1.14.0**. Built beside Phase 20B (Slack and
+**Status:** design written (2026-09-29), **waiting for the owner**: choices 1 to 3 below, and the
+last Antigravity check on the owner's Windows PC (Part E's step E9, the `/credits` screenshot, and
+the Google plan's name; [the steps](phase-16-owner-checks.md)). Parts A, B, C, and E1 to E8 are
+done; Gemini CLI got a [finding](ai-tools-gemini-finding.md); choices 4 and 5 are answered. Nothing
+is built yet. Builds on v1.13.0 (Phase 20A); releases as **v1.14.0**. Built beside Phase 20B (Slack and
 Google), which another session is building at the same time, at the owner's direction.
 
 Source: `ROLLOUT_PLAN.md`, Phase 16 — Every AI Model Worth Having, **Wave 1 only** ("fits today's
@@ -67,11 +68,11 @@ table to say so. Then I read the code and wrote this plan. Nothing is built yet.
 
 **What you need to do:**
 
-1. **Answer choices 1 to 4 below** (or say "as recommended").
-2. **Finish the checks on your Windows PC** ([the steps](phase-16-owner-checks.md)): update Codex
-   and redo Part B, and do Part E (Antigravity CLI). I build the maker, review, and list parts as
-   soon as you approve; the OpenAI, Google, and Ollama model lists wait for your results, because
-   I won't guess what your plans allow.
+1. **Answer choices 1 to 3 below** (or say "as recommended").
+2. **Finish the checks on your Windows PC** ([the steps](phase-16-owner-checks.md)): step E9 for
+   Antigravity, your `/credits` screenshot, and your Google plan's name. I build the maker, review,
+   and list parts as soon as you approve; Antigravity waits for E9, because I won't guess what your
+   plan allows.
 
 ## Choices for you
 
@@ -100,7 +101,9 @@ you want different.
      could let a model review work from its own maker.
    - Other: let you say who made it when you add it to your list (a new "Who made it" menu in
      **Add a model**, only for Ollama).
-4. **Is your paid Ollama plan active now?**
+4. **Is your paid Ollama plan active now?** — **Answered (2026-09-29): not yet;** it starts on
+   2026-09-30. Wave 1 goes ahead without more Ollama models; Part D and the models follow in a small
+   follow-up once the plan is active.
    - **If yes:** do Part D of the checks, and tell me which extra cloud models you want. I add
      each one you check.
    - **If not yet:** Wave 1 goes ahead without more Ollama models. They can come in a small
@@ -143,14 +146,21 @@ subscriptions is Wave 3's routes (ADR-081 §4).
 - **Part C — Gemini CLI: done; it fails the bar.** Sign in with Google was refused: "This client is
   no longer supported for Gemini Code Assist for individuals." npm installed only Node.js shortcuts
   (no `gemini.exe`), and WinGet has no package. The [finding](ai-tools-gemini-finding.md).
-- **Part E — Antigravity CLI, step 0: to do.** What the build machine already saw, signed out, is
-  in [the evidence](evidence/phase-16/README.md): version 1.2.13, a real `.exe` on Windows, the task
-  on standard input (`-p=` with `--input-format stream-json`), JSON lines out, resume by
-  conversation ID, `agy models` refusing when signed out (the likely sign-in check, as Grok's), and
-  key mode needing both a settings entry and a key variable Plenipo never passes. Open: what the
-  model list shows signed in; the `useG1Credits` switch ("personal AI credit consumption when
-  quota exhausted"); and its background self-updates. **I stop for Antigravity until Part E comes back.**
-- **Part D — Ollama:** only if the paid plan is active (choice 4).
+- **Part E — Antigravity CLI, step 0: E1 to E8 done; E9 to do.** On the owner's PC, signed in with
+  Google: version 1.2.13, a real `agy.exe` (`%LOCALAPPDATA%\agy\bin`); **one task with the words on
+  standard input answered "OK" (`SUCCESS`), and a second task continued the same conversation by
+  its ID and remembered it**; `agy models` listed fourteen models from **three companies**: Gemini
+  3.8, 3.7, and 3.6 Flash (High, Medium, Low) and Gemini 3.1 Pro (High, Low) by Google, Claude
+  Sonnet 4.6 and Claude Opus 4.6 (Thinking) by Anthropic, and GPT-OSS 120B (Medium) by OpenAI. With
+  an empty home folder it was still signed in: the sign-in is kept in Windows Credential Manager.
+  The owner's settings file held no paid-credits or key setting, and the version did not change
+  during the checks. The made-up-key half of E6 did not run (a command the older Windows
+  PowerShell does not accept). On the build machine afterwards: self-updates stop with
+  `AGY_CLI_DISABLE_AUTO_UPDATE=true`, and `useG1Credits` takes `true`/`false` (Google's settings page
+  says `on`/`off`, which the program refuses). **E9** runs it the way Plenipo would (its own
+  settings folder with paid credits off, self-updates off, read-only) and asks it to write a file.
+  Details: [evidence](evidence/phase-16/README.md). **I stop for Antigravity until E9 comes back.**
+- **Part D — Ollama:** after the paid plan starts (choice 4).
 
 ## Code map (read at `936c8e6`, `main`, v1.13.0)
 
@@ -270,19 +280,24 @@ desktop's `companies()` also offer every maker the AI tools list. The saved rule
 - **Gemini CLI fails bar item 3** (subscription sign-in): Google stopped serving it to personal
   plans on 2026-06-18. [The finding](ai-tools-gemini-finding.md) is written; no adapter.
 - **Antigravity CLI** (Google's replacement, `agy`) is checked against the same bar (ADR-014, with
-  ADR-015's rule that the task goes in on standard input). From the build machine: bar items 1
-  (one task, the words on standard input), 2 (JSON lines with the conversation ID, the answer,
-  errors, and token counts), and 5 (a version flag, resume by ID) look met. Open, for Part E:
-  - **item 3 (subscription only):** `useG1Credits` can spend paid credits once the plan's
-    allowance runs out. Plenipo must be able to keep that off for its tasks, or it is a finding,
-    as Copilot's paid overage was;
-  - **item 4 (a sign-in check that tells a subscription from a key):** `agy models`, as with Grok,
-    because key mode needs both a settings entry and a key variable, and Plenipo never passes key
-    variables;
-  - **least privilege:** what `--mode plan --sandbox` allows, and how Plenipo's tools (Guard) reach
-    it;
-  - **updates:** it updates itself in the background; Plenipo updates AI tools only between tasks
-    (ADR-059).
+  ADR-015's rule that the task goes in on standard input). Where it stands after E1 to E8:
+  - **item 1 (one task, words on standard input, exits by itself): met** on the owner's PC
+    (`-p=` with `--input-format stream-json`);
+  - **item 2 (structured output): met** — JSON lines with the conversation ID, the answer as it is
+    written, errors, and token counts;
+  - **item 5 (version, resume by ID, repeatable): met** — `--version`, `--conversation <ID>`;
+  - **item 3 (subscription only):** key mode needs a `modelProvider` setting **and** a key variable,
+    and Plenipo passes neither: it would give Antigravity its own settings folder (the sign-in stays
+    in Windows Credential Manager) holding `"useG1Credits": false`, so a task can never spend paid
+    credits past the plan's allowance. E9 confirms this on the owner's PC;
+  - **item 4 (a sign-in check that tells a subscription from a key):** `agy models` before each
+    task, as with Grok: it refuses when signed out, and with Plenipo's own settings folder and no
+    key variable, only the Google sign-in can answer. E9 confirms that a key in the environment
+    alone does not change it;
+  - **least privilege:** `--mode plan --sandbox` and `"toolPermission": "strict"`; E9 checks that a
+    file cannot be written. Plenipo's tools would reach it through its MCP support, each call
+    checked by Guard, as for the other AI tools;
+  - **updates:** `AGY_CLI_DISABLE_AUTO_UPDATE=true` for every task and check (ADR-059).
 - **If it passes:** an adapter with its own decision record (ADR-082) for what differs from the
   other AI tools, a persona in the stand-in AI tool, and the whole contract suite. Its models say
   who made them (Google, and any other company its list offers).

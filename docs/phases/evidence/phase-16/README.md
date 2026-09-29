@@ -328,3 +328,70 @@ gpt-4.1           False The 'gpt-4.1' model is not supported when using Codex wi
 Each refusal came as `{"type":"error","status":400,"error":{"type":"invalid_request_error",
 "message":"…"}}`; only the message is shown above. On Codex 0.145.0 the same twelve were refused,
 and the list had no GPT-6 models.
+
+# Antigravity CLI on the owner's PC (Part E, 2026-09-29)
+
+From the owner's Windows PC, signed in with the owner's Google account, Antigravity CLI **1.2.13**
+(`%LOCALAPPDATA%\agy\bin\agy.exe`, 200 MB, a real `.exe`). The steps ran in the older Windows
+PowerShell, which saved the files as UTF-16; they are shown here as plain text, with the home
+folder's path hidden.
+
+- **`agy models`, signed in:** listed fourteen models from three companies, exit code 0:
+  - `gemini-3.8-flash-high` — Gemini 3.8 Flash (High)
+  - `gemini-3.8-flash-medium` — Gemini 3.8 Flash (Medium)
+  - `gemini-3.8-flash-low` — Gemini 3.8 Flash (Low)
+  - `gemini-3.7-flash-high` — Gemini 3.7 Flash (High)
+  - `gemini-3.7-flash-medium` — Gemini 3.7 Flash (Medium)
+  - `gemini-3.7-flash-low` — Gemini 3.7 Flash (Low)
+  - `gemini-3.6-flash-high` — Gemini 3.6 Flash (High)
+  - `gemini-3.6-flash-medium` — Gemini 3.6 Flash (Medium)
+  - `gemini-3.6-flash-low` — Gemini 3.6 Flash (Low)
+  - `gemini-3.1-pro-high` — Gemini 3.1 Pro (High)
+  - `gemini-3.1-pro-low` — Gemini 3.1 Pro (Low)
+  - `claude-sonnet-4-6` — Claude Sonnet 4.6 (Thinking)
+  - `claude-opus-4-6-thinking` — Claude Opus 4.6 (Thinking)
+  - `gpt-oss-120b-medium` — GPT-OSS 120B (Medium)
+- **One task, the words on standard input,** `--mode plan --sandbox`: `status: SUCCESS`,
+  `response: "OK\n"`, exit code 0. The answer streamed as `text_delta` in `step_update` events,
+  with token counts (read, written, thinking).
+- **The same conversation again** (`--conversation <ID>`): the same ID, `num_turns: 2`, and it
+  answered "OK" to "Which single word did you reply with just now?", exit code 0.
+- **An empty home folder did not sign it out:** with `USERPROFILE` pointed at an empty folder,
+  `agy models` still listed the same fourteen models. The sign-in is kept outside the home folder
+  (Windows Credential Manager, as Google's install page says it tries first), so Plenipo can give
+  Antigravity a settings folder of its own and still use the owner's sign-in.
+- **The owner's own settings file** held only `trustedWorkspaces`: no `useG1Credits`, no
+  `modelProvider`.
+- **Version before and after the checks:** 1.2.13 both times.
+- **Not run:** the made-up key half of E6. It built a path with `Join-Path` and three parts, which
+  the older Windows PowerShell does not accept; E9 repeats it in a form both accept.
+
+```text
+{"event":"init","conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","init":{"cwd":"<home>\\Desktop\\plenipo-checks","tools":["… 57 tools"],"permission_mode":"request-review"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"OK"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\n","duration_seconds":5.3100739,"usage":{"input_tokens":13685,"output_tokens":979,"thinking_tokens":978,"cache_read_tokens":0,"total_tokens":14664}}}
+{"event":"result","result":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","status":"SUCCESS","response":"OK\n","duration_seconds":5.4362304,"num_turns":1,"usage":{"input_tokens":13685,"output_tokens":979,"thinking_tokens":978,"cache_read_tokens":0,"total_tokens":14664}}}
+exit code: 0
+```
+
+```text
+{"event":"init","conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","init":{"cwd":"<home>\\Desktop\\plenipo-checks","tools":["… 57 tools"],"permission_mode":"request-review"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":2,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":3,"state":"DONE","step_type":"system_message","duration_seconds":0.0049038}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"OK"}}
+{"event":"step_update","step_update":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","step_index":4,"state":"DONE","step_type":"agent_response","text_delta":"\n","duration_seconds":5.6966892,"usage":{"input_tokens":15888,"output_tokens":126,"thinking_tokens":125,"cache_read_tokens":0,"total_tokens":16014}}}
+{"event":"result","result":{"conversation_id":"b76723ac-06b7-48d2-9c0b-1f81db003074","status":"SUCCESS","response":"OK\n","duration_seconds":14.7742882,"num_turns":2,"usage":{"input_tokens":29573,"output_tokens":1105,"thinking_tokens":1103,"cache_read_tokens":0,"total_tokens":30678}}}
+exit code: 0
+```
+
+## Found on the build machine after Part E
+
+- **Self-updates can be turned off:** the program reads `AGY_CLI_DISABLE_AUTO_UPDATE` (not in
+  Google's documentation). With it set to `true`, a start logged no "Spawned background update
+  process"; without it, or with `1`, `TRUE`, or `yes`, it did. Plenipo would set
+  `AGY_CLI_DISABLE_AUTO_UPDATE=true` for its tasks, as it sets `GROK_DISABLE_AUTOUPDATER=1`.
+- **The paid-credits setting takes `true` or `false`,** not the `on`/`off` Google's settings page
+  lists: `"useG1Credits": "off"` (and `"false"`, `"never"`, `"disabled"`) was refused ("failed to
+  load cli settings, using defaults: invalid settings: useG1Credits: invalid value "off"").
+  `"useG1Credits": false` loaded with no error, next to `"toolPermission": "strict"`.

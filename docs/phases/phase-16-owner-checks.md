@@ -10,9 +10,10 @@ or changes Plenipo.
 - **Part B (Codex): done** on Codex 0.159.0. Thank you.
 - **Part C (Gemini CLI): done — it can't be used.** Google stopped serving Gemini CLI to personal
   Google plans; see [the finding](ai-tools-gemini-finding.md).
-- **Part E (Antigravity CLI, Google's replacement): new — please do it.** I stop for Antigravity
-  until you send its results (ADR-014, adding AI tools: "step 0" runs on your PC first).
-- **Part D (Ollama):** only if your paid Ollama plan is active.
+- **Part E (Antigravity CLI, Google's replacement): E1 to E8 done** — it answered a task and
+  continued the conversation on your Google sign-in. **One more step, E9, please**, plus your
+  `/credits` screenshot and your Google plan's name (E4, E8). I stop for Antigravity until then.
+- **Part D (Ollama):** your paid plan starts 2026-09-30, so this waits for a small follow-up.
 
 - **Time:** about 30 minutes, most of it waiting.
 - **Cost:** each check sends a one-word task ("Reply with the single word OK."). Together they use
@@ -385,6 +386,60 @@ agy --version 2>&1 | Tee-Object -FilePath agy-version-after.txt
 
 **E8. Your plan.** Tell me which Google AI plan your Antigravity sign-in uses (for example Google AI
 Pro), and whether `/credits` showed any paid credits.
+
+**E9. Antigravity the way Plenipo would run it** (added after your first Part E results). Plenipo
+would give Antigravity its own settings folder with **paid credits off** (`"useG1Credits": false`)
+and strict permissions, turn its self-updates off (`AGY_CLI_DISABLE_AUTO_UPDATE=true`), and run it
+read-only. Your first results showed your sign-in is kept in Windows Credential Manager, so it
+still works with a different settings folder. This step checks that, asks Antigravity to write a
+file in read-only mode (it should not manage to), and repeats the made-up-key check from E6 (that
+part didn't run: the older Windows PowerShell doesn't accept one of its commands). Run the step 0
+lines first so `$out` is set, then paste this block. It works in either PowerShell.
+
+```powershell
+# E9: Antigravity run the way Plenipo would: its own settings folder (paid credits off, strict
+# permissions), no self-update, read-only mode. Your Google sign-in stays in Windows Credential
+# Manager, so it still works. Works in PowerShell 7 and in the older Windows PowerShell.
+$realHome = $env:USERPROFILE
+$plenipoHome = Join-Path $out 'agy-plenipo-home'
+$settingsDir = Join-Path (Join-Path $plenipoHome '.gemini') 'antigravity-cli'
+$work = Join-Path $out 'agy-work'
+New-Item -ItemType Directory -Force $settingsDir | Out-Null
+New-Item -ItemType Directory -Force $work | Out-Null
+'{"useG1Credits": false, "toolPermission": "strict"}' | Set-Content -Encoding ascii (Join-Path $settingsDir 'settings.json')
+$hide = { param($t) ($t -replace [regex]::Escape($realHome.Replace('\', '\\')), '<home>') -replace [regex]::Escape($realHome), '<home>' -replace '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email hidden>' }
+$save = { param($lines, $name) & $hide (($lines | ForEach-Object { "$_" }) -join "`n") | Set-Content -Encoding utf8 (Join-Path $out $name) }
+Push-Location $work
+try {
+  $env:USERPROFILE = $plenipoHome
+  $env:AGY_CLI_DISABLE_AUTO_UPDATE = 'true'
+  # 1. The sign-in check, with Plenipo's own settings folder.
+  $models = agy models 2>&1
+  & $save (@($models) + "exit code: $LASTEXITCODE") 'agy-e9-models.txt'
+  # 2. Ask it to write a file, in read-only mode. It should refuse or not manage it.
+  $ask = '{"event":"user","message":{"role":"user","content":"Create a file named proof.txt in the current folder containing the word hello, then reply DONE."}}'
+  $write = $ask | agy -p= --input-format stream-json --output-format stream-json --mode plan --sandbox 2>&1
+  $code = $LASTEXITCODE
+  & $save (@($write) + "exit code: $code" + "proof.txt written: $(Test-Path (Join-Path $work 'proof.txt'))") 'agy-e9-write.txt'
+  # 3. A made-up key in the environment, with no key setting in the settings file: it should
+  #    still use your Google sign-in (the key alone must not switch it to pay-per-use).
+  $env:GEMINI_API_KEY = 'not-a-real-key'
+  $keyModels = agy models 2>&1
+  & $save (@($keyModels) + "exit code: $LASTEXITCODE") 'agy-e9-made-up-key.txt'
+} finally {
+  Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:AGY_CLI_DISABLE_AUTO_UPDATE -ErrorAction SilentlyContinue
+  $env:USERPROFILE = $realHome
+  Pop-Location
+}
+Get-Content (Join-Path $out 'agy-e9-write.txt') | Select-Object -Last 2
+"Models listed with Plenipo's settings folder: $(@($models | Where-Object { "$_" -match '\t' }).Count)"
+"Models listed with a made-up key in the environment: $(@($keyModels | Where-Object { "$_" -match '\t' }).Count)"
+```
+
+It saves `agy-e9-models.txt`, `agy-e9-write.txt`, and `agy-e9-made-up-key.txt`. You want models
+listed in both counts, and `proof.txt written: False`. If the counts are 0, send me the files:
+that's an answer too.
 
 **Then stop.** I write nothing for Antigravity until I have these results.
 
