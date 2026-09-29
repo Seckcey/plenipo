@@ -18,7 +18,8 @@
 The owner told Plenipo's builder to start Phase 16 (**every AI model worth having**) now, before
 Phase 20 (**Connections**) is finished, and to build only its **first wave**: who made each model,
 counting that for cross-company review, grouping the model list, exact Claude versions, older
-OpenAI models, Google's Gemini CLI (or a written finding), and more Ollama models if the paid plan
+OpenAI models, Google's Gemini CLI (or a written finding; at the owner's direction, Google's
+Antigravity CLI in its place), and more Ollama models if the paid plan
 is active. Another session builds Phase 20B (Slack and Google) at the same time. Accepting this
 record means the order-of-work table shows Phase 16 Wave 1 as **in progress, beside Phase 20**,
 and the rule "work only on the earliest incomplete phase" allows it, because the owner said so.
@@ -40,7 +41,7 @@ reviews and more merge conflicts"). Wave 1 is small and touches different code t
 
 - **Wave 1 touches** the list of each AI tool's models (`crates/runtime/src/agent/`), the Router
   (`crates/router/`), how Liaison says whose work is being reviewed, Settings → AI models and the
-  AI tools page, and, if Gemini passes its checks, a new AI tool.
+  AI tools page, and, if Google's AI tool passes its checks, a new AI tool.
 - **Phase 20 touches** Connections: `crates/capabilities/src/connections/`,
   `crates/guard/src/connections.rs`, the Vault, `apps/desktop/src/settings/connections/`, and the
   Connections tests. Wave 1 stays out of all of these.
@@ -65,6 +66,11 @@ Hermes) stay after Phase 20.
    - exact Claude model versions beside the plain names;
    - the older OpenAI models a ChatGPT sign-in really allows, each checked on the owner's PC;
    - Google's Gemini CLI as an AI tool, or a written finding, after step 0 on the owner's PC;
+   - added at the owner's direction on 2026-09-29, after Gemini CLI's sign-in was refused on the
+     owner's PC ([the finding](../phases/ai-tools-gemini-finding.md)): Google's replacement,
+     Antigravity CLI, checked the same way, as an AI tool with its own decision record or a
+     written finding. The owner: "gemini is a critical AI LLM we need working in Plenipo so yes,
+     do A now please."
    - more Ollama cloud models, only if the owner's paid Ollama plan is active.
 3. **Out of Wave 1:** Waves 2 to 4, anything in Connections, and panels and windows (Phase 21).
 4. **Staying out of Phase 20's way:** Wave 1 does not change Connections code, the Vault, the

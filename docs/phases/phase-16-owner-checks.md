@@ -1,13 +1,19 @@
 # Phase 16 Wave 1 — checks on your Windows PC
 
-**What this is.** Four short checks, run on your own PC with your own sign-ins. They tell me what
-your subscriptions really allow, so nothing in Plenipo's model lists is a guess. Nothing here
-installs or changes Plenipo.
+**What this is.** Short checks, run on your own PC with your own sign-ins. They tell me what your
+subscriptions really allow, so nothing in Plenipo's model lists is a guess. Nothing here installs
+or changes Plenipo.
 
-**Do Parts A, B, and C.** Do Part D only if your paid Ollama plan is active. Then send me the
-results (the end of this page says how), and I build from them. **For Google's Gemini CLI, I stop
-and wait for your Part C results before writing any of its code** (ADR-014, adding AI tools: its
-"step 0" runs on your PC first).
+**Where things stand (2026-09-29):**
+
+- **Part A (Claude): done.** Thank you.
+- **Part B (Codex): please redo** after updating Codex (step B0). Your Codex was 0.145.0, older
+  than the 0.157.1 Plenipo was checked with, so its list of models was an older one.
+- **Part C (Gemini CLI): done — it can't be used.** Google stopped serving Gemini CLI to personal
+  Google plans; see [the finding](ai-tools-gemini-finding.md).
+- **Part E (Antigravity CLI, Google's replacement): new — please do it.** I stop for Antigravity
+  until you send its results (ADR-014, adding AI tools: "step 0" runs on your PC first).
+- **Part D (Ollama):** only if your paid Ollama plan is active.
 
 - **Time:** about 30 minutes, most of it waiting.
 - **Cost:** each check sends a one-word task ("Reply with the single word OK."). Together they use
@@ -18,8 +24,9 @@ and wait for your Part C results before writing any of its code** (ADR-014, addi
   remove any email address, account name, or sign-in code that slipped through. **Never send a
   password or a key.**
 - **How sure I am:** each script was tested on Plenipo's build machine (Linux, PowerShell 7.4)
-  against stand-ins for Claude Code and Codex, and against the real Gemini CLI 0.61.0 signed out.
-  None has run on Windows yet. If a step fails, send me the error; that helps too.
+  against stand-ins for Claude Code and Codex, and against the real Gemini CLI 0.61.0 and
+  Antigravity CLI 1.2.13, signed out and with a made-up key. Parts A to C then ran on your PC. If a
+  step fails, send me the error; that helps too.
 
 ## 0. Open PowerShell 7 and make a folder for the results
 
@@ -125,6 +132,17 @@ server — the same way Plenipo already reads Codex's models, with no task), the
 task on each older one to see which your ChatGPT sign-in really allows. A few older names that may
 not be on Codex's list are tried too; for those, "not supported" is a useful answer.
 
+**B0. Update Codex first.** Its list of models depends on its version.
+
+```powershell
+npm install -g @openai/codex@latest
+codex --version
+```
+
+You want `0.157.1` or newer. If it still says `0.145.0`, Codex was installed another way: send me
+what `(Get-Command codex).Source` prints. Then close PowerShell 7, open it again, and run the three
+lines of step 0 before B1.
+
 **B1.** Your Codex version and the kind of sign-in (not your email):
 
 ```powershell
@@ -226,170 +244,150 @@ $rows | Format-Table -AutoSize -Wrap | Out-String -Width 300 | Tee-Object -FileP
 What to look for: in `codex-older.txt`, `True` in the `Ran` column means your ChatGPT sign-in runs
 that model.
 
-## Part C — Google's Gemini CLI, step 0 (about 15 minutes)
+## Part C — Google's Gemini CLI: done, it can't be used
 
-**Why:** before Plenipo adds an AI tool, its real program must pass ADR-014's bar (adding AI tools)
-on your PC. The part Gemini CLI might miss is a **sign-in status check**: a way for Plenipo to ask
-"is this signed in with your Google subscription, and not a pay-per-use key?" before every task.
-Gemini has no command for that. Inside its ACP mode (the same kind of connection Plenipo uses for
-Grok and Kimi) it has `/about`, which reports the kind of sign-in and your plan without asking the
-model. These steps find out whether that is good enough, plus everything else the bar needs. If it
-isn't, Gemini gets a written finding, as GitHub Copilot did, not a workaround.
+On your PC, **Sign in with Google** was refused: "This client is no longer supported for Gemini
+Code Assist for individuals." Since 2026-06-18, Google serves Gemini CLI only to business licenses,
+pay-per-use keys, and Google Cloud accounts, which Plenipo's rules refuse. The written finding is
+[here](ai-tools-gemini-finding.md). You can remove it: `npm uninstall -g @google/gemini-cli`.
+Google's replacement, Antigravity CLI, is Part E.
 
-What I already saw on the build machine, signed out, is on
-[the evidence page](evidence/phase-16/README.md).
+## Part E — Google's Antigravity CLI, step 0 (about 15 minutes)
 
-**C1. No keys or cloud settings in the way.** These variables would make Gemini use a key or a
-paid Google Cloud account instead of your own sign-in. This prints **names only**, never values.
-You want no output.
+**Why:** Gemini CLI can't sign in with a personal Google plan any more (Part C), so at your
+direction Plenipo checks Google's replacement, **Antigravity CLI** (the command is `agy`), against
+the same bar. On the build machine it already did the hard parts: it reads the task from standard
+input, prints its progress as JSON lines, and continues a conversation by its ID
+([evidence](evidence/phase-16/README.md)). What only your PC can show:
+
+1. **Is it signed in with your Google plan, not a key?** `agy models` is the likely check, the way
+   Plenipo already checks Grok. Signed out, it refuses.
+2. **Does it ever spend paid credits** when your plan's allowance runs out? Google's settings have
+   a switch for that, `useG1Credits`. Plenipo must never let a task spend money.
+3. **Does it update itself in the middle of work?** Plenipo updates AI tools only between tasks.
+
+If it can't pass, it gets a written finding like Gemini CLI. **I stop again for Antigravity until
+you send these results.**
+
+Use a PowerShell 7 window in the checks folder (the three lines of step 0). You already installed
+Antigravity and signed in, so there is nothing to install here unless `agy` is not found (then run
+`irm https://antigravity.google/cli/install.ps1 | iex`, Google's own installer, and open a new
+window).
+
+**E1. No keys or cloud settings in the way.** Names only, never values. You want no output.
 
 ```powershell
-$names = 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_ACCESS_TOKEN',
-  'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_PROJECT_ID', 'GOOGLE_CLOUD_QUOTA_PROJECT', 'GOOGLE_CLOUD_LOCATION',
-  'GOOGLE_GENAI_USE_VERTEXAI', 'GOOGLE_GENAI_USE_GCA', 'GOOGLE_GEMINI_BASE_URL', 'GOOGLE_VERTEX_BASE_URL',
-  'GEMINI_DEFAULT_AUTH_TYPE', 'GEMINI_API_KEY_AUTH_MECHANISM', 'GEMINI_CLI_CUSTOM_HEADERS', 'GEMINI_CLI_HOME'
 foreach ($scope in 'Process', 'User', 'Machine') {
   foreach ($key in [Environment]::GetEnvironmentVariables($scope).Keys) {
-    if ($names -contains $key) { "$scope has $key set" }
+    if ($key -match '^(GEMINI_|GOOGLE_|AGY_|ANTIGRAVITY_)') { "$scope has $key set" }
   }
 }
 ```
 
-If a name prints, tell me before going on (never its value).
+If a name prints, tell me (never its value), and turn it off for this window with
+`Remove-Item Env:NAME`, using the name that printed.
 
-**C2. Install Gemini CLI and see what Windows gets.**
+**E2. The program, its version, and its help.**
 
 ```powershell
-npm install -g @google/gemini-cli
-gemini --version | Tee-Object -FilePath gemini-version.txt
-$where = (Get-Command gemini).Source
-$where | Tee-Object -FilePath gemini-install.txt
-Get-ChildItem (Split-Path $where) -Filter 'gemini*' | Select-Object Name, Length |
-  Out-String | Add-Content gemini-install.txt
-winget search --name "Gemini CLI" 2>&1 | Out-String | Add-Content gemini-install.txt
-gemini --help 2>&1 | Out-File gemini-help.txt
+agy --version 2>&1 | Tee-Object -FilePath agy-version.txt
+(Get-Command agy).Source | Tee-Object -FilePath agy-install.txt
+Get-Item (Get-Command agy).Source | Select-Object Name, Length | Out-String | Add-Content agy-install.txt
+agy --help 2>&1 | Out-File agy-help.txt
 ```
 
-`gemini-install.txt` shows whether Windows got a real `gemini.exe` or only npm's `gemini.cmd` and
-`gemini.ps1` shortcuts that start Node.js (the build machine suggests shortcuts only), and whether
-Google publishes a WinGet package.
-
-**C3. Sign in with your Google account.** Run `gemini` on its own. If it asks, trust this folder and
-pick a color theme. When it asks how to sign in, choose **Sign in with Google** and finish in your
-browser, with the Google account that has your Google AI plan. Back at Gemini's prompt, type
-`/about` and take a screenshot. **Cover your email address in the screenshot.** Then type `/quit`.
-
-**C4. The possible status check, signed in.** Save the helper, then run it. It talks to Gemini the
-way Plenipo would: start, open a conversation, send `/about`. It hides your email itself.
+**E3. The likely sign-in check.** Signed in with your Google plan, it should list models.
 
 ```powershell
-@'
-// Talks to Gemini CLI over ACP, as Plenipo would for a sign-in check: initialize, a new
-// conversation, and the prompt "/about" (Gemini's own command; it does not ask the model).
-// Saves every message in the file named first (default gemini-acp.txt), with email addresses hidden.
-import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+agy models 2>&1 | Tee-Object -FilePath agy-models.txt
+"exit code: $LASTEXITCODE" | Add-Content agy-models.txt
+```
 
-const file = process.argv[2] ?? "gemini-acp.txt";
-const hide = (s) =>
-  s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "<email hidden>")
-   .replace(/(User Email:)[^\\\n"]*/g, "$1 <hidden>");
-const log = [];
-const note = (s) => { const t = hide(s); log.push(t); console.log(t.length > 300 ? t.slice(0, 300) + " …" : t); };
-const child = spawn("gemini", ["--acp"], {
-  shell: process.platform === "win32",
-  stdio: ["pipe", "pipe", "pipe"],
-});
-let session = null;
-const send = (m) => { const line = JSON.stringify(m); note(">> " + line); child.stdin.write(line + "\n"); };
-const finish = (why) => {
-  note("-- " + why);
-  writeFileSync(file, log.join("\n") + "\n");
-  child.kill();
-  process.exit(0);
-};
-let buf = "";
-child.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) >= 0) {
-    const line = buf.slice(0, i);
-    buf = buf.slice(i + 1);
-    note("<< " + line);
-    let m;
-    try { m = JSON.parse(line); } catch { continue; }
-    if (m.id === 1) send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: process.cwd(), mcpServers: [] } });
-    else if (m.id === 2 && m.error) finish("no conversation: " + m.error.message);
-    else if (m.id === 2) {
-      session = m.result.sessionId;
-      send({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: session, prompt: [{ type: "text", text: "/about" }] } });
-    } else if (m.id === 3) finish("done");
-    else if (m.method === "session/request_permission" && m.id !== undefined) {
-      send({ jsonrpc: "2.0", id: m.id, result: { outcome: { outcome: "cancelled" } } });
-    }
+**E4. Its settings, and your plan's credits.** This shows Antigravity's own settings file. It holds
+choices, not your password; still, look it over before you send it.
+
+```powershell
+$settings = "$env:USERPROFILE\.gemini\antigravity-cli\settings.json"
+if (Test-Path $settings) { Get-Content $settings | Out-File agy-settings.txt } else { "no settings file" | Out-File agy-settings.txt }
+Get-Content agy-settings.txt
+```
+
+Then start `agy` on its own, type `/credits`, and take a screenshot (**cover your email** if it
+shows). Type `/config` too, and screenshot the part that shows **useG1Credits** if you find it.
+Leave it as it is. Type `/exit` to leave.
+
+**E5. One task, then the same conversation again.** The task's words go in on standard input
+(never on the command line), read-only (`--mode plan --sandbox`). It saves `agy-task.txt` and
+`agy-resume.txt`, with your home folder's name and any email address hidden. Paste this block:
+
+```powershell
+# One task with the words on standard input (never on the command line), read-only, then a
+# second task that continues the same conversation by its ID. Saves agy-task.txt and
+# agy-resume.txt, with your home folder's name and any email address hidden.
+function Ask-Agy([string]$Text, [string]$Conversation) {
+  $msg = @{ event = 'user'; message = @{ role = 'user'; content = $Text } } | ConvertTo-Json -Compress -Depth 5
+  $flags = @('-p=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--mode', 'plan', '--sandbox')
+  if ($Conversation) { $flags += @('--conversation', $Conversation) }
+  $lines = $msg | agy @flags 2>&1 | ForEach-Object { "$_" }
+  $code = $LASTEXITCODE
+  $id = ''; $said = ''; $status = ''
+  foreach ($line in $lines) {
+    try { $j = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+    if ($j.event -eq 'init' -and $j.conversation_id) { $id = $j.conversation_id }
+    if ($j.event -eq 'result') { $id = $j.result.conversation_id; $status = $j.result.status; $said = "$($j.result.response)$($j.result.error)" }
   }
-});
-child.stderr.on("data", (d) => note("stderr: " + String(d).trimEnd()));
-child.on("exit", (c) => finish("Gemini stopped, exit code " + c));
-setTimeout(() => finish("no answer in 60 seconds"), 60000);
-send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
-  protocolVersion: 1,
-  clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-} });
-'@ | Set-Content -Encoding utf8 gemini-acp.mjs
-node gemini-acp.mjs gemini-acp-signed-in.txt
+  $home1 = [regex]::Escape($env:USERPROFILE); $home2 = [regex]::Escape($env:USERPROFILE.Replace('\', '\\'))
+  $clean = ($lines -join "`n") -replace $home2, '<home>' -replace $home1, '<home>' -replace '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email hidden>'
+  [pscustomobject]@{ Id = $id; Status = $status; Said = $said; ExitCode = $code; Raw = $clean }
+}
+$first = Ask-Agy "Reply with the single word OK."
+$first.Raw + "`nexit code: $($first.ExitCode)" | Out-File agy-task.txt
+$second = Ask-Agy "Which single word did you reply with just now?" $first.Id
+$second.Raw + "`nexit code: $($second.ExitCode)" | Out-File agy-resume.txt
+"First task:   status $($first.Status), conversation $($first.Id), said: $($first.Said)"
+"Second task:  status $($second.Status), conversation $($second.Id), said: $($second.Said)"
 ```
 
-**C5. One task, then the same conversation again.** The task's words go in on standard input, and
-the answer comes back as JSON lines, in read-only mode (`--approval-mode plan`). `--skip-trust`
-trusts this folder for this one run (the build machine showed Gemini refuses a one-off task in a
-folder it hasn't been told to trust). Paste this block:
+You want a status that is not `ERROR` and "OK" for the first task, the **same conversation** ID on
+both lines, and the second task remembering "OK".
 
-```powershell
-# One task with the prompt on standard input, then a second task that resumes it by its ID.
-$prompt = "Reply with the single word OK."
-$id = [guid]::NewGuid().ToString()
-$hide = { param($t) $t -replace '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<email hidden>' }
-$first = $prompt | gemini --output-format stream-json --approval-mode plan --skip-trust --session-id $id 2>&1
-$code1 = $LASTEXITCODE
-& $hide (($first | ForEach-Object { "$_" }) -join "`n") | Out-File gemini-task.txt
-"exit code: $code1" | Add-Content gemini-task.txt
-$second = "Which single word did you reply with just now?" |
-  gemini --output-format stream-json --approval-mode plan --skip-trust --resume $id 2>&1
-$code2 = $LASTEXITCODE
-& $hide (($second | ForEach-Object { "$_" }) -join "`n") | Out-File gemini-resume.txt
-"exit code: $code2" | Add-Content gemini-resume.txt
-gemini --list-sessions 2>&1 | ForEach-Object { "$_" } | Out-File gemini-sessions.txt
-"First task: exit code $code1. Resumed task: exit code $code2."
-```
-
-It saves `gemini-task.txt`, `gemini-resume.txt`, and `gemini-sessions.txt`. The second task should
-remember the first one's answer.
-
-**C6. The same checks as if you were signed out, and as if a key were used.** This doesn't sign you
-out: it points Gemini at an empty settings folder for this window only. The key is **made up**
+**E6. As if you were signed out, and as if a key were used.** This doesn't sign you out: for a
+moment, it points Antigravity at an empty home folder, then puts yours back. The key is **made up**
 (`not-a-real-key`), so nothing is billed; Google just refuses it.
 
 ```powershell
-$env:GEMINI_CLI_HOME = "$out\gemini-empty-home"
-New-Item -ItemType Directory -Force $env:GEMINI_CLI_HOME | Out-Null
-node gemini-acp.mjs gemini-acp-signed-out.txt
-"Reply with the single word OK." | gemini --output-format stream-json --skip-trust 2>&1 |
-  ForEach-Object { "$_" } | Out-File gemini-task-signed-out.txt
-"exit code: $LASTEXITCODE" | Add-Content gemini-task-signed-out.txt
-$env:GEMINI_API_KEY = "not-a-real-key"
-node gemini-acp.mjs gemini-acp-made-up-key.txt
-"Reply with the single word OK." | gemini --output-format stream-json --skip-trust 2>&1 |
-  ForEach-Object { "$_" } | Out-File gemini-task-made-up-key.txt
-"exit code: $LASTEXITCODE" | Add-Content gemini-task-made-up-key.txt
-Remove-Item Env:GEMINI_API_KEY
-Remove-Item Env:GEMINI_CLI_HOME
+$realHome = $env:USERPROFILE
+$empty = Join-Path $out 'agy-empty-home'
+$agyDir = Join-Path $empty '.gemini' 'antigravity-cli'
+New-Item -ItemType Directory -Force $agyDir | Out-Null
+try {
+  $env:USERPROFILE = $empty
+  agy models 2>&1 | Out-File agy-models-empty-home.txt
+  "exit code: $LASTEXITCODE" | Add-Content agy-models-empty-home.txt
+  '{"modelProvider": "gemini"}' | Set-Content (Join-Path $agyDir 'settings.json')
+  $env:GEMINI_API_KEY = 'not-a-real-key'
+  agy models 2>&1 | Out-File agy-models-made-up-key.txt
+  "exit code: $LASTEXITCODE" | Add-Content agy-models-made-up-key.txt
+} finally {
+  Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue
+  $env:USERPROFILE = $realHome
+}
+Get-Content agy-models-empty-home.txt, agy-models-made-up-key.txt
 ```
 
-**C7. Your Google plan.** Tell me which Google AI plan the account has (for example Google AI Pro,
-Google AI Ultra, or none). The "Tier" line of `/about` in C3 may already say it.
+If the empty-home check still lists models, that's a useful answer too: it means your sign-in is
+kept in Windows Credential Manager, not in the home folder.
 
-**Then stop.** I write nothing for Gemini until I have these results.
+**E7. Did it update itself?** Run this last, and compare with E2:
+
+```powershell
+agy --version 2>&1 | Tee-Object -FilePath agy-version-after.txt
+```
+
+**E8. Your plan.** Tell me which Google AI plan your Antigravity sign-in uses (for example Google AI
+Pro), and whether `/credits` showed any paid credits.
+
+**Then stop.** I write nothing for Antigravity until I have these results.
 
 ## Part D — More Ollama cloud models (only if your paid Ollama plan is active)
 
@@ -428,7 +426,7 @@ ollama show $m 2>&1 | Out-File ("ollama-show-" + ($m -replace '[:/]', '_') + ".t
 2. Open each `.txt` and `.json` file and look for an email address, account name, or sign-in code.
    Remove any you find.
 3. Attach the files and your screenshots in our chat, or paste each file's text. Tell me your
-   Google plan (C7) and, if you did Part D, the Ollama plan's name and the models you want.
+   Google plan (E8) and, if you did Part D, the Ollama plan's name and the models you want.
 
 When you're done, you can delete the folder. Gemini CLI can stay installed, or be removed with
 `npm uninstall -g @google/gemini-cli`.

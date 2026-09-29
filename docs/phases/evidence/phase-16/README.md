@@ -1,4 +1,9 @@
-# Phase 16 evidence: Google's Gemini CLI 0.61.0, read before the owner's check
+# Phase 16 evidence: Google's Gemini CLI and Antigravity CLI
+
+What Plenipo's build machine saw before the owner's checks. Gemini CLI then failed on the owner's
+PC ([the finding](../../ai-tools-gemini-finding.md)); Antigravity CLI is checked in its place.
+
+# Gemini CLI 0.61.0, read before the owner's check
 
 Recorded on 2026-09-29 (Pacific time) on Plenipo's Linux build machine, **signed out**, with a
 cleared environment (only `HOME`, `PATH`, and `TERM`), so no Google sign-in and no key reached
@@ -158,3 +163,124 @@ from standard input. Gemini also wrote a full error report to a file in the syst
 folder (`gemini-client-error-….json`). A Gemini adapter would pass `--skip-trust` only for Plenipo's
 own empty task folder, and would have to keep Gemini's error reports in mind (they can hold the
 prompt).
+
+# Google's Antigravity CLI 1.2.13, read before the owner's check
+
+Gemini CLI no longer signs in with a personal Google plan (see
+[the finding](../../ai-tools-gemini-finding.md)); Google's replacement is Antigravity CLI. At the
+owner's direction (2026-09-29) it is checked in Gemini CLI's place. Recorded on 2026-09-29 (Pacific
+time) on Plenipo's Linux build machine, **signed out**, with a cleared environment and an empty home
+folder. The program came from Google's own release list (the one its installer reads,
+`manifests/linux_amd64.json`), and its SHA-512 matched the list's. This is not the owner's step 0.
+
+## What it shows
+
+- **A real program on Windows.** Google's Windows list points to `cli_windows_x64.exe` (version
+  1.2.13); the installer (`irm https://antigravity.google/cli/install.ps1 | iex`) puts it in
+  `%LOCALAPPDATA%gyin`, as the command `agy`. It is built in Go, with no Node.js.
+- **The task can go in on standard input only.** `-p` always wants a value, but `-p=` (empty) with
+  `--input-format stream-json` reads the task from standard input, one JSON line per message:
+  `{"event":"user","message":{"role":"user","content":"…"}}`. Plain text on standard input is
+  refused ("empty prompt"). So the words never need to be on the command line.
+- **Structured output:** `--output-format stream-json`, one JSON object per line: `init` (the
+  conversation ID, the folder, the tools, and the permission mode), `step_update` for each step,
+  and a final `result` with the conversation ID, `status`, `response` or `error`, and token
+  counts. Errors also print `AGY_ERROR: {…}` with a status and an error code.
+- **Resume by ID:** `--conversation <ID>` continued the same conversation (the second task
+  reported the first one's ID).
+- **Least privilege:** `--mode plan` and `--sandbox` ("terminal restrictions enabled") are
+  accepted; settings `toolPermission` (`strict`, `request-review`, …) and
+  `allowNonWorkspaceAccess` (off by default) exist. What `plan` allows is for the owner's check
+  and the decision record.
+- **Models and effort:** `agy models` lists models; `--model` chooses one; `--effort` takes
+  `low`, `medium`, `high`, `max`.
+- **A possible sign-in check: `agy models`,** as `grok models` is Grok's. Signed out it stops with
+  exit code 1: "Please sign in to view available models." Whether it lists models, and which, when
+  signed in with a Google plan is for the owner's check.
+- **A key alone does nothing.** With only `GEMINI_API_KEY` set, `agy models` still said "Please
+  sign in". Key mode needs **both** `"modelProvider": "gemini"` in Antigravity's settings file and
+  the key in the environment (Google's install page says the same). With both, and a made-up key,
+  it listed Gemini API models, and a task reached Google and was refused: `400 API key not
+valid`. Plenipo never passes key variables (the contract suite refuses them), so its tasks
+  could not use key mode, even with that setting.
+- **Paid credits after the plan runs out:** the settings include `useG1Credits` (`on`/`off`):
+  "Enables personal AI credit consumption when quota exhausted". Plenipo must never let a task
+  spend paid credits (ADR-036 §2: nothing paid before spending caps). How it is set on the owner's
+  account, and whether Plenipo can hold it off for its tasks, is for the owner's check.
+- **It updates itself in the background** during normal runs (its installer says so). No
+  documented switch turns that off. Plenipo updates AI tools only between tasks (ADR-059, Plenipo
+  keeps the AI tools up to date), so this is for the owner's check and the decision record.
+- **Other names it reads** (from the program; none would be passed): `GEMINI_API_KEY`,
+  `GOOGLE_GEMINI_BASE_URL` (Google's install page), `AGY_ADC_AUTH`, and `AGY_BUSINESS_PAYGO_TIER`.
+
+## `agy --version`
+
+```text
+1.2.13
+```
+
+## `agy --help`
+
+```text
+Usage of antigravity:
+  --add-dir                       Add a directory to the workspace (repeatable) (default [])
+  --agent                         Agent for the current CLI session
+  -c                              Short alias for --continue
+  --continue                      Continue the most recent conversation
+  --conversation                  Resume a previous conversation by ID
+  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting
+  --disable-slash-commands        Disable slash command and skill expansion in print mode
+  --effort                        Reasoning effort for the current CLI session (low|medium|high|max)
+  -i                              Short alias for --prompt-interactive
+  --input-format                  Input format for print mode (text, stream-json). stream-json reads one NDJSON message per line from stdin and runs a turn for each; it requires --output-format stream-json (default text)
+  --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)
+  --log-file                      Override CLI log file path
+  --mode                          Set the agent execution mode for this session (accept-edits, plan)
+  --model                         Model for the current CLI session
+  --new-project                   Create a new project for this session
+  --output-format                 Output format for print mode (text, json, stream-json) (default text)
+  -p                              Short alias for --print
+  --print                         Run a single prompt non-interactively and print the response
+  --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)
+  --project                       Project ID or project name for the current CLI session
+  --prompt                        Alias for --print
+  --prompt-interactive            Run an initial prompt interactively and continue the session
+  --remote-control                Create a remote connection for the CLI session on start up
+  --sandbox                       Run in a sandbox with terminal restrictions enabled
+
+Available subcommands:
+  agent           List available agents
+  agents          List available agents
+  changelog       Show changelog and release notes
+  help            Show help for subcommands
+  install         Configure environment paths and shell settings
+  mcp             Manage MCP servers (add, remove, list, enable, disable)
+  mic-serve       Serve this machine's microphone to a CLI on another host
+  models          List available models
+  plugin          Manage plugins (install, uninstall, list, enable, disable)
+  plugins         Alias for plugin
+  remote-control  Manage the remote-control background daemon (start, status, stop)
+  update          Update CLI
+```
+
+## `agy models`, signed out
+
+```text
+Fetching available models...
+Error: Please sign in to view available models. Launch the CLI without arguments to sign in.
+```
+
+(exit code 1)
+
+## One task, the words on standard input, signed out
+
+`printf '%s
+' '{"event":"user","message":{"role":"user","content":"Reply with the single word OK."}}' | agy -p= --input-format stream-json --output-format stream-json --mode plan`:
+
+```text
+Error: authentication required. Run 'antigravity' to log in, then retry.
+error: authentication failed or timed out
+{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"authentication failed or timed out","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}
+```
+
+(exit code 1)

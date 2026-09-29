@@ -146,17 +146,22 @@ your list.
 
 ### 9. Older OpenAI models a ChatGPT sign-in allows
 
-Codex's list gains the older models its app server reports as hidden (`model/list` with
-`includeHidden: true`, OpenAI's documented call) **and** that a one-word task on the owner's
-ChatGPT sign-in actually ran, each with the effort levels Codex reports for it. A model that is
-refused is not listed. They come after today's models in the menus.
+Codex's list gains each **older** model that a one-word task on the owner's ChatGPT sign-in
+actually ran, with the effort levels Codex reports for it (its app server's `model/list` with
+`includeHidden: true`, OpenAI's documented call). A model that is refused is not listed. They
+come after today's models in the menus. Models Codex keeps out of its own picker that are not
+older models (on Codex 0.145.0: GPT-Reserve and Codex Auto Review) stay out, as ADR-011 §16 lists
+what the AI tool's own picker offers; they can still be typed. On the owner's PC, with Codex
+0.145.0, every older model tried was refused; the check runs again on the newer Codex.
 
-### 10. Google's Gemini CLI and more Ollama models
+### 10. Google's AI tool and more Ollama models
 
-These follow their own rules and are not decided here: Gemini CLI goes through ADR-014's bar with
-step 0 on the owner's PC, and gets its own decision record if it passes, or a finding if it does
-not; more Ollama cloud models are added only if the owner's paid plan is active, each checked on
-the owner's PC as ADR-017 did. Each new model says who made it (§1).
+These follow their own rules and are not decided here. Gemini CLI failed ADR-014's bar on the
+owner's PC: Google no longer serves it to personal plans ([the finding](../phases/ai-tools-gemini-finding.md)).
+At the owner's direction, Google's replacement, Antigravity CLI, goes through the same bar with
+step 0 on the owner's PC, and gets its own decision record (ADR-082) if it passes, or a finding if
+it does not. More Ollama cloud models are added only if the owner's paid plan is active, each
+checked on the owner's PC as ADR-017 did. Each new model says who made it (§1).
 
 ## Consequences
 
