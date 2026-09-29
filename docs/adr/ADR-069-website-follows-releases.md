@@ -1,0 +1,67 @@
+# ADR-069: The website follows new releases by itself, with each release's notes
+
+- **Status:** Accepted (by the owner, 2026-09-29, who chose this option out of three)
+- **Date:** 2026-09-29
+- **Phase:** Website (follow-up to the automatic homepage demo release)
+- **Changes:** [the website's deploy steps](../development/website.md#reserve-deploy-and-roll-back),
+  which were done by hand for every release
+
+## Context
+
+The website at <https://plenipo.8westit.com> runs on Coastline. Its version (the download
+buttons, the version labels, the structured data, and `release.json`) is filled in when its
+image is built, and until now a person logged in to Coastline and built and started it by hand.
+So the site fell behind: on 2026-09-29 it still showed v1.6.0 while v1.11.0 was the latest
+release. The page also had no release notes of its own; it only linked to GitHub.
+
+Three ways to update it automatically were weighed:
+
+1. **Coastline checks GitHub on a timer** and updates itself when a new release appears.
+2. **A GitHub Actions runner on Coastline** (GitHub's program that runs workflow jobs), started
+   by the Release workflow. Updates within seconds, but the repository is public, and GitHub
+   advises against runners on a public repository's own machines: a workflow in a pull request
+   could run code on Coastline.
+3. **GitHub logs in to Coastline** over SSH through the Cloudflare Tunnel. Needs a key for
+   Coastline stored in GitHub and Tunnel access for it.
+
+## Decision
+
+1. **Coastline checks for itself.** A systemd timer runs
+   [`apps/website/deploy/auto-release.sh`](../../apps/website/deploy/auto-release.sh) every 15
+   minutes as the deploy user. It only reads from GitHub (the public releases API and a public
+   clone), so GitHub holds no login for Coastline, nothing new is opened on Coastline, and
+   nothing on GitHub can send Coastline a command. A new release shows on the site within about
+   15 minutes.
+2. **What it shows.** The latest published release: never a draft or a pre-release (the same
+   rule installed copies follow for updates, ADR-038), and only when its Windows installer is
+   attached and its download link works.
+3. **What it builds.** The website code from `main`, the reviewed website, with the release's
+   version and the release's own notes, `docs/releases/vX.Y.Z.md` read at the release's tag. So
+   a website fix merged after a release is shown with the next release (or at once with
+   `--force`), and the notes are exactly the text the release was published with.
+4. **Release notes on the page.** A "What's new in vX.Y.Z" section above Download shows the
+   notes' title and opening paragraphs, with the rest under **Read the full release notes**. The
+   notes are rendered as plain text with a few shapes (headings, paragraphs, lists, code, bold,
+   links); no HTML in them reaches the page, and only http(s) links become links.
+   `release.json` says whether the page has notes (`releaseNotes`).
+5. **Safe to run unattended.** Each release goes into a new folder that is never edited, the
+   container is swapped while holding the shared port-allocation lock, and the new site is
+   checked: health, the home page, "What's new" for this version, `release.json`'s version,
+   source, and notes, a real 404, the image it runs, its restart count, and a loopback-only
+   port. If a check fails, the previous image is put back and checked again, and the run is
+   recorded as rolled back. Every run is logged to the systemd journal, and every update to
+   `history.jsonl`. It never prunes images, stops other services, or touches the firewall, DNS,
+   or the Tunnel.
+
+## Consequences
+
+- Releasing no longer needs a second, manual website step. The owner installs the timer once.
+- Up to 15 minutes between a release and the site showing it. `auto-release.sh` can be run by
+  hand to update at once.
+- The release notes are now on the public website as well as on GitHub, so they are written for
+  anyone to read (they already were public on GitHub).
+- A failed update leaves the previous release running and says so in the journal; nobody is
+  told by email or phone yet. `systemctl status plenipo-website-update` shows the last run.
+- The script on Coastline is an installed copy. A change to it in the repository reaches
+  Coastline only when it is copied again (the install steps in the website guide), so a merge
+  alone never changes what runs as the deploy user.
