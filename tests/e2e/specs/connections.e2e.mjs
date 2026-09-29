@@ -582,12 +582,7 @@ describe(
     it("connects Slack with 8 West's app; the sign-in comes back to Slack's fixed port", async () => {
       const { browser } = app;
       await onCardOf(browser, "slack", "Connect");
-      await waitForText(
-        browser,
-        SLACK_CARD,
-        "Connected as alex@8westit.com (8 West IT)",
-        30_000,
-      );
+      await waitForText(browser, SLACK_CARD, "Connected as alex@8westit.com (8 West IT)", 30_000);
       await waitForText(browser, SLACK_CARD, "Post and send messages as you (asks you first");
       const { asked } = await world();
       const slack = asked.filter((a) => a.service === "slack").at(-1);
