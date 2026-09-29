@@ -130,14 +130,16 @@ subscriptions is Wave 3's routes (ADR-081 §4).
   Haiku 4.5. (The first run used an old `ANTHROPIC_API_KEY` setting on the PC instead of the
   subscription, and every task was refused; the owner turned it off for the check window. Plenipo
   never passes that setting to Claude Code.)
-- **Part B — Codex: redo after updating Codex.** The PC had Codex **0.145.0** (Plenipo is checked
-  against 0.157.1), signed in with ChatGPT. Its app server listed GPT-5.6-Sol, GPT-5.6-Terra,
-  GPT-5.6-Luna, and GPT-5.5, and two hidden models, GPT-Reserve (`gpt-reserve`) and Codex Auto
-  Review (`codex-auto-review`), which both ran. **Every older model tried was refused** on the
-  ChatGPT sign-in ("The '…' model is not supported when using Codex with a ChatGPT account"):
-  `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex`,
-  `gpt-5.1`, `gpt-5-codex`, `gpt-5`, `o3`, `o4-mini`, `gpt-4.1`. The list can differ on a newer
-  Codex, so Part B runs again after `npm install -g @openai/codex@latest`.
+- **Part B — Codex: done.** First on Codex **0.145.0**, then again after the owner updated it to
+  **0.159.0**. (`codex update` failed when started from PowerShell 7: it runs OpenAI's installer in
+  the older Windows PowerShell, which then could not find `Get-FileHash`.) Signed in with ChatGPT.
+  On 0.159.0, Codex's app server lists GPT-6.1-Sol (`gpt-6.1-sol`, **new**, now Codex's default;
+  low to ultra), GPT-6-Astra, GPT-6-Sol, GPT-6-Luna, GPT-5.6-Sol,
+  GPT-5.6-Terra, GPT-5.6-Luna, and GPT-5.5, and two hidden models, GPT-Reserve (`gpt-reserve`) and
+  Codex Auto Review (`codex-auto-review`), which both ran. **Every older model tried was refused**
+  on the ChatGPT sign-in, on both versions ("The '…' model is not supported when using Codex with a
+  ChatGPT account"): `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`,
+  `gpt-5.1-codex`, `gpt-5.1`, `gpt-5-codex`, `gpt-5`, `o3`, `o4-mini`, `gpt-4.1`.
 - **Part C — Gemini CLI: done; it fails the bar.** Sign in with Google was refused: "This client is
   no longer supported for Gemini Code Assist for individuals." npm installed only Node.js shortcuts
   (no `gemini.exe`), and WinGet has no package. The [finding](ai-tools-gemini-finding.md).
@@ -145,9 +147,9 @@ subscriptions is Wave 3's routes (ADR-081 §4).
   in [the evidence](evidence/phase-16/README.md): version 1.2.13, a real `.exe` on Windows, the task
   on standard input (`-p=` with `--input-format stream-json`), JSON lines out, resume by
   conversation ID, `agy models` refusing when signed out (the likely sign-in check, as Grok's), and
-  key mode needing both a settings entry and a key variable Plenipo never passes. Open: what `agy
-models` shows signed in; the `useG1Credits` switch ("personal AI credit consumption when quota
-  exhausted"); and its background self-updates. **I stop for Antigravity until Part E comes back.**
+  key mode needing both a settings entry and a key variable Plenipo never passes. Open: what the
+  model list shows signed in; the `useG1Credits` switch ("personal AI credit consumption when
+  quota exhausted"); and its background self-updates. **I stop for Antigravity until Part E comes back.**
 - **Part D — Ollama:** only if the paid plan is active (choice 4).
 
 ## Code map (read at `936c8e6`, `main`, v1.13.0)
@@ -244,16 +246,24 @@ desktop's `companies()` also offer every maker the AI tools list. The saved rule
 - `checked_version()` moves from 2.1.283 to **2.1.284**, the version checked. The comment that
   says `sonnet` is Sonnet 5 is corrected to Sonnet 5.5.
 
-### 6. Older OpenAI models (ADR-081 §9; Part B again after updating Codex)
+### 6. Older OpenAI models (ADR-081 §9; Part B done)
 
-- Codex's list gains each **older** model that ran on the owner's ChatGPT sign-in, with the effort
-  levels Codex reported for it, after today's models. A name that is refused is not listed.
-- **So far none:** on Codex 0.145.0, every older model tried was refused (the results above).
+- **Checked: a ChatGPT sign-in allows no older OpenAI models in Codex.** Every older model tried
+  was refused, on Codex 0.145.0 and 0.159.0 (the results above). So Codex's list gains no older
+  model; the acceptance report records the check.
 - Codex's two **hidden** models, GPT-Reserve and Codex Auto Review, ran, but they are not older
   models, and Codex keeps them out of its own picker. Plenipo lists what the AI tool's own picker
   offers (ADR-011 §16), so they stay out; a name can still be typed.
-- If the run on the newer Codex finds nothing older either, this deliverable closes as "checked:
-  a ChatGPT sign-in allows no older OpenAI models in Codex", recorded in the acceptance report.
+- **Codex's list is brought up to the version checked:** GPT-6.1-Sol (`gpt-6.1-sol`, low to
+  ultra) is added first, as Codex's own picker now lists it, and `checked_version()` moves from
+  0.157.1 to **0.159.0**. Every Codex model is made by OpenAI.
+- **For the AI tools page's updates (ADR-059):** `codex update` on this install runs OpenAI's
+  installer in the older Windows PowerShell. Started from PowerShell 7, that installer failed
+  (`Get-FileHash` not found: PowerShell 7's `PSModulePath` leaks into the older PowerShell). Plenipo
+  starts updates with a cleared environment whose short list (`BASELINE_ENV` in
+  `crates/runtime/src/policy.rs`) has no `PSModulePath`, so it should not hit this; the build adds a
+  test that keeps `PSModulePath` off that list, and the acceptance walk-through tries **Update** on
+  Codex.
 
 ### 7. Google's AI tool: Gemini CLI's finding, then Antigravity CLI (choice 5; Part E)
 

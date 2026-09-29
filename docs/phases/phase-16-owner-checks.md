@@ -7,8 +7,7 @@ or changes Plenipo.
 **Where things stand (2026-09-29):**
 
 - **Part A (Claude): done.** Thank you.
-- **Part B (Codex): please redo** after updating Codex (step B0). Your Codex was 0.145.0, older
-  than the 0.157.1 Plenipo was checked with, so its list of models was an older one.
+- **Part B (Codex): done** on Codex 0.159.0. Thank you.
 - **Part C (Gemini CLI): done — it can't be used.** Google stopped serving Gemini CLI to personal
   Google plans; see [the finding](ai-tools-gemini-finding.md).
 - **Part E (Antigravity CLI, Google's replacement): new — please do it.** I stop for Antigravity

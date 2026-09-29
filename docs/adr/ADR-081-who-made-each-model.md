@@ -151,8 +151,8 @@ actually ran, with the effort levels Codex reports for it (its app server's `mod
 `includeHidden: true`, OpenAI's documented call). A model that is refused is not listed. They
 come after today's models in the menus. Models Codex keeps out of its own picker that are not
 older models (on Codex 0.145.0: GPT-Reserve and Codex Auto Review) stay out, as ADR-011 §16 lists
-what the AI tool's own picker offers; they can still be typed. On the owner's PC, with Codex
-0.145.0, every older model tried was refused; the check runs again on the newer Codex.
+what the AI tool's own picker offers; they can still be typed. On the owner's PC, every older model tried
+was refused, on Codex 0.145.0 and 0.159.0, so none is added.
 
 ### 10. Google's AI tool and more Ollama models
 

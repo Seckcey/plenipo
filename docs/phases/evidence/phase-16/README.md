@@ -1,4 +1,4 @@
-# Phase 16 evidence: Google's Gemini CLI and Antigravity CLI
+# Phase 16 evidence: Google's Gemini CLI and Antigravity CLI, and Codex's models
 
 What Plenipo's build machine saw before the owner's checks. Gemini CLI then failed on the owner's
 PC ([the finding](../../ai-tools-gemini-finding.md)); Antigravity CLI is checked in its place.
@@ -284,3 +284,47 @@ error: authentication failed or timed out
 ```
 
 (exit code 1)
+
+# Codex's models on the owner's ChatGPT sign-in (Part B, 2026-09-29)
+
+From the owner's PC, Codex **0.159.0** (updated from 0.145.0), `Logged in using ChatGPT`. The list
+is Codex's app server's `model/list` with `includeHidden: true`; "Ran" is a one-word task with that
+model name. No email or account name is in either file.
+
+```text
+model             label             hidden efforts
+-----             -----             ------ -------
+gpt-6.1-sol       GPT-6.1-Sol        False low medium high xhigh max ultra
+gpt-6-astra       GPT-6-Astra        False low medium high xhigh max ultra
+gpt-6-sol         GPT-6-Sol          False low medium high xhigh max ultra
+gpt-6-luna        GPT-6-Luna         False low medium high xhigh max
+gpt-reserve       GPT-Reserve         True low medium high xhigh max
+gpt-5.6-sol       GPT-5.6-Sol        False low medium high xhigh max ultra
+gpt-5.6-terra     GPT-5.6-Terra      False low medium high xhigh max ultra
+gpt-5.6-luna      GPT-5.6-Luna       False low medium high xhigh max
+gpt-5.5           GPT-5.5            False low medium high xhigh
+codex-auto-review Codex Auto Review   True low medium high xhigh max
+```
+
+```text
+Model               Ran Said
+-----               --- ----
+gpt-reserve        True OK
+codex-auto-review  True OK
+gpt-5.4           False The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.
+gpt-5.3-codex     False The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.
+gpt-5.2-codex     False The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account.
+gpt-5.2           False The 'gpt-5.2' model is not supported when using Codex with a ChatGPT account.
+gpt-5.1-codex-max False The 'gpt-5.1-codex-max' model is not supported when using Codex with a ChatGPT account.
+gpt-5.1-codex     False The 'gpt-5.1-codex' model is not supported when using Codex with a ChatGPT account.
+gpt-5.1           False The 'gpt-5.1' model is not supported when using Codex with a ChatGPT account.
+gpt-5-codex       False The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.
+gpt-5             False The 'gpt-5' model is not supported when using Codex with a ChatGPT account.
+o3                False The 'o3' model is not supported when using Codex with a ChatGPT account.
+o4-mini           False The 'o4-mini' model is not supported when using Codex with a ChatGPT account.
+gpt-4.1           False The 'gpt-4.1' model is not supported when using Codex with a ChatGPT account.
+```
+
+Each refusal came as `{"type":"error","status":400,"error":{"type":"invalid_request_error",
+"message":"…"}}`; only the message is shown above. On Codex 0.145.0 the same twelve were refused,
+and the list had no GPT-6 models.
