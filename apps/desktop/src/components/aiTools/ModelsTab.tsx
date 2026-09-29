@@ -13,8 +13,21 @@ import { when } from "../../pages/words";
 import { EFFORT_LABEL } from "../../routing/format";
 import { Refusal } from "../models/shared";
 
-/** "Opus (opus) · Effort: Low, Medium, High". */
-function ModelWords({ model }: { model: KnownModel }) {
+/**
+ * "Opus (opus) · now Opus 5.5 · Effort: Low, Medium, High", and who made it for an AI tool that
+ * runs several companies' models ("made by DeepSeek", ADR-081 §6).
+ */
+function ModelWords({
+  model,
+  listed,
+  showMaker,
+}: {
+  model: KnownModel;
+  /** The AI tool's checked models, to name the exact model a name points to now. */
+  listed: KnownModel[];
+  showMaker: boolean;
+}) {
+  const now = model.pointsTo ? listed.find((k) => k.name === model.pointsTo) : undefined;
   return (
     <>
       <strong>{model.label}</strong>
@@ -25,6 +38,9 @@ function ModelWords({ model }: { model: KnownModel }) {
         </>
       )}
       <span className="muted">
+        {now && ` · now ${now.label}`}
+        {showMaker &&
+          (model.maker ? ` · made by ${model.maker.label}` : " · who made it is not known")}
         {" · "}
         {model.effortLevels.length > 0
           ? `Effort: ${model.effortLevels.map((e) => EFFORT_LABEL[e]).join(", ")}`
@@ -58,6 +74,7 @@ export function ModelsTab({
     ? route.newModels
     : (info.reportedModels?.models ?? []).filter((m) => !known.some((k) => k.name === m.name));
   const reported = info.reportedModels;
+  const showMaker = info.capabilities.runsOtherMakers;
 
   return (
     <div className="ai-tool__block">
@@ -67,7 +84,7 @@ export function ModelsTab({
         <ul className="ai-tool__list" aria-label={`${label}'s models`}>
           {known.map((m) => (
             <li key={m.name}>
-              <ModelWords model={m} />
+              <ModelWords model={m} listed={known} showMaker={showMaker} />
               {unlisted.has(m.name) && (
                 <>
                   {" "}
@@ -78,7 +95,8 @@ export function ModelsTab({
           ))}
           {fresh.map((m) => (
             <li key={m.name}>
-              <ModelWords model={m} /> <StatusPill status="pending" label="new — not checked yet" />
+              <ModelWords model={m} listed={known} showMaker={showMaker} />{" "}
+              <StatusPill status="pending" label="new — not checked yet" />
             </li>
           ))}
         </ul>

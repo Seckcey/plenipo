@@ -1079,6 +1079,83 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       "Asking Kimi for its models leaves an empty conversation in Kimi's own history, so Plenipo asks only after an update and when you press Check again.",
     );
   });
+  it("names the exact model a short name points to now, and who made each of Ollama's models (ADR-081)", async () => {
+    const anthropic = { id: "anthropic", label: "Anthropic" };
+    const deepseek = { id: "deepseek", label: "DeepSeek" };
+    const claudeCaps = aiRuntime("claude-code", "2.1.283").capabilities;
+    const ollamaCaps = aiRuntime("ollama", "0.34.4").capabilities;
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        "claude-code": {
+          capabilities: {
+            ...claudeCaps,
+            knownModels: [
+              {
+                name: "opus",
+                label: "Opus",
+                effortLevels: ["low", "high"],
+                maker: anthropic,
+                pointsTo: "claude-opus-5-5",
+              },
+              {
+                name: "claude-opus-5-5",
+                label: "Opus 5.5",
+                effortLevels: ["low", "high"],
+                maker: anthropic,
+              },
+            ],
+          },
+        },
+        ollama: {
+          capabilities: {
+            ...ollamaCaps,
+            knownModels: [
+              {
+                name: "deepseek-v4-pro:cloud",
+                label: "DeepSeek V4 Pro",
+                effortLevels: [],
+                maker: deepseek,
+              },
+            ],
+          },
+        },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    api.getRouting.mockResolvedValue(
+      routing({
+        ollama: {
+          newModels: [{ name: "mystery:cloud", label: "mystery:cloud", effortLevels: [] }],
+        },
+      }),
+    );
+    await show();
+    const user = userEvent.setup();
+    const claude = card("Claude Code");
+    await user.click(within(claude).getByRole("tab", { name: "Models" }));
+    const claudeModels = within(claude).getByRole("list", { name: "Claude Code's models" });
+    expect(
+      within(claudeModels)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      // Claude Code runs only Anthropic's models: who made them is not repeated.
+      "Opus opus · now Opus 5.5 · Effort: Low, High",
+      "Opus 5.5 claude-opus-5-5 · Effort: Low, High",
+    ]);
+    const ollama = card("Ollama");
+    await user.click(within(ollama).getByRole("tab", { name: "Models" }));
+    const ollamaModels = within(ollama).getByRole("list", { name: "Ollama's models" });
+    expect(
+      within(ollamaModels)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      "DeepSeek V4 Pro deepseek-v4-pro:cloud · made by DeepSeek · No effort setting",
+      "mystery:cloud · who made it is not known · No effort setting new — not checked yet",
+    ]);
+  });
 });
 
 describe("the AI tools page: accessibility smoke", () => {

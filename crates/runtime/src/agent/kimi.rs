@@ -33,7 +33,8 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities, TurnOutcome,
+    makers, AccountAction, AuthState, AuthStatus, Effort, KnownModel, RuntimeCapabilities,
+    TurnOutcome,
 };
 
 pub const ID: &str = "kimi";
@@ -105,7 +106,12 @@ impl RuntimeAdapter for Kimi {
                     "K2.7 Code Highspeed",
                     HIGHSPEED_THINKING,
                 ),
-            ],
+            ]
+            .into_iter()
+            .map(|m| m.by(makers::MOONSHOT))
+            .collect(),
+            default_maker: None,
+            runs_other_makers: false,
         }
     }
 
@@ -224,6 +230,8 @@ impl RuntimeAdapter for Kimi {
                         name,
                         label,
                         effort_levels: Vec::new(),
+                        maker: None,
+                        points_to: None,
                     })
                 })
                 .collect(),

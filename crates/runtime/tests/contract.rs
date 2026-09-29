@@ -106,6 +106,64 @@ fn known_models_are_valid_distinct_and_within_the_tools_effort_levels() {
     }
 }
 
+/// Every model an AI tool lists says who made it (ADR-081 §1): one name per company across all
+/// AI tools, the same as an AI tool's company name when the IDs match; a tool that runs only its
+/// own company's models lists only models its company made; and a name that points to the
+/// newest model points to one that is listed too.
+#[test]
+fn every_listed_model_says_who_made_it() {
+    let adapters = builtin_adapters();
+    let mut names: BTreeMap<String, String> = adapters
+        .iter()
+        .map(|a| (a.provider().to_owned(), a.provider_label().to_owned()))
+        .collect();
+    for a in &adapters {
+        let id = a.id();
+        let caps = a.capabilities();
+        for m in &caps.known_models {
+            let maker = m
+                .maker
+                .as_ref()
+                .unwrap_or_else(|| panic!("{id}: {} says nobody made it", m.name));
+            assert!(
+                !maker.id.trim().is_empty() && !maker.label.trim().is_empty(),
+                "{id}: {} has an empty maker",
+                m.name
+            );
+            let name = names
+                .entry(maker.id.clone())
+                .or_insert_with(|| maker.label.clone());
+            assert_eq!(
+                *name, maker.label,
+                "{id}: company {} has two names",
+                maker.id
+            );
+            if !caps.runs_other_makers {
+                assert_eq!(
+                    maker.id,
+                    a.provider(),
+                    "{id} runs only its own company's models, but {} is by {}",
+                    m.name,
+                    maker.label
+                );
+            }
+            if let Some(exact) = &m.points_to {
+                assert!(
+                    caps.known_models.iter().any(|k| &k.name == exact),
+                    "{id}: {} points to {exact}, which is not listed",
+                    m.name
+                );
+            }
+        }
+        if caps.runs_other_makers {
+            assert!(
+                caps.default_maker.is_some(),
+                "{id} runs other companies' models, so it must say who made its default"
+            );
+        }
+    }
+}
+
 // ---- Launch: arguments and environment --------------------------------------------------------
 
 /// Every shape of turn: new (with and without an ID Plenipo chose) and resumed, with the

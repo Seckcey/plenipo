@@ -84,6 +84,15 @@ pub struct RuntimeCapabilities {
     /// Models the CLI itself offers (its own aliases or model picker), most capable first;
     /// offered as choices, never assumed to be in the owner's list.
     pub known_models: Vec<KnownModel>,
+    /// Who made the model the AI tool runs when none is named (ADR-081 §2); absent: the AI
+    /// tool's own company.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub default_maker: Option<Maker>,
+    /// It runs other companies' models too (Ollama), so a model it does not list was made by
+    /// someone Plenipo does not know. Otherwise every model it runs is its own company's.
+    #[serde(default)]
+    pub runs_other_makers: bool,
 }
 
 impl RuntimeCapabilities {
@@ -93,6 +102,56 @@ impl RuntimeCapabilities {
             .and_then(|m| self.known_models.iter().find(|k| k.name == m))
             .map_or(&self.effort_levels, |k| &k.effort_levels)
     }
+}
+
+/// An AI company that made a model (ADR-081 §1): an ID and its name. A company that also makes
+/// an AI tool has the same ID as that tool's company (`openai`), so it is one company
+/// everywhere.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Maker {
+    pub id: String,
+    pub label: String,
+}
+
+impl Maker {
+    pub fn new(id: &str, label: &str) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
+/// Work a worker would review, for cross-company review (ADR-081 §3): the AI tool that did it
+/// and the model it ran (`None`: the AI tool's default).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WorkDoneBy {
+    pub runtime_id: String,
+    pub model: Option<String>,
+}
+
+impl WorkDoneBy {
+    pub fn new(runtime_id: &str, model: Option<&str>) -> Self {
+        Self {
+            runtime_id: runtime_id.into(),
+            model: model.map(str::to_owned),
+        }
+    }
+}
+
+/// The AI companies whose models the built-in AI tools list, as `(ID, name)`.
+pub mod makers {
+    pub const ANTHROPIC: (&str, &str) = ("anthropic", "Anthropic");
+    pub const OPENAI: (&str, &str) = ("openai", "OpenAI");
+    pub const XAI: (&str, &str) = ("xai", "xAI");
+    pub const MOONSHOT: (&str, &str) = ("moonshot", "Moonshot AI");
+    pub const GOOGLE: (&str, &str) = ("google", "Google");
+    pub const DEEPSEEK: (&str, &str) = ("deepseek", "DeepSeek");
+    pub const ZAI: (&str, &str) = ("zai", "Z.ai");
+    pub const MINIMAX: (&str, &str) = ("minimax", "MiniMax");
+    pub const NVIDIA: (&str, &str) = ("nvidia", "NVIDIA");
 }
 
 /// A model a CLI itself offers, as of the CLI version its adapter was checked against.
@@ -106,6 +165,16 @@ pub struct KnownModel {
     pub label: String,
     /// Effort levels it accepts (empty: it has no effort setting).
     pub effort_levels: Vec<Effort>,
+    /// Who made it (ADR-081 §1): always set for the models an adapter lists; absent for a model
+    /// an AI tool reported that Plenipo does not know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub maker: Option<Maker>,
+    /// For a name that follows the newest model (Claude Code's `opus`), the exact model it
+    /// points to now, as of the version the adapter was checked against (ADR-081 §8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub points_to: Option<String>,
 }
 
 impl KnownModel {
@@ -114,7 +183,21 @@ impl KnownModel {
             name: name.into(),
             label: label.into(),
             effort_levels: effort_levels.to_vec(),
+            maker: None,
+            points_to: None,
         }
+    }
+
+    /// Made by `maker`, an `(ID, name)` pair from [`makers`].
+    pub fn by(mut self, maker: (&str, &str)) -> Self {
+        self.maker = Some(Maker::new(maker.0, maker.1));
+        self
+    }
+
+    /// A name that points to `exact` now (ADR-081 §8).
+    pub fn now(mut self, exact: &str) -> Self {
+        self.points_to = Some(exact.into());
+        self
     }
 }
 

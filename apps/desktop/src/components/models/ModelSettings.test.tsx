@@ -1,12 +1,12 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { LedgerEvent } from "@plenipo/types";
+import type { LedgerEvent, ModelInfo, RoutingSnapshot } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
 import * as events from "../../api/events";
-import { modelGroups } from "../../routing/format";
-import { sampleRouting } from "../../test/routingFixtures";
+import { groupModels, modelGroups } from "../../routing/format";
+import { ANTHROPIC, OPENAI, sampleRouting, tool } from "../../test/routingFixtures";
 import { ModelSettings } from "./ModelSettings";
 
 vi.mock("../../api/commands", async (importOriginal) => {
@@ -383,6 +383,111 @@ describe("Settings → AI models", () => {
     );
   });
 
+  it("groups your models by who made them or by AI tool, the same models both ways, and remembers the choice (ADR-081)", async () => {
+    const routing = withOllama();
+    api.getRouting.mockResolvedValue(routing);
+    localStorage.clear();
+    const view = render(<ModelSettings go={go} />);
+    const user = userEvent.setup();
+    const table = await screen.findByRole("table", { name: "Your models" });
+    // By AI tool at first: each AI tool by name, its models in the list's order.
+    expect(groupsOf(table)).toEqual([
+      ["Claude Code", ["Claude Code (default model)", "Opus"]],
+      ["Codex", ["Codex (default model)"]],
+      ["Ollama", ["DeepSeek V4 Pro", "Mystery", "gpt-oss"]],
+    ]);
+    const byMaker = screen.getByRole("button", { name: "Who made it" });
+    expect(screen.getByRole("group", { name: "Group your models by" })).toContainElement(byMaker);
+    expect(byMaker).toHaveAttribute("aria-pressed", "false");
+    await user.click(byMaker);
+    expect(byMaker).toHaveAttribute("aria-pressed", "true");
+    // By who made them: each company by name, "Not known" last; OpenAI's gpt-oss on Ollama
+    // sits with Codex's default model.
+    expect(groupsOf(table)).toEqual([
+      ["Anthropic", ["Claude Code (default model)", "Opus"]],
+      ["DeepSeek", ["DeepSeek V4 Pro"]],
+      ["OpenAI", ["Codex (default model)", "gpt-oss"]],
+      ["Not known", ["Mystery"]],
+    ]);
+    // The same models, both ways.
+    const names = (by: "maker" | "tool") =>
+      groupModels(routing, by)
+        .flatMap((g) => g.models.map((m) => m.id))
+        .sort();
+    expect(names("maker")).toEqual(names("tool"));
+    expect(names("maker")).toEqual(routing.models.map((m) => m.id).sort());
+    // Each row says who made it, in plain words.
+    expect(within(rowOf("Mystery")).getByText("Not known")).toBeInTheDocument();
+    expect(within(rowOf("gpt-oss")).getByText("OpenAI")).toBeInTheDocument();
+    expect(within(rowOf("gpt-oss")).getByText("Ollama")).toBeInTheDocument();
+    // Remembered on this PC: shown again, still by who made them.
+    expect(localStorage.getItem("plenipo.models.groupBy")).toBe(JSON.stringify("maker"));
+    view.unmount();
+    render(<ModelSettings go={go} />);
+    const again = await screen.findByRole("table", { name: "Your models" });
+    expect(groupsOf(again).map(([label]) => label)).toEqual([
+      "Anthropic",
+      "DeepSeek",
+      "OpenAI",
+      "Not known",
+    ]);
+    await user.click(screen.getByRole("button", { name: "AI tool" }));
+    expect(localStorage.getItem("plenipo.models.groupBy")).toBe(JSON.stringify("tool"));
+    localStorage.clear();
+  });
+
+  it("names each model's exact version and, on an AI tool that runs several companies' models, who made it (ADR-081)", async () => {
+    const routing = withOllama();
+    routing.tools = routing.tools.map((t) =>
+      t.runtimeId === "claude-code"
+        ? {
+            ...t,
+            knownModels: [
+              {
+                name: "opus",
+                label: "Opus",
+                effortLevels: [],
+                maker: ANTHROPIC,
+                pointsTo: "claude-opus-5-5",
+              },
+              { name: "claude-opus-5-5", label: "Opus 5.5", effortLevels: [], maker: ANTHROPIC },
+            ],
+          }
+        : t,
+    );
+    // Claude Code runs only Anthropic's models, so its menu does not repeat who made them.
+    expect(modelGroups(routing, "claude-code", { yours: false })[0]).toEqual({
+      label: "Claude Code's models",
+      options: [
+        { name: "opus", label: "opus — now Opus 5.5" },
+        { name: "claude-opus-5-5", label: "claude-opus-5-5" },
+      ],
+    });
+    // Ollama runs several companies' models: each one says who made it.
+    expect(modelGroups(routing, "ollama", { yours: false })[0]).toEqual({
+      label: "Ollama's models",
+      options: [
+        { name: "deepseek-v4-pro:cloud", label: "deepseek-v4-pro:cloud — made by DeepSeek" },
+        { name: "gpt-oss:120b-cloud", label: "gpt-oss:120b-cloud — made by OpenAI" },
+      ],
+    });
+    // "AI companies never to use" offers the companies that make models, not only the AI
+    // tools' own.
+    api.getRouting.mockResolvedValue(routing);
+    render(<ModelSettings go={go} />);
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Change Senior Developer's model choices" }),
+    );
+    const form = screen.getByRole("form", { name: "Model choices for Senior Developer" });
+    await user.click(within(form).getByRole("checkbox", { name: "DeepSeek" }));
+    await user.click(within(form).getByRole("button", { name: "Save model choices" }));
+    expect(api.setRolePolicy).toHaveBeenCalledWith(
+      "r-dev",
+      expect.objectContaining({ neverCompanies: ["deepseek"] }),
+    );
+  });
+
   it("chooses what a usage limit does, and follows the Ledger", async () => {
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
@@ -406,3 +511,67 @@ describe("Settings → AI models", () => {
     await waitFor(() => expect(api.getRouting).toHaveBeenCalled());
   });
 });
+
+const DEEPSEEK = { id: "deepseek", label: "DeepSeek" };
+
+/** An owner's model on Ollama, which runs several companies' models. */
+const onOllama = (
+  id: string,
+  name: string,
+  label: string,
+  maker?: typeof ANTHROPIC,
+): ModelInfo => ({
+  id,
+  runtimeId: "ollama",
+  name,
+  label,
+  features: [],
+  contextTokens: null,
+  cost: "standard",
+  effort: null,
+  builtIn: false,
+  ...(maker ? { maker } : {}),
+});
+
+/** The sample, with Ollama and three of its models: DeepSeek's, one not known, and OpenAI's. */
+function withOllama(): RoutingSnapshot {
+  const routing = sampleRouting();
+  routing.tools.push(
+    tool("ollama", {
+      label: "Ollama",
+      company: "ollama",
+      companyLabel: "Ollama",
+      runsOtherMakers: true,
+      effortLevels: [],
+      knownModels: [
+        {
+          name: "deepseek-v4-pro:cloud",
+          label: "DeepSeek V4 Pro",
+          effortLevels: [],
+          maker: DEEPSEEK,
+        },
+        { name: "gpt-oss:120b-cloud", label: "gpt-oss 120B", effortLevels: [], maker: OPENAI },
+      ],
+    }),
+  );
+  routing.models.push(
+    onOllama("m-deepseek", "deepseek-v4-pro:cloud", "DeepSeek V4 Pro", DEEPSEEK),
+    onOllama("m-mystery", "mystery:cloud", "Mystery"),
+    onOllama("m-gpt-oss", "gpt-oss:120b-cloud", "gpt-oss", OPENAI),
+  );
+  routing.companies = [ANTHROPIC, DEEPSEEK, { id: "ollama", label: "Ollama" }, OPENAI];
+  return routing;
+}
+
+/** The model list's groups, in order: each heading and its models' names. */
+function groupsOf(table: HTMLElement): [string, string[]][] {
+  return within(table)
+    .getAllByRole("rowgroup")
+    .filter((g) => g.tagName === "TBODY")
+    .map((g) => [
+      g.getAttribute("aria-label") ?? "",
+      within(g)
+        .getAllByRole("rowheader")
+        .map((h) => h.firstChild?.textContent ?? ""),
+    ]);
+}

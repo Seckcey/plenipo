@@ -18,7 +18,7 @@ use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{Directory, Liaison, LiaisonConfig, MemberConversation, Placement, Team};
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, SessionStart,
-    StepInfo, StepTools, ToolProvider, TurnResult,
+    StepInfo, StepTools, ToolProvider, TurnResult, WorkDoneBy,
 };
 use plenipo_runtime::{
     BriefKind, BriefWhy, EventSink, ExecutablePolicy, NoteKind, ProfileRegistry, PromptSize,
@@ -240,7 +240,7 @@ impl Directory for Org {
         _: &Value,
         requester: &Task,
         name: &str,
-        _: &[String],
+        _: &[WorkDoneBy],
     ) -> Result<Placement, String> {
         let m = self
             .members
@@ -494,7 +494,7 @@ impl Directory for Chain {
         _: &Value,
         requester: &Task,
         name: &str,
-        _: &[String],
+        _: &[WorkDoneBy],
     ) -> Result<Placement, String> {
         if !name.eq_ignore_ascii_case(&self.sup.title) {
             return Err(format!("\"{name}\" is not on your team"));

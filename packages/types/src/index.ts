@@ -132,6 +132,7 @@ export type { LimitBehavior } from "./generated/LimitBehavior";
 export type { ModelFeature } from "./generated/ModelFeature";
 export type { Effort } from "./generated/Effort";
 export type { KnownModel } from "./generated/KnownModel";
+export type { Maker } from "./generated/Maker";
 export type { ModelInfo } from "./generated/ModelInfo";
 export type { ModelInput } from "./generated/ModelInput";
 export type { ModelSeen } from "./generated/ModelSeen";

@@ -1168,7 +1168,7 @@ async fn a_restart_interrupts_workflows_in_flight_and_resumes_nothing() {
 use plenipo_ledger::{NewPosition, NewWorker, Position, RoleTemplate, RoleType};
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::{Directory, Placement, Team};
-use plenipo_runtime::agent::{Effort, SessionStart};
+use plenipo_runtime::agent::{Effort, SessionStart, WorkDoneBy};
 use serde_json::{json, Value};
 
 /// A directory over real Ledger positions: a lead with a team whose members are placed by
@@ -1176,8 +1176,8 @@ use serde_json::{json, Value};
 struct TeamDirectory {
     lead: Position,
     members: Vec<Position>,
-    /// The work each placed request was about (runtimes), in order.
-    reviewed: std::sync::Mutex<Vec<Vec<String>>>,
+    /// The work each placed request was about (AI tools and models), in order.
+    reviewed: std::sync::Mutex<Vec<Vec<WorkDoneBy>>>,
 }
 
 fn runtime_of(p: &Position) -> String {
@@ -1210,7 +1210,7 @@ impl Directory for TeamDirectory {
         _: &Value,
         requester: &Task,
         name: &str,
-        reviewed: &[String],
+        reviewed: &[WorkDoneBy],
     ) -> Result<Placement, String> {
         self.reviewed.lock().unwrap().push(reviewed.to_vec());
         let m = self
@@ -1321,11 +1321,22 @@ fn organization(h: &H) -> (Value, Vec<Position>, Arc<TeamDirectory>) {
 impl H {
     /// Start the lead's session with `objective`; returns (session ID, task ID).
     async fn start_member(&self, workforce: &Value, objective: &str) -> (String, String) {
+        self.start_member_on(workforce, objective, None).await
+    }
+
+    /// The same, on `model` (`None`: Codex's default).
+    async fn start_member_on(
+        &self,
+        workforce: &Value,
+        objective: &str,
+        model: Option<&str>,
+    ) -> (String, String) {
         let d = self
             .liaison
             .start_member_session(
                 SessionStart {
                     runtime_id: "codex".into(),
+                    model: model.map(str::to_owned),
                     ..SessionStart::default()
                 },
                 objective,
@@ -1353,10 +1364,12 @@ async fn a_member_hands_work_to_its_team_and_the_worker_leaves_when_done() {
         "the turn names its member"
     );
 
-    // The work under review was the requester's own (it referenced no tasks): its runtime.
+    // The work under review was the requester's own (it referenced no tasks): its AI tool and
+    // the model it ran (ADR-081).
+    // Its task named no model and the stand-in Codex reported none: Codex's default.
     assert_eq!(
         *directory.reviewed.lock().unwrap(),
-        [vec!["codex".to_owned()]]
+        [vec![WorkDoneBy::new("codex", None)]]
     );
     // The child went to the Reviewer position: its runtime and model, recorded under it.
     let child = h.only_child(&root);
@@ -1487,5 +1500,25 @@ async fn members_address_their_team_by_role_and_never_a_raw_runtime() {
     assert!(
         h.ledger.org_records().unwrap().agents.len() == 1,
         "only the lead"
+    );
+}
+
+/// Cross-company review counts who made the models (ADR-081 §3): the directory hears which
+/// model did the work under review, not only which AI tool.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_directory_hears_the_model_that_did_the_work_under_review() {
+    let h = harness().await;
+    let (lead, _members, directory) = organization(&h);
+    let (_, root) = h
+        .start_member_on(
+            &lead,
+            "Plan the release [handoff:role:Reviewer]",
+            Some("gpt-6-sol"),
+        )
+        .await;
+    h.finished(&root).await;
+    assert_eq!(
+        *directory.reviewed.lock().unwrap(),
+        [vec![WorkDoneBy::new("codex", Some("gpt-6-sol"))]]
     );
 }

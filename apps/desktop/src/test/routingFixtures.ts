@@ -40,8 +40,12 @@ export const tool = (runtimeId: string, patch: Partial<ToolInfo> = {}): ToolInfo
         ],
   newModels: [],
   unlistedModels: [],
+  runsOtherMakers: false,
   ...patch,
 });
+
+export const ANTHROPIC = { id: "anthropic", label: "Anthropic" };
+export const OPENAI = { id: "openai", label: "OpenAI" };
 
 const empty: RolePolicy = {
   models: [],
@@ -92,6 +96,7 @@ export function sampleRouting(): RoutingSnapshot {
         cost: "standard",
         effort: null,
         builtIn: true,
+        maker: ANTHROPIC,
       },
       {
         id: "m-codex",
@@ -103,6 +108,7 @@ export function sampleRouting(): RoutingSnapshot {
         cost: "standard",
         effort: null,
         builtIn: true,
+        maker: OPENAI,
       },
       {
         id: "m-opus",
@@ -114,6 +120,7 @@ export function sampleRouting(): RoutingSnapshot {
         cost: "premium",
         effort: null,
         builtIn: false,
+        maker: ANTHROPIC,
       },
     ],
     tools: [
@@ -176,6 +183,7 @@ export function sampleRouting(): RoutingSnapshot {
         listed: false,
       },
     ],
+    companies: [ANTHROPIC, OPENAI],
     options: { onUsageLimit: "wait" },
     apiBilling: false,
     notices: [],

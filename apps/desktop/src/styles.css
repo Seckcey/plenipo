@@ -1083,6 +1083,21 @@ body {
   margin-left: 8px;
 }
 
+/* Group by: Who made it / AI tool (ADR-081 §6), and a heading row per group. */
+.models__group-by {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-4);
+  margin: var(--ui-space-4) 0;
+}
+
+.models .table__group th {
+  padding-top: var(--ui-space-5);
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--ui-border);
+}
+
 .models__roles th[scope="row"] {
   white-space: nowrap;
 }

@@ -7,7 +7,7 @@
 //! organization behave as before.
 
 use plenipo_ledger::{ChildConversation, NewWorker, Task};
-use plenipo_runtime::agent::{Effort, SessionStart};
+use plenipo_runtime::agent::{Effort, SessionStart, WorkDoneBy};
 use serde_json::Value;
 
 use crate::context::Destination;
@@ -70,15 +70,16 @@ pub trait Directory: Send + Sync + 'static {
     fn team(&self, workforce: &Value) -> Option<Team>;
 
     /// Place a request for `role:<name>` made by the member described by `workforce` while
-    /// working on `requester`. `reviewed` are the runtimes that did the work the request is
-    /// about (the tasks it references, or else the requester's own), for cross-company review
-    /// (Phase 6). `Err` is the refusal reason, which the requester is told.
+    /// working on `requester`. `reviewed` is the work the request is about (the tasks it
+    /// references, or else the requester's own), each as its AI tool and model, for
+    /// cross-company review by who made the models (Phase 6, ADR-081). `Err` is the refusal
+    /// reason, which the requester is told.
     fn place(
         &self,
         workforce: &Value,
         requester: &Task,
         name: &str,
-        reviewed: &[String],
+        reviewed: &[WorkDoneBy],
     ) -> Result<Placement, String>;
 
     /// The conversation that runs a task delegated to the full-time member described by

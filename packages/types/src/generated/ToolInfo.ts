@@ -42,4 +42,9 @@ newModels: Array<KnownModel>,
  * Checked models the AI tool no longer lists (only when its list is complete): "not offered
  * by this version".
  */
-unlistedModels: Array<string>, };
+unlistedModels: Array<string>, 
+/**
+ * It runs other companies' models too, so each of its models says who made it on screen
+ * (ADR-081 §6).
+ */
+runsOtherMakers: boolean, };

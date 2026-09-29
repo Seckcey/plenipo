@@ -21,7 +21,7 @@ use plenipo_ledger::{
 use plenipo_runtime::agent::{
     text_hash, unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState,
     SessionStart, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef,
-    TurnResult, TurnTask, OWNER,
+    TurnResult, TurnTask, WorkDoneBy, OWNER,
 };
 use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
@@ -862,10 +862,26 @@ impl Liaison {
             })
     }
 
-    /// The runtimes that did the work a request is about: those of the same workflow's tasks
-    /// it references, or else the requester's own (for cross-company review, Phase 6).
-    fn reviewed_work(&self, d: &Directive, task: &Task, correlation: &str) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
+    /// The work a request is about: the same workflow's tasks it references, or else the
+    /// requester's own, each as the AI tool that did it and the model it ran, for cross-company
+    /// review by who made the models (Phase 6; ADR-081 §3).
+    fn reviewed_work(&self, d: &Directive, task: &Task, correlation: &str) -> Vec<WorkDoneBy> {
+        // The model a task asked for, else the one its latest run reported, else its AI
+        // tool's default (`None`).
+        let done_by = |t: &Task| -> Option<WorkDoneBy> {
+            let runtime_id = t.metadata["runtimeId"].as_str()?.to_owned();
+            let model = t.metadata["model"].as_str().map(str::to_owned).or_else(|| {
+                self.inner
+                    .ledger
+                    .executions_for_task(&t.id)
+                    .ok()?
+                    .into_iter()
+                    .rev()
+                    .find_map(|e| e.model)
+            });
+            Some(WorkDoneBy { runtime_id, model })
+        };
+        let mut out: Vec<WorkDoneBy> = Vec::new();
         for c in &d.context {
             let ContextRequest::Task { task_id } = c else {
                 continue;
@@ -876,14 +892,14 @@ impl Liaison {
             if task_info(&t.metadata).correlation_id.as_deref() != Some(correlation) {
                 continue;
             }
-            if let Some(r) = t.metadata["runtimeId"].as_str() {
-                if !out.iter().any(|x| x == r) {
-                    out.push(r.to_owned());
+            if let Some(w) = done_by(&t) {
+                if !out.contains(&w) {
+                    out.push(w);
                 }
             }
         }
         if out.is_empty() {
-            out.extend(task.metadata["runtimeId"].as_str().map(str::to_owned));
+            out.extend(done_by(task));
         }
         out
     }

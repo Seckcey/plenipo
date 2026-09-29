@@ -19,8 +19,8 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel,
-    RuntimeCapabilities, TurnResult,
+    makers, AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, Maker,
+    NoticeLevel, RuntimeCapabilities, TurnResult,
 };
 use crate::dto::TokenUsage;
 
@@ -72,25 +72,36 @@ impl RuntimeAdapter for Ollama {
             // no levels and Nemotron 3 Ultra only on or off (on by default), so they have no
             // setting. On the free plan only gpt-oss and Nemotron answered; the others answered
             // "402 Payment Required", so their names say they need a paid Ollama plan. Other
-            // cloud models can be named as `ollama list` shows them.
+            // cloud models can be named as `ollama list` shows them. Each says who made it
+            // (ADR-081 §1): Ollama runs other companies' models, so a model not listed here is
+            // made by someone Plenipo does not know.
             known_models: vec![
-                KnownModel::new(DEFAULT_MODEL, "gpt-oss 120B", GPT_OSS),
-                KnownModel::new("nemotron-3-ultra:cloud", "Nemotron 3 Ultra", &[]),
-                KnownModel::new("kimi-k3:cloud", "Kimi K3 (paid plan)", TO_MAX),
+                KnownModel::new(DEFAULT_MODEL, "gpt-oss 120B", GPT_OSS).by(makers::OPENAI),
+                KnownModel::new("nemotron-3-ultra:cloud", "Nemotron 3 Ultra", &[])
+                    .by(makers::NVIDIA),
+                KnownModel::new("kimi-k3:cloud", "Kimi K3 (paid plan)", TO_MAX)
+                    .by(makers::MOONSHOT),
                 KnownModel::new(
                     "deepseek-v4-pro:cloud",
                     "DeepSeek V4 Pro (paid plan)",
                     TO_MAX,
-                ),
+                )
+                .by(makers::DEEPSEEK),
                 KnownModel::new(
                     "deepseek-v4.1-flash:cloud",
                     "DeepSeek V4.1 Flash (paid plan)",
                     TO_MAX,
-                ),
-                KnownModel::new("glm-5.3:cloud", "GLM-5.3 (paid plan)", TO_MAX),
-                KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash (paid plan)", TO_MAX),
-                KnownModel::new("minimax-m3:cloud", "MiniMax M3 (paid plan)", &[]),
+                )
+                .by(makers::DEEPSEEK),
+                KnownModel::new("glm-5.3:cloud", "GLM-5.3 (paid plan)", TO_MAX).by(makers::ZAI),
+                KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash (paid plan)", TO_MAX)
+                    .by(makers::ZAI),
+                KnownModel::new("minimax-m3:cloud", "MiniMax M3 (paid plan)", &[])
+                    .by(makers::MINIMAX),
             ],
+            // Its default, gpt-oss 120B, is OpenAI's.
+            default_maker: Some(Maker::new(makers::OPENAI.0, makers::OPENAI.1)),
+            runs_other_makers: true,
         }
     }
 
@@ -202,6 +213,8 @@ impl RuntimeAdapter for Ollama {
                     label: name.clone(),
                     name,
                     effort_levels: Vec::new(),
+                    maker: None,
+                    points_to: None,
                 })
                 .collect(),
         )

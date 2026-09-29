@@ -7,7 +7,7 @@ import type {
   ModelInput,
   RoutingSnapshot,
 } from "@plenipo/types";
-import { Button } from "@plenipo/ui";
+import { Button, Segmented, useStoredState } from "@plenipo/ui";
 
 import { removeModel, saveModel } from "../../api/commands";
 import { ago } from "../../org/format";
@@ -17,8 +17,13 @@ import {
   EFFORT_LABEL,
   FEATURES,
   FEATURE_LABEL,
+  GROUP_BY_LABEL,
   effortLevels,
+  groupModels,
+  isGroupBy,
+  makerWords,
   tokens,
+  type GroupBy,
 } from "../../routing/format";
 import { Modal } from "../org/Modal";
 import { useChange, type Apply } from "../../routing/useChange";
@@ -28,12 +33,25 @@ import { Refusal } from "./shared";
 /** A model to add, or one to change. */
 type Draft = { model: ModelInfo } | { add: Partial<ModelInput> };
 
-/** The model registry: the owner's models, and the ones the AI tools reported running. */
+/** How the list is grouped, remembered on this PC like the theme (ADR-081 §6). */
+const GROUP_BY_KEY = "plenipo.models.groupBy";
+const GROUP_BY_OPTIONS = (["maker", "tool"] as const).map((value) => ({
+  value,
+  label: GROUP_BY_LABEL[value],
+}));
+const COLUMNS = 9;
+
+/**
+ * The model registry: the owner's models, grouped by who made them or by the AI tool that runs
+ * them (the owner's choice, ADR-081 §6), and the ones the AI tools reported running.
+ */
 export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply: Apply }) {
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [groupBy, setGroupBy] = useStoredState<GroupBy>(GROUP_BY_KEY, "tool", isGroupBy);
   const { pending, error, run } = useChange(onApply);
   const tool = (id: string) => snapshot.tools.find((t) => t.runtimeId === id)?.label ?? id;
   const unlisted = snapshot.seen.filter((s) => !s.listed);
+  const groups = groupModels(snapshot, groupBy);
 
   return (
     <section aria-labelledby="models-title">
@@ -48,10 +66,22 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
         or costs, so you say it here; a model not marked as able to do something is treated as
         unable.
       </p>
-      <table className="table">
+      <div className="models__group-by">
+        <span className="muted" aria-hidden="true">
+          Group by
+        </span>
+        <Segmented<GroupBy>
+          label="Group your models by"
+          value={groupBy}
+          options={GROUP_BY_OPTIONS}
+          onChange={setGroupBy}
+        />
+      </div>
+      <table className="table" aria-label="Your models">
         <thead>
           <tr>
             <th scope="col">Name</th>
+            <th scope="col">Who made it</th>
             <th scope="col">AI tool</th>
             <th scope="col">Model the tool runs</th>
             <th scope="col">Can also</th>
@@ -63,43 +93,51 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
             </th>
           </tr>
         </thead>
-        <tbody>
-          {snapshot.models.map((m) => (
-            <tr key={m.id}>
-              <th scope="row">
-                {m.label}
-                {m.builtIn && <span className="table__sub">Built in</span>}
+        {groups.map((g) => (
+          <tbody key={g.key} aria-label={g.label}>
+            <tr className="table__group">
+              <th scope="colgroup" colSpan={COLUMNS}>
+                {g.label}
               </th>
-              <td>{tool(m.runtimeId)}</td>
-              <td>{m.name ?? "Its default"}</td>
-              <td>{m.features.map((f) => FEATURE_LABEL[f]).join(", ") || "—"}</td>
-              <td>{m.contextTokens ? tokens(m.contextTokens) : "—"}</td>
-              <td>{COST_LABEL[m.cost]}</td>
-              <td>{m.effort ? EFFORT_LABEL[m.effort] : "Tool's default"}</td>
-              <td className="models__actions">
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  aria-label={`Edit ${m.label}`}
-                  onClick={() => setDraft({ model: m })}
-                >
-                  Edit
-                </Button>
-                {!m.builtIn && (
+            </tr>
+            {g.models.map((m) => (
+              <tr key={m.id}>
+                <th scope="row">
+                  {m.label}
+                  {m.builtIn && <span className="table__sub">Built in</span>}
+                </th>
+                <td>{makerWords(m.maker)}</td>
+                <td>{tool(m.runtimeId)}</td>
+                <td>{m.name ?? "Its default"}</td>
+                <td>{m.features.map((f) => FEATURE_LABEL[f]).join(", ") || "—"}</td>
+                <td>{m.contextTokens ? tokens(m.contextTokens) : "—"}</td>
+                <td>{COST_LABEL[m.cost]}</td>
+                <td>{m.effort ? EFFORT_LABEL[m.effort] : "Tool's default"}</td>
+                <td className="models__actions">
                   <Button
                     variant="quiet"
                     size="sm"
-                    aria-label={`Remove ${m.label}`}
-                    disabled={pending}
-                    onClick={() => void run(() => removeModel(m.id))}
+                    aria-label={`Edit ${m.label}`}
+                    onClick={() => setDraft({ model: m })}
                   >
-                    Remove
+                    Edit
                   </Button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
+                  {!m.builtIn && (
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      aria-label={`Remove ${m.label}`}
+                      disabled={pending}
+                      onClick={() => void run(() => removeModel(m.id))}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        ))}
       </table>
       <Refusal error={error} />
       {unlisted.length > 0 && (

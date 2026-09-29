@@ -94,6 +94,7 @@ export function aiRuntime(
       toolPosture: "Conversation only",
       effortLevels: [],
       knownModels: MODELS[id] ?? [],
+      runsOtherMakers: id === "ollama",
     },
     installHint: `Install ${f.label}.`,
     loginHint: `Open a terminal, run: ${f.signIn}`,
