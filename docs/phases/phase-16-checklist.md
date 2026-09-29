@@ -25,8 +25,8 @@ rules, no paid key"), and the records for it:
   the [guide for adding an AI tool](../development/adding-an-ai-tool.md), and the
   [Phase 19 checklist](phase-19-checklist.md) (how the AI tools page was built).
 
-**Numbers:** ADR-080 and ADR-081. ADR-069 to ADR-079 are kept for Phase 20 (20B and 20C), so Phase
-16 starts at 080; Antigravity CLI, if it passes its checks, gets ADR-082. **No new Ledger layout:** who
+**Numbers:** ADR-080 and ADR-081. The owner kept ADR-069 to ADR-079 for Phase 20 (20B and 20C; ADR-069
+then went to the website's record, pull request #98), so Phase 16 starts at 080; Antigravity CLI, if it passes its checks, gets ADR-082. **No new Ledger layout:** who
 made a model is worked out from each AI tool's list every time, never saved.
 
 Dates are Pacific time.

@@ -8,8 +8,8 @@
   — only for Phase 16's Wave 1, which is built now, beside Phase 20. Waves 2 to 4 keep ADR-061's
   order: after Phase 20. [ADR-067 (Phase 20 in three parts)](ADR-067-phase-20-in-three-parts.md)
   said "Phase 16 starts after"; that now reads "Phase 16's Wave 1 starts now; the rest after".
-- **Number:** ADR-069 to ADR-079 are kept for Phase 20 (parts 20B and 20C), so Phase 16 uses
-  ADR-080 and up.
+- **Number:** the owner kept ADR-069 to ADR-079 for Phase 20 (parts 20B and 20C), so Phase 16 uses
+  ADR-080 and up. (ADR-069 then went to the website's own record, pull request #98.)
 
 > **On screen:** nothing. This record only changes when part of Phase 16 is built.
 
