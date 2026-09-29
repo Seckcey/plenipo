@@ -21,7 +21,7 @@
 
 ## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061)
 
-Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models).
+Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models). On 2026-09-29, after Phase 20A, the owner told Plenipo's builder to build Phase 16's first wave now, beside Phase 20, as rule §8.3 allows when the owner says so: ADR-080 (building Phase 16's first wave alongside Phase 20). Waves 2 to 4 still come after Phase 20.
 
 | Order | Phase | What | State |
 |---|---|---|---|
@@ -29,8 +29,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 2 | 17 | The owner's control over workers | Delivered (v1.10.0) |
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
-| 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Next — in progress: part 20A (Microsoft 365) delivered in v1.13.0, part 20B (Slack, Google) in v1.13.1; 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) next (ADR-067) |
-| 6 | 16 | Every AI model worth having | Planned (ADR-036); after Phase 20 (ADR-061) |
+| 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | In progress: part 20A (Microsoft 365) delivered in v1.13.0, part 20B (Slack, Google) in v1.14.1; 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) next (ADR-067) |
+| 6 | 16 | Every AI model worth having | In progress beside Phase 20: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Waves 2 to 4 after Phase 20 (ADR-036, ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
@@ -1167,7 +1167,7 @@ Free limits count live positions, not history. Three workers on the job means th
 
 No hardware binding, no machine fingerprinting, no anti-tamper beyond the signature check. The Elastic License 2.0 makes working around the check a breach of licence; the code marks the boundary, the licence enforces it. Obfuscation would cost real support pain for no real protection on a source-available desktop app.
 
-Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them. All five AI tools stay in Free.
+Safety is never gated. Guard, permissions, folder limits, approvals, the Vault, the control center, the Ledger, and the Activity trail are outside the entitlement system entirely, so no licensing bug can ever weaken them. Every AI tool stays in Free.
 
 ## Tests
 
@@ -1703,7 +1703,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 still wait for Phase 20. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan.
 
 ## Goal
 
@@ -1724,7 +1724,7 @@ Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
 - the model list groupable by maker or by the app that runs it, the owner's choice
 - exact Claude model versions beside the plain names
 - the older OpenAI models a ChatGPT sign-in really allows, each checked
-- Google's Gemini CLI as an AI tool, or a written finding
+- Google's Gemini CLI as an AI tool, or a written finding (a finding: Google no longer serves personal accounts; Antigravity CLI, Google's replacement, joined in its place at the owner's direction, ADR-082, Antigravity as an AI tool)
 - more Ollama cloud models once the owner's paid plan is active
 
 **Wave 2 — one AI tool, one decision record each**
@@ -2004,7 +2004,7 @@ Phase 12's terminal panel (built). Phase 16 fills in the payment switch.
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Fifth in the order of work since ADR-061 (doing Connections before new AI models, 2026-09-28), ahead of Phase 16. Called **plugins** in the owner's notes; **Connections** on screen. **Connections and add-on tools are part of Pro** (ADR-068, 2026-09-28): every copy can use them until Phase 11A adds the license key and the lock.
 
-**Status: part 20A delivered in v1.13.0, part 20B in v1.13.1** (checklist and acceptance reports in `docs/phases/phase-20-*` and `docs/phases/phase-20b-*`); part 20C (HubSpot, Stripe, WordPress and WooCommerce, and add-on tools, 1.13.2) is next (ADR-067, Phase 20 in three parts). Decisions: ADR-061 to ADR-068, accepted, with the owner's changes: every part is Off, Read only, or Full access; work or school and personal Microsoft accounts; Teams can read and send; any Slack workspace, more than one; and Connections are part of Pro (ADR-068). Part 20A built Settings → Connections, Guard's two new permissions (`connections.read`, `connections.write`) with each connection's **Who may use it** list and **Send without asking to** list, signing in in the owner's own browser with the sign-in kept only in the Vault, and 21 Microsoft 365 tools (Mail, Calendar, OneDrive, SharePoint, Teams) for Claude Code, Codex, Grok, and Kimi. No new Ledger layout (it stays at 11). Part 20B built Slack (any workspace, more than one; Channels, Direct messages, and Search; 8 West's app or the workspace's own) and Google (Gmail, Google Calendar, Google Drive, with the owner's own Google app, its secret only in the Vault) on the same rules, with 17 tools, Disconnect cancelling each sign-in at the service, and the owner's four answers in ADR-070 (Slack and Google: the owner's choices, and what their sign-ins need): a Slack channel on **Send without asking to** by its ID, Slack's permission to see email addresses, both kinds of Slack app, and the owner's own Google app. Deviations, each recorded in its ADR as built. Registering 8 West's Microsoft and Slack apps, making the owner's Google app, and the walk-throughs with real accounts on Windows, are the owner's.
+**Status: part 20A delivered in v1.13.0, part 20B in v1.14.1** (checklist and acceptance reports in `docs/phases/phase-20-*` and `docs/phases/phase-20b-*`); part 20C (HubSpot, Stripe, WordPress and WooCommerce, and add-on tools, a later 1.14.x, ADR-080) is next (ADR-067, Phase 20 in three parts). Decisions: ADR-061 to ADR-068, accepted, with the owner's changes: every part is Off, Read only, or Full access; work or school and personal Microsoft accounts; Teams can read and send; any Slack workspace, more than one; and Connections are part of Pro (ADR-068). Part 20A built Settings → Connections, Guard's two new permissions (`connections.read`, `connections.write`) with each connection's **Who may use it** list and **Send without asking to** list, signing in in the owner's own browser with the sign-in kept only in the Vault, and 21 Microsoft 365 tools (Mail, Calendar, OneDrive, SharePoint, Teams) for Claude Code, Codex, Grok, and Kimi. No new Ledger layout (it stays at 11). Part 20B built Slack (any workspace, more than one; Channels, Direct messages, and Search; 8 West's app or the workspace's own) and Google (Gmail, Google Calendar, Google Drive, with the owner's own Google app, its secret only in the Vault) on the same rules, with 17 tools, Disconnect cancelling each sign-in at the service, and the owner's four answers in ADR-070 (Slack and Google: the owner's choices, and what their sign-ins need): a Slack channel on **Send without asking to** by its ID, Slack's permission to see email addresses, both kinds of Slack app, and the owner's own Google app. Deviations, each recorded in its ADR as built. Registering 8 West's Microsoft and Slack apps, making the owner's Google app, and the walk-throughs with real accounts on Windows, are the owner's.
 
 ## Goal
 

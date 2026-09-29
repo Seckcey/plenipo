@@ -17,8 +17,8 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel, PlanReport,
-    PlanWindow, RuntimeCapabilities, TurnOutcome, TurnResult,
+    makers, AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel,
+    PlanReport, PlanWindow, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
 use crate::agent::preview::{
     plenipo_write_tool, preview_of, PreviewPace, WriteTool, MAX_PREVIEW_JSON,
@@ -72,20 +72,30 @@ impl RuntimeAdapter for ClaudeCode {
                 .into(),
             // `claude --effort <level>`.
             effort_levels: FRONTIER_EFFORT.to_vec(),
-            // The model families `claude --model` accepts as aliases, each for its latest model
-            // (Claude Code 2.1.283: Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5; Haiku has no effort
-            // setting).
+            // The model families `claude --model` accepts as aliases, each for its latest model,
+            // and the exact model each points to (ADR-081 §8), both checked on the owner's PC
+            // with Claude Code 2.1.284 and a Claude subscription (`system`/`init` reported the
+            // exact name; each exact name ran by name). Haiku has no effort setting.
             known_models: vec![
-                KnownModel::new("fable", "Fable", FRONTIER_EFFORT),
-                KnownModel::new("opus", "Opus", FRONTIER_EFFORT),
-                KnownModel::new("sonnet", "Sonnet", FRONTIER_EFFORT),
-                KnownModel::new("haiku", "Haiku", &[]),
-            ],
+                KnownModel::new("fable", "Fable", FRONTIER_EFFORT).now("claude-fable-5-1"),
+                KnownModel::new("opus", "Opus", FRONTIER_EFFORT).now("claude-opus-5-5"),
+                KnownModel::new("sonnet", "Sonnet", FRONTIER_EFFORT).now("claude-sonnet-5-5"),
+                KnownModel::new("haiku", "Haiku", &[]).now("claude-haiku-4-5-20251001"),
+                KnownModel::new("claude-fable-5-1", "Fable 5.1", FRONTIER_EFFORT),
+                KnownModel::new("claude-opus-5-5", "Opus 5.5", FRONTIER_EFFORT),
+                KnownModel::new("claude-sonnet-5-5", "Sonnet 5.5", FRONTIER_EFFORT),
+                KnownModel::new("claude-haiku-4-5-20251001", "Haiku 4.5", &[]),
+            ]
+            .into_iter()
+            .map(|m| m.by(makers::ANTHROPIC))
+            .collect(),
+            default_maker: None,
+            runs_other_makers: false,
         }
     }
 
     fn checked_version(&self) -> &'static str {
-        "2.1.283"
+        "2.1.284"
     }
 
     fn install_hint(&self) -> &'static str {
@@ -755,7 +765,29 @@ mod tests {
     fn known_models_are_valid_names_with_their_own_effort_levels() {
         let caps = ClaudeCode.capabilities();
         let names: Vec<&str> = caps.known_models.iter().map(|m| m.name.as_str()).collect();
-        assert_eq!(names, ["fable", "opus", "sonnet", "haiku"]);
+        // The short names first, then the exact versions they point to today (ADR-081 §6).
+        assert_eq!(
+            names,
+            [
+                "fable",
+                "opus",
+                "sonnet",
+                "haiku",
+                "claude-fable-5-1",
+                "claude-opus-5-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-4-5-20251001"
+            ]
+        );
+        for short in &caps.known_models[..4] {
+            let exact = short
+                .points_to
+                .as_deref()
+                .expect("a short name says what it is now");
+            let target = caps.known_models.iter().find(|m| m.name == exact).unwrap();
+            assert_eq!(target.effort_levels, short.effort_levels, "{exact}");
+            assert_eq!(target.maker, short.maker, "{exact}");
+        }
         for m in &caps.known_models {
             assert_eq!(
                 crate::agent::service::validate_model(&m.name).unwrap(),

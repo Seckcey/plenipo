@@ -24,7 +24,8 @@ This document is the architectural contract for Plenipo. It describes what exist
 │                                            │ Plenipo Runtime (crates/runtime)     │   │
 │   ▲ events: plenipo://runtime              │  - Supervisor, profiles, policy      │   │
 │   ▲ events: plenipo://agents               │  - agent runtimes: adapters (Claude  │   │
-│   └────────────────────────────────────────│    Code, Codex, Grok, Kimi, Ollama)  │   │
+│   └────────────────────────────────────────│    Code, Codex, Grok, Kimi, Ollama,  │   │
+│                                            │    Antigravity)                      │   │
 │                                            │  - persists via Ledger               │   │
 │                                            │ Plenipo Liaison (crates/liaison)     │   │
 │                                            │  - handoffs between workers: checks, │   │

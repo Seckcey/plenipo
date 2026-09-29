@@ -1,8 +1,8 @@
 # Phase 20 — Implementation Checklist
 
 **Status:** design approved (2026-09-28); **part 20A delivered as v1.13.0** (2026-09-28;
-[acceptance report](phase-20-acceptance-report.md)); **part 20B delivered as v1.13.1**
-(2026-09-29; [acceptance report](phase-20b-acceptance-report.md)); part 20C (v1.13.2) next
+[acceptance report](phase-20-acceptance-report.md)); **part 20B delivered as v1.14.1**
+(2026-09-29; [acceptance report](phase-20b-acceptance-report.md)); part 20C (a later 1.14.x, ADR-080) next
 (ADR-067). Builds on v1.12.0 (Phase 19). Below, "[x]" is done; an item that spans the parts says
 which part is done.
 
@@ -638,7 +638,7 @@ by a released copy.
 - [x] Logs and diagnostics files never hold secrets, tokens, or anything typed in the terminal.
 - [x] No model names in commits, branch names, or pull requests.
 - [x] Version 1.13.0 (or 1.13.x per part), with the row in `docs/development/versioning.md`
-      (1.13.0 for 20A, 1.13.1 for 20B).
+      (1.13.0 for 20A, 1.14.1 for 20B: planned as 1.13.1, moved by ADR-080).
 - [x] Release notes, the plan's Phase 20 status line and its state in the order of work, this
       checklist, the acceptance report with screenshots in `evidence/phase-20/` (and, for 20B,
       `phase-20b-acceptance-report.md` with `evidence/phase-20b/`), "As built" in the ADRs, and the

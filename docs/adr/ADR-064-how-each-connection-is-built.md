@@ -214,7 +214,7 @@ service's own publisher.
 Part 20A built Microsoft 365 as [ADR-065](ADR-065-microsoft-365-connection.md) says. Slack and
 Google come in part 20B; HubSpot, Stripe, and WordPress and WooCommerce in part 20C.
 
-## As built (v1.13.1, part 20B: Slack and Google)
+## As built (v1.14.1, part 20B: Slack and Google)
 
 Part 20B built Slack and Google into Plenipo as §3 and §4 say, with the owner's answers and the
 fits recorded in [ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md):

@@ -744,6 +744,7 @@ const TOOL_NAMES: Record<string, string> = {
   grok: "Grok",
   kimi: "Kimi",
   ollama: "Ollama",
+  antigravity: "Antigravity",
 };
 
 /** An AI tool's name from its ID ("codex" → "Codex"); nothing for nothing. */

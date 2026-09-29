@@ -205,7 +205,7 @@ Built as written, with these details:
 - **Copies built for the tests** use a stand-in browser that follows the sign-in on this computer;
   the Release workflow sets the stand-in empty and refuses the tests' app ID.
 
-## As built (v1.13.1, part 20B: Slack and Google)
+## As built (v1.14.1, part 20B: Slack and Google)
 
 Built as written for Slack and Google, with these details
 ([ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md) §5):

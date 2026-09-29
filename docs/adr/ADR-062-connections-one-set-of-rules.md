@@ -309,7 +309,7 @@ others is seen by them without asking (keep OneDrive at Read only where that mat
 worker off **Who may use it** applies from its next call as before, and a waiting approval is
 decided again when answered.
 
-## As built (v1.13.1, part 20B: Slack and Google)
+## As built (v1.14.1, part 20B: Slack and Google)
 
 Slack and Google follow these rules as Microsoft 365 does, with these differences
 ([ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md)):

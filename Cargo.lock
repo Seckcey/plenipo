@@ -4135,7 +4135,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plenipo-capabilities"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4177,7 +4177,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-core"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-desktop"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "chrono",
  "log",
@@ -4215,7 +4215,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-guard"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "dunce",
  "plenipo-ledger",
@@ -4231,7 +4231,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-ledger"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "rusqlite",
  "serde",
@@ -4244,7 +4244,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-liaison"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "dunce",
  "plenipo-ledger",
@@ -4260,7 +4260,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-router"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "plenipo-ledger",
  "plenipo-runtime",
@@ -4273,7 +4273,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-runtime"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "dunce",
  "libc",
@@ -4291,7 +4291,7 @@ dependencies = [
 
 [[package]]
 name = "plenipo-workforce"
-version = "1.13.1"
+version = "1.14.1"
 dependencies = [
  "base64 0.22.1",
  "log",

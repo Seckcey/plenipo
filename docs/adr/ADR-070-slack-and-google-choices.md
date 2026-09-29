@@ -201,7 +201,7 @@ Slack's and Google's own pages, read on 2026-09-29:
 - **Slack's "Posting" as a part of its own.** Replaced by Full access on Channels and Direct
   messages, the owner's rule for every part.
 
-## As built (v1.13.1)
+## As built (v1.14.1)
 
 Built as decided. Where each choice lives:
 
