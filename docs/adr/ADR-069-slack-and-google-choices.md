@@ -200,3 +200,31 @@ Slack's and Google's own pages, read on 2026-09-29:
 - **One fixed port for Slack.** Three, so another program holding one does not stop Slack.
 - **Slack's "Posting" as a part of its own.** Replaced by Full access on Channels and Direct
   messages, the owner's rule for every part.
+
+## As built (v1.13.1)
+
+Built as decided. Where each choice lives:
+
+- **§1, a Slack channel by its ID:** `guard::connections::send_entry` takes a Slack channel ID
+  (`C…` or `G…`, uppercased) on a Slack card's list, and refuses `#general` with "its ID is at the
+  bottom of About". `listed_for` matches a post's channel ID; a person in Slack is matched by the
+  email address Slack gives (§2). A group message goes ahead without asking only when every person
+  in it has a listed address; a person Slack gives no address for (a guest, or a Slack app) is
+  never listed.
+- **§3, both kinds of Slack app:** 8 West's client ID comes from `PLENIPO_SLACK_CLIENT_ID` at build
+  time (a GitHub variable; the release refuses the tests' ID). A workspace's own app is saved with
+  `save_connection_app` (client ID only; Slack takes no secret). The card shows Plenipo's app
+  description (`slack::manifest`) to paste into Slack.
+- **§4, your own Google app:** `save_connection_app` keeps the client ID in the settings and the
+  secret only in the Vault (`connection-google-app-secret`), read back before the card says it is
+  kept; it is refused while connected, and never returned. The Vault's list of Plenipo's names
+  includes it, and the secret filter hides it in logs and the diagnostics file.
+- **§5, the fits:** Slack's fixed ports 47211–47213 (`Listener::open_on`); Slack's
+  `oauth/v2/authorize` and `oauth.v2.access` with PKCE and token rotation (a lasting token is kept
+  as is when Slack gives no refresh value); `add_connection` / `remove_connection` (11 Connections
+  commands); Disconnect cancels at the service (`auth.revoke`, Google's revoke address) after the
+  Vault is cleared, with a 15-second limit and a note on the card if it fails.
+- **Tests:** `crates/capabilities/tests/connections.rs` (the Slack and Google tests), Guard's
+  `a_slack_channel_is_on_a_slack_list_by_its_id_only` and `slack_workspaces_and_the_owners_own_apps`,
+  the desktop IPC tests, and `tests/e2e/specs/connections.e2e.mjs` part 20B. See the
+  [part 20B acceptance report](../phases/phase-20b-acceptance-report.md).

@@ -3170,6 +3170,21 @@ async fn slack_and_gmail_sending_asks_unless_every_recipient_is_listed() {
         channel.summary,
         "post in the Slack channel #client-co (8 West IT)"
     );
+    // Approvals → Workers using permissions now names each connection, and Slack's workspace.
+    let shown: Vec<String> = h
+        .broker
+        .grants()
+        .into_iter()
+        .flat_map(|g| g.permissions.into_iter().map(|p| p.label))
+        .collect();
+    for label in [
+        "Read Slack (8 West IT)",
+        "Write in Slack (8 West IT)",
+        "Read Google",
+        "Write in Google",
+    ] {
+        assert!(shown.iter().any(|s| s == label), "{shown:?}");
+    }
     assert!(
         channel
             .detail

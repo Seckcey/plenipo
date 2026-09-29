@@ -63,3 +63,11 @@ wait on the slowest of those steps.
 Part 20A (Settings → Connections, Guard's rules, signing in, and Microsoft 365) is version 1.13.0.
 Parts 20B (Slack and Google, 1.13.1) and 20C (HubSpot, Stripe, WordPress and WooCommerce, and
 add-on tools, 1.13.2) are next.
+
+## As built (v1.13.1, part 20B)
+
+Part 20B (Slack and Google) is version 1.13.1, with its own acceptance report
+(`docs/phases/phase-20b-acceptance-report.md`) and release notes. Its choices are
+[ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md). Part 20C
+(HubSpot, Stripe, WordPress and WooCommerce, and add-on tools, 1.13.2) is next; Phase 20 stays
+**Next** in the order of work until it is merged.

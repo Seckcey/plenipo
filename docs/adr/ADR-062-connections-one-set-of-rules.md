@@ -308,3 +308,32 @@ before release:
 others is seen by them without asking (keep OneDrive at Read only where that matters); taking a
 worker off **Who may use it** applies from its next call as before, and a waiting approval is
 decided again when answered.
+
+## As built (v1.13.1, part 20B: Slack and Google)
+
+Slack and Google follow these rules as Microsoft 365 does, with these differences
+([ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md)):
+
+- **A Slack channel can be on "Send without asking to", by its ID** (`C…` or `G…`, kept in
+  capitals; `#general` is refused with where to find the ID). Slack IDs are fixed and never
+  reused, unlike Teams channel names, which still never go on a list. A channel ID can go only on a
+  Slack card's list, and counts only for a Slack send. A post in a listed channel goes ahead
+  without asking only while the switch is on; the card says everyone in the channel sees it,
+  guests from other organizations too.
+- **A Slack direct or group message** goes to its people, each by the email address Slack gives
+  (Plenipo asks for `users:read.email` only while a part can send); someone with none is shown as
+  "(no email address in Slack)", or "(a Slack app, no email address)", and always asks. The people
+  are read again just before sending.
+- **Slack's search** returns only messages from the parts that are on: never a direct message
+  while Direct messages is off.
+- **A worker's words go to Slack as plain text** (`&`, `<`, `>` escaped), so nothing it writes can
+  mention everyone, a person, or draw a link.
+- **More than one Slack workspace:** a tool is offered per workspace; a worker that may use more
+  than one says which (`workspace`), and a tool not offered for the one named is refused by name.
+- **Every call is recorded** as for Microsoft 365, with the connection's ID (`slack-2`) and
+  Plenipo's own summary; never a message, an email, an event, or a file's words.
+
+**Limit (recorded, not changed):** a new Google Drive file added to a folder the owner shares is
+seen by the people it is shared with, and adding it does not ask (as OneDrive; keep Drive at Read
+only where that matters). Approvals → Workers using permissions now names each Slack workspace
+("Read Slack (Client Co)").

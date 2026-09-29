@@ -156,13 +156,15 @@ jobs:
       # machine (127.0.0.1), so the AI tools test can offer a new version. Never a release.
       - name: A stand-in for the AI tools' release lists
         run: echo "PLENIPO_AI_TOOL_RELEASES=http://127.0.0.1:8766" >> "$GITHUB_ENV"
-      # Phase 20 (ADR-065): this copy signs in to a stand-in for Microsoft's sign-in and Microsoft
-      # Graph on this machine (127.0.0.1), with the stand-in's own app ID, so the Connections test
-      # can connect, read, and send. Never a release; the real app ID is never used here.
+      # Phase 20 (ADR-065, ADR-069): this copy signs in to a stand-in for Microsoft's, Slack's, and
+      # Google's sign-ins and services on this machine (127.0.0.1), with the stand-in's own app
+      # IDs, so the Connections tests can connect, read, and send. Never a release; the real app
+      # IDs are never used here.
       - name: A stand-in for the connections' services
         run: |
           echo "PLENIPO_CONNECTIONS_STAND_IN=http://127.0.0.1:8767" >> "$GITHUB_ENV"
           echo "PLENIPO_MICROSOFT_APP_ID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" >> "$GITHUB_ENV"
+          echo "PLENIPO_SLACK_CLIENT_ID=1111111111.2222222222" >> "$GITHUB_ENV"
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
       - name: Build fake agent CLIs for Phase 3 tests

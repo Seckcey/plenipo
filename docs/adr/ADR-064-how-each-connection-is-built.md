@@ -213,3 +213,29 @@ service's own publisher.
 
 Part 20A built Microsoft 365 as [ADR-065](ADR-065-microsoft-365-connection.md) says. Slack and
 Google come in part 20B; HubSpot, Stripe, and WordPress and WooCommerce in part 20C.
+
+## As built (v1.13.1, part 20B: Slack and Google)
+
+Part 20B built Slack and Google into Plenipo as §3 and §4 say, with the owner's answers and the
+fits recorded in [ADR-069 (Slack and Google: the owner's choices)](ADR-069-slack-and-google-choices.md):
+
+- **Slack's parts** are **Channels**, **Direct messages**, and **Search** (Search is Off or Read
+  only). "Posting" is Full access on Channels and Direct messages (`chat:write`), and
+  `users:read.email` is asked only while a part is at Full access. Both **8 West's Slack app**
+  (`PLENIPO_SLACK_CLIENT_ID`, a public client ID built into releases) and **the workspace's own**
+  (Advanced, with Plenipo's app description to paste into Slack) work.
+- **7 Slack tools:** `slack_channels`, `slack_channel_messages` (a channel or one thread),
+  `slack_post` (a post or thread reply, Send), `slack_direct_messages`, `slack_dm_messages`,
+  `slack_send_dm` (Send), and `slack_search`. A channel tool refuses a direct message's ID, and the
+  other way round, so each part's level holds.
+- **10 Google tools:** `google_mail_search`, `google_mail_read`, `google_mail_draft` (new, reply,
+  or reply to all; Write), `google_mail_send` (Send), `google_calendar_events`,
+  `google_calendar_add_event` (Write, or Send with guests), `google_drive_search`,
+  `google_drive_list`, `google_drive_read` (text files, Google Docs as text, Word documents), and
+  `google_drive_upload` (a new text file; Write). Nothing is forwarded or deleted.
+- **Google's permissions:** Gmail `gmail.readonly` (+ `gmail.compose`), Calendar
+  `calendar.events.readonly` (Full access: `calendar.events`), Drive `drive.readonly`
+  (+ `drive.file`), and always `openid`, `email`, `profile`.
+- **Guard's gate:** Slack only `slack.com`; Google only `accounts.google.com`,
+  `oauth2.googleapis.com`, `gmail.googleapis.com`, and `www.googleapis.com`; https only. The
+  short-lived sign-in is sent to Slack's API and to Gmail, Calendar, and Drive only.

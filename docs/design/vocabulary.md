@@ -242,6 +242,14 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | a work or school account / a personal account                                  | Entra ID / MSA, organizational / consumer account                      |
 | Microsoft app ID (in Advanced only)                                            | client ID, application ID, app registration                            |
 | Coming in a later update (a service)                                           | not implemented, coming soon, roadmap                                  |
+| Channels / Direct messages / Search (Slack's parts)                            | conversations, IMs, MPIMs, search API                                  |
+| a channel's ID (on Send without asking to, Slack only)                         | channel identifier, conversation ID                                    |
+| Add another Slack workspace / Remove this workspace                            | multi-tenant install, add team, uninstall                              |
+| Use your workspace's own Slack app / Plenipo's app description (Advanced)      | custom app, app manifest, client ID                                    |
+| Your Google app / Client ID / Client secret (the box hides what you type)      | OAuth client, credentials, client secret field                         |
+| Its secret is kept in Windows Credential Manager                               | stored in keyring, encrypted secret                                    |
+| cancelled at Slack / Google (on Disconnect)                                    | token revoked, grant revoked                                           |
+| Slack lets Plenipo read one channel or thread a minute                         | rate limit, non-Marketplace throttling, tier limit                     |
 
 ## Where technical words may stay
 

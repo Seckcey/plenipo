@@ -69,6 +69,8 @@ pub(super) struct Offers {
     pub pairs: BTreeSet<(String, &'static str)>,
     /// (connection ID, capability) → the level the grant took.
     pub levels: BTreeMap<(String, Capability), Level>,
+    /// Connection ID → its name on screen ("Slack (Client Co)").
+    pub names: BTreeMap<String, String>,
     /// Lines for Plenipo's note to the worker.
     pub note: String,
     /// For the record of the grant.
@@ -156,6 +158,7 @@ impl Broker {
             offers
                 .levels
                 .insert((conn.id.clone(), Capability::ConnectionsWrite), write);
+            offers.names.insert(conn.id.clone(), shown_name(conn));
             let mut names = Vec::new();
             for t in connections::tools_of(conn.service) {
                 // As far as the service allowed it at the last sign-in (a part turned on or up
