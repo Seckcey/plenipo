@@ -56,3 +56,33 @@ The updater change builds on merged PR #99; do not deploy a changed headline thr
 old installed verifier. Release requires agreed file ownership and release order, the
 persistent updater and allocation locks, exact candidate validation, current installer
 metadata, and a verified rollback.
+
+## Validation receipt — September 29, 2026
+
+- PR #101 was reconciled with main `15046dc` as `b485f73`; incoming provider documentation
+  and setup links are preserved. The website files and CI verifier are unchanged from the
+  initial accepted candidate `1544bb5`.
+- Isolated Coastline `pnpm check` passed on the initial candidate: version checks, formatting,
+  lint, documentation links, type checks, 13 repository-script tests, 14 website tests,
+  304 UI tests, and 422 desktop tests. Updater `bash -n` passed. After the main merge,
+  documentation links passed again; exact-head GitHub checks run separately before integration.
+- All 82 tracked website source files matched the preview's source hashes. Existing tests
+  cover the automatic loader, retry, static fallback, asset budgets, links, metadata, and
+  installer/version consistency.
+- Chrome at 1920 × 911 and 390 × 844 showed the new copy without horizontal overflow.
+  Policy tabs, policy FAQ, phone navigation, and the workspace layout passed. Fresh entry
+  kept BODY focus and scroll zero while the demo opened; phone entry selected List.
+  Static view and Enter reopening passed, returning focus to `demo-tab-team`. Console
+  warnings/errors were empty. Browser screenshots are retained with the task's evidence.
+- Actual Bash page-identity checks passed for the old live page and new built page, and
+  correctly rejected a missing heading, blank heading, and wrong canonical URL.
+- The complete current updater was rehearsed against the isolated preview on port 14382,
+  using its own state directory and run lock plus the shared allocation lock. It successfully
+  replaced the preview with exact `b485f73`, image
+  `sha256:6ef7eb8cf40047b3c37838b98607a169fa25175475eab8c770ac0f058ff3a8d3`, retaining
+  installer v1.11.0 and its notes. This validates the PR #99 updater changes together with
+  the new page verifier. It is staging evidence, not a production release claim.
+
+At this receipt, production still serves `1c5bc2b`, installer v1.11.0. Its installed updater
+also matches `1c5bc2b`; a GitHub merge alone does not update that script. Production acceptance,
+the final release identity, rollback retention, and preview cleanup must be recorded at release.
