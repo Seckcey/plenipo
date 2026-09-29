@@ -6,6 +6,9 @@ COPY index.html styles.css main.js ./
 COPY scripts ./scripts
 COPY src ./src
 COPY public ./public
+# The shown release's notes, put here by the automatic update (deploy/auto-release.sh). Empty in
+# the repository (only its README); the build then shows a link to the notes on GitHub.
+COPY release-notes ./release-notes
 ARG SOURCE_REVISION=development
 ENV SOURCE_REVISION=$SOURCE_REVISION
 # The version to show (the image has no root package.json to read): the release checked on

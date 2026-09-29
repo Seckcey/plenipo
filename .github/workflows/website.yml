@@ -34,6 +34,7 @@ jobs:
           PLENIPO_IMAGE=plenipo-website:ci PLENIPO_PORT=14380 docker compose -p plenipo-website-ci -f apps/website/compose.yaml up -d --wait
           curl --fail http://127.0.0.1:14380/healthz
           curl --fail http://127.0.0.1:14380/ | grep -q 'Your AI workforce'
+          curl --fail http://127.0.0.1:14380/ | grep -q "What&rsquo;s new in v$version<"
           curl --fail http://127.0.0.1:14380/sitemap.xml | grep -q 'https://plenipo.8westit.com/'
           curl --fail http://127.0.0.1:14380/release.json | grep -q "\"version\": \"$version\""
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:14380/missing)" = 404
