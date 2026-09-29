@@ -192,4 +192,6 @@ Locally on Linux, 2026-09-29, before pushing:
   18 tests (8 for part 20A, 10 for part 20B) pass; the part 20B group passed four more times in a
   row after the Linux Vault fix.
 
-GitHub's checks on the pull request, Windows included: see the checklist's last line.
+On GitHub, pull request #100, 2026-09-29: every check green on its head — Rust (fmt, clippy,
+test, bindings), Frontend, Docs, the end-to-end tests in the real app on Linux, the website build,
+and Windows (test, build, installer, launch smoke, installer tests).

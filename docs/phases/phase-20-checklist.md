@@ -650,7 +650,8 @@ by a released copy.
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
-- [x] Every GitHub check green, Windows included (pull request #96, 2026-09-28).
+- [x] Every GitHub check green, Windows included (20A: pull request #96, 2026-09-28; 20B: pull
+      request #100, 2026-09-29).
 
 ## Left for the owner (on Windows and outside Plenipo)
 
