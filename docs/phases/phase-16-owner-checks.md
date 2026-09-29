@@ -49,11 +49,31 @@ model of each kind. Plenipo will show the exact version each one points to ("Opu
 and let a role stay on one exact version. This finds out which exact versions they point to on
 your Claude Code, and checks that your subscription runs each exact version by name.
 
-**A1.** Your Claude Code version:
+**A0. No keys in the way.** A key setting on your PC makes Claude Code or Codex use a
+pay-per-use key instead of your subscription, even when you are signed in. This prints **names
+only**, never values. You want no output.
+
+```powershell
+foreach ($scope in 'Process', 'User', 'Machine') {
+  foreach ($key in [Environment]::GetEnvironmentVariables($scope).Keys) {
+    if ($key -match 'ANTHROPIC|CLAUDE_CODE_USE|OPENAI_API_KEY|CODEX_API_KEY') { "$scope has $key set" }
+  }
+}
+```
+
+If a name prints, turn it off **for this window only** (nothing is deleted), for example
+`Remove-Item Env:ANTHROPIC_API_KEY`, and do the same in any other window you use for these checks.
+Never send its value.
+
+**A1.** Your Claude Code version and sign-in:
 
 ```powershell
 claude --version | Tee-Object -FilePath claude-version.txt
+claude auth status 2>&1 | Tee-Object -FilePath claude-sign-in.txt
 ```
+
+You want your Claude subscription (Pro or Max), not an API key. If you're not signed in, run
+`claude auth login` and finish in your browser.
 
 **A2.** Paste this whole block into the window and press Enter. It runs one tiny task per name,
 then one per exact version it found, and saves `claude-models.txt`.
@@ -79,8 +99,7 @@ function Test-Claude([string]$Name) {
     Ran     = if ($init) { $init.model } else { '' }
     Used    = $used -join ', '
     SignIn  = if ($init) { $init.apiKeySource } else { '' }
-    Outcome = if ($result) { $result.subtype } else { "exit $LASTEXITCODE" }
-    Error   = if ($result) { $result.is_error } else { $true }
+    Worked  = [bool]($result -and -not $result.is_error)
     Said    = $said
   }
 }
@@ -93,7 +112,7 @@ $second = foreach ($n in $exact) { Test-Claude $n }
 ```
 
 What to look for: `SignIn : none` means your Claude subscription (not a key) ran it, and
-`Outcome : success` means it worked. For the four names, `Ran` is the exact version each points to.
+`Worked : True` means it worked. For the four names, `Ran` is the exact version each points to.
 
 **A3 (optional).** Start `claude` on its own, type `/model`, and take a screenshot of the list. Press
 `Esc`, then type `/exit`.
