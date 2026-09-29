@@ -79,7 +79,7 @@ fn gmail_message(
             "mimeType": "multipart/alternative",
             "headers": [
                 { "name": "From", "value": from },
-                { "name": "To", "value": format!("Frankie Gonzalez <{USER}>") },
+                { "name": "To", "value": format!("Alex Rivera <{USER}>") },
                 { "name": "Subject", "value": subject },
                 { "name": "Date", "value": "Mon, 28 Sep 2026 08:15:00 -0700" },
                 { "name": "Message-ID", "value": format!("<{id}@mail.stand-in>") },
@@ -111,7 +111,7 @@ impl Google {
                     "g-quote",
                     &format!("Dana Client <{CLIENT}>"),
                     "Website update",
-                    "Hi Frankie, can the website update go live on Monday? Thanks, Dana",
+                    "Hi Alex, can the website update go live on Monday? Thanks, Dana",
                     true,
                     8,
                 ),
@@ -155,7 +155,7 @@ impl Google {
                         ),
                         &[],
                     ),
-                    &format!("Frankie Gonzalez <{USER}>, Bob <bob@clientco.com>"),
+                    &format!("Alex Rivera <{USER}>, Bob <bob@clientco.com>"),
                 ),
             ],
             events: vec![json!({
@@ -358,7 +358,7 @@ fn token(req: &Req, w: &mut World) -> Resp {
                 "access_token": access, "expires_in": 3599,
                 "scope": code.scopes.join(" "), "token_type": "Bearer",
                 "id_token": id_token(json!({
-                    "email": USER, "name": "Frankie Gonzalez", "hd": "8westit.com",
+                    "email": USER, "name": "Alex Rivera", "hd": "8westit.com",
                     "email_verified": true,
                 })),
             });

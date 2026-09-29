@@ -82,8 +82,18 @@ After the MVP:
    signing runs only for main and release tags, behind the owner's approval; where to click is
    in [code signing → approving a release run](code-signing.md#approving-a-release-run)). Reject
    a run you did not start.
-7. Once the release is published, deploy the website ([the website](website.md)) so its download
-   buttons point to the new installer.
+7. Nothing else to update by hand. Once the release is published, these follow it by themselves
+   ([ADR-069, the website follows new releases](../adr/ADR-069-website-follows-releases.md)):
+   - **the website**, within 15 minutes: its version, download buttons, and "What's new" from
+     `docs/releases/vX.Y.Z.md` ([automatic updates](website.md#automatic-updates));
+   - **the README**: its latest-release badge reads GitHub Releases each time the page is shown;
+   - **the release pages**: the Release notes workflow puts `docs/releases/vX.Y.Z.md` on each
+     release page whenever the notes change on `main`.
+
+   So pages people read on GitHub never type which version is the latest (the README, `SUPPORT.md`,
+   `SECURITY.md`, `CONTRIBUTING.md`, `docs/faq.md`, `docs/roadmap.md`): they link to the latest
+   release, or show its badge. `pnpm versions:check` fails if one names the latest version by
+   hand.
 
 `.github/workflows/release.yml` runs on Windows: it checks that the version matches and that
 release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC

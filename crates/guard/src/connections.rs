@@ -282,9 +282,9 @@ pub struct Access {
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct Account {
-    /// "Frankie Gonzalez".
+    /// "Alex Rivera".
     pub name: String,
-    /// "frankie@8westit.com".
+    /// "alex@8westit.com".
     pub address: String,
     /// The organization it belongs to, when known.
     #[ts(optional)]
@@ -1072,7 +1072,7 @@ mod tests {
             &c,
             Part::Mail,
             ToolKind::Send,
-            &["Frankie@8WestIT.com", "client@example.com"],
+            &["Alex@8WestIT.com", "client@example.com"],
         )
         else {
             panic!()
@@ -1191,7 +1191,7 @@ mod tests {
         }
         let list = vec!["C0100000001".to_owned(), "@8westit.com".to_owned()];
         assert!(listed_for(s, &list, "C0100000001"));
-        assert!(listed_for(s, &list, "frankie@8westit.com"));
+        assert!(listed_for(s, &list, "alex@8westit.com"));
         // Another channel, a name that looks like the ID, or a lower-case copy: not listed.
         assert!(!listed_for(s, &list, "C0200000002"));
         assert!(!listed_for(s, &list, "c0100000001"));

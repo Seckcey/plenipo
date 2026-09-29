@@ -1590,7 +1590,7 @@ mod tests {
     fn a_group_message_is_known_by_slacks_flag_or_its_name() {
         assert!(is_group_message(&json!({ "id": "G1", "is_mpim": true })));
         assert!(is_group_message(
-            &json!({ "id": "G1", "name": "mpdm-dana--frankie-1" })
+            &json!({ "id": "G1", "name": "mpdm-dana--alex-1" })
         ));
         assert!(!is_group_message(
             &json!({ "id": "G1", "name": "client-co", "is_private": true })

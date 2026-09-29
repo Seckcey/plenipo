@@ -231,8 +231,8 @@ mod tests {
         c.state = ConnectionState::Connected;
         c.account_kind = Some(AccountKind::Work);
         c.account = Some(Account {
-            name: "Frankie Gonzalez".into(),
-            address: "frankie@8westit.com".into(),
+            name: "Alex Rivera".into(),
+            address: "alex@8westit.com".into(),
             organization: Some("8 West IT".into()),
             tenant: Some("11111111-2222-3333-4444-555555555555".into()),
         });
@@ -248,8 +248,8 @@ mod tests {
         let mut s = Connection::new("slack-2", Service::Slack);
         s.state = ConnectionState::Connected;
         s.account = Some(Account {
-            name: "Frankie Gonzalez".into(),
-            address: "frankie@8westit.com".into(),
+            name: "Alex Rivera".into(),
+            address: "alex@8westit.com".into(),
             organization: Some("Client Co".into()),
             tenant: Some("T0900000002".into()),
         });
@@ -289,8 +289,8 @@ mod tests {
         assert_eq!(v[0]["ownApp"], true);
         let text = v.to_string();
         for never in [
-            "Frankie",
-            "frankie@",
+            "Alex",
+            "alex@",
             "8 West IT",
             "11111111",
             "dana@",

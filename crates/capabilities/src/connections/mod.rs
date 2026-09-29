@@ -18,7 +18,7 @@ pub mod signin;
 pub mod slack;
 pub(crate) mod text;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
@@ -455,6 +455,13 @@ struct State {
     /// renewal that finishes after a newer one of these keeps nothing.
     turns: HashMap<String, u64>,
     next_turn: u64,
+}
+
+/// What the sign-ins are doing, read before the saved connections (see [`Connections::page`]).
+struct SignIns {
+    waiting: HashSet<String>,
+    admin: HashMap<String, String>,
+    problem: HashMap<String, String>,
 }
 
 impl State {
@@ -936,13 +943,17 @@ impl Connections {
                     _ => google::refusal_words(&error),
                 }),
             };
-            let current = {
+            // What went wrong is kept in the same step that ends the sign-in, so nothing reading
+            // the card sees it ended with neither a connection nor a problem.
+            {
                 let mut s = lock(&this.state);
                 if s.waiting.get(&id).is_some_and(|(t, _)| *t == turn) {
                     s.waiting.remove(&id);
                 }
-                s.turn(&id) == turn
-            };
+                if let (true, Err(why)) = (s.turn(&id) == turn, &outcome) {
+                    s.problem.insert(id.clone(), why.clone());
+                }
+            }
             match outcome {
                 Ok(Signed::In) => {}
                 Ok(Signed::Stopped) => {
@@ -958,9 +969,6 @@ impl Connections {
                         });
                 }
                 Err(why) => {
-                    if current {
-                        lock(&this.state).problem.insert(id.clone(), why.clone());
-                    }
                     let _ = this.guard().ledger().append_event(plenipo_ledger::NewEvent {
                         source: "plenipo".into(),
                         event_type: "connection.sign_in_failed".into(),
@@ -1787,6 +1795,16 @@ impl Connections {
 
     /// What Settings → Connections shows.
     pub fn page(&self, vault_available: bool) -> Result<ConnectionsPage, String> {
+        // Sign-ins first, then the saved connections: a sign-in saves its connection before it
+        // stops waiting, so a page never shows one done signing in but not yet connected.
+        let seen = {
+            let s = lock(&self.state);
+            SignIns {
+                waiting: s.waiting.keys().cloned().collect(),
+                admin: s.admin.clone(),
+                problem: s.problem.clone(),
+            }
+        };
         let config = self.guard().config().map_err(|e| e.to_string())?;
         let records = self
             .guard()
@@ -1821,7 +1839,6 @@ impl Connections {
                     archived: p.archived_at.is_some(),
                 }),
         );
-        let state = lock(&self.state);
         let services = Service::ALL
             .iter()
             .map(|service| {
@@ -1839,7 +1856,7 @@ impl Connections {
                     label: service.label().into(),
                     built: service.built(),
                     many: service.many(),
-                    connections: conns.into_iter().map(|c| self.card(c, &state)).collect(),
+                    connections: conns.into_iter().map(|c| self.card(c, &seen)).collect(),
                 }
             })
             .collect();
@@ -1853,7 +1870,7 @@ impl Connections {
         })
     }
 
-    fn card(&self, c: Connection, state: &State) -> ConnectionCard {
+    fn card(&self, c: Connection, seen: &SignIns) -> ConnectionCard {
         let service = c.service;
         let parts = service
             .parts()
@@ -1892,9 +1909,9 @@ impl Connections {
         ConnectionCard {
             has_app: self.app_id(&c).is_some(),
             built_in_app: self.built_in_app(service).is_some(),
-            signing_in: state.waiting.contains_key(&c.id),
-            admin_link: state.admin.get(&c.id).cloned(),
-            problem: state.problem.get(&c.id).cloned(),
+            signing_in: seen.waiting.contains(&c.id),
+            admin_link: seen.admin.get(&c.id).cloned(),
+            problem: seen.problem.get(&c.id).cloned(),
             parts,
             reconnect_for,
             granted,
@@ -1918,7 +1935,7 @@ impl Graph<'_> {
         &self.me
     }
 
-    /// The fence's name for this account: "Microsoft 365 (frankie@8westit.com)".
+    /// The fence's name for this account: "Microsoft 365 (alex@8westit.com)".
     pub fn account_label(&self) -> String {
         if self.me.is_empty() {
             "Microsoft 365".into()

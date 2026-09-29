@@ -1,6 +1,6 @@
 # Interactive homepage production release — September 28, 2026
 
-The owner authorized deployment of the approved PR #87 homepage. It is live at
+The maintainers authorized deployment of the approved PR #87 homepage. It is live at
 <https://plenipo.8westit.com/>. This release uses the exact merged source below; later main-branch
 installer-version templating and unrelated app/security changes are excluded. It does not deploy
 the desktop app. Existing v1.6.0 download metadata was deliberately retained within this scope.

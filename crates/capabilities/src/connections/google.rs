@@ -677,7 +677,7 @@ pub(crate) struct Api<'a> {
 }
 
 impl Api<'_> {
-    /// The fence's name for this account: "Google (frankie@8westit.com)".
+    /// The fence's name for this account: "Google (alex@8westit.com)".
     fn label(&self) -> String {
         if self.me.is_empty() {
             "Google".into()
@@ -2213,11 +2213,10 @@ mod tests {
 
     #[test]
     fn who_signed_in_is_read_from_the_id_token() {
-        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            br#"{"email":"Frankie@8WestIT.com","name":"Frankie Gonzalez","hd":"8westit.com"}"#,
-        );
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"email":"Alex@8WestIT.com","name":"Alex Rivera","hd":"8westit.com"}"#);
         let a = account_from_id_token(&format!("x.{claims}.y"));
-        assert_eq!(a.address, "frankie@8westit.com");
+        assert_eq!(a.address, "alex@8westit.com");
         assert_eq!(a.organization.as_deref(), Some("8westit.com"));
         assert!(refusal_words("org_internal").contains("Internal"));
     }

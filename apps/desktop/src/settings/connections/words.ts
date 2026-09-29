@@ -44,7 +44,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   personal: "a personal account",
 };
 
-/** "frankie@8westit.com (a work or school account, 8 West IT)". */
+/** "alex@8westit.com (a work or school account, 8 West IT)". */
 export function accountLine(
   account: Account | null | undefined,
   kind: AccountKind | null | undefined,

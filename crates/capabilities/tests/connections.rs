@@ -814,7 +814,7 @@ fn inside_fence(lines: &[String], kind: &str, source: &str, whose: &str) -> Vec<
     lines[start + 1..start + 1 + end].to_vec()
 }
 
-const MS365: &str = "Microsoft 365 (frankie@8westit.com)";
+const MS365: &str = "Microsoft 365 (alex@8westit.com)";
 
 // ---- The plan's tests ---------------------------------------------------------------------------
 
@@ -884,7 +884,7 @@ async fn connect_read_write_with_approval_and_disconnect() {
         tool("m365_teams_chat_messages", json!({ "chat": "chat-dana" })),
         tool(
             "m365_mail_draft",
-            json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is attached. Frankie" }),
+            json!({ "kind": "reply", "id": "msg-quote", "text": "Hi Dana, the quote is attached. Alex" }),
         ),
         tool("m365_mail_send", json!({ "id": "draft-1" })),
     ]
@@ -903,7 +903,7 @@ async fn connect_read_write_with_approval_and_disconnect() {
         a.detail
     );
     assert!(a.detail.contains("Subject: RE: Server upgrade quote"));
-    assert!(a.detail.contains("Hi Dana, the quote is attached. Frankie"));
+    assert!(a.detail.contains("Hi Dana, the quote is attached. Alex"));
     // The worker's own words only: never the earlier message quoted under the reply.
     assert!(!a.detail.contains("Original Message"), "{}", a.detail);
     assert!(!a.detail.contains("by Friday"), "{}", a.detail);
@@ -2390,7 +2390,7 @@ const SLACK: &str = "slack";
 const GOOGLE: &str = "google";
 /// The fences' names for them.
 const SLACK8: &str = "Slack (8 West IT)";
-const GMAIL: &str = "Google (frankie@8westit.com)";
+const GMAIL: &str = "Google (alex@8westit.com)";
 
 fn slack_offered(text: &str) -> Vec<String> {
     offered(text)
@@ -2506,7 +2506,7 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     );
     let account = card.connection.account.clone().unwrap();
     assert_eq!(account.address, microsoft::USER);
-    assert_eq!(account.name, "Frankie Gonzalez");
+    assert_eq!(account.name, "Alex Rivera");
     assert_eq!(account.organization.as_deref(), Some(slack::TEAM_NAME));
     assert_eq!(account.tenant.as_deref(), Some(slack::TEAM));
     assert!(card.reconnect_for.is_empty(), "{card:#?}");
@@ -2604,7 +2604,7 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     let general =
         inside_fence(&reads[0], "chat messages", SLACK8, "the people in the chat").join("\n");
     assert!(
-        general.contains("Dana Client: Patching is done for #client-co, thanks @Frankie Gonzalez!"),
+        general.contains("Dana Client: Patching is done for #client-co, thanks @Alex Rivera!"),
         "{general}"
     );
     assert!(
@@ -2614,7 +2614,7 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     let replies =
         inside_fence(&reads[1], "chat messages", SLACK8, "the people in the chat").join("\n");
     assert!(
-        replies.contains("Frankie Gonzalez: Great & thanks."),
+        replies.contains("Alex Rivera: Great & thanks."),
         "{replies}"
     );
     assert!(
@@ -2838,7 +2838,7 @@ async fn google_connect_read_write_with_approval_and_disconnect() {
         tool("google_drive_read", json!({ "id": "gfile-budget" })),
         tool(
             "google_mail_draft",
-            json!({ "kind": "reply", "id": "g-quote", "text": "Hi Dana, yes: Monday works. Frankie" }),
+            json!({ "kind": "reply", "id": "g-quote", "text": "Hi Dana, yes: Monday works. Alex" }),
         ),
         tool("google_mail_send", json!({ "id": "r-draft-2" })),
         tool(
@@ -2866,7 +2866,7 @@ async fn google_connect_read_write_with_approval_and_disconnect() {
         "{}",
         a.detail
     );
-    assert!(a.detail.contains("Hi Dana, yes: Monday works. Frankie"));
+    assert!(a.detail.contains("Hi Dana, yes: Monday works. Alex"));
     assert!(
         a.detail
             .contains("This worker read email, calendar entries, and files in this step."),
@@ -2958,7 +2958,7 @@ async fn google_connect_read_write_with_approval_and_disconnect() {
     assert_eq!(sent[0]["to"], json!(["dana@clientco.com"]));
     assert_eq!(sent[0]["subject"], "Re: Website update");
     assert_eq!(sent[0]["inReplyTo"], "<g-quote@mail.stand-in>");
-    assert_eq!(sent[0]["text"], "Hi Dana, yes: Monday works. Frankie");
+    assert_eq!(sent[0]["text"], "Hi Dana, yes: Monday works. Alex");
     assert!(h
         .ms
         .world()

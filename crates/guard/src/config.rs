@@ -1220,8 +1220,8 @@ mod tests {
         );
         // Connected, then disconnected: the account goes; the settings stay.
         let account = Account {
-            name: "Frankie".into(),
-            address: "frankie@8westit.com".into(),
+            name: "Alex".into(),
+            address: "alex@8westit.com".into(),
             organization: Some("8 West IT".into()),
             tenant: None,
         };
@@ -1278,8 +1278,8 @@ mod tests {
         assert_eq!(c.add_connection(Service::Slack).unwrap().id, "slack-2");
         assert!(c.remove_connection("google").is_err());
         let account = Account {
-            name: "Frankie".into(),
-            address: "frankie@8westit.com".into(),
+            name: "Alex".into(),
+            address: "alex@8westit.com".into(),
             organization: Some("8 West IT".into()),
             tenant: Some("T0800000001".into()),
         };

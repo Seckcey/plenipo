@@ -116,7 +116,7 @@ describe("Settings → Connections", () => {
     api.disconnectConnection.mockResolvedValue(samplePage());
     const m365 = await card();
     expect(m365).toHaveTextContent(
-      "Connected as frankie@8westit.com (a work or school account, 8 West IT).",
+      "Connected as alex@8westit.com (a work or school account, 8 West IT).",
     );
     expect(within(m365).getByText("Connected")).toBeInTheDocument();
     const allowed = within(m365).getByRole("region", { name: "What Plenipo was allowed" });
@@ -343,8 +343,8 @@ describe("Settings → Connections", () => {
           ...slackCard().connection,
           state: "connected",
           account: {
-            name: "Frankie Gonzalez",
-            address: "frankie@8westit.com",
+            name: "Alex Rivera",
+            address: "alex@8westit.com",
             organization: "8 West IT",
           },
         },
@@ -355,7 +355,7 @@ describe("Settings → Connections", () => {
     api.connectConnection.mockResolvedValue(both);
     render(<ConnectionsSettings go={go} />);
     const eight = await screen.findByRole("listitem", { name: "Slack — 8 West IT" });
-    expect(eight).toHaveTextContent("Connected as frankie@8westit.com (8 West IT).");
+    expect(eight).toHaveTextContent("Connected as alex@8westit.com (8 West IT).");
     expect(eight).toHaveTextContent("Slack lets Plenipo read one channel or thread a minute");
     // A connected workspace cannot be removed; the second, not connected, can.
     expect(within(eight).queryByRole("button", { name: "Remove this workspace" })).toBeNull();
@@ -497,7 +497,7 @@ describe("Settings → Connections", () => {
         connection: {
           ...slackCard().connection,
           state: "connected",
-          account: { name: "Frankie", address: "frankie@8westit.com", organization: "8 West IT" },
+          account: { name: "Alex", address: "alex@8westit.com", organization: "8 West IT" },
         },
       },
     );

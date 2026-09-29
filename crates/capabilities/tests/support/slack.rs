@@ -123,7 +123,7 @@ const CONVERSATIONS: [Conv; 5] = [
     Conv {
         id: GROUP,
         team: TEAM,
-        name: "mpdm-frankie--dana--guest-1",
+        name: "mpdm-alex--dana--guest-1",
         kind: "mpim",
         members: &[ME, DANA, GUEST],
     },
@@ -212,7 +212,7 @@ fn slack_error(code: &str) -> Resp {
 
 fn person(id: &str, email_allowed: bool) -> Option<Value> {
     let (name, email) = match id {
-        ME => ("Frankie Gonzalez", Some(super::microsoft::USER)),
+        ME => ("Alex Rivera", Some(super::microsoft::USER)),
         DANA => ("Dana Client", Some(super::microsoft::CLIENT)),
         GUEST => ("Guest From Elsewhere", None),
         _ => return None,

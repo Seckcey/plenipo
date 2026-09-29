@@ -351,7 +351,7 @@ describe(
       await knobs({ slowSignInMs: 0 });
 
       await onCard(browser, "Connect a work or school account");
-      await waitForText(browser, CARD, "Connected as frankie@8westit.com", 30_000);
+      await waitForText(browser, CARD, "Connected as alex@8westit.com", 30_000);
       await waitForText(browser, CARD, "What Plenipo was allowed");
       await waitForText(browser, CARD, "Send mail as you (asks you first");
       await screenshot(browser, "connections-connected", CARD);
@@ -409,7 +409,7 @@ describe(
           tool("m365_mail_draft", {
             kind: "reply",
             id: "msg-quote",
-            text: "Hi Dana, the quote is attached. Frankie",
+            text: "Hi Dana, the quote is attached. Alex",
           }),
           tool("m365_mail_send", { id: "draft-2" }),
         ].join(" "),
@@ -444,7 +444,7 @@ describe(
       const about = JSON.parse(files["about.json"]);
       assert.equal(about.connections[0].service, "Microsoft 365");
       assert.equal(about.connections[0].state, "connected");
-      assert.doesNotMatch(files["about.json"], /frankie@8westit\.com|clientco/);
+      assert.doesNotMatch(files["about.json"], /alex@8westit\.com|clientco/);
       const probes = (await world()).issued.map((t) => t.slice(0, 60));
       assert.ok(probes.length >= 4, "codes, sign-ins, and access tokens were issued");
       for (const [name, text] of Object.entries(files)) {
@@ -585,7 +585,7 @@ describe(
       await waitForText(
         browser,
         SLACK_CARD,
-        "Connected as frankie@8westit.com (8 West IT)",
+        "Connected as alex@8westit.com (8 West IT)",
         30_000,
       );
       await waitForText(browser, SLACK_CARD, "Post and send messages as you (asks you first");
@@ -633,7 +633,7 @@ describe(
       await waitForText(
         browser,
         GOOGLE_CARD,
-        "Connected as frankie@8westit.com (8westit.com)",
+        "Connected as alex@8westit.com (8westit.com)",
         30_000,
       );
       const { asked } = await world();
@@ -685,7 +685,7 @@ describe(
           tool("google_mail_draft", {
             kind: "reply",
             id: "g-quote",
-            text: "Hi Dana, yes: Monday works. Frankie",
+            text: "Hi Dana, yes: Monday works. Alex",
           }),
           // The stand-in numbers what it makes in turn: Slack's sign-in code (1), Google's (2),
           // then this draft (3).
@@ -722,7 +722,7 @@ describe(
       const about = JSON.parse(files["about.json"]);
       const services = about.connections.map((c) => c.service);
       assert.ok(services.includes("Slack") && services.includes("Google"), services.join(", "));
-      assert.doesNotMatch(files["about.json"], /frankie@8westit\.com|8 West IT|plenipotest/);
+      assert.doesNotMatch(files["about.json"], /alex@8westit\.com|8 West IT|plenipotest/);
       const probes = [...(await world()).issued.map((t) => t.slice(0, 60)), GOOGLE_SECRET];
       for (const [name, text] of Object.entries(files)) {
         for (const p of probes) assert.ok(!text.includes(p), `a sign-in value in ${name}`);

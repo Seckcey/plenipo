@@ -11,7 +11,7 @@ performance limits and exact-source evidence remain applicable.
 
 ## Interactive homepage sample — September 28, 2026
 
-The owner selected React Flow and approved the preview's design direction. This website-only
+The maintainers selected React Flow and approved the preview's design direction. This website-only
 change adds six fictional organization cards, selectable objectives and conversations, sample
 approval choices and activity, Pip tips, light/dark preview, list/map controls, and reset. No
 AI runs or customer data is used. Production release is separately pending. Existing installer
@@ -20,7 +20,7 @@ metadata remains unchanged; the application source version is not an installer a
 Review captures: [desktop light](../brand/website-evidence/interactive-desktop-light.png),
 [desktop dark](../brand/website-evidence/interactive-desktop-dark.png), and
 [phone](../brand/website-evidence/interactive-phone.png). These show authored sample content;
-the owner's private desktop references are not included in the website or these captures.
+the maintainers' private desktop references are not included in the website or these captures.
 
 ### Source and checks
 
@@ -84,7 +84,7 @@ are retained separately. This is Chromium coverage, not a claim of every browser
 No demo JS/CSS transfers before explicit activation. The measured demo JavaScript is 156,360 bytes
 gzip (421,935 decoded), CSS 6,291 bytes gzip, and the initial Pip image 13,092 bytes. The five new
 Pip exports total 66,406 bytes. Build tests enforce 180,000-byte JS and 12,000-byte CSS gzip ceilings;
-these are implementation guardrails, not the original research proposal's owner-approved budget.
+these are implementation guardrails, not the original research proposal's approved budget.
 
 | Chromium phone measurement                                              | Activation | Long tasks         | Layout shift without recent input |
 | ----------------------------------------------------------------------- | ---------- | ------------------ | --------------------------------- |
@@ -93,7 +93,7 @@ these are implementation guardrails, not the original research proposal's owner-
 
 The second run isolates demo activation; it does not replace the first cold-page result.
 The original native-module proposal's 80 KB JS and under-50 ms/zero-new-shift aspirations were
-not all met after the owner selected React Flow. The explicit load button, readable static
+not all met after the maintainers selected React Flow. The explicit load button, readable static
 fallback, phone list default, and local-only sample bound this tradeoff. These measurements
 are observations from one emulated Chromium environment, not a performance guarantee.
 
@@ -131,7 +131,7 @@ support. Release evidence is linked from [website operations](website.md).
 
 Asset verification:
 
-- All 47 original owner-supplied files match their actual Git archive bytes. Two receipt files
+- All 47 original supplied files match their actual Git archive bytes. Two receipt files
   retain original CRLF bytes through exact `.gitattributes` entries; no global renormalization.
 - Four new source PNGs preserve image-generation output bytes and have genuine alpha 0–255.
   All six website Pip exports are 480 × 480 alpha WebP images. The four new provider images
