@@ -30,6 +30,8 @@ use crate::pricing::Price;
 
 /// When the prices below were read from each company's own pricing page.
 pub const PRICES_CHECKED: &str = "2026-09-30";
+/// The same date, in words for the screen.
+const PRICES_CHECKED_WORDS: &str = "September 30, 2026";
 
 /// A model a company sells, with its price per million tokens in micros.
 #[derive(Debug, Clone, Copy)]
@@ -260,9 +262,7 @@ const ALIBABA_MODELS: &[Sold] = &[
 pub struct Company {
     /// The paid AI tool's ID, also the helper's service ("anthropic-key").
     pub id: &'static str,
-    /// The card's name ("Anthropic (paid per use)").
-    pub label: &'static str,
-    /// The company's name in its own words ("Anthropic refused the key").
+    /// The company's name: its card's, and in its own words ("Anthropic refused the key").
     pub name: &'static str,
     pub maker: (&'static str, &'static str),
     /// Where the owner makes a key, in a few words.
@@ -275,82 +275,72 @@ pub struct Company {
 pub const COMPANIES: &[Company] = &[
     Company {
         id: "anthropic-key",
-        label: "Anthropic (paid per use)",
         name: "Anthropic",
         maker: makers::ANTHROPIC,
-        where_keys: "console.anthropic.com → API keys",
+        where_keys: "console.anthropic.com, on its keys page",
         models: ANTHROPIC_MODELS,
     },
     Company {
         id: "openai-key",
-        label: "OpenAI (paid per use)",
         name: "OpenAI",
         maker: makers::OPENAI,
-        where_keys: "platform.openai.com → API keys",
+        where_keys: "platform.openai.com, on its keys page",
         models: OPENAI_MODELS,
     },
     Company {
         id: "xai-key",
-        label: "xAI (paid per use)",
         name: "xAI",
         maker: makers::XAI,
-        where_keys: "console.x.ai → API keys",
+        where_keys: "console.x.ai, on its keys page",
         models: XAI_MODELS,
     },
     Company {
         id: "moonshot-key",
-        label: "Moonshot AI (paid per use)",
         name: "Moonshot AI",
         maker: makers::MOONSHOT,
-        where_keys: "platform.kimi.ai → API keys",
+        where_keys: "platform.kimi.ai, on its keys page",
         models: MOONSHOT_MODELS,
     },
     Company {
         id: "google-key",
-        label: "Google (paid per use)",
         name: "Google",
         maker: makers::GOOGLE,
-        where_keys: "aistudio.google.com → Get API key",
+        where_keys: "aistudio.google.com, on its keys page",
         models: GOOGLE_MODELS,
     },
     Company {
         id: "deepseek-key",
-        label: "DeepSeek (paid per use)",
         name: "DeepSeek",
         maker: makers::DEEPSEEK,
-        where_keys: "platform.deepseek.com → API keys",
+        where_keys: "platform.deepseek.com, on its keys page",
         models: DEEPSEEK_MODELS,
     },
     Company {
         id: "zai-key",
-        label: "Z.ai (paid per use)",
         name: "Z.ai",
         maker: makers::ZAI,
-        where_keys: "z.ai → API keys",
+        where_keys: "z.ai, on its keys page",
         models: ZAI_MODELS,
     },
     Company {
         id: "minimax-key",
-        label: "MiniMax (paid per use)",
         name: "MiniMax",
         maker: makers::MINIMAX,
-        where_keys: "platform.minimax.io → API keys",
+        where_keys: "platform.minimax.io, on its keys page",
         models: MINIMAX_MODELS,
     },
     Company {
         id: "mistral-key",
-        label: "Mistral (paid per use)",
         name: "Mistral",
         maker: makers::MISTRAL,
-        where_keys: "console.mistral.ai → API keys",
+        where_keys: "console.mistral.ai, on its keys page",
         models: MISTRAL_MODELS,
     },
     Company {
         id: "alibaba-key",
-        label: "Alibaba Cloud (paid per use)",
         name: "Alibaba Cloud",
         maker: makers::ALIBABA,
-        where_keys: "Alibaba Cloud Model Studio (international) → API keys",
+        where_keys: "Alibaba Cloud Model Studio, international region, on its keys page",
         models: ALIBABA_MODELS,
     },
 ];
@@ -398,7 +388,7 @@ impl RuntimeAdapter for Direct {
     }
 
     fn label(&self) -> &'static str {
-        self.company.label
+        self.company.name
     }
 
     fn provider(&self) -> &'static str {
@@ -428,7 +418,7 @@ impl RuntimeAdapter for Direct {
             tool_posture: format!(
                 "Conversation only: a worker on {} can answer, write, and review text, but \
                  cannot read files or run programs yet.",
-                self.company.label
+                self.company.name
             ),
             effort_levels: effort,
             known_models: self.company.models.iter().map(|s| self.known(s)).collect(),
@@ -475,13 +465,17 @@ impl RuntimeAdapter for Direct {
         true
     }
 
-    fn paid_note(&self) -> Option<String> {
-        Some(format!(
-            "Plenipo has not checked {name}'s service with a real key yet. Its models and \
-             prices are from {name}'s own pages on {PRICES_CHECKED}; make a key at {keys}.",
-            name = self.company.name,
-            keys = self.company.where_keys,
-        ))
+    fn paid_note(&self, key_works: bool) -> Option<String> {
+        let name = self.company.name;
+        Some(if key_works {
+            format!("Its prices are from {name}'s own pages, {PRICES_CHECKED_WORDS}.")
+        } else {
+            format!(
+                "Plenipo has not checked {name} with a real key yet. Its models and prices are \
+                 from {name}'s own pages, {PRICES_CHECKED_WORDS}. Make a key at {keys}.",
+                keys = self.company.where_keys,
+            )
+        })
     }
 
     fn default_model(&self) -> Option<&'static str> {

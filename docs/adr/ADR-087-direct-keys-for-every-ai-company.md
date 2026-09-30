@@ -10,8 +10,8 @@
   and [ADR-086 (OpenRouter through a Plenipo helper)](ADR-086-openrouter-through-a-plenipo-helper.md),
   whose helper, key handling, and spending gate this reuses.
 
-> **On screen** (ADR-010, plain words and rank names): an AI tool per company, named like
-> **Anthropic (paid per use)**, that **comes with Plenipo**; the same key form as OpenRouter's;
+> **On screen** (ADR-010, plain words and rank names): an AI tool per company, named by the
+> company (**Anthropic**, beside **Claude Code**), that **comes with Plenipo**; the same key form as OpenRouter's;
 > and on each card, **Plenipo has not checked … with a real key yet** until the owner has. Never
 > "API", "endpoint", "BYOK", or "direct integration".
 

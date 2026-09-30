@@ -91,7 +91,16 @@ an adapter has no program at all:
   the runtime settles what was set aside with it.
 - The fake agent answers `--plenipo-paid` under any persona name, for the contract suite.
 - Mark a model that is the same model on another AI tool with `.same("…")` (Kimi K3 is
-  `kimi-k3` on Kimi Code, Ollama, and OpenRouter).
+  `kimi-k3` on Kimi Code, Ollama, OpenRouter, and Moonshot AI's own service).
+- **An AI company's own service with a key** (ADR-087) is not a new adapter but a row: a
+  `PaidService` variant in `crates/guard/src/paid.rs` (its host, base address, key header, key
+  check, and answer-length field, each checked against the company's own documentation), a
+  `Company` in `crates/runtime/src/agent/direct.rs` (its paid AI tool's ID ending in `-key`,
+  its name, where to make a key, and its models with the prices on its own pricing page, dated in
+  `PRICES_CHECKED`), and a label in `Purpose::label`. Hold a model's words under any price step
+  by prompt size (`under`), count a price by time of day at its dearest, and give a price for
+  storing input for reuse (`with_cache_write`) where the company does that by itself. The
+  contract suite runs a task on every row.
 
 ## 1. Identity and AI company
 

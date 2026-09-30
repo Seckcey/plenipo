@@ -14,8 +14,7 @@
   [ADR-014 (adding AI tools)](ADR-014-adding-ai-tools.md) bar item 3 (subscription sign-in only).
   It amends them; it does not rewrite them (§8).
 - **With:** [ADR-086 (OpenRouter through a Plenipo helper)](ADR-086-openrouter-through-a-plenipo-helper.md)
-  and [ADR-087 (direct keys for every AI company whose models take one)](../phases/phase-16-wave-3-checklist.md),
-  written when its part of Wave 3 is built.
+  and [ADR-087 (direct keys for every AI company whose models take one)](ADR-087-direct-keys-for-every-ai-company.md).
 
 > **On screen** (ADR-010, plain words and rank names): **Spending caps**, **a monthly cap**, **the
 > business's cap**, **Let workers use paid AI keys**, **set aside**, **not priced yet**, **80% of
@@ -292,3 +291,8 @@ Workers on a paid route answer in text only in this wave (choice 6).
   keys or the business cap change, and after the gate exists at startup; keys erased before they
   are forgotten, saves taking turns, and the replaced key kept listed until the new one's check
   passes (§5); and on screen, Windows Credential Manager by name.
+
+**Part 3 (2026-09-30), direct keys** ([ADR-087](ADR-087-direct-keys-for-every-ai-company.md#as-built)):
+ten AI companies' own services join OpenRouter as paid AI tools, each with its models and the
+prices on its own pages. A price can now carry what a company charges for storing input for reuse
+by itself (`Price::cache_write`), counted for every fresh input token (§3).

@@ -302,11 +302,12 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn paid(&self) -> bool {
         false
     }
-    /// The model a step runs when it names none (paid AI tools price it before it starts).
-    /// A paid AI tool's words for its card, where something is not checked yet (ADR-087).
-    fn paid_note(&self) -> Option<String> {
+    /// A paid AI tool's words for its card (ADR-087): until `key_works`, that it has not been
+    /// checked with a real key; after, where its prices come from.
+    fn paid_note(&self, _key_works: bool) -> Option<String> {
         None
     }
+    /// The model a step runs when it names none (paid AI tools price it before it starts).
     fn default_model(&self) -> Option<&'static str> {
         None
     }

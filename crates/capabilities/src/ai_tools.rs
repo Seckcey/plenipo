@@ -524,6 +524,14 @@ impl AiTools {
         let guard_config = self.inner.broker.guard().config().ok();
         let paid_blocked = crate::paid::not_allowed(&self.inner.broker);
         let kept_in = self.inner.broker.secret_store().label().to_owned();
+        // The paid AI tools whose key passed its check.
+        let key_works: std::collections::HashSet<String> = self
+            .agents()
+            .runtimes()
+            .into_iter()
+            .filter(|r| r.ready && r.auth.state == plenipo_runtime::agent::AuthState::PaidKey)
+            .map(|r| r.id)
+            .collect();
         let live = lock(&self.inner.live);
         let tools = plenipo_runtime::agent::builtin_adapters()
             .into_iter()
@@ -564,7 +572,7 @@ impl AiTools {
                         .and_then(|c| c.paid_key(id).cloned()),
                     paid_blocked: paid_blocked.clone().filter(|_| a.paid()),
                     key_kept_in: a.paid().then(|| kept_in.clone()),
-                    paid_note: a.paid_note(),
+                    paid_note: a.paid_note(key_works.contains(id)),
                     has_model_list: !matches!(
                         a.status_check(std::path::Path::new(".")),
                         StatusCheck::None
@@ -945,7 +953,8 @@ impl AiTools {
             }
             (false, PaymentMethod::PaidKey) => Err(BrokerError::Invalid(format!(
                 "{label} always uses your subscription. To pay per use, add a key to a paid AI \
-                 tool such as OpenRouter (Settings → AI tools), within your spending caps."
+                 tool (OpenRouter, or the AI company's own; Settings → AI tools), within your \
+                 spending caps."
             ))),
             (true, PaymentMethod::Subscription) => Err(BrokerError::Invalid(format!(
                 "{label} is paid per use with your key; it has no subscription."

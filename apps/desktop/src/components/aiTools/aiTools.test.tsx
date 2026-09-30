@@ -769,7 +769,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     for (const id of AI_TOOL_IDS) {
       const label = aiRuntime(id, "1").label;
       expect(card(label)).toHaveTextContent(
-        `${label} always uses your subscription. To pay per use, add a key to a paid AI tool such as OpenRouter, within your spending caps.`,
+        `${label} always uses your subscription. To pay per use, add a key to a paid AI tool (OpenRouter, or the AI company's own), within your spending caps.`,
       );
     }
     expect(screen.queryByRole("switch", { name: /Paid AI key/ })).toBeNull();

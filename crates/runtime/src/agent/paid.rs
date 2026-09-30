@@ -503,12 +503,12 @@ impl RuntimeAdapter for OpenRouter {
         true
     }
 
-    fn paid_note(&self) -> Option<String> {
-        Some(
+    fn paid_note(&self, key_works: bool) -> Option<String> {
+        (!key_works).then(|| {
             "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come \
              from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
-                .into(),
-        )
+                .into()
+        })
     }
 
     fn default_model(&self) -> Option<&'static str> {

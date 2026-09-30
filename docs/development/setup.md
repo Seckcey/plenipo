@@ -296,6 +296,17 @@ Notes:
     Plenipo checks the key with OpenRouter, keeps it in Windows Credential Manager, and never
     shows it again. Never paste a key into a chat. **Replace key** and **Remove key** are on the
     same card.
+  - **Each AI company's own key** ([ADR-087](../adr/ADR-087-direct-keys-for-every-ai-company.md),
+    direct keys for every AI company): Anthropic, OpenAI, xAI, Moonshot AI (Kimi), Google, DeepSeek,
+    Z.ai, MiniMax, Mistral, and Alibaba Cloud each have a card on the AI tools page, named by the company
+    (**Anthropic**, beside **Claude Code**), with the same key form as OpenRouter's. The card says where to make
+    a key (for Anthropic, console.anthropic.com, on its keys page). Each card says Plenipo has not checked
+    that company with a real key yet until you save one and it passes its check; then it says
+    where its prices come from. Their prices come
+    from each company's own pages on 2026-09-30. A **Google** key on Google's free tier lets Google
+    use what it is sent to improve its products (Google's own terms); a paid Google account does
+    not. **Alibaba Cloud** keys must be made in its international (Singapore) region. NVIDIA sells
+    no key paid per use, so it has no card; its models run on Ollama and OpenRouter.
   - **Using it:** a paid model is used only where you put it in a position's list (Settings → AI
     models), for example after Kimi on Kimi Code, so Kimi K3 on OpenRouter runs only when Kimi
     Code has reached its usage limit. The model menus show what each paid model costs. A worker
