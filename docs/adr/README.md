@@ -88,4 +88,4 @@ architecture must be recorded here.
 | [071](ADR-071-keys-website-and-add-on-choices.md)        | HubSpot, Stripe, the website, and add-on tools: the owner's choices (amends 062–064, 066)     | Accepted |
 | [080](ADR-080-phase-16-wave-1-alongside-phase-20.md)     | Building Phase 16's first wave alongside Phase 20 (amends 061)                                | Accepted |
 | [081](ADR-081-who-made-each-model.md)                    | Who made each model: cross-company review by maker; the list two ways (amends 011, 014)       | Accepted |
-| [082](ADR-082-antigravity-as-an-ai-tool.md)              | Antigravity as an AI tool, with a settings folder of its own (amends 081; adds to 007, 058)   | Proposed |
+| [082](ADR-082-antigravity-as-an-ai-tool.md)              | Antigravity as an AI tool, with a settings folder of its own (amends 081; adds to 007, 058)   | Accepted |
