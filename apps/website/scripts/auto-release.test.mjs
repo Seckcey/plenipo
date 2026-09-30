@@ -274,6 +274,15 @@ test("a checked website deploy records its source and verifies both policies", a
   }
 });
 
+test("an explicitly selected old source still verifies its original canonical address", async (t) => {
+  const site = await fixture(t);
+  const result = site.run("--force", "--source-ref", site.previous);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const history = await site.history();
+  assert.equal(history.result, "deployed");
+  assert.equal(history.revision, site.previous);
+});
+
 for (const [options, message] of [
   [{ oldHomepage: true }, /home page has the wrong identity/],
   [{ oldPolicy: true }, /terms page has the wrong identity/],
