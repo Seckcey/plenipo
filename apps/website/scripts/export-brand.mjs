@@ -54,7 +54,7 @@ const logo = await sharp(resolve(assets, "logos/plenipo-horizontal-on-light.png"
   .toBuffer();
 const caption = Buffer.from(`<svg width="1280" height="640" xmlns="http://www.w3.org/2000/svg">
   <text x="640" y="498" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#0B1833">Your AI workforce. On your desktop.</text>
-  <text x="640" y="554" text-anchor="middle" font-family="Arial, sans-serif" font-size="21" fill="#5D6575">plenipo.8westit.com</text>
+  <text x="640" y="554" text-anchor="middle" font-family="Arial, sans-serif" font-size="21" fill="#5D6575">getplenipo.com</text>
 </svg>`);
 await sharp({ create: { width: 1280, height: 640, channels: 4, background: "#f5f8ff" } })
   .composite([{ input: logo, left: 225, top: 78 }, { input: caption }])

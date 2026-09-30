@@ -36,7 +36,7 @@ export async function buildLegalPages(websiteRoot, output, stylesheet) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(policy.title)} | Plenipo</title>
     <meta name="description" content="${escapeHtml(policy.description)}" />
-    <link rel="canonical" href="https://plenipo.8westit.com/${policy.slug}/" />
+    <link rel="canonical" href="https://getplenipo.com/${policy.slug}/" />
     <link rel="icon" href="/brand/pip-favicon-on-light.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/brand/pip-icon-180.png" />
     <link rel="stylesheet" href="${escapeHtml(stylesheet)}" />

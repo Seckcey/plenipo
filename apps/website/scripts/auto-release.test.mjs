@@ -20,6 +20,7 @@ const args = process.argv.slice(2);
 const settings = JSON.parse(fs.readFileSync(process.env.UPDATE_FIXTURE));
 const statePath = process.env.UPDATE_FIXTURE + ".state";
 const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath)) : {image: settings.previousImage};
+const canonical = state.image === settings.previousImage ? "https://plenipo.8westit.com/" : "https://getplenipo.com/";
 const tool = path.basename(process.argv[1]);
 fs.appendFileSync(process.env.UPDATE_FIXTURE + ".calls", JSON.stringify({tool, args, image: process.env.PLENIPO_IMAGE}) + "\\n");
 const output = value => process.stdout.write(typeof value === "string" ? value : JSON.stringify(value));
@@ -57,9 +58,10 @@ else if (tool === "docker") {
     if (settings.badPolicy === policy) process.exit(22);
     if (settings.wrongPolicy === policy) { output("<h1>Wrong page</h1>"); process.exit(0); }
     const title = policy === "terms" ? "Terms of service" : "Privacy statement";
-    output('<link rel="canonical" href="https://plenipo.8westit.com/' + policy + '/"><h1>' + title + '</h1>');
+    output('<link rel="canonical" href="' + (settings.oldPolicy ? "https://plenipo.8westit.com/" : canonical) + policy + '/"><h1>' + title + '</h1>');
   } else if (url.endsWith("/")) {
-    output('<link rel="canonical" href="https://plenipo.8westit.com/"><h1 id="hero-title">Plenipo</h1><section id="whats-new">What&rsquo;s new in v1.2.3<');
+    const identity = settings.oldHomepage && state.image !== settings.previousImage ? "https://plenipo.8westit.com/" : canonical;
+    output('<link rel="canonical" href="' + identity + '"><h1 id="hero-title">Plenipo</h1><section id="whats-new">What&rsquo;s new in v1.2.3<');
   } else process.exit(2);
 } else process.exit(2);
 `;
@@ -88,7 +90,10 @@ async function fixture(t, change = "website", options = {}) {
   git("init", "--initial-branch=main");
   git("config", "user.name", "Updater test");
   git("config", "user.email", "updater@example.test");
-  await file("apps/website/index.html", "Old site\n");
+  await file(
+    "apps/website/index.html",
+    '<link rel="canonical" href="https://plenipo.8westit.com/" />\n',
+  );
   await file("apps/website/Dockerfile", "FROM scratch\n");
   await file("apps/website/compose.yaml", "services: {}\n");
   await file("apps/website/compose.coastline.yaml", "networks: {}\n");
@@ -101,7 +106,10 @@ async function fixture(t, change = "website", options = {}) {
   git("tag", "v1.2.3");
   const previous = git("rev-parse", "HEAD");
   if (change === "website") {
-    await file("apps/website/index.html", "New site\n");
+    await file(
+      "apps/website/index.html",
+      '<link rel="canonical" href="https://getplenipo.com/" />\n',
+    );
     await file("apps/website/legal/terms.md", "# Terms of service\n");
     await file("apps/website/legal/privacy.md", "# Privacy statement\n");
   } else if (change === "notes")
@@ -267,6 +275,8 @@ test("a checked website deploy records its source and verifies both policies", a
 });
 
 for (const [options, message] of [
+  [{ oldHomepage: true }, /home page has the wrong identity/],
+  [{ oldPolicy: true }, /terms page has the wrong identity/],
   [{ badPolicy: "privacy" }, /privacy page failed/],
   [{ wrongPolicy: "privacy" }, /privacy page has the wrong identity/],
 ])
