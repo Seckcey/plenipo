@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use plenipo_capabilities::browser::BrowserConfig;
 use plenipo_capabilities::connections::ConnectionsConfig;
-use plenipo_capabilities::control::ControlStatus;
+use plenipo_capabilities::control::{ControlCenter, ControlStatus};
 use plenipo_capabilities::watch::WatchUpdate;
 use plenipo_capabilities::{Broker, BrokerConfig, MemorySecretStore, OsSecretStore, SecretStore};
 use plenipo_guard::Guard;
@@ -16,7 +16,7 @@ use plenipo_ledger::Ledger;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
+use tauri::{AppHandle, Emitter as _, Runtime};
 
 use crate::runtime_host::Persistence;
 
@@ -90,26 +90,38 @@ impl WatchSubscribers {
 /// Never fails; problems become notices on the Permissions page.
 pub fn create<R: Runtime>(
     app: &AppHandle<R>,
+    org: &crate::orgs::OrgPlace,
     persistence: Persistence,
     ledger: Arc<Ledger>,
     supervisor: Supervisor,
     agents: &AgentRuntime,
-) -> (Guard, Broker) {
+    control: ControlCenter,
+) -> (Guard, Broker, WatchSubscribers) {
     let guard = Guard::new(ledger);
     let (store, tickets, data): (Arc<dyn SecretStore>, _, _) = match persistence {
         Persistence::AppData => {
-            let data = app
-                .path()
-                .app_local_data_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("plenipo"));
+            let data = org
+                .folder
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("plenipo"));
             (
-                Arc::new(OsSecretStore::new(app.config().identifier.clone())),
+                // The organization's secrets under its own name (ADR-094 §9).
+                Arc::new(OsSecretStore::new(org.vault.clone())),
                 data.join("runtime").join("tool-tickets"),
                 data,
             )
         }
         Persistence::InMemory => {
-            let temp = std::env::temp_dir().join(format!("plenipo-{}", std::process::id()));
+            // Each organization's own folder, so two never share tickets or working copies.
+            let temp = std::env::temp_dir().join(format!(
+                "plenipo-{}{}",
+                std::process::id(),
+                if org.is_first() {
+                    String::new()
+                } else {
+                    format!("-{}", org.id)
+                }
+            ));
             (
                 Arc::new(MemorySecretStore::default()),
                 temp.join("tool-tickets"),
@@ -122,6 +134,8 @@ pub fn create<R: Runtime>(
     let mut config = BrokerConfig::new(relay, tickets);
     // Each objective's branch and working copy (Phase 8, ADR-016).
     config.workspaces_dir = data.join("working-copies");
+    // Copies of the files the owner put on objectives (Phase 21, ADR-093 §21).
+    config.attachments_dir = data.join("attachments");
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");
@@ -134,11 +148,24 @@ pub fn create<R: Runtime>(
     {
         config.terminal_refuses_administrator = false;
     }
-    let broker = Broker::new(guard.clone(), supervisor, store, config);
+    let broker = Broker::sharing_control(guard.clone(), supervisor, store, config, control);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());
-    // Paid AI keys and the spending caps (Phase 16 Wave 3, ADR-085).
+    // Paid AI keys and the spending caps (Phase 16 Wave 3, ADR-085), before anything below
+    // returns: every organization's AI tools read its own keys and caps.
     agents.set_paid_gate(plenipo_capabilities::paid::gate(&broker));
+    // Watch (Phase 18, ADR-055): the file changes a worker makes, to its organization's window's
+    // own channels only — never another organization's, the sign window, or a web page.
+    let subscribers = WatchSubscribers::default();
+    let hearing = subscribers.clone();
+    broker
+        .watch()
+        .set_listener(Arc::new(move |update: &WatchUpdate| hearing.send(update)));
+    // The record of who uses the browser and the screen is the PC's: the first organization's
+    // broker tells the windows, the tray, and the sign for every organization.
+    if !org.is_first() {
+        return (guard, broker, subscribers);
+    }
     // Who uses the browser or the mouse and keyboard: every window, the tray, and the sign
     // above all windows while a worker uses the mouse and keyboard (Phase 10).
     // The tray and the sign are updated off this thread, always to the newest status, so a
@@ -157,15 +184,7 @@ pub fn create<R: Runtime>(
             crate::indicator::update(&app, &status);
         });
     }));
-    // Watch (Phase 18, ADR-055): the file changes a worker makes, to the main window's own
-    // channels only — never the sign window or a web page.
-    let subscribers = WatchSubscribers::default();
-    let hearing = subscribers.clone();
-    broker
-        .watch()
-        .set_listener(Arc::new(move |update: &WatchUpdate| hearing.send(update)));
-    app.manage(subscribers);
-    (guard, broker)
+    (guard, broker, subscribers)
 }
 
 /// How this copy of Plenipo connects (ADR-065 §6, ADR-070 §3): 8 West's Microsoft app ID and

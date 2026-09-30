@@ -1,7 +1,7 @@
 import { createContext } from "react";
 import type { AccountAction, AgentSession, Environment } from "@plenipo/types";
 
-import type { OwnerTab, PanelState, TerminalTab } from "./panel";
+import type { OwnerTab, TerminalTab } from "./panel";
 
 /**
  * An AI tool's sign-in or sign-out tab waiting for the tool to be free (ADR-058 §5). It is kept
@@ -29,12 +29,14 @@ export interface AiToolWait {
 }
 
 export interface TerminalApi {
-  panel: PanelState;
-  /** The panel's size, kept within the room the page leaves. */
-  size: number;
-  maxSize: number;
-  setSize: (size: number) => void;
-  setSide: (side: PanelState["side"]) => void;
+  /** The panel can be seen (its dock open and showing it, or popped out; ADR-092). */
+  open: boolean;
+  /**
+   * Where the panel is, as the AI tools page words it ("on the right", "at the bottom"; it is
+   * left as it was while Phase 16's second wave changes that page). Anything but the right side
+   * reads as the bottom.
+   */
+  panel: { open: boolean; side: "bottom" | "right" };
   toggle: () => void;
   show: () => void;
   hide: () => void;
@@ -73,8 +75,6 @@ export interface TerminalApi {
   close: (id: string) => void;
   /** Watch tabs that opened while the owner looked elsewhere. */
   unseen: number;
-  /** Measure the work area (the page and the panel) through this ref. */
-  measure: (el: HTMLElement | null) => void;
 }
 
 export const TerminalContext = createContext<TerminalApi | null>(null);

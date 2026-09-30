@@ -13,6 +13,7 @@ business departments you can create.
 
 | What                                                                                    | Free           | Pro       |
 | --------------------------------------------------------------------------------------- | -------------- | --------- |
+| Organizations (Phase 21: yours and a client's, each in its own window)                  | 1              | Unlimited |
 | Departments                                                                             | 1              | Unlimited |
 | Projects                                                                                | 1              | Unlimited |
 | Workers on the job at the same time                                                     | 3              | Unlimited |
@@ -46,6 +47,10 @@ business departments you can create.
 - **The whole chain of command.** Worker → Supervisor → Manager → VP → President, with one
   department and one project.
 - **The source.** You can read it, build it, change it, and run your build.
+
+**More than one organization** is Pro ([ADR-091](adr/ADR-091-phase-21-owners-answers.md) §2, the
+owner's answer): Free keeps one organization, so it cannot step around the one-project limit by
+making one organization per project. Nothing is enforced until Phase 11A's editions exist.
 
 **Connections and add-on tools** are Pro ([ADR-068](adr/ADR-068-connections-are-pro.md),
 Connections and add-on tools are part of Pro). Until the license key arrives, every copy can use
@@ -97,9 +102,9 @@ stays on and tries again later.
 
 Nothing you made is taken away.
 
-Plenipo drops back to Free at the end of the period you paid for. Every department, project,
-worker record, and Ledger entry stays exactly where it is — visible, readable, and able to finish
-what it started. The only thing that stops is **creating** something new past a Free limit.
+Plenipo drops back to Free at the end of the period you paid for. Every organization, department,
+project, worker record, and Ledger entry stays exactly where it is — visible, readable, and able to
+finish what it started. The only thing that stops is **creating** something new past a Free limit.
 
 To ask about Pro, a team licence, or an invoice, open a
 [discussion](https://github.com/Seckcey/plenipo/discussions) or contact 8 West Ventures, LLC.

@@ -1,50 +1,14 @@
 /**
- * The terminal panel's place on screen (ADR-031 §1): open or hidden, at the bottom or on the
- * right, and its size. Kept on this computer, so it comes back the same after a restart.
+ * The terminal panel's tabs (ADR-031, ADR-055, ADR-058). Where the panel is (a dock, or its own
+ * window) is the window's layout (Phase 21, `workspace/layout.ts`).
  */
 
 import type { AccountAction, Environment, TerminalPlace } from "@plenipo/types";
 
 import type { WatchTab } from "./watch";
 
-export type PanelSide = "bottom" | "right";
-
-export interface PanelState {
-  open: boolean;
-  side: PanelSide;
-  /** Height at the bottom, width on the right (pixels). */
-  size: number;
-}
-
-export const PANEL_KEY = "plenipo.terminal";
 /** The Terminal button in the top bar (the keyboard goes back to it when the panel hides). */
 export const TERMINAL_BUTTON_ID = "terminal-button";
-export const DEFAULT_PANEL: PanelState = { open: false, side: "bottom", size: 260 };
-/** The panel's smallest size, and the least room it leaves the page. */
-export const PANEL_MIN = 120;
-export const PAGE_MIN = 180;
-
-export function isPanelState(v: unknown): v is PanelState {
-  if (typeof v !== "object" || v === null) return false;
-  const p = v as Record<string, unknown>;
-  return (
-    typeof p.open === "boolean" &&
-    (p.side === "bottom" || p.side === "right") &&
-    typeof p.size === "number" &&
-    Number.isFinite(p.size) &&
-    p.size >= PANEL_MIN &&
-    p.size <= PANEL_LARGEST
-  );
-}
-
-/** The largest size kept (a larger one would not come back after a restart). */
-export const PANEL_LARGEST = 4000;
-
-/** The largest the panel may be in a work area this big (0 until measured: no limit yet). */
-export function panelMax(side: PanelSide, width: number, height: number): number {
-  const room = side === "bottom" ? height : width;
-  return room > 0 ? Math.min(PANEL_LARGEST, Math.max(PANEL_MIN, room - PAGE_MIN)) : PANEL_LARGEST;
-}
 
 /** One of the owner's terminals, as its tab knows it. */
 export interface OwnerTab {

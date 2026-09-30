@@ -119,6 +119,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (server !== null) return server;
   const terminal = describeTerminalEvent(e.eventType, p);
   if (terminal !== null) return terminal;
+  const files = describeFileEvent(e.eventType, p);
+  if (files !== null) return files;
   const learned = describeLearningEvent(e.eventType, p);
   if (learned !== null) return learned;
   const upkeep = describeUpkeepEvent(e.eventType, p);
@@ -129,6 +131,41 @@ export function describeEvent(e: LedgerEvent): string {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
   return e.eventType;
+}
+
+/**
+ * The owner's files (Phase 21, ADR-093): "You saved README.md in Website (in the working copy on
+ * plenipo/fix-login-a1b2) · 2 lines added, 1 removed", and files put on an objective.
+ */
+function describeFileEvent(type: string, p: Record<string, unknown>): string | null {
+  switch (type) {
+    case "file.saved": {
+      const where =
+        p.place === "workingCopy" && str(p.branch)
+          ? ` (in the working copy on ${str(p.branch)})`
+          : "";
+      const added = typeof p.added === "number" ? p.added : 0;
+      const removed = typeof p.removed === "number" ? p.removed : 0;
+      return `You saved ${str(p.path) ?? "a file"} in ${str(p.project) ?? "a project"}${where} · ${added} line${added === 1 ? "" : "s"} added, ${removed} removed`;
+    }
+    case "objective.files_attached": {
+      const files = Array.isArray(p.files) ? p.files : [];
+      const names = files
+        .map((f) =>
+          typeof f === "object" && f !== null
+            ? str((f as Record<string, unknown>).name)
+            : undefined,
+        )
+        .filter((n): n is string => !!n);
+      return `You put ${names.length} file${names.length === 1 ? "" : "s"} on the objective: ${names.join(", ")}`;
+    }
+    case "objective.files_delivered": {
+      const count = typeof p.count === "number" ? p.count : 0;
+      return `Plenipo put ${count} file${count === 1 ? "" : "s"} for the objective in its ${str(p.folder) ?? "attachments"} folder`;
+    }
+    default:
+      return null;
+  }
 }
 
 const OWNER_PART: Record<string, string> = {
@@ -697,6 +734,10 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
       return `Hired from your Workforce: ${title}`;
     case "org.saved_agent_deleted":
       return `Deleted for good from your Workforce: ${title}`;
+    case "org.saved_agent_moved":
+      return p.way === "out"
+        ? `Left your Workforce for another organization: ${title}`
+        : `Came into your Workforce from another organization: ${title}`;
     case "org.specialty_created":
       return `Specialty added${str(p.role) ? ` to ${str(p.role)}` : ""}: ${name}`;
     case "org.specialty_updated":

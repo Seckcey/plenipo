@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-file-outside"
+description = "Enables the open_file_outside command without any pre-configured scope."
+commands.allow = ["open_file_outside"]
+
+[[permission]]
+identifier = "deny-open-file-outside"
+description = "Denies the open_file_outside command without any pre-configured scope."
+commands.deny = ["open_file_outside"]

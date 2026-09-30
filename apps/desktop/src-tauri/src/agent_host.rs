@@ -10,15 +10,17 @@ use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, Bridge, HostEnv,
 };
 use plenipo_runtime::Supervisor;
-use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
+use tauri::{AppHandle, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
 
-/// Tauri event name carrying [`AgentUpdate`] payloads to the main window.
+/// Tauri event name carrying [`AgentUpdate`] payloads to their organization's window.
 pub const AGENT_EVENT: &str = "plenipo://agents";
 
 struct TauriAgentSink<R: Runtime> {
     app: AppHandle<R>,
+    /// The organization whose AI tools' sessions these are (Phase 21).
+    org: String,
 }
 
 impl<R: Runtime> AgentSink for TauriAgentSink<R> {
@@ -34,18 +36,15 @@ impl<R: Runtime> AgentSink for TauriAgentSink<R> {
                 let tools = tools.inner().clone();
                 let app = self.app.clone();
                 let plan = plan.clone();
+                let org = self.org.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     tools.plan_reported(&plan.runtime_id, plan.report.clone());
-                    if let Err(e) = app.emit_to("main", AGENT_EVENT, &AgentUpdate::Plan(plan)) {
-                        log::warn!("failed to emit agent update: {e}");
-                    }
+                    crate::orgs::emit_to_org(&app, &org, AGENT_EVENT, &AgentUpdate::Plan(plan));
                 });
                 return;
             }
         }
-        if let Err(e) = self.app.emit_to("main", AGENT_EVENT, &update) {
-            log::warn!("failed to emit agent update: {e}");
-        }
+        crate::orgs::emit_to_org(&self.app, &self.org, AGENT_EVENT, &update);
     }
 }
 
@@ -53,16 +52,17 @@ impl<R: Runtime> AgentSink for TauriAgentSink<R> {
 /// installed runtimes, so tests never start real CLIs.
 pub fn create<R: Runtime>(
     app: &AppHandle<R>,
+    org: &crate::orgs::OrgPlace,
     persistence: Persistence,
     ledger: Arc<Ledger>,
     supervisor: Supervisor,
 ) -> AgentRuntime {
     let (workspace_root, host) = match persistence {
         Persistence::AppData => (
-            app.path()
-                .app_local_data_dir()
+            org.folder
+                .as_deref()
                 .map(|d| d.join("runtime").join("agent-workspaces"))
-                .unwrap_or_else(|_| std::env::temp_dir().join("plenipo-agent-workspaces")),
+                .unwrap_or_else(|| std::env::temp_dir().join("plenipo-agent-workspaces")),
             HostEnv::current(),
         ),
         Persistence::InMemory => (
@@ -76,6 +76,11 @@ pub fn create<R: Runtime>(
     if config.tool_homes.parent() == Some(std::env::temp_dir().as_path()) {
         config.tool_homes = std::env::temp_dir().join("plenipo-ai-tool-homes");
     }
+    // Their sign-ins belong to the PC (ADR-094 §4): every organization's AI tools use the one
+    // settings folder, the first organization's.
+    if let (Persistence::AppData, Some(data)) = (persistence, org.data.as_deref()) {
+        config.tool_homes = data.join("runtime").join("ai-tool-homes");
+    }
     // Plenipo itself is the Ollama bridge (ADR-017): `main` runs it before Tauri starts.
     config.bridge = std::env::current_exe().ok().map(|executable| Bridge {
         executable,
@@ -86,7 +91,10 @@ pub fn create<R: Runtime>(
         builtin_adapters(),
         supervisor,
         Arc::new(LedgerSessionStore(ledger)),
-        Arc::new(TauriAgentSink { app: app.clone() }),
+        Arc::new(TauriAgentSink {
+            app: app.clone(),
+            org: org.id.clone(),
+        }),
         host,
     )
 }

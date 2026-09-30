@@ -285,6 +285,17 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Changed — look again (an add-on's tool)                                        | tool drift, schema change, rug pull                                                        |
 | the program's words (what an add-on says)                                      | tool description, untrusted tool output                                                    |
 | Stored secrets to give it (an add-on)                                          | environment variables, secret injection                                                    |
+| panel (Terminal, Files) / Move to the left, right, bottom                      | pane, dock zone, drawer, sidebar                                                           |
+| Pop out / Put back (a panel in its own window)                                 | detach, undock, reattach, webview, window label                                            |
+| Reset layout                                                                   | restore defaults, clear layout state                                                       |
+| Files (the file view) / Project folder / working copy                          | file explorer, tree view, repository root, worktree                                        |
+| Open in Plenipo / Open in another program / Show in folder                     | open with default handler, shell open, reveal in Explorer                                  |
+| Save anyway (the file changed on disk)                                         | overwrite, force write, conflict, hash mismatch                                            |
+| Senior Developer is writing in this working copy / Wait / Stop the worker      | file lock, write lease, locked by another process, cancel turn                             |
+| organization / Your organizations                                              | tenant, workspace, instance, profile, database                                             |
+| New organization / Use a template / Copy from one of your organizations        | provision, clone, fork, seed                                                               |
+| Switch to / Open in a new window / Show its window                             | change context, rebind window, new webview                                                 |
+| Archive organization / Bring back / Delete for good                            | deactivate, restore, purge, hard delete                                                    |
 | Spending caps / a monthly cap / the business's cap                             | budget, spend limit, quota, billing threshold                                              |
 | Let workers use paid AI keys (the switch)                                      | enable BYOK, metered API access, API billing                                               |
 | set aside (the most a paid task could cost, before it starts)                  | reservation, hold, pre-authorization, escrow                                               |

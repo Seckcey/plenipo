@@ -292,3 +292,7 @@ Workers on a paid route answer in text only in this wave (choice 6).
   keys or the business cap change, and after the gate exists at startup; keys erased before they
   are forgotten, saves taking turns, and the replaced key kept listed until the new one's check
   passes (§5); and on screen, Windows Credential Manager by name.
+- **More than one organization** (Phase 21, ADR-094, merged beside this part): each organization
+  has its own switch, spending caps, and paid gate. Paid keys are saved on the AI tools page, which
+  is the first organization's, so paid work runs in the first organization only for now; a paid
+  AI tool gets no model listed by itself in Settings → AI models (the owner adds its models).

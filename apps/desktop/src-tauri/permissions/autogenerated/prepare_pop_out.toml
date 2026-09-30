@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-pop-out"
+description = "Enables the prepare_pop_out command without any pre-configured scope."
+commands.allow = ["prepare_pop_out"]
+
+[[permission]]
+identifier = "deny-prepare-pop-out"
+description = "Denies the prepare_pop_out command without any pre-configured scope."
+commands.deny = ["prepare_pop_out"]

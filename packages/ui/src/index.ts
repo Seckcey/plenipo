@@ -25,7 +25,15 @@ export * from "./detail";
 export * from "./topology";
 export { layoutMap } from "./topology-layout";
 export * from "./shell";
-export { cx, formatCount, useElementSize, useStoredState, useVirtualWindow } from "./util";
+export {
+  cx,
+  formatCount,
+  setStorageScope,
+  storedKey,
+  useElementSize,
+  useStoredState,
+  useVirtualWindow,
+} from "./util";
 export type { Size, VirtualWindow } from "./util";
 export { Gallery, type GalleryLive, type GalleryLayout } from "./gallery/Gallery";
 export * as galleryFixtures from "./gallery/fixtures";

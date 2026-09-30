@@ -8,27 +8,21 @@ import {
   type ReactNode,
 } from "react";
 import type { AccountAction, AgentSession, Environment, LedgerEvent } from "@plenipo/types";
-import { useElementSize, useStoredState } from "@plenipo/ui";
 
 import { AgentsContext } from "../agents/context";
 import { getControlStatus, getTaskTimeline } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
 import { tasksUsing } from "../components/aiTools/words";
+import { useWorkspaceIfAny } from "../workspace/context";
 import { TerminalContext, type AiToolWait, type TerminalApi } from "./context";
 import {
   aiToolTitle,
   codeTabId,
-  DEFAULT_PANEL,
   isBusyRefusal,
-  isPanelState,
   openedAt,
-  PANEL_KEY,
-  PANEL_MIN,
-  panelMax,
   TERMINAL_BUTTON_ID,
   type CodeTab,
   type OwnerTab,
-  type PanelState,
   type TerminalTab,
 } from "./panel";
 import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
@@ -62,11 +56,11 @@ function dropWaits(all: Waits, drop: (runtimeId: string, wait: AiToolWait) => bo
  * free, then opens: it still does after you leave the page.
  */
 export function TerminalProvider({ children }: { children: ReactNode }) {
-  const [panel, setPanel] = useStoredState<PanelState>(PANEL_KEY, DEFAULT_PANEL, isPanelState);
-  const [area, setArea] = useState<HTMLElement | null>(null);
-  const room = useElementSize(area);
-  const maxSize = panelMax(panel.side, room.width, room.height);
-  const size = Math.min(panel.size, maxSize);
+  // Where the panel is comes from the window's layout (Phase 21, ADR-092); a terminal shown on
+  // its own (some tests) keeps its own open or hidden.
+  const workspace = useWorkspaceIfAny();
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = workspace ? workspace.shown("terminal") : ownOpen;
   const [owners, setOwners] = useState<OwnerTab[]>([]);
   const [watches, setWatches] = useState<WatchTab[]>([]);
   const [codes, setCodes] = useState<CodeTab[]>([]);
@@ -83,10 +77,14 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, [owners]);
   // The latest values, for the Ledger feed's callback (it outlives each render).
   const watchesRef = useRef<WatchTab[]>([]);
-  const panelRef = useRef(panel);
+  const openRef = useRef(open);
   useEffect(() => {
-    panelRef.current = panel;
-  }, [panel]);
+    openRef.current = open;
+  }, [open]);
+  const workspaceRef = useRef(workspace);
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
   // The conversations (none without the agents, as in some tests): a waiting AI tool's tab opens
   // when no task is using the tool.
   const sessions = useContext(AgentsContext)?.state.sessions ?? NO_SESSIONS;
@@ -106,29 +104,52 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const show = useCallback(() => {
-    if (!panelRef.current.open) setPanel({ ...panelRef.current, open: true });
+    const ws = workspaceRef.current;
+    if (ws) ws.show("terminal");
+    else setOwnOpen(true);
+    openRef.current = true;
     setUnseen(0);
-  }, [setPanel]);
+  }, []);
+  /** Shown by itself (an AI tool's sign-in tab opened on its own): a popped-out terminal's
+   * window is left as it is, never brought forward or out of the tray. */
+  const showQuietly = useCallback(() => {
+    if (workspaceRef.current?.layout.panels.terminal.popped) {
+      openRef.current = true;
+      setUnseen(0);
+      return;
+    }
+    show();
+  }, [show]);
   const hide = useCallback(() => {
-    if (panelRef.current.open) setPanel({ ...panelRef.current, open: false });
-  }, [setPanel]);
+    const ws = workspaceRef.current;
+    if (ws) {
+      const place = ws.layout.panels.terminal;
+      if (!place.popped && ws.shown("terminal")) ws.hideDock(place.dock);
+    } else setOwnOpen(false);
+    openRef.current = false;
+  }, []);
   const toggle = useCallback(() => {
-    if (panelRef.current.open) hide();
+    const ws = workspaceRef.current;
+    if (ws?.layout.panels.terminal.popped) {
+      ws.show("terminal");
+      return;
+    }
+    if (openRef.current) hide();
     else show();
   }, [hide, show]);
 
   /** A worker connected to a server: its tab opens (the panel too, if it was hidden). */
   const announce = useCallback(
     (id: string) => {
-      if (!panelRef.current.open) {
-        setPanel({ ...panelRef.current, open: true });
+      if (!openRef.current) {
+        show();
         setActive(id);
       } else {
         setActive((current) => current ?? id);
         setUnseen((n) => n + 1);
       }
     },
-    [setPanel],
+    [show],
   );
 
   const onEvent = useCallback(
@@ -205,7 +226,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         e.preventDefault();
         // Hidden while the keyboard was in it: the keyboard goes back to the Terminal button.
         const inPanel =
-          panelRef.current.open &&
+          openRef.current &&
           document.activeElement?.closest('section[aria-label="Terminal"]') != null;
         toggle();
         if (inPanel) document.getElementById(TERMINAL_BUTTON_ID)?.focus();
@@ -225,10 +246,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       ownersRef.current = [...ownersRef.current, added];
       setOwners((all) => [...all, added]);
       setActive(id);
-      show();
+      if (tab.quiet) showQuietly();
+      else show();
       return id;
     },
-    [show],
+    [show, showQuietly],
   );
 
   /**
@@ -247,7 +269,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       );
       if (running) {
         setActive(running.id);
-        show();
+        if (quiet) showQuietly();
+        else show();
         return null;
       }
       return openOwner({
@@ -257,7 +280,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         ...(quiet ? { quiet } : {}),
       });
     },
-    [openOwner, show],
+    [openOwner, show, showQuietly],
   );
 
   /** Pressed on the AI tools page: the tab opens now, and the tool's wait (if any) is over. */
@@ -456,18 +479,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     [close, changeWaits],
   );
 
+  const place = workspace?.layout.panels.terminal;
   const api: TerminalApi = {
-    panel,
-    size,
-    maxSize,
-    setSize: (next) =>
-      setPanel({ ...panel, size: Math.max(PANEL_MIN, Math.min(maxSize, Math.round(next))) }),
-    setSide: (side) =>
-      setPanel({
-        ...panel,
-        side,
-        size: side === panel.side ? panel.size : side === "right" ? 420 : 260,
-      }),
+    open,
+    panel: {
+      open,
+      side: place && !place.popped && place.dock === "right" ? "right" : "bottom",
+    },
     toggle,
     show,
     hide,
@@ -491,7 +509,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     tabFailed,
     close,
     unseen,
-    measure: setArea,
   };
   return <TerminalContext.Provider value={api}>{children}</TerminalContext.Provider>;
 }

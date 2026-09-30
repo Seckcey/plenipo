@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-pop-out"
+description = "Enables the close_pop_out command without any pre-configured scope."
+commands.allow = ["close_pop_out"]
+
+[[permission]]
+identifier = "deny-close-pop-out"
+description = "Denies the close_pop_out command without any pre-configured scope."
+commands.deny = ["close_pop_out"]

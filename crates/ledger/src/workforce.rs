@@ -22,6 +22,7 @@ use crate::Ledger;
 
 mod archive;
 mod canvas;
+mod copy;
 mod experience;
 pub(crate) mod loans;
 mod saved;
@@ -29,6 +30,7 @@ mod specialties;
 
 pub use archive::{DeletionPlan, Providers};
 pub use canvas::{MAX_COORDINATE, MAX_PLACES, ORGANIZATION_TILE, OWNER_TILE};
+pub use copy::SetupCopied;
 
 pub(crate) const POSITION_COLS: &str = "id, title, role_id, reports_to, runtime_id, model, state, \
     sort_key, metadata, created_at, updated_at, archived_at, specialty_id, deleted_at";

@@ -527,3 +527,240 @@ pub struct LiveView {
     #[ts(type = "number")]
     pub at: u64,
 }
+
+// ---- The owner's files (Phase 21, ADR-093) ----------------------------------------------------
+
+/// What kind of place a file view's top folder is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum FileRootKind {
+    /// The project's own folder.
+    ProjectFolder,
+    /// An objective's working copy of it (ADR-016).
+    WorkingCopy,
+}
+
+/// The worker writing in a folder now (ADR-016's one writer).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FolderWriter {
+    /// Its title ("Senior Developer").
+    pub worker: String,
+    #[ts(optional)]
+    pub position_id: Option<String>,
+    /// Its conversation (Stop the worker stops its task there).
+    pub session_id: String,
+    pub task_id: String,
+}
+
+/// One of the file view's top folders: a project's folder, or one of its working copies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileRoot {
+    /// `project:<project ID>` or `copy:<working copy ID>`.
+    pub id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub kind: FileRootKind,
+    /// "Project folder", or the working copy's branch.
+    pub label: String,
+    /// Where it is on this PC.
+    pub path: String,
+    /// The folder is there (a project folder can be moved or deleted outside Plenipo).
+    pub exists: bool,
+    /// The worker writing in it now.
+    #[ts(optional)]
+    pub writer: Option<FolderWriter>,
+}
+
+/// The folders Plenipo knows, for the file view.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileRoots {
+    pub roots: Vec<FileRoot>,
+    /// A worker is using the screen, mouse, and keyboard: blocked files are hidden and nothing
+    /// is saved until the owner takes over (ADR-093 §14).
+    pub desktop_in_use: bool,
+}
+
+/// A file or a folder in a listing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FolderEntry {
+    pub name: String,
+    /// Its path inside the top folder, with `/`.
+    pub path: String,
+    pub folder: bool,
+    #[ts(type = "number | null")]
+    pub size: Option<u64>,
+    #[ts(type = "number | null")]
+    pub modified: Option<u64>,
+    /// Workers may not touch it (Settings → Permissions → blocked files).
+    pub blocked: bool,
+    /// A program or a script: it opens in Plenipo as text only, never in another program.
+    pub runs: bool,
+}
+
+/// One folder's contents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FolderListing {
+    pub root: String,
+    pub path: String,
+    pub entries: Vec<FolderEntry>,
+    /// Entries past the most shown.
+    pub more: u32,
+}
+
+/// How a text file's lines end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LineEnding {
+    /// Unix (`\n`).
+    Lf,
+    /// Windows (`\r\n`).
+    Crlf,
+}
+
+/// What Plenipo shows of a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+#[ts(export)]
+pub enum FileContent {
+    /// Text, with `\n` between lines (the file's own line ending is kept when saving).
+    Text {
+        text: String,
+        /// It starts with a byte-order mark (kept when saving).
+        bom: bool,
+        line_ending: LineEnding,
+    },
+    /// A picture, shown as it is.
+    Picture { mime: String, data: String },
+    /// Anything else: what it is, in words.
+    Other { what: String },
+}
+
+/// Why a file opens read-only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+#[ts(export)]
+pub enum ReadOnlyWhy {
+    /// A worker is writing in this working copy (or project folder) now.
+    Writer { writer: FolderWriter },
+    /// A worker is using the screen, mouse, and keyboard.
+    Desktop,
+    /// The file is marked read-only on the disk.
+    Disk,
+}
+
+/// A file opened in Plenipo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileView {
+    pub root: String,
+    pub path: String,
+    pub name: String,
+    #[ts(type = "number")]
+    pub size: u64,
+    #[ts(type = "number | null")]
+    pub modified: Option<u64>,
+    /// Its contents' fingerprint (SHA-256), to tell whether it changed before a save.
+    #[ts(optional)]
+    pub hash: Option<String>,
+    pub content: FileContent,
+    /// A program or a script: Plenipo never starts it, and never opens it in another program.
+    pub runs: bool,
+    /// Workers may not touch it.
+    pub blocked: bool,
+    #[ts(optional)]
+    pub read_only: Option<ReadOnlyWhy>,
+}
+
+/// What a save did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+#[ts(export)]
+pub enum SaveOutcome {
+    Saved {
+        hash: String,
+        #[ts(type = "number")]
+        size: u64,
+        #[ts(type = "number | null")]
+        modified: Option<u64>,
+        added: u32,
+        removed: u32,
+    },
+    /// The file changed on the disk (or is gone) since it was opened: nothing was written.
+    ChangedOnDisk,
+}
+
+/// A file a worker is changing now (the file view marks it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ChangingFile {
+    pub root: String,
+    pub path: String,
+    pub worker: String,
+    #[ts(optional)]
+    pub position_id: Option<String>,
+}
+
+/// A file the owner puts on an objective (Phase 21, ADR-093 §19–§21).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export)]
+pub enum ObjectiveFile {
+    /// From the Files panel: a known top folder and the path inside it.
+    File { root: String, path: String },
+    /// Dropped from File Explorer: Plenipo's ticket for that drop, and which of its files.
+    Dropped { drop: String, index: u32 },
+}
+
+/// Files dropped on Plenipo's window from File Explorer: Plenipo keeps where they are, and the
+/// page gets only this (the `plenipo://drop` event).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DroppedFiles {
+    /// Plenipo's ticket for the drop.
+    pub drop: String,
+    pub files: Vec<DroppedFile>,
+    /// Where they were dropped, in the page's own pixels.
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DroppedFile {
+    pub name: String,
+    pub folder: bool,
+    #[ts(type = "number | null")]
+    pub size: Option<u64>,
+}

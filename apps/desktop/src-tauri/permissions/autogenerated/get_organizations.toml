@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-organizations"
+description = "Enables the get_organizations command without any pre-configured scope."
+commands.allow = ["get_organizations"]
+
+[[permission]]
+identifier = "deny-get-organizations"
+description = "Denies the get_organizations command without any pre-configured scope."
+commands.deny = ["get_organizations"]

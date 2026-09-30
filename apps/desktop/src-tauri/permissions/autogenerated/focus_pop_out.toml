@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-focus-pop-out"
+description = "Enables the focus_pop_out command without any pre-configured scope."
+commands.allow = ["focus_pop_out"]
+
+[[permission]]
+identifier = "deny-focus-pop-out"
+description = "Denies the focus_pop_out command without any pre-configured scope."
+commands.deny = ["focus_pop_out"]
