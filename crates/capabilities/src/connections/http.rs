@@ -311,6 +311,14 @@ impl Http {
                 }
             })?;
             let status = response.status();
+            // A change is never followed to another page (as a GET, it would read as done): the
+            // service may or may not have acted.
+            if status.is_redirection() && first && method != reqwest::Method::GET {
+                return Err(HttpError::NoAnswer(format!(
+                    "{} sent Plenipo to another page instead of answering",
+                    service.label()
+                )));
+            }
             if status.is_redirection() {
                 let next = response
                     .headers()

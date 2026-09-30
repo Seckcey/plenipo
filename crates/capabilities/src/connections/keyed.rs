@@ -304,12 +304,25 @@ impl Connections {
                 user,
                 password,
                 store,
-            } => (
-                self.check_wordpress(site, user, password, store.as_ref())
-                    .await?,
-                format!("{user}:{password}"),
-                store.as_ref().map(|(k, s)| format!("{k}:{s}")),
-            ),
+            } => {
+                // Replacing the password while connected, with the WooCommerce boxes left
+                // empty, keeps (and checks) the WooCommerce key already kept.
+                let kept = if store.is_none() && conn.state != ConnectionState::NotConnected {
+                    vault::read(self.store.as_ref(), &store_key_id(id))
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.split_once(':').map(|(k, s)| (k.to_owned(), s.to_owned())))
+                } else {
+                    None
+                };
+                let store = store.clone().or(kept);
+                (
+                    self.check_wordpress(site, user, password, store.as_ref())
+                        .await?,
+                    format!("{user}:{password}"),
+                    store.as_ref().map(|(k, s)| format!("{k}:{s}")),
+                )
+            }
         };
         {
             let _one = lock(&self.commit);
@@ -361,9 +374,7 @@ impl Connections {
                     let before = vault::read(self.store.as_ref(), &store_id).ok().flatten();
                     self.keep_at(&store_id, value, before.as_deref(), "the WooCommerce key")
                 }
-                // Replacing the password while connected keeps a WooCommerce key already kept
-                // (Disconnect removes it); before connecting, none is left from an earlier one.
-                None if connected => Ok(()),
+                // Before connecting, none is left from an earlier one.
                 None => vault::erase(self.store.as_ref(), &store_id).map_err(|e| {
                     format!(
                         "Plenipo could not remove the old WooCommerce key from {} ({e}).",
@@ -864,9 +875,12 @@ fn key_gone(service: Service, store_key: bool, reply: &Reply) -> Option<String> 
             let code = wordpress_code(reply);
             let body = String::from_utf8_lossy(&reply.body);
             let gone = if store_key {
-                code == "woocommerce_rest_authentication_error"
-                    && (body.contains("Consumer key is invalid")
-                        || body.contains("Consumer secret is invalid"))
+                // A key WooCommerce does not know is tried as a WordPress user name
+                // ("invalid_username"); a wrong secret is WooCommerce's own error.
+                code == "invalid_username"
+                    || code == "woocommerce_rest_authentication_error"
+                        && (body.contains("Consumer key is invalid")
+                            || body.contains("Consumer secret is invalid"))
             } else {
                 matches!(
                     code.as_str(),

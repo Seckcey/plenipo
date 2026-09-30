@@ -200,11 +200,12 @@ fn signed_in(req: &Req, site: &Site, store: bool) -> Result<Who, Resp> {
         }
         return Ok(Who::StoreKey { write: *write });
     }
+    // A key WooCommerce does not know is left to WordPress, which tries it as a user name.
     if user.starts_with("ck_") && store {
         return Err(wp_error(
             "401 Unauthorized",
-            "woocommerce_rest_authentication_error",
-            "Consumer key is invalid.",
+            "invalid_username",
+            "Unknown username. Check again or try your email address.",
         ));
     }
     let Some(u) = site.users.iter().find(|u| u.login == user) else {

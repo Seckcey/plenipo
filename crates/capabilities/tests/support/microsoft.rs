@@ -60,6 +60,9 @@ pub struct World {
     /// Do the next N requests whose method and path start with this ("POST /api.stripe.com/…"),
     /// then close the connection without answering: the answer is lost after the service acted.
     pub lose_answers_to: Option<(String, u32)>,
+    /// Answer the next N requests whose method and path start with this with a redirect to
+    /// another page on the same host (as a host's bot check does), after acting on them.
+    pub redirect_answers_to: Option<(String, u32)>,
     /// Answer the sign-in page as when the owner goes back from Microsoft's "Need admin
     /// approval" page (Microsoft says the user declined, AADSTS65004).
     pub decline_consent: bool,
@@ -498,6 +501,34 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
     if lost {
         return stream.shutdown().await;
     }
+    let redirected = {
+        let mut w = world.lock().unwrap();
+        match &mut w.redirect_answers_to {
+            Some((prefix, n))
+                if *n > 0
+                    && format!("{} {}", req.method, req.path).starts_with(prefix.as_str()) =>
+            {
+                *n -= 1;
+                true
+            }
+            _ => false,
+        }
+    };
+    let resp = if redirected {
+        let host = req
+            .path
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap_or_default();
+        Resp {
+            status: "302 Found",
+            headers: vec![("Location".into(), format!("/{host}/.well-known/check/"))],
+            body: Vec::new(),
+        }
+    } else {
+        resp
+    };
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         resp.status,

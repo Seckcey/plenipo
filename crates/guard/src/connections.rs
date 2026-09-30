@@ -609,8 +609,12 @@ pub fn site_address(typed: &str) -> Result<String, String> {
     if !path_ok || path.len() > 100 {
         return why("has a folder Plenipo cannot use: type your site's address, like https://example.com/shop");
     }
-    let path = path.to_ascii_lowercase();
-    if path.ends_with("/wp-json") || path.contains("/wp-admin") || path.contains("/wp-json/") {
+    // The folder keeps its letters as typed: a server may tell "/Blog" from "/blog".
+    let lower_path = path.to_ascii_lowercase();
+    if lower_path.ends_with("/wp-json")
+        || lower_path.contains("/wp-admin")
+        || lower_path.contains("/wp-json/")
+    {
         return why(
             "is a page of your site: type the site's own address, like https://example.com",
         );
@@ -1531,7 +1535,7 @@ mod tests {
         for (typed, kept) in [
             ("https://Shop.Example.com", "https://shop.example.com"),
             (" https://shop.example.com/ ", "https://shop.example.com"),
-            ("https://example.com/Shop/", "https://example.com/shop"),
+            ("https://example.com/Shop/", "https://example.com/Shop"),
             ("https://8westit.com/blog", "https://8westit.com/blog"),
         ] {
             assert_eq!(site_address(typed).unwrap(), kept, "{typed}");

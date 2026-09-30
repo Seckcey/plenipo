@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use super::http::{Body, Reply};
 use super::keyed::{wordpress_code, Cred};
 use super::microsoft365::{clip_text, query, record, words_kept, Args, MAX_ITEMS};
-use super::text::html_to_text;
+use super::text::{html_to_text, markup_notes};
 use super::{card_only, Connections, Done, Plan, Tool, MAX_ANSWER, MAYBE_DONE};
 use crate::fence::{self, Source};
 use crate::tools::ToolDef;
@@ -40,6 +40,32 @@ const ORDER_STATUSES: [&str; 6] = [
 
 // ---- Words -----------------------------------------------------------------------------------------
 
+/// A change whose answer is not WordPress's own (a page from a host's bot check, say): Plenipo
+/// cannot tell whether it was done, and says so (ADR-071 §6.5).
+fn unclear(what: &str) -> String {
+    format!(
+        "{MAYBE_DONE}your site's answer was not WordPress's answer for {what}, so Plenipo cannot \
+         tell whether it was done. Look at it in WordPress before asking for it again."
+    )
+}
+
+/// What a post's markup holds that its words do not show, for its card (links' addresses,
+/// scripts, frames, forms, and code run on a click), or nothing.
+fn markup_lines(html: &str) -> String {
+    let notes = markup_notes(html);
+    if notes.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nIn its markup, not shown above — check these before you approve:\n{}",
+        notes
+            .iter()
+            .map(|n| format!("- {n}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 pub fn permission_words(name: &str) -> String {
     if let Some(role) = name.strip_prefix("role:") {
         let (label, what) = match role {
@@ -51,13 +77,24 @@ pub fn permission_words(name: &str) -> String {
                 "Editor",
                 "writes and publishes posts and pages, and moderates comments",
             ),
-            "author" => ("Author", "writes and publishes its own posts only"),
-            "contributor" => ("Contributor", "writes drafts only; cannot publish"),
+            "author" => (
+                "Author",
+                "writes and publishes its own posts only; Plenipo reads pages and others' posts \
+                 only as an Editor",
+            ),
+            "contributor" => (
+                "Contributor",
+                "writes drafts only and cannot publish; Plenipo reads pages only as an Editor",
+            ),
             "shop_manager" => (
                 "Shop Manager",
                 "manages the store (orders, products, refunds) and publishes posts and pages",
             ),
-            "subscriber" | "customer" => ("Subscriber", "can only read"),
+            "subscriber" | "customer" => (
+                "Subscriber",
+                "cannot read drafts, pages, or orders through Plenipo: use an Editor or a Shop \
+                 Manager",
+            ),
             other => (other, "a role the site added"),
         };
         return format!("WordPress role: {label} — {what}");
@@ -893,12 +930,17 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
                 return Err(format!("that {} is {status}, not a draft", kind.one()));
             }
             let title = one_line_of(&field(&p, "title"), 200);
-            let words = html_to_text(&field(&p, "content"));
+            let html = field(&p, "content");
+            let words = html_to_text(&html);
             let detail = format!(
                 "Publish the {} \"{title}\" ({id}) on {site}\nEveryone who visits the site can \
                  see it.\n\n{}",
                 kind.one(),
-                card_only(&words_kept(words.trim()))
+                card_only(&format!(
+                    "{}{}",
+                    words_kept(words.trim()),
+                    markup_lines(&html)
+                ))
             );
             Planned {
                 part: Part::Posts,
@@ -947,8 +989,9 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             }
             if let Some(c) = content {
                 detail.push_str(&format!(
-                    "\nNew words:\n{}",
-                    words_kept(html_to_text(c).trim())
+                    "\nNew words:\n{}{}",
+                    words_kept(html_to_text(c).trim()),
+                    markup_lines(c)
                 ));
             }
             Planned {
@@ -1012,18 +1055,40 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
             if now == "refunded" {
                 return Err(format!("order {id} is refunded; change it in WooCommerce"));
             }
+            // A payment company's plugin may take the money held on a card when an unpaid order
+            // moves on, and release it when it is cancelled: money, so it always asks.
+            let method = text_of(&o["payment_method"]);
+            let money = matches!(now.as_str(), "pending" | "on-hold" | "failed")
+                && matches!(status.as_str(), "processing" | "completed" | "cancelled")
+                && o["date_paid"].is_null()
+                && !matches!(method.as_str(), "" | "cod" | "bacs" | "cheque");
             Planned {
                 part: Part::Store,
-                kind: ToolKind::Send,
+                kind: if money { ToolKind::Pay } else { ToolKind::Send },
                 summary: format!("change order {id} from {now} to {status}"),
                 detail: format!(
                     "Order {id} on {site}: {now} → {status}\nCustomer: {}{to}\nWooCommerce may \
-                     email the customer about the change.",
+                     email the customer about the change.{}",
                     if name.is_empty() {
                         String::new()
                     } else {
                         format!("{name} ")
                     },
+                    if money {
+                        format!(
+                            "\nThe order is not paid yet: {} may take the money held on the \
+                             customer's card, or release it, when its status changes. Money \
+                             always asks you.",
+                            one_line_of(
+                                o["payment_method_title"]
+                                    .as_str()
+                                    .unwrap_or("the payment company"),
+                                80
+                            )
+                        )
+                    } else {
+                        String::new()
+                    }
                 ),
                 recipients: vec![to.clone()],
                 call: call.clone(),
@@ -1032,6 +1097,17 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
         }
         Call::Refund { id, amount, reason } => {
             let o = api.order(*id).await?;
+            // Plenipo's store amounts are in hundredths: a store that writes its money with
+            // another number of decimals (yen, dinars) refunds in WooCommerce.
+            let decimals = text_of(&o["total"])
+                .split_once('.')
+                .map_or(0, |(_, f)| f.len());
+            if decimals != 2 {
+                return Err(format!(
+                    "order {id}'s store writes its money with {decimals} decimals; Plenipo \
+                     refunds only amounts with cents. Refund it in WooCommerce."
+                ));
+            }
             let (name, email) = order_customer(&o);
             let (total, refunded, currency) = order_money(&o);
             let left = total - refunded;
@@ -1250,8 +1326,21 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 Some(id) => format!("{}/{id}", kind.path()),
                 None => kind.path().to_owned(),
             };
+            // An existing post is changed here only while it is still a draft: what is published
+            // is changed with wp_change_published, which asks.
+            if let Some(id) = id {
+                let now = api.post_or_page(*kind, *id).await?;
+                let status = text_of(&now["status"]);
+                if !matches!(status.as_str(), "draft" | "pending" | "auto-draft") {
+                    return Err(format!(
+                        "Not saved: that {} is {status} now, not a draft. Changing what is \
+                         published uses wp_change_published, which asks the owner.",
+                        kind.one()
+                    ));
+                }
+            }
             let saved = api.post(Cred::Site, &api.wp(&path, &[]), body).await?;
-            let sid = saved["id"].as_u64().unwrap_or(0);
+            let sid = saved["id"].as_u64().ok_or_else(|| unclear("the draft"))?;
             if text_of(&saved["status"]) != "draft" && id.is_none() {
                 return Err(
                     "The site saved it, but not as a draft. Look at it in WordPress.".into(),
@@ -1312,11 +1401,14 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 )
                 .await?;
             let link = text_of(&done["link"]);
-            let what = if matches!(planned.call, Call::Publish { .. }) {
-                "published"
-            } else {
-                "changed"
-            };
+            let publishing = matches!(planned.call, Call::Publish { .. });
+            let what = if publishing { "published" } else { "changed" };
+            let status = text_of(&done["status"]);
+            if done["id"].as_u64() != Some(*id)
+                || (publishing && !matches!(status.as_str(), "publish" | "future"))
+            {
+                return Err(unclear(&format!("the {}", kind.one())));
+            }
             Ok(Done {
                 text: format!(
                     "The {} {id} is {what} ({}).",
@@ -1548,7 +1640,7 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     json!({ "note": note, "customer_note": for_customer }),
                 )
                 .await?;
-            let nid = v["id"].as_u64().unwrap_or(0);
+            let nid = v["id"].as_u64().ok_or_else(|| unclear("the note"))?;
             Ok(Done {
                 text: if for_customer {
                     format!(
@@ -1593,6 +1685,9 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 .await?;
             if !reply.ok() {
                 return Err(Api::words(&reply));
+            }
+            if text_of(&reply.json()["status"]) != *status {
+                return Err(unclear(&format!("order {id}")));
             }
             Ok(Done {
                 text: format!("Order {id} is now {status}."),
@@ -1659,15 +1754,21 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 });
             }
             let r = reply.json();
+            let rid = r["id"].as_u64().ok_or_else(|| {
+                format!(
+                    "{} Look at order {id} in WooCommerce: it may be refunded.",
+                    unclear("the refund")
+                )
+            })?;
             Ok(Done {
                 text: format!(
-                    "Refund {} of {} made on order {id}; the payment company sends the money back.",
-                    r["id"].as_u64().unwrap_or(0),
+                    "Refund {rid} of {} made on order {id}; the payment company sends the money \
+                     back.",
                     shown(asked, &currency)
                 ),
                 summary: format!("refunded {} of an order", shown(asked, &currency)),
                 record: json!({
-                    "ids": [r["id"].as_u64().unwrap_or(0).to_string(), id.to_string()],
+                    "ids": [rid.to_string(), id.to_string()],
                     "links": [api.order_link(*id)],
                 }),
                 read: None,

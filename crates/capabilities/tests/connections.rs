@@ -4908,6 +4908,18 @@ async fn website_connect_read_write_publish_refund_and_disconnect() {
         Some(&*format!("{}:{}", wordpress::USER, wordpress::PASSWORD))
     );
     assert!(h.vault_value_at("connection-wordpress-store-key").is_some());
+    // Replacing the password with the WooCommerce boxes left empty keeps the WooCommerce key.
+    h.save_key(SITE, &site_key(None)).await.unwrap();
+    assert!(h.card_of(SITE).store_key_kept);
+    assert!(h.vault_value_at("connection-wordpress-store-key").is_some());
+    // The draft holds a link, a script, and code run on a click that its words do not show.
+    for p in h.ms.world().wordpress.posts.iter_mut() {
+        if p["id"] == 11 {
+            let html = "<p>Draft words.</p><a href=\"https://pay.example.net/x\" \
+                onclick=\"go()\">Pay here</a><script src=\"https://cdn.example.net/a.js\"></script>";
+            p["content"] = json!({ "raw": html, "rendered": html });
+        }
+    }
 
     let task = h
         .objective(&format!(
@@ -4938,6 +4950,15 @@ async fn website_connect_read_write_publish_refund_and_disconnect() {
         a.detail
     );
     assert!(a.detail.contains("Draft words."), "{}", a.detail);
+    for markup in [
+        "In its markup, not shown above",
+        "- a link to https://pay.example.net/x",
+        "- code run on \"click\" (onclick)",
+        "- a script: publishing runs it for every visitor",
+        "- content from https://cdn.example.net/a.js",
+    ] {
+        assert!(a.detail.contains(markup), "{markup}\n{}", a.detail);
+    }
     assert!(a.detail.contains("This worker read"), "{}", a.detail);
     assert!(
         h.ms.world().wordpress.done.is_empty(),
@@ -4997,6 +5018,26 @@ async fn website_connect_read_write_publish_refund_and_disconnect() {
     let kept = published["detail"].as_str().unwrap();
     assert!(kept.contains("(not kept)"), "{kept}");
     assert!(!kept.contains("Draft words."), "{kept}");
+    // A host's bot check answers a change with a redirect: Plenipo does not follow it (as a
+    // read it would look done), and says the note may have been added.
+    h.ms.world().redirect_answers_to = Some((
+        "POST /shop.example.com/wp-json/wc/v3/orders/1042/notes".into(),
+        1,
+    ));
+    let (_, text) = h
+        .run(&tool(
+            "wp_order_private_note",
+            json!({ "id": 1042, "note": "Checked again." }),
+        ))
+        .await;
+    assert!(
+        text.contains(
+            "Tool wp_order_private_note failed: Maybe done: WordPress and WooCommerce sent \
+             Plenipo to another page instead of answering"
+        ),
+        "{text}"
+    );
+    assert!(!h.requests().iter().any(|r| r.contains(".well-known/check")));
     let done = h.ms.world().wordpress.done.clone();
     assert_eq!(done.len(), 1, "{done:?}");
     assert_eq!(done[0]["public"], "11");
@@ -5156,6 +5197,37 @@ async fn store_sends_ask_unless_the_customer_is_listed_and_publishing_and_money_
     assert!(a.summary.starts_with("publish the post"), "{}", a.summary);
     h.answer(&a, false);
     h.finished(&task).await;
+    // An unpaid order paid by card: its status change may take (or release) the money held on
+    // the card, so it asks, the customer listed and the switch on.
+    for o in h.ms.world().wordpress.orders.iter_mut() {
+        if o["id"] == 1042 {
+            o["status"] = json!("on-hold");
+        }
+    }
+    let task = h
+        .objective(&tool(
+            "wp_order_status",
+            json!({ "id": 1042, "status": "completed" }),
+        ))
+        .await;
+    let a = h.pending().await;
+    assert!(
+        a.detail
+            .contains("Credit card (Stripe) may take the money held on the customer's card"),
+        "{}",
+        a.detail
+    );
+    h.answer(&a, false);
+    h.finished(&task).await;
+    // Cash on delivery moves no money: the listed customer's order moves on without asking.
+    let (task, text) = h
+        .run(&tool(
+            "wp_order_status",
+            json!({ "id": 1043, "status": "processing" }),
+        ))
+        .await;
+    assert!(text.contains("Order 1043 is now processing."), "{text}");
+    assert!(h.events(&task, "approval.requested").is_empty());
     // Money: asks with every switch on and the customer listed.
     let mut switches = h.guard.config().unwrap().switches;
     switches.buy_without_asking = true;
@@ -5214,6 +5286,21 @@ async fn store_sends_ask_unless_the_customer_is_listed_and_publishing_and_money_
             .filter(|d| d["refund"].is_number())
             .count(),
         1
+    );
+
+    // A store that writes its money without cents (yen) refunds in WooCommerce, never rounded.
+    for o in h.ms.world().wordpress.orders.iter_mut() {
+        if o["id"] == 1043 {
+            o["total"] = json!("2000");
+            o["currency"] = json!("JPY");
+        }
+    }
+    let (_, text) = h.run(&tool("wp_refund", json!({ "id": 1043 }))).await;
+    assert!(
+        text.contains(
+            "store writes its money with 0 decimals; Plenipo refunds only amounts with cents"
+        ),
+        "{text}"
     );
 }
 
@@ -5334,6 +5421,23 @@ async fn a_key_the_service_stops_accepting_needs_a_new_one() {
         h.card_of(HUBSPOT).connection.state,
         ConnectionState::Connected
     );
+
+    // A WooCommerce key revoked in WooCommerce: the store answers as if its name were a
+    // WordPress user's, and the card asks for a new key.
+    h.parts_of(SITE, &[(Part::Store, PartLevel::ReadOnly)]);
+    h.allow_on(SITE, &[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    h.save_key(SITE, &site_key(Some((wordpress::RW_CK, wordpress::RW_CS))))
+        .await
+        .unwrap();
+    h.ms.world().wordpress.store_keys.remove(wordpress::RW_CK);
+    let (_, text) = h.run(&tool("wp_orders", json!({}))).await;
+    assert!(
+        text.contains("WordPress and WooCommerce needs a new key from the owner"),
+        "{text}"
+    );
+    let card = h.card_of(SITE);
+    assert_eq!(card.connection.state, ConnectionState::NeedsSignIn);
+    assert!(h.vault_value_at("connection-wordpress-store-key").is_none());
 }
 
 /// Add-on tools (ADR-066, ADR-071 §2–§3): programs that download code each time and shells are
