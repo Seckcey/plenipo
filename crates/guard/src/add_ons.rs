@@ -235,7 +235,21 @@ const SHELLS: [&str; 16] = [
     "wscript",
 ];
 /// Programs that download code each time they start (the owner's choice 12).
-const DOWNLOADERS: [&str; 5] = ["npx", "pnpx", "bunx", "uvx", "mshta"];
+const DOWNLOADERS: [&str; 6] = ["npx", "pnpx", "bunx", "uvx", "mshta", "dnx"];
+/// Programs that start another program named in their arguments, so the one that runs is not
+/// the one checked.
+const WRAPPERS: [&str; 9] = [
+    "env", "busybox", "conhost", "git-bash", "ubuntu", "start", "xargs", "nohup", "sudo",
+];
+/// Interpreters, and the switches that make them run code written in the arguments.
+const INLINE_CODE: [(&str, &[&str]); 6] = [
+    ("node", &["-e", "--eval", "-p", "--print"]),
+    ("python", &["-c"]),
+    ("python3", &["-c"]),
+    ("py", &["-c"]),
+    ("perl", &["-e", "-E"]),
+    ("ruby", &["-e"]),
+];
 /// A program and the first argument that make it download and run code each time.
 const DOWNLOADING: [(&str, &str); 7] = [
     ("npm", "exec"),
@@ -270,13 +284,30 @@ pub fn refused_program(program: &str, args: &[String]) -> Option<String> {
             "{stem} is a shell: it runs whatever it is given. Add the tool program itself."
         ));
     }
-    let first = args
-        .first()
-        .map(|a| a.trim().to_ascii_lowercase())
+    if WRAPPERS.contains(&stem.as_str()) {
+        return Some(format!(
+            "{stem} starts another program named in its arguments. Add that program itself."
+        ));
+    }
+    let lower: Vec<String> = args.iter().map(|a| a.trim().to_ascii_lowercase()).collect();
+    if let Some((_, switches)) = INLINE_CODE.iter().find(|(p, _)| *p == stem) {
+        if lower.iter().any(|a| switches.contains(&a.as_str())) {
+            return Some(format!(
+                "{stem} would run code written in its arguments. Add an installed tool program."
+            ));
+        }
+    }
+    // The first argument that is not a switch is the subcommand (`npm --yes exec`, `pnpm
+    // --package=x dlx`).
+    let first = lower
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .cloned()
         .unwrap_or_default();
     let downloads = DOWNLOADERS.contains(&stem.as_str())
         || DOWNLOADING.iter().any(|(p, a)| *p == stem && *a == first)
-        || (stem == "uv" && first == "run" && args.iter().any(|a| a.contains("--with")));
+        || (stem == "uv" && first == "run" && args.iter().any(|a| a.contains("--with")))
+        || (stem == "go" && first == "run" && args.iter().any(|a| a.contains('@')));
     if downloads {
         return Some(format!(
             "{stem} {}downloads code each time it starts, so what runs could change without you \
@@ -290,9 +321,11 @@ pub fn refused_program(program: &str, args: &[String]) -> Option<String> {
         ));
     }
     if stem == "deno"
-        && args
-            .iter()
-            .any(|a| a.starts_with("http://") || a.starts_with("https://"))
+        && args.iter().any(|a| {
+            ["http://", "https://", "npm:", "jsr:"]
+                .iter()
+                .any(|p| a.trim().to_ascii_lowercase().starts_with(p))
+        })
     {
         return Some(
             "deno would download the program from the web each time it starts. Download it once \
@@ -390,7 +423,9 @@ pub fn merge_tools(add_on: &str, before: &[AddOnTool], listed: Vec<Listed>) -> V
         }
         let (mark, changed) = match before.iter().find(|b| b.name == l.name) {
             Some(b) if b.description == description && b.input == input => (b.mark, b.changed),
-            Some(b) => (ToolMark::Off, b.mark != ToolMark::Off || b.changed),
+            // Changed since the owner last saw it: Off, and flagged even if it was Off, so a mark
+            // is never given to words the owner has not seen.
+            Some(_) => (ToolMark::Off, true),
             None => (ToolMark::Off, false),
         };
         out.push(AddOnTool {
@@ -473,8 +508,21 @@ impl Guard {
     pub fn add_on_tools_listed(&self, id: &str, listed: Vec<Listed>) -> crate::Result<AddOn> {
         let now = plenipo_ledger::now_ms();
         self.update("guard.add_on_changed", OWNER, |c| {
-            let a = c.add_on_tools_listed(id, listed, now)?;
+            let a = c.add_on_tools_listed(id, listed, Some(now))?;
             Ok(Some((change_payload(&a, "tools listed"), a)))
+        })?
+        .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// As [`Guard::add_on_tools_listed`], when a worker's step started the program and found its
+    /// tools changed: recorded as Plenipo's, and not as the owner looking.
+    pub fn add_on_tools_relisted(&self, id: &str, listed: Vec<Listed>) -> crate::Result<AddOn> {
+        self.update("guard.add_on_changed", crate::service::PLENIPO, |c| {
+            let a = c.add_on_tools_listed(id, listed, None)?;
+            Ok(Some((
+                change_payload(&a, "tools changed in the program"),
+                a,
+            )))
         })?
         .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
     }
@@ -542,6 +590,22 @@ mod tests {
                 "/usr/bin/deno",
                 args(&["run", "https://example.com/server.ts"]),
             ),
+            // Found in the review: switches before the subcommand, wrappers, inline code, and
+            // other ways to download.
+            ("/usr/bin/npm", args(&["--yes", "exec", "x"])),
+            ("/usr/bin/pnpm", args(&["--package=@x/srv", "dlx", "srv"])),
+            ("/usr/bin/env", args(&["bash", "-c", "x"])),
+            ("/bin/busybox", args(&["sh"])),
+            ("C:\\Windows\\System32\\conhost.exe", args(&["cmd"])),
+            ("/usr/bin/node", args(&["-e", "require('x')"])),
+            ("/usr/bin/python3", args(&["-c", "import x"])),
+            ("/usr/bin/deno", args(&["run", "npm:@x/srv"])),
+            ("/usr/bin/deno", args(&["run", "jsr:@x/srv"])),
+            (
+                "/usr/local/go/bin/go",
+                args(&["run", "example.com/srv@latest"]),
+            ),
+            ("C:\\dotnet\\dnx.exe", args(&["x"])),
         ] {
             assert!(refused_program(program, &a).is_some(), "{program} {a:?}");
         }

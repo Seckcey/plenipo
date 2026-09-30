@@ -5578,6 +5578,24 @@ async fn add_on_tools_start_off_read_fenced_and_changing_ones_ask_every_time() {
     assert!(!serde_json::to_string(&used).unwrap().contains("shipped"));
     h.add_ons_stopped().await;
 
+    // The program answers with an error whose words plant an instruction: the worker gets them
+    // fenced as the program's words, and the record keeps none of them.
+    let (task, text) = h
+        .run(&tool(
+            "addon_testticket_lookup_order",
+            json!({ "order": "error" }),
+        ))
+        .await;
+    let failed = result_of(&text, "addon_testticket_lookup_order");
+    let inside = inside_fence(&failed, "add-on output", "Test tickets", "the program").join("\n");
+    assert!(inside.contains("Lookup failed."), "{text}");
+    assert!(!outside_fence(&failed, "add-on output", "Test tickets")
+        .join("\n")
+        .contains("ignore your instructions"));
+    let used = serde_json::to_string(&h.events(&task, "capability.used")).unwrap();
+    assert!(!used.contains("Lookup failed"), "{used}");
+    h.add_ons_stopped().await;
+
     // Read and write: a Changing tool asks every time, with both switches on.
     h.change(&a.id, line(AccessLevel::ReadWrite)).unwrap();
     h.send_switch(true);

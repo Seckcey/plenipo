@@ -39,6 +39,9 @@ pub const PROTOCOL: &str = "2025-06-18";
 const PROTOCOLS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 /// The longest a session lives: a worker's step.
 const MAX_LIFE: Duration = Duration::from_secs(12 * 60 * 60);
+/// The most lines of the program's standard output waiting to be read; more are dropped (its
+/// log lines on standard error never wait).
+const MAX_WAITING_LINES: usize = 256;
 
 /// A tool's answer, cut to size.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,8 +61,10 @@ pub struct Session {
     execution: String,
     input: std::sync::Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
     /// Held for a whole request, so two calls at once never read each other's answers.
-    output: Mutex<mpsc::UnboundedReceiver<OutputLine>>,
+    output: Mutex<mpsc::Receiver<OutputLine>>,
     next: AtomicU64,
+    /// Its own folder, made for this session and removed when it stops.
+    folder: PathBuf,
 }
 
 /// What starting a program needs.
@@ -73,8 +78,9 @@ pub struct Start<'a> {
     pub working_dir: &'a Path,
 }
 
-/// A JSON-RPC error as words (the program's message is cut and made one line: it is its words).
-fn rpc_error(e: &Value) -> String {
+/// A JSON-RPC error from a tool call, as a failed answer: its message is the program's words, so
+/// it reaches the worker fenced like any answer, and is never recorded.
+fn rpc_error(e: &Value) -> Value {
     let message: String = e["message"]
         .as_str()
         .unwrap_or("an error")
@@ -82,7 +88,7 @@ fn rpc_error(e: &Value) -> String {
         .map(|c| if c.is_control() { ' ' } else { c })
         .take(200)
         .collect();
-    format!("the program answered with an error: {message}")
+    json!({ "isError": true, "content": [{ "type": "text", "text": message }] })
 }
 
 impl Session {
@@ -92,7 +98,17 @@ impl Session {
             .allow_executable(s.program)
             .map_err(|e| format!("{} cannot be run: {e}", s.program.display()))?;
         let (input, feed) = StdinFeed::new();
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, mut all) = mpsc::unbounded_channel::<OutputLine>();
+        // Only standard output waits to be read, and only so much: a program that prints while
+        // idle cannot fill Plenipo's memory.
+        let (keep, rx) = mpsc::channel(MAX_WAITING_LINES);
+        tokio::spawn(async move {
+            while let Some(line) = all.recv().await {
+                if line.stream == OutputStream::Stdout {
+                    let _ = keep.try_send(line);
+                }
+            }
+        });
         let record = supervisor
             .launch(LaunchSpec {
                 profile_id: "capability.add-on".into(),
@@ -117,6 +133,7 @@ impl Session {
             input: std::sync::Mutex::new(Some(input)),
             output: Mutex::new(rx),
             next: AtomicU64::new(1),
+            folder: s.working_dir.to_path_buf(),
         };
         let hello = session
             .request(
@@ -171,10 +188,11 @@ impl Session {
     /// One request, and its answer within `wait`. What the program asks of Plenipo meanwhile is
     /// refused; its notifications and log lines are passed over.
     async fn request(&self, method: &str, params: Value, wait: Duration) -> Result<Value, String> {
-        let mut output = self.output.lock().await;
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
+        // The wait covers waiting for another call to finish too.
         let read = async {
+            let mut output = self.output.lock().await;
+            let id = self.next.fetch_add(1, Ordering::Relaxed);
+            self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
             let mut other = 0usize;
             loop {
                 let Some(line) = output.recv().await else {
@@ -207,7 +225,11 @@ impl Session {
                     (_, true) => {}
                     (answer, false) if answer.as_u64() == Some(id) => {
                         if !message["error"].is_null() {
-                            return Err(rpc_error(&message["error"]));
+                            return if method == "tools/call" {
+                                Ok(rpc_error(&message["error"]))
+                            } else {
+                                Err("the program answered with an error".to_owned())
+                            };
                         }
                         return Ok(message["result"].clone());
                     }
@@ -238,9 +260,15 @@ impl Session {
                 let Some(name) = t["name"].as_str() else {
                     continue;
                 };
+                // MCP's own rule for a tool's name (it is shown in Plenipo's own lines), and an
+                // input small enough to be kept whole and compared: other tools are left out.
                 if name.is_empty()
-                    || name.chars().count() > 128
-                    || name.chars().any(char::is_control)
+                    || name.len() > 128
+                    || !name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+                    || serde_json::to_vec(&t["inputSchema"]).map_or(usize::MAX, |b| b.len())
+                        > plenipo_guard::add_ons::MAX_INPUT_BYTES
                 {
                     continue;
                 }
@@ -276,10 +304,36 @@ impl Session {
         Ok(answer_of(&result))
     }
 
-    /// Stop the program: its input closes, then its process tree ends.
+    /// Stop the program: its input closes, then its process tree ends, and its folder goes.
     pub async fn stop(&self) {
         self.input.lock().unwrap_or_else(|p| p.into_inner()).take();
         let _ = self.supervisor.terminate(&self.execution).await;
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
+/// A session dropped without [`Session::stop`] (its step ended while it was starting) still ends
+/// its program and removes its folder.
+impl Drop for Session {
+    fn drop(&mut self) {
+        if self
+            .input
+            .get_mut()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+            .is_none()
+        {
+            return;
+        }
+        let supervisor = self.supervisor.clone();
+        let execution = self.execution.clone();
+        let folder = self.folder.clone();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = supervisor.terminate(&execution).await;
+                let _ = std::fs::remove_dir_all(folder);
+            });
+        }
     }
 }
 

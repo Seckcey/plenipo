@@ -1086,12 +1086,15 @@ impl GuardConfig {
         &mut self,
         id: &str,
         listed: Vec<Listed>,
-        now: u64,
+        now: Option<u64>,
     ) -> Result<AddOn> {
         let i = self.add_on_index(id)?;
         let a = &mut self.add_ons[i];
         a.tools = add_ons::merge_tools(&a.id, &a.tools, listed);
-        a.checked_at = Some(now);
+        // Only the owner's look counts as looked at.
+        if now.is_some() {
+            a.checked_at = now;
+        }
         Ok(a.clone())
     }
 
