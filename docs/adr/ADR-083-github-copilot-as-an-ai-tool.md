@@ -183,3 +183,37 @@ below, with the limits in Consequences.
   are the owner's own Copilot plan.
 - **Plenipo's own tools for Copilot workers now.** The owner chose conversation only (choice 3); a
   later step, checked on the owner's PC.
+
+## As built
+
+Built on 2026-09-30 (v1.15.0) as decided. Where the build adds to the decision:
+
+- **Code:** `crates/runtime/src/agent/copilot.rs` (the adapter, its parser, and 16 unit tests from
+  the owner's recorded output); `RuntimeAdapter::auth_talk`, `Framing::Headers`, and
+  `RuntimeAdapter::home_variable` (`adapter.rs`, `discovery.rs`, `service.rs`); Guard's list of
+  release addresses (`outbound.rs`); the `copilot` persona in `plenipo-fake-agent`.
+- **§2, how a refusal reads:** a task refused because of the check says the check's reason
+  first (for paid extra use, the $0 budget), then how to sign in. Every AI tool's card also shows
+  the check's reason under its sign-in when that is why it cannot take work.
+- **§2, an allowance that says nothing:** an allowance reported as nothing at all counts as paid
+  extra use on.
+- **§3, a usage limit:** a 402 or 429 is a usage limit even when Copilot sorts it as a plain error
+  (`query`), as the stand-in recorded.
+- **§4, a tool refused:** only Copilot's own refusal counts ("Tool '…' does not exist." or error
+  code `denied`); any other failure of one of its own tools stops the task.
+- **§6, plan left:** from `account.getQuota`, for chat; code suggestions in an editor
+  (`completions`), which tasks never use, and allowances with nothing included are left out.
+- **The link's framing:** lines that are not `Name: value` headers are skipped, so a stray line
+  never ends the check early.
+- **Design limits** (the review, checked by a second reviewer):
+  - a model billed per use shows only in a failed call's report; in 1.0.89 it can be turned on
+    only by a variable Plenipo never passes;
+  - a task stops after one of Copilot's own tools finishes, not when it starts, because a refused
+    tool also reports a start;
+  - Copilot's hooks and add-on servers are not switched off by a setting: tasks run in Plenipo's
+    own empty conversation folder, and Copilot's settings folder is Plenipo's own;
+  - `usageAllowedWithExhaustedQuota` is not read: it can mean free fallback models.
+- **Tests:** the whole contract suite with the `copilot` persona, and a Copilot contract test (both
+  sign-ins, paid extra use refused before the next task, its own tool or a model billed per use
+  stopping a task); a Router test (Auto plays safe); screen tests; end-to-end tests with
+  screenshots in `docs/phases/evidence/phase-16-wave-2/`.

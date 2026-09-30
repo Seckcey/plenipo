@@ -244,6 +244,9 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await waitForText(browser, copilot, "GitHub Copilot has no sign-out command");
     // Its models, from its own check: Auto, whose maker is not known.
     await cardTab(browser, "GitHub Copilot", "Models");
+    // No model is listed ahead (only Auto was checked); Check again asks Copilot for its own.
+    await waitForText(browser, copilot, "Plenipo hasn't asked GitHub Copilot for its models yet");
+    await pressOnCard(browser, "GitHub Copilot", "Check GitHub Copilot again");
     await waitForText(browser, copilot, "Auto auto · who made it is not known");
     await showCard(browser, "GitHub Copilot");
     await screenshot(browser, "ai-tools-copilot-models");

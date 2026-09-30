@@ -1,6 +1,6 @@
 # Phase 16 — Implementation Checklist (Wave 2)
 
-**Status:** building (2026-09-30). The checks on the owner's PC are done, and the owner answered
+**Status:** built (2026-09-30), v1.15.0; see the [acceptance report](phase-16-wave-2-acceptance-report.md). The checks on the owner's PC are done, and the owner answered
 the three choices. Built beside Phase 21 at the owner's direction
 ([ADR-090 (building Phase 21 alongside Phase 16's second wave)](../adr/ADR-090-phase-21-alongside-phase-16-wave-2.md)).
 
@@ -79,22 +79,22 @@ and user folder removed: [evidence/phase-16-wave-2/owner-check](evidence/phase-1
 
 ### Adapter contract (`crates/runtime/src/agent/adapter.rs`, `discovery.rs`, `service.rs`)
 
-- [ ] **A two-way sign-in check** (`RuntimeAdapter::auth_talk`): requests written to the tool's
+- [x] **A two-way sign-in check** (`RuntimeAdapter::auth_talk`): requests written to the tool's
       standard input, each answered before its input closes (closing early lost answers,
       `evidence/ai-tools-copilot/headless-rpc-close-early.txt`). Default: none, so every other
       tool keeps its status command.
-- [ ] **Framed messages** (`Framing::Headers`): `Content-Length` headers, the way Copilot's link
+- [x] **Framed messages** (`Framing::Headers`): `Content-Length` headers, the way Copilot's link
       frames JSON-RPC. The existing line-by-line talks (Codex, Grok, Kimi) are unchanged.
-- [ ] **A settings folder named by the tool's own variable** (`RuntimeAdapter::home_variable`):
+- [x] **A settings folder named by the tool's own variable** (`RuntimeAdapter::home_variable`):
       Copilot's folder is `COPILOT_HOME`, pointed at Plenipo's folder for it, so the owner's own
       Copilot settings, hooks, add-ons, and instructions never apply. The owner's home folder
       stays, so the GitHub CLI's sign-in still works.
 
 ### Copilot's adapter (`crates/runtime/src/agent/copilot.rs`)
 
-- [ ] Identity: **GitHub Copilot**, company **GitHub** (`github`), program `copilot`; Windows:
+- [x] Identity: **GitHub Copilot**, company **GitHub** (`github`), program `copilot`; Windows:
       WinGet's `copilot.exe`, or the real `copilot.exe` inside the npm package (never the shim).
-- [ ] The check before every task: `connect`, `auth.getStatus`, `account.getQuota`:
+- [x] The check before every task: `connect`, `auth.getStatus`, `account.getQuota`:
   - signed out → signed out;
   - `user` → "Copilot sign-in"; `gh-cli` → "GitHub CLI sign-in" (the owner's choice 2);
   - `env`, `token`, `api-key`, `hmac` → a key or token, never used;
@@ -103,57 +103,57 @@ and user folder removed: [evidence/phase-16-wave-2/owner-check](evidence/phase-1
     allowance that cannot be read → never ready, with the fix in plain words (GitHub's budget for
     AI Credits at $0 with Stop usage on).
   - The account name is never kept.
-- [ ] Environment: proxy and certificate settings only; `COPILOT_AUTO_UPDATE=false`; no token
+- [x] Environment: proxy and certificate settings only; `COPILOT_AUTO_UPDATE=false`; no token
       variable ever (the contract suite refuses them).
-- [ ] One task: `--output-format json`, `--no-auto-update`, `--available-tools=<no tool>`,
+- [x] One task: `--output-format json`, `--no-auto-update`, `--available-tools=<no tool>`,
       `--disable-builtin-mcps`, `--no-ask-user`, `--no-custom-instructions`, `--model` when set,
       `--session-id` (Plenipo chooses) or `--resume=<id>`. The words go in on standard input.
-- [ ] Parser, from the owner's recorded output: text as it is written, the answer, the model Auto
+- [x] Parser, from the owner's recorded output: text as it is written, the answer, the model Auto
       chose, the session, errors by `errorType` (`quota` and `rate_limit` → usage limit,
       `authentication` → sign in again), a pay-per-use model (`isByok`) → stopped, and one of its
       own tools that runs → stopped (refused ones are shown, and the task goes on).
-- [ ] Models: none listed; its default (Auto) runs, and who made it is not known, so it plays
+- [x] Models: none listed; its default (Auto) runs, and who made it is not known, so it plays
       safe (ADR-081 §7). Effort: none.
-- [ ] The AI tools page: **Sign in** runs `copilot login` in a terminal tab (no sign-out
+- [x] The AI tools page: **Sign in** runs `copilot login` in a terminal tab (no sign-out
       command); newest version from GitHub's npm package `@github/copilot` (Guard's list of
       release addresses gains it); **Update** runs `copilot update`; its check reads
       `models.list` and how much of the plan is used from `account.getQuota`.
-- [ ] Conversation only (`accepts_tools: false`).
+- [x] Conversation only (`accepts_tools: false`).
 
 ### Tests
 
-- [ ] Unit tests in `copilot.rs`, from the owner's recorded output.
-- [ ] A `copilot` persona in `plenipo-fake-agent`: `--headless --stdio` (framed JSON-RPC) for each
+- [x] Unit tests in `copilot.rs`, from the owner's recorded output.
+- [x] A `copilot` persona in `plenipo-fake-agent`: `--headless --stdio` (framed JSON-RPC) for each
       sign-in (`subscription`, `gh-cli`, `api-key`, `signed-out`, `unknown-status`, and
       `paid-extra`), one task, resume, and the markers (`[usage-limit]`, `[auth-expired]`,
       `[own-tool]`, `[refused-tool]`, `[byok]`, …).
-- [ ] Contract suite: Copilot passes every check with its persona; it still refuses key
+- [x] Contract suite: Copilot passes every check with its persona; it still refuses key
       variables for every subscription AI tool; a test runs Copilot the way the app does (its own
       settings folder, the check before each task, paid extra use refused).
-- [ ] With the paid switch off, nothing changes: a paid key is still refused, and paid extra use
+- [x] With the paid switch off, nothing changes: a paid key is still refused, and paid extra use
       is never "ready".
-- [ ] Cross-company review counts Copilot's work by who made the model: its default is not known,
+- [x] Cross-company review counts Copilot's work by who made the model: its default is not known,
       so a "must be different" review never picks it and work done on it is never counted as a
       different company.
-- [ ] Desktop IPC tests: the AI tools commands still refuse the sign window and web pages (no new
+- [x] Desktop IPC tests: the AI tools commands still refuse the sign window and web pages (no new
       command is needed; if one is added, it gets the same tests).
-- [ ] Vitest for Copilot's card (GitHub sign-in words, no sign-out, who made its models).
-- [ ] End-to-end in the real app, screenshots in
+- [x] Vitest for Copilot's card (GitHub sign-in words, no sign-out, who made its models).
+- [x] End-to-end in the real app, screenshots in
       [evidence/phase-16-wave-2](evidence/phase-16-wave-2/).
 
 ### Paperwork
 
-- [ ] [ADR-083](../adr/ADR-083-github-copilot-as-an-ai-tool.md) and
+- [x] [ADR-083](../adr/ADR-083-github-copilot-as-an-ai-tool.md) and
       [ADR-084](../adr/ADR-084-cursor-agent-waits.md), with "As built"; the ADR index.
-- [ ] [The Cursor finding](ai-tools-cursor-finding.md); the first Copilot finding marked as
+- [x] [The Cursor finding](ai-tools-cursor-finding.md); the first Copilot finding marked as
       answered.
-- [ ] Setup guide, the adding-an-AI-tool guide, README, and the screens that list AI tools.
-- [ ] New word pairs in [the word list](../design/vocabulary.md).
-- [ ] [Acceptance report](phase-16-wave-2-acceptance-report.md),
+- [x] Setup guide, the adding-an-AI-tool guide, README, and the screens that list AI tools.
+- [x] New word pairs in [the word list](../design/vocabulary.md).
+- [x] [Acceptance report](phase-16-wave-2-acceptance-report.md),
       [release notes v1.15.0](../releases/v1.15.0.md), a row in
       [versioning](../development/versioning.md), the plan's Phase 16 line and its order-of-work
       row, and version 1.15.0 (or the next one, if Phase 21 merges first; ADR-090 §6).
-- [ ] A review across several areas, each finding checked by a second reviewer; each confirmed
+- [x] A review across several areas, each finding checked by a second reviewer; each confirmed
       finding fixed with a test, or recorded as a design limit.
 
 ## Not in this wave

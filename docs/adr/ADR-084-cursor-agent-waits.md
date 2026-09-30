@@ -60,3 +60,9 @@ Cursor, and keeps reaching xAI's models through Grok.
 - **Read the setting from Cursor's own screen, or from its service with the stored sign-in.**
   Driving a tool's screen and unofficial clients are ruled out by ADR-014 §7.
 - **Run it with a key** (`CURSOR_API_KEY`). Keys are never used (ADR-007 §4).
+
+## As built
+
+Merged on 2026-09-30 (v1.15.0) as decided: the finding
+([`ai-tools-cursor-finding.md`](../phases/ai-tools-cursor-finding.md)), with no adapter, persona, or
+registration. The setup guide says Cursor's agent is not an AI tool in Plenipo yet, and why.

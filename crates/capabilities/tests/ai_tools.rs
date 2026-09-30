@@ -948,7 +948,7 @@ async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_a
     assert!(!grok.reports_plan_left && grok.plan.is_none());
     assert!(codex.reports_plan_left);
     // GitHub Copilot (ADR-083): no paid key either, and its plan left comes from its own check
-    // (chat and code suggestions; nothing included in premium requests, so that one is left out).
+    // (chat only: code suggestions are not Plenipo's, and nothing is included in premium requests).
     let err = h
         .tools
         .set_payment("copilot", PaymentMethod::PaidKey)
@@ -964,7 +964,7 @@ async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_a
     assert_eq!(copilot.payment, PaymentMethod::Subscription);
     assert!(copilot.reports_plan_left);
     let plan = copilot.plan.as_ref().unwrap();
-    assert_eq!(plan.windows.len(), 2);
+    assert_eq!(plan.windows.len(), 1);
     assert_eq!(plan.windows[0].used_percent, Some(25));
 }
 

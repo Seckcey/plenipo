@@ -513,16 +513,18 @@ fn parse_auth(out: &ProbeOutput) -> AuthStatus {
     status(AuthState::Subscription, Some(method), None)
 }
 
-/// How much of each allowance is used, from `account.getQuota` (ADR-060 §3). Allowances with
-/// nothing included (`entitlementRequests` 0) and unlimited ones are left out.
+/// How much of each allowance is used, from `account.getQuota` (ADR-060 §3). Code suggestions in
+/// an editor (`completions`), which Plenipo's tasks never use, allowances with nothing included
+/// (`entitlementRequests` 0), and unlimited ones are left out.
 fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
     let allowances = allowances(out)?;
     let mut limited = false;
     let mut warning = false;
     let windows: Vec<PlanWindow> = allowances
         .iter()
-        .filter(|(_, v)| {
-            v.get("isUnlimitedEntitlement").and_then(Value::as_bool) != Some(true)
+        .filter(|(name, v)| {
+            name != "completions"
+                && v.get("isUnlimitedEntitlement").and_then(Value::as_bool) != Some(true)
                 && v.get("entitlementRequests")
                     .and_then(Value::as_f64)
                     .is_some_and(|n| n > 0.0)
@@ -1282,8 +1284,9 @@ mod tests {
             "who made it is never read from the tool"
         );
         let plan = parse_plan(&out, 5).unwrap();
-        // Chat and completions; nothing is included in premium requests, so it is left out.
-        assert_eq!(plan.windows.len(), 2);
+        // Chat only: code suggestions are not Plenipo's, and nothing is included in premium
+        // requests, so both are left out.
+        assert_eq!(plan.windows.len(), 1);
         assert_eq!(plan.windows[0].used_percent, Some(0));
         assert_eq!(plan.windows[0].resets_at, Some(1_790_812_800_000));
         assert!(!plan.limited && !plan.warning);
