@@ -191,6 +191,9 @@ Built on 2026-09-30 (v1.16.0) as decided, with the limits above. Where the build
   staff a project stay behind with it.
 - **§18, deleting for good** saves each chosen worker into the first organization's Ledger with its
   role and specialty found by name; a folder a file still holds open is removed at the next start.
+- **Spending caps (Phase 16 Wave 3, ADR-085, paid AI keys with spending caps)** are each
+  organization's own, with its spending, in its own Ledger: Settings → Spending caps shows the
+  window's organization, and money a last run set aside is settled as each organization starts.
 - **Each window's own place:** the first organization keeps the page's remembered names; another
   organization's add its ID (`plenipo.place@<id>`), so each remembers its own page, map, and panels.
 - **Found in review and fixed:** the tray's Stop buttons stop every organization's work; an
