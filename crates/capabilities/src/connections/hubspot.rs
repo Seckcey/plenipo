@@ -29,6 +29,8 @@ const MAX_PROPERTIES: usize = 30;
 const MAX_VALUE: usize = 5000;
 /// The most notes shown with a record, and the longest note.
 const MAX_NOTES: usize = 10;
+/// How HubSpot's "you may not" is said, so a read can go on without its notes.
+const NOT_ALLOWED: &str = "HubSpot did not allow this:";
 const MAX_NOTE: usize = 20_000;
 
 /// One kind of HubSpot record.
@@ -160,6 +162,9 @@ pub fn key_permissions(part: Part, full: bool) -> Vec<&'static str> {
         if write != "crm.objects.contacts.write" {
             out.push("crm.objects.contacts.write");
         }
+    } else if read != "crm.objects.contacts.read" {
+        // A record's notes are read with contacts' permission, whatever the record is.
+        out.push("crm.objects.contacts.read");
     }
     out
 }
@@ -484,10 +489,11 @@ impl Api<'_> {
             .take(40)
             .collect();
         match reply.status {
-            403 => "HubSpot did not allow this: the key lacks a permission. Add it to the key in \
-                    HubSpot (Development → Keys → Service keys): read, or write, for this kind of \
-                    record (a note needs contacts' write permission)."
-                .into(),
+            403 => format!(
+                "{NOT_ALLOWED} the key lacks a permission. Add it to the key in HubSpot \
+                 (Development → Keys → Service keys): read, or write, for this kind of record (a \
+                 note needs contacts' write permission)."
+            ),
             404 => "HubSpot found no such record. Check the ID.".into(),
             409 => "HubSpot says a record like it is already there (the same email address or \
                     domain)."
@@ -637,8 +643,13 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
             limit,
         } => {
             let mut body = json!({ "limit": limit, "properties": object.properties() });
-            if let Some(q) = query {
-                body["query"] = json!(q);
+            match query {
+                Some(q) => body["query"] = json!(q),
+                // HubSpot lists the oldest first unless told otherwise.
+                None => {
+                    body["sorts"] =
+                        json!([{ "propertyName": "createdate", "direction": "DESCENDING" }])
+                }
             }
             let v = api
                 .call(
@@ -697,36 +708,45 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     Body::None,
                 )
                 .await?;
-            let note_ids: Vec<String> = r["associations"]["notes"]["results"]
+            // Each note once, the newest (the highest IDs) first, at most 50.
+            let mut note_ids: Vec<u64> = r["associations"]["notes"]["results"]
                 .as_array()
                 .map(|a| {
                     a.iter()
                         .filter_map(|n| {
                             n["id"]
-                                .as_str()
-                                .map(str::to_owned)
-                                .or_else(|| n["id"].as_u64().map(|i| i.to_string()))
+                                .as_u64()
+                                .or_else(|| n["id"].as_str().and_then(|i| i.parse().ok()))
                         })
-                        .filter(|i| i.chars().all(|c| c.is_ascii_digit()))
-                        .take(50)
                         .collect()
                 })
                 .unwrap_or_default();
+            note_ids.sort_unstable_by(|a, b| b.cmp(a));
+            note_ids.dedup();
+            note_ids.truncate(50);
+            let mut notes_refused = false;
             let mut notes: Vec<Value> = if note_ids.is_empty() {
                 Vec::new()
             } else {
-                api.call(
-                    reqwest::Method::POST,
-                    &format!("{OBJECTS}/notes/batch/read"),
-                    Body::Json(json!({
-                        "inputs": note_ids.iter().map(|i| json!({ "id": i })).collect::<Vec<_>>(),
-                        "properties": ["hs_note_body", "hs_timestamp"],
-                    })),
-                )
-                .await?["results"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default()
+                match api
+                    .call(
+                        reqwest::Method::POST,
+                        &format!("{OBJECTS}/notes/batch/read"),
+                        Body::Json(json!({
+                            "inputs": note_ids.iter().map(|i| json!({ "id": i.to_string() })).collect::<Vec<_>>(),
+                            "properties": ["hs_note_body", "hs_timestamp"],
+                        })),
+                    )
+                    .await
+                {
+                    Ok(v) => v["results"].as_array().cloned().unwrap_or_default(),
+                    // The record is still read; its notes need contacts' permission.
+                    Err(e) if e.starts_with(NOT_ALLOWED) => {
+                        notes_refused = true;
+                        Vec::new()
+                    }
+                    Err(e) => return Err(e),
+                }
             };
             notes.sort_by(|a, b| {
                 b["properties"]["hs_timestamp"]
@@ -756,7 +776,13 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                     }
                 }
             }
-            if notes.is_empty() {
+            if notes_refused {
+                lines.push(
+                    "Notes: HubSpot did not let Plenipo read them (the key needs \
+                     crm.objects.contacts.read)."
+                        .into(),
+                );
+            } else if notes.is_empty() {
                 lines.push("Notes: none.".into());
             } else {
                 lines.push(format!(
@@ -963,9 +989,14 @@ mod tests {
                 "crm.objects.contacts.write"
             ]
         );
+        // A record's notes are read with contacts' permission.
         assert_eq!(
             key_permissions(Part::Deals, false),
-            ["crm.objects.deals.read"]
+            ["crm.objects.deals.read", "crm.objects.contacts.read"]
+        );
+        assert_eq!(
+            key_permissions(Part::Contacts, false),
+            ["crm.objects.contacts.read"]
         );
         assert_eq!(Object::Deal.note_association(), 214);
         assert_eq!(note_body("a <b> & c\nd"), "a &lt;b&gt; &amp; c<br>d");

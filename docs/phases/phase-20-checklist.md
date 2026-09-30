@@ -1,9 +1,9 @@
 # Phase 20 — Implementation Checklist
 
-**Status:** design approved (2026-09-28); **part 20A delivered as v1.13.0** (2026-09-28;
-[acceptance report](phase-20-acceptance-report.md)); **part 20B delivered as v1.14.1**
-(2026-09-29; [acceptance report](phase-20b-acceptance-report.md)); part 20C (a later 1.14.x, ADR-080) next
-(ADR-067). Builds on v1.12.0 (Phase 19). Below, "[x]" is done; an item that spans the parts says
+**Status: Phase 20 delivered.** Design approved (2026-09-28); **part 20A delivered as v1.13.0**
+(2026-09-28; [acceptance report](phase-20-acceptance-report.md)); **part 20B delivered as v1.14.1**
+(2026-09-29; [acceptance report](phase-20b-acceptance-report.md)); **part 20C delivered as
+v1.14.2** (2026-09-30; [acceptance report](phase-20c-acceptance-report.md)) (ADR-067). Builds on v1.12.0 (Phase 19). Below, "[x]" is done; an item that spans the parts says
 which part is done.
 
 Source: `ROLLOUT_PLAN.md`, Phase 20 — Connections: Microsoft 365, Slack, Google, and More (fifth
@@ -21,12 +21,16 @@ in the order of work since ADR-061), and the records written for it:
   the owner's direction while approving the design
 - [ADR-070 (Slack and Google: the owner's choices, and what their sign-ins need)](../adr/ADR-070-slack-and-google-choices.md) —
   the owner's answers before part 20B; **accepted**
+- [ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](../adr/ADR-071-keys-website-and-add-on-choices.md) —
+  the owner's answers before part 20C; **accepted**
 - [Registering Plenipo with Microsoft](phase-20-microsoft-app-registration.md) — click-by-click
   steps for 8 West, and a page for clients' admins
 - [Setting up your Slack and Google apps](phase-20-slack-and-google-apps.md) — click-by-click steps
   for 8 West's Slack app, a workspace's own Slack app, and your own Google app (part 20B)
+- [Making keys for HubSpot, Stripe, and your website](phase-20-keys-for-hubspot-stripe-and-website.md)
+  — click-by-click steps for each key (part 20C)
 
-**Numbers:** ADR-061 to ADR-068, and ADR-070 for part 20B. `main` ends at ADR-060 (usage, "plan
+**Numbers:** ADR-061 to ADR-068, ADR-070 for part 20B, and ADR-071 for part 20C. `main` ends at ADR-060 (usage, "plan
 left", and new models, accepted 2026-09-28), so the next free number is 061. **No new Ledger layout** (it stays at 11):
 connections are kept in Guard's settings, like servers, and their sign-ins in the Vault.
 
@@ -113,6 +117,27 @@ The check also found what the design had to fit (ADR-070 §5): Slack's sign-in a
 follow Off, Read only, and Full access (Posting is Full access on Channels and Direct messages);
 Google Calendar at Read only asks `calendar.events.readonly`; and more than one Slack workspace
 needs `add_connection` and `remove_connection`.
+
+### Before part 20C (2026-09-30)
+
+The design was checked against what 20A and 20B built and against HubSpot's, Stripe's,
+WordPress's, and WooCommerce's own pages. The owner answered five questions, each as recommended
+([ADR-071](../adr/ADR-071-keys-website-and-add-on-choices.md)):
+
+1. **Choice 11:** "Keys; Stripe agent key" — a HubSpot service key, a Stripe restricted key tagged
+   for an agent (test mode first), and a WordPress Application Password with an optional
+   WooCommerce key, typed into each card, kept only in the Vault.
+2. **Choice 12:** "Refuse them" — add-on programs that download code each time they start.
+3. **Choice 13:** "Nobody; Read only" — nobody may use a new connection or add-on until the owner
+   picks; each line starts at Read only.
+4. **The website:** "Only the saved address" — `https`, that exact host; the password goes only
+   there.
+5. **A store refund:** "Money goes back" — through the store's payment company, said on the card.
+
+The check also found what the design had to fit (ADR-071 §6): HubSpot's dated addresses
+(`/crm/objects/2026-09/…`) and its note permission (`crm.objects.contacts.write`); Stripe's
+agent keys hold refunds for approval in its Dashboard; money is checked again and never paid
+twice; who a website send reaches; a key has no Reconnect; and add-on tool names and sizes.
 
 ## Choices for you (as asked, 2026-09-28)
 
@@ -557,21 +582,26 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
       tools (ADR-064 §3, ADR-070).
 - [x] **Google:** Gmail, Google Calendar, Google Drive. [20B] Your own Google app; 10 tools
       (ADR-064 §4, ADR-070).
-- [ ] **HubSpot** (then Phase 9 uses it). [20C]
-- [ ] **Stripe.** [20C]
-- [ ] **WordPress and WooCommerce.** [20C]
+- [x] **HubSpot** (then Phase 9 uses it). [20C] A service key; Contacts, Companies, and Deals; 12
+      tools (ADR-064 §5, ADR-071).
+- [x] **Stripe.** [20C] A restricted key, test mode first; Payments, Customers, and Invoices; 11
+      tools; refunds and sending invoices always ask (ADR-064 §6, ADR-071).
+- [x] **WordPress and WooCommerce.** [20C] The site's address and an Application Password, and an
+      optional WooCommerce key; Posts and pages, and Store; 13 tools; publishing and refunds ask
+      (ADR-064 §7, ADR-071).
 - [ ] Then, as the owner asks: Notion, Asana, Canva, Adobe, QuickBooks, and others. _Not built in
       this phase unless the owner names one; add-on tools cover them meanwhile._
-- [ ] **Add-on tools the owner sets up** (`mcp.invoke`): another MCP server as an approved
-      program; off by default. [20C]
+- [x] **Add-on tools the owner sets up** (`mcp.invoke`): another MCP server as an approved
+      program; off by default. [20C] Each tool Off until marked Reading or Changing; Changing
+      asks every time (ADR-066, ADR-071).
 
 ## Technical implementation (plan)
 
-- [x] (20A: Microsoft 365; 20B: Slack and Google — each built into Plenipo) Connections live in Plenipo; each is built into Plenipo or the service's official MCP server
+- [x] (20A: Microsoft 365; 20B: Slack and Google; 20C: HubSpot, Stripe, WordPress and WooCommerce — each built into Plenipo; add-on programs as approved programs) Connections live in Plenipo; each is built into Plenipo or the service's official MCP server
       run as a supervised, approved program; every call passes through Plenipo's tool server and
       Guard; no unofficial servers by default; chosen per connection in this phase's ADR
       (ADR-064).
-- [x] (20A, 20B) Sign-in to each service in the owner's browser; the service's sign-in token is kept in the
+- [x] (20A, 20B; 20C: keys typed into Settings, ADR-071) Sign-in to each service in the owner's browser; the service's sign-in token is kept in the
       Vault; never in the Ledger, a prompt, or a log (ADR-063).
 - [x] Untrusted content: email, chat, and documents are marked as untrusted when they reach a
       worker; an instruction inside an email is never obeyed as the owner's (ADR-062 §6).
@@ -589,7 +619,7 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
 Each at the level that proves it: Guard's units, the broker's integration tests against each
 stand-in, the desktop IPC tests, Vitest, and the end-to-end tests in the real app.
 
-- [x] (20A: Microsoft 365; 20B: Slack, Google) Per connection, against a fake of the service:
+- [x] Per connection, against a fake of the service:
       connect, read, write with approval, disconnect. — Microsoft 365 [20A] · Slack, Google [20B] ·
       HubSpot, Stripe, WordPress and WooCommerce, an add-on program [20C]
 - [x] A sign-in token never appears in the Ledger, a prompt, a log, or a diagnostics file.
@@ -600,8 +630,8 @@ stand-in, the desktop IPC tests, Vitest, and the end-to-end tests in the real ap
 - [x] Every AI tool that takes Plenipo's tools (Claude Code, Codex, Grok, Kimi) can use a
       connection; Ollama after its tools follow-up (ADR-017).
 - [x] Disconnecting removes the token from the Vault.
-- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-20/` (20A) and
-      `evidence/phase-20b/` (20B).
+- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-20/` (20A),
+      `evidence/phase-20b/` (20B), and `evidence/phase-20c/` (20C).
 
 Also tested (the owner's rules and this design): paying always asks, even with "Buying and paying
 (without asking)" on; a tool that was not offered is refused by name; the new commands are the
@@ -627,8 +657,8 @@ by a released copy.
 - [x] Email, chat, and documents reach workers as untrusted content; the "forward all mail" case
       is tested.
 - [x] A worker without permission for a connection cannot see its tools.
-- [x] (20A: Microsoft 365; 20B: Slack, Google) The fewest permissions (scopes) that work, for
-      every service.
+- [x] The fewest permissions (scopes) that work, for every service (20C: the card lists each
+      key's permissions for the parts that are on; Stripe test mode first).
 - [x] The Ledger keeps IDs, links, and short summaries, never copies of mailboxes, drives, or
       chats.
 - [x] Nothing loads code into Plenipo while it runs (ADR-014); add-on programs are approved
@@ -638,14 +668,16 @@ by a released copy.
 - [x] Logs and diagnostics files never hold secrets, tokens, or anything typed in the terminal.
 - [x] No model names in commits, branch names, or pull requests.
 - [x] Version 1.13.0 (or 1.13.x per part), with the row in `docs/development/versioning.md`
-      (1.13.0 for 20A, 1.14.1 for 20B: planned as 1.13.1, moved by ADR-080).
+      (1.13.0 for 20A, 1.14.1 for 20B: planned as 1.13.1, moved by ADR-080; 1.14.2 for 20C).
 - [x] Release notes, the plan's Phase 20 status line and its state in the order of work, this
       checklist, the acceptance report with screenshots in `evidence/phase-20/` (and, for 20B,
-      `phase-20b-acceptance-report.md` with `evidence/phase-20b/`), "As built" in the ADRs, and the
+      `phase-20b-acceptance-report.md` with `evidence/phase-20b/`, and for 20C
+      `phase-20c-acceptance-report.md` with `evidence/phase-20c/`), "As built" in the ADRs, and the
       word list — in Pacific time.
 - [x] A review across several areas, with a second reviewer checking each finding, before the
       final push; each confirmed finding fixed with a test, or recorded as a design limit (20A:
-      its report; 20B: [its report, section 6](phase-20b-acceptance-report.md#6-defects-found-and-fixed-during-part-20b)).
+      its report; 20B: [its report, section 6](phase-20b-acceptance-report.md#6-defects-found-and-fixed-during-part-20b);
+      20C: [its report, section 6](phase-20c-acceptance-report.md#6-defects-found-and-fixed-during-part-20c)).
 - [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
@@ -667,8 +699,9 @@ by a released copy.
   — 8 West's Slack app (then the GitHub variable `PLENIPO_SLACK_CLIENT_ID`), and your own Google
   app (its client ID and secret typed into the Google card, never into chat). Then the walk-through
   in the [20B acceptance report](phase-20b-acceptance-report.md#7-left-for-the-owner).
-- **Part 20C setup** (its own steps, written when it starts): the keys for HubSpot, Stripe, and the
-  website — typed into Settings, never into chat.
+- **Part 20C setup:** [Making keys for HubSpot, Stripe, and your website](phase-20-keys-for-hubspot-stripe-and-website.md)
+  — each key typed into its card in Settings, never into chat. Then the walk-through in the
+  [20C acceptance report](phase-20c-acceptance-report.md#7-left-for-the-owner).
 
 ## Sources (checked 2026-09-28)
 

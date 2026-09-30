@@ -4321,6 +4321,40 @@ async fn hubspot_connect_read_write_and_disconnect() {
     assert!(!recorded.contains("ignore your instructions"));
     assert!(!recorded.contains("Called about the upgrade"));
 
+    // While connected, a key whose account Plenipo cannot learn (it may not read the account's
+    // number) does not replace the key: it could be another HubSpot account.
+    let err = h
+        .save_key(HUBSPOT, &key(hubspot::READ_KEY))
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("cannot tell whether that key is for the same HubSpot account"),
+        "{err}"
+    );
+    assert_eq!(
+        h.vault_value_at(&plenipo_capabilities::connections::vault_id(HUBSPOT))
+            .as_deref(),
+        Some(hubspot::KEY)
+    );
+
+    // A key that may read companies but not contacts: the company is read, and its notes are
+    // said to need contacts' permission.
+    h.broker.disconnect_connection(HUBSPOT).await.unwrap();
+    h.save_key(HUBSPOT, &key(hubspot::COMPANY_KEY))
+        .await
+        .unwrap();
+    let (_, text) = h
+        .run(&tool("hubspot_company_read", json!({ "id": "61" })))
+        .await;
+    // (This key may not read which account it is: the fence says just "HubSpot".)
+    let read = result_of(&text, "hubspot_company_read");
+    let inside = inside_fence(&read, "records", "HubSpot", "the service").join("\n");
+    assert!(inside.contains("Client Co · id 61"), "{text}");
+    assert!(
+        text.contains("Notes: HubSpot did not let Plenipo read them (the key needs crm.objects.contacts.read)."),
+        "{text}"
+    );
+
     // A key that may only read: HubSpot refuses the change, and the worker hears which
     // permission to add.
     h.broker.disconnect_connection(HUBSPOT).await.unwrap();
@@ -4470,18 +4504,15 @@ async fn stripe_connect_read_refund_invoice_with_approval_and_disconnect() {
     let payments = result_of(&text, "stripe_payments");
     let inside = inside_fence(&payments, "records", STRIPE_TEST, "the service").join("\n");
     assert!(inside.contains(stripe::PLANTED), "{inside}");
-    // The card showed the payment's own description; the record keeps "(not kept)" instead.
-    assert!(a.detail.contains(&stripe::PLANTED[..40]), "{}", a.detail);
+    // The payment's own description (the planted words) is on neither the card nor the record.
+    assert!(!a.detail.contains(&stripe::PLANTED[..40]), "{}", a.detail);
     let refund = h
         .events(&task, "capability.used")
         .into_iter()
         .find(|e| e["tool"] == "stripe_refund")
         .unwrap();
     let kept = refund["detail"].as_str().unwrap();
-    assert!(
-        kept.contains("Payment: pi_3TestAlexRivera01") && kept.contains("(not kept)"),
-        "{kept}"
-    );
+    assert!(kept.contains("Payment: pi_3TestAlexRivera01"), "{kept}");
     assert!(!kept.contains(&stripe::PLANTED[..40]), "{kept}");
     assert!(
         text.contains("Tool stripe_invoice_draft: Draft invoice in_"),
@@ -4556,6 +4587,38 @@ async fn stripe_connect_read_refund_invoice_with_approval_and_disconnect() {
         "{kept}"
     );
     assert!(!kept.contains("Website support"), "{kept}");
+    // An invoice paid while the owner decides is not sent again.
+    let task = h
+        .objective(&tool(
+            "stripe_invoice_send",
+            json!({ "id": stripe::DRAFT_INVOICE }),
+        ))
+        .await;
+    let a = h.pending().await;
+    assert!(a.detail.contains("Send again invoice"), "{}", a.detail);
+    let sends = |h: &H| {
+        h.ms.world()
+            .stripe
+            .changes
+            .iter()
+            .filter(|c| c["sent"] == stripe::DRAFT_INVOICE)
+            .count()
+    };
+    let before = sends(&h);
+    for inv in h.ms.world().stripe.invoices.iter_mut() {
+        if inv["id"] == stripe::DRAFT_INVOICE {
+            inv["status"] = json!("paid");
+        }
+    }
+    h.answer(&a, true);
+    h.finished(&task).await;
+    assert!(
+        h.text(&task)
+            .contains("Not sent: the invoice changed after it was checked"),
+        "{}",
+        h.text(&task)
+    );
+    assert_eq!(sends(&h), before);
     let changes = h.ms.world().stripe.changes.clone();
     assert!(changes
         .iter()
@@ -4654,6 +4717,51 @@ async fn stripe_money_is_checked_again_never_paid_twice_and_modes_stay_apart() {
             .cloned()
             .collect();
     assert_eq!(refunds.len(), 1, "paid once");
+
+    // The connection drops after Stripe made the refund: Plenipo sends it once more with the same
+    // idempotency key, Stripe answers as the first time, and it happens once.
+    let refund = |amount: &str| {
+        tool(
+            "stripe_refund",
+            json!({ "payment": stripe::PAYMENT, "amount": amount }),
+        )
+    };
+    let made = |h: &H, cents: i64| {
+        h.ms.world()
+            .stripe
+            .refunds
+            .iter()
+            .filter(|r| r["amount"] == cents)
+            .count()
+    };
+    h.ms.world().lose_answers_to = Some(("POST /api.stripe.com/v1/refunds".into(), 1));
+    let task = h.objective(&refund("7.00")).await;
+    let a = h.pending().await;
+    h.answer(&a, true);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    assert!(
+        h.text(&task).contains("Tool stripe_refund: Refund re_"),
+        "{}",
+        h.text(&task)
+    );
+    assert_eq!(made(&h, 700), 1, "paid once");
+    // Both answers lost: the worker is told it may have been done — never "Not done", which
+    // would invite asking again — and it was done once.
+    h.ms.world().lose_answers_to = Some(("POST /api.stripe.com/v1/refunds".into(), 2));
+    let task = h.objective(&refund("3.00")).await;
+    let a = h.pending().await;
+    h.answer(&a, true);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    assert!(
+        text.contains(
+            "Tool stripe_refund failed: Maybe done: Stripe's answer was lost on the way, so \
+             Plenipo cannot tell whether Stripe did it. Check in Stripe before asking for it again."
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("Not done"), "{text}");
+    assert_eq!(made(&h, 300), 1, "paid once");
 
     // A test key never sees a live payment.
     let (_, text) = h
@@ -5066,6 +5174,47 @@ async fn store_sends_ask_unless_the_customer_is_listed_and_publishing_and_money_
         .done
         .iter()
         .any(|d| d["refund"].is_number()));
+
+    // The store refunds, but its answer is lost on the way: Plenipo never sends a store refund
+    // twice, and tells the worker it may be done — never "Not done".
+    h.ms.world().lose_answers_to = Some((
+        "POST /shop.example.com/wp-json/wc/v3/orders/1042/refunds".into(),
+        1,
+    ));
+    let task = h
+        .objective(&tool("wp_refund", json!({ "id": 1042, "amount": "2.00" })))
+        .await;
+    let a = h.pending().await;
+    h.answer(&a, true);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    assert!(
+        text.contains(
+            "Tool wp_refund failed: Maybe done: WordPress and WooCommerce's answer was lost on the \
+             way"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("Look at order 1042 in WooCommerce: it may be refunded."),
+        "{text}"
+    );
+    assert!(!text.contains("Not done"), "{text}");
+    let refunds: Vec<String> = h
+        .requests()
+        .into_iter()
+        .filter(|r| r.starts_with("POST /shop.example.com/wp-json/wc/v3/orders/1042/refunds"))
+        .collect();
+    assert_eq!(refunds.len(), 1, "sent once: {refunds:?}");
+    assert_eq!(
+        h.ms.world()
+            .wordpress
+            .done
+            .iter()
+            .filter(|d| d["refund"].is_number())
+            .count(),
+        1
+    );
 }
 
 /// A worker that is not on a keyed connection's list sees none of its tools, and a tool called by
@@ -5076,26 +5225,46 @@ async fn a_worker_without_permission_sees_no_keyed_tools() {
     h.parts_of(STRIPE, &[(Part::Payments, PartLevel::FullAccess)]);
     h.save_key(STRIPE, &key(stripe::TEST_KEY)).await.unwrap();
     h.save_key(HUBSPOT, &key(hubspot::KEY)).await.unwrap();
+    h.save_key(SITE, &site_key(None)).await.unwrap();
+    // An add-on that is on, with a Reading tool, but nobody on its list.
+    let log = h.dir.path().join("addon-calls.jsonl");
+    let a = h.add_test_add_on("Tickets", &["--log".into(), log.display().to_string()]);
+    h.change(
+        &a.id,
+        AddOnChange {
+            on: Some(true),
+            ..AddOnChange::default()
+        },
+    )
+    .unwrap();
+    h.mark(&a.id, &[("lookup_order", ToolMark::Reading)]);
     let before = h.requests().len();
     let (task, text) = h
         .run(&format!(
-            "[tools-list] {} {}",
+            "[tools-list] {} {} {} {}",
             tool("stripe_refund", json!({ "payment": stripe::PAYMENT })),
             tool("hubspot_contacts_search", json!({})),
+            tool("wp_posts", json!({})),
+            tool("addon_tickets_lookup_order", json!({ "order": "1" })),
         ))
         .await;
-    assert!(offered_with(&text, "stripe_").is_empty(), "{text}");
-    assert!(offered_with(&text, "hubspot_").is_empty(), "{text}");
-    assert!(
-        text.contains("Blocked: stripe_refund is not offered to you."),
-        "{text}"
-    );
-    assert!(
-        text.contains("Blocked: hubspot_contacts_search is not offered to you."),
-        "{text}"
-    );
+    for prefix in ["stripe_", "hubspot_", "wp_", "addon_"] {
+        assert!(offered_with(&text, prefix).is_empty(), "{prefix}: {text}");
+    }
+    for name in [
+        "stripe_refund",
+        "hubspot_contacts_search",
+        "wp_posts",
+        "addon_tickets_lookup_order",
+    ] {
+        assert!(
+            text.contains(&format!("Blocked: {name} is not offered to you.")),
+            "{name}: {text}"
+        );
+    }
     assert_eq!(h.requests().len(), before, "nothing reached a service");
-    assert_eq!(h.events(&task, "guard.denied").len(), 2);
+    assert!(!log.exists(), "the add-on program was never started");
+    assert_eq!(h.events(&task, "guard.denied").len(), 4);
     // Read only: reading tools, no refund.
     h.allow_on(
         STRIPE,

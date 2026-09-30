@@ -57,6 +57,9 @@ pub struct World {
     pub slow_sign_in_ms: u64,
     /// Wait this long before answering a token request (tests disconnect or cancel meanwhile).
     pub slow_token_ms: u64,
+    /// Do the next N requests whose method and path start with this ("POST /api.stripe.com/…"),
+    /// then close the connection without answering: the answer is lost after the service acted.
+    pub lose_answers_to: Option<(String, u32)>,
     /// Answer the sign-in page as when the owner goes back from Microsoft's "Need admin
     /// approval" page (Microsoft says the user declined, AADSTS65004).
     pub decline_consent: bool,
@@ -478,6 +481,23 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
         tokio::time::sleep(std::time::Duration::from_millis(slow_token)).await;
     }
     let resp = route(&req, &world);
+    let lost = {
+        let mut w = world.lock().unwrap();
+        match &mut w.lose_answers_to {
+            Some((prefix, n))
+                if *n > 0
+                    && format!("{} {}", req.method, req.path).starts_with(prefix.as_str()) =>
+            {
+                *n -= 1;
+                w.requests.push(format!("LOST {} {}", req.method, req.path));
+                true
+            }
+            _ => false,
+        }
+    };
+    if lost {
+        return stream.shutdown().await;
+    }
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         resp.status,

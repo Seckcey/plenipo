@@ -111,15 +111,17 @@ fn currency(a: &Args<'_>) -> Result<String, String> {
 pub fn key_permissions(part: Part, full: bool) -> Vec<&'static str> {
     match (part, full) {
         (Part::Payments, false) => vec!["Balance: Read", "PaymentIntents: Read", "Payouts: Read"],
+        // A refund's or an invoice's card names its customer, which needs reading customers.
         (Part::Payments, true) => vec![
             "Balance: Read",
             "PaymentIntents: Read",
             "Payouts: Read",
             "Charges and Refunds: Write",
+            "Customers: Read",
         ],
         (Part::Customers, _) => vec!["Customers: Read"],
         (Part::Invoices, false) => vec!["Invoices: Read", "Subscriptions: Read"],
-        (Part::Invoices, true) => vec!["Invoices: Write", "Subscriptions: Read"],
+        (Part::Invoices, true) => vec!["Invoices: Write", "Subscriptions: Read", "Customers: Read"],
         _ => Vec::new(),
     }
 }
@@ -478,10 +480,11 @@ pub fn parse(name: &str, args: &Value) -> Result<Call, String> {
         }
         "stripe_customers" => {
             let a = Args::new(args, &["email", "limit"])?;
-            let email = a.opt("email", 200)?.map(|e| e.trim().to_lowercase());
+            // As given: Stripe's email filter tells capitals apart.
+            let email = a.opt("email", 200)?.map(|e| e.trim().to_owned());
             if email
                 .as_ref()
-                .is_some_and(|e| !plenipo_guard::connections::is_address(e))
+                .is_some_and(|e| !plenipo_guard::connections::is_address(&e.to_lowercase()))
             {
                 return Err("\"email\" is not an email address".into());
             }
@@ -631,6 +634,15 @@ impl Approved {
 }
 
 impl Api<'_> {
+    /// Whether the key kept now is a live one, read afresh: a key replaced while the owner
+    /// decided is not the one approved.
+    fn live_now(&self) -> bool {
+        self.conns
+            .guard()
+            .connection(&self.id)
+            .is_ok_and(|c| c.granted.iter().any(|g| g == "live mode"))
+    }
+
     fn mode(&self) -> &'static str {
         if self.live {
             "Live mode"
@@ -949,16 +961,11 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<(Planned, Vec<Stri
                 .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
                 .map(|t| t.format("%Y-%m-%d").to_string())
                 .unwrap_or_default();
-            let description: String = pi["description"]
-                .as_str()
-                .unwrap_or_default()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(120)
-                .collect();
+            // The payment's own description is not shown: it is the payment's words (it may hold
+            // anything), and the card's record would keep it (ADR-062 §7).
             let mut detail = format!(
                 "Refund: {} (of {} paid; {} left to refund after this)\nTo: {who}\nPayment: \
-                 {payment}{}{}\n",
+                 {payment}{}\n",
                 money(asked, &cur),
                 money(received, &cur),
                 money(left - asked, &cur),
@@ -967,16 +974,6 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<(Planned, Vec<Stri
                 } else {
                     format!(" · {when}")
                 },
-                if description.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        " · {}",
-                        card_only(&format!(
-                            "\"{description}\" (the payment's own description)"
-                        ))
-                    )
-                },
             );
             if let Some(r) = reason {
                 detail.push_str(&format!("Reason: {}\n", r.replace('_', " ")));
@@ -984,7 +981,8 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<(Planned, Vec<Stri
             detail.push_str(api.mode_line());
             detail.push_str(
                 "\nIf your Stripe key is tagged for an agent, Stripe also asks you in its \
-                 Dashboard before the refund goes out.",
+                 Dashboard before the refund goes out. A refund Stripe is still holding for you is \
+                 not counted in what is left: check Stripe's approval requests first.",
             );
             let approved = Approved {
                 amount: asked,
@@ -1524,7 +1522,7 @@ pub(crate) async fn carry_out(
             let (received, refunded, cur, customer, _) = api.refundable(payment).await?;
             if cur != approved.currency
                 || customer != approved.customer
-                || approved.live != api.live
+                || approved.live != api.live_now()
                 || received - refunded < approved.amount
             {
                 return Err(
@@ -1587,7 +1585,10 @@ pub(crate) async fn carry_out(
                     && inv["collection_method"].as_str() == Some("send_invoice")
             };
             let inv = api.get(&format!("invoices/{id}"), &[]).await?;
-            if !same(&inv) || approved.live != api.live {
+            // Still a draft or open: an invoice paid, voided, or written off meanwhile is not
+            // sent again.
+            let sendable = matches!(inv["status"].as_str(), Some("draft" | "open"));
+            if !same(&inv) || !sendable || approved.live != api.live_now() {
                 return Err(
                     "Not sent: the invoice changed after it was checked. Ask again.".into(),
                 );

@@ -19,7 +19,7 @@ use super::http::{Body, Reply};
 use super::keyed::{wordpress_code, Cred};
 use super::microsoft365::{clip_text, query, record, words_kept, Args, MAX_ITEMS};
 use super::text::html_to_text;
-use super::{card_only, Connections, Done, Plan, Tool, MAX_ANSWER};
+use super::{card_only, Connections, Done, Plan, Tool, MAX_ANSWER, MAYBE_DONE};
 use crate::fence::{self, Source};
 use crate::tools::ToolDef;
 
@@ -1642,10 +1642,11 @@ pub(crate) async fn carry_out(api: &Api<'_>, planned: &Planned) -> Result<Done, 
                 )
                 .await
                 .map_err(|e| {
-                    format!(
-                        "{e} Plenipo could not tell whether the refund was made: check order {id} \
-                         in WooCommerce before trying again."
-                    )
+                    if e.starts_with(MAYBE_DONE) {
+                        format!("{e} Look at order {id} in WooCommerce: it may be refunded.")
+                    } else {
+                        e
+                    }
                 })?;
             if !reply.ok() {
                 return Err(match wordpress_code(&reply).as_str() {

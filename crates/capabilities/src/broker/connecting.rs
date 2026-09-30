@@ -820,7 +820,13 @@ impl Broker {
             }
             Err(e) => {
                 let line = super::first_line(&e);
-                (format!("Not done: {e}"), false, line, Value::Null)
+                // A change whose answer was lost says so, never "Not done" (ADR-071 §6.5).
+                let text = if e.starts_with(crate::connections::MAYBE_DONE) {
+                    e
+                } else {
+                    format!("Not done: {e}")
+                };
+                (text, false, line, Value::Null)
             }
         };
         let text = self.redact(&text);

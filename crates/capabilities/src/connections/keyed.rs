@@ -16,7 +16,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::http::{Auth, Body, HttpError, Reply};
-use super::{lock, name_of, vault_id, Connections, MAX_TOKEN_ANSWER};
+use super::{lock, name_of, vault_id, Connections, MAX_TOKEN_ANSWER, MAYBE_DONE};
 use crate::vault;
 
 /// The longest key, password, or secret taken.
@@ -247,6 +247,7 @@ fn same_account(
     granted: &[String],
 ) -> bool {
     let mode = |g: &[String]| g.iter().find(|x| x.ends_with(" mode")).cloned();
+    // (An account Plenipo could not learn is refused before this while connected.)
     let same_tenant = match (&before.tenant, &after.tenant) {
         (Some(a), Some(b)) => a == b,
         _ => true,
@@ -283,14 +284,16 @@ impl Connections {
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
         let service = conn.service;
         let typed = typed(service, input)?;
-        // The website's address first: the gate lets the check reach only that host. It is not
-        // a secret, and is changed only while not connected.
+        // This save's turn first, so an earlier save still checking cannot keep its key once
+        // this one changes the address.
+        let turn = lock(&self.state).next(id);
+        // The website's address: the gate lets the check reach only that host. It is not a
+        // secret, and is changed only while not connected.
         if let Typed::Wordpress { site, .. } = &typed {
             self.guard()
                 .set_connection_site(id, site)
                 .map_err(|e| e.to_string())?;
         }
-        let turn = lock(&self.state).next(id);
         let (checked, main, store) = match &typed {
             Typed::Hubspot(key) => (self.check_hubspot(key).await?, key.clone(), None),
             Typed::Stripe { key, live } => {
@@ -317,8 +320,29 @@ impl Connections {
                 ));
             }
             let now = self.guard().connection(id).map_err(|e| e.to_string())?;
-            if now.state != ConnectionState::NotConnected {
+            // The password was checked at this address, and goes to no other.
+            if let Typed::Wordpress { site, .. } = &typed {
+                if now.site.as_deref() != Some(site.as_str()) {
+                    return Err(
+                        "The site's address changed while the key was checked. Nothing was kept."
+                            .into(),
+                    );
+                }
+            }
+            let connected = now.state != ConnectionState::NotConnected;
+            if connected {
                 let before = now.account.clone().unwrap_or_default();
+                let unknown = before.tenant.is_none() || checked.account.tenant.is_none();
+                // Connected: an account Plenipo cannot tell apart needs Disconnect first. A key
+                // the service stopped taking is replaced unless it is clearly another account.
+                if unknown && now.state == ConnectionState::Connected {
+                    return Err(format!(
+                        "Plenipo cannot tell whether that key is for the same {} account (the key \
+                         may not read which account it is). To replace it, press Disconnect first, \
+                         then save the new key: its parts and lists stay. Nothing was kept.",
+                        service.label()
+                    ));
+                }
                 if !same_account(&before, &checked.account, &now.granted, &checked.granted) {
                     return Err(format!(
                         "That key is for another {} account (or the other mode). To switch, press \
@@ -337,6 +361,9 @@ impl Connections {
                     let before = vault::read(self.store.as_ref(), &store_id).ok().flatten();
                     self.keep_at(&store_id, value, before.as_deref(), "the WooCommerce key")
                 }
+                // Replacing the password while connected keeps a WooCommerce key already kept
+                // (Disconnect removes it); before connecting, none is left from an earlier one.
+                None if connected => Ok(()),
                 None => vault::erase(self.store.as_ref(), &store_id).map_err(|e| {
                     format!(
                         "Plenipo could not remove the old WooCommerce key from {} ({e}).",
@@ -747,14 +774,63 @@ impl Connections {
         if service == Service::Stripe {
             all.push(("Stripe-Version", STRIPE_VERSION));
         }
-        let reply = self
+        // HubSpot searches and reads a batch with POST; neither changes anything.
+        let changes = method != reqwest::Method::GET
+            && !url.ends_with("/search")
+            && !url.ends_with("/batch/read");
+        // A change is sent again after "too many requests" or "unavailable" only to Stripe, which
+        // tells a repeat by its idempotency key; elsewhere it could be done twice.
+        let retry = retry && (!changes || service == Service::Stripe);
+        let again = body.clone();
+        let mut sent = self
             .http
-            .send_with(service, method, url, Some(auth), &all, body, limit, retry)
-            .await
-            .map_err(|e| match e {
-                HttpError::TooBig => format!("{name}'s answer was too big to use here."),
-                other => other.to_string(),
-            })?;
+            .send_with(
+                service,
+                method.clone(),
+                url,
+                Some(auth),
+                &all,
+                body,
+                limit,
+                retry,
+            )
+            .await;
+        // A Stripe change whose answer was lost is sent once more with the same idempotency key:
+        // Stripe answers as it did the first time, and never does it twice (ADR-071 §6.5).
+        if matches!(sent, Err(HttpError::NoAnswer(_)))
+            && retry
+            && changes
+            && service == Service::Stripe
+            && headers.iter().any(|(h, _)| *h == "Idempotency-Key")
+        {
+            sent = self
+                .http
+                .send_with(service, method, url, Some(auth), &all, again, limit, false)
+                .await;
+        }
+        let reply = sent.map_err(|e| match e {
+            HttpError::TooBig => format!("{name}'s answer was too big to use here."),
+            HttpError::NoAnswer(why) if changes => format!(
+                "{MAYBE_DONE}{why}, so Plenipo cannot tell whether {name} did it. Check in {name} \
+                 before asking for it again."
+            ),
+            other => other.to_string(),
+        })?;
+        // A service that failed while changing something may have done it (Stripe: "treat the
+        // result of a 500 as indeterminate"; a 409 is a request with the same key still going).
+        // (A WordPress error with its own code is a clear "no": WooCommerce answers a refund the
+        // payment company refused with 500 and undoes it.)
+        let clear_no = service == Service::Wordpress && !wordpress_code(&reply).is_empty();
+        if changes
+            && !clear_no
+            && (reply.status >= 500 || (service == Service::Stripe && reply.status == 409))
+        {
+            return Err(format!(
+                "{MAYBE_DONE}{name} had a problem while doing it ({}), so Plenipo cannot tell \
+                 whether it was done. Check in {name} before asking for it again.",
+                reply.status
+            ));
+        }
         if let Some(reason) = key_gone(service, using_store, &reply) {
             {
                 let _commit = lock(&self.commit);

@@ -75,8 +75,11 @@ impl Reply {
 pub(crate) enum HttpError {
     /// Guard's gate refused an address (the reason, in plain words).
     Refused(String),
-    /// The network or the service failed (plain words).
+    /// The network or the service failed before the request reached it (plain words).
     Network(String),
+    /// The request may have reached the service, but no whole answer came back (plain words):
+    /// a change may have been made.
+    NoAnswer(String),
     /// The answer was bigger than allowed.
     TooBig,
 }
@@ -84,7 +87,7 @@ pub(crate) enum HttpError {
 impl std::fmt::Display for HttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Refused(why) | Self::Network(why) => f.write_str(why),
+            Self::Refused(why) | Self::Network(why) | Self::NoAnswer(why) => f.write_str(why),
             Self::TooBig => f.write_str("the answer was too big"),
         }
     }
@@ -299,11 +302,13 @@ impl Http {
                 };
             }
             let response = request.send().await.map_err(|e| {
-                HttpError::Network(if e.is_timeout() {
-                    format!("{} took too long to answer", service.label())
+                if e.is_connect() {
+                    HttpError::Network(format!("Plenipo could not reach {}", service.label()))
+                } else if e.is_timeout() {
+                    HttpError::NoAnswer(format!("{} took too long to answer", service.label()))
                 } else {
-                    format!("Plenipo could not reach {}", service.label())
-                })
+                    HttpError::NoAnswer(format!("{}'s answer was lost on the way", service.label()))
+                }
             })?;
             let status = response.status();
             if status.is_redirection() {
@@ -341,7 +346,7 @@ impl Http {
             let mut data = Vec::new();
             let mut response = response;
             while let Some(chunk) = response.chunk().await.map_err(|_| {
-                HttpError::Network(format!("{}'s answer was cut off", service.label()))
+                HttpError::NoAnswer(format!("{}'s answer was cut off", service.label()))
             })? {
                 data.extend_from_slice(&chunk);
                 if data.len() > limit {

@@ -250,6 +250,10 @@ pub struct Plan<C> {
     pub approved_as: Option<(Vec<String>, String)>,
 }
 
+/// How a keyed connection's error starts when a change may have been made although no answer
+/// came back: the worker is told to check before asking again, never "Not done" (ADR-071 §6.5).
+pub(crate) const MAYBE_DONE: &str = "Maybe done: ";
+
 /// Mark the start and the end of a part of a card's detail that is [`card_only`].
 const CARD_ONLY: [char; 2] = ['\u{1e}', '\u{1f}'];
 
@@ -1530,7 +1534,12 @@ impl Connections {
         if let (Some(conn), Some(kept)) = (conn, kept) {
             let cancelled = tokio::time::timeout(
                 CANCEL_WAIT,
-                self.cancel_at_service(conn.service, &kept, access.as_deref()),
+                self.cancel_at_service(
+                    conn.service,
+                    &kept,
+                    access.as_deref(),
+                    conn.site.as_deref(),
+                ),
             )
             .await
             .unwrap_or_else(|_| Err(format!("{} took too long to answer", conn.label())));
@@ -1570,6 +1579,7 @@ impl Connections {
         service: Service,
         kept: &str,
         access: Option<&str>,
+        site: Option<&str>,
     ) -> Result<(), String> {
         match service {
             Service::Slack => {
@@ -1627,12 +1637,9 @@ impl Connections {
                 }
             }
             Service::Wordpress => {
-                let site = self
-                    .guard()
-                    .connection("wordpress")
-                    .ok()
-                    .and_then(|c| c.site)
-                    .ok_or("the site's address is gone")?;
+                // The address the password was kept for, read before Disconnect: never one
+                // saved since.
+                let site = site.ok_or("the site's address is gone")?;
                 let (user, password) = kept.rsplit_once(':').ok_or("the password was not whole")?;
                 let auth = http::Auth::Basic { user, password };
                 let send = |method: reqwest::Method, url: String| async move {
@@ -1652,8 +1659,17 @@ impl Connections {
                 };
                 let base = format!("{site}/wp-json/wp/v2/users/me/application-passwords");
                 let me = send(reqwest::Method::GET, format!("{base}/introspect")).await?;
-                // A password the site no longer takes is revoked already.
-                if me.status == 401 {
+                // A password the site no longer takes is revoked already (not a site that drops
+                // the sign-in on its way, which answers 401 too).
+                let refused = |r: &http::Reply| {
+                    r.status == 401
+                        && matches!(
+                            keyed::wordpress_code(r).as_str(),
+                            "incorrect_password" | "invalid_username" | "invalid_email"
+                        )
+                        || keyed::wordpress_code(r).starts_with("application_passwords_disabled")
+                };
+                if refused(&me) {
                     return Ok(());
                 }
                 let uuid = me.json()["uuid"]
@@ -1664,7 +1680,7 @@ impl Connections {
                     .map(str::to_owned)
                     .ok_or_else(|| format!("your site answered {}", me.status))?;
                 let gone = send(reqwest::Method::DELETE, format!("{base}/{uuid}")).await?;
-                if gone.ok() || gone.status == 401 {
+                if gone.ok() || refused(&gone) {
                     Ok(())
                 } else {
                     Err(format!("your site answered {}", gone.status))

@@ -18,6 +18,8 @@ use super::microsoft::{json_resp, ok, Req, Resp, World};
 pub const KEY: &str = "plenipo-test-hubspot-key-full-access";
 pub const READ_KEY: &str = "plenipo-test-hubspot-key-read-only";
 pub const DEAD_KEY: &str = "plenipo-test-hubspot-key-no-longer-taken";
+/// A key that may read companies only (not contacts, so not notes either).
+pub const COMPANY_KEY: &str = "plenipo-test-hubspot-key-companies-only";
 /// The HubSpot account.
 pub const PORTAL: u64 = 24681357;
 /// The contact the tests use, and the planted instruction in one of its notes.
@@ -91,9 +93,16 @@ impl Hubspot {
             )],
         );
         Self {
-            keys: [(KEY.to_owned(), all), (READ_KEY.to_owned(), read)]
-                .into_iter()
-                .collect(),
+            keys: [
+                (KEY.to_owned(), all),
+                (READ_KEY.to_owned(), read),
+                (
+                    COMPANY_KEY.to_owned(),
+                    vec!["crm.objects.companies.read".to_owned()],
+                ),
+            ]
+            .into_iter()
+            .collect(),
             records,
             notes: vec![
                 json!({ "id": "901", "properties": { "hs_note_body": "<p>Called Alex about the server upgrade.</p>", "hs_timestamp": "2026-09-28T16:00:00.000Z" } }),
@@ -102,6 +111,7 @@ impl Hubspot {
             links: vec![
                 ("901".into(), "contacts".into(), ALEX.into()),
                 ("902".into(), "contacts".into(), ALEX.into()),
+                ("901".into(), "companies".into(), "61".into()),
             ],
             saved: Vec::new(),
             next: 1000,
@@ -161,8 +171,11 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
         // rule for notes on any record).
         return match (req.method.as_str(), parts.get(1).copied()) {
             ("POST", Some("batch")) => {
-                if let Some(r) = need("crm.objects.contacts.read") {
-                    return r;
+                if !scopes
+                    .iter()
+                    .any(|s| s.starts_with("crm.objects.contacts."))
+                {
+                    return need("crm.objects.contacts.read").unwrap();
                 }
                 let body: Value = serde_json::from_slice(&req.body).unwrap_or_default();
                 let ids: Vec<String> = body["inputs"]
