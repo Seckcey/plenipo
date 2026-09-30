@@ -32,7 +32,7 @@
 
 - [x] Merged ([Seckcey/plenipo#98](https://github.com/Seckcey/plenipo/pull/98))
 - [x] Installed, and the first update to v1.11.0 run: live at
-      <https://getplenipo.com/#whats-new>
+      <https://plenipo.8westit.com/#whats-new>
 - [x] Timer on, running as the deploy account, every 15 minutes
 
 ## Follow-up (the same day)

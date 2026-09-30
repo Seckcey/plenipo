@@ -8,7 +8,7 @@
 
 ## Context
 
-The website at <https://getplenipo.com> runs on Coastline. Its version (the download
+The website at <https://plenipo.8westit.com> runs on Coastline. Its version (the download
 buttons, the version labels, the structured data, and `release.json`) is filled in when its
 image is built, and until now a person logged in to Coastline and built and started it by hand.
 So the site fell behind: on 2026-09-29 it still showed v1.6.0 while v1.11.0 was the latest
