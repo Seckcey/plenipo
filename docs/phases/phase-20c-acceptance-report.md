@@ -215,4 +215,6 @@ Locally on Linux, before pushing (2026-09-30, at 1.14.2):
 - **End to end:** `tests/e2e/specs/connections.e2e.mjs` on the 1.14.2 release build with the
   stand-ins: all 27 tests pass (8 for part 20A, 10 for part 20B, 9 for part 20C).
 
-On GitHub: pull request #104. (Its checks are recorded here once they are green.)
+On GitHub: pull request #104. Every check passed on commit `4386715`: Rust, Frontend, Docs, the
+website build, the real app on Linux (E2E), and Windows (tests, build, installer, launch, and
+installer tests).
