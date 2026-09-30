@@ -83,6 +83,7 @@ export function sampleRouting(): RoutingSnapshot {
     model: "opus",
     effort: null,
     label: "Opus (Claude Code)",
+    paid: false,
   };
   return {
     models: [

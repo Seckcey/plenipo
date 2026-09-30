@@ -162,6 +162,11 @@ pub fn main() {
         .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let rest = &args[1..];
+    // Plenipo's paid helper (ADR-085, ADR-086), under whatever name the tests gave the bridge:
+    // in the app it is Plenipo itself, like the Ollama bridge.
+    if rest.first().map(String::as_str) == Some("--plenipo-paid") {
+        std::process::exit(paid(&rest[1..]));
+    }
     let names: Vec<&str> = PERSONAS.iter().map(|(name, _)| *name).collect();
     let code = match PERSONAS
         .iter()
@@ -2915,6 +2920,154 @@ fn kimi_acp(args: &[String]) -> i32 {
             (_, None) => {}
         }
     }
+    0
+}
+
+// ---- Plenipo's paid helper (Phase 16 Wave 3, ADR-085, ADR-086) --------------------------------
+//
+// `--plenipo-paid <service> check|chat …` with the key on the first line of stdin
+// (`{"key":"…"}`), like the real helper. The key itself is never written anywhere: only that one
+// came, and how long it was (`paid-key.json`), so tests can see it arrived on stdin and nowhere
+// else. `auth`: `signed-out` → the key is refused; `unknown-status` → the service cannot be
+// reached. Markers: `[usage-limit]`, `[no-credit]`, `[auth-expired]`, `[offline]`, `[no-bill]`
+// (no bill from the service: its token counts are priced), `[cut]` (the answer stops before
+// its bill), plus the usual `[crash]`, `[malformed]`, `[slow]`, and `[delay:MS]`.
+
+fn paid(args: &[String]) -> i32 {
+    let mut all = String::new();
+    let _ = std::io::stdin().read_to_string(&mut all);
+    let (first, prompt) = all.split_once('\n').unwrap_or((all.as_str(), ""));
+    let key = serde_json::from_str::<Value>(first)
+        .ok()
+        .and_then(|v| v.get("key").and_then(Value::as_str).map(str::to_owned))
+        .filter(|k| !k.is_empty());
+    let _ = std::fs::write(
+        state_dir().join("paid-key.json"),
+        json!({ "given": key.is_some(), "length": key.as_ref().map_or(0, String::len) })
+            .to_string(),
+    );
+    if key.is_none() {
+        out(&json!({ "type": "error", "message": "No key was given", "kind": "input" }));
+        return 2;
+    }
+    let service = args.first().map(String::as_str).unwrap_or_default();
+    match args.get(1).map(String::as_str) {
+        Some("check") => paid_check(service),
+        Some("chat") => paid_turn(service, &args[1..], prompt),
+        _ => {
+            eprintln!("fake paid helper: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+fn paid_check(service: &str) -> i32 {
+    match auth_mode() {
+        "signed-out" => {
+            out(&json!({ "signedIn": false,
+                          "reason": "OpenRouter refused the key (401): it needs a new key." }));
+            0
+        }
+        "unknown-status" => {
+            out(&json!({ "error": "OpenRouter could not be reached: connection refused" }));
+            1
+        }
+        _ => {
+            let price = |input: u64, output: u64| json!({ "input": input, "cachedInput": null, "output": output });
+            let mut models = vec![
+                json!({ "id": "qwen/qwen3.8-flash", "name": "Qwen: Qwen3.8 Flash",
+                        "contextTokens": 1_000_000, "price": price(150_000, 470_000) }),
+                json!({ "id": "moonshotai/kimi-k3", "name": "MoonshotAI: Kimi K3",
+                        "contextTokens": 1_048_576, "price": price(3_000_000, 15_000_000) }),
+                json!({ "id": "someco/unpriced", "name": "Someco: Unpriced", "price": null }),
+            ];
+            models.extend(
+                extra_models(service)
+                    .into_iter()
+                    .map(|m| json!({ "id": m, "name": m, "price": price(1_000_000, 2_000_000) })),
+            );
+            out(&json!({ "signedIn": true, "models": models }));
+            0
+        }
+    }
+}
+
+fn paid_turn(service: &str, args: &[String], prompt: &str) -> i32 {
+    record_invocation(args);
+    let error = |message: &str, kind: &str| {
+        out(&json!({ "type": "error", "message": message, "kind": kind }));
+        1
+    };
+    let (Some(model), Some(id)) = (flag(args, "--model"), flag(args, "--session")) else {
+        return error("No model or conversation ID was given", "input");
+    };
+    if flag(args, "--max-input-bytes").is_none() || flag(args, "--max-output-tokens").is_none() {
+        return error("No limits were given", "input");
+    }
+    let size = prompt.len();
+    let prompt = prompt.trim().to_owned();
+    if args.iter().any(|a| a == "--resume") && load_session(&id).is_none() {
+        return error(
+            "This conversation's history was not found; start a new conversation",
+            "input",
+        );
+    }
+    let (mode, said) = view(&prompt);
+    if said.contains("[malformed]") {
+        raw("{not json at all");
+        return 0;
+    }
+    if said.contains("[crash]") {
+        eprintln!("fake paid helper: crashed");
+        return 101;
+    }
+    if said.contains("[auth-expired]") {
+        return error(
+            "OpenRouter refused the key (401): it needs a new key.",
+            "key",
+        );
+    }
+    if said.contains("[no-credit]") {
+        return error(
+            "OpenRouter says the account is out of credit (402).",
+            "credit",
+        );
+    }
+    if said.contains("[usage-limit]") {
+        return error("OpenRouter usage limit (429): slow down", "limit");
+    }
+    if said.contains("[offline]") {
+        return error(
+            "OpenRouter could not be reached: connection refused",
+            "unreached",
+        );
+    }
+    out(&json!({ "type": "session", "id": id, "model": model }));
+    if said.contains("[slow]") {
+        slow_ticks(|i| out(&json!({ "type": "thinking", "text": format!("tick {i}") })));
+        return 0;
+    }
+    if said.contains("[cut]") {
+        out(&json!({ "type": "text", "text": "Half an ans" }));
+        return error(
+            "Reading OpenRouter's answer failed: connection reset",
+            "service",
+        );
+    }
+    delay(&said);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said, size);
+    let text = answer(n, &mode, &said, previous.as_deref(), &first);
+    out(&json!({ "type": "thinking", "text": "Thinking about it." }));
+    out(&json!({ "type": "text", "text": text }));
+    out(&json!({ "type": "answer", "text": text }));
+    let mut done = json!({ "type": "done", "reason": "stop", "inputTokens": 20,
+                           "cachedTokens": 8, "outputTokens": 9, "durationMs": 5 });
+    if !said.contains("[no-bill]") {
+        done["costDollars"] = json!("0.000057");
+    }
+    out(&done);
+    let _ = service;
     0
 }
 

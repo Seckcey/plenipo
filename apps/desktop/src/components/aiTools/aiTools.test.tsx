@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type {
   AgentRuntimeInfo,
   AgentUpdate,
+  AiToolState,
   AiToolsPage,
   AiToolUsage,
   LedgerEvent,
@@ -90,6 +91,8 @@ vi.mock("../../api/commands", async (importOriginal) => {
     cancelAiToolUpdate: vi.fn(),
     setAiToolsAutoUpdate: vi.fn(),
     setAiToolPayment: vi.fn(),
+    savePaidKey: vi.fn(),
+    removePaidKey: vi.fn(),
     getRouting: vi.fn(),
     clearUsageLimit: vi.fn(),
     getControlStatus: vi.fn(),
@@ -158,12 +161,19 @@ function routing(patch: Record<string, Parameters<typeof route>[1]> = {}) {
   };
 }
 
+const go = vi.fn();
+
 function Page({ toolId = null }: { toolId?: string | null }) {
   return (
     <RuntimeProvider>
       <AgentsProvider>
         <TerminalProvider>
-          <RuntimesView selectedId={null} onSelect={() => undefined} toolId={toolId} />
+          <RuntimesView
+            selectedId={null}
+            onSelect={() => undefined}
+            toolId={toolId}
+            onOpenPage={go}
+          />
           <TerminalPanel theme="dark" />
         </TerminalProvider>
       </AgentsProvider>
@@ -746,7 +756,7 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
 });
 
 describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => {
-  it("the paid-key switch is locked, and Plenipo never asks for a paid key", async () => {
+  it("a subscription AI tool always uses its subscription, and no card of one asks for a key", async () => {
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         codex: { auth: { state: "subscription", method: "ChatGPT sign-in", detail: null } },
@@ -754,27 +764,16 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       sessions: [],
       notices: [],
     });
-    await show();
-    const user = userEvent.setup();
+    const { container } = await show();
     expect(card("Codex")).toHaveTextContent("Subscription (ChatGPT sign-in)");
-    // Each card's switch has a name of its own; its words on screen stay the same.
-    const switches = screen.getAllByRole("switch", {
-      name: /^Paid AI key for .+ \(pay per use\)$/,
-    });
-    expect(switches).toHaveLength(AI_TOOL_IDS.length);
-    const codexKey = within(card("Codex")).getByRole("switch", {
-      name: "Paid AI key for Codex (pay per use)",
-    });
-    expect(switches).toContain(codexKey);
-    expect(within(card("Codex")).getByText("Paid AI key (pay per use)")).toBeVisible();
-    for (const s of switches) {
-      expect(s).toBeDisabled();
-      expect(s).toHaveAttribute("aria-checked", "false");
-      expect(s).toHaveAccessibleDescription(
-        "Comes in a later update, within your spending caps (Settings → Spending caps).",
+    for (const id of AI_TOOL_IDS) {
+      const label = aiRuntime(id, "1").label;
+      expect(card(label)).toHaveTextContent(
+        `${label} always uses your subscription. To pay per use, add a key to a paid AI tool such as OpenRouter, within your spending caps.`,
       );
-      await user.click(s);
     }
+    expect(screen.queryByRole("switch", { name: /Paid AI key/ })).toBeNull();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(api.setAiToolPayment).not.toHaveBeenCalled();
   });
 
@@ -1239,7 +1238,7 @@ describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
     );
   });
 
-  it("with its paid-key switch locked like every tool's, and plan left from its own check", async () => {
+  it("always uses its subscription like every subscription tool, and plan left from its own check", async () => {
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         copilot: { auth: { state: "subscription", method: "Copilot sign-in", detail: null } },
@@ -1250,11 +1249,8 @@ describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
     await show();
     const copilot = card("GitHub Copilot");
     expect(copilot).toHaveTextContent("Subscription (Copilot sign-in)");
-    const key = within(copilot).getByRole("switch", {
-      name: "Paid AI key for GitHub Copilot (pay per use)",
-    });
-    expect(key).toBeDisabled();
-    expect(key).toHaveAttribute("aria-checked", "false");
+    expect(copilot).toHaveTextContent("GitHub Copilot always uses your subscription.");
+    expect(copilot.querySelector('input[type="password"]')).toBeNull();
     expect(copilot.querySelector(".ai-tool__why")).toBeNull();
     expect(copilot).toHaveTextContent(
       "GitHub Copilot hasn't reported it yet. Plenipo asks when it checks GitHub Copilot.",
@@ -1288,6 +1284,251 @@ describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
         .getAllByRole("listitem")
         .map((i) => i.textContent),
     ).toEqual(["Auto auto · who made it is not known · No effort setting new — not checked yet"]);
+  });
+});
+
+describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", () => {
+  /** A made-up key: never a real one in the tests. */
+  const KEY = "sk-or-v1-made-up-for-the-tests-0123456789";
+  const SAVED = {
+    id: "paid-key-0123",
+    runtimeId: "openrouter",
+    name: "Office key",
+    createdAt: T0,
+    updatedAt: T0,
+  };
+  const noKey = "No paid key is saved for this AI tool: add one on its card (Settings → AI tools).";
+
+  /** The seven AI tools and OpenRouter, with its check and page part. */
+  function withOpenRouter(info: Partial<AgentRuntimeInfo> = {}, tool: Partial<AiToolState> = {}) {
+    const openRouter = aiRuntime("openrouter", "1.16.0", {
+      ready: false,
+      auth: { state: "signedOut", method: null, detail: noKey },
+      ...info,
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [...runtimes(), openRouter],
+      sessions: [],
+      notices: [],
+    });
+    const tools = [...page().tools, aiTool("openrouter", tool)];
+    api.getAiTools.mockResolvedValue(aiPage(tools));
+    api.getRouting.mockResolvedValue({
+      ...routing(),
+      tools: [...routing().tools, route("openrouter", { auth: "signedOut" })],
+    });
+    return tools;
+  }
+
+  it("with no key: it comes with Plenipo, has no plan, and asks for a key", async () => {
+    withOpenRouter();
+    const { container } = await show();
+    const openRouter = card("OpenRouter");
+    expect(openRouter).toHaveTextContent("AI company: OpenRouter");
+    // The card's pill and its key check.
+    expect(within(openRouter).getAllByText("No key yet")).toHaveLength(2);
+    expect(openRouter).toHaveTextContent("Key check");
+    expect(openRouter).toHaveTextContent(noKey);
+    expect(openRouter).toHaveTextContent("Comes with Plenipo 1.16.0");
+    expect(openRouter).toHaveTextContent(
+      "OpenRouter comes with Plenipo: it is updated when Plenipo is.",
+    );
+    expect(openRouter).toHaveTextContent(
+      "Paid per use with your key, within your spending caps. A worker on OpenRouter answers in text only.",
+    );
+    expect(openRouter).toHaveTextContent(
+      "No plan: OpenRouter is paid per use. What is left this month is under your spending caps.",
+    );
+    // Nothing to sign in to, and no update button of its own.
+    expect(within(openRouter).queryByRole("button", { name: /Sign in|Update/ })).toBeNull();
+    const form = within(openRouter).getByRole("form", { name: "Add a key for OpenRouter" });
+    expect(within(form).getByLabelText("Name for the key")).toHaveValue("OpenRouter key");
+    expect(within(form).getByLabelText("OpenRouter key")).toHaveAttribute("type", "password");
+    expect(within(form).getByRole("button", { name: "Save and check" })).toBeDisabled();
+    expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("Save and check sends the key once, then the card shows its name and never the key", async () => {
+    const tools = withOpenRouter();
+    api.savePaidKey.mockResolvedValue(
+      aiPage(tools.map((t) => (t.runtimeId === "openrouter" ? { ...t, paidKey: SAVED } : t))),
+    );
+    await show();
+    const user = userEvent.setup();
+    const openRouter = card("OpenRouter");
+    const form = within(openRouter).getByRole("form", { name: "Add a key for OpenRouter" });
+    const name = within(form).getByLabelText("Name for the key");
+    await user.clear(name);
+    await user.type(name, "Office key");
+    await user.type(within(form).getByLabelText("OpenRouter key"), KEY);
+    await user.click(within(form).getByRole("button", { name: "Save and check" }));
+    await waitFor(() => expect(openRouter).toHaveTextContent("Key saved: Office key"));
+    expect(api.savePaidKey).toHaveBeenCalledTimes(1);
+    expect(api.savePaidKey).toHaveBeenCalledWith("openrouter", "Office key", KEY);
+    expect(openRouter.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.queryByDisplayValue(KEY)).toBeNull();
+    expect(
+      within(openRouter).getByRole("button", { name: "Replace key for OpenRouter" }),
+    ).toBeEnabled();
+  });
+
+  it("a refused key leaves the form, and the refusal says why", async () => {
+    withOpenRouter();
+    api.savePaidKey.mockRejectedValue({
+      kind: "invalidInput",
+      message: "OpenRouter did not accept the key: check it and try again.",
+    });
+    await show();
+    const user = userEvent.setup();
+    const openRouter = card("OpenRouter");
+    const key = within(openRouter).getByLabelText("OpenRouter key");
+    await user.type(key, KEY);
+    await user.click(within(openRouter).getByRole("button", { name: "Save and check" }));
+    expect(await within(openRouter).findByRole("alert")).toHaveTextContent(
+      "OpenRouter did not accept the key: check it and try again.",
+    );
+    expect(key).toHaveValue("");
+    expect(screen.queryByDisplayValue(KEY)).toBeNull();
+  });
+
+  it("switched off: the notice says why once, opens Switches or Spending caps, and locks the form", async () => {
+    const off =
+      "Paid AI keys are switched off: turn on Settings → Switches → Let workers use paid AI keys.";
+    withOpenRouter(
+      { auth: { state: "signedOut", method: null, detail: off } },
+      { paidBlocked: off },
+    );
+    await show();
+    const user = userEvent.setup();
+    const openRouter = card("OpenRouter");
+    expect(within(openRouter).getAllByText(off)).toHaveLength(1);
+    expect(within(openRouter).getByLabelText("OpenRouter key")).toBeDisabled();
+    await user.click(within(openRouter).getByRole("button", { name: "Open Switches" }));
+    expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "switches" });
+    await user.click(within(openRouter).getByRole("button", { name: "Open Spending caps" }));
+    expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "spending" });
+    expect(api.savePaidKey).not.toHaveBeenCalled();
+  });
+
+  it("a saved key works: Replace opens the form, and Remove asks first", async () => {
+    const tools = withOpenRouter(
+      { ready: true, auth: { state: "paidKey", method: null, detail: null }, checkedAt: T0 },
+      { paidKey: SAVED },
+    );
+    api.removePaidKey.mockResolvedValue(aiPage(tools.map((t) => ({ ...t, paidKey: null }))));
+    await show();
+    const user = userEvent.setup();
+    const openRouter = card("OpenRouter");
+    expect(openRouter).toHaveTextContent("Ready");
+    expect(openRouter).toHaveTextContent("Your key works");
+    expect(openRouter).toHaveTextContent("Key saved: Office key");
+    await user.click(
+      within(openRouter).getByRole("button", { name: "Replace key for OpenRouter" }),
+    );
+    const form = within(openRouter).getByRole("form", { name: "Replace key for OpenRouter" });
+    expect(within(form).getByLabelText("Name for the key")).toHaveValue("Office key");
+    expect(within(form).getByLabelText("OpenRouter key")).toHaveFocus();
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+    // Keep it: nothing is removed.
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    await user.click(within(openRouter).getByRole("button", { name: "Keep it" }));
+    expect(within(openRouter).queryByRole("group", { name: "Remove Office key?" })).toBeNull();
+    // A refused removal says why, and the key stays.
+    api.removePaidKey.mockRejectedValueOnce({
+      kind: "internal",
+      message: "Windows Credential Manager could not be reached.",
+    });
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    await user.click(
+      within(within(openRouter).getByRole("group", { name: "Remove Office key?" })).getByRole(
+        "button",
+        { name: "Remove key" },
+      ),
+    );
+    expect(await within(openRouter).findByRole("alert")).toHaveTextContent(
+      "Windows Credential Manager could not be reached.",
+    );
+    expect(openRouter).toHaveTextContent("Key saved: Office key");
+    await user.click(within(openRouter).getByRole("button", { name: "Keep it" }));
+    expect(within(openRouter).queryByRole("alert")).toBeNull();
+    // Removed: the form for a new key, with no trace of the old one's name.
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    expect(api.removePaidKey).toHaveBeenCalledTimes(1);
+    const ask = within(openRouter).getByRole("group", { name: "Remove Office key?" });
+    await user.click(within(ask).getByRole("button", { name: "Remove key" }));
+    expect(api.removePaidKey).toHaveBeenLastCalledWith("openrouter");
+    const fresh = await within(openRouter).findByRole("form", { name: "Add a key for OpenRouter" });
+    expect(within(fresh).getByLabelText("Name for the key")).toHaveValue("OpenRouter key");
+  });
+
+  it("paid keys switched off since the last check: the card no longer says the key works", async () => {
+    const off =
+      "Paid AI keys are switched off: turn on Settings → Switches → Let workers use paid AI keys.";
+    withOpenRouter(
+      { ready: true, auth: { state: "paidKey", method: null, detail: null }, checkedAt: T0 },
+      { paidKey: SAVED, paidBlocked: off },
+    );
+    await show();
+    const openRouter = card("OpenRouter");
+    expect(openRouter).not.toHaveTextContent("Your key works");
+    expect(within(openRouter).getAllByText("Key not in use")).toHaveLength(2);
+    expect(within(openRouter).getAllByText(off)).toHaveLength(1);
+  });
+
+  it("the same model on other AI tools says where else it runs (ADR-036 §4)", async () => {
+    const k3 = (name: string, label: string) => ({
+      name,
+      label,
+      effortLevels: [],
+      maker: { id: "moonshot", label: "Moonshot AI" },
+      same: "kimi-k3",
+    });
+    withOpenRouter({
+      capabilities: {
+        ...aiRuntime("openrouter", "1.16.0").capabilities,
+        knownModels: [k3("moonshotai/kimi-k3", "Kimi K3")],
+      },
+    });
+    const others = runtimes({
+      kimi: {
+        capabilities: {
+          ...aiRuntime("kimi", "0.34.0").capabilities,
+          knownModels: [k3("kimi-code/k3", "K3")],
+        },
+      },
+      ollama: {
+        capabilities: {
+          ...aiRuntime("ollama", "0.34.4").capabilities,
+          knownModels: [k3("kimi-k3:cloud", "Kimi K3 (paid plan)")],
+        },
+      },
+    });
+    const openRouter = (await api.getAgentOverview()).runtimes.at(-1)!;
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [...others, openRouter],
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const user = userEvent.setup();
+    await user.click(within(card("Kimi")).getByRole("tab", { name: "Models" }));
+    expect(within(card("Kimi")).getByRole("list", { name: "Kimi's models" })).toHaveTextContent(
+      "also on Ollama, OpenRouter",
+    );
+    await user.click(within(card("OpenRouter")).getByRole("tab", { name: "Models" }));
+    expect(
+      within(card("OpenRouter")).getByRole("list", { name: "OpenRouter's models" }),
+    ).toHaveTextContent("also on Kimi, Ollama");
+  });
+
+  it("each priced model says what it costs", async () => {
+    withOpenRouter();
+    await show();
+    const user = userEvent.setup();
+    const openRouter = card("OpenRouter");
+    await user.click(within(openRouter).getByRole("tab", { name: "Models" }));
+    const models = within(openRouter).getByRole("list", { name: "OpenRouter's models" });
+    expect(models).toHaveTextContent("$3.00 a million tokens read, $15.00 a million written");
   });
 });
 

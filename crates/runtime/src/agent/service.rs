@@ -31,11 +31,16 @@ use crate::agent::brief::{
     note_in_full, text_hash, BriefInput, Conversation, Delivery, Standing, StepMessage,
     NOTE_REMINDER,
 };
-use crate::agent::discovery::{locate, run_probe, run_talk, runtime_env, HostEnv, Located};
+use crate::agent::discovery::{
+    locate, run_probe, run_probe_with, run_talk, runtime_env, HostEnv, Located,
+    MAX_PAID_CHECK_OUTPUT, MAX_PROBE_OUTPUT,
+};
 use crate::agent::dto::*;
+use crate::agent::paid::{PaidBill, PaidCharge, PaidGate, PaidKey, PaidLimits};
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, BriefKind, NoteKind, OutputLine, OutputStream, PromptSize};
 use crate::error::RuntimeError;
+use crate::pricing::Price;
 use crate::profile::{LaunchSpec, StdinFeed};
 use crate::supervisor::Supervisor;
 
@@ -215,6 +220,10 @@ pub trait AgentSink: Send + Sync + 'static {
     fn emit(&self, update: AgentUpdate);
 }
 
+/// The longest a paid AI tool's key check may take: the helper's two requests (the key's
+/// details and the price list) of up to 30 seconds each, and starting it (ADR-086).
+const PAID_CHECK_TIMEOUT: Duration = Duration::from_secs(75);
+
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
     /// Parent of each session's working directory.
@@ -343,6 +352,8 @@ struct Inner {
     tools: RwLock<Option<Arc<dyn ToolProvider>>>,
     /// Hides secrets in activity and results (Phase 7).
     filter: RwLock<Option<TextFilter>>,
+    /// Keys and spending caps for paid AI tools (Phase 16 Wave 3, ADR-085).
+    paid: RwLock<Option<Arc<dyn PaidGate>>>,
     host: HostEnv,
     state: Mutex<State>,
     /// Woken when a hold on an AI tool ends.
@@ -363,6 +374,8 @@ struct Ready {
     env: Vec<(String, String)>,
     /// The sign-in check confirmed a subscription.
     billing_confirmed: bool,
+    /// A paid AI tool's key (ADR-085), for the helper's first line of input.
+    paid_key: Option<PaidKey>,
 }
 
 /// A runtime that cannot take work, with the outcome to record when a waiting turn cannot
@@ -399,6 +412,7 @@ impl AgentRuntime {
                 hook: RwLock::new(None),
                 tools: RwLock::new(None),
                 filter: RwLock::new(None),
+                paid: RwLock::new(None),
                 host,
                 state: Mutex::new(State {
                     runtimes,
@@ -425,6 +439,20 @@ impl AgentRuntime {
     /// recorded, or passed on.
     pub fn set_filter(&self, filter: TextFilter) {
         *self.inner.filter.write().unwrap_or_else(|p| p.into_inner()) = Some(filter);
+    }
+
+    /// Install the gate for paid AI tools: their keys, and the spending caps (ADR-085). Without
+    /// it, no paid AI tool is ready.
+    pub fn set_paid_gate(&self, gate: Arc<dyn PaidGate>) {
+        *self.inner.paid.write().unwrap_or_else(|p| p.into_inner()) = Some(gate);
+    }
+
+    fn paid_gate(&self) -> Option<Arc<dyn PaidGate>> {
+        self.inner
+            .paid
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     fn filter(&self) -> Option<TextFilter> {
@@ -735,17 +763,35 @@ impl AgentRuntime {
             method: None,
             detail: Some("Not checked: the AI tool is not installed.".into()),
         };
-        let executable = match locate(adapter, host) {
+        // A paid AI tool's program is Plenipo's own helper (ADR-085): nothing to find.
+        let located = if adapter.built_in() {
+            match self.inner.config.bridge.as_ref() {
+                Some(bridge) if bridge.executable.is_file() => {
+                    Located::Found(bridge.executable.clone())
+                }
+                _ => Located::NotFound,
+            }
+        } else {
+            locate(adapter, host)
+        };
+        let executable = match located {
             Located::Found(path) => path,
             Located::NotFound => {
                 info.installation = Installation {
                     state: InstallState::NotInstalled,
                     executable: None,
                     version: None,
-                    detail: Some(format!(
-                        "No `{}` executable was found on PATH or in the usual install locations.",
-                        adapter.executable_name()
-                    )),
+                    detail: Some(if adapter.built_in() {
+                        format!(
+                            "This version of Plenipo cannot reach {} (its helper is not set up).",
+                            adapter.label()
+                        )
+                    } else {
+                        format!(
+                            "No `{}` executable was found on PATH or in the usual install locations.",
+                            adapter.executable_name()
+                        )
+                    }),
                 };
                 info.auth = not_checked;
                 return (info, None);
@@ -803,6 +849,7 @@ impl AgentRuntime {
             .filter(|p| p.installation.executable.as_deref() == Some(shown.as_str()))
             .and_then(|p| p.installation.version);
         let version = match (version, known_version) {
+            _ if adapter.built_in() => Ok(adapter.checked_version().to_owned()),
             (false, Some(v)) => Ok(v),
             _ => {
                 let out = run_probe(
@@ -856,7 +903,7 @@ impl AgentRuntime {
                     self.inner
                         .supervisor
                         .allow_executable(&b.executable)
-                        .map(|exe| (exe, b.args.clone()))
+                        .map(|exe| (exe, adapter.bridge_args().unwrap_or_else(|| b.args.clone())))
                         .map_err(|e| e.to_string())
                 });
             match bridge {
@@ -870,6 +917,33 @@ impl AgentRuntime {
             }
         } else {
             (executable, Vec::new())
+        };
+        // A paid AI tool is ready only with the owner's key, while paid keys are switched on
+        // (ADR-085); its check gets the key on its first line of input.
+        let paid_key = if adapter.paid() {
+            let key = match self.paid_gate() {
+                Some(gate) => {
+                    let id = adapter.id().to_owned();
+                    tokio::task::spawn_blocking(move || gate.key(&id))
+                        .await
+                        .unwrap_or_else(|e| Err(format!("The key could not be read: {e}")))
+                }
+                None => Err("This version of Plenipo cannot use paid AI keys.".to_owned()),
+            };
+            match key {
+                Ok(key) => Some(key),
+                Err(why) => {
+                    info.auth = AuthStatus {
+                        state: AuthState::SignedOut,
+                        method: None,
+                        detail: Some(why),
+                    };
+                    info.ready = false;
+                    return (info, None);
+                }
+            }
+        } else {
+            None
         };
         // Most AI tools answer a status command; Copilot answers a short talk (ADR-083).
         let out = match adapter.auth_talk() {
@@ -889,10 +963,37 @@ impl AgentRuntime {
             }
             None => {
                 let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
-                run_probe(&executable, &auth_args, &env, &workdir, timeout).await
+                let input = paid_key.as_ref().map(PaidKey::stdin_line);
+                // A paid AI tool's check reads the key's details and the whole price list (two
+                // requests the helper gives up to 30 seconds each, ADR-086).
+                let (max_output, timeout) = if adapter.paid() {
+                    (MAX_PAID_CHECK_OUTPUT, timeout.max(PAID_CHECK_TIMEOUT))
+                } else {
+                    (MAX_PROBE_OUTPUT, timeout)
+                };
+                run_probe_with(
+                    &executable,
+                    &auth_args,
+                    &env,
+                    &workdir,
+                    input.as_deref().map(str::as_bytes),
+                    max_output,
+                    timeout,
+                )
+                .await
             }
         };
         info.auth = adapter.parse_auth(&out);
+        // A paid AI tool's check lists its models with today's prices (ADR-085, ADR-086).
+        if adapter.paid() {
+            if let Some(models) = adapter.parse_models(&out) {
+                info.reported_models = Some(ReportedModels {
+                    models,
+                    complete: true,
+                    checked_at: crate::now_ms(),
+                });
+            }
+        }
         info.ready = auth_allowed(adapter, info.auth.state);
         if let Some(why) = self.lock().out_of_service.get(adapter.id()) {
             info.ready = false;
@@ -904,6 +1005,7 @@ impl AgentRuntime {
             args_prefix,
             env,
             billing_confirmed,
+            paid_key,
         });
         (info, ready)
     }
@@ -1175,7 +1277,18 @@ impl AgentRuntime {
             .adapter(runtime_id)
             .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
         let host = &self.inner.host;
-        let executable = match locate(adapter.as_ref(), host) {
+        // A paid AI tool's program is Plenipo's own helper (ADR-085).
+        let located = if adapter.built_in() {
+            match self.inner.config.bridge.as_ref() {
+                Some(bridge) if bridge.executable.is_file() => {
+                    Located::Found(bridge.executable.clone())
+                }
+                _ => Located::NotFound,
+            }
+        } else {
+            locate(adapter.as_ref(), host)
+        };
+        let executable = match located {
             Located::Found(path) => path,
             Located::NotFound => {
                 return Err(format!("{} is not installed on this PC.", adapter.label()))
@@ -2016,6 +2129,65 @@ impl AgentRuntime {
         .await
     }
 
+    /// A paid step's charge (ADR-085): the key, the model's price from the tool's own list, the
+    /// step's limits, and the most it could cost set aside under the owner's spending caps.
+    /// Refused (with the reason) without a key, without a price, or when it does not fit.
+    async fn paid_step(
+        &self,
+        adapter: &dyn RuntimeAdapter,
+        key: Option<&PaidKey>,
+        request: &TurnRequest,
+        task_id: &str,
+        prompt_bytes: usize,
+    ) -> Result<PaidStep, String> {
+        let label = adapter.label();
+        let gate = self.paid_gate().ok_or_else(|| {
+            format!("This version of Plenipo cannot use paid AI keys for {label}.")
+        })?;
+        let key = key
+            .cloned()
+            .ok_or_else(|| format!("{label} has no paid key saved."))?;
+        let model = request
+            .model
+            .clone()
+            .or_else(|| adapter.default_model().map(str::to_owned))
+            .ok_or_else(|| format!("No model was named for {label}."))?;
+        let reported = self
+            .lock()
+            .runtimes
+            .iter()
+            .find(|r| r.id == adapter.id())
+            .and_then(|r| r.reported_models.clone());
+        let price = adapter
+            .price_of(&model, reported.as_ref().map(|r| r.models.as_slice()))
+            .ok_or_else(|| {
+                format!(
+                    "{model} on {label} is not priced yet: Plenipo does not know what it costs, \
+                     so it will not use a paid key for it."
+                )
+            })?;
+        let limits = adapter.paid_limits(request, prompt_bytes);
+        let charge = PaidCharge {
+            task_id: task_id.to_owned(),
+            runtime_id: adapter.id().to_owned(),
+            model,
+            key_id: key.id.clone(),
+            key_name: key.name.clone(),
+            most_micros: price.most(limits.input_tokens, limits.output_tokens),
+        };
+        let g = gate.clone();
+        let ticket = tokio::task::spawn_blocking(move || g.set_aside(&charge))
+            .await
+            .map_err(|e| format!("Plenipo could not check the spending caps: {e}"))??;
+        Ok(PaidStep {
+            gate,
+            ticket,
+            price,
+            limits,
+            key_line: key.stdin_line(),
+        })
+    }
+
     /// Launch one step of a turn whose session is claimed; the step's consumer releases or
     /// converts the claim when it ends.
     async fn launch_step(
@@ -2089,6 +2261,22 @@ impl AgentRuntime {
             None => (out.text.clone(), out.size(None, NoteKind::None, None)),
         };
         let delivery = out.delivery(note_hash.filter(|_| full_note));
+        // A paid AI tool (ADR-085): the most this step could cost is set aside under the owner's
+        // spending caps before anything is sent, or the step does not start.
+        let paid = if adapter.paid() {
+            Some(
+                self.paid_step(
+                    adapter.as_ref(),
+                    ready.paid_key.as_ref(),
+                    &request,
+                    &task_id,
+                    prompt.len(),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
         let mut env = ready.env;
         env.extend(adapter.turn_env(&request));
         let session_id = session.id.clone();
@@ -2117,6 +2305,16 @@ impl AgentRuntime {
                 (None, Some((tx, feed)))
             }
         };
+        // The paid helper's key goes first on its input, never on its command line; its limits
+        // go on the command line.
+        let stdin = match (&paid, stdin) {
+            (Some(Ok(step)), Some(bytes)) => Some([step.key_line.as_bytes(), &bytes].concat()),
+            (_, stdin) => stdin,
+        };
+        let paid_args = match &paid {
+            Some(Ok(step)) => crate::agent::paid::step_args(&step.limits, &step.price),
+            _ => Vec::new(),
+        };
         let (interrupt_tx, interrupt_rx) = match input {
             Some(_) => {
                 let (tx, rx) = mpsc::unbounded_channel();
@@ -2128,7 +2326,7 @@ impl AgentRuntime {
             profile_id: format!("agent.{}", adapter.id()),
             label,
             executable: ready.executable,
-            args: [ready.args_prefix, adapter.turn_args(&request)].concat(),
+            args: [ready.args_prefix, adapter.turn_args(&request), paid_args].concat(),
             env,
             working_dir: PathBuf::from(&session.working_dir),
             max_runtime: self.inner.config.turn_timeout,
@@ -2162,6 +2360,32 @@ impl AgentRuntime {
             mark,
             delivery,
             context_used: None,
+            paid: None,
+            paid_bill: None,
+        };
+        let ctx = match paid {
+            Some(Ok(step)) => TurnContext {
+                paid: Some(step),
+                ..ctx
+            },
+            // Refused by the spending caps, not priced yet, or no key: nothing is sent.
+            Some(Err(why)) => {
+                let result = TurnResult {
+                    outcome: TurnOutcome::BillingNotAllowed,
+                    summary: first_line(&why, 300),
+                    text: None,
+                    error: Some(cap(&why, MAX_EVENT_TEXT)),
+                    provider_session_id: None,
+                    model: None,
+                    usage: None,
+                    duration_ms: None,
+                    ignored_lines: 0,
+                    prompt: None,
+                };
+                ctx.complete(result, done).await;
+                return self.session(&session_id).await;
+            }
+            None => ctx,
         };
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
@@ -2546,6 +2770,20 @@ struct TurnContext {
     delivery: Delivery,
     /// How much of its context the AI tool reported in use by the end of the step.
     context_used: Option<u64>,
+    /// A paid step's charge (ADR-085): settled when the step ends.
+    paid: Option<PaidStep>,
+    /// The paid step's bill, once its program ended.
+    paid_bill: Option<PaidBill>,
+}
+
+/// A paid step's charge (ADR-085): what was set aside, and what the step may send.
+struct PaidStep {
+    gate: Arc<dyn PaidGate>,
+    ticket: String,
+    price: Price,
+    limits: PaidLimits,
+    /// The helper's first line of input: the key.
+    key_line: String,
 }
 
 impl TurnContext {
@@ -2655,6 +2893,9 @@ impl TurnContext {
         self.input = None;
         let result = parser.finish(&end);
         self.context_used = parser.context_used();
+        if let Some(step) = &self.paid {
+            self.paid_bill = parser.paid_bill(&step.price, end.started);
+        }
         self.complete(result, done).await;
     }
 
@@ -2806,6 +3047,15 @@ impl TurnContext {
         // pending approval would otherwise hold its task).
         if let Some(grant) = self.grant.take() {
             runtime.close_tools(grant).await;
+        }
+        // A paid step's spending is settled next (ADR-085): what it cost, not priced yet, or
+        // not sent. A bill that passes a cap is recorded, and the owner is told.
+        if let Some(step) = self.paid.take() {
+            let bill = self.paid_bill.take().unwrap_or(PaidBill::NotSent);
+            let _passed =
+                tokio::task::spawn_blocking(move || step.gate.settle(&step.ticket, &bill))
+                    .await
+                    .unwrap_or_default();
         }
         let mut result = match runtime.filter() {
             Some(f) => filtered_result(&f, result),
@@ -3029,7 +3279,11 @@ fn account_words(adapter: &dyn RuntimeAdapter, action: AccountAction) -> Option<
 /// Sign-in states a turn may run with. A runtime that re-checks billing during every turn
 /// may also run when the method could not be confirmed up front (ADR-007 §4).
 fn auth_allowed(adapter: &dyn RuntimeAdapter, state: AuthState) -> bool {
+    // A paid AI tool runs only with its key, within the spending caps (ADR-085), whatever its
+    // check says: never as a subscription, so the Router never takes it for one.
     match state {
+        AuthState::PaidKey => adapter.paid(),
+        _ if adapter.paid() => false,
         AuthState::Subscription => true,
         AuthState::Unverified | AuthState::Unknown => {
             adapter.capabilities().billing_checked_per_turn
@@ -3048,7 +3302,9 @@ pub fn unavailable_outcome(info: &AgentRuntimeInfo) -> TurnOutcome {
             TurnOutcome::AuthRequired
         }
         AuthState::ApiKey | AuthState::ThirdPartyCloud => TurnOutcome::BillingNotAllowed,
-        AuthState::Checking | AuthState::Subscription => TurnOutcome::ProviderUnavailable,
+        AuthState::Checking | AuthState::Subscription | AuthState::PaidKey => {
+            TurnOutcome::ProviderUnavailable
+        }
     }
 }
 
@@ -3073,6 +3329,12 @@ fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> St
         }
     }
     match info.auth.state {
+        // A paid AI tool: paid keys are off, no key is saved, or the key was refused (ADR-085).
+        AuthState::SignedOut if adapter.paid() => format!(
+            "{label} cannot take work now. {} {}",
+            info.auth.detail.clone().unwrap_or_default(),
+            adapter.login_hint()
+        ),
         AuthState::SignedOut => format!("{label} is not signed in. {}", adapter.login_hint()),
         AuthState::ApiKey => format!(
             "{label} is signed in with an API key. Plenipo does not use API billing; sign in \

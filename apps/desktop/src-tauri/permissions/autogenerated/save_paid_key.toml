@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-paid-key"
+description = "Enables the save_paid_key command without any pre-configured scope."
+commands.allow = ["save_paid_key"]
+
+[[permission]]
+identifier = "deny-save-paid-key"
+description = "Denies the save_paid_key command without any pre-configured scope."
+commands.deny = ["save_paid_key"]

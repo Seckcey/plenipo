@@ -198,6 +198,8 @@
     "allow-delete-organization-for-good",
     "allow-get-spending",
     "allow-set-spending-cap",
-    "allow-remove-spending-cap"
+    "allow-remove-spending-cap",
+    "allow-save-paid-key",
+    "allow-remove-paid-key"
   ]
 }

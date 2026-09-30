@@ -152,9 +152,10 @@ impl AiToolUpdate {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum PaymentMethod {
-    /// The owner's subscription: the only way until Phase 16.
+    /// The owner's subscription.
     Subscription,
-    /// A paid AI key, pay per use: comes with spending caps (Phase 16, ADR-036).
+    /// A paid AI key, pay per use, within the spending caps (Phase 16 Wave 3, ADR-085): the way a
+    /// paid AI tool (OpenRouter) is paid for.
     PaidKey,
 }
 
@@ -164,6 +165,9 @@ pub enum PaymentMethod {
 #[ts(export)]
 pub struct AiToolState {
     pub runtime_id: String,
+    /// It comes with Plenipo (a paid AI tool's helper, ADR-085): it is updated with Plenipo,
+    /// never on its own.
+    pub built_in: bool,
     pub newest_from: NewestFrom,
     /// The newest version, when Plenipo has looked.
     pub newest: Option<String>,
@@ -183,6 +187,14 @@ pub struct AiToolState {
     /// What it last reported.
     pub plan: Option<PlanReport>,
     pub payment: PaymentMethod,
+    /// A paid AI tool's saved key, by name (never the key; ADR-085).
+    pub paid_key: Option<plenipo_guard::PaidKeyInfo>,
+    /// Why a paid AI tool's key cannot be saved or used now (paid keys switched off, or no
+    /// business cap), in plain words.
+    pub paid_blocked: Option<String>,
+    /// Where a paid AI tool's key is kept, as the screen names it ("Windows Credential
+    /// Manager"); none for a subscription AI tool.
+    pub key_kept_in: Option<String>,
     /// The tool has its own list of models (Claude Code's come with Plenipo's updates).
     pub has_model_list: bool,
     /// Asking for its models leaves an empty conversation in its history (Kimi), so Plenipo
@@ -507,6 +519,9 @@ impl AiTools {
 
     pub fn page(&self) -> AiToolsPage {
         let stored = self.stored();
+        let guard_config = self.inner.broker.guard().config().ok();
+        let paid_blocked = crate::paid::not_allowed(&self.inner.broker);
+        let kept_in = self.inner.broker.secret_store().label().to_owned();
         let live = lock(&self.inner.live);
         let tools = plenipo_runtime::agent::builtin_adapters()
             .into_iter()
@@ -521,6 +536,7 @@ impl AiTools {
                     .unwrap_or_else(AiToolUpdate::idle);
                 AiToolState {
                     runtime_id: id.to_owned(),
+                    built_in: a.built_in(),
                     newest_from: match a.newest_version() {
                         NewestVersion::Command(_) => NewestFrom::Own,
                         NewestVersion::Published(_) => NewestFrom::Published,
@@ -535,7 +551,17 @@ impl AiTools {
                     out_of_service: self.agents().out_of_service(id),
                     reports_plan_left: a.reports_plan_left(),
                     plan: kept.plan,
-                    payment: PaymentMethod::Subscription,
+                    payment: if a.paid() {
+                        PaymentMethod::PaidKey
+                    } else {
+                        PaymentMethod::Subscription
+                    },
+                    paid_key: guard_config
+                        .as_ref()
+                        .filter(|_| a.paid())
+                        .and_then(|c| c.paid_key(id).cloned()),
+                    paid_blocked: paid_blocked.clone().filter(|_| a.paid()),
+                    key_kept_in: a.paid().then(|| kept_in.clone()),
                     has_model_list: !matches!(
                         a.status_check(std::path::Path::new(".")),
                         StatusCheck::None
@@ -903,18 +929,49 @@ impl AiTools {
 
     // ---- How it is paid for (ADR-060 §4) -----------------------------------------------------------
 
-    /// Only a subscription until paid keys can be saved (Phase 16 Wave 3, ADR-036 §2.2): the
-    /// spending caps they need come first.
+    /// How an AI tool is paid for is fixed by the tool (ADR-085): an AI tool that signs in with
+    /// a subscription always uses it, and a paid AI tool always uses its key. Pay-per-use for a
+    /// model comes from a paid AI tool (a separate way to reach it), never by switching a
+    /// subscription AI tool to a key.
     pub fn set_payment(&self, runtime_id: &str, method: PaymentMethod) -> Result<AiToolsPage> {
-        self.adapter(runtime_id)?;
-        match method {
-            PaymentMethod::Subscription => Ok(self.page()),
-            PaymentMethod::PaidKey => Err(BrokerError::Invalid(
-                "Paying per use with a paid AI key comes in a later update of Plenipo, within \
-                 your spending caps. Until then, each AI tool uses your subscription."
-                    .into(),
-            )),
+        let adapter = self.adapter(runtime_id)?;
+        let label = adapter.label();
+        match (adapter.paid(), method) {
+            (false, PaymentMethod::Subscription) | (true, PaymentMethod::PaidKey) => {
+                Ok(self.page())
+            }
+            (false, PaymentMethod::PaidKey) => Err(BrokerError::Invalid(format!(
+                "{label} always uses your subscription. To pay per use, add a key to a paid AI \
+                 tool such as OpenRouter (Settings → AI tools), within your spending caps."
+            ))),
+            (true, PaymentMethod::Subscription) => Err(BrokerError::Invalid(format!(
+                "{label} is paid per use with your key; it has no subscription."
+            ))),
         }
+    }
+
+    /// Save the paid key for a paid AI tool (ADR-085): typed only into Plenipo's own screen,
+    /// checked with one read call, then kept only in the Vault.
+    pub async fn save_paid_key(
+        &self,
+        runtime_id: &str,
+        name: &str,
+        key: &str,
+    ) -> Result<AiToolsPage> {
+        self.adapter(runtime_id)?;
+        crate::paid::save_key(&self.inner.broker, self.agents(), runtime_id, name, key)
+            .await
+            .map_err(BrokerError::Invalid)?;
+        Ok(self.page())
+    }
+
+    /// Remove a paid AI tool's key: its reference, and the key in the Vault.
+    pub async fn remove_paid_key(&self, runtime_id: &str) -> Result<AiToolsPage> {
+        self.adapter(runtime_id)?;
+        crate::paid::remove_key(&self.inner.broker, self.agents(), runtime_id)
+            .await
+            .map_err(BrokerError::Invalid)?;
+        Ok(self.page())
     }
 
     // ---- New versions (ADR-059 §2) -----------------------------------------------------------------

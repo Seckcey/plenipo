@@ -11,7 +11,10 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 use crate::agent::adapter::{Framing, ProbeOutput, RuntimeAdapter};
 
 /// Longest probe output kept per stream.
-const MAX_PROBE_OUTPUT: usize = 64 * 1024;
+pub const MAX_PROBE_OUTPUT: usize = 64 * 1024;
+/// The most kept from a paid AI tool's key check, which lists every model the service sells with
+/// its prices on one line (OpenRouter lists hundreds; the helper sends at most 1,000, ADR-086).
+pub const MAX_PAID_CHECK_OUTPUT: usize = 1024 * 1024;
 /// The longest line kept from a tool's talk check (a longer one is read and cut, so a tool that
 /// never ends its line cannot fill Plenipo's memory).
 const MAX_TALK_LINE: usize = 1024 * 1024;
@@ -203,8 +206,36 @@ pub async fn run_probe(
     working_dir: &Path,
     timeout: Duration,
 ) -> ProbeOutput {
-    let mut command =
-        crate::supervisor::wrapped_command(executable, args, env, working_dir, Stdio::null());
+    run_probe_with(
+        executable,
+        args,
+        env,
+        working_dir,
+        None,
+        MAX_PROBE_OUTPUT,
+        timeout,
+    )
+    .await
+}
+
+/// [`run_probe`], with `input` written to the program's standard input, which is then closed (a
+/// paid AI tool's key check gets its key there, ADR-085: never an argument or a variable), and
+/// at most `max_output` bytes of its standard output kept.
+pub async fn run_probe_with(
+    executable: &Path,
+    args: &[String],
+    env: &[(String, String)],
+    working_dir: &Path,
+    input: Option<&[u8]>,
+    max_output: usize,
+    timeout: Duration,
+) -> ProbeOutput {
+    let stdin = if input.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
+    let mut command = crate::supervisor::wrapped_command(executable, args, env, working_dir, stdin);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -214,10 +245,18 @@ pub async fn run_probe(
             }
         }
     };
+    if let (Some(bytes), Some(mut pipe)) = (input, child.stdin().take()) {
+        use tokio::io::AsyncWriteExt as _;
+        let bytes = bytes.to_vec();
+        tokio::spawn(async move {
+            let _ = pipe.write_all(&bytes).await;
+            let _ = pipe.shutdown().await;
+        });
+    }
     let stdout = child.stdout().take();
     let stderr = child.stderr().take();
-    let out = tokio::spawn(read_capped(stdout));
-    let err = tokio::spawn(read_capped(stderr));
+    let out = tokio::spawn(read_capped(stdout, max_output));
+    let err = tokio::spawn(read_capped(stderr, MAX_PROBE_OUTPUT));
     let status = tokio::time::timeout(timeout, child.wait()).await;
     let timed_out = status.is_err();
     if timed_out {
@@ -272,7 +311,7 @@ pub async fn run_talk(
     };
     let mut stdin = child.stdin().take();
     let stdout = child.stdout().take();
-    let err = tokio::spawn(read_capped(child.stderr().take()));
+    let err = tokio::spawn(read_capped(child.stderr().take(), MAX_PROBE_OUTPUT));
     // What the tool wrote, kept even when the time runs out (the answers it gave still count).
     let mut kept = String::new();
     let talk = async {
@@ -424,7 +463,7 @@ async fn capped_line<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>) -> String {
+async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>, max: usize) -> String {
     let Some(mut reader) = reader else {
         return String::new();
     };
@@ -435,7 +474,7 @@ async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>) -> String {
             Ok(0) | Err(_) => break,
             // Keep reading past the cap so the child never blocks on a full pipe.
             Ok(n) => {
-                let room = MAX_PROBE_OUTPUT.saturating_sub(kept.len());
+                let room = max.saturating_sub(kept.len());
                 kept.extend_from_slice(&chunk[..n.min(room)]);
             }
         }

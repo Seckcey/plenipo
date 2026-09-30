@@ -285,6 +285,8 @@ impl RuntimeAdapter for Grok {
                         effort_levels: efforts,
                         maker: None,
                         points_to: None,
+                        price: None,
+                        same: None,
                     })
                 })
                 .collect(),

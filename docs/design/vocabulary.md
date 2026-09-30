@@ -239,7 +239,7 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                                        |
 | left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining quota                                             |
 | resets at 3:10 PM / 5-hour limit / weekly limit                                | reset timestamp, rate-limit window                                                         |
-| How it is paid for: Subscription / Paid AI key (pay per use)                   | billing mode, BYOK, metered API                                                            |
+| How it is paid for: Subscription / Paid per use with your key                  | billing mode, BYOK, metered API                                                            |
 | installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                                                 |
 | a new version / Update / Updating… / Updated to 1.0.43                         | upgrade, self-update, patch                                                                |
 | The update didn't finish — your old version still works / put back             | update failed, rollback, downgrade                                                         |
@@ -302,6 +302,13 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | not priced yet (counted at the most it could have cost)                        | unpriced, cost unknown, null cost                                                          |
 | 80% of a cap is used / Paid AI work stopped                                    | soft limit, budget alert, hard limit, quota exceeded                                       |
 | the month starts over (the 1st, Pacific time)                                  | billing cycle reset, period rollover                                                       |
+| Paid per use with your key, within your spending caps                          | BYOK, metered API, pay-as-you-go billing                                                   |
+| Key check / Your key works / No key yet / Key not in use                       | auth status, credential validated, missing credential                                      |
+| Save and check / Replace key / Remove key (a paid AI tool's key)               | validate API key, rotate key, revoke credential                                            |
+| Comes with Plenipo (an AI tool that is Plenipo's own helper)                   | built-in runtime, bundled adapter, bridge                                                  |
+| $3.00 a million tokens read, $15.00 a million written                          | $/Mtok, input/output pricing, per-token rate                                               |
+| also on Ollama, OpenRouter (the same model on other AI tools)                  | model alias, provider route, model mapping                                                 |
+| It costs money (a paid route) / A worker on it answers in text only            | metered route, paid fallback, no tool use                                                  |
 
 ## Where technical words may stay
 

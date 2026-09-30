@@ -10,7 +10,7 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 /**
  * One on/off switch: the library's switch (a button with the switch role and its name), with
  * its name, "On" or "Off", and what "off" or "on" means beside it. `name`: what a screen reader
- * calls it, when the same switch is shown more than once ("Paid AI key for Codex (pay per use)");
+ * calls it, when the same switch is shown more than once ("Update Codex by itself");
  * `label` otherwise.
  */
 export function Toggle({

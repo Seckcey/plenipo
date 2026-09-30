@@ -56,6 +56,8 @@ pub struct Planner {
     pub tools: Vec<ToolState>,
     roles: HashMap<String, String>,
     pub now: u64,
+    /// The spending caps, for paid routes (ADR-085).
+    ledger: Option<Arc<plenipo_ledger::Ledger>>,
 }
 
 impl Planner {
@@ -88,6 +90,15 @@ impl Planner {
             reviewed: request.reviewed,
             on_limit: self.config.options.on_usage_limit,
             now: self.now,
+            spending_room: self.ledger.as_ref().and_then(|l| {
+                l.spending_room(
+                    request.department.map(|(id, _)| id),
+                    request.position_id,
+                    self.now,
+                )
+                .ok()
+                .flatten()
+            }),
         }
     }
 
@@ -243,6 +254,19 @@ impl Planner {
             passed.as_ref(),
             &label,
         ));
+        // A paid AI tool the owner chose by name (ADR-085): it costs money, within the caps.
+        let paid = self.tool(runtime_id).is_some_and(|t| t.paid);
+        if paid {
+            reason.push_str(
+                " It costs money: it is paid per use with your key, within your spending caps.",
+            );
+        }
+        if self
+            .tool(runtime_id)
+            .is_some_and(|t| crate::engine::text_only(&t.info))
+        {
+            reason.push_str(" A worker on it answers in text only.");
+        }
         RouteDecision {
             reason,
             choice: Some(RouteChoice {
@@ -254,6 +278,7 @@ impl Planner {
                 effort,
                 label,
                 maker: made_by,
+                paid,
             }),
             rank: None,
             candidates: Vec::new(),
@@ -375,8 +400,14 @@ impl Router {
     }
 
     fn ensure_builtins(&self) -> Result<()> {
-        let tools: Vec<(String, String)> =
-            self.tools().into_iter().map(|t| (t.id, t.label)).collect();
+        // A paid AI tool's models are the owner's to add (ADR-085): none is listed by itself.
+        let paid = crate::engine::paid_tool_ids();
+        let tools: Vec<(String, String)> = self
+            .tools()
+            .into_iter()
+            .filter(|t| !paid.contains(&t.id))
+            .map(|t| (t.id, t.label))
+            .collect();
         let config = self.config()?;
         let missing = tools.iter().any(|(id, _)| {
             !config
@@ -423,11 +454,13 @@ impl Router {
             .ledger()
             .recent_turn_outcomes(now.saturating_sub(limits::LOOKBACK_MS))?;
         let mut active = limits::active(&outcomes, &config.cleared_limits, now);
+        let paid = crate::engine::paid_tool_ids();
         let tools = self
             .tools()
             .into_iter()
             .map(|info| ToolState {
                 limit: active.remove(&info.id),
+                paid: paid.contains(&info.id),
                 info,
             })
             .collect();
@@ -442,6 +475,7 @@ impl Router {
             tools,
             roles,
             now,
+            ledger: Some(Arc::clone(&self.inner.ledger)),
         })
     }
 
@@ -851,6 +885,24 @@ mod tests {
         assert_eq!(again.config().unwrap().models.len(), 2);
         assert_eq!(ledger.recent_events(1).unwrap()[0].seq, seeded.seq);
         assert!(!s.api_billing);
+    }
+
+    #[test]
+    fn a_paid_ai_tool_gets_no_default_model_by_itself() {
+        // ADR-085: a paid AI tool's models are the owner's to add; none is listed by itself.
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let router = Router::with_tools(
+            Arc::clone(&ledger),
+            Arc::new(|| {
+                vec![
+                    info("alpha", "Alpha Code", "acme", true),
+                    info("openrouter", "OpenRouter", "openrouter", false),
+                ]
+            }),
+        );
+        let s = router.snapshot().unwrap();
+        let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels, ["Alpha Code (default model)"]);
     }
 
     #[test]

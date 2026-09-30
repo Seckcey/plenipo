@@ -234,6 +234,10 @@ fn harness_config(
         updates.clone(),
         host,
     );
+    // The `ollama` persona plays Plenipo's paid helper too (ADR-085), with a test key.
+    rt.set_paid_gate(Arc::new(
+        plenipo_runtime::agent::paid::MemoryPaidGate::with_key(),
+    ));
     let h = H {
         rt,
         sup,
@@ -292,7 +296,17 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 7);
+    assert_eq!(runtimes.len(), 8);
+    // OpenRouter (ADR-086) is Plenipo's own helper: its version is Plenipo's, checked below.
+    let (runtimes, paid) = runtimes.split_at(7);
+    assert_eq!(paid[0].id, "openrouter");
+    assert_eq!(paid[0].installation.state, InstallState::Installed);
+    assert_eq!(
+        paid[0].installation.version.as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(paid[0].auth.state, AuthState::PaidKey, "{:#?}", paid[0]);
+    assert!(paid[0].ready);
     for (info, version) in runtimes.iter().zip([
         "2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4", "1.2.99", "1.0.99",
     ]) {

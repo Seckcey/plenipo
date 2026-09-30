@@ -13,6 +13,7 @@ use crate::defaults::template_sets;
 use crate::dto::*;
 use crate::engine::{Scope, ScopeProject, ScopeUnit};
 use crate::error::{GuardError, Result};
+use crate::paid::PaidKeyInfo;
 use crate::registry::Capability;
 
 /// Ledger setting holding Guard's configuration.
@@ -485,6 +486,69 @@ impl Guard {
             Ok(Some((
                 json!({ "secretId": s.id, "name": s.name, "envVar": s.env_var, "programs": s.programs }),
                 s,
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Record a paid key's reference for `runtime_id` (the Vault stores the key under `id`).
+    /// Returns it, and the reference it replaced.
+    pub fn save_paid_key(
+        &self,
+        runtime_id: &str,
+        name: &str,
+        id: &str,
+    ) -> Result<(PaidKeyInfo, Option<PaidKeyInfo>)> {
+        let now = plenipo_ledger::now_ms();
+        self.update("vault.paid_key_saved", OWNER, |c| {
+            let (key, previous) = c.save_paid_key(runtime_id, name, id, now)?;
+            // Only the reference: never the key.
+            Ok(Some((
+                json!({ "runtime": key.runtime_id, "name": key.name, "replaced": previous.is_some() }),
+                (key, previous),
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// The paid key `id` passed its check: forget the key it replaced (erased from the Vault
+    /// already). Returns that key's Vault name, or none when there was none or a later save has
+    /// replaced `id` since.
+    pub fn confirm_paid_key(&self, runtime_id: &str, id: &str) -> Result<Option<String>> {
+        self.update("vault.paid_key_checked", OWNER, |c| {
+            Ok(c.confirm_paid_key(runtime_id, id).map(|replaced| {
+                (
+                    json!({ "runtime": runtime_id, "replacedKeyErased": true }),
+                    replaced,
+                )
+            }))
+        })
+    }
+
+    /// The paid key `id` did not pass its check: put `previous` back, while `id` is still the
+    /// saved one. Returns whether anything changed.
+    pub fn restore_paid_key(
+        &self,
+        runtime_id: &str,
+        id: &str,
+        previous: Option<PaidKeyInfo>,
+    ) -> Result<bool> {
+        let name = previous.as_ref().map(|p| p.name.clone());
+        Ok(self
+            .update("vault.paid_key_restored", OWNER, |c| {
+                Ok(c.restore_paid_key(runtime_id, id, previous)
+                    .then(|| (json!({ "runtime": runtime_id, "restored": name }), ())))
+            })?
+            .is_some())
+    }
+
+    /// Remove the paid key's reference for `runtime_id`. Returns it.
+    pub fn remove_paid_key(&self, runtime_id: &str) -> Result<PaidKeyInfo> {
+        self.update("vault.paid_key_removed", OWNER, |c| {
+            let key = c.remove_paid_key(runtime_id)?;
+            Ok(Some((
+                json!({ "runtime": key.runtime_id, "name": key.name }),
+                key,
             )))
         })?
         .ok_or_else(|| GuardError::Invalid("nothing changed".into()))

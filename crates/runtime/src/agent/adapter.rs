@@ -186,6 +186,15 @@ pub trait TurnParser: Send {
     /// to less than half — the AI tool shortened its memory — shows up as
     /// [`AgentEvent::MemoryShortened`].
     fn set_context_used(&mut self, _previous: Option<u64>) {}
+    /// A paid step's bill once it ended (ADR-085), at `price`: the service's own bill, its
+    /// token counts priced, not sent, or not priced yet. None: not a paid AI tool.
+    fn paid_bill(
+        &self,
+        _price: &crate::pricing::Price,
+        _started: bool,
+    ) -> Option<crate::agent::paid::PaidBill> {
+        None
+    }
 }
 
 /// A provider runtime. Implementations hold no per-turn state; they only describe how to
@@ -276,6 +285,47 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     /// (ADR-017, Ollama's cloud models through its service on this PC).
     fn bridged(&self) -> bool {
         false
+    }
+    /// Plenipo's own helper is the tool's program (a paid AI service, ADR-085): no program is
+    /// looked for on this PC, and its version is Plenipo's.
+    fn built_in(&self) -> bool {
+        false
+    }
+    /// The bridge's arguments for this tool (`--plenipo-paid openrouter`), when not the
+    /// configured bridge's own (Ollama's).
+    fn bridge_args(&self) -> Option<Vec<String>> {
+        None
+    }
+    /// A paid AI tool (ADR-085): its key comes from the owner's Vault through the paid gate,
+    /// only while paid keys are switched on, and every step is priced and set aside under the
+    /// spending caps before it starts.
+    fn paid(&self) -> bool {
+        false
+    }
+    /// The model a step runs when it names none (paid AI tools price it before it starts).
+    fn default_model(&self) -> Option<&'static str> {
+        None
+    }
+    /// `model`'s price, from the models the tool reported (paid AI tools). None: not priced.
+    fn price_of(
+        &self,
+        _model: &str,
+        _reported: Option<&[crate::agent::dto::KnownModel]>,
+    ) -> Option<crate::pricing::Price> {
+        None
+    }
+    /// How much a paid step with `prompt_bytes` of words may send and ask for.
+    fn paid_limits(
+        &self,
+        _request: &TurnRequest,
+        prompt_bytes: usize,
+    ) -> crate::agent::paid::PaidLimits {
+        let bytes = u64::try_from(prompt_bytes).unwrap_or(u64::MAX);
+        crate::agent::paid::PaidLimits {
+            input_bytes: bytes,
+            input_tokens: crate::agent::paid::most_input_tokens(bytes, 2),
+            output_tokens: crate::agent::paid::DEFAULT_OUTPUT_TOKENS,
+        }
     }
     /// Whether the AI tool can use Plenipo's tools (Phase 7). When false, a worker on it is
     /// conversation only and no permission grant is opened for its steps.

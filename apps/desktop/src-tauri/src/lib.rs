@@ -535,6 +535,8 @@ pub fn configure<R: Runtime>(
             ai_tools_commands::cancel_ai_tool_update,
             ai_tools_commands::set_ai_tools_auto_update,
             ai_tools_commands::set_ai_tool_payment,
+            ai_tools_commands::save_paid_key,
+            ai_tools_commands::remove_paid_key,
             connections_commands::get_connections,
             connections_commands::connect_connection,
             connections_commands::cancel_connection_sign_in,
@@ -1392,12 +1394,28 @@ mod ipc_boundary_tests {
     fn agent_runtimes_not_installed_refuse_work_clearly() {
         let app = app();
         let main = window(&app, "main");
-        // Tests see no installed runtimes (hermetic: no real CLI is ever started).
+        // Tests see no installed runtimes (hermetic: no real CLI is ever started). OpenRouter
+        // comes with Plenipo (ADR-086): installed, and not ready while paid keys are switched
+        // off, so nothing is started for it either.
         let runtimes: Vec<plenipo_runtime::agent::AgentRuntimeInfo> =
             body(invoke(&main, "refresh_agent_runtimes"));
-        assert!(runtimes
-            .iter()
-            .all(|r| r.installation.state == plenipo_runtime::agent::InstallState::NotInstalled));
+        for r in &runtimes {
+            if r.id == "openrouter" {
+                assert_eq!(
+                    r.installation.state,
+                    plenipo_runtime::agent::InstallState::Installed
+                );
+                assert_eq!(r.auth.state, plenipo_runtime::agent::AuthState::SignedOut);
+                assert!(!r.ready, "{r:?}");
+            } else {
+                assert_eq!(
+                    r.installation.state,
+                    plenipo_runtime::agent::InstallState::NotInstalled,
+                    "{}",
+                    r.id
+                );
+            }
+        }
         let err = invoke_json(
             &main,
             "start_agent_session",
@@ -1928,10 +1946,12 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
-        // Each AI tool's default model is listed; nothing is signed in, so nothing is chosen.
+        // Each AI tool's default model is listed, but no paid AI tool's (ADR-085: the owner adds
+        // those); nothing is signed in, so nothing is chosen.
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
         let defaults: Vec<String> = plenipo_runtime::agent::builtin_adapters()
             .iter()
+            .filter(|a| !a.paid())
             .map(|a| format!("{} (default model)", a.label()))
             .collect();
         assert_eq!(labels, defaults);
@@ -2178,7 +2198,11 @@ mod ipc_boundary_tests {
         }
         // Nothing was changed by the refusals.
         let s: plenipo_router::RoutingSnapshot = body(invoke(&main, "get_routing"));
-        assert_eq!(s.models.len(), tool_ids().len());
+        let unpaid = plenipo_runtime::agent::builtin_adapters()
+            .iter()
+            .filter(|a| !a.paid())
+            .count();
+        assert_eq!(s.models.len(), unpaid);
         assert_eq!(
             s.options.on_usage_limit,
             plenipo_router::LimitBehavior::Wait
@@ -4190,7 +4214,7 @@ mod ipc_boundary_tests {
             (
                 "set_ai_tool_payment",
                 serde_json::json!({ "runtimeId": "codex", "method": "paidKey" }),
-                "comes in a later update",
+                "always uses your subscription",
             ),
             (
                 "set_ai_tool_payment",
@@ -5856,5 +5880,150 @@ mod ipc_boundary_tests {
         assert!(snap.settings.switches.paid_ai_keys);
         // The other switches keep their defaults when a setting names only this one.
         assert!(snap.settings.switches.browser && !snap.settings.switches.servers);
+    }
+
+    // ---- Phase 16 Wave 3: paid AI keys (ADR-085) ----
+
+    const PAID_KEYS: [&str; 2] = ["save_paid_key", "remove_paid_key"];
+
+    /// A made-up key: never a real one in the tests.
+    const TEST_KEY: &str = "sk-or-v1-ipc-test-key-not-real-0123456789";
+
+    #[test]
+    fn paid_keys_are_the_main_windows_alone_and_never_repeated() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let args = serde_json::json!({
+            "runtimeId": "openrouter", "name": "Office key", "key": TEST_KEY,
+        });
+        for cmd in PAID_KEYS {
+            for (answer, from) in [
+                (invoke_json(&other, cmd, args.clone()), "another window"),
+                (invoke_json(&sign, cmd, args.clone()), "the sign"),
+                (
+                    invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                    "a web page",
+                ),
+            ] {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+                assert!(!err.to_string().contains(TEST_KEY), "{cmd} from {from}");
+            }
+        }
+        // From the main window: what it is given is checked, and no answer repeats the key.
+        for (cmd, args, why) in [
+            // Paid keys start switched off: nothing is saved.
+            ("save_paid_key", args.clone(), "switched off"),
+            (
+                "save_paid_key",
+                serde_json::json!({ "runtimeId": "codex", "name": "Office key", "key": TEST_KEY }),
+                "takes no paid key",
+            ),
+            (
+                "save_paid_key",
+                serde_json::json!({
+                    "runtimeId": "openrouter", "name": "Office key", "key": "k".repeat(401),
+                }),
+                "longer than any key",
+            ),
+            (
+                "save_paid_key",
+                serde_json::json!({ "runtimeId": "../x", "name": "n", "key": TEST_KEY }),
+                "invalid",
+            ),
+            (
+                "remove_paid_key",
+                serde_json::json!({ "runtimeId": "openrouter" }),
+                "has no paid key",
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone())
+                .expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
+            );
+            assert!(!err.to_string().contains(TEST_KEY), "{cmd}: {err}");
+        }
+        let guard = app.state::<plenipo_guard::Guard>();
+        assert!(guard.config().unwrap().paid_keys.is_empty());
+    }
+
+    #[test]
+    fn the_business_cap_stays_while_a_paid_key_is_saved() {
+        let app = app();
+        let main = window(&app, "main");
+        let page: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "set_spending_cap",
+            serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": 50_000_000 }),
+        ));
+        let cap = page.caps[0].cap.id.clone();
+        // A key's reference, as saving one leaves it once its check passed.
+        let guard = app.state::<plenipo_guard::Guard>();
+        guard
+            .save_paid_key("openrouter", "Office key", "paid-key-ipc-test")
+            .unwrap();
+        let err = invoke_json(
+            &main,
+            "remove_spending_cap",
+            serde_json::json!({ "capId": cap }),
+        )
+        .expect_err("the business's cap stays while a key is saved");
+        assert!(
+            err.to_string().contains("remove the paid keys first"),
+            "{err}"
+        );
+        guard.remove_paid_key("openrouter").unwrap();
+        let page: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "remove_spending_cap",
+            serde_json::json!({ "capId": cap }),
+        ));
+        assert!(!page.has_business_cap);
+    }
+
+    #[test]
+    fn a_paid_keys_name_is_one_short_line_and_never_the_key() {
+        let app = app();
+        let main = window(&app, "main");
+        let guard = app.state::<plenipo_guard::Guard>();
+        guard
+            .set_switches(&plenipo_guard::dto::Switches {
+                paid_ai_keys: true,
+                ..plenipo_guard::dto::Switches::default()
+            })
+            .unwrap();
+        let _: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "set_spending_cap",
+            serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": 50_000_000 }),
+        ));
+        for (name, why) in [
+            ("n".repeat(61), "at most 60 characters"),
+            ("Office\u{7}key".to_owned(), "one line"),
+            (TEST_KEY.to_owned(), "looks like the key itself"),
+        ] {
+            let err = invoke_json(
+                &main,
+                "save_paid_key",
+                serde_json::json!({ "runtimeId": "openrouter", "name": name, "key": TEST_KEY }),
+            )
+            .expect_err("refused");
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(said.contains(why), "{name:?}: {said}");
+            assert!(!said.contains(TEST_KEY), "{said}");
+        }
+        assert!(guard.config().unwrap().paid_keys.is_empty());
     }
 }

@@ -1,4 +1,4 @@
-import type { CapCovers, CapStatus, SpendingRecord } from "@plenipo/types";
+import type { CapCovers, CapStatus, Price, SpendingRecord } from "@plenipo/types";
 
 /**
  * Words and money for the Spending caps page (Phase 16 Wave 3, ADR-085). Money comes from Core
@@ -9,6 +9,11 @@ export const MICROS_PER_DOLLAR = 1_000_000;
 /** The smallest and largest caps (as the Ledger checks them). */
 export const MIN_CAP_MICROS = 10_000;
 export const MAX_CAP_MICROS = 1_000_000 * MICROS_PER_DOLLAR;
+
+/** What a paid model costs: "$3.00 a million tokens read, $15.00 a million written". */
+export function priceWords(price: Price): string {
+  return `${dollars(price.input)} a million tokens read, ${dollars(price.output)} a million written`;
+}
 
 /** Money: "$12.34"; under a cent, "$0.0042"; nothing, "$0.00" (as the Ledger writes it). */
 export function dollars(micros: number): string {
