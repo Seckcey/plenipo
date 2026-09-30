@@ -32,9 +32,10 @@ impl Broker {
         &self.inner.watch
     }
 
-    /// Who a grant's changes belong to: its worker, task, conversation, and objective.
+    /// Who a grant's changes belong to: its worker, task, conversation, and objective, and
+    /// where its files are (its working copy, or its project's folder).
     pub(super) fn who(&self, grant_id: &str) -> Option<Who> {
-        let (task_id, session_id, position_id, worker) = {
+        let (task_id, session_id, position_id, worker, root) = {
             let s = self.state();
             let g = s.grants.get(grant_id)?;
             (
@@ -42,6 +43,7 @@ impl Broker {
                 g.session_id.clone(),
                 g.position_id.clone(),
                 g.worker.clone(),
+                super::owner_files::root_of(g),
             )
         };
         let objective_task_id = self
@@ -54,6 +56,7 @@ impl Broker {
             position_id,
             worker,
             objective_task_id,
+            root,
         })
     }
 
@@ -204,6 +207,7 @@ impl Broker {
                     worker: e.payload["worker"].as_str().unwrap_or("").to_owned(),
                     objective_task_id: objective.clone(),
                     path: path.to_owned(),
+                    root: c["root"].as_str().map(str::to_owned),
                     state: WatchState::Saved,
                     kind: Some(if c["kind"] == "created" {
                         ChangeKind::Created
@@ -303,6 +307,9 @@ impl Broker {
             "kind": if created { "created" } else { "changed" },
             "bytes": written.after_bytes,
         });
+        if let Some(root) = &who.root {
+            record["root"] = root.as_str().into();
+        }
         if let Some(c) = counts {
             record["added"] = c.added.into();
             record["removed"] = c.removed.into();

@@ -179,6 +179,16 @@ const COMMANDS: &[&str] = &[
     "get_update_status",
     "check_for_updates",
     "install_update",
+    "prepare_pop_out",
+    "focus_pop_out",
+    "reset_pop_outs",
+    "get_file_roots",
+    "list_folder",
+    "read_file",
+    "save_file",
+    "open_file_outside",
+    "show_in_folder",
+    "get_changing_files",
 ];
 
 fn main() {

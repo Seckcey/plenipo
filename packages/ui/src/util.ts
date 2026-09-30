@@ -59,8 +59,10 @@ export function useElementSize(el: HTMLElement | null): Size {
       setSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next));
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    // The observer of the element's own window (a popped-out panel's window has its own).
+    const Observer = el.ownerDocument.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
+    if (typeof Observer === "undefined") return;
+    const observer = new Observer(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, [el]);
@@ -163,11 +165,13 @@ export function useDismiss(
     const onPointer = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) close();
     };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onPointer);
+    // The document the popover is in: a popped-out panel's window has its own.
+    const doc = ref.current?.ownerDocument ?? document;
+    doc.addEventListener("keydown", onKey);
+    doc.addEventListener("mousedown", onPointer);
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onPointer);
+      doc.removeEventListener("keydown", onKey);
+      doc.removeEventListener("mousedown", onPointer);
     };
   }, [open, ref, close]);
 }

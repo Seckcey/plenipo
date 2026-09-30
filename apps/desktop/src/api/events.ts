@@ -6,6 +6,7 @@ import type {
   AgentUpdate,
   ControlStatus,
   LedgerEvent,
+  PopOutNotice,
   RuntimeEvent,
   WatchUpdate,
 } from "@plenipo/types";
@@ -16,6 +17,7 @@ export const RUNTIME_EVENT = "plenipo://runtime";
 export const LEDGER_EVENT = "plenipo://ledger";
 export const AGENT_EVENT = "plenipo://agents";
 export const CONTROL_EVENT = "plenipo://control";
+export const WINDOWS_EVENT = "plenipo://windows";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -51,4 +53,14 @@ export async function subscribeControl(
  */
 export async function subscribeWatch(handler: (update: WatchUpdate) => void): Promise<() => void> {
   return watchChanges(handler);
+}
+
+/**
+ * Subscribe to what happens to this window's popped-out panels (Phase 21, ADR-092): a pop-out
+ * window closed, so its panel goes back to a dock.
+ */
+export async function subscribePopOuts(
+  handler: (notice: PopOutNotice) => void,
+): Promise<() => void> {
+  return listen<PopOutNotice>(WINDOWS_EVENT, (event) => handler(event.payload));
 }

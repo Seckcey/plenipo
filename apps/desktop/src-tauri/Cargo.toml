@@ -43,6 +43,11 @@ tauri-plugin-single-instance = "~2.4"
 [target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["signal"] }
 
+# Let the organization's window open its pop-out panels (Phase 21, ADR-092): WebKitGTK's own
+# setting, the version Tauri uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_40"] }
+
 [lints]
 workspace = true
 

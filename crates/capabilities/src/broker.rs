@@ -53,6 +53,7 @@ pub(crate) mod connecting;
 mod git_tools;
 pub mod live;
 mod operate;
+pub mod owner_files;
 pub(crate) mod servers;
 mod terminals;
 mod watching;

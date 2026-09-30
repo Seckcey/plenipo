@@ -335,3 +335,20 @@ export type { AddOnChange } from "./generated/AddOnChange";
 export type { AddOnInput } from "./generated/AddOnInput";
 export type { AddOnTool } from "./generated/AddOnTool";
 export type { ToolMark } from "./generated/ToolMark";
+// Phase 21 (ADR-092): the workspace's panels and pop-out windows.
+export type { PanelId } from "./generated/PanelId";
+export type { PopOutNotice } from "./generated/PopOutNotice";
+export type { WindowPlace } from "./generated/WindowPlace";
+// Phase 21 (ADR-093): the owner's files.
+export type { ChangingFile } from "./generated/ChangingFile";
+export type { FileContent } from "./generated/FileContent";
+export type { FileRoot } from "./generated/FileRoot";
+export type { FileRootKind } from "./generated/FileRootKind";
+export type { FileRoots } from "./generated/FileRoots";
+export type { FileView } from "./generated/FileView";
+export type { FolderEntry } from "./generated/FolderEntry";
+export type { FolderListing } from "./generated/FolderListing";
+export type { FolderWriter } from "./generated/FolderWriter";
+export type { LineEnding } from "./generated/LineEnding";
+export type { ReadOnlyWhy } from "./generated/ReadOnlyWhy";
+export type { SaveOutcome } from "./generated/SaveOutcome";

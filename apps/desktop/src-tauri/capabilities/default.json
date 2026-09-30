@@ -176,6 +176,16 @@
     "allow-save-diagnostics-file",
     "allow-get-update-status",
     "allow-check-for-updates",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-prepare-pop-out",
+    "allow-focus-pop-out",
+    "allow-reset-pop-outs",
+    "allow-get-file-roots",
+    "allow-list-folder",
+    "allow-read-file",
+    "allow-save-file",
+    "allow-open-file-outside",
+    "allow-show-in-folder",
+    "allow-get-changing-files"
   ]
 }

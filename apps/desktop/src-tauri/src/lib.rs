@@ -12,6 +12,7 @@ pub mod canvas_commands;
 pub mod commands;
 pub mod connections_commands;
 pub mod diagnostics;
+pub mod files_commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
@@ -28,6 +29,8 @@ pub mod uninstall;
 pub mod update_host;
 pub mod upkeep_commands;
 pub mod window_watch;
+pub mod workspace_commands;
+pub mod workspace_windows;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -246,8 +249,16 @@ pub fn configure<R: Runtime>(
             };
             app.manage(ledger.clone());
             app.manage(options.persistence);
+            // Where the pop-out panels were (Phase 21, ADR-092).
+            app.manage(workspace_windows::PopOuts::new(
+                data.as_ref().map(|d| d.join(workspace_windows::PLACES_FILE)),
+            ));
             let supervisor =
                 runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
+            // Opening the owner's files in another program, or in File Explorer (Phase 21).
+            app.manage(files_commands::Outside(Arc::new(
+                files_commands::SystemFileOpener::new(supervisor.clone()),
+            )));
             let agents = agent_host::create(
                 app.handle(),
                 options.persistence,
@@ -349,15 +360,32 @@ pub fn configure<R: Runtime>(
                     log::warn!("system tray unavailable: {e}");
                 }
             }
-            // Otherwise show the window, which starts hidden so that nothing flashes.
-            if !in_tray {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                }
+            // The first organization's window (Phase 21: built here, so that it may open its
+            // pop-out panels). It starts hidden in the tray; otherwise it shows at once.
+            if let Err(e) = workspace_windows::build_org_window(
+                app.handle(),
+                workspace_windows::MAIN,
+                !in_tray,
+            ) {
+                log::error!("the window could not open: {e}");
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            // A pop-out panel (Phase 21, ADR-092): Plenipo keeps where it is, and when it
+            // closes, its organization's window puts the panel back in a dock.
+            if workspace_windows::parse_popout(window.label()).is_some() {
+                match event {
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                        workspace_windows::remember_place(window);
+                    }
+                    WindowEvent::Destroyed => {
+                        workspace_windows::closed(window.app_handle(), window.label());
+                    }
+                    _ => {}
+                }
+                return;
+            }
             // Closing the window never stops approved work unless the owner chose that
             // (ADR-037): hide to the tray while work is going (or always), or quit the normal
             // way, which stops the work and records it.
@@ -374,6 +402,7 @@ pub fn configure<R: Runtime>(
                 match start_close::close_action(choice, work_going(app), tray::exists(app)) {
                     start_close::CloseAction::Hide => {
                         let _ = window.hide();
+                        workspace_windows::hide_popouts(app, window.label());
                     }
                     start_close::CloseAction::Quit => app.exit(0),
                 }
@@ -386,6 +415,8 @@ pub fn configure<R: Runtime>(
                 if let Some(broker) = webview.try_state::<plenipo_capabilities::Broker>() {
                     broker.close_all_terminals("the window was reloaded");
                 }
+                // Its pop-outs close too; the page opens them again (ADR-092 §10).
+                workspace_windows::close_popouts(webview.app_handle(), webview.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -561,6 +592,16 @@ pub fn configure<R: Runtime>(
             upkeep_commands::get_update_status,
             upkeep_commands::check_for_updates,
             upkeep_commands::install_update,
+            workspace_commands::prepare_pop_out,
+            workspace_commands::focus_pop_out,
+            workspace_commands::reset_pop_outs,
+            files_commands::get_file_roots,
+            files_commands::list_folder,
+            files_commands::read_file,
+            files_commands::save_file,
+            files_commands::open_file_outside,
+            files_commands::show_in_folder,
+            files_commands::get_changing_files,
         ])
 }
 

@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { sampleServer, sampleServers } from "../test/serverFixtures";
-import { PANEL_KEY } from "./panel";
 import { TerminalButton, TerminalPanel } from "./TerminalPanel";
 import { TerminalProvider } from "./TerminalProvider";
 
@@ -184,9 +183,10 @@ beforeEach(() => {
 });
 
 describe("the terminal panel", () => {
-  it("shows and hides with the Terminal button and Ctrl+`, and comes back the same after a restart", async () => {
+  it("shows and hides with the Terminal button and Ctrl+`", async () => {
+    // Where it is, its size, and a restart are the window's layout (workspace/Workspace.test).
     const user = userEvent.setup();
-    const { unmount } = render(<Harness />);
+    render(<Harness />);
     expect(panel()).not.toBeVisible();
     const button = screen.getByRole("button", { name: /^Terminal/ });
     expect(button).toHaveAttribute("aria-pressed", "false");
@@ -197,24 +197,6 @@ describe("the terminal panel", () => {
     expect(panel()).not.toBeVisible();
     await user.keyboard("{Control>}`{/Control}");
     expect(panel()).toBeVisible();
-    // Move it to the right, and make it bigger with the keyboard.
-    await user.click(screen.getByRole("button", { name: "Move the terminal to the right" }));
-    const edge = screen.getByRole("separator", { name: "Resize the terminal panel" });
-    expect(edge).toHaveAttribute("aria-orientation", "vertical");
-    edge.focus();
-    await user.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(edge).toHaveAttribute("aria-valuenow", "452");
-    expect(JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}")).toEqual({
-      open: true,
-      side: "right",
-      size: 452,
-    });
-    unmount();
-    // A restart: the panel comes back open, on the right, the same size.
-    render(<Harness />);
-    expect(panel()).toBeVisible();
-    expect(screen.getByRole("separator")).toHaveAttribute("aria-valuenow", "452");
-    expect(screen.getByRole("button", { name: "Move the terminal to the bottom" })).toBeVisible();
   });
 
   it("opens a terminal on this PC: output, typing, and closing reach the shell", async () => {
@@ -285,8 +267,8 @@ describe("the terminal panel", () => {
     expect(tab).toHaveFocus();
     // Ctrl+` is Plenipo's too.
     expect(term.key({ key: "`", code: "Backquote", ctrlKey: true })).toBe(false);
-    // Hidden with its button, the keyboard goes back to the Terminal button.
-    await user.click(screen.getByRole("button", { name: "Hide the terminal (Ctrl+`)" }));
+    // Hidden with Ctrl+` from inside it, the keyboard goes back to the Terminal button.
+    await user.keyboard("{Control>}`{/Control}");
     expect(screen.getByRole("button", { name: /^Terminal/ })).toHaveFocus();
   });
 

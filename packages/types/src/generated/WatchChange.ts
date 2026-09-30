@@ -17,7 +17,13 @@ objectiveTaskId: string,
 /**
  * Inside the working copy, with `/`.
  */
-path: string, state: WatchState, kind?: ChangeKind, added: number, removed: number, 
+path: string, 
+/**
+ * Where the file is (Phase 21, ADR-093 §17): `copy:<working copy ID>`, or
+ * `project:<project ID>` for a worker that works in the project folder itself; none when
+ * not known (a record from before 1.15.0).
+ */
+root?: string, state: WatchState, kind?: ChangeKind, added: number, removed: number, 
 /**
  * Why it was refused or not saved.
  */

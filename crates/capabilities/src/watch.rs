@@ -78,6 +78,11 @@ pub struct WatchChange {
     pub objective_task_id: String,
     /// Inside the working copy, with `/`.
     pub path: String,
+    /// Where the file is (Phase 21, ADR-093 §17): `copy:<working copy ID>`, or
+    /// `project:<project ID>` for a worker that works in the project folder itself; none when
+    /// not known (a record from before 1.15.0).
+    #[ts(optional)]
+    pub root: Option<String>,
     pub state: WatchState,
     #[ts(optional)]
     pub kind: Option<ChangeKind>,
@@ -153,6 +158,8 @@ pub struct Who {
     pub position_id: Option<String>,
     pub worker: String,
     pub objective_task_id: String,
+    /// Where its files are (a working copy, or the project folder): see [`WatchChange::root`].
+    pub root: Option<String>,
 }
 
 /// What a file was before a change Plenipo made.
@@ -421,6 +428,7 @@ impl WatchHub {
             worker: who.worker.clone(),
             objective_task_id: who.objective_task_id.clone(),
             path: path.to_owned(),
+            root: who.root.clone(),
             state,
             kind: None,
             added: 0,
@@ -797,6 +805,29 @@ impl WatchHub {
         })
     }
 
+    /// The latest change to each file (by where it is and its path) made in `sessions`, the
+    /// conversations of the steps open now: what the file view marks as being changed now
+    /// (Phase 21, ADR-093 §16). A refused or unsaved change is not a change in progress.
+    pub fn changing(&self, sessions: &std::collections::HashSet<String>) -> Vec<WatchChange> {
+        let state = self.state();
+        let mut seen = std::collections::HashSet::new();
+        state
+            .order
+            .iter()
+            .rev()
+            .filter_map(|id| state.changes.get(id))
+            .filter(|k| sessions.contains(&k.session_id))
+            .filter(|k| seen.insert((k.change.root.clone(), k.change.path.clone())))
+            .filter(|k| {
+                matches!(
+                    k.change.state,
+                    WatchState::Writing | WatchState::Waiting | WatchState::Saved
+                )
+            })
+            .map(|k| k.change.clone())
+            .collect()
+    }
+
     /// One change's file, its lines marked.
     pub fn file(&self, change_id: &str) -> Option<WatchFileView> {
         let state = self.state();
@@ -833,6 +864,7 @@ mod tests {
             position_id: Some("p1".into()),
             worker: "Senior Developer".into(),
             objective_task_id: "root".into(),
+            root: Some("copy:w1".into()),
         }
     }
 

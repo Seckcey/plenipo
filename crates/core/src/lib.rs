@@ -6,6 +6,7 @@
 
 pub mod dto;
 pub mod upkeep;
+pub mod workspace;
 
 pub use dto::{
     AppInfo, BuildProfile, CommandError, CommandErrorKind, LocalPath, SyntheticTaskAction,
@@ -15,6 +16,7 @@ pub use upkeep::{
     SettingsProblem, StartAndClose, StartAndCloseInput, StoppedTask, UpdateState, UpdateStatus,
     WindowRecovery,
 };
+pub use workspace::{PanelId, PopOutNotice, WindowPlace};
 
 /// Human-facing product name.
 pub const PRODUCT_NAME: &str = "Plenipo";

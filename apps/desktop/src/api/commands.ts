@@ -106,6 +106,14 @@ import type {
   TerminalPlace,
   TerminalSettings,
   TerminalShell,
+  PanelId,
+  WindowPlace,
+  ChangingFile,
+  FileRoots,
+  FileView,
+  FolderListing,
+  LineEnding,
+  SaveOutcome,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -1193,4 +1201,72 @@ export function setAddOnTools(
   marks: Record<string, ToolMark>,
 ): Promise<ConnectionsPage> {
   return call<ConnectionsPage>("set_add_on_tools", { addOnId, marks });
+}
+
+// ---- The workspace (Phase 21, ADR-092) ------------------------------------------------------
+
+/**
+ * Tell Plenipo this window's page is about to open `panel` in its own window (`place`: where the
+ * panel was dropped; none for where it was last). Plenipo allows the next new window of this
+ * page for that panel only, once.
+ */
+export function preparePopOut(panel: PanelId, place: WindowPlace | null): Promise<void> {
+  return call<void>("prepare_pop_out", { panel, place });
+}
+
+/** Bring a popped-out panel's window to the front. `false` when it is not open. */
+export function focusPopOut(panel: PanelId): Promise<boolean> {
+  return call<boolean>("focus_pop_out", { panel });
+}
+
+/** Reset layout: close this window's pop-outs and forget where they were. */
+export function resetPopOuts(): Promise<void> {
+  return call<void>("reset_pop_outs");
+}
+
+// ---- The owner's files (Phase 21, ADR-093) --------------------------------------------------
+
+/** The folders Plenipo knows: each project's folder and working copies, and who writes where. */
+export function getFileRoots(): Promise<FileRoots> {
+  return call<FileRoots>("get_file_roots");
+}
+
+/** One folder's files and folders (`path`: inside the top folder, "" for its top). */
+export function listFolder(root: string, path: string): Promise<FolderListing> {
+  return call<FolderListing>("list_folder", { root, path });
+}
+
+/** Open a file in Plenipo. */
+export function readFile(root: string, path: string): Promise<FileView> {
+  return call<FileView>("read_file", { root, path });
+}
+
+/**
+ * Save a text file (`base`: its fingerprint when it was opened; `null`: Save anyway, over what is
+ * there now). Its own line endings and byte-order mark are kept.
+ */
+export function saveFile(
+  root: string,
+  path: string,
+  text: string,
+  bom: boolean,
+  lineEnding: LineEnding,
+  base: string | null,
+): Promise<SaveOutcome> {
+  return call<SaveOutcome>("save_file", { root, path, text, bom, lineEnding, base });
+}
+
+/** Open a file with the program Windows uses for it (never a program or a script). */
+export function openFileOutside(root: string, path: string): Promise<void> {
+  return call<void>("open_file_outside", { root, path });
+}
+
+/** Show a file in File Explorer. */
+export function showInFolder(root: string, path: string): Promise<void> {
+  return call<void>("show_in_folder", { root, path });
+}
+
+/** The files workers are changing now. */
+export function getChangingFiles(): Promise<ChangingFile[]> {
+  return call<ChangingFile[]>("get_changing_files");
 }

@@ -4210,6 +4210,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "tokio",
+ "webkit2gtk",
  "zip",
 ]
 
