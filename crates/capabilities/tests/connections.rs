@@ -5440,6 +5440,116 @@ async fn a_key_the_service_stops_accepting_needs_a_new_one() {
     assert!(h.vault_value_at("connection-wordpress-store-key").is_none());
 }
 
+/// A WooCommerce key on its own: refused before the site is connected; added later with only its
+/// two boxes (the Application Password already kept is reused, never typed again); and each
+/// refusal says why — a key whose WordPress user may not see the store, a wrong secret, a key
+/// WooCommerce does not know. Nothing refused is kept, and the site stays connected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_woocommerce_key_is_added_later_and_each_refusal_says_why() {
+    let h = harness().await;
+    let store_only = |ck: &str, cs: &str| KeyInput {
+        store_key: Some(ck.into()),
+        store_secret: Some(cs.into()),
+        ..KeyInput::default()
+    };
+    h.parts_of(SITE, &[(Part::Store, PartLevel::ReadOnly)]);
+    h.allow_on(SITE, &[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    // Not connected yet: the key needs the site first.
+    let err = h
+        .save_key(SITE, &store_only(wordpress::RW_CK, wordpress::RW_CS))
+        .await
+        .unwrap_err();
+    assert!(err.contains("Connect your site first"), "{err}");
+    assert_eq!(h.store.stored(), 0);
+
+    // The site alone.
+    h.save_key(SITE, &site_key(None)).await.unwrap();
+    assert!(!h.card_of(SITE).store_key_kept);
+    let password = h.vault_value_at("connection-wordpress-token");
+    assert!(password.is_some());
+
+    let refused = |h: &H, err: &str, says: &str| {
+        assert!(err.contains(says), "{err}");
+        assert!(err.contains("Nothing was kept"), "{err}");
+        assert!(h.vault_value_at("connection-wordpress-store-key").is_none());
+        let card = h.card_of(SITE);
+        assert_eq!(card.connection.state, ConnectionState::Connected);
+        assert!(!card.store_key_kept);
+        assert_eq!(h.vault_value_at("connection-wordpress-token"), password);
+    };
+    // A key made for an Editor: WooCommerce takes it, but its user may not see the store.
+    let err = h
+        .save_key(
+            SITE,
+            &store_only(wordpress::EDITOR_CK, wordpress::EDITOR_CS),
+        )
+        .await
+        .unwrap_err();
+    refused(
+        &h,
+        &err,
+        "the WordPress user it belongs to may not see the store's orders",
+    );
+    assert!(err.contains("Shop Manager"), "{err}");
+    // The right key with another key's secret.
+    let err = h
+        .save_key(SITE, &store_only(wordpress::RW_CK, wordpress::READ_CS))
+        .await
+        .unwrap_err();
+    refused(
+        &h,
+        &err,
+        "WooCommerce knows that key (ck_…), but not with that secret",
+    );
+    // A key WooCommerce does not know (revoked, or copied short).
+    let unknown = format!("ck_{}", "9".repeat(40));
+    let err = h
+        .save_key(SITE, &store_only(&unknown, wordpress::RW_CS))
+        .await
+        .unwrap_err();
+    refused(&h, &err, "WooCommerce does not know that key");
+    // Empty boxes are not a key.
+    let err = h.save_key(SITE, &store_only(" ", "")).await.unwrap_err();
+    assert!(err.contains("Type the WooCommerce key"), "{err}");
+
+    // The Shop Manager's key: kept, with the same password, and the store's tools use it.
+    let before = h.requests().len();
+    h.save_key(SITE, &store_only(wordpress::READ_CK, wordpress::READ_CS))
+        .await
+        .unwrap();
+    let card = h.card_of(SITE);
+    assert_eq!(card.connection.state, ConnectionState::Connected);
+    assert!(card.store_key_kept);
+    assert_eq!(h.vault_value_at("connection-wordpress-token"), password);
+    assert_eq!(
+        h.vault_value_at("connection-wordpress-store-key")
+            .as_deref(),
+        Some(&*format!("{}:{}", wordpress::READ_CK, wordpress::READ_CS))
+    );
+    let checked: Vec<String> = h.requests()[before..]
+        .iter()
+        .filter(|r| r.contains(&format!("/{}/", wordpress::HOST)))
+        .cloned()
+        .collect();
+    assert!(
+        checked
+            .iter()
+            .any(|r| r.contains("/wp-json/wp/v2/users/me")),
+        "the kept password was checked again: {checked:?}"
+    );
+    let (_, text) = h.run(&tool("wp_orders", json!({}))).await;
+    assert!(text.contains("1042"), "{text}");
+    // Replacing it later takes only its two boxes again.
+    h.save_key(SITE, &store_only(wordpress::RW_CK, wordpress::RW_CS))
+        .await
+        .unwrap();
+    assert_eq!(
+        h.vault_value_at("connection-wordpress-store-key")
+            .as_deref(),
+        Some(&*format!("{}:{}", wordpress::RW_CK, wordpress::RW_CS))
+    );
+}
+
 /// Add-on tools (ADR-066, ADR-071 §2–§3): programs that download code each time and shells are
 /// refused; a program starts off, and each of its tools starts Off; nobody may use it until the
 /// owner picks; a Reading tool goes ahead, and its answer — a planted instruction — reaches the

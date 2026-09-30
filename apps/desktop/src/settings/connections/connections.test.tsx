@@ -700,6 +700,86 @@ describe("Settings → Connections", () => {
     expect(site).toHaveTextContent("publishing on your site and refunds always ask you");
   });
 
+  it("adds a WooCommerce key to a connected site with only its two boxes", async () => {
+    const connected = (storeKeyKept: boolean) =>
+      keyedCard(
+        "wordpress",
+        {},
+        {
+          connection: {
+            id: "wordpress",
+            service: "wordpress",
+            parts: { posts: "fullAccess", store: "readOnly" },
+            granted: ["role:shop_manager"],
+            access: [],
+            sendList: [],
+            state: "connected",
+            site: "https://shop.example.com",
+            account: { name: "Plenipo", address: "https://shop.example.com" },
+          },
+          storeKeyKept,
+        },
+      );
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { wordpress: connected(false) }),
+    );
+    api.saveConnectionKey.mockResolvedValue(
+      samplePage(sampleCard(), {}, { wordpress: connected(true) }),
+    );
+    const { container } = render(
+      <main>
+        <h1>Settings</h1>
+        <h2>Connections</h2>
+        <ConnectionsSettings go={go} />
+      </main>,
+    );
+    const site = await screen.findByRole("listitem", { name: "WordPress and WooCommerce" });
+    // Replacing the password no longer carries the WooCommerce boxes.
+    const replace = within(site).getByRole("region", { name: "Replace the key" });
+    expect(within(replace).queryByLabelText("Consumer key (ck_…)")).toBeNull();
+    // Its own section: the two boxes, and the Application Password is not asked for again.
+    const add = within(site).getByRole("form", { name: "Add a WooCommerce key" });
+    expect(within(add).queryByLabelText("Application Password")).toBeNull();
+    expect(site).toHaveTextContent("Make the key for a Shop Manager");
+    expect(site).toHaveTextContent("Your Application Password is not needed again.");
+    const user = userEvent.setup();
+    const button = within(add).getByRole("button", { name: "Add a WooCommerce key" });
+    expect(button).toBeDisabled();
+    await user.type(within(add).getByLabelText("Consumer key (ck_…)"), " ck_1 ");
+    await user.type(within(add).getByLabelText("Consumer secret (cs_…)"), "cs_2");
+    await user.click(button);
+    expect(api.saveConnectionKey).toHaveBeenCalledWith("wordpress", {
+      storeKey: "ck_1",
+      storeSecret: "cs_2",
+    });
+    // Kept: the section offers to replace it.
+    expect(
+      await within(site).findByRole("form", { name: "Replace the WooCommerce key" }),
+    ).toBeInTheDocument();
+    expect(site).toHaveTextContent("Your WooCommerce key is kept.");
+    expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("shows why WooCommerce refused a key", async () => {
+    api.saveConnectionKey.mockRejectedValue(
+      "WooCommerce took the key, but the WordPress user it belongs to may not see the store's orders (an Editor may not). Nothing was kept.",
+    );
+    render(<ConnectionsSettings go={go} />);
+    const site = await screen.findByRole("listitem", { name: "WordPress and WooCommerce" });
+    const user = userEvent.setup();
+    await user.type(within(site).getByLabelText("Your site's address"), "https://shop.example.com");
+    await user.type(within(site).getByLabelText("WordPress user name"), "plenipo");
+    await user.type(within(site).getByLabelText("Application Password"), "abcd EFGH 1234 ijkl");
+    await user.click(within(site).getByText("WooCommerce key (optional)"));
+    expect(site).toHaveTextContent("Make the key for a Shop Manager");
+    await user.type(within(site).getByLabelText("Consumer key (ck_…)"), "ck_1");
+    await user.type(within(site).getByLabelText("Consumer secret (cs_…)"), "cs_2");
+    await user.click(within(site).getByRole("button", { name: "Save and check" }));
+    expect(await within(site).findByRole("alert")).toHaveTextContent(
+      "may not see the store's orders",
+    );
+  });
+
   it("adds a program off, marks its tools, switches it on, and picks who may use it", async () => {
     api.addAddOn.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
     render(<ConnectionsSettings go={go} />);
