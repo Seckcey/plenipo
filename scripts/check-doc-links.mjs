@@ -4,7 +4,7 @@
 // It runs in `pnpm lint` and in CI's quick Docs check.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The repository paths that each link in `text` (a Markdown file at `file`) points at. */
@@ -24,8 +24,11 @@ export function linkedPaths(file, text) {
       // A stray "%": check the link as written.
     }
     if (!path) continue;
+    // Repository paths use "/" on every system (git ls-files gives them so), Windows included.
     paths.push(
-      path.startsWith("/") ? normalize(path.slice(1)) : normalize(join(dirname(file), path)),
+      path.startsWith("/")
+        ? posix.normalize(path.slice(1))
+        : posix.normalize(posix.join(posix.dirname(file), path)),
     );
   }
   return paths;
