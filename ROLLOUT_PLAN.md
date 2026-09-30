@@ -2142,6 +2142,16 @@ Build the online service Phase 11A checks in with, so customers can buy Pro, get
   - Stripe Tax works out and collects sales tax. Registering where 8 West must collect, and filing, are 8 West's job; Stripe shows where the thresholds are reached
   - card numbers never touch 8 West
   - no separate Pro trial: the Free edition is the trial
+- **Stripe, set up so far** (the owner's choices, 2026-09-30, from Stripe's integration planner; in the 8 West IT sandbox, test mode, and made the same way in live mode before launch):
+  - **Product:** "Plenipo Pro" (ID `plenipo_pro`), described as by 8 West Ventures, LLC. Card statements show `8WEST PLENIPO PRO`. Tax category: Downloadable Software, business use (`txcd_10202003`), for 8 West's accountant to confirm
+  - **Prices**, in US dollars with tax added on top: `plenipo_pro_monthly` ($9 a month) and `plenipo_pro_yearly` ($99 a year). The code finds prices by these lookup keys, never by Stripe's IDs, so the same code works in test and live mode
+  - **Buying:** Stripe-hosted Checkout in subscription mode, reached from the Plenipo website
+  - **Customer portal:** change the card, see invoices, update email, address, and tax ID, switch between monthly and yearly, and cancel at the end of the paid period (with a reason). Returns to `https://plenipo.8westit.com/account`. The privacy policy and terms links are added before launch
+  - **Stripe's notices the service handles:** `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, and `customer.subscription.deleted`
+  - **Failed payments:** Smart Retries, Stripe's failed-payment emails, and automatic card updates, set in the Dashboard; the subscription is cancelled only when retries run out
+  - **Invoices for businesses:** made by hand in the Dashboard (for example a yearly plan for an IT firm), paid on Stripe's invoice page; the same `invoice.paid` notice issues the key
+  - **Sales tax:** threshold monitoring until 8 West registers anywhere, then Stripe Tax collection. Stripe's Managed Payments (Stripe handles tax and compliance for digital products, for a fee) is an option to weigh in this phase's ADR
+  - **Branding:** the 8 West logo and color on Checkout, the portal, and invoices
 - **The signing key lives in a cloud key vault** (ADR-039 §2.14): a service that signs on request but never lets the key out, not even to 8 West. Only the account service may ask it to sign, every signature is logged, and the service's own access to the vault is guarded like the key. Plenipo carries the current public key and one spare, so the key can be replaced with an ordinary update. The vault is chosen with the hosting, and Phase 11A's key format follows it (Ed25519 if the vault signs it, otherwise P-256).
 - **Fail-open:** Phase 11A's rules stand. An outage of this service never takes Pro away from a paying customer.
 - **Hosting, backups, and monitoring** are chosen in this phase's ADR. The service is internet-facing, so it gets a security review before launch.
@@ -2171,6 +2181,7 @@ Phase 11A's request and response contract. A Stripe account for Plenipo, with St
 - anything that reads the owner's work, projects, or Ledger
 - telemetry, analytics, or crash reporting from Plenipo
 - community features (Phase 24) and pairing a phone with the web interface (Phase 14), which build on accounts later
+- Stripe Connect and paying resellers a share (the owner's choice, 2026-09-30: not for now; it can be added later without redoing the rest)
 
 ---
 
