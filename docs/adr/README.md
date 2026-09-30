@@ -98,3 +98,22 @@ architecture must be recorded here.
 | [092](ADR-092-panels-and-windows.md)                     | Panels and windows: resize, dock, pop out, drag out, and Reset layout (amends 031, 033, 055)  | Accepted |
 | [093](ADR-093-your-files-and-the-editor.md)              | Your files and the editor; one writer at a time; files on an objective (amends 016, 055)      | Accepted |
 | [094](ADR-094-more-than-one-organization.md)             | More than one organization: each its own Ledger, window, backups, and Vault names             | Accepted |
+| [100](ADR-100-phase-11a-22-owners-answers.md)            | Phase 11A and 22: what the check found, and the owner's answers; ADR-100 to 129 for them      | Accepted |
+| [101](ADR-101-account-service-repository-name.md)        | The account service's repository is `plenipo-account`, with its own rules                     | Accepted |
+| [102](ADR-102-account-service-repository-private.md)     | The account service's repository is private                                                   | Accepted |
+| [103](ADR-103-account-service-hosting.md)                | Hosting, backups, and monitoring for the account service (server size proposed)               | Accepted |
+| [104](ADR-104-signing-key-in-aws-kms.md)                 | The license signing key lives in AWS KMS; license keys stay Ed25519 (carries out 039 §2.14)   | Accepted |
+| [105](ADR-105-domain-and-web-address.md)                 | Plenipo's own domain is getplenipo.com; the account service at account.getplenipo.com         | Accepted |
+| [106](ADR-106-account-email.md)                          | Stripe sends billing email; account email goes through Microsoft 365                          | Accepted |
+| [107](ADR-107-admin-sign-in.md)                          | 8 West signs in to the admin page with a password and a passkey, behind Cloudflare Access     | Accepted |
+| [108](ADR-108-no-managed-payments.md)                    | No Stripe Managed Payments at launch; Stripe Tax as planned                                   | Accepted |
+| [109](ADR-109-plenipos-own-stripe-account.md)            | Plenipo has its own Stripe account (carries out 039 §2.13)                                    | Accepted |
+| [110](ADR-110-one-person-any-of-their-pcs.md)            | One subscription is for one person, on any of their own PCs; one license per PC               | Accepted |
+| [111](ADR-111-refunds-and-terms-of-sale.md)              | Refunds, and where the terms of sale and the account privacy notice live                      | Accepted |
+| [112](ADR-112-lessons-pause-on-free.md)                  | Lessons pause on Free, like Connections (carries out 021, 024)                                | Accepted |
+| [113](ADR-113-workers-at-the-same-time.md)               | Workers at once: Free's fourth waits its turn; Pro runs four per organization (amends 021)    | Accepted |
+| [114](ADR-114-business-departments.md)                   | What counts as a business department                                                          | Accepted |
+| [115](ADR-115-free-never-contacts-8-west.md)             | A Free copy never contacts 8 West                                                             | Accepted |
+| [116](ADR-116-the-weekly-answer-is-signed.md)            | The weekly check's answer is signed, and its time decides the grace (adds to 022)             | Accepted |
+| [117](ADR-117-paid-ai-keys-are-free.md)                  | Paid AI keys are in the Free edition (amends 021)                                             | Accepted |
+| [118](ADR-118-customer-accounts.md)                      | Customer accounts: signing in, and deleting an account                                        | Accepted |
