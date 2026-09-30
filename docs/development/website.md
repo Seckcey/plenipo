@@ -100,6 +100,26 @@ The GitHub About description and topics were improved by the maintainers. The ho
 should point to the final hostname when its origin is ready. Do not change repository visibility,
 license terms, the maintainers' profile avatars, or authentication settings as an SEO shortcut.
 
+## Terms and privacy
+
+The full [terms of service](../../apps/website/legal/terms.md) and
+[privacy statement](../../apps/website/legal/privacy.md) are maintained as Markdown
+inside the website build context. The repository README, support guide, and FAQ link
+to those same files. The website build renders them into `/terms/` and `/privacy/`
+with the site's current stylesheet; reading them requires no JavaScript. Both pages
+are linked from Download and the footer, included in the sitemap, and served with
+HTML revalidation.
+
+Edit the Markdown to change policy wording. Do not maintain a separate HTML copy.
+The owner's public contact is `admin@8westventures.com`. Recheck the app's behavior,
+website delivery, and support practices when updating the privacy statement. The
+[shared policy decision](../adr/website-legal-statements.md) records the scope.
+
+Publishing these pages requires the normal reviewed website deployment below.
+For a website-only change, the updater may need `--force` after merge; its timer
+usually waits for a new release or changed release notes. A local build or a GitHub
+branch does not establish that the public pages have been deployed.
+
 ## Build and check
 
 From the repository root:

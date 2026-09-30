@@ -31,3 +31,10 @@ of the [setup guide](docs/development/setup.md#3-ai-tools-claude-code-codex-grok
 Provider outages, subscription access, and usage limits need to be resolved with that provider.
 
 Support is provided through the repository. Response times are not guaranteed.
+
+## Privacy and legal requests
+
+Read the [privacy statement](apps/website/legal/privacy.md) and
+[terms of service](apps/website/legal/terms.md). Send private privacy or legal requests to
+[admin@8westventures.com](mailto:admin@8westventures.com). Do not include sensitive details in
+public GitHub posts.
