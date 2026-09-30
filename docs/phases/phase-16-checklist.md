@@ -423,7 +423,7 @@ versions, and `Cargo.lock`, keep both sides.
       with no diff (documentation-only pushes: `pnpm docs:check`).
 - [x] A review across several areas, with a second reviewer checking each finding, before the
       final push; each confirmed finding fixed with a test, or recorded as a design limit.
-- [ ] Every GitHub check green, Windows included.
+- [x] Every GitHub check green, Windows included (PR #97, merged 2026-09-29).
 
 ## Paperwork (at the end)
 
@@ -433,8 +433,9 @@ versions, and `Cargo.lock`, keep both sides.
 - [x] The plan's Phase 16 status line and its state in the order of work.
 - [x] "As built" sections in ADR-080 and ADR-081 (and ADR-082 if Antigravity lands).
 - [x] New word pairs in `docs/design/vocabulary.md`.
-- [ ] Before merging: check whether Phase 20B or 20C is still open, and tell the owner that they
-      would move from 1.13.x to 1.14.x if this merges first.
+- [x] Before merging: check whether Phase 20B or 20C is still open, and tell the owner that they
+      would move from 1.13.x to 1.14.x if this merges first — told; PR #97 merged first, so Phase
+      20B (PR #100) moves to 1.14.x.
 
 ## Left for the owner (on Windows)
 
