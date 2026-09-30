@@ -871,8 +871,27 @@ impl AgentRuntime {
         } else {
             (executable, Vec::new())
         };
-        let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
-        let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
+        // Most AI tools answer a status command; Copilot answers a short talk (ADR-083).
+        let out = match adapter.auth_talk() {
+            Some(talk) => {
+                let args = [args_prefix.clone(), talk.args].concat();
+                run_talk(
+                    &executable,
+                    &args,
+                    &env,
+                    &workdir,
+                    &talk.lines,
+                    &talk.answers,
+                    talk.framing,
+                    timeout,
+                )
+                .await
+            }
+            None => {
+                let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
+                run_probe(&executable, &auth_args, &env, &workdir, timeout).await
+            }
+        };
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
         if let Some(why) = self.lock().out_of_service.get(adapter.id()) {
@@ -894,7 +913,11 @@ impl AgentRuntime {
     /// extras.
     fn tool_env(&self, adapter: &dyn RuntimeAdapter) -> Result<Vec<(String, String)>, String> {
         let mut env = runtime_env(adapter, &self.inner.host);
-        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        // The tool's own variable for its settings folder (ADR-083), or its home folder.
+        let var =
+            adapter
+                .home_variable()
+                .unwrap_or(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
         let extra = &self.inner.config.extra_env;
         // A home folder the extras choose (tests) is where the tool's own settings go too.
         let chosen = extra
@@ -920,7 +943,7 @@ impl AgentRuntime {
         chosen: Option<PathBuf>,
     ) -> Result<Option<PathBuf>, String> {
         let files = adapter.own_home();
-        if files.is_empty() {
+        if files.is_empty() && adapter.home_variable().is_none() {
             return Ok(None);
         }
         let home = chosen.unwrap_or_else(|| self.inner.config.tool_homes.join(adapter.id()));
@@ -932,6 +955,10 @@ impl AgentRuntime {
             )
         };
         static DRAFTS: AtomicU64 = AtomicU64::new(0);
+        // A folder named by the tool's own variable exists even with no file of Plenipo's in it.
+        if adapter.home_variable().is_some() {
+            std::fs::create_dir_all(&home).map_err(failed)?;
+        }
         for (place, contents) in files {
             let file = home.join(place);
             // Already so (the usual case): nothing to replace, so a run that has the file open
@@ -1245,6 +1272,7 @@ impl AgentRuntime {
                 args,
                 lines,
                 answers,
+                framing,
             } => {
                 run_talk(
                     &program.executable,
@@ -1253,6 +1281,7 @@ impl AgentRuntime {
                     &program.dir,
                     &lines,
                     &answers,
+                    framing,
                     timeout,
                 )
                 .await

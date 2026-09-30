@@ -92,6 +92,11 @@ export function SignIn({ info, checking }: { info: AgentRuntimeInfo; checking: b
           ? "Checking…"
           : `${AUTH_LABEL[info.auth.state]}${info.auth.method ? ` · ${info.auth.method}` : ""}`}
       </div>
+      {/* Why the check will not let a task run, with what to do (GitHub Copilot's paid extra
+          use, ADR-083; a key where a subscription is needed). */}
+      {!checking && !info.ready && info.installation.state === "installed" && info.auth.detail && (
+        <p className="muted ai-tool__why">{info.auth.detail}</p>
+      )}
       {terminal ? (
         <>
           <div className="ai-tool__buttons">

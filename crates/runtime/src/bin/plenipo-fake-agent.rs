@@ -1,7 +1,7 @@
 //! Test double for the AI tools' CLIs (ADR-007, ADR-014). Never shipped.
 //!
 //! Copy or link this binary under a persona's name from `PERSONAS` (`claude`, `codex`, `grok`,
-//! `kimi`, `ollama`, `agy`; `.exe` on Windows); it answers like the real CLI named by its file stem:
+//! `kimi`, `ollama`, `agy`, `copilot`; `.exe` on Windows); it answers like the real CLI named by its file stem:
 //! `--version`, the sign-in status command, and one turn in the provider's JSON-lines stream
 //! format with the prompt read from stdin. `grok` talks ACP instead (ADR-015): `grok agent …
 //! stdio` answers `initialize`, `session/new`/`resume`/`load`, and `session/prompt` on stdin and
@@ -95,6 +95,14 @@
 //! (ADR-082), so in the app its state is in that folder's `.plenipo-fake-agent`, not the tests'
 //! home (the Rust harnesses choose the home folder, and Plenipo writes its settings there).
 //!
+//! GitHub Copilot (ADR-083): `copilot --headless --stdio` answers Plenipo's check before each
+//! task (`connect`, `auth.getStatus`, `account.getQuota`, `models.list`, each framed by a
+//! `Content-Length` header), with the sign-in `auth` names (`gh-cli` for the GitHub CLI's,
+//! `paid-extra` when GitHub may charge for extra use). `copilot --output-format json …` is one
+//! task with its words on stdin; `[own-tool]`, `[refused-tool]`, `[byok]`, and `[settings]`
+//! exercise ADR-083 §4. Plenipo gives it a settings folder of its own (`COPILOT_HOME`); its state
+//! stays in the home folder.
+//!
 //! Ollama (ADR-017): the `ollama` persona answers `--version`, and also plays Plenipo's Ollama
 //! bridge (`--plenipo-ollama auth`, `models`, and `chat …`) in the bridge's output format, so
 //! tests point `AgentConfig::bridge` at it. It has no tools.
@@ -138,6 +146,7 @@ const PERSONAS: &[(&str, Answer)] = &[
     ("kimi", kimi),
     ("ollama", ollama),
     ("agy", agy),
+    ("copilot", copilot),
 ];
 
 /// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
@@ -3279,5 +3288,343 @@ fn agy_turn(args: &[String]) -> i32 {
                     "text_delta": &text[half..] }),
     );
     result(&id, "SUCCESS", &text, "", refused);
+    0
+}
+
+// ---- GitHub Copilot (ADR-083) -------------------------------------------------------------------
+
+const COPILOT_VERSION: &str = "1.0.99";
+
+fn copilot(args: &[String]) -> i32 {
+    match args.first().map(String::as_str) {
+        Some("--version") => print_version(
+            "copilot",
+            &format!(
+                "GitHub Copilot CLI {}.\nRun 'copilot update' to check for updates.",
+                fake_version("copilot", COPILOT_VERSION)
+            ),
+        ),
+        Some("login") if args.len() == 1 => fake_sign_in("copilot", args),
+        Some("update") if args.len() == 1 => fake_update("copilot", COPILOT_VERSION, args),
+        Some("--headless") => copilot_headless(args),
+        Some("--output-format") => copilot_turn(args),
+        _ => {
+            eprintln!("fake copilot: unsupported arguments {args:?}");
+            2
+        }
+    }
+}
+
+/// One JSON-RPC message framed by a `Content-Length` header, as Copilot's link reads them.
+fn framed_read(input: &mut impl std::io::BufRead) -> Option<Value> {
+    let mut length = None;
+    loop {
+        let mut header = String::new();
+        if input.read_line(&mut header).ok()? == 0 {
+            return None;
+        }
+        let header = header.trim();
+        if header.is_empty() {
+            if length.is_some() {
+                break;
+            }
+            continue;
+        }
+        if let Some((name, value)) = header.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                length = value.trim().parse::<usize>().ok();
+            }
+        }
+    }
+    let mut body = vec![0u8; length?];
+    input.read_exact(&mut body).ok()?;
+    serde_json::from_slice(&body).ok()
+}
+
+fn framed_write(v: &Value) {
+    let body = v.to_string();
+    let mut stdout = std::io::stdout().lock();
+    let _ = write!(stdout, "Content-Length: {}\r\n\r\n{body}", body.len());
+    let _ = stdout.flush();
+}
+
+/// `copilot --headless --stdio`: the link GitHub's Copilot SDK uses, answering `connect`,
+/// `auth.getStatus`, `account.getQuota`, and `models.list` as 1.0.89 does. The sign-in it
+/// reports follows `auth`: `subscription` (its own sign-in), `gh-cli` (the GitHub CLI's),
+/// `api-key` (a token in a variable), `signed-out`, `unknown-status` (it ends at once), and
+/// `paid-extra` (GitHub may charge for extra chat use).
+fn copilot_headless(args: &[String]) -> i32 {
+    record_invocation(args);
+    if !args.iter().any(|a| a == "--stdio") {
+        eprintln!("fake copilot: expected --stdio");
+        return 2;
+    }
+    if auth_mode() == "unknown-status" {
+        eprintln!("Error: could not reach GitHub (network)");
+        return 1;
+    }
+    let signed_in = auth_mode() != "signed-out";
+    let kind = if auth_mode() == "api-key" {
+        "env"
+    } else if auth_has("gh-cli") {
+        "gh-cli"
+    } else {
+        "user"
+    };
+    let allowance = |entitled: u64, paid: bool| {
+        json!({ "isUnlimitedEntitlement": false, "entitlementRequests": entitled,
+                "usedRequests": 50, "usageAllowedWithExhaustedQuota": false, "overage": 0,
+                "overageAllowedWithExhaustedQuota": paid, "remainingPercentage": 75,
+                "resetDate": "2026-11-01T00:00:00.000Z", "hasQuota": entitled > 0,
+                "tokenBasedBilling": true })
+    };
+    let not_signed_in = |id: &Value, method: &str| {
+        framed_write(
+            &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32603,
+            "message": format!("Request {method} failed with message: Not authenticated. \
+                                Please authenticate first.") } }),
+        );
+    };
+    let mut input = std::io::BufReader::new(std::io::stdin().lock());
+    while let Some(message) = framed_read(&mut input) {
+        let Some(id) = message.get("id").cloned() else {
+            continue;
+        };
+        let method = message["method"].as_str().unwrap_or_default().to_owned();
+        let result = match method.as_str() {
+            "connect" => json!({ "ok": true, "protocolVersion": 3,
+                                 "version": fake_version("copilot", COPILOT_VERSION) }),
+            "auth.getStatus" if signed_in => json!({ "isAuthenticated": true, "authType": kind,
+                "host": "https://github.com", "login": "octo-owner",
+                "statusMessage": "octo-owner" }),
+            "auth.getStatus" => {
+                json!({ "isAuthenticated": false, "statusMessage": "Not authenticated" })
+            }
+            "account.getQuota" if signed_in => json!({ "quotaSnapshots": {
+                "chat": allowance(200, auth_has("paid-extra")),
+                "completions": allowance(2000, false),
+                "premium_interactions": allowance(0, false) } }),
+            "models.list" if signed_in => {
+                let mut models = vec![json!({ "id": "auto", "name": "Auto" })];
+                models.extend(
+                    extra_models("copilot")
+                        .into_iter()
+                        .map(|m| json!({ "id": m, "name": m })),
+                );
+                json!({ "models": models })
+            }
+            "account.getQuota" | "models.list" => {
+                not_signed_in(&id, &method);
+                continue;
+            }
+            other => {
+                framed_write(
+                    &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601,
+                    "message": format!("Unhandled method {other}") } }),
+                );
+                continue;
+            }
+        };
+        framed_write(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+    }
+    0
+}
+
+/// One task in Copilot's one-task mode: the words on stdin, one JSON event per line (1.0.89,
+/// recorded on the owner's PC). Markers: `[own-tool]` (one of its own tools runs: Plenipo must
+/// stop the task), `[refused-tool]` (one is refused because it does not exist), `[byok]` (a
+/// model billed per use answers), `[settings]` (the answer names the settings folder it was
+/// given).
+fn copilot_turn(args: &[String]) -> i32 {
+    record_invocation(args);
+    let wanted = [
+        "--no-auto-update",
+        "--available-tools=plenipo_no_tools",
+        "--disable-builtin-mcps",
+        "--no-ask-user",
+        "--no-custom-instructions",
+    ];
+    if flag(args, "--output-format").as_deref() != Some("json")
+        || !wanted.iter().all(|w| args.iter().any(|a| a == w))
+        || args
+            .iter()
+            .any(|a| a.starts_with("--allow") || a == "--yolo")
+    {
+        eprintln!("fake copilot: expected JSON output with its own tools off");
+        return 2;
+    }
+    let value = |name: &str| {
+        args.iter()
+            .find_map(|a| a.strip_prefix(&format!("{name}=")).map(str::to_owned))
+    };
+    let (prompt, size) = read_prompt();
+    if prompt.is_empty() {
+        eprintln!("Error: No prompt provided. Please provide a prompt with -p or via standard in.");
+        return 1;
+    }
+    if auth_mode() == "signed-out" {
+        eprintln!("Error: No authentication information found.");
+        eprintln!();
+        eprintln!(
+            "Copilot can be authenticated with GitHub using an OAuth Token or a Fine-Grained \
+             Personal Access Token."
+        );
+        return 1;
+    }
+    let id = match (value("--resume"), value("--session-id")) {
+        (Some(id), _) => {
+            if load_session(&id).is_none() {
+                eprintln!("Error: No session, task, or name matched '{id}'.");
+                return 1;
+            }
+            id
+        }
+        (None, Some(id)) => id,
+        (None, None) => format!("00000000-0000-4000-8000-{:012x}", std::process::id()),
+    };
+    let model = value("--model").unwrap_or_else(|| "auto".into());
+    let (_, prompt) = strip_note(&prompt);
+    let (mode, said) = view(&prompt);
+    let scripted = script_step(&prompt, &id);
+    let own = match &scripted {
+        Some(step) => step.markers(),
+        None => outside_braces(&said),
+    };
+    let event = |kind: &str, data: Value| out(&json!({ "type": kind, "data": data }));
+    let result = |code: i32| {
+        out(
+            &json!({ "type": "result", "sessionId": id, "exitCode": code,
+                     "usage": { "premiumRequests": 1, "totalApiDurationMs": 120,
+                                "sessionDurationMs": 300 } }),
+        )
+    };
+    if own.contains("[malformed]") {
+        raw("{not json at all");
+        return 0;
+    }
+    event(
+        "session.info",
+        json!({ "infoType": "configuration",
+                "message": "Unknown tool name in the tool allowlist: \"plenipo_no_tools\"" }),
+    );
+    let ran = if model == "auto" {
+        "mai-code-1.1-flash".to_owned()
+    } else {
+        model.clone()
+    };
+    if model == "auto" {
+        event(
+            "session.auto_mode_resolved",
+            json!({ "chosenModel": ran, "candidateModels": [ran], "fallback": false }),
+        );
+    }
+    event("session.tools_updated", json!({ "model": ran }));
+    event("user.message", json!({ "content": prompt }));
+    if own.contains("[crash]") {
+        eprintln!("Error: unexpected failure (fake crash)");
+        return 3;
+    }
+    let failed = |kind: &str, message: &str| {
+        event(
+            "session.error",
+            json!({ "errorType": kind, "message": message }),
+        );
+        result(1);
+        1
+    };
+    if own.contains("[usage-limit]") {
+        return failed(
+            "quota",
+            "You have exceeded your premium request allowance. Please wait for your allowance \
+             to reset.",
+        );
+    }
+    if own.contains("[auth-expired]") {
+        return failed(
+            "authentication",
+            "Your GitHub token has expired. Please sign in again.",
+        );
+    }
+    if own.contains("[offline]") {
+        return failed("query", "Failed to connect: connection refused");
+    }
+    if own.contains("[byok]") {
+        event(
+            "model.call_failure",
+            json!({ "model": ran, "statusCode": 402, "isByok": true }),
+        );
+    }
+    if own.contains("[slow]") {
+        slow_ticks(|i| {
+            event(
+                "assistant.message_delta",
+                json!({ "messageId": "m", "deltaContent": format!("tick {i} ") }),
+            )
+        });
+        return 0;
+    }
+    if own.contains("[unknown]") {
+        out(&json!({ "type": "plenipo.something_new", "data": {} }));
+    }
+    if own.contains("[own-tool]") {
+        event(
+            "tool.execution_start",
+            json!({ "toolCallId": "call_1", "toolName": "view", "arguments": { "path": "." } }),
+        );
+        event(
+            "tool.execution_complete",
+            json!({ "toolCallId": "call_1", "toolName": "view", "success": true }),
+        );
+    }
+    if own.contains("[refused-tool]") {
+        event(
+            "tool.execution_start",
+            json!({ "toolCallId": "call_2", "toolName": "bash",
+                    "arguments": { "command": "dir" } }),
+        );
+        event(
+            "tool.execution_complete",
+            json!({ "toolCallId": "call_2", "success": false,
+                    "error": { "message": "Tool 'bash' does not exist.", "code": "failure" } }),
+        );
+    }
+    delay(&own);
+    let first = first_prompt(&id).unwrap_or_else(|| said.clone());
+    let (n, previous) = remember(&id, &said, size);
+    let mut text = if let Some(step) = &scripted {
+        step.answer()
+    } else if own.contains("[big]") {
+        "B".repeat(1024 * 1024)
+    } else {
+        answer(n, &mode, &said, previous.as_deref(), &first)
+    };
+    if own.contains("[settings]") {
+        let home = std::env::var("COPILOT_HOME").unwrap_or_default();
+        text = format!("{text}\nSettings folder: {home}");
+    }
+    let half = (0..=text.len() / 2)
+        .rev()
+        .find(|i| text.is_char_boundary(*i))
+        .unwrap_or(0);
+    for piece in [&text[..half], &text[half..]] {
+        event(
+            "assistant.message_delta",
+            json!({ "messageId": "m", "deltaContent": piece }),
+        );
+    }
+    event(
+        "assistant.message",
+        json!({ "messageId": "m", "model": ran, "content": text, "toolRequests": [],
+                "phase": "final_answer" }),
+    );
+    event(
+        "assistant.usage",
+        json!({ "model": ran, "inputTokens": 20, "outputTokens": 9, "cacheReadTokens": 4 }),
+    );
+    event(
+        "session.usage_checkpoint",
+        json!({ "totalPremiumRequests": 1 }),
+    );
+    result(0);
     0
 }

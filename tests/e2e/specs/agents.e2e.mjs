@@ -177,6 +177,24 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await screenshot(browser, "worker-result-antigravity");
   });
 
+  it("launches a GitHub Copilot task, text only, in Plenipo's own settings folder for it (ADR-083)", async () => {
+    const { browser } = app;
+    await startTask(browser, "GitHub Copilot", "Hello Copilot [refused-tool] [settings]");
+    const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Copilot result");
+    assert.match(
+      t.text,
+      /Turn 1: you said "Hello Copilot \[refused-tool\] \[settings\]"\. Previous: None\./,
+    );
+    // It ran with Plenipo's settings folder for it, never the owner's.
+    assert.match(t.text, /Settings folder: .*ai-tool-homes.copilot/);
+    assert.match(t.text, /20 in \(4 cached\) · 9 out/);
+    await waitForText(browser, ".detail__header", "GitHub Copilot conversation");
+    // The tool it asked for was refused, and that is in the task's activity.
+    await (await browser.$('//summary[contains(., "Live activity")]')).click();
+    await waitForText(browser, TURNS, "does not exist");
+    await screenshot(browser, "worker-result-copilot");
+  });
+
   it("launches a Kimi task over ACP, and Plenipo refuses Kimi's own shell", async () => {
     const { browser } = app;
     await startTask(browser, "Kimi", "Hello Kimi [own-shell]");

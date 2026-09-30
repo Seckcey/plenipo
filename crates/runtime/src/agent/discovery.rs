@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
-use crate::agent::adapter::{ProbeOutput, RuntimeAdapter};
+use crate::agent::adapter::{Framing, ProbeOutput, RuntimeAdapter};
 
 /// Longest probe output kept per stream.
 const MAX_PROBE_OUTPUT: usize = 64 * 1024;
@@ -240,11 +240,13 @@ pub async fn run_probe(
     }
 }
 
-/// Talk to an AI tool for a moment (ADR-060): write `lines` (JSON-RPC messages, one per line)
-/// to its standard input, read its answers until each request numbered in `answers` has one
-/// (or `timeout` passes), then close its input and let it end. Nothing else is written: the
-/// tool's own requests, if any, are never answered. Never fails: problems are described in
-/// the output, whose `stdout` holds the lines the tool wrote.
+/// Talk to an AI tool for a moment (ADR-060): write `lines` (JSON-RPC messages, framed as
+/// `framing` says) to its standard input, read its answers until each request numbered in
+/// `answers` has one (or `timeout` passes), then close its input and let it end. Nothing else
+/// is written: the tool's own requests, if any, are never answered. Never fails: problems are
+/// described in the output, whose `stdout` holds the messages the tool wrote, one per line
+/// whatever the framing.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_talk(
     executable: &Path,
     args: &[String],
@@ -252,6 +254,7 @@ pub async fn run_talk(
     working_dir: &Path,
     lines: &[String],
     answers: &[u64],
+    framing: Framing,
     timeout: Duration,
 ) -> ProbeOutput {
     use tokio::io::{AsyncWriteExt as _, BufReader};
@@ -275,9 +278,12 @@ pub async fn run_talk(
     let talk = async {
         if let Some(input) = stdin.as_mut() {
             for line in lines {
-                let sent = input.write_all(line.as_bytes()).await.is_ok()
-                    && input.write_all(b"\n").await.is_ok()
-                    && input.flush().await.is_ok();
+                let framed = match framing {
+                    Framing::Lines => format!("{line}\n"),
+                    Framing::Headers => format!("Content-Length: {}\r\n\r\n{line}", line.len()),
+                };
+                let sent =
+                    input.write_all(framed.as_bytes()).await.is_ok() && input.flush().await.is_ok();
                 if !sent {
                     break;
                 }
@@ -287,7 +293,11 @@ pub async fn run_talk(
         if let Some(stdout) = stdout {
             let mut reader = BufReader::new(stdout);
             while !waiting.is_empty() {
-                let Some(line) = capped_line(&mut reader, MAX_TALK_LINE).await else {
+                let next = match framing {
+                    Framing::Lines => capped_line(&mut reader, MAX_TALK_LINE).await,
+                    Framing::Headers => framed_message(&mut reader, MAX_TALK_LINE).await,
+                };
+                let Some(line) = next else {
                     break;
                 };
                 let answered = serde_json::from_str::<serde_json::Value>(line.trim())
@@ -331,6 +341,44 @@ pub async fn run_talk(
         timed_out,
         spawn_error: None,
     }
+}
+
+/// One message framed by a `Content-Length` header (ADR-083), on one line (its line ends made
+/// spaces, which JSON allows between values); a message longer than `max` bytes is read and
+/// dropped (an empty line). `None` at the end of the output, or when the headers are not ones
+/// Plenipo reads.
+async fn framed_message<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max: usize,
+) -> Option<String> {
+    let mut length: Option<usize> = None;
+    loop {
+        let header = capped_line(reader, 1024).await?;
+        let header = header.trim();
+        if header.is_empty() {
+            // Blank lines before a message's headers are skipped.
+            if length.is_some() {
+                break;
+            }
+            continue;
+        }
+        let (name, value) = header.split_once(':')?;
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            length = Some(value.trim().parse().ok()?);
+        }
+    }
+    let length = length?;
+    let mut body = vec![0u8; length.min(max)];
+    reader.read_exact(&mut body).await.ok()?;
+    if length > max {
+        // Too long to keep: read to its end, keep nothing.
+        let mut rest = (&mut *reader).take((length - max) as u64);
+        tokio::io::copy(&mut rest, &mut tokio::io::sink())
+            .await
+            .ok()?;
+        return Some(String::new());
+    }
+    Some(String::from_utf8_lossy(&body).replace(['\r', '\n'], " "))
 }
 
 /// One line from `reader`, without its end; at most `max` bytes of it are kept (the rest of a

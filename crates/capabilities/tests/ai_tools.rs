@@ -731,17 +731,19 @@ async fn new_versions_come_from_each_tools_own_check_or_its_makers_list() {
     assert_eq!(newest("claude-code").as_deref(), Some("9.9.9"));
     assert_eq!(newest("codex").as_deref(), Some("9.9.9"));
     assert_eq!(newest("ollama").as_deref(), Some("9.9.9"));
+    assert_eq!(newest("copilot").as_deref(), Some("9.9.9"));
     assert_eq!(newest("kimi"), None);
     let asked = h.releases.asked.lock().unwrap().clone();
     assert!(asked.contains(&"/registry.npmjs.org/@anthropic-ai/claude-code/latest".to_owned()));
     assert!(asked.contains(&"/registry.npmjs.org/@openai/codex/latest".to_owned()));
+    assert!(asked.contains(&"/registry.npmjs.org/@github/copilot/latest".to_owned()));
     assert!(asked.contains(&"/api.github.com/repos/ollama/ollama/releases/latest".to_owned()));
-    assert_eq!(asked.len(), 3);
+    assert_eq!(asked.len(), 4);
     // Told once per version; nothing is installed while it asks first.
     let told = h.events("ai_tool.update_available");
-    assert_eq!(told.len(), 4);
+    assert_eq!(told.len(), 5);
     h.tools.look_for_new_versions(UpdateBy::Owner).await;
-    assert_eq!(h.events("ai_tool.update_available").len(), 4);
+    assert_eq!(h.events("ai_tool.update_available").len(), 5);
     assert_eq!(h.read("update-log"), None);
     assert!(!h.tools.page().auto_update);
 
@@ -774,14 +776,14 @@ async fn with_the_switch_on_the_owner_still_hears_what_plenipo_cannot_update() {
         "Grok's own check has nothing newer"
     );
     assert_eq!(automatic("codex"), Some(serde_json::json!(true)));
-    // Codex and Claude Code, installed here another way, cannot reach 9.9.9 by themselves: the
-    // owner is told what to type, once.
-    for id in ["codex", "claude-code"] {
+    // Codex, Claude Code, and GitHub Copilot, installed here another way, cannot reach 9.9.9 by
+    // themselves: the owner is told what to type, once.
+    for id in ["codex", "claude-code", "copilot"] {
         let done = h.tools.settled(id, WAIT).await.unwrap();
         assert_eq!(done.state, AiToolUpdateState::ByHand, "{id}: {done:?}");
     }
     let by_hand = h.events("ai_tool.update_by_hand");
-    assert_eq!(by_hand.len(), 2, "{by_hand:?}");
+    assert_eq!(by_hand.len(), 3, "{by_hand:?}");
     assert!(by_hand.iter().all(|e| e["automatic"] == true));
     // The next day's look does not try the same version again (Kimi, which has no list of its
     // versions, asks its own upgrade once a day).
@@ -797,7 +799,7 @@ async fn with_the_switch_on_the_owner_still_hears_what_plenipo_cannot_update() {
     h.tools.look_for_new_versions(UpdateBy::Automatic).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(runs(), before);
-    assert_eq!(h.events("ai_tool.update_by_hand").len(), 2);
+    assert_eq!(h.events("ai_tool.update_by_hand").len(), 3);
 }
 
 // ---- Usage and payment (ADR-060) ------------------------------------------------------------------

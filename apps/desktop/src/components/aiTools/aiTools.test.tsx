@@ -134,7 +134,7 @@ function agents(update: AgentUpdate) {
   act(() => agentListeners.forEach((h) => h(update)));
 }
 
-/** The six AI tools, as their checks say. */
+/** The seven AI tools, as their checks say. */
 function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentRuntimeInfo[] {
   return [
     aiRuntime("claude-code", "2.1.283", patch["claude-code"]),
@@ -143,6 +143,7 @@ function runtimes(patch: Record<string, Partial<AgentRuntimeInfo>> = {}): AgentR
     aiRuntime("kimi", "0.34.0", patch.kimi),
     aiRuntime("ollama", "0.34.4", patch.ollama),
     aiRuntime("antigravity", "1.2.13", patch.antigravity),
+    aiRuntime("copilot", "1.0.89", patch.copilot),
   ];
 }
 
@@ -1166,6 +1167,87 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       "DeepSeek V4 Pro deepseek-v4-pro:cloud · made by DeepSeek · No effort setting",
       "mystery:cloud · who made it is not known · No effort setting new — not checked yet",
     ]);
+  });
+});
+
+describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
+  it("signs in with copilot login, has no sign-out, and says why paid extra use stops it", async () => {
+    const why =
+      "GitHub may charge for extra use once your Copilot allowance runs out (chat). Plenipo never lets a task cost money, so no task runs. On github.com, open Settings → Billing and licensing → Budgets and alerts, set the budget for AI Credits to $0 with Stop usage on, then choose Check again.";
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        copilot: {
+          auth: { state: "unverified", method: "GitHub CLI sign-in", detail: why },
+          ready: false,
+        },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const copilot = card("GitHub Copilot");
+    expect(copilot).toHaveTextContent("Signed in (billing unverified) · GitHub CLI sign-in");
+    // The check's reason, with what to do, is on the card.
+    expect(within(copilot).getByText(why)).toBeVisible();
+    expect(within(copilot).getByRole("button", { name: "Reconnect GitHub Copilot" })).toBeEnabled();
+    expect(copilot).toHaveTextContent("runs copilot login");
+    expect(within(copilot).getByText("GitHub Copilot has no sign-out command.")).toBeVisible();
+    expect(
+      within(copilot).queryByRole("button", { name: "Sign out of GitHub Copilot" }),
+    ).toBeNull();
+    // A tool that is ready shows no reason.
+    expect(card("Codex").querySelector(".ai-tool__why")).toBeNull();
+  });
+
+  it("with its paid-key switch locked like every tool's, and plan left from its own check", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        copilot: { auth: { state: "subscription", method: "Copilot sign-in", detail: null } },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const copilot = card("GitHub Copilot");
+    expect(copilot).toHaveTextContent("Subscription (Copilot sign-in)");
+    const key = within(copilot).getByRole("switch", {
+      name: "Paid AI key for GitHub Copilot (pay per use)",
+    });
+    expect(key).toBeDisabled();
+    expect(key).toHaveAttribute("aria-checked", "false");
+    expect(copilot.querySelector(".ai-tool__why")).toBeNull();
+    expect(copilot).toHaveTextContent(
+      "GitHub Copilot hasn't reported it yet. Plenipo asks when it checks GitHub Copilot.",
+    );
+  });
+
+  it("lists the models it reports, each new and with who made it not known", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        copilot: {
+          reportedModels: {
+            models: [{ name: "auto", label: "Auto", effortLevels: [] }],
+            complete: true,
+            checkedAt: T0,
+          },
+        },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    api.getRouting.mockResolvedValue(
+      routing({ copilot: { newModels: [{ name: "auto", label: "Auto", effortLevels: [] }] } }),
+    );
+    await show();
+    const user = userEvent.setup();
+    const copilot = card("GitHub Copilot");
+    await user.click(within(copilot).getByRole("tab", { name: "Models" }));
+    const models = within(copilot).getByRole("list", { name: "GitHub Copilot's models" });
+    expect(
+      within(models)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual(["Auto auto · who made it is not known · No effort setting new — not checked yet"]);
   });
 });
 
