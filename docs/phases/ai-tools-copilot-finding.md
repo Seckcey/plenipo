@@ -1,5 +1,9 @@
 # Finding: GitHub Copilot does not meet the bar yet
 
+> **Answered (2026-09-30).** Copilot's second try passes through the two-way route this finding
+> names: [ADR-083 (GitHub Copilot as an AI tool, checked before every task)](../adr/ADR-083-github-copilot-as-an-ai-tool.md).
+> This page is kept as the record of the first try.
+
 Plenipo does not add GitHub Copilot as an AI tool for now. Copilot's official CLI does the hard
 parts well: it takes the prompt on standard input, reports JSON lines, resumes conversations by
 ID, and can be run with all its own tools turned off. Two things are missing from its one-task

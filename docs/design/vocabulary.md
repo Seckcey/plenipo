@@ -99,6 +99,15 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Antigravity (Google's AI tool)                                                 | agy, Antigravity CLI, Jetski                                                               |
 | paid AI credits                                                                | G1 credits, overage                                                                        |
 | Antigravity's own settings folder                                              | isolated home, HOME override, sandbox profile                                              |
+| GitHub Copilot (GitHub's AI tool)                                              | copilot, Copilot CLI, GH Copilot                                                           |
+| Copilot sign-in, GitHub CLI sign-in                                            | OAuth token, gh token, authType, user auth                                                 |
+| paid extra use (GitHub may charge once your allowance runs out)                | overage, premium request overage, additional usage, BYOK                                   |
+| allowance (what your plan includes each month)                                 | quota, entitlement, premium interactions, quota snapshot                                   |
+| the check before each task                                                     | preflight, headless probe, JSON-RPC handshake                                              |
+| Copilot's own settings folder                                                  | COPILOT_HOME, config dir override                                                          |
+| Auto (Copilot picks the model itself)                                          | auto mode, model router, auto routing                                                      |
+| Cursor's agent (not an AI tool in Plenipo yet)                                 | cursor-agent, Cursor CLI                                                                   |
+| on-demand use (Cursor's paid use past the plan)                                | usage-based pricing, hard limit, spend limit                                               |
 | Ultra (effort)                                                                 | ultra                                                                                      |
 | Extra high (effort)                                                            | xhigh                                                                                      |
 | working copy (of the project folder)                                           | worktree, git worktree                                                                     |
@@ -228,7 +237,7 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | sign-in tab ("Sign in · Codex": the AI tool's own sign-in program)             | login shell, auth terminal, device flow                                                    |
 | Usage / tokens (pieces of words) read, reused, written                         | token usage, input / cached / output tokens                                                |
 | today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                                        |
-| left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining allowance                                         |
+| left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining quota                                             |
 | resets at 3:10 PM / 5-hour limit / weekly limit                                | reset timestamp, rate-limit window                                                         |
 | How it is paid for: Subscription / Paid AI key (pay per use)                   | billing mode, BYOK, metered API                                                            |
 | installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                                                 |

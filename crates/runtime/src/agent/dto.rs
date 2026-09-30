@@ -165,6 +165,7 @@ pub mod makers {
     pub const ZAI: (&str, &str) = ("zai", "Z.ai");
     pub const MINIMAX: (&str, &str) = ("minimax", "MiniMax");
     pub const NVIDIA: (&str, &str) = ("nvidia", "NVIDIA");
+    pub const GITHUB: (&str, &str) = ("github", "GitHub");
 }
 
 /// A model a CLI itself offers, as of the CLI version its adapter was checked against.

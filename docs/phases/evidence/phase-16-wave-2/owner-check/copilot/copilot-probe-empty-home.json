@@ -1,0 +1,50 @@
+{
+ "version": "1.0.89",
+ "signIn": {
+  "isAuthenticated": true,
+  "authType": "gh-cli",
+  "host": "https://github.com",
+  "statusMessage": "(hidden) (via gh)",
+  "login": "(hidden)"
+ },
+ "allowance": {
+  "chat": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 200,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 100,
+   "resetDate": "2026-09-30T07:50:20.206Z",
+   "hasQuota": true,
+   "tokenBasedBilling": true
+  },
+  "completions": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 2000,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 100,
+   "resetDate": "2026-09-30T07:50:20.206Z",
+   "hasQuota": true,
+   "tokenBasedBilling": true
+  },
+  "premium_interactions": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 0,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 0,
+   "resetDate": "2026-09-30T07:50:20.206Z",
+   "hasQuota": false,
+   "tokenBasedBilling": true
+  }
+ },
+ "models": []
+}
+

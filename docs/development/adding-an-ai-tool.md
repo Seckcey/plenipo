@@ -8,7 +8,9 @@ adapters that ship today as worked examples:
 [`codex.rs`](../../crates/runtime/src/agent/codex.rs) (Codex), and, for tools that talk over
 ACP, [`grok.rs`](../../crates/runtime/src/agent/grok.rs) (Grok) and
 [`kimi.rs`](../../crates/runtime/src/agent/kimi.rs) (Kimi; see
-[§11](#11-a-tool-that-talks-over-acp)).
+[§11](#11-a-tool-that-talks-over-acp)). [`copilot.rs`](../../crates/runtime/src/agent/copilot.rs)
+(GitHub Copilot) is the example of a sign-in check that talks, and of a settings folder named by
+the tool's own variable (§3, §4).
 
 Four decision records set the rules:
 
@@ -129,6 +131,16 @@ Plenipo runs the status command before every turn, with the environment the turn
   - Codex's output can include a masked key. It is classified and dropped.
   - Claude Code filters labels through `label_value`.
 - `spawn_error` and `timed_out` probes are `Unknown`, with the reason in `detail`.
+- **A check that talks** (ADR-083, GitHub Copilot as an AI tool). A tool whose sign-in and billing
+  are known only by asking it over a two-way link returns them from `auth_talk()` instead: the
+  arguments that start the link, the JSON-RPC requests to write, the requests whose answers to
+  wait for, and how messages are framed (`Framing::Lines`, one per line, or `Framing::Headers`,
+  `Content-Length` headers as Copilot's `--headless --stdio` frames them). Plenipo keeps the
+  tool's input open until each answer arrives (closing it early loses answers), then hands
+  `parse_auth` the answers one per line of `stdout`; read them with `talk_answer(out, id)`.
+  Copilot asks `auth.getStatus` (signed in, and how) and `account.getQuota` (whether GitHub may
+  charge once an allowance runs out), and is `Subscription` only when both are what Plenipo
+  accepts. `auth_args()` is then never run.
 - `billing_checked_per_turn: true` is only for a CLI that reports its credential in every turn's
   output. Claude Code does this with `apiKeySource` in its `init` event. The parser must then stop
   a turn whose credential is not the subscription (§6). A tool without that report must confirm
@@ -156,6 +168,11 @@ fn fixed_env(&self) -> Vec<(String, String)> {
   of the tool. Write the file exactly as the tool writes it back, so it is replaced only when
   something changed it. Check that the tool's sign-in still works from another home folder (step
   0), and have the parser check, in each task, that the settings were read.
+- **A settings folder named by the tool's own variable** (`home_variable`, ADR-083). When the tool
+  has a variable for its settings folder (Copilot's `COPILOT_HOME`), return it: Plenipo keeps the
+  folder (with `own_home()`'s files in it, if any), points that variable at it for every process
+  of the tool, and leaves the home folder the owner's, so sign-ins kept there (the GitHub CLI's)
+  still work.
 - **Never** pass API keys, tokens, passwords, or variables that switch billing to a cloud account
   or another endpoint. Examples: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
   `GITHUB_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `*_BASE_URL`. The contract suite rejects any name
@@ -454,6 +471,8 @@ tool without one simply goes without; the contract suite checks what each tool d
   the variables that keep it from asking questions, its own command that installs an earlier
   version (when it has one), and the sentence to show when it was installed another way (npm,
   WinGet).
+- **`status_check(dir)`** can be a `StatusCheck::Talk` framed either way (`framing`), as the check
+  before every task can (§3).
 - **`status_check(dir)`**, **`parse_models`**, **`parse_plan`**, **`reports_every_model()`**,
   **`status_check_leaves_a_trace()`**, **`reports_plan_left()`** — a short check with no task and
   no prompt (a command, Plenipo's bridge, or a JSON-RPC talk such as ACP `initialize`), the

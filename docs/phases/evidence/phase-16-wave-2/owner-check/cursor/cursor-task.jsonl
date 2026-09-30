@@ -1,0 +1,4 @@
+error: a value is required for '--single <PROMPT>' but none was supplied
+
+For more information, try '--help'.
+exit code: 2

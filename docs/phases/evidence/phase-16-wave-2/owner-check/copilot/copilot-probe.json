@@ -1,0 +1,59 @@
+{
+ "version": "1.0.89",
+ "signIn": {
+  "isAuthenticated": true,
+  "authType": "user",
+  "host": "https://github.com",
+  "statusMessage": "(hidden)",
+  "login": "(hidden)"
+ },
+ "allowance": {
+  "chat": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 200,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 100,
+   "resetDate": "2026-09-30T07:49:53.429Z",
+   "hasQuota": true,
+   "tokenBasedBilling": true
+  },
+  "completions": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 2000,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 100,
+   "resetDate": "2026-09-30T07:49:53.429Z",
+   "hasQuota": true,
+   "tokenBasedBilling": true
+  },
+  "premium_interactions": {
+   "isUnlimitedEntitlement": false,
+   "entitlementRequests": 0,
+   "usedRequests": 0,
+   "usageAllowedWithExhaustedQuota": false,
+   "overage": 0,
+   "overageAllowedWithExhaustedQuota": false,
+   "remainingPercentage": 0,
+   "resetDate": "2026-09-30T07:49:53.429Z",
+   "hasQuota": false,
+   "tokenBasedBilling": true
+  }
+ },
+ "models": [
+  {
+   "id": "auto",
+   "name": "Auto"
+  },
+  {
+   "id": "auto",
+   "name": "Auto"
+  }
+ ]
+}
+

@@ -1,5 +1,5 @@
 //! Agent runtimes (Phase 3, ADR-007): provider-neutral adapter contract, the Claude Code,
-//! Codex, Grok, Kimi, Ollama, and Antigravity adapters, the shared ACP driver (ADR-015, ADR-027), CLI
+//! Codex, Grok, Kimi, Ollama, Antigravity, and GitHub Copilot adapters, the shared ACP driver (ADR-015, ADR-027), CLI
 //! discovery, and the session service that runs turns under the supervisor.
 
 pub mod acp;
@@ -8,6 +8,7 @@ pub mod antigravity;
 pub mod brief;
 pub mod claude_code;
 pub mod codex;
+pub mod copilot;
 pub mod discovery;
 pub mod dto;
 pub mod grok;
@@ -42,5 +43,6 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
         std::sync::Arc::new(kimi::Kimi),
         std::sync::Arc::new(ollama::Ollama),
         std::sync::Arc::new(antigravity::Antigravity),
+        std::sync::Arc::new(copilot::Copilot),
     ]
 }

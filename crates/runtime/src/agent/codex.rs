@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::agent::adapter::{
-    cap, first_line, model_name, plain_name, talk_answer, tool_summary, NewestVersion, Parsed,
-    ProbeOutput, ProcessEnd, ProviderSession, PublishedList, RuntimeAdapter, StatusCheck,
+    cap, first_line, model_name, plain_name, talk_answer, tool_summary, Framing, NewestVersion,
+    Parsed, ProbeOutput, ProcessEnd, ProviderSession, PublishedList, RuntimeAdapter, StatusCheck,
     TurnParser, TurnRequest, TurnState, MAX_EVENT_TEXT, MAX_SUMMARY, NETWORK_ENV,
 };
 use crate::agent::claude_code::epoch_ms;
@@ -272,6 +272,7 @@ impl RuntimeAdapter for Codex {
             ],
             lines: lines.iter().map(ToString::to_string).collect(),
             answers: vec![1, 2, 3, 4],
+            framing: Framing::Lines,
         }
     }
 
@@ -1191,6 +1192,7 @@ mod ai_tools_page_tests {
             args,
             lines,
             answers,
+            ..
         } = Codex.status_check(Path::new("/checks"))
         else {
             panic!("Codex talks to its app server");

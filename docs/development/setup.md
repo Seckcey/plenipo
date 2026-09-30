@@ -49,26 +49,28 @@ A window titled **Plenipo** opens showing the shell with **Core: Connected**.
 
 No `.env` file, API keys, or provider logins are required to build or launch.
 
-## 3. AI tools: Claude Code, Codex, Grok, Kimi, Ollama, and Antigravity (optional)
+## 3. AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, and GitHub Copilot (optional)
 
+<a id="3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional"></a>
 <a id="3-ai-tools-claude-code-and-codex-phase-3-optional"></a>
 <a id="3-ai-tools-claude-code-codex-and-grok-optional"></a>
 <a id="3-ai-tools-claude-code-codex-grok-and-ollama-optional"></a>
 <a id="3-ai-tools-claude-code-codex-grok-kimi-and-ollama-optional"></a>
 
-The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, Ollama, and Antigravity tools that are
-already installed **and signed in with your subscription** on this computer. Plenipo never asks
+The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, and
+GitHub Copilot tools that are already installed **and signed in with your subscription** on this computer. Plenipo never asks
 for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
 apps do not need to be open.
 
-| AI tool     | Install (PowerShell)                                                      | Sign in (once, in a terminal)                                                  |
-| ----------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Claude Code | `irm https://claude.ai/install.ps1 \| iex` (native build)                 | `claude auth login` — choose your Claude account                               |
-| Codex       | `npm install -g @openai/codex` (needs Node.js)                            | `codex login` — choose **Sign in with ChatGPT**                                |
-| Grok        | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)                    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
-| Kimi        | Kimi Code's official installer (moonshotai.github.io/kimi-code)           | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
-| Ollama      | The installer from ollama.com/download                                    | `ollama signin` — finish in the browser                                        |
-| Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` (Antigravity CLI) | `agy` — sign in with your Google account, then type `/exit` (or Ctrl+D twice)  |
+| AI tool        | Install (PowerShell)                                                      | Sign in (once, in a terminal)                                                  |
+| -------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Claude Code    | `irm https://claude.ai/install.ps1 \| iex` (native build)                 | `claude auth login` — choose your Claude account                               |
+| Codex          | `npm install -g @openai/codex` (needs Node.js)                            | `codex login` — choose **Sign in with ChatGPT**                                |
+| Grok           | `irm https://x.ai/cli/install.ps1 \| iex` (Grok Build)                    | `grok login` — sign in with the X account that has SuperGrok or X Premium Plus |
+| Kimi           | Kimi Code's official installer (moonshotai.github.io/kimi-code)           | `kimi login` — sign in with the Kimi account that has your Kimi subscription   |
+| Ollama         | The installer from ollama.com/download                                    | `ollama signin` — finish in the browser                                        |
+| Antigravity    | `irm https://antigravity.google/cli/install.ps1 \| iex` (Antigravity CLI) | `agy` — sign in with your Google account, then type `/exit` (or Ctrl+D twice)  |
+| GitHub Copilot | `winget install GitHub.Copilot` (or `npm install -g @github/copilot`)     | `copilot login` — sign in with the GitHub account that has your Copilot plan   |
 
 Then open **AI tools** in Plenipo and choose **Check again**: each tool should show **Ready**
 with its version and "Signed in (subscription)". If a card says what is missing (not installed,
@@ -119,6 +121,45 @@ Notes:
   - Models (1.2.13, signed in): eleven Gemini models whose names carry their thinking level (for
     example **gemini-3.1-pro-high**), **claude-sonnet-4-6** and **claude-opus-4-6-thinking**
     (Anthropic's), and **gpt-oss-120b-medium** (OpenAI's). Plenipo sets no effort for them.
+- GitHub Copilot (GitHub's Copilot CLI, checked with version 1.0.89;
+  [ADR-083](../adr/ADR-083-github-copilot-as-an-ai-tool.md), GitHub Copilot as an AI tool, checked
+  before every task). WinGet puts `copilot.exe` where every new PowerShell window finds it; with npm,
+  Plenipo runs the real `copilot.exe` inside the package, never npm's shim. Its card's **Sign in**
+  runs `copilot login` in a tab (it finishes in your browser). If the GitHub CLI (`gh`) is signed
+  in, Copilot can use that sign-in too, and Plenipo accepts it. Its card has no **Sign out**:
+  Copilot has no sign-out command (use `/logout` inside Copilot, or `gh auth logout`). What
+  Plenipo checks and does:
+  - **Before every task** it asks Copilot, over the link GitHub's own Copilot SDK uses
+    (`copilot --headless --stdio`), how it is signed in and whether GitHub may charge for extra use
+    once your allowance runs out. A task runs only on Copilot's own sign-in or the GitHub CLI's,
+    and only when **paid extra use is off** on every allowance. A token in `GH_TOKEN`,
+    `GITHUB_TOKEN`, or `COPILOT_GITHUB_TOKEN` is never passed, and a sign-in that uses one is
+    refused.
+  - **Paid extra use:** on github.com, open **Settings → Billing and licensing → Budgets and
+    alerts** and give **AI Credits** (all AI Credit SKUs) a **$0** budget with **Stop usage** on.
+    Then GitHub refuses anything past your allowance, and Plenipo sees that as a usage limit. If
+    GitHub may charge, Copilot's card says so and no task runs until you change it and choose
+    **Check again**.
+  - It gives Copilot a settings folder of its own, in Plenipo's app data
+    (`runtime\ai-tool-homes\copilot`, named by `COPILOT_HOME`). Your own Copilot settings, hooks,
+    add-ons, and agents are not used. Signing in from Copilot's card signs in that folder.
+  - One task is one program: its words go in on its input, JSON lines come out, and a
+    conversation goes on by its ID. Copilot's own tools are off (only a tool that does not exist
+    is allowed), GitHub's own add-on server is off, and the folder's `AGENTS.md` files are not
+    read.
+  - GitHub Copilot workers are conversation only: they answer in text and cannot read files, run
+    programs, or open web pages. If Copilot uses one of its own tools anyway, or a model billed
+    per use answers, Plenipo stops the task.
+  - Models (1.0.89, on the plan checked): only **Auto**, Copilot's default, which picks the model
+    itself (Microsoft's MAI Code 1.1 Flash when checked). Who made it is not known, so its work
+    plays safe in cross-company review. Plenipo sets no effort.
+  - It never updates itself during tasks (`COPILOT_AUTO_UPDATE=false`); **Update** on its card
+    runs `copilot update` between tasks. Installed with npm, update it with
+    `npm install -g @github/copilot`.
+- Cursor's agent is not an AI tool in Plenipo yet: nothing a program can run says whether Cursor
+  may charge for paid on-demand use ([the finding](../phases/ai-tools-cursor-finding.md),
+  [ADR-084](../adr/ADR-084-cursor-agent-waits.md), Cursor's agent waits). xAI's models are
+  reached through Grok.
 - On Windows, Plenipo runs only native `.exe` builds. An npm-installed Claude Code (`claude.cmd`)
   is reported as unsupported — install the native build above. For Codex, Plenipo uses the
   native binary inside the npm package automatically.

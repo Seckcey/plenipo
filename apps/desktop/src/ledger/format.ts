@@ -782,6 +782,7 @@ const TOOL_NAMES: Record<string, string> = {
   kimi: "Kimi",
   ollama: "Ollama",
   antigravity: "Antigravity",
+  copilot: "GitHub Copilot",
 };
 
 /** An AI tool's name from its ID ("codex" → "Codex"); nothing for nothing. */
