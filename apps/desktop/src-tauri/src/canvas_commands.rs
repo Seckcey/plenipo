@@ -15,10 +15,10 @@ use plenipo_ledger::workforce::{MAX_PLACES, ORGANIZATION_TILE, OWNER_TILE};
 use plenipo_ledger::{LoanUntil, TilePlace};
 use plenipo_workforce::{OrgSnapshot, OwnerProfile, OwnerProfileInput, Workforce};
 use tauri::ipc::Channel;
-use tauri::State;
 
 use crate::commands::{validate_id, validate_optional_id, with_broker, with_workforce};
 use crate::guard_host::WatchSubscribers;
+use crate::orgs::Org;
 
 fn validate_tile(id: &str) -> Result<(), CommandError> {
     if id == OWNER_TILE || id == ORGANIZATION_TILE {
@@ -33,7 +33,7 @@ fn validate_tile(id: &str) -> Result<(), CommandError> {
 /// Save where the owner put these tiles (a whole team moved at once, at most 500).
 #[tauri::command]
 pub async fn place_tiles(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     places: Vec<TilePlace>,
 ) -> Result<(), CommandError> {
     if places.len() > MAX_PLACES {
@@ -48,14 +48,14 @@ pub async fn place_tiles(
 /// Tidy up: forget every place, so the automatic layout comes back. Returns what it forgot, for
 /// Undo.
 #[tauri::command]
-pub async fn tidy_up(workforce: State<'_, Workforce>) -> Result<Vec<TilePlace>, CommandError> {
+pub async fn tidy_up(workforce: Org<'_, Workforce>) -> Result<Vec<TilePlace>, CommandError> {
     with_workforce(&workforce, Workforce::tidy_up).await
 }
 
 /// Move one end of an oversight line: another overseer, or another team (never both unchanged).
 #[tauri::command]
 pub async fn retarget_oversight(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     oversight_id: String,
     overseer_id: Option<String>,
     target_id: Option<String>,
@@ -76,7 +76,7 @@ pub async fn retarget_oversight(
 
 /// Who is working where now, and the hand-offs of the last few minutes.
 #[tauri::command]
-pub async fn get_live_view(broker: State<'_, Broker>) -> Result<LiveView, CommandError> {
+pub async fn get_live_view(broker: Org<'_, Broker>) -> Result<LiveView, CommandError> {
     with_broker(&broker, |b| Ok(b.live_view())).await
 }
 
@@ -85,7 +85,7 @@ pub async fn get_live_view(broker: State<'_, Broker>) -> Result<LiveView, Comman
 /// Lend an on-call agent to another team's lead, for one objective or until it is sent home.
 #[tauri::command]
 pub async fn lend_agent(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
     to_lead_id: String,
     until: LoanUntil,
@@ -101,7 +101,7 @@ pub async fn lend_agent(
 /// Send a lent agent home: now, or when the task it is on ends.
 #[tauri::command]
 pub async fn send_home(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -113,7 +113,7 @@ pub async fn send_home(
 /// What an agent's workers changed in its latest objective, each file once, newest first.
 #[tauri::command]
 pub async fn get_watch(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     position_id: String,
 ) -> Result<WatchView, CommandError> {
     validate_id("position", &position_id)?;
@@ -124,7 +124,7 @@ pub async fn get_watch(
 /// longer has it.
 #[tauri::command]
 pub async fn get_watch_change(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     change_id: String,
 ) -> Result<Option<WatchFileView>, CommandError> {
     validate_id("change", &change_id)?;
@@ -135,7 +135,7 @@ pub async fn get_watch_change(
 /// alone); returns the number that stops it.
 #[tauri::command]
 pub fn subscribe_watch(
-    subscribers: State<'_, WatchSubscribers>,
+    subscribers: Org<'_, WatchSubscribers>,
     channel: Channel<WatchUpdate>,
 ) -> Result<u32, CommandError> {
     Ok(subscribers.add(channel))
@@ -144,7 +144,7 @@ pub fn subscribe_watch(
 /// Stop hearing Watch through the channel `subscription` names.
 #[tauri::command]
 pub fn unsubscribe_watch(
-    subscribers: State<'_, WatchSubscribers>,
+    subscribers: Org<'_, WatchSubscribers>,
     subscription: u32,
 ) -> Result<(), CommandError> {
     subscribers.remove(subscription);
@@ -155,7 +155,7 @@ pub fn unsubscribe_watch(
 
 #[tauri::command]
 pub async fn get_owner_profile(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
 ) -> Result<OwnerProfile, CommandError> {
     with_workforce(&workforce, |w| w.owner_profile()).await
 }
@@ -164,7 +164,7 @@ pub async fn get_owner_profile(
 /// shrunk by the window).
 #[tauri::command]
 pub async fn set_owner_profile(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     input: OwnerProfileInput,
 ) -> Result<OwnerProfile, CommandError> {
     with_workforce(&workforce, move |w| w.set_owner_profile(&input)).await

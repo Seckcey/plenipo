@@ -12,11 +12,15 @@ pub mod canvas_commands;
 pub mod commands;
 pub mod connections_commands;
 pub mod diagnostics;
+pub mod files_commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
 pub mod logs;
 pub mod notices;
+pub mod org_commands;
+pub mod org_host;
+pub mod orgs;
 pub mod owner_commands;
 pub mod recovery;
 pub mod runtime_host;
@@ -24,21 +28,22 @@ pub mod settings_health;
 pub mod smoke;
 pub mod spending_commands;
 pub mod start_close;
+pub mod tool_holds;
 pub mod tray;
 pub mod uninstall;
 pub mod update_host;
 pub mod upkeep_commands;
 pub mod window_watch;
+pub mod workspace_commands;
+pub mod workspace_windows;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use plenipo_liaison::{Liaison, LiaisonConfig};
-use plenipo_router::Router;
+use plenipo_liaison::Liaison;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
-use plenipo_workforce::Workforce;
 use tauri::webview::PageLoadEvent;
 use tauri::{Builder, Manager as _, RunEvent, Runtime, WindowEvent};
 
@@ -95,21 +100,13 @@ pub struct StartedInTray(pub bool);
 
 /// Work is going: a program is running, a terminal is open, or a task is not finished.
 pub fn work_going<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
-    let active = app
-        .try_state::<Supervisor>()
-        .map_or(0, |s| s.active_count());
-    let terminals = app
-        .try_state::<plenipo_capabilities::Broker>()
-        .map_or(0, |b| b.open_terminals().len());
-    let tasks = app
-        .try_state::<Arc<plenipo_ledger::Ledger>>()
-        .and_then(|l| l.unfinished_tasks().ok())
-        .map_or(0, |t| t.len());
+    // Every organization's (Phase 21, ADR-094 §7).
+    let busy = orgs::all_stacks(app).iter().any(|s| s.busy());
     // An AI tool being updated, or waiting to be (Phase 19, ADR-059 §3).
     let updates = app
         .try_state::<plenipo_capabilities::ai_tools::AiTools>()
         .map_or(0, |t| t.updates_going());
-    active + terminals + tasks + updates > 0
+    busy || updates > 0
 }
 
 /// Where quitting is: running, stopping owned processes, or done and free to exit.
@@ -215,112 +212,115 @@ pub fn configure<R: Runtime>(
                 }
                 None => (recovery::PreviousEnd::Clean, None),
             };
-            // A restore chosen in Diagnostics happens now, before the Ledger opens.
-            let db = data
-                .as_ref()
-                .and_then(|_| ledger_host::ledger_path(app.handle()).ok());
-            let restored = db.as_deref().and_then(ledger_host::apply_pending_restore);
-            let existed = db.as_ref().is_some_and(|p| p.exists());
-            // A layout change backs the Ledger up itself, first (`pre-migration-v<n>`).
-            let changes_layout =
-                existed && db.as_deref().is_some_and(ledger_host::needs_layout_change);
-            if let (Some(keeper), true) = (&keeper, changes_layout) {
-                keeper.set_phase(recovery::Phase::ChangingLayout);
-            }
-            let ledger = ledger_host::open(app.handle(), options.persistence);
-            // When this run began: spending set aside before it belongs to the last run.
-            let started = plenipo_ledger::now_ms();
+            // More than one organization (Phase 21, ADR-094): the list, then the first one, as
+            // Plenipo always opened it; then every other one that is not archived.
+            let orgs = Arc::new(orgs::Orgs::load(data.as_deref()));
+            app.manage(orgs.clone());
+            let identifier = app.config().identifier.clone();
+            let place = |id: &str| orgs::OrgPlace {
+                id: id.to_owned(),
+                folder: data.as_ref().map(|d| orgs::folder_of(d, id)),
+                data: data.clone(),
+                vault: orgs::vault_name(&identifier, id),
+            };
+            // A restore chosen in Diagnostics happens first, and a layout change backs the
+            // Ledger up itself (`pre-migration-v<n>`).
+            let opened = org_host::open_ledger(
+                app.handle(),
+                &place(orgs::FIRST),
+                options.persistence,
+                &version,
+                |changes_layout| {
+                    if let (Some(keeper), true) = (&keeper, changes_layout) {
+                        keeper.set_phase(recovery::Phase::ChangingLayout);
+                    }
+                },
+            );
             if let Some(keeper) = &keeper {
                 keeper.set_phase(recovery::Phase::Running);
                 keeper.keep_beating();
             }
-            // A new version backs up the Ledger before anything writes to it (unless its layout
-            // change just did).
-            backup_host::before_upgrade(&ledger, existed, changes_layout, &version);
-            if let Some(restored) = &restored {
-                ledger_host::record_restore(&ledger, restored);
-            }
-            // What was in progress when the last run ended, before the services mark it
-            // stopped.
-            let before = if previous.is_unclean() {
-                recovery::in_progress(&ledger)
-            } else {
-                recovery::InProgress::default()
-            };
+            let ledger = opened.ledger.clone();
             app.manage(ledger.clone());
             app.manage(options.persistence);
-            let supervisor =
-                runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
-            let agents = agent_host::create(
-                app.handle(),
-                options.persistence,
-                ledger.clone(),
-                supervisor.clone(),
-            );
-            if options.persistence == Persistence::AppData {
-                agent_host::detect_in_background(&agents);
+            // Where the pop-out panels were (Phase 21, ADR-092).
+            app.manage(workspace_windows::PopOuts::new(
+                data.as_ref()
+                    .map(|d| d.join(workspace_windows::PLACES_FILE)),
+            ));
+            app.manage(org_host::Defaults {
+                persistence: options.persistence,
+                notices: options.notices,
+                gather: notices::GATHER,
+                run: true,
+            });
+            let opening = org_host::Opening {
+                persistence: options.persistence,
+                notices: options.notices,
+                gather: notices::GATHER,
+                version: &version,
+                previous: &previous,
+                run: true,
+                control: orgs.control(),
+                first: None,
+            };
+            let first = org_host::build(app.handle(), place(orgs::FIRST), ledger.clone(), &opening);
+            orgs.insert(first.clone());
+            orgs.set_name(orgs::FIRST, &orgs::name_in(&first.ledger));
+            for entry in orgs.entries() {
+                if entry.id == orgs::FIRST || entry.archived_at.is_some() {
+                    continue;
+                }
+                let place = place(&entry.id);
+                let opened = org_host::open_ledger(
+                    app.handle(),
+                    &place,
+                    options.persistence,
+                    &version,
+                    |_| {},
+                );
+                let stack = org_host::build(
+                    app.handle(),
+                    place,
+                    opened.ledger,
+                    &org_host::Opening {
+                        first: Some(&first),
+                        ..opening.clone()
+                    },
+                );
+                orgs.set_name(&entry.id, &orgs::name_in(&stack.ledger));
+                orgs.insert(stack);
             }
-            // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
-            let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
-            tauri::async_runtime::spawn(liaison.clone().run());
-            // Router (Phase 6): model registry and role model policies.
-            let router = Router::new(ledger.clone(), agents.clone());
-            // Guard and the capability broker (Phase 7): permissions, Plenipo's tools for
-            // workers, approvals, and the Vault.
-            let (guard, broker) = guard_host::create(
-                app.handle(),
-                options.persistence,
-                ledger.clone(),
-                supervisor.clone(),
-                &agents,
+            let (supervisor, agents, liaison, router, guard, broker, workforce) = (
+                first.supervisor.clone(),
+                first.agents.clone(),
+                first.liaison.clone(),
+                first.router.clone(),
+                first.guard.clone(),
+                first.broker.clone(),
+                first.workforce.clone(),
             );
-            guard_host::start(&broker);
-            // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models.
+            app.manage(first.notices.clone());
+            app.manage(first.watchers.clone());
+            // Files dropped on a window from File Explorer, by ticket (Phase 21).
+            app.manage(files_commands::Drops::default());
+            // Opening the owner's files in another program, or in File Explorer (Phase 21).
+            app.manage(files_commands::Outside(Arc::new(
+                files_commands::SystemFileOpener,
+            )));
+            // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models; the PC's,
+            // kept with the first organization (ADR-094 §4).
             let ai_tools = ai_tools_host::create(&agents, &broker);
             ai_tools_host::listen(&ledger, &ai_tools);
             if options.persistence == Persistence::AppData {
                 ai_tools_host::start_daily(ai_tools.clone());
             }
-            // Pop-up notices (Phase 12): what needs the owner, from each committed event.
-            app.manage(Arc::new(notices::start(
-                app.handle(),
-                ledger.clone(),
-                Some(agents.clone()),
-                options.notices,
-                notices::GATHER,
-            )));
-            // Money still set aside for paid tasks from before this run belongs to tasks that
-            // stopped with the last run (Phase 16 Wave 3, ADR-085): each counts at the most it
-            // could have cost, so a spending cap is never passed unseen. After the notices
-            // start, so a cap this reaches is told; a task this run started is left alone.
-            match ledger.recover_spending(started, plenipo_ledger::now_ms()) {
-                Ok(0) => {}
-                Ok(n) => log::info!(
-                    "{n} paid task(s) from the last run count at the most they could have cost"
-                ),
-                Err(e) => log::warn!("could not settle spending left from the last run: {e}"),
-            }
-            // Workforce (Phase 5): the organization, and Liaison's directory for its members,
-            // whose workers the Router places.
-            let workforce = Workforce::new(
-                ledger.clone(),
-                agents.clone(),
-                liaison.clone(),
-                router.clone(),
-            );
-            // Built-in roles get their starting permission sets once (after they are seeded).
-            if let Err(e) = guard.seed_template_roles() {
-                log::warn!("could not give the built-in roles their permissions: {e}");
-            }
-            // Phase 13: the services have marked what the last run left unfinished; record
-            // the recovery, and what could not be read.
-            recovery::record(&ledger, &previous, &before, &version);
+            // An AI tool's update holds every organization's new work for it (ADR-094 §4).
+            app.manage(Arc::new(tool_holds::UpdateHolds::default()));
+            tool_holds::watch(app.handle());
             let problems = settings_health::problems(&guard, &router);
-            if let Some(logs) = logs::installed() {
-                logs.set_filter(broker.text_filter());
-            }
-            let busy = supervisor.clone();
-            backup_host::start_daily(&ledger, move || busy.active_count() > 0);
+            // The logs hide every organization's secrets.
+            orgs::filter_logs(&orgs);
             let updates = update_host::Updates::new(&version, update_host::built_source());
             if let Some(data) = &data {
                 update_host::clean_up(&data.join(update_host::FOLDER));
@@ -363,18 +363,58 @@ pub fn configure<R: Runtime>(
                     log::warn!("system tray unavailable: {e}");
                 }
             }
-            // Otherwise show the window, which starts hidden so that nothing flashes.
-            if !in_tray {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                }
+            // The first organization's window (Phase 21: built here, so that it may open its
+            // pop-out panels). It starts hidden in the tray; otherwise it shows at once.
+            match workspace_windows::build_org_window(
+                app.handle(),
+                workspace_windows::MAIN,
+                !in_tray,
+            ) {
+                // It names the organization it shows (Phase 21).
+                Ok(main) => org_commands::set_title(&main, &orgs, &orgs.main_shows()),
+                Err(e) => log::error!("the window could not open: {e}"),
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            // A pop-out panel (Phase 21, ADR-092): Plenipo keeps where it is, and when it
+            // closes, its organization's window puts the panel back in a dock.
+            if workspace_windows::parse_popout(window.label()).is_some() {
+                match event {
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                        workspace_windows::remember_place(window);
+                    }
+                    // Only the owner closing it puts the panel back: a pop-out Plenipo closes
+                    // itself (Quit, a reload, Reset layout) stays in the kept layout.
+                    WindowEvent::CloseRequested { .. } => {
+                        workspace_windows::closed(window.app_handle(), window.label());
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            // Files dropped from File Explorer (Phase 21, ADR-093 §20): Plenipo keeps where they
+            // are and gives the page a ticket.
+            if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                files_commands::dropped(window, paths.clone(), *position);
+                return;
+            }
             // Closing the window never stops approved work unless the owner chose that
             // (ADR-037): hide to the tray while work is going (or always), or quit the normal
             // way, which stops the work and records it.
+            // Another organization's own window closed (Phase 21, ADR-094 §14): its work goes on;
+            // the terminals it showed end.
+            if window.label().starts_with(workspace_windows::ORG_PREFIX) {
+                if let WindowEvent::Destroyed = event {
+                    let app = window.app_handle();
+                    if let Some(orgs) = app.try_state::<Arc<orgs::Orgs>>() {
+                        org_commands::leave(app, &orgs, window.label(), "its window closed");
+                        orgs.unbind(window.label());
+                        orgs::list_changed(app);
+                    }
+                }
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
                     return;
@@ -388,6 +428,7 @@ pub fn configure<R: Runtime>(
                 match start_close::close_action(choice, work_going(app), tray::exists(app)) {
                     start_close::CloseAction::Hide => {
                         let _ = window.hide();
+                        workspace_windows::hide_popouts(app, window.label());
                     }
                     start_close::CloseAction::Quit => app.exit(0),
                 }
@@ -396,9 +437,17 @@ pub fn configure<R: Runtime>(
         .on_page_load(|webview, payload| {
             // The terminals belong to the page that shows them: when the main window's page
             // loads again (a reload), the terminals it showed end instead of running unseen.
-            if webview.label() == "main" && payload.event() == PageLoadEvent::Started {
-                if let Some(broker) = webview.try_state::<plenipo_capabilities::Broker>() {
-                    broker.close_all_terminals("the window was reloaded");
+            // Its pop-outs close too; the page opens them again (ADR-092 §10). Every
+            // organization's window alike (Phase 21).
+            if workspace_windows::is_org_window(webview.label())
+                && payload.event() == PageLoadEvent::Started
+            {
+                let app = webview.app_handle();
+                match app.try_state::<Arc<orgs::Orgs>>() {
+                    Some(orgs) => {
+                        org_commands::leave(app, &orgs, webview.label(), "the window was reloaded");
+                    }
+                    None => workspace_windows::close_popouts(app, webview.label()),
                 }
             }
         })
@@ -578,6 +627,25 @@ pub fn configure<R: Runtime>(
             upkeep_commands::get_update_status,
             upkeep_commands::check_for_updates,
             upkeep_commands::install_update,
+            workspace_commands::prepare_pop_out,
+            workspace_commands::focus_pop_out,
+            workspace_commands::reset_pop_outs,
+            files_commands::get_file_roots,
+            files_commands::list_folder,
+            files_commands::read_file,
+            files_commands::save_file,
+            files_commands::open_file_outside,
+            files_commands::show_in_folder,
+            files_commands::get_changing_files,
+            workspace_commands::close_pop_out,
+            org_commands::get_organizations,
+            org_commands::create_organization,
+            org_commands::switch_organization,
+            org_commands::open_organization_window,
+            org_commands::archive_organization,
+            org_commands::bring_back_organization,
+            org_commands::preview_delete_organization,
+            org_commands::delete_organization_for_good,
         ])
 }
 
@@ -602,6 +670,27 @@ pub fn manage_upkeep<R: Runtime>(
 /// by installing an update, and by restarting to restore a backup. Returns how many programs
 /// were stopped.
 pub async fn stop_work<R: Runtime>(app: &tauri::AppHandle<R>) -> usize {
+    // Every organization's work, all at once (Phase 21, ADR-094 §7); each Ledger records its
+    // own.
+    let stacks = orgs::all_stacks(app);
+    if !stacks.is_empty() {
+        let stopping: Vec<_> = stacks
+            .into_iter()
+            .map(|s| {
+                tauri::async_runtime::spawn(async move {
+                    org_host::stop(&s, "Plenipo closed", SHUTDOWN_GRACE).await
+                })
+            })
+            .collect();
+        let mut stopped = 0;
+        for s in stopping {
+            stopped += s.await.unwrap_or(0);
+        }
+        if stopped > 0 {
+            log::info!("terminated {stopped} running process(es) on exit");
+        }
+        return stopped;
+    }
     // Liaison stops handing out work first. The agent runtime then stops its turns through
     // the supervisor and records their results (waiting turns stay as recorded; the next start
     // marks them interrupted); the supervisor then has nothing left to stop.
@@ -791,41 +880,50 @@ mod ipc_boundary_tests {
         )
         .build(tauri::generate_context!())
         .expect("failed to build mock app");
-        // The mock runtime does not run `setup`; install the ledger and runtime the same way.
-        let ledger = ledger_host::open(app.handle(), Persistence::InMemory);
+        // The mock runtime does not run `setup`; install the organizations the same way: the
+        // first one, kept in memory, its services built as the app builds them.
+        let orgs = Arc::new(orgs::Orgs::load(None));
+        app.manage(orgs.clone());
+        let defaults = org_host::Defaults {
+            persistence: Persistence::InMemory,
+            notices: notices::Output::Kept,
+            gather: Duration::from_millis(100),
+            // Queries only: no tool server, reconciliation loop, or daily backup without
+            // running workers.
+            run: false,
+        };
+        app.manage(defaults);
+        let place = orgs::OrgPlace {
+            id: orgs::FIRST.into(),
+            folder: None,
+            data: None,
+            vault: orgs::vault_name("test", orgs::FIRST),
+        };
+        let ledger = ledger_host::open(app.handle(), &place, Persistence::InMemory);
         app.manage(ledger.clone());
         app.manage(Persistence::InMemory);
-        let supervisor =
-            runtime_host::create_supervisor(app.handle(), Persistence::InMemory, ledger.clone());
-        let agents = agent_host::create(
+        let first = org_host::build(
             app.handle(),
-            Persistence::InMemory,
-            ledger.clone(),
-            supervisor.clone(),
+            place,
+            ledger,
+            &org_host::Opening {
+                persistence: Persistence::InMemory,
+                notices: notices::Output::Kept,
+                gather: Duration::from_millis(100),
+                version: "1.9.0",
+                previous: &recovery::PreviousEnd::Clean,
+                run: false,
+                control: orgs.control(),
+                first: None,
+            },
         );
-        // Queries only: the reconciliation loop is not needed without running workers.
-        let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
-        let router = Router::new(ledger.clone(), agents.clone());
-        let (guard, broker) = guard_host::create(
-            app.handle(),
-            Persistence::InMemory,
-            ledger.clone(),
-            supervisor.clone(),
-            &agents,
-        );
+        orgs.insert(first.clone());
         // A copy built with an app ID would otherwise open the developer's real browser when a
         // test presses Connect: these tests open nothing.
-        broker.set_connection_opener(Arc::new(NoBrowser));
-        app.manage(Arc::new(notices::start(
-            app.handle(),
-            ledger.clone(),
-            Some(agents.clone()),
-            notices::Output::Kept,
-            Duration::from_millis(100),
-        )));
-        let workforce = Workforce::new(ledger, agents.clone(), liaison.clone(), router.clone());
-        guard.seed_template_roles().unwrap();
-        app.manage(ai_tools_host::create(&agents, &broker));
+        first.broker.set_connection_opener(Arc::new(NoBrowser));
+        app.manage(first.notices.clone());
+        app.manage(first.watchers.clone());
+        app.manage(ai_tools_host::create(&first.agents, &first.broker));
         manage_upkeep(
             app.handle(),
             RunNote(None),
@@ -833,14 +931,34 @@ mod ipc_boundary_tests {
             update_host::Updates::new("1.9.0", update_host::built_source()),
             false,
         );
-        app.manage(guard);
-        app.manage(broker);
-        app.manage(supervisor);
-        app.manage(agents);
-        app.manage(liaison);
-        app.manage(router);
-        app.manage(workforce);
+        // Phase 21: pop-out places (kept in memory), drop tickets, and an opener that opens
+        // nothing.
+        app.manage(workspace_windows::PopOuts::new(None));
+        app.manage(files_commands::Drops::default());
+        app.manage(files_commands::Outside(Arc::new(NoOpener)));
+        app.manage(first.guard.clone());
+        app.manage(first.broker.clone());
+        app.manage(first.supervisor.clone());
+        app.manage(first.agents.clone());
+        app.manage(first.liaison.clone());
+        app.manage(first.router.clone());
+        app.manage(first.workforce.clone());
         app
+    }
+
+    /// Opens no file (tests never start a program).
+    struct NoOpener;
+
+    impl files_commands::FileOpener for NoOpener {
+        fn open(
+            &self,
+            _: plenipo_runtime::Supervisor,
+            _: std::path::PathBuf,
+            _: bool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     /// A browser that opens nothing.
@@ -4855,6 +4973,7 @@ mod ipc_boundary_tests {
             position_id: None,
             worker: "Senior Developer".into(),
             objective_task_id: SESSION.into(),
+            root: None,
         };
         let write = |call: &str| {
             broker
@@ -4882,6 +5001,740 @@ mod ipc_boundary_tests {
             subscribers.add(tauri::ipc::Channel::new(|_| Ok(())));
         }
         assert_eq!(subscribers.len(), guard_host::MAX_WATCH_SUBSCRIBERS);
+    }
+
+    // ---- Phase 21: the workspace (ADR-092, ADR-093) --------------------------------------------
+
+    const PHASE_21: [&str; 11] = [
+        "prepare_pop_out",
+        "focus_pop_out",
+        "close_pop_out",
+        "reset_pop_outs",
+        "get_file_roots",
+        "list_folder",
+        "read_file",
+        "save_file",
+        "open_file_outside",
+        "show_in_folder",
+        "get_changing_files",
+    ];
+
+    /// Arguments that fit every Phase 21 command (each takes the ones it names).
+    fn phase_21_args() -> serde_json::Value {
+        serde_json::json!({
+            "panel": "terminal", "place": null, "root": "project:nope", "path": "README.md",
+            "text": "x", "bom": false, "lineEnding": "lf", "base": null,
+        })
+    }
+
+    fn refused(
+        cmd: &str,
+        answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+        from: &str,
+    ) {
+        let err = answer.expect_err(&format!("{cmd} from {from}"));
+        assert!(
+            err.to_string().contains("not allowed"),
+            "{cmd} from {from}: {err}"
+        );
+    }
+
+    #[test]
+    fn the_workspace_commands_are_an_organization_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let popout = window(&app, "popout-terminal--main--1");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in PHASE_21 {
+            let args = phase_21_args();
+            refused(cmd, invoke_json(&popout, cmd, args.clone()), "a pop-out");
+            refused(
+                cmd,
+                invoke_json(&other, cmd, args.clone()),
+                "another window",
+            );
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+    }
+
+    // ---- More than one organization (Phase 21, ADR-094) -------------------------------------
+
+    /// Make organization `name` from the first window, and give it a window of its own.
+    fn second_organization(
+        app: &App<MockRuntime>,
+        main: &WebviewWindow<MockRuntime>,
+        name: &str,
+    ) -> (String, WebviewWindow<MockRuntime>) {
+        let made: plenipo_core::OrgSummary = body(invoke_json(
+            main,
+            "create_organization",
+            serde_json::json!({ "name": name, "start": { "kind": "scratch" } }),
+        ));
+        assert!(!made.first && !made.archived);
+        let label = orgs::window_label(&made.id);
+        app.state::<Arc<orgs::Orgs>>().bind(&label, &made.id);
+        (made.id, window(app, &label))
+    }
+
+    #[test]
+    fn two_organizations_in_two_windows_never_cross() {
+        let app = app();
+        let main = window(&app, "main");
+        let (id, client) = second_organization(&app, &main, "Client Co");
+        // Each window shows its own organization.
+        let names = |w: &WebviewWindow<MockRuntime>| -> String {
+            body::<plenipo_workforce::OrgSnapshot>(invoke(w, "get_organization")).name
+        };
+        assert_eq!(names(&client), "Client Co");
+        assert_ne!(names(&main), "Client Co");
+        let listing: plenipo_core::OrgListing = body(invoke(&client, "get_organizations"));
+        assert_eq!(listing.current, id);
+        assert_eq!(listing.organizations.len(), 2);
+        assert!(listing
+            .organizations
+            .iter()
+            .any(|o| o.id == id && o.here && o.in_window));
+
+        // Work: a task in the first organization is not the client's.
+        let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
+        let mine: Vec<plenipo_ledger::Task> = body(invoke(&main, "list_tasks"));
+        let theirs: Vec<plenipo_ledger::Task> = body(invoke(&client, "list_tasks"));
+        assert!(mine.iter().any(|t| t.id == task.id));
+        assert!(theirs.iter().all(|t| t.id != task.id));
+        let timeline = invoke_json(
+            &client,
+            "get_task_timeline",
+            serde_json::json!({ "taskId": task.id }),
+        );
+        assert!(
+            timeline.is_err(),
+            "the client's window cannot read the first's task"
+        );
+
+        // Secrets: saved in the client's window, only the client's Vault and settings have it.
+        let s = perms(invoke_json(
+            &client,
+            "save_secret",
+            serde_json::json!({ "input": {
+                "name": "Client token", "envVar": "CLIENT_TOKEN", "programs": ["gh"],
+                "value": "client_secret_value_123",
+            }}),
+        ));
+        assert_eq!(s.settings.secrets.len(), 1);
+        let first = perms(invoke(&main, "get_permissions"));
+        assert!(first
+            .settings
+            .secrets
+            .iter()
+            .all(|x| x.name != "Client token"));
+        assert!(first.vault.stored.is_empty());
+
+        // Approvals: each organization's list is its own (the client's has none).
+        let a: serde_json::Value = body(invoke(&client, "get_approvals"));
+        assert_eq!(a["pending"].as_array().map_or(0, Vec::len), 0);
+
+        // A pop-out of the client's window calls nothing; the sign, and a web page, reach no
+        // organization's commands.
+        let popout = window(&app, &format!("popout-terminal--{}--1", client.label()));
+        let sign = window(&app, crate::indicator::LABEL);
+        for w in [&popout, &sign] {
+            for cmd in ["get_organizations", "list_tasks", "get_permissions"] {
+                assert!(
+                    invoke(w, cmd).is_err(),
+                    "{} must not reach {cmd}",
+                    w.label()
+                );
+            }
+        }
+        assert!(invoke_from(&client, "list_tasks", "https://example.com").is_err());
+        // The organization commands are organizations' windows' alone.
+        for cmd in [
+            "get_organizations",
+            "create_organization",
+            "switch_organization",
+            "open_organization_window",
+            "archive_organization",
+            "bring_back_organization",
+            "preview_delete_organization",
+            "delete_organization_for_good",
+        ] {
+            let args = serde_json::json!({ "id": id, "name": "X", "start": { "kind": "scratch" }, "save": [] });
+            for (w, from) in [(&popout, "a pop-out"), (&sign, "the sign")] {
+                refused(cmd, invoke_json(w, cmd, args.clone()), from);
+            }
+            refused(
+                cmd,
+                invoke_with(&client, cmd, args, "https://example.com"),
+                "a web page",
+            );
+        }
+    }
+
+    #[test]
+    fn an_organization_is_archived_brought_back_and_deleted_for_good() {
+        let app = app();
+        let main = window(&app, "main");
+        let (id, client) = second_organization(&app, &main, "Client Co");
+        drop(client);
+        // The first organization stays.
+        let refused = invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": orgs::FIRST }),
+        );
+        assert!(refused.is_err());
+        // Deleted only from the archive.
+        assert!(invoke_json(
+            &main,
+            "delete_organization_for_good",
+            serde_json::json!({ "id": id, "save": [] }),
+        )
+        .is_err());
+        let listing: plenipo_core::OrgListing = body(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        assert!(listing
+            .organizations
+            .iter()
+            .any(|o| o.id == id && o.archived && !o.in_window));
+        assert!(app.state::<Arc<orgs::Orgs>>().stack(&id).is_none());
+        // An archived organization is not shown in a window.
+        assert!(invoke_json(
+            &main,
+            "switch_organization",
+            serde_json::json!({ "id": id }),
+        )
+        .is_err());
+        let listing: plenipo_core::OrgListing = body(invoke_json(
+            &main,
+            "bring_back_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        assert!(listing
+            .organizations
+            .iter()
+            .any(|o| o.id == id && !o.archived));
+        // Its workers: a manager hired from your Workforce with the experience it brought, and
+        // two agents in its own Workforce (one whose role your first organization has, one
+        // whose role it does not).
+        let orgs_state = app.state::<Arc<orgs::Orgs>>();
+        let stack = orgs_state.stack(&id).unwrap();
+        let first = orgs_state.first().unwrap();
+        let role_in = |l: &plenipo_ledger::Ledger, name: &str| {
+            l.list_roles()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.name == name)
+                .unwrap()
+                .id
+        };
+        let saved =
+            |id: &str, title: &str, role_id: String, tasks: u64| plenipo_ledger::SavedAgent {
+                id: id.into(),
+                title: title.into(),
+                role_id,
+                specialty_id: None,
+                from_position: None,
+                settings: serde_json::json!({}),
+                experience: serde_json::json!({ "tasksDone": tasks, "keptLessons": 0 }),
+                lessons: Vec::new(),
+                saved_at: 1,
+            };
+        first
+            .ledger
+            .put_saved_agent(&saved(
+                "brought",
+                "Operations Manager",
+                role_in(&first.ledger, "Manager"),
+                2,
+            ))
+            .unwrap();
+        let s = stack
+            .workforce
+            .create_department(&plenipo_workforce::DepartmentInput {
+                name: "Operations".into(),
+                description: String::new(),
+                head: Some(plenipo_workforce::LeadInput {
+                    role_id: role_in(&stack.ledger, "Manager"),
+                    title: "Operations Manager".into(),
+                    runtime_id: Some("claude-code".into()),
+                    model: None,
+                    vacant: None,
+                    from_workforce: Some("brought".into()),
+                }),
+                reports_to: None,
+                active: None,
+            })
+            .unwrap();
+        let head = s
+            .departments
+            .iter()
+            .find(|d| d.name == "Operations")
+            .unwrap()
+            .head_position_id
+            .clone()
+            .unwrap();
+        stack
+            .ledger
+            .put_saved_agent(&saved(
+                "kept-home",
+                "Kept Manager",
+                role_in(&stack.ledger, "Manager"),
+                1,
+            ))
+            .unwrap();
+        let s = stack
+            .workforce
+            .create_role(&plenipo_workforce::RoleInput {
+                name: "Bookkeeper".into(),
+                description: "Keeps the books.".into(),
+                kind: plenipo_workforce::PositionKind::Worker,
+                staffing: plenipo_workforce::Staffing::OnDemand,
+                job: None,
+            })
+            .unwrap();
+        let bookkeeper = s.roles.iter().find(|r| r.name == "Bookkeeper").unwrap();
+        stack
+            .ledger
+            .put_saved_agent(&saved("kept-here", "Bookkeeper", bookkeeper.id.clone(), 1))
+            .unwrap();
+        // Saved once, however often it is asked (a retry after a failure).
+        for _ in 0..2 {
+            stack
+                .workforce
+                .save_copy_to(&id, &head, &first.ledger)
+                .unwrap();
+        }
+        drop(stack);
+        body::<plenipo_core::OrgListing>(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        let preview: plenipo_core::OrgDeletePreview = body(invoke_json(
+            &main,
+            "preview_delete_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        assert_eq!(preview.name, "Client Co");
+        // The experience it brought counts; the agent whose role your first organization has
+        // moved to your Workforce; the other is named as one that goes with it.
+        assert_eq!(preview.experienced.len(), 1, "{:?}", preview.experienced);
+        assert_eq!(preview.experienced[0].position_id, head);
+        assert_eq!(preview.experienced[0].tasks_done, 2);
+        assert!(first.ledger.saved_agent("kept-home").unwrap().is_some());
+        assert_eq!(
+            preview
+                .not_saved
+                .iter()
+                .map(|w| w.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Bookkeeper"]
+        );
+        let listing: plenipo_core::OrgListing = body(invoke_json(
+            &main,
+            "delete_organization_for_good",
+            serde_json::json!({ "id": id, "save": [head, head] }),
+        ));
+        assert!(listing.organizations.iter().all(|o| o.id != id));
+        let managers = first
+            .ledger
+            .saved_agents()
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.title == "Operations Manager")
+            .count();
+        assert_eq!(managers, 1, "saved once");
+        // Recorded in the first organization's Ledger.
+        let events: Vec<plenipo_ledger::LedgerEvent> = body(invoke_json(
+            &main,
+            "list_recent_events",
+            serde_json::json!({ "limit": 50 }),
+        ));
+        assert!(events
+            .iter()
+            .any(|e| e.event_type == "organization.deleted"));
+    }
+
+    /// Phase 21 review: what belongs to the first organization, or to Plenipo's own window,
+    /// stays there; each window's paths, terminals, and heartbeat are its own.
+    #[test]
+    fn what_is_the_first_organizations_or_the_main_windows_stays_there() {
+        let app = app();
+        let main = window(&app, "main");
+        let (_, client) = second_organization(&app, &main, "Client Co");
+        // Settings Plenipo could not read: shown and reset in the first organization only.
+        app.state::<SettingsProblems>()
+            .0
+            .lock()
+            .unwrap()
+            .push(plenipo_core::SettingsProblem {
+                key: "routing".into(),
+                label: "AI model choices".into(),
+                message: "They could not be read.".into(),
+            });
+        let mine: plenipo_core::RecoveryStatus = body(invoke(&main, "get_recovery_status"));
+        assert_eq!(mine.settings_problems.len(), 1);
+        let theirs: plenipo_core::RecoveryStatus = body(invoke(&client, "get_recovery_status"));
+        assert!(theirs.settings_problems.is_empty());
+        let refused = invoke_json(
+            &client,
+            "reset_settings",
+            serde_json::json!({ "key": "routing" }),
+        )
+        .unwrap_err();
+        assert!(
+            refused.to_string().contains("first organization"),
+            "{refused}"
+        );
+        assert_eq!(app.state::<SettingsProblems>().0.lock().unwrap().len(), 1);
+        // Only Plenipo's own window keeps the page watch going.
+        let watch = app
+            .state::<Arc<window_watch::WindowWatch>>()
+            .inner()
+            .clone();
+        invoke_json(
+            &client,
+            "window_alive",
+            serde_json::json!({ "visible": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            watch.last_alive(),
+            0,
+            "another window's heartbeat is not the main one's"
+        );
+        invoke_json(
+            &main,
+            "window_alive",
+            serde_json::json!({ "visible": true }),
+        )
+        .unwrap();
+        assert!(watch.last_alive() > 0);
+        // Another window's AI tool sign-in terminal is not this window's to type in or close.
+        let orgs = app.state::<Arc<orgs::Orgs>>().inner().clone();
+        let terminal = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        orgs.own_ai_terminal(terminal, client.label());
+        for (cmd, args) in [
+            (
+                "write_terminal",
+                serde_json::json!({ "terminalId": terminal, "data": "x" }),
+            ),
+            (
+                "resize_terminal",
+                serde_json::json!({ "terminalId": terminal, "cols": 80, "rows": 24 }),
+            ),
+            (
+                "close_terminal",
+                serde_json::json!({ "terminalId": terminal }),
+            ),
+        ] {
+            let refused = invoke_json(&main, cmd, args).unwrap_err();
+            assert!(
+                refused.to_string().contains("another window"),
+                "{cmd}: {refused}"
+            );
+        }
+        assert_eq!(
+            orgs.ai_terminal_window(terminal).as_deref(),
+            Some(client.label())
+        );
+    }
+
+    /// Phase 21 review: one window per organization, and one change to an organization at a
+    /// time.
+    #[test]
+    fn each_organization_shows_in_one_window_and_changes_one_at_a_time() {
+        let app = app();
+        let main = window(&app, "main");
+        let orgs = app.state::<Arc<orgs::Orgs>>().inner().clone();
+        let (b, b_window) = second_organization(&app, &main, "Client Co");
+        let c: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Shop", "start": { "kind": "scratch" } }),
+        ));
+        // The client's window shows the shop now; the client opens in a window of its own.
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &b_window,
+            "switch_organization",
+            serde_json::json!({ "id": c.id }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "open_organization_window",
+            serde_json::json!({ "id": b }),
+        ));
+        assert_eq!(
+            orgs.org_of_window(b_window.label()).as_deref(),
+            Some(c.id.as_str())
+        );
+        let b_now = orgs.window_of(&b).expect("the client has a window");
+        assert_ne!(b_now, b_window.label());
+
+        // Plenipo's window shows a lab; the first organization opens in its own window.
+        // Archiving the lab brings the first organization back to Plenipo's window, and closes
+        // its other one: never two windows for one organization.
+        let d: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Lab", "start": { "kind": "scratch" } }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "switch_organization",
+            serde_json::json!({ "id": d.id }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "open_organization_window",
+            serde_json::json!({ "id": orgs::FIRST }),
+        ));
+        let first_window = orgs.window_of(orgs::FIRST).expect("the first has a window");
+        assert_ne!(first_window, "main");
+        body::<plenipo_core::OrgListing>(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": d.id }),
+        ));
+        assert_eq!(orgs.window_of(orgs::FIRST).as_deref(), Some("main"));
+        assert_eq!(orgs.org_of_window(&first_window), None);
+
+        // Brought back by two clicks at once: its services start once, on its own Ledger.
+        body::<plenipo_core::OrgListing>(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": b }),
+        ));
+        std::thread::scope(|s| {
+            for _ in 0..2 {
+                s.spawn(|| {
+                    let _ = invoke_json(
+                        &main,
+                        "bring_back_organization",
+                        serde_json::json!({ "id": b }),
+                    );
+                });
+            }
+        });
+        let stack = orgs.stack(&b).expect("brought back");
+        let events = stack.ledger.recent_events(50).unwrap();
+        let count = |kind: &str| events.iter().filter(|e| e.event_type == kind).count();
+        assert_eq!(count("organization.archived"), 1, "its own Ledger");
+        assert_eq!(count("organization.brought_back"), 1);
+    }
+
+    #[test]
+    fn your_tile_set_in_one_organizations_window_is_told_to_every_window() {
+        use tauri::Listener as _;
+        let app = app();
+        let main = window(&app, "main");
+        let (_, client) = second_organization(&app, &main, "Client Co");
+        let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let into = Arc::clone(&heard);
+        app.listen_any(orgs::SHARED_EVENT, move |e| {
+            into.lock().unwrap().push(e.payload().to_owned());
+        });
+        body::<serde_json::Value>(invoke_json(
+            &client,
+            "set_owner_profile",
+            serde_json::json!({ "input": {
+                "status": "busy",
+                "mood": null,
+                "message": "At the client",
+                "picture": { "kind": "keep" },
+            } }),
+        ));
+        assert_eq!(*heard.lock().unwrap(), vec!["\"tile\"".to_owned()]);
+        assert_eq!(
+            ledger_host::shared_change("org.saved_agent_moved"),
+            Some("workforce")
+        );
+        assert_eq!(ledger_host::shared_change("task.created"), None);
+    }
+
+    #[test]
+    fn a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template() {
+        let app = app();
+        let main = window(&app, "main");
+        for (start, why) in [
+            (
+                serde_json::json!({ "kind": "template", "template": "agency" }),
+                "later",
+            ),
+            (
+                serde_json::json!({ "kind": "copy", "from": "../../x" }),
+                "not one",
+            ),
+            (serde_json::json!({ "kind": "clone" }), "unknown"),
+        ] {
+            let err = invoke_json(
+                &main,
+                "create_organization",
+                serde_json::json!({ "name": "Client Co", "start": start }),
+            )
+            .expect_err(why);
+            assert!(!err.is_null(), "{why}");
+        }
+        assert!(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "  ", "start": { "kind": "scratch" } }),
+        )
+        .is_err());
+        let copy: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Copy Co", "start": { "kind": "copy", "from": orgs::FIRST } }),
+        ));
+        let stack = app.state::<Arc<orgs::Orgs>>().stack(&copy.id).unwrap();
+        let first = app.state::<Arc<orgs::Orgs>>().first().unwrap();
+        assert_eq!(
+            stack.ledger.org_records().unwrap().roles.len(),
+            first.ledger.org_records().unwrap().roles.len()
+        );
+        assert_eq!(orgs::name_in(&stack.ledger), "Copy Co");
+    }
+
+    #[test]
+    fn a_popped_out_panel_can_call_nothing_itself() {
+        let app = app();
+        let popout = window(&app, "popout-files--main");
+        // Its organization's window draws it and makes every call: the pop-out's own permission
+        // file lists no command, Plenipo's or Tauri's.
+        for cmd in [
+            "get_app_info",
+            "get_home",
+            "get_organization",
+            "get_control_status",
+            "stop_all_control",
+            "open_terminal",
+            "write_terminal",
+            "close_terminal",
+            "get_watch",
+            "subscribe_watch",
+            "cancel_agent_turn",
+            "give_objective",
+            "get_approvals",
+            "resolve_approval",
+            "save_secret",
+            "plugin:event|listen",
+            "plugin:window|create",
+            "plugin:webview|create_webview_window",
+        ] {
+            refused(
+                cmd,
+                invoke_json(&popout, cmd, serde_json::json!({})),
+                "a pop-out",
+            );
+        }
+        // A label that only looks like an organization's window gets nothing either.
+        let look_alike = window(&app, "mainly");
+        refused(
+            "get_app_info",
+            invoke_json(&look_alike, "get_app_info", serde_json::json!({})),
+            "a look-alike window",
+        );
+    }
+
+    #[test]
+    fn the_file_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        for (cmd, args, why) in [
+            (
+                "read_file",
+                serde_json::json!({ "root": "", "path": "README.md" }),
+                "not a folder Plenipo knows",
+            ),
+            (
+                "read_file",
+                serde_json::json!({ "root": "project:nope", "path": "a\u{7}b" }),
+                "not a file name",
+            ),
+            (
+                "list_folder",
+                serde_json::json!({ "root": "folder:x", "path": "" }),
+                "not a folder Plenipo knows",
+            ),
+            (
+                "save_file",
+                serde_json::json!({ "root": "project:nope", "path": "a.txt", "text": "x",
+                    "bom": false, "lineEnding": "lf", "base": "not-a-hash" }),
+                "not a file's fingerprint",
+            ),
+            (
+                "save_file",
+                serde_json::json!({ "root": "project:nope", "path": "a.txt", "text": "x",
+                    "bom": false, "lineEnding": "cr", "base": null }),
+                "unknown variant",
+            ),
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "panel": "details", "place": null }),
+                "unknown variant",
+            ),
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "panel": "files",
+                    "place": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 10.0 } }),
+                "not a place on the screen",
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err(cmd);
+            assert!(err.to_string().contains(why), "{cmd}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_dropped_file_reaches_an_objective_only_through_a_drop_on_the_same_window() {
+        let app = app();
+        let main = window(&app, "main");
+        let drops = app.state::<files_commands::Drops>();
+        let elsewhere = drops.add("org-other", vec![std::path::PathBuf::from("/etc/hosts")]);
+        let args = |drop: &str| {
+            serde_json::json!({
+                "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+                "objective": "Use the file",
+                "projectId": "0f8fad5b-d9cb-469f-a165-70867728950f",
+                "files": [{ "kind": "dropped", "drop": drop, "index": 0 }],
+            })
+        };
+        // A ticket from another window, or a made-up one, names no file.
+        for drop in [elsewhere.as_str(), "made-up"] {
+            let err = invoke_json(&main, "give_objective", args(drop)).expect_err(drop);
+            assert!(
+                err.to_string()
+                    .contains("Drop that file on the objective again"),
+                "{err}"
+            );
+        }
+        // Files need a project (its workers' folder).
+        let mine = drops.add("main", vec![std::path::PathBuf::from("/etc/hosts")]);
+        let mut no_project = args(&mine);
+        no_project["projectId"] = serde_json::Value::Null;
+        let err = invoke_json(&main, "give_objective", no_project).expect_err("no project");
+        assert!(err.to_string().contains("objective for a project"), "{err}");
+        // A page cannot name a path on the PC: only a known folder and a path inside it.
+        let mut named = args(&mine);
+        named["files"] = serde_json::json!([{ "kind": "file", "root": "project:nope",
+            "path": "/etc/hosts" }]);
+        let err = invoke_json(&main, "give_objective", named).expect_err("a named path");
+        assert!(
+            err.to_string().contains("not a folder Plenipo knows"),
+            "{err}"
+        );
     }
 
     // ---- Phase 16 Wave 3: spending caps (ADR-085) ----

@@ -157,8 +157,13 @@ pub fn daily_now(ledger: &Ledger, busy: bool) -> Option<BackupInfo> {
     }
 }
 
-/// Back up the Ledger once a day while Plenipo runs.
-pub fn start_daily(ledger: &Arc<Ledger>, busy: impl Fn() -> bool + Send + 'static) {
+/// Back up the Ledger once a day while Plenipo runs, until `stopped` (its organization was
+/// archived or deleted: nothing is written into its folder again).
+pub fn start_daily(
+    ledger: &Arc<Ledger>,
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+    busy: impl Fn() -> bool + Send + 'static,
+) {
     if ledger.path().is_none() {
         return;
     }
@@ -167,15 +172,27 @@ pub fn start_daily(ledger: &Arc<Ledger>, busy: impl Fn() -> bool + Send + 'stati
         .name("plenipo-daily-backup".into())
         .spawn(move || {
             std::thread::sleep(FIRST_CHECK);
-            loop {
-                let Some(ledger) = weak.upgrade() else {
-                    return;
-                };
-                daily_now(&ledger, busy());
-                drop(ledger);
+            while daily_turn(&weak, &stopped, &busy) {
                 std::thread::sleep(CHECK_EVERY);
             }
         });
+}
+
+/// One look: the daily backup, if it is due. `false`: stop looking (the organization stopped,
+/// or its Ledger is gone).
+fn daily_turn(
+    weak: &Weak<Ledger>,
+    stopped: &std::sync::atomic::AtomicBool,
+    busy: &dyn Fn() -> bool,
+) -> bool {
+    if stopped.load(std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
+    let Some(ledger) = weak.upgrade() else {
+        return false;
+    };
+    daily_now(&ledger, busy());
+    true
 }
 
 #[cfg(test)]
@@ -193,6 +210,24 @@ mod tests {
             restorable: true,
             problem: None,
         }
+    }
+
+    #[test]
+    fn a_stopped_organizations_daily_backup_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&dir.path().join("plenipo.db")).unwrap());
+        let weak = Arc::downgrade(&ledger);
+        let stopped = std::sync::atomic::AtomicBool::new(true);
+        assert!(!daily_turn(&weak, &stopped, &|| false));
+        assert!(ledger.backups().unwrap().is_empty());
+        stopped.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(daily_turn(&weak, &stopped, &|| false));
+        assert_eq!(ledger.backups().unwrap().len(), 1);
+        drop(ledger);
+        assert!(
+            !daily_turn(&weak, &stopped, &|| false),
+            "its Ledger is gone"
+        );
     }
 
     #[test]

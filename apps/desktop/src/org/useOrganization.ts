@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { OrgSnapshot } from "@plenipo/types";
 
 import { getOrganization, toCommandError } from "../api/commands";
-import { subscribeAgentUpdates, subscribeLedgerEvents } from "../api/events";
+import { subscribeAgentUpdates, subscribeLedgerEvents, subscribeShared } from "../api/events";
 
 /** Ledger events after which the organization may look different (model choices and usage
  * limits change where each position's next worker would go). */
@@ -73,6 +73,14 @@ export function useOrganization() {
       subscribeAgentUpdates((update) => {
         if (update.kind === "runtimes") schedule();
       }).then(keep),
+      // Your Workforce is every organization's: a change from another window shows here too.
+      Promise.resolve()
+        .then(() =>
+          subscribeShared((what) => {
+            if (what === "workforce") schedule();
+          }),
+        )
+        .then(keep),
     ]).finally(() => {
       if (!disposed) void reload();
     });

@@ -13,15 +13,18 @@ export type ViewId =
   | "gallery"
   | PageKind;
 
-/** The pages of one thing (Phase 12): opened from other pages, not from the strip. */
-export type PageKind = "department" | "project" | "worker" | "task";
+/**
+ * The pages of one thing (Phase 12): opened from other pages, not from the strip. A file opened
+ * in the editor is one too (Phase 21, ADR-093 §5).
+ */
+export type PageKind = "department" | "project" | "worker" | "task" | "file";
 
-export const PAGE_KINDS: readonly PageKind[] = ["department", "project", "worker", "task"];
+export const PAGE_KINDS: readonly PageKind[] = ["department", "project", "worker", "task", "file"];
 
 /** Where you are: a section, or the page of one department, project, worker, or task. */
 export interface Place {
   view: ViewId;
-  /** The department, project, position, or task a page is about. */
+  /** The department, project, position, task, or file (`<top folder>/<path>`) a page is about. */
   id: string | null;
 }
 
@@ -36,6 +39,7 @@ export const SECTION_OF: Record<PageKind, ViewId> = {
   project: "projects",
   worker: "workers",
   task: "activity",
+  file: "projects",
 };
 
 /** The sections on the left strip, top to bottom (Settings and Diagnostics at the bottom). */
@@ -104,6 +108,7 @@ export const VIEW_TITLES: Record<ViewId, string> = {
   project: "Project",
   worker: "Worker",
   task: "Task",
+  file: "File",
 };
 
 export const ALL_VIEWS = Object.keys(VIEW_TITLES) as ViewId[];

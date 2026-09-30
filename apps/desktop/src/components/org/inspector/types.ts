@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import type { LoanUntil, OrgSnapshot, OversightRole, PositionPatchInput } from "@plenipo/types";
+import type {
+  LoanUntil,
+  ObjectiveFile,
+  OrgSnapshot,
+  OversightRole,
+  PositionPatchInput,
+} from "@plenipo/types";
 
 import type { ArchivedKind } from "../../../api/commands";
 import type { Go } from "../../views";
@@ -13,7 +19,15 @@ export interface InspectorActions {
    * learning); the organization is reloaded. Resolves with the refusal, or `null`.
    */
   change: (work: () => Promise<unknown>) => Promise<string | null>;
-  giveObjective: (positionId: string, objective: string) => Promise<string | null>;
+  /**
+   * Give an objective. With files on it (Phase 21, ADR-093 §19), it belongs to `files.projectId`
+   * (the project the position runs), whose folder the files go to.
+   */
+  giveObjective: (
+    positionId: string,
+    objective: string,
+    files?: { projectId: string; files: readonly ObjectiveFile[] },
+  ) => Promise<string | null>;
   /** Open the Hire box under `reportsTo` (`null`: you), with `roleId` chosen when given. */
   hire: (reportsTo: string | null, roleId?: string | null) => void;
   newDepartment: (reportsTo: string | null) => void;

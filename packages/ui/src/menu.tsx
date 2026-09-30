@@ -65,10 +65,12 @@ export function MenuButton({
     const outside = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", outside);
+    // The document the menu is in: a popped-out panel's window has its own.
+    const doc = root.current?.ownerDocument ?? document;
+    doc.addEventListener("mousedown", outside);
     // The first item that can be picked takes the focus.
     entries.current.find((b) => b && !b.disabled)?.focus();
-    return () => document.removeEventListener("mousedown", outside);
+    return () => doc.removeEventListener("mousedown", outside);
   }, [open]);
 
   const close = () => {
@@ -185,14 +187,21 @@ export function ResizeHandle({
   value: number;
   min: number;
   max: number;
-  /** "top": the panel is below (drag up to grow); "left": the panel is to the right. */
-  edge: "top" | "left";
+  /**
+   * Where the handle is on the panel. "top": the panel is below (drag up to grow); "left": the
+   * panel is to the right (drag left to grow); "right": the panel is to the left (drag right to
+   * grow).
+   */
+  edge: "top" | "left" | "right";
   onChange: (next: number) => void;
   step?: number;
 }) {
   const drag = useRef<{ start: number; from: number } | null>(null);
   const clamp = (n: number) => Math.round(Math.min(max, Math.max(min, n)));
   const at = (e: ReactPointerEvent) => (edge === "top" ? e.clientY : e.clientX);
+  // Moving toward the panel's far side shrinks it: up and left grow a panel below or to the
+  // right, and right grows a panel to the left.
+  const sign = edge === "right" ? -1 : 1;
   return (
     <div
       role="separator"
@@ -211,16 +220,15 @@ export function ResizeHandle({
       }}
       onPointerMove={(e) => {
         if (!drag.current) return;
-        // Moving toward the panel's far side shrinks it.
-        onChange(clamp(drag.current.from + (drag.current.start - at(e))));
+        onChange(clamp(drag.current.from + sign * (drag.current.start - at(e))));
       }}
       onPointerUp={(e) => {
         drag.current = null;
         e.currentTarget.releasePointerCapture(e.pointerId);
       }}
       onKeyDown={(e) => {
-        const grow = edge === "top" ? "ArrowUp" : "ArrowLeft";
-        const shrink = edge === "top" ? "ArrowDown" : "ArrowRight";
+        const grow = edge === "top" ? "ArrowUp" : edge === "left" ? "ArrowLeft" : "ArrowRight";
+        const shrink = edge === "top" ? "ArrowDown" : edge === "left" ? "ArrowRight" : "ArrowLeft";
         const next =
           e.key === grow
             ? value + step

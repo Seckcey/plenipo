@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { sampleServer, sampleServers } from "../test/serverFixtures";
-import { PANEL_KEY } from "./panel";
+import { WorkspaceContext, type WorkspaceApi } from "../workspace/context";
+import { TerminalContext, type TerminalApi } from "./context";
 import { TerminalButton, TerminalPanel } from "./TerminalPanel";
 import { TerminalProvider } from "./TerminalProvider";
 
@@ -184,9 +185,45 @@ beforeEach(() => {
 });
 
 describe("the terminal panel", () => {
-  it("shows and hides with the Terminal button and Ctrl+`, and comes back the same after a restart", async () => {
+  it("opens a waiting AI tool's tab by itself, never bringing a popped-out terminal forward", async () => {
+    const show = vi.fn();
+    const ws = {
+      layout: {
+        panels: {
+          terminal: { dock: "bottom", popped: true },
+          files: { dock: "left", popped: false },
+        },
+      },
+      show,
+      toggle: vi.fn(),
+      shown: () => true,
+      hideDock: vi.fn(),
+    } as unknown as WorkspaceApi;
+    let terminal: TerminalApi | null = null;
+    render(
+      <WorkspaceContext.Provider value={ws}>
+        <TerminalProvider>
+          <TerminalContext.Consumer>
+            {(t) => {
+              terminal = t;
+              return null;
+            }}
+          </TerminalContext.Consumer>
+        </TerminalProvider>
+      </WorkspaceContext.Provider>,
+    );
+    act(() => terminal!.waitForAiTool("codex", "Codex", "signIn"));
+    await waitFor(() => expect(terminal!.tabs.length).toBe(1), { timeout: 3000 });
+    expect(show).not.toHaveBeenCalled();
+    // Opened by the owner, it does come forward.
+    act(() => terminal!.openAiTool("codex", "Codex", "signOut"));
+    expect(show).toHaveBeenCalledWith("terminal");
+  });
+
+  it("shows and hides with the Terminal button and Ctrl+`", async () => {
+    // Where it is, its size, and a restart are the window's layout (workspace/Workspace.test).
     const user = userEvent.setup();
-    const { unmount } = render(<Harness />);
+    render(<Harness />);
     expect(panel()).not.toBeVisible();
     const button = screen.getByRole("button", { name: /^Terminal/ });
     expect(button).toHaveAttribute("aria-pressed", "false");
@@ -197,24 +234,6 @@ describe("the terminal panel", () => {
     expect(panel()).not.toBeVisible();
     await user.keyboard("{Control>}`{/Control}");
     expect(panel()).toBeVisible();
-    // Move it to the right, and make it bigger with the keyboard.
-    await user.click(screen.getByRole("button", { name: "Move the terminal to the right" }));
-    const edge = screen.getByRole("separator", { name: "Resize the terminal panel" });
-    expect(edge).toHaveAttribute("aria-orientation", "vertical");
-    edge.focus();
-    await user.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(edge).toHaveAttribute("aria-valuenow", "452");
-    expect(JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}")).toEqual({
-      open: true,
-      side: "right",
-      size: 452,
-    });
-    unmount();
-    // A restart: the panel comes back open, on the right, the same size.
-    render(<Harness />);
-    expect(panel()).toBeVisible();
-    expect(screen.getByRole("separator")).toHaveAttribute("aria-valuenow", "452");
-    expect(screen.getByRole("button", { name: "Move the terminal to the bottom" })).toBeVisible();
   });
 
   it("opens a terminal on this PC: output, typing, and closing reach the shell", async () => {
@@ -285,8 +304,8 @@ describe("the terminal panel", () => {
     expect(tab).toHaveFocus();
     // Ctrl+` is Plenipo's too.
     expect(term.key({ key: "`", code: "Backquote", ctrlKey: true })).toBe(false);
-    // Hidden with its button, the keyboard goes back to the Terminal button.
-    await user.click(screen.getByRole("button", { name: "Hide the terminal (Ctrl+`)" }));
+    // Hidden with Ctrl+` from inside it, the keyboard goes back to the Terminal button.
+    await user.keyboard("{Control>}`{/Control}");
     expect(screen.getByRole("button", { name: /^Terminal/ })).toHaveFocus();
   });
 

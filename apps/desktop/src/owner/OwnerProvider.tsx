@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { OwnerProfile, OwnerProfileInput } from "@plenipo/types";
 
 import { getOwnerProfile, setOwnerProfile, toCommandError } from "../api/commands";
-import { subscribeLedgerEvents } from "../api/events";
+import { subscribeLedgerEvents, subscribeShared } from "../api/events";
 import { OwnerContext, type OwnerApi } from "./context";
 
 /** The Ledger event recorded each time your tile changes. */
@@ -38,7 +38,11 @@ export function OwnerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     alive.current = true;
-    let stop: (() => void) | undefined;
+    const stops: (() => void)[] = [];
+    const keep = (unsubscribe: (() => void) | undefined) => {
+      if (!alive.current) unsubscribe?.();
+      else if (unsubscribe) stops.push(unsubscribe);
+    };
     // Listen first, then read: a change made in between is never missed.
     Promise.resolve()
       .then(() =>
@@ -46,17 +50,23 @@ export function OwnerProvider({ children }: { children: ReactNode }) {
           if (alive.current && e.eventType === OWNER_CHANGED) load();
         }),
       )
-      .then((unsubscribe) => {
-        if (!alive.current) unsubscribe?.();
-        else stop = unsubscribe;
-      })
+      .then(keep)
       .catch(() => undefined)
       .finally(() => {
         if (alive.current) load();
       });
+    // Your tile is every organization's: set from another window, it shows here too.
+    Promise.resolve()
+      .then(() =>
+        subscribeShared((what) => {
+          if (alive.current && what === "tile") load();
+        }),
+      )
+      .then(keep)
+      .catch(() => undefined);
     return () => {
       alive.current = false;
-      stop?.();
+      stops.forEach((stop) => stop());
     };
   }, [load]);
 

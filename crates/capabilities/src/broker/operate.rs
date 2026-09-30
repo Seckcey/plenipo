@@ -44,7 +44,9 @@ use crate::browser::tab::{
     Held, Mode, Signal, SitePolicy, Tab, TakenBack, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
 };
 use crate::browser::Start;
-use crate::control::{session_id, ControlKind, ControlState, ControlStatus};
+use crate::control::{
+    session_id, ControlCenter, ControlKind, ControlSession, ControlState, ControlStatus,
+};
 use crate::desktop::{parse_keys, Button, KeyPart};
 use crate::error::{BrokerError, Result};
 use crate::fence;
@@ -2542,6 +2544,25 @@ impl Broker {
         self.inner.control.status()
     }
 
+    /// The record of who uses the browser, the screen, and servers (one for the whole PC when
+    /// organizations share it, Phase 21).
+    pub fn control_center(&self) -> ControlCenter {
+        self.inner.control.clone()
+    }
+
+    /// The task steps of this broker's organization now (a session names its step's grant).
+    fn own_grants(&self) -> std::collections::HashSet<String> {
+        self.state().grants.keys().cloned().collect()
+    }
+
+    /// Whether a session in the shared record is one of this organization's workers.
+    pub fn owns_control_session(&self, session: &str) -> bool {
+        self.inner
+            .control
+            .session(session)
+            .is_some_and(|s| self.state().grants.contains_key(&s.grant_id))
+    }
+
     /// Be told about every change of control (the app's banner, tray, and indicator window).
     pub fn set_control_listener(&self, listener: crate::control::ControlListener) {
         self.inner.control.set_listener(listener);
@@ -2603,7 +2624,12 @@ impl Broker {
             // The owner's server terminals work only while the switch is on (ADR-031).
             self.close_server_terminals("you switched Remote computers (SSH) off");
         }
-        let stopped = self.inner.control.stop_kind(kind);
+        // Only this organization's workers: the switch is its own (Phase 21).
+        let own = self.own_grants();
+        let stopped = self
+            .inner
+            .control
+            .stop_kind_of(kind, |grant| own.contains(grant));
         for s in &stopped {
             self.refuse_pending(
                 &s.grant_id,
@@ -2652,10 +2678,23 @@ impl Broker {
     /// until the owner allows it.
     pub async fn stop_all_control(&self, actor: &str) -> Result<ControlStatus> {
         let stopped = self.inner.control.stop_all();
+        self.stopped_all(&stopped, actor).await?;
+        Ok(self.inner.control.status())
+    }
+
+    /// After the emergency stop (Phase 21: pressed once for every organization sharing the
+    /// record): this organization's workers among `stopped` lose their permissions for the rest
+    /// of their step, and its Ledger records its part.
+    pub async fn stopped_all(&self, stopped: &[ControlSession], actor: &str) -> Result<()> {
+        let own = self.own_grants();
+        let stopped: Vec<&ControlSession> = stopped
+            .iter()
+            .filter(|s| own.contains(&s.grant_id))
+            .collect();
         let desktop = self.inner_desktop();
         let _ = tokio::task::spawn_blocking(move || desktop.release_all()).await;
         let mut grants: Vec<String> = Vec::new();
-        for s in &stopped {
+        for s in stopped.iter().copied() {
             match s.kind {
                 ControlKind::Browser => {
                     if let Some(tab) = self.grant_tab(&s.grant_id) {
@@ -2689,7 +2728,7 @@ impl Broker {
             }),
             ..NewEvent::default()
         })?;
-        Ok(self.inner.control.status())
+        Ok(())
     }
 
     /// Allow control again after a stop.

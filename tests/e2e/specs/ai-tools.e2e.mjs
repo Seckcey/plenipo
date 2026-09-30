@@ -310,7 +310,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
       "the tab to say the sign-in ended",
     );
     // The owner hides the terminal again (Plenipo never closes it by itself).
-    await clickButton(browser, "Hide the terminal (Ctrl+`)");
+    await clickButton(browser, "Hide Terminal");
     // The card checks again by itself when the program ends.
     await nav(browser, "AI tools");
     await waitForText(browser, card("Codex"), "Reconnect");

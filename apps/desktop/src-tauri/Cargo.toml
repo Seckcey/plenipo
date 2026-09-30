@@ -31,17 +31,26 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 log = { version = "0.4", features = ["std"] }
+# Tickets for files dropped from File Explorer (Phase 21).
+uuid = { version = "1", features = ["v4"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "~2.4"
 # Start with Windows (HKCU Run) and one Plenipo at a time (Phase 13, ADR-036). Their own
 # commands are granted to no window.
 tauri-plugin-autostart = "~2.5"
+# One change to an organization at a time (Phase 21, ADR-094): an async lock, on every system.
+tokio = { version = "1", features = ["sync"] }
 
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-single-instance = "~2.4"
 
 [target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["signal"] }
+
+# Let the organization's window open its pop-out panels (Phase 21, ADR-092): WebKitGTK's own
+# setting, the version Tauri uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_40"] }
 
 [lints]
 workspace = true

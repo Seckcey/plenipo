@@ -4,9 +4,7 @@ import {
   Button,
   CountBadge,
   EmptyState,
-  IconButton,
   MenuButton,
-  ResizeHandle,
   StatusDot,
   StatusPill,
   Tabs,
@@ -19,7 +17,8 @@ import { getLiveView, getOrganization, getServers, getTerminalSettings } from ".
 import { subscribeLedgerEvents } from "../api/events";
 import { CodeWatchView } from "./CodeWatchView";
 import { OwnerTerminal } from "./OwnerTerminal";
-import { PANEL_MIN, TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
+import { useWorkspaceIfAny } from "../workspace/context";
+import { TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
 import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
@@ -136,13 +135,18 @@ function closeLabel(tab: TerminalTab, name: string): string {
 }
 
 /**
- * The terminal panel (Phase 12, ADR-031): at the bottom of the window, or on the right; shown
- * and hidden with the Terminal button or Ctrl+`; its edge dragged to resize it. The owner's
- * terminals and the workers' watch tabs, each with a close button. A hidden panel keeps its
- * terminals running.
+ * The terminal panel (Phase 12, ADR-031): the owner's terminals and the workers' watch tabs,
+ * each with a close button, shown and hidden with the Terminal button or Ctrl+`. Where it is — a
+ * dock at the bottom, left, or right, or its own window — and its size are the window's layout
+ * (Phase 21, ADR-092). A hidden panel keeps its terminals running, and so does one that moves.
  */
 export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const t = useTerminal();
+  const workspace = useWorkspaceIfAny();
+  const place = workspace?.layout.panels.terminal;
+  // A side dock is narrow: the Watch tab puts its file list above the file.
+  const narrow = place !== undefined && !place.popped && place.dock !== "bottom";
+  const menuAbove = place !== undefined && !place.popped && place.dock === "bottom";
   const [servers, setServers] = useState<ServersSnapshot | null>(null);
   const [settings, setSettings] = useState<TerminalSettings | null>(null);
   const [working, setWorking] = useState<Working[]>([]);
@@ -163,11 +167,11 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   // A tab chosen with the mouse puts the keyboard in its terminal; one chosen with the arrow
   // keys keeps it in the list of tabs.
   const pointer = useRef(false);
-  const side = t.panel.side;
-  const open = t.panel.open;
-  /** F6 in a terminal: back to its tab in the list. */
+  const open = t.open;
+  /** F6 in a terminal: back to its tab in the list (in the window the panel is in). */
   const toTabs = () => {
-    if (t.active) document.getElementById(`terminal-tab-${t.active}`)?.focus();
+    const doc = section.current?.ownerDocument ?? document;
+    if (t.active) doc.getElementById(`terminal-tab-${t.active}`)?.focus();
   };
   // When the last tab closes, the keyboard goes to the panel's way to open one, not to the top
   // of the window.
@@ -175,18 +179,13 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const hadTabs = useRef(t.tabs.length > 0);
   useEffect(() => {
     const has = t.tabs.length > 0;
-    const lost = document.activeElement === null || document.activeElement === document.body;
+    const doc = section.current?.ownerDocument ?? document;
+    const lost = doc.activeElement === null || doc.activeElement === doc.body;
     if (hadTabs.current && !has && open && lost) {
       section.current?.querySelector<HTMLButtonElement>(".terminal-panel__empty button")?.focus();
     }
     hadTabs.current = has;
   }, [t.tabs.length, open]);
-  /** Hidden with its button: the keyboard goes back to the Terminal button in the top bar. */
-  const hide = () => {
-    t.hide();
-    document.getElementById(TERMINAL_BUTTON_ID)?.focus();
-  };
-
   // Fresh servers and shell each time the panel is shown, and while it is open, whenever
   // Settings changes them (a server added, Remote computers (SSH) switched on, another shell).
   useEffect(() => {
@@ -321,18 +320,11 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   return (
     <section
       ref={section}
-      className={cx("terminal-panel", `terminal-panel--${side}`)}
-      hidden={!open}
+      className={cx("terminal-panel", `terminal-panel--${narrow ? "right" : "bottom"}`)}
+      // In a window's layout, its dock shows and hides it; shown on its own, it does.
+      hidden={!workspace && !open}
       aria-label="Terminal"
     >
-      <ResizeHandle
-        label="Resize the terminal panel"
-        value={t.size}
-        min={PANEL_MIN}
-        max={t.maxSize}
-        edge={side === "bottom" ? "top" : "left"}
-        onChange={t.setSize}
-      />
       <div className="terminal-panel__main">
         <div className="terminal-panel__bar">
           {t.tabs.length > 0 && t.active !== null ? (
@@ -365,7 +357,8 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
               />
             </div>
           ) : (
-            <span className="terminal-panel__title">Terminal</span>
+            // In a dock, the dock's tab already names it.
+            <span className="terminal-panel__title">{workspace ? "" : "Terminal"}</span>
           )}
           <div className="terminal-panel__actions">
             <MenuButton
@@ -373,20 +366,10 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
               icon="plus"
               variant="quiet"
               align="end"
-              placement={side === "bottom" ? "above" : "below"}
+              placement={menuAbove ? "above" : "below"}
               items={items}
               onSelect={pick}
             />
-            <IconButton
-              icon={side === "bottom" ? "panelOpen" : "panelClose"}
-              label={
-                side === "bottom"
-                  ? "Move the terminal to the right"
-                  : "Move the terminal to the bottom"
-              }
-              onClick={() => t.setSide(side === "bottom" ? "right" : "bottom")}
-            />
-            <IconButton icon="close" label="Hide the terminal (Ctrl+`)" onClick={hide} />
           </div>
         </div>
         <div className="terminal-panel__body">
@@ -465,9 +448,9 @@ export function TerminalButton() {
       size="sm"
       variant="quiet"
       icon="terminal"
-      aria-pressed={t.panel.open}
+      aria-pressed={t.open}
       aria-keyshortcuts="Control+`"
-      title={t.panel.open ? "Hide the terminal (Ctrl+`)" : "Show the terminal (Ctrl+`)"}
+      title={t.open ? "Hide the terminal (Ctrl+`)" : "Show the terminal (Ctrl+`)"}
       onClick={t.toggle}
     >
       Terminal

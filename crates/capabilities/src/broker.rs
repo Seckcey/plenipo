@@ -49,10 +49,12 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod add_on_calls;
+pub mod attachments;
 pub(crate) mod connecting;
 mod git_tools;
 pub mod live;
 mod operate;
+pub mod owner_files;
 pub(crate) mod servers;
 mod terminals;
 mod watching;
@@ -98,6 +100,9 @@ pub struct BrokerConfig {
     pub tickets_dir: PathBuf,
     /// Where objectives' working copies are made (Phase 8, ADR-016).
     pub workspaces_dir: PathBuf,
+    /// Where copies of the files the owner put on objectives wait for their workers (Phase 21,
+    /// ADR-093 §21).
+    pub attachments_dir: PathBuf,
     /// Folders searched for programs (such as GitHub's `gh`) before Plenipo's own PATH (tests
     /// put stand-ins there).
     pub search_path: Option<std::ffi::OsString>,
@@ -128,6 +133,7 @@ impl BrokerConfig {
             relay_command,
             relay_args: Vec::new(),
             workspaces_dir: tickets_dir.with_file_name("workspaces"),
+            attachments_dir: tickets_dir.with_file_name("attachments"),
             browser: BrowserConfig::new(tickets_dir.with_file_name("browser-profile")),
             screenshots_dir: tickets_dir.with_file_name("screenshots"),
             search_path: None,
@@ -439,6 +445,8 @@ struct Inner {
     store: Arc<dyn SecretStore>,
     config: BrokerConfig,
     port: Mutex<Option<u16>>,
+    /// Stops the tool server.
+    server: Mutex<Option<tokio::task::AbortHandle>>,
     handle: Mutex<Option<Handle>>,
     state: Mutex<State>,
     redactor: Arc<RwLock<Redactor>>,
@@ -710,6 +718,19 @@ impl Broker {
         store: Arc<dyn SecretStore>,
         config: BrokerConfig,
     ) -> Self {
+        Self::sharing_control(guard, supervisor, store, config, ControlCenter::default())
+    }
+
+    /// The broker of one organization among several (Phase 21, ADR-094 §7): who uses the
+    /// browser, the screen, and servers is one record for the whole PC, `control`, shared by every
+    /// organization's broker.
+    pub fn sharing_control(
+        guard: Guard,
+        supervisor: Supervisor,
+        store: Arc<dyn SecretStore>,
+        config: BrokerConfig,
+        control: ControlCenter,
+    ) -> Self {
         let supervisor_for_browser = supervisor.clone();
         let opener: Arc<dyn crate::connections::Opener> = if config.connections.stand_in.is_some() {
             Arc::new(crate::connections::FollowOpener)
@@ -728,6 +749,7 @@ impl Broker {
                 supervisor,
                 store,
                 port: Mutex::new(None),
+                server: Mutex::new(None),
                 handle: Mutex::new(None),
                 state: Mutex::new(State::default()),
                 redactor: Arc::new(RwLock::new(Redactor::default())),
@@ -737,7 +759,7 @@ impl Broker {
                 browser: Browser::new(config.browser.clone(), supervisor_for_browser),
                 watch: crate::watch::WatchHub::default(),
                 desktop: RwLock::new(Arc::new(SystemDesktop)),
-                control: ControlCenter::default(),
+                control,
                 evidence: Evidence::new(config.screenshots_dir.clone()),
                 terminals: terminals::Terminals::default(),
                 connections,
@@ -774,9 +796,21 @@ impl Broker {
     /// Open the tool server (on this async runtime).
     pub async fn start(&self) -> std::io::Result<u16> {
         *lock(&self.inner.handle) = Some(Handle::current());
-        let port = crate::server::start(self.clone()).await?;
+        let (port, server) = crate::server::start(self.clone()).await?;
         *lock(&self.inner.port) = Some(port);
+        if let Some(old) = lock(&self.inner.server).replace(server) {
+            old.abort();
+        }
         Ok(port)
+    }
+
+    /// Close the tool server (its organization was archived or deleted; Phase 21): no new
+    /// connection is taken, and it no longer holds this broker.
+    pub fn stop_server(&self) {
+        if let Some(server) = lock(&self.inner.server).take() {
+            server.abort();
+        }
+        *lock(&self.inner.port) = None;
     }
 
     fn ledger(&self) -> &Arc<Ledger> {
@@ -957,6 +991,10 @@ impl Broker {
             }
             (workspace, _) => (workspace, None, problem),
         };
+        // The files the owner put on the objective go where its workers work (Phase 21).
+        if let Some(folder) = &workspace {
+            self.deliver_files(step.task_id, folder.root());
+        }
         let mut offered: Vec<&'static str> = TOOLS
             .iter()
             .filter(|t| {

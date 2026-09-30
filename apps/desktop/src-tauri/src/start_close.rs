@@ -152,19 +152,13 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        crate::workspace_windows::show_popouts(app, window.label());
     }
 }
 
 /// Build the main window again from the app's configuration.
 pub fn recreate_main_window<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::WebviewWindow<R>> {
-    let config = app
-        .config()
-        .app
-        .windows
-        .iter()
-        .find(|w| w.label == "main")?
-        .clone();
-    match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {
+    match crate::workspace_windows::build_org_window(app, crate::workspace_windows::MAIN, true) {
         Ok(w) => Some(w),
         Err(e) => {
             log::error!("the window could not be opened again: {e}");

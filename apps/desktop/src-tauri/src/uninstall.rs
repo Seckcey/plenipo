@@ -50,6 +50,42 @@ pub fn forget_secrets(data: &Path, store: &dyn SecretStore) -> Result<usize, Str
     }
 }
 
+/// Every organization's folder in `data` (Phase 21, ADR-094 §9): the first one's is `data`
+/// itself; the others are in `organizations/`, each with its own name in the Vault.
+pub fn organization_folders(data: &Path) -> Vec<(String, PathBuf)> {
+    let mut all = vec![(crate::orgs::FIRST.to_owned(), data.to_path_buf())];
+    if let Ok(entries) = std::fs::read_dir(data.join(crate::orgs::FOLDER)) {
+        for e in entries.filter_map(Result::ok) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if crate::orgs::is_org_id(&name) && name != crate::orgs::FIRST && e.path().is_dir() {
+                all.push((name, e.path()));
+            }
+        }
+    }
+    all
+}
+
+/// Remove every secret each organization in `data` kept, each from its own name in the Vault
+/// (`store_for`). Returns how many were removed.
+pub fn forget_every_organizations_secrets(
+    data: &Path,
+    store_for: impl Fn(&str) -> Box<dyn SecretStore>,
+) -> Result<usize, String> {
+    let mut removed = 0;
+    let mut problems = Vec::new();
+    for (id, folder) in organization_folders(data) {
+        match forget_secrets(&folder, store_for(&id).as_ref()) {
+            Ok(n) => removed += n,
+            Err(e) => problems.push(e),
+        }
+    }
+    if problems.is_empty() {
+        Ok(removed)
+    } else {
+        Err(format!("{removed} removed; {}", problems.join("; ")))
+    }
+}
+
 /// Run the mode when asked for (in `main`, before anything else). Returns the exit code.
 pub fn maybe_run_from_args(mut args: impl Iterator<Item = String>) -> Option<i32> {
     let _program = args.next();
@@ -59,8 +95,12 @@ pub fn maybe_run_from_args(mut args: impl Iterator<Item = String>) -> Option<i32
     let Some(data) = data_dir() else {
         return Some(0);
     };
-    let store = plenipo_capabilities::OsSecretStore::new(IDENTIFIER);
-    Some(match forget_secrets(&data, &store) {
+    let forgotten = forget_every_organizations_secrets(&data, |id| {
+        Box::new(plenipo_capabilities::OsSecretStore::new(
+            crate::orgs::vault_name(IDENTIFIER, id),
+        ))
+    });
+    Some(match forgotten {
         Ok(n) => {
             println!("Removed {n} secret(s) Plenipo kept in Windows Credential Manager.");
             0
@@ -159,6 +199,68 @@ mod tests {
         assert_eq!(forget_secrets(dir.path(), &store).unwrap(), 0);
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(forget_secrets(empty.path(), &store).unwrap(), 0);
+    }
+
+    #[test]
+    fn deleting_my_data_forgets_every_organizations_secrets_under_its_own_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = crate::orgs::new_id();
+        let stores: std::collections::HashMap<String, Arc<MemorySecretStore>> = [
+            (
+                crate::orgs::FIRST.to_owned(),
+                Arc::new(MemorySecretStore::default()),
+            ),
+            (other.clone(), Arc::new(MemorySecretStore::default())),
+        ]
+        .into_iter()
+        .collect();
+        for (id, store) in &stores {
+            let folder = crate::orgs::folder_of(dir.path(), id);
+            let ledger = Arc::new(Ledger::open(&folder.join("ledger").join(DB_FILE_NAME)).unwrap());
+            let guard = Guard::new(ledger);
+            vault::save(
+                &guard,
+                store.as_ref(),
+                &SecretInput {
+                    id: None,
+                    name: format!("Token of {id}"),
+                    env_var: None,
+                    programs: Vec::new(),
+                    value: Some("s3cret".into()),
+                },
+            )
+            .unwrap();
+            assert_eq!(store.stored(), 1);
+        }
+        // A folder that is not an organization's is left alone.
+        std::fs::create_dir_all(dir.path().join(crate::orgs::FOLDER).join("notes")).unwrap();
+        let removed = forget_every_organizations_secrets(dir.path(), |id| {
+            Box::new(Shared(Arc::clone(&stores[id]))) as Box<dyn SecretStore>
+        })
+        .unwrap();
+        assert_eq!(removed, 2);
+        assert!(stores.values().all(|s| s.stored() == 0));
+    }
+
+    /// One organization's store, shared with the test.
+    struct Shared(Arc<MemorySecretStore>);
+
+    impl SecretStore for Shared {
+        fn label(&self) -> &str {
+            self.0.label()
+        }
+        fn check(&self) -> std::result::Result<(), String> {
+            self.0.check()
+        }
+        fn set(&self, id: &str, value: &str) -> std::result::Result<(), String> {
+            self.0.set(id, value)
+        }
+        fn get(&self, id: &str) -> std::result::Result<Option<String>, String> {
+            self.0.get(id)
+        }
+        fn delete(&self, id: &str) -> std::result::Result<(), String> {
+            self.0.delete(id)
+        }
     }
 
     #[test]

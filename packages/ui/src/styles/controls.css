@@ -475,7 +475,8 @@
   cursor: row-resize;
 }
 
-.ui-resize--left {
+.ui-resize--left,
+.ui-resize--right {
   width: 1px;
   cursor: col-resize;
 }
@@ -487,7 +488,8 @@
   inset: -3px 0;
 }
 
-.ui-resize--left::before {
+.ui-resize--left::before,
+.ui-resize--right::before {
   inset: 0 -3px;
 }
 

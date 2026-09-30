@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bring-back-organization"
+description = "Enables the bring_back_organization command without any pre-configured scope."
+commands.allow = ["bring_back_organization"]
+
+[[permission]]
+identifier = "deny-bring-back-organization"
+description = "Denies the bring_back_organization command without any pre-configured scope."
+commands.deny = ["bring_back_organization"]

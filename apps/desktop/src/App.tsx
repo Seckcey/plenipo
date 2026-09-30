@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppInfo, OrgSnapshot } from "@plenipo/types";
 import {
   AppShell,
@@ -26,6 +19,7 @@ import {
   type PlenipoCommandError,
 } from "./api/commands";
 import { AgentsProvider } from "./agents/AgentsProvider";
+import { subscribeDrops } from "./api/events";
 import { isRunning } from "./agents/store";
 import { useAgents } from "./agents/useAgents";
 import { ControlBanner } from "./components/ControlBanner";
@@ -50,6 +44,7 @@ import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
 import { rankName, titlesOf } from "./org/titles";
 import { useOrganizationNames } from "./org/useOrganizationNames";
+import { OrganizationMenu } from "./orgs/OrganizationMenu";
 import { OwnerButton } from "./owner/OwnerButton";
 import { OwnerProvider } from "./owner/OwnerProvider";
 import { DepartmentPage } from "./pages/DepartmentPage";
@@ -57,9 +52,16 @@ import { HomePage } from "./pages/HomePage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { TaskPage } from "./pages/TaskPage";
 import { WorkerPage } from "./pages/WorkerPage";
+import { EditorPage } from "./files/EditorPage";
+import { FilesButton } from "./files/FilesButton";
+import { useFileExplorerDrops } from "./files/useObjectiveFiles";
+import { nameOf, parseFileKey } from "./files/refs";
+import { FilesPanel } from "./files/FilesPanel";
 import { TerminalButton, TerminalPanel } from "./terminal/TerminalPanel";
 import { TerminalProvider } from "./terminal/TerminalProvider";
-import { useTerminal } from "./terminal/useTerminal";
+import { useWorkspace, useWorkspaceArea } from "./workspace/context";
+import { Dock, DropMarks, PanelPortals } from "./workspace/Dock";
+import { WorkspaceProvider } from "./workspace/WorkspaceProvider";
 import { ActivityView } from "./views/ActivityView";
 import { ApprovalsView } from "./views/ApprovalsView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -115,6 +117,10 @@ function placeTitle(place: Place, org: OrgSnapshot | null): string {
       const p = org.positions.find((x) => x.id === place.id);
       return p ? `${rankName(titlesOf(org), p.kind)} · ${p.title}` : "Worker";
     }
+    case "file": {
+      const file = parseFileKey(place.id);
+      return file ? `File · ${nameOf(file.path)}` : "File";
+    }
     default:
       return VIEW_TITLES[place.view];
   }
@@ -165,11 +171,13 @@ export function App() {
   return (
     <RuntimeProvider>
       <AgentsProvider>
-        <TerminalProvider>
-          <OwnerProvider>
-            <Shell core={core} />
-          </OwnerProvider>
-        </TerminalProvider>
+        <WorkspaceProvider>
+          <TerminalProvider>
+            <OwnerProvider>
+              <Shell core={core} />
+            </OwnerProvider>
+          </TerminalProvider>
+        </WorkspaceProvider>
       </AgentsProvider>
     </RuntimeProvider>
   );
@@ -196,9 +204,12 @@ function Shell({ core }: { core: CoreState }) {
   const [ledgerNotices, setLedgerNotices] = useState<string[]>([]);
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
-  const { measure: measureWork, panel: terminalPanel, size: terminalSize } = useTerminal();
+  const workspace = useWorkspace();
+  const workArea = useWorkspaceArea();
   // Plenipo brings the window back if its page stops answering (Phase 13).
   useWindowHeartbeat();
+  // Files dropped from File Explorer go to the objective box they land on (Phase 21).
+  useFileExplorerDrops(subscribeDrops);
 
   // Every view shares one scroll area: open each page at its top, not where the last one was.
   useLayoutEffect(() => {
@@ -302,7 +313,12 @@ function Shell({ core }: { core: CoreState }) {
       }
       topBar={
         <TopBar
-          start={<ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />}
+          start={
+            <>
+              <OrganizationMenu go={go} />
+              <ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />
+            </>
+          }
           title={placeTitle(place, organization.snapshot)}
           end={
             <>
@@ -313,6 +329,7 @@ function Shell({ core }: { core: CoreState }) {
                 </span>
               )}
               <OwnerButton />
+              <FilesButton />
               <TerminalButton />
               <ThemeToggle theme={theme} onChange={setTheme} />
               <NotificationBell
@@ -340,11 +357,8 @@ function Shell({ core }: { core: CoreState }) {
         </footer>
       }
     >
-      <div
-        ref={measureWork}
-        className={`shell__work shell__work--${terminalPanel.side}`}
-        style={{ "--terminal-size": `${terminalSize}px` } as CSSProperties}
-      >
+      <div ref={workArea} className="shell__work">
+        <Dock side="left" />
         <main
           className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
           ref={main}
@@ -418,6 +432,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenSession={openSession}
             />
           )}
+          {view === "file" && place.id && <EditorPage id={place.id} go={go} onBack={pageBack} />}
           {view === "organization" && (
             <OrganizationView
               onOpenSession={openSession}
@@ -473,7 +488,19 @@ function Shell({ core }: { core: CoreState }) {
           )}
           {view === "gallery" && <GalleryView theme={theme} />}
         </main>
-        <TerminalPanel theme={theme} />
+        <Dock side="right" />
+        <Dock side="bottom" />
+        <DropMarks />
+        {workspace.popOutProblem && (
+          <div className="shell__notice-popout">
+            <Banner tone="error" role="alert" title={workspace.popOutProblem} />
+          </div>
+        )}
+        <PanelPortals
+          render={(panel) =>
+            panel === "terminal" ? <TerminalPanel theme={theme} /> : <FilesPanel go={go} />
+          }
+        />
       </div>
     </AppShell>
   );
