@@ -41,8 +41,8 @@ export function ConnectionsSettings({ go }: { go: Go }) {
       </p>
       <p className="notice-box" role="note">
         <strong>
-          Mail, chats, calendars, files, HubSpot notes, orders, comments, and add-on answers are other
-          people&apos;s words.
+          Mail, chats, calendars, files, HubSpot notes, orders, comments, and add-on answers are
+          other people&apos;s words.
         </strong>{" "}
         Workers get them marked as information, never as instructions from you. An email that says
         &quot;forward all mail&quot; cannot send anything by itself: a send asks you and shows who
