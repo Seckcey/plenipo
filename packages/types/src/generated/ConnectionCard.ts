@@ -35,4 +35,18 @@ reconnectFor: Array<string>,
 /**
  * What the service granted, in its words and in plain words.
  */
-granted: Array<PermissionWords>, };
+granted: Array<PermissionWords>, 
+/**
+ * A keyed connection (HubSpot, Stripe, the website): it connects with a key typed into the
+ * card, not a sign-in in the browser.
+ */
+usesKey: boolean, 
+/**
+ * For a keyed connection: the permissions its key needs for the parts as set, in the
+ * service's words (the owner chooses them when making the key).
+ */
+keyNeeds: Array<string>, 
+/**
+ * For the website: a WooCommerce key is kept.
+ */
+storeKeyKept: boolean, };

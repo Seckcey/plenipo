@@ -1,6 +1,6 @@
-//! Connections (Phase 20, ADR-062): the business's own accounts — Microsoft 365, Slack, and
-//! Google so far — that Plenipo signs in to for the owner, and Guard's part of the decision about a
-//! worker using one.
+//! Connections (Phase 20, ADR-062): the business's own accounts — Microsoft 365, Slack, Google,
+//! HubSpot, Stripe, and the owner's website — that Plenipo signs in to for the owner, and Guard's
+//! part of the decision about a worker using one.
 //!
 //! A connection is set up by the owner in Settings → Connections: which of its parts are on, and
 //! at which level (**Read only** or **Full access**); who may use it (roles and agents, each **Read
@@ -86,9 +86,17 @@ impl Service {
     }
 
     /// Built into this copy of Plenipo (Phase 20: Microsoft 365 in part 20A, Slack and Google in
-    /// part 20B; ADR-067).
+    /// part 20B, HubSpot, Stripe, and the website in part 20C; ADR-067). Every service is.
     pub fn built(self) -> bool {
-        matches!(self, Self::Microsoft365 | Self::Slack | Self::Google)
+        true
+    }
+
+    /// Connected with a key the owner creates in the service and types into its card, not a
+    /// sign-in in the browser (ADR-071 §1): HubSpot, Stripe, and the website. Its permissions are
+    /// chosen when the key is made, so a part turned on or up works at once, as far as the key
+    /// allows (there is no "Reconnect").
+    pub fn uses_key(self) -> bool {
+        matches!(self, Self::Hubspot | Self::Stripe | Self::Wordpress)
     }
 
     /// Whether the owner may keep more than one account of it (Slack: any number of workspaces,
@@ -109,7 +117,9 @@ impl Service {
             ],
             Self::Slack => &[Part::Channels, Part::DirectMessages, Part::Search],
             Self::Google => &[Part::Gmail, Part::Calendar, Part::Drive],
-            _ => &[],
+            Self::Hubspot => &[Part::Contacts, Part::Companies, Part::Deals],
+            Self::Stripe => &[Part::Payments, Part::Customers, Part::Invoices],
+            Self::Wordpress => &[Part::Posts, Part::Store],
         }
     }
 
@@ -123,7 +133,9 @@ impl Service {
     }
 
     /// A connection's parts when the owner first sets it up: Microsoft 365's Mail and Calendar,
-    /// Slack's Channels, and Google's Gmail and Calendar at **Read only**; the rest off.
+    /// Slack's Channels, Google's Gmail and Calendar, and every part of HubSpot, Stripe, and the
+    /// website at **Read only**; the rest off. (A key's own permissions, chosen in the service,
+    /// limit HubSpot, Stripe, and the website too.)
     pub fn starting_parts(self) -> BTreeMap<Part, PartLevel> {
         self.parts()
             .iter()
@@ -131,7 +143,8 @@ impl Service {
                 let level = match (self, p) {
                     (Self::Microsoft365, Part::Mail | Part::Calendar)
                     | (Self::Slack, Part::Channels)
-                    | (Self::Google, Part::Gmail | Part::Calendar) => PartLevel::ReadOnly,
+                    | (Self::Google, Part::Gmail | Part::Calendar)
+                    | (Self::Hubspot | Self::Stripe | Self::Wordpress, _) => PartLevel::ReadOnly,
                     _ => PartLevel::Off,
                 };
                 (*p, level)
@@ -159,6 +172,22 @@ pub enum Part {
     Gmail,
     /// Google Drive.
     Drive,
+    /// HubSpot's contacts (and the notes on them).
+    Contacts,
+    /// HubSpot's companies.
+    Companies,
+    /// HubSpot's deals.
+    Deals,
+    /// Stripe's balance, payments, payouts, and refunds.
+    Payments,
+    /// Stripe's customers (reading only).
+    Customers,
+    /// Stripe's invoices and subscriptions.
+    Invoices,
+    /// The website's posts and pages, and their comments.
+    Posts,
+    /// The website's store (WooCommerce): orders, products, and customers.
+    Store,
 }
 
 impl Part {
@@ -174,13 +203,21 @@ impl Part {
             Self::Search => "Search",
             Self::Gmail => "Gmail",
             Self::Drive => "Drive",
+            Self::Contacts => "Contacts",
+            Self::Companies => "Companies",
+            Self::Deals => "Deals",
+            Self::Payments => "Payments",
+            Self::Customers => "Customers",
+            Self::Invoices => "Invoices",
+            Self::Posts => "Posts and pages",
+            Self::Store => "Store",
         }
     }
 
-    /// Whether it has a **Full access** level: every part but Slack's Search, which only reads
-    /// (ADR-070 §5.3).
+    /// Whether it has a **Full access** level: every part but Slack's Search and Stripe's
+    /// Customers, which only read (ADR-070 §5.3, ADR-071 §6.3).
     pub fn has_full_access(self) -> bool {
-        self != Self::Search
+        !matches!(self, Self::Search | Self::Customers)
     }
 }
 
@@ -352,6 +389,12 @@ pub struct Connection {
     /// The organization's own app, instead of 8 West's (Advanced).
     #[ts(optional)]
     pub own_app: Option<OwnApp>,
+    /// The website connection's address (`https://example.com`, or the folder WordPress is in):
+    /// the only host Guard's gate lets it reach (ADR-071 §4). Not a secret; kept after
+    /// Disconnect, and changed only while not connected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub site: Option<String>,
     #[ts(optional, type = "number")]
     pub connected_at: Option<u64>,
     pub state: ConnectionState,
@@ -370,9 +413,18 @@ impl Connection {
             access: Vec::new(),
             send_list: Vec::new(),
             own_app: None,
+            site: None,
             connected_at: None,
             state: ConnectionState::NotConnected,
         }
+    }
+
+    /// The host of the website connection's address (`example.com`), when one is saved.
+    pub fn site_host(&self) -> Option<String> {
+        self.site
+            .as_deref()
+            .and_then(|s| url::Url::parse(s).ok())
+            .and_then(|u| u.host_str().map(str::to_owned))
     }
 
     /// Its name on screen: "Microsoft 365".
@@ -479,6 +531,91 @@ pub fn is_google_client_id(s: &str) -> bool {
                     && !rest.is_empty()
                     && rest.chars().all(|c| c.is_ascii_alphanumeric())
             })
+}
+
+/// Name endings that reach only a local network, never the internet (ADR-071 §4).
+const LOCAL_ONLY: [&str; 6] = [
+    ".local",
+    ".lan",
+    ".internal",
+    ".home.arpa",
+    ".localhost",
+    ".localdomain",
+];
+
+/// The website connection's address as the owner typed it, checked and kept the one way
+/// (ADR-071 §4): `https://`, a domain name with a dot (never an IP address, `localhost`, or a name
+/// that only works on a local network), the usual port, no user name or password, no `?` or `#`,
+/// and optionally the folder WordPress is installed in. In small letters, with no `/` at the end.
+/// `Err`: why not, in plain words.
+pub fn site_address(typed: &str) -> Result<String, String> {
+    let t = typed.trim();
+    let why = |w: &str| Err(format!("{t:?} {w}"));
+    if t.is_empty() || t.chars().count() > 300 || t.chars().any(char::is_control) {
+        return Err("your site's address must be one line of 1–300 characters".into());
+    }
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("http://") {
+        return why(
+            "starts with http://: WordPress takes Application Passwords only over https. Type \
+             it with https://",
+        );
+    }
+    if !lower.starts_with("https://") {
+        return why("is not a web address: type it with https://, like https://example.com");
+    }
+    let Ok(url) = url::Url::parse(t) else {
+        return why("is not a web address");
+    };
+    if !url.username().is_empty() || url.password().is_some() {
+        return why("has a user name or password in it: type the address alone");
+    }
+    if url.port().is_some() {
+        return why("names a port: Plenipo uses only the usual https port");
+    }
+    if url.query().is_some() || url.fragment().is_some() || t.contains(['?', '#']) {
+        return why("has a ? or # part: type only your site's address");
+    }
+    let Some(url::Host::Domain(host)) = url.host() else {
+        return why("is an IP address: type your site's domain name, like example.com");
+    };
+    let host = host.to_ascii_lowercase();
+    let last = host.rsplit('.').next().unwrap_or_default();
+    if !is_domain(&host) || last.chars().all(|c| c.is_ascii_digit()) {
+        return why("is not a domain name Plenipo can use (like example.com)");
+    }
+    if LOCAL_ONLY.iter().any(|end| host.ends_with(end)) {
+        return why("works only on a local network: Plenipo reaches your site on the internet");
+    }
+    let path = url.path().trim_end_matches('/');
+    // As typed: a web address tidies `..` away, which would hide where it really points.
+    let typed_path = t
+        .splitn(4, '/')
+        .nth(3)
+        .unwrap_or_default()
+        .trim_end_matches('/');
+    let dots = typed_path
+        .split(['/', '\\'])
+        .any(|seg| seg == "." || seg == "..");
+    let path_ok = !dots
+        && path.split('/').skip(1).all(|seg| {
+            !seg.is_empty()
+                && seg != "."
+                && seg != ".."
+                && seg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
+        });
+    if !path_ok || path.len() > 100 {
+        return why("has a folder Plenipo cannot use: type your site's address, like https://example.com/shop");
+    }
+    let path = path.to_ascii_lowercase();
+    if path.ends_with("/wp-json") || path.contains("/wp-admin") || path.contains("/wp-json/") {
+        return why(
+            "is a page of your site: type the site's own address, like https://example.com",
+        );
+    }
+    Ok(format!("https://{host}{path}"))
 }
 
 /// An email address, simply: `name@domain`.
@@ -857,6 +994,27 @@ impl Guard {
             Ok(Some((change_payload(&conn, "app"), conn)))
         })?
         .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Save the website connection's address (ADR-071 §4). Records `connection.changed` with it
+    /// (an address, not a secret).
+    pub fn set_connection_site(&self, id: &str, typed: &str) -> crate::Result<Connection> {
+        self.update("connection.changed", OWNER, |c| {
+            let before = c.connection(id).and_then(|x| x.site.clone());
+            let conn = c.set_connection_site(id, typed)?;
+            if before == conn.site {
+                return Ok(None);
+            }
+            let mut payload = change_payload(&conn, "site");
+            payload["site"] = json!(conn.site);
+            Ok(Some((payload, conn)))
+        })
+        .map(|c| {
+            c.unwrap_or_else(|| {
+                self.connection(id)
+                    .unwrap_or_else(|_| Connection::new(id, Service::Wordpress))
+            })
+        })
     }
 
     /// Add another account of `service` (Slack's workspaces). Records `connection.changed`.
@@ -1239,8 +1397,9 @@ mod tests {
         ] {
             assert!(!is_google_client_id(bad), "{bad:?}");
         }
-        assert!(Service::Slack.built() && Service::Google.built());
-        assert!(!Service::Hubspot.built());
+        assert!(Service::ALL.iter().all(|s| s.built()));
+        assert!(Service::Hubspot.uses_key() && Service::Stripe.uses_key());
+        assert!(Service::Wordpress.uses_key() && !Service::Google.uses_key());
         assert!(Service::Slack.many() && !Service::Google.many());
         assert!(!Part::Search.has_full_access());
         assert!(Part::Channels.has_full_access());
@@ -1323,11 +1482,6 @@ mod tests {
             ..ok.clone()
         };
         assert!(decide(&no_parts).unwrap_err().contains("at least one part"));
-        let later = ConnectionRequest {
-            connection_id: "hubspot",
-            ..ok.clone()
-        };
-        assert!(decide(&later).unwrap_err().contains("later update"));
         let unknown = ConnectionRequest {
             connection_id: "myspace",
             ..ok.clone()
@@ -1348,5 +1502,71 @@ mod tests {
             ..ok.clone()
         };
         assert!(decide(&cancel).unwrap_err().contains("No sign-in"));
+    }
+
+    #[test]
+    fn the_keyed_services_have_their_parts() {
+        assert_eq!(
+            Service::Hubspot.parts(),
+            [Part::Contacts, Part::Companies, Part::Deals]
+        );
+        assert_eq!(
+            Service::Stripe.parts(),
+            [Part::Payments, Part::Customers, Part::Invoices]
+        );
+        assert_eq!(Service::Wordpress.parts(), [Part::Posts, Part::Store]);
+        assert!(!Part::Customers.has_full_access());
+        assert!(Part::Payments.has_full_access() && Part::Store.has_full_access());
+        assert_eq!(Part::Posts.label(), "Posts and pages");
+        for s in [Service::Hubspot, Service::Stripe, Service::Wordpress] {
+            assert!(s
+                .starting_parts()
+                .values()
+                .all(|l| *l == PartLevel::ReadOnly));
+        }
+    }
+
+    #[test]
+    fn a_site_address_is_https_a_real_domain_and_kept_one_way() {
+        for (typed, kept) in [
+            ("https://Shop.Example.com", "https://shop.example.com"),
+            (" https://shop.example.com/ ", "https://shop.example.com"),
+            ("https://example.com/Shop/", "https://example.com/shop"),
+            ("https://8westit.com/blog", "https://8westit.com/blog"),
+        ] {
+            assert_eq!(site_address(typed).unwrap(), kept, "{typed}");
+        }
+        for (typed, why) in [
+            ("http://shop.example.com", "only over https"),
+            ("shop.example.com", "type it with https://"),
+            ("https://shop.example.com:8443", "port"),
+            ("https://admin:pw@shop.example.com", "user name or password"),
+            ("https://192.168.1.20", "IP address"),
+            ("https://[::1]", "IP address"),
+            ("https://10.0.0.1/wp", "IP address"),
+            ("https://localhost", "domain name"),
+            ("https://shop", "domain name"),
+            ("https://shop.local", "local network"),
+            ("https://wp.internal", "local network"),
+            ("https://nas.home.arpa", "local network"),
+            ("https://shop.example.com/?p=1", "? or #"),
+            ("https://shop.example.com/#x", "? or #"),
+            ("https://shop.example.com/wp-json", "a page of your site"),
+            (
+                "https://shop.example.com/wp-admin/profile.php",
+                "a page of your site",
+            ),
+            ("https://shop.example.com/a/../b", "folder"),
+            ("https://shop.example.com/a%20b", "folder"),
+            ("", "1–300 characters"),
+            ("https://x.com/\nevil", "1–300"),
+        ] {
+            let err = site_address(typed).unwrap_err();
+            assert!(err.contains(why), "{typed}: {err}");
+        }
+        let mut c = Connection::new("wordpress", Service::Wordpress);
+        assert_eq!(c.site_host(), None);
+        c.site = Some("https://shop.example.com/store".into());
+        assert_eq!(c.site_host().as_deref(), Some("shop.example.com"));
     }
 }

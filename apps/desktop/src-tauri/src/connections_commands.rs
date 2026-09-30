@@ -4,22 +4,27 @@
 //! the main window's alone (capabilities/default.json): the sign window and web pages are
 //! refused.
 //!
-//! None takes a password, a token, a program, or an address: a sign-in happens on the service's
-//! own page in the owner's browser, and its token goes only into the Vault. The one secret any
-//! of them takes — the owner's own Google app's secret (ADR-070 §4) — goes straight to the Vault
-//! and never comes back out. Guard decides each action and records it (never a token or a
-//! secret, never the account's address).
+//! A sign-in happens on the service's own page in the owner's browser, and its token goes only
+//! into the Vault. The secrets any of them take — the owner's own Google app's secret (ADR-070
+//! §4), and the keys typed into the HubSpot, Stripe, and website cards (ADR-071 §1) — go straight
+//! to the Vault and never come back out. Part 20C adds add-on tools (ADR-066): a program the owner
+//! installed, added off, its tools looked at and marked, and who may use it. Guard decides each
+//! action and records it (never a token, a key, or a secret, never the account's address).
 
 use std::collections::BTreeMap;
 
+use plenipo_capabilities::connections::keyed::{KeyInput, MAX_KEY};
 use plenipo_capabilities::connections::{AppInput, ConnectionsPage, MAX_APP_SECRET};
 use plenipo_capabilities::Broker;
 use plenipo_core::CommandError;
+use plenipo_guard::add_ons::{MAX_ARGS, MAX_ARG_CHARS, MAX_SECRETS, MAX_TOOLS};
 use plenipo_guard::connections::{service_of, MAX_ACCESS, MAX_SEND_LIST};
-use plenipo_guard::{Access, AccountKind, OwnApp, Part, PartLevel, Service, Who};
+use plenipo_guard::{
+    Access, AccountKind, AddOnChange, AddOnInput, OwnApp, Part, PartLevel, Service, ToolMark, Who,
+};
 use tauri::State;
 
-use crate::commands::{bounded, validate_id, with_broker};
+use crate::commands::{bounded, bounded_optional, validate_id, with_broker};
 
 /// The longest connection ID (`microsoft365`, `slack-12`).
 const MAX_CONNECTION_ID: usize = 40;
@@ -209,6 +214,167 @@ pub async fn remove_connection(
     with_broker(&broker, move |b| b.remove_connection(&connection_id)).await
 }
 
+/// HubSpot's, Stripe's, or the website's key, typed into its card (ADR-071 §1): checked with one
+/// reading call, kept only in the Vault if the service accepts it, and never returned.
+#[tauri::command]
+pub async fn save_connection_key(
+    broker: State<'_, Broker>,
+    connection_id: String,
+    key: KeyInput,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_connection_id(&connection_id)?;
+    for v in [&key.key, &key.password, &key.store_key, &key.store_secret]
+        .into_iter()
+        .flatten()
+    {
+        if v.chars().count() > MAX_KEY {
+            return Err(CommandError::invalid_input("that key is too long"));
+        }
+    }
+    bounded_optional("the site's address", key.site.as_deref())?;
+    bounded_optional("the user name", key.user.as_deref())?;
+    let broker = broker.inner().clone();
+    broker
+        .save_connection_key(&connection_id, &key)
+        .await
+        .map_err(crate::commands::broker_error)
+}
+
+/// An add-on's ID: small letters and digits, 1–14.
+fn validate_add_on_id(id: &str) -> Result<(), CommandError> {
+    let ok = (1..=14).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    if ok {
+        Ok(())
+    } else {
+        Err(CommandError::invalid_input("invalid add-on id"))
+    }
+}
+
+fn check_program_fields(
+    program: Option<&str>,
+    args: Option<&[String]>,
+    secrets: Option<&[String]>,
+) -> Result<(), CommandError> {
+    bounded_optional("the program", program)?;
+    if let Some(args) = args {
+        if args.len() > MAX_ARGS {
+            return Err(CommandError::invalid_input(format!(
+                "at most {MAX_ARGS} arguments"
+            )));
+        }
+        if args.iter().any(|a| a.chars().count() > MAX_ARG_CHARS) {
+            return Err(CommandError::invalid_input("an argument is too long"));
+        }
+    }
+    if let Some(secrets) = secrets {
+        if secrets.len() > MAX_SECRETS {
+            return Err(CommandError::invalid_input(format!(
+                "at most {MAX_SECRETS} stored secrets"
+            )));
+        }
+        secrets
+            .iter()
+            .try_for_each(|n| bounded("a secret's name", n))?;
+    }
+    Ok(())
+}
+
+/// Add a program that offers tools (ADR-066 §1): off, with no tool marked and nobody allowed.
+/// Shells and programs that download code each time they start are refused.
+#[tauri::command]
+pub async fn add_add_on(
+    broker: State<'_, Broker>,
+    add_on: AddOnInput,
+) -> Result<ConnectionsPage, CommandError> {
+    bounded("the name", &add_on.name)?;
+    check_program_fields(
+        Some(&add_on.program),
+        Some(&add_on.args),
+        Some(&add_on.secrets),
+    )?;
+    with_broker(&broker, move |b| b.add_add_on(&add_on)).await
+}
+
+/// Change an add-on: its name, program, arguments, secrets, on or off (switching it on looks at
+/// its tools first), or who may use it.
+#[tauri::command]
+pub async fn change_add_on(
+    broker: State<'_, Broker>,
+    add_on_id: String,
+    change: AddOnChange,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_add_on_id(&add_on_id)?;
+    bounded_optional("the name", change.name.as_deref())?;
+    check_program_fields(
+        change.program.as_deref(),
+        change.args.as_deref(),
+        change.secrets.as_deref(),
+    )?;
+    if let Some(access) = &change.access {
+        if access.len() > MAX_ACCESS {
+            return Err(CommandError::invalid_input(format!(
+                "at most {MAX_ACCESS} lines on Who may use it"
+            )));
+        }
+        for a in access {
+            match &a.who {
+                Who::Role { id } => validate_id("role", id)?,
+                Who::Agent { id } => validate_id("agent", id)?,
+            }
+        }
+    }
+    let broker = broker.inner().clone();
+    broker
+        .change_add_on(&add_on_id, &change)
+        .await
+        .map_err(crate::commands::broker_error)
+}
+
+/// Remove an add-on.
+#[tauri::command]
+pub async fn remove_add_on(
+    broker: State<'_, Broker>,
+    add_on_id: String,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_add_on_id(&add_on_id)?;
+    with_broker(&broker, move |b| b.remove_add_on(&add_on_id)).await
+}
+
+/// Start the program once, list its tools, and stop it (ADR-066 §2): new or changed tools are
+/// Off.
+#[tauri::command]
+pub async fn check_add_on_tools(
+    broker: State<'_, Broker>,
+    add_on_id: String,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_add_on_id(&add_on_id)?;
+    let broker = broker.inner().clone();
+    broker
+        .check_add_on_tools(&add_on_id)
+        .await
+        .map_err(crate::commands::broker_error)
+}
+
+/// Mark an add-on's tools Off, Reading (goes ahead), or Changing (asks every time).
+#[tauri::command]
+pub async fn set_add_on_tools(
+    broker: State<'_, Broker>,
+    add_on_id: String,
+    marks: BTreeMap<String, ToolMark>,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_add_on_id(&add_on_id)?;
+    if marks.len() > MAX_TOOLS {
+        return Err(CommandError::invalid_input(format!(
+            "at most {MAX_TOOLS} tools"
+        )));
+    }
+    marks.keys().try_for_each(|n| bounded("a tool's name", n))?;
+    with_broker(&broker, move |b| b.set_add_on_tools(&add_on_id, &marks)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,7 +389,7 @@ mod tests {
             .skip(1)
             .map(|rest| rest.lines().next().unwrap_or_default())
             .collect();
-        assert_eq!(commands.len(), 11, "{commands:?}");
+        assert_eq!(commands.len(), 17, "{commands:?}");
         for line in commands {
             assert!(line.starts_with("pub async fn "), "not async: {line}");
         }

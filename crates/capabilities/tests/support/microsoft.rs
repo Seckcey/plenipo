@@ -93,6 +93,10 @@ pub struct World {
     pub slack: super::slack::Slack,
     /// The stand-in Google (part 20B).
     pub google: super::google::Google,
+    /// The stand-in HubSpot, Stripe, and website (part 20C).
+    pub hubspot: super::hubspot::Hubspot,
+    pub stripe: super::stripe::Stripe,
+    pub wordpress: super::wordpress::Site,
     next: u64,
 }
 
@@ -240,6 +244,9 @@ impl World {
             })],
             slack: super::slack::Slack::seeded(),
             google: super::google::Google::seeded(),
+            hubspot: super::hubspot::Hubspot::seeded(),
+            stripe: super::stripe::Stripe::seeded(),
+            wordpress: super::wordpress::Site::seeded(),
             ..World::default()
         };
         w.chat_messages.insert(
@@ -514,6 +521,11 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 "sent": w.sent, "requests": w.requests, "issued": w.issued, "asked": w.asked,
                 "slackRevoked": w.slack.revoked.len(), "googleRevoked": w.google.revoked.len(),
                 "slackRenewalsLeft": w.slack.refresh.len(),
+                "hubspotSaved": w.hubspot.saved,
+                "stripeChanges": w.stripe.changes, "stripeHeld": w.stripe.held,
+                "stripeVersions": w.stripe.versions,
+                "siteDone": w.wordpress.done,
+                "sitePasswordsRevoked": w.wordpress.users.iter().filter(|u| u.revoked).count(),
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
             ("POST", "knobs") => {
@@ -549,6 +561,20 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     }
     if let Some(rest) = path.strip_prefix("login.microsoftonline.com/") {
         return login(req, rest, &mut w);
+    }
+    // HubSpot's, Stripe's, and the website's stand-ins (part 20C).
+    if let Some(rest) = path.strip_prefix("api.hubapi.com/") {
+        return super::hubspot::route(req, rest, &mut w);
+    }
+    if let Some(rest) = path.strip_prefix("api.stripe.com/") {
+        return super::stripe::route(req, rest, &mut w);
+    }
+    if let Some(rest) = path.strip_prefix(&format!("{}/", super::wordpress::HOST)) {
+        return super::wordpress::route(req, rest, &mut w);
+    }
+    // A site that moved: it sends every request on to the stand-in site (another host).
+    if let Some(rest) = path.strip_prefix("old.example.com/") {
+        return redirect(&format!("https://{}/{rest}", super::wordpress::HOST));
     }
     // Slack's and Google's stand-ins (part 20B).
     if let Some(rest) = path.strip_prefix("slack.com/") {

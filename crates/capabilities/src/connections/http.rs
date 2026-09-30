@@ -14,14 +14,26 @@ const MAX_REDIRECTS: usize = 5;
 /// The longest a service may ask Plenipo to wait before trying once more ("too many requests").
 pub const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 
-/// The hosts that get the access token: the service's API, nothing else.
+/// The hosts that get the access token or key: the service's API, nothing else. (The website's
+/// is the address saved on its card, ADR-071 §4.)
 pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
     match service {
         Service::Microsoft365 => &["graph.microsoft.com"],
         Service::Slack => &["slack.com"],
         Service::Google => &["gmail.googleapis.com", "www.googleapis.com"],
-        _ => &[],
+        Service::Hubspot => &["api.hubapi.com"],
+        Service::Stripe => &["api.stripe.com"],
+        Service::Wordpress => &[],
     }
+}
+
+/// How a request proves who it is for: an access token or a key (`Authorization: Bearer`), or
+/// a user name and password (`Authorization: Basic`: a WordPress Application Password, or a
+/// WooCommerce key and its secret).
+#[derive(Clone, Copy)]
+pub(crate) enum Auth<'a> {
+    Bearer(&'a str),
+    Basic { user: &'a str, password: &'a str },
 }
 
 /// What a request carries.
@@ -182,19 +194,60 @@ impl Http {
         body: Body,
         limit: usize,
     ) -> Result<Reply, HttpError> {
+        self.send_with(
+            service,
+            method,
+            url,
+            bearer.map(Auth::Bearer),
+            headers,
+            body,
+            limit,
+            true,
+        )
+        .await
+    }
+
+    /// As [`Http::send`], with `auth` of either kind, and `retry: false` for a request that must
+    /// never be sent twice (a store refund, which has no way to tell a repeat, ADR-071 §6.5).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_with(
+        &self,
+        service: Service,
+        method: reqwest::Method,
+        url: &str,
+        auth: Option<Auth<'_>>,
+        headers: &[(&'static str, &str)],
+        body: Body,
+        limit: usize,
+        retry: bool,
+    ) -> Result<Reply, HttpError> {
         let reply = self
-            .send_once(service, method.clone(), url, bearer, headers, &body, limit)
+            .send_once(service, method.clone(), url, auth, headers, &body, limit)
             .await?;
-        if matches!(reply.0.status, 429 | 503) {
+        if retry && matches!(reply.0.status, 429 | 503) {
             if let Some(wait) = reply.1.filter(|w| *w <= MAX_RETRY_WAIT) {
                 tokio::time::sleep(wait).await;
                 return Ok(self
-                    .send_once(service, method, url, bearer, headers, &body, limit)
+                    .send_once(service, method, url, auth, headers, &body, limit)
                     .await?
                     .0);
             }
         }
         Ok(reply.0)
+    }
+
+    /// Whether `host` is the service's API host, the only one that gets its token or key: for
+    /// the website, the host of the address saved on its card, read afresh.
+    fn api_host(&self, service: Service, host: &str) -> bool {
+        match service {
+            Service::Wordpress => self
+                .guard
+                .config()
+                .ok()
+                .and_then(|c| c.connection("wordpress").and_then(|w| w.site_host()))
+                .is_some_and(|h| h == host),
+            _ => api_hosts(service).contains(&host),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -203,7 +256,7 @@ impl Http {
         service: Service,
         method: reqwest::Method,
         url: &str,
-        bearer: Option<&str>,
+        auth: Option<Auth<'_>>,
         headers: &[(&'static str, &str)],
         body: &Body,
         limit: usize,
@@ -215,8 +268,12 @@ impl Http {
             self.check(service, &address)?;
             let host = self.real_host(&address).unwrap_or_default();
             let mut request = self.client.request(method.clone(), &address);
-            if let Some(token) = bearer.filter(|_| api_hosts(service).contains(&host.as_str())) {
-                request = request.bearer_auth(token);
+            // Only for the service's own API host (the website: only its saved host).
+            if let Some(auth) = auth.filter(|_| self.api_host(service, &host)) {
+                request = match auth {
+                    Auth::Bearer(token) => request.bearer_auth(token),
+                    Auth::Basic { user, password } => request.basic_auth(user, Some(password)),
+                };
             }
             if first {
                 for (name, value) in headers {

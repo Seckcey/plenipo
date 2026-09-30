@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-add-on"
+description = "Enables the remove_add_on command without any pre-configured scope."
+commands.allow = ["remove_add_on"]
+
+[[permission]]
+identifier = "deny-remove-add-on"
+description = "Denies the remove_add_on command without any pre-configured scope."
+commands.deny = ["remove_add_on"]

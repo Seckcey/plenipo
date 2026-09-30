@@ -30,10 +30,18 @@ test = false
 
 [[bin]]
 # Test helper: stand-ins for the connections' services on 127.0.0.1 (Microsoft's sign-in and
-# Microsoft Graph, in part 20A), for the Phase 20 end-to-end tests (the Rust tests run the same
+# Microsoft Graph in part 20A; Slack and Google in 20B; HubSpot, Stripe, and a WordPress site with
+# WooCommerce in 20C), for the Phase 20 end-to-end tests (the Rust tests run the same
 # stand-ins in-process). Never shipped.
 name = "plenipo-test-services"
 path = "tests/support/services_main.rs"
+test = false
+
+[[bin]]
+# Test helper: a small add-on program that offers tools over MCP on its standard input and output
+# (Phase 20 part 20C, ADR-066), for the Rust and end-to-end tests. Never shipped.
+name = "plenipo-test-addon"
+path = "tests/support/addon_main.rs"
 test = false
 
 [dependencies]

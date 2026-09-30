@@ -41,7 +41,8 @@ impl Purpose {
     }
 }
 
-/// The only hosts a connection reaches: its sign-in and its service (ADR-065 §1, ADR-064 §3–§4).
+/// The only hosts a connection reaches: its sign-in and its service (ADR-065 §1, ADR-064 §3–§7).
+/// The website has none fixed: it reaches only the address saved on its card (ADR-071 §4).
 pub fn connection_hosts(service: Service) -> &'static [&'static str] {
     match service {
         Service::Microsoft365 => &["login.microsoftonline.com", "graph.microsoft.com"],
@@ -54,7 +55,10 @@ pub fn connection_hosts(service: Service) -> &'static [&'static str] {
             "gmail.googleapis.com",
             "www.googleapis.com",
         ],
-        _ => &[],
+        // HubSpot's web interface (its dated CRM addresses, ADR-071 §6.1).
+        Service::Hubspot => &["api.hubapi.com"],
+        Service::Stripe => &["api.stripe.com"],
+        Service::Wordpress => &[],
     }
 }
 
@@ -72,8 +76,12 @@ pub fn connection_download_domains(service: Service) -> &'static [&'static str] 
     }
 }
 
-/// Whether `host` is one of `service`'s hosts, or a subdomain of one of its download domains.
-fn connection_host(service: Service, host: &str) -> bool {
+/// Whether `host` is one of `service`'s hosts, or a subdomain of one of its download domains —
+/// or, for the website, exactly the host of the address saved on its card (`site`).
+fn connection_host(service: Service, host: &str, site: Option<&str>) -> bool {
+    if service == Service::Wordpress {
+        return site.is_some_and(|s| !s.is_empty() && s == host);
+    }
     connection_hosts(service).contains(&host)
         || connection_download_domains(service).iter().any(|d| {
             host.strip_suffix(d)
@@ -158,6 +166,17 @@ impl OutboundRules {
 
     /// Check one address for `purpose`. The error says why, in plain words.
     pub fn check(&self, purpose: Purpose, address: &str) -> Result<Site, String> {
+        self.check_for(purpose, address, None)
+    }
+
+    /// Check one address for `purpose`; for the website connection, `site_host` is the host of
+    /// the address saved on its card (ADR-071 §4), the only one it may reach.
+    pub fn check_for(
+        &self,
+        purpose: Purpose,
+        address: &str,
+        site_host: Option<&str>,
+    ) -> Result<Site, String> {
         let site = Site::parse(address)?;
         let refuse = |why: &str| {
             Err(format!(
@@ -170,7 +189,7 @@ impl OutboundRules {
             return self.check_release_list(&site, refuse);
         }
         if let Purpose::Connection(service) = purpose {
-            return self.check_connection(service, &site, refuse);
+            return self.check_connection(service, &site, site_host, refuse);
         }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
@@ -206,6 +225,7 @@ impl OutboundRules {
         &self,
         service: Service,
         site: &Site,
+        site_host: Option<&str>,
         refuse: impl Fn(&str) -> Result<Site, String>,
     ) -> Result<Site, String> {
         let Ok(url) = url::Url::parse(&site.url) else {
@@ -219,7 +239,7 @@ impl OutboundRules {
                 // `http://127.0.0.1:<port>/<host><path>`.
                 let rest = url.path().trim_start_matches('/');
                 let host = &rest[..rest.find('/').unwrap_or(rest.len())];
-                if connection_host(service, host) {
+                if connection_host(service, host, site_host) {
                     return Ok(site.clone());
                 }
                 return refuse("the test stand-in serves only the connection's own addresses");
@@ -231,8 +251,10 @@ impl OutboundRules {
         if site.port.is_some() {
             return refuse("only the usual https port is allowed");
         }
-        if connection_host(service, &site.host) {
+        if connection_host(service, &site.host, site_host) {
             Ok(site.clone())
+        } else if service == Service::Wordpress {
+            refuse("the website connection reaches only the address saved on its card")
         } else {
             refuse("a connection reaches only its own service's addresses")
         }
@@ -356,13 +378,33 @@ mod tests {
         ] {
             assert!(rules.check(m, bad).is_err(), "{bad}");
         }
-        // A service not built reaches nothing, and each built one only its own addresses.
+        // Each service reaches only its own addresses.
+        let hubspot = Purpose::Connection(Service::Hubspot);
         assert!(rules
             .check(
-                Purpose::Connection(Service::Hubspot),
-                "https://api.hubapi.com/crm/v3/objects/contacts"
+                hubspot,
+                "https://api.hubapi.com/crm/objects/2026-09/contacts/search"
             )
-            .is_err());
+            .is_ok());
+        for bad in [
+            "https://app.hubspot.com/contacts/1",
+            "https://api.hubapi.com.evil.example/crm",
+            "http://api.hubapi.com/crm",
+            "https://api.stripe.com/v1/balance",
+        ] {
+            assert!(rules.check(hubspot, bad).is_err(), "{bad}");
+        }
+        let stripe = Purpose::Connection(Service::Stripe);
+        assert!(rules
+            .check(stripe, "https://api.stripe.com/v1/refunds")
+            .is_ok());
+        for bad in [
+            "https://files.stripe.com/v1/files/x",
+            "https://dashboard.stripe.com/test/payments",
+            "https://api.hubapi.com/crm",
+        ] {
+            assert!(rules.check(stripe, bad).is_err(), "{bad}");
+        }
         let slack = Purpose::Connection(Service::Slack);
         for ok in [
             "https://slack.com/oauth/v2/authorize?client_id=1.2",
@@ -425,6 +467,65 @@ mod tests {
                 .connections_test_port,
             None
         );
+    }
+
+    #[test]
+    fn the_website_reaches_only_the_address_saved_on_its_card() {
+        let wp = Purpose::Connection(Service::Wordpress);
+        let rules = OutboundRules::default();
+        // Nothing saved: nothing reached.
+        assert!(rules
+            .check(wp, "https://shop.example.com/wp-json/wp/v2/users/me")
+            .is_err());
+        let site = Some("shop.example.com");
+        for ok in [
+            "https://shop.example.com/wp-json/wp/v2/users/me",
+            "https://shop.example.com/store/wp-json/wc/v3/orders?per_page=1",
+        ] {
+            assert!(rules.check_for(wp, ok, site).is_ok(), "{ok}");
+        }
+        for bad in [
+            // Not the saved host, even its www. twin or a look-alike.
+            "https://www.shop.example.com/wp-json/wp/v2/users/me",
+            "https://example.com/wp-json/wp/v2/users/me",
+            "https://shop.example.com.evil.example/wp-json/",
+            "https://evil.example/shop.example.com/wp-json/",
+            // Not https, another port, a user name.
+            "http://shop.example.com/wp-json/",
+            "https://shop.example.com:8443/wp-json/",
+            "https://u:p@shop.example.com/wp-json/",
+        ] {
+            let err = rules.check_for(wp, bad, site).unwrap_err();
+            assert!(!err.is_empty(), "{bad}");
+        }
+        assert!(rules
+            .check_for(wp, "https://www.shop.example.com/", site)
+            .unwrap_err()
+            .contains("saved on its card"));
+        // The saved host means nothing for the other services.
+        assert!(rules
+            .check_for(
+                Purpose::Connection(Service::Stripe),
+                "https://shop.example.com/x",
+                site
+            )
+            .is_err());
+        // A copy built for the tests: the stand-in, for the saved host only.
+        let test =
+            OutboundRules::default().with_connections_stand_in(Some("http://127.0.0.1:8767"));
+        assert!(test
+            .check_for(
+                wp,
+                "http://127.0.0.1:8767/shop.example.com/wp-json/wp/v2/users/me",
+                site
+            )
+            .is_ok());
+        assert!(test
+            .check_for(wp, "http://127.0.0.1:8767/evil.example/wp-json/", site)
+            .is_err());
+        assert!(test
+            .check_for(wp, "http://127.0.0.1:8767/shop.example.com/wp-json/", None)
+            .is_err());
     }
 
     #[test]

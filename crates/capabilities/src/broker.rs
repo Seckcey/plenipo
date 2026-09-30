@@ -48,6 +48,7 @@ use crate::tools::{self, Action, ToolDef, TOOLS};
 use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
+mod add_on_calls;
 pub(crate) mod connecting;
 mod git_tools;
 pub mod live;
@@ -332,6 +333,13 @@ struct Grant {
     /// What it read through connections in this step ("email", "files"), in the order first
     /// read, for the approval cards that follow (ADR-062 §6).
     read_outside: Vec<&'static str>,
+    /// The add-on tools offered to this step (Phase 20 part 20C, ADR-066 §3), by Plenipo's name
+    /// for each, as they were when the step started.
+    add_on_tools: BTreeMap<String, add_on_calls::Offered>,
+    /// Plenipo's note about its add-on tools.
+    add_on_note: String,
+    /// The add-on programs running for this step: stopped when it ends.
+    add_on_sessions: add_on_calls::Sessions,
 }
 
 /// "Read Microsoft 365" or "Write in Slack (Client Co)": a step's use of one connection, in the
@@ -959,12 +967,14 @@ impl Broker {
         // The connections this worker may use (Phase 20, ADR-062 §3–§4).
         let offers = self.connection_offers(&config, &scope);
         offered.extend(offers.tools.iter().copied());
+        // The add-on tools it may use (ADR-066 §3).
+        let add_ons = self.add_on_offers(&config, &scope);
         let position_id = workforce["positionId"].as_str().map(str::to_owned);
         let worker = position_id
             .as_deref()
             .and_then(|id| self.ledger().position(id).ok().flatten())
             .map_or_else(|| scope.role_name.clone(), |p| p.title);
-        if offered.is_empty() {
+        if offered.is_empty() && add_ons.tools.is_empty() {
             self.release_writer(place.as_ref(), &grant_id);
             let switched = switched_off_for(&config, &scope);
             if !switched.is_empty() && !TOOLS.iter().any(|t| permitted(t.capability)) {
@@ -1059,7 +1069,9 @@ impl Broker {
                 })),
                 "permissions": permissions,
                 "connections": offers.record,
+                "addOns": add_ons.record,
                 "tools": offered,
+                "addOnTools": add_ons.tools.keys().collect::<Vec<_>>(),
                 "note": problem,
             }),
             ..NewEvent::default()
@@ -1074,13 +1086,20 @@ impl Broker {
         if !offers.note.is_empty() {
             note = format!("{note}\n{}", offers.note);
         }
+        if !add_ons.note.is_empty() {
+            note = format!("{note}\n{}", add_ons.note);
+        }
         let github = scope
             .project
             .as_ref()
             .and_then(|p| self.ledger().project(&p.id).ok().flatten())
             .and_then(|p| p.repository_url)
             .and_then(|url| crate::github::repo_of(&url));
-        let tool_names = offered.iter().map(|t| (*t).to_owned()).collect();
+        let tool_names = offered
+            .iter()
+            .map(|t| (*t).to_owned())
+            .chain(add_ons.tools.keys().cloned())
+            .collect();
         let grant = Grant {
             id: grant_id.clone(),
             ticket: ticket.clone(),
@@ -1115,6 +1134,9 @@ impl Broker {
             connection_names: offers.names,
             connection_note: offers.note,
             read_outside: Vec::new(),
+            add_on_tools: add_ons.tools,
+            add_on_note: add_ons.note,
+            add_on_sessions: add_on_calls::Sessions::default(),
         };
         {
             let mut s = self.state();
@@ -1458,6 +1480,7 @@ impl Broker {
             g
         };
         let Some(mut grant) = removed else { return };
+        self.stop_add_ons(Arc::clone(&grant.add_on_sessions));
         self.close_servers(
             Arc::clone(&grant.ssh),
             grant.id.clone(),
@@ -1547,7 +1570,7 @@ impl Broker {
     /// End a grant now: its running programs stop, its pending approvals are refused, and its
     /// later calls are blocked (the owner's "Revoke").
     pub fn revoke(&self, grant_id: &str, actor: &str) -> Result<GrantView> {
-        let (view, pending, running, task_id) = {
+        let (view, pending, running, task_id, sessions) = {
             let mut s = self.state();
             let g = s.grants.get_mut(grant_id).ok_or_else(|| {
                 BrokerError::Invalid("that worker's step has already ended".into())
@@ -1558,8 +1581,10 @@ impl Broker {
                 std::mem::take(&mut g.pending),
                 std::mem::take(&mut g.running),
                 g.task_id.clone(),
+                Arc::clone(&g.add_on_sessions),
             )
         };
+        self.stop_add_ons(sessions);
         for approval in &pending {
             self.settle(
                 approval,
@@ -1604,11 +1629,10 @@ impl Broker {
                 &g.levels,
                 None,
             );
-            if g.connection_note.is_empty() {
-                note
-            } else {
-                format!("{note}\n{}", g.connection_note)
-            }
+            [&g.connection_note, &g.add_on_note]
+                .into_iter()
+                .filter(|n| !n.is_empty())
+                .fold(note, |all, n| format!("{all}\n{n}"))
         })
     }
 
@@ -1623,6 +1647,7 @@ impl Broker {
             .as_ref()
             .map(|w| w.root().display().to_string())
             .unwrap_or_default();
+        let add_ons = Self::add_on_tool_list(&g.add_on_tools);
         g.tools
             .iter()
             .filter_map(|name| tools::find(name))
@@ -1640,11 +1665,16 @@ impl Broker {
                 }
                 json!({ "name": t.name, "description": description, "inputSchema": t.schema() })
             })
+            .chain(add_ons)
             .collect()
     }
 
     /// Carry out one tool call for a grant.
     pub async fn call(&self, grant_id: &str, name: &str, args: Value) -> CallResult {
+        // An add-on's tool (ADR-066) has a name the owner's program chose: its own path.
+        if name.starts_with(add_on_calls::PREFIX) {
+            return self.act_add_on(grant_id, name, args).await;
+        }
         let Some(tool) = tools::find(name) else {
             return CallResult::error(format!("There is no tool named {name}."));
         };
@@ -1900,6 +1930,7 @@ impl Broker {
                 },
             }),
             connection: None,
+            add_on: None,
         };
         let mut decision = evaluate(
             &config,

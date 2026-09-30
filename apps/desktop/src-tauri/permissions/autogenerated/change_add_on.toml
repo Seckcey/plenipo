@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-change-add-on"
+description = "Enables the change_add_on command without any pre-configured scope."
+commands.allow = ["change_add_on"]
+
+[[permission]]
+identifier = "deny-change-add-on"
+description = "Denies the change_add_on command without any pre-configured scope."
+commands.deny = ["change_add_on"]

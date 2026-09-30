@@ -1,9 +1,10 @@
-//! Connections (Phase 20; ADR-062 to ADR-065, ADR-070): the business's own accounts that
-//! Plenipo signs in to for the owner — Microsoft 365, Slack, and Google — and the calls workers
-//! make through them.
+//! Connections (Phase 20; ADR-062 to ADR-065, ADR-070, ADR-071): the business's own accounts
+//! that Plenipo signs in to for the owner — Microsoft 365, Slack, Google, HubSpot, Stripe, and
+//! the website (WordPress and WooCommerce) — and the calls workers make through them.
 //!
 //! - **Signing in** happens in the owner's own browser ([`signin`]): Plenipo never sees a
-//!   password. The long-lived sign-in is kept only in the Vault ([`vault_id`]); the short-lived
+//!   password. HubSpot, Stripe, and the website connect with a key the owner types into the card
+//!   instead ([`keyed`]), checked once and kept only in the Vault. The long-lived sign-in is kept only in the Vault ([`vault_id`]); the short-lived
 //!   access token only in memory. Neither is ever recorded, shown, or given to a worker or a
 //!   program. A Google app's secret is kept only in the Vault too ([`app_secret_id`]).
 //! - **Calls** go through Plenipo's own client ([`http`]), each hop checked by Guard's gate for
@@ -13,10 +14,14 @@
 
 pub mod google;
 pub(crate) mod http;
+pub mod hubspot;
+pub mod keyed;
 pub mod microsoft365;
 pub mod signin;
 pub mod slack;
+pub mod stripe;
 pub(crate) mod text;
+pub mod wordpress;
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -48,13 +53,14 @@ pub fn app_secret_id(connection_id: &str) -> String {
     format!("connection-{connection_id}-app-secret")
 }
 
-/// Every Vault ID connections may keep for these connection IDs (a sign-in and an app's secret
-/// each), and each service's own, in case a value was kept before its connection was.
+/// Every Vault ID connections may keep for these connection IDs (a sign-in or key, an app's
+/// secret, and the website's WooCommerce key each), and each service's own, in case a value was
+/// kept before its connection was.
 pub fn vault_ids_of<'a>(connection_ids: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     let services = Service::ALL.iter().map(|s| s.id());
     for c in connection_ids.chain(services) {
-        for id in [vault_id(c), app_secret_id(c)] {
+        for id in [vault_id(c), app_secret_id(c), keyed::store_key_id(c)] {
             if !ids.contains(&id) {
                 ids.push(id);
             }
@@ -197,7 +203,9 @@ pub fn tools_of(service: Service) -> &'static [Tool] {
         Service::Microsoft365 => &microsoft365::TOOLS,
         Service::Slack => &slack::TOOLS,
         Service::Google => &google::TOOLS,
-        _ => &[],
+        Service::Hubspot => &hubspot::TOOLS,
+        Service::Stripe => &stripe::TOOLS,
+        Service::Wordpress => &wordpress::TOOLS,
     }
 }
 
@@ -211,13 +219,16 @@ pub fn tool(name: &str) -> Option<(Service, &'static Tool)> {
     })
 }
 
-/// The start of every tool name of `service`: "m365_", "slack_", "google_".
+/// The start of every tool name of `service`: "m365_", "slack_", "google_", "hubspot_",
+/// "stripe_", "wp_".
 pub fn tool_prefix(service: Service) -> &'static str {
     match service {
         Service::Microsoft365 => "m365_",
         Service::Slack => "slack_",
         Service::Google => "google_",
-        _ => "",
+        Service::Hubspot => "hubspot_",
+        Service::Stripe => "stripe_",
+        Service::Wordpress => "wp_",
     }
 }
 
@@ -262,8 +273,13 @@ pub fn permissions(service: Service, part: Part, level: PartLevel) -> &'static [
 }
 
 /// A part's level as far as the service allowed it at the last sign-in: a part turned on, or up
-/// to Full access, since then works at what the service granted until the owner reconnects.
+/// to Full access, since then works at what the service granted until the owner reconnects. A
+/// key's permissions were chosen in the service, so a keyed connection's part works as set (the
+/// service refuses what the key may not do, ADR-071 §6.8).
 pub fn allowed_level(conn: &Connection, part: Part) -> PartLevel {
+    if conn.service.uses_key() {
+        return conn.part(part);
+    }
     let granted = |level: PartLevel| {
         let need = permissions(conn.service, part, level);
         !need.is_empty()
@@ -296,17 +312,45 @@ fn part_words(service: Service, part: Part) -> (&'static str, &'static str) {
         Service::Microsoft365 => microsoft365::part_words(part),
         Service::Slack => slack::part_words(part),
         Service::Google => google::part_words(part),
-        _ => ("", ""),
+        Service::Hubspot => hubspot::part_words(part),
+        Service::Stripe => stripe::part_words(part),
+        Service::Wordpress => wordpress::part_words(part),
     }
 }
 
-fn permission_words(service: Service, name: &str) -> &'static str {
+fn permission_words(service: Service, name: &str) -> String {
     match service {
-        Service::Microsoft365 => microsoft365::permission_words(name),
-        Service::Slack => slack::permission_words(name),
-        Service::Google => google::permission_words(name),
-        _ => "",
+        Service::Microsoft365 => microsoft365::permission_words(name).into(),
+        Service::Slack => slack::permission_words(name).into(),
+        Service::Google => google::permission_words(name).into(),
+        Service::Hubspot => hubspot::permission_words(name).into(),
+        Service::Stripe => stripe::permission_words(name).into(),
+        Service::Wordpress => wordpress::permission_words(name),
     }
+}
+
+/// The permissions a keyed connection's key needs for its parts as set, in the service's words,
+/// for the card (the owner chooses them when making the key; ADR-071 §6.2–§6.3).
+pub fn key_permissions(conn: &Connection) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in conn.service.parts() {
+        let level = conn.part(*part);
+        if level == PartLevel::Off {
+            continue;
+        }
+        let full = level == PartLevel::FullAccess;
+        let need = match conn.service {
+            Service::Hubspot => hubspot::key_permissions(*part, full),
+            Service::Stripe => stripe::key_permissions(*part, full),
+            _ => Vec::new(),
+        };
+        for p in need {
+            if !out.iter().any(|o| o == p) {
+                out.push(p.to_owned());
+            }
+        }
+    }
+    out
 }
 
 // ---- What Settings shows -----------------------------------------------------------------------
@@ -328,6 +372,10 @@ pub struct ConnectionsPage {
     /// The app description (Slack's "manifest") to paste when a workspace makes its own Slack
     /// app for Plenipo (ADR-070 §3). Holds no secret.
     pub slack_manifest: String,
+    /// The owner's add-on programs (ADR-066): never a secret's value.
+    pub add_ons: Vec<plenipo_guard::AddOn>,
+    /// The stored secrets an add-on may be given, by name (only ones with a variable name).
+    pub secret_names: Vec<String>,
 }
 
 /// A service and its connections.
@@ -368,6 +416,14 @@ pub struct ConnectionCard {
     pub reconnect_for: Vec<String>,
     /// What the service granted, in its words and in plain words.
     pub granted: Vec<PermissionWords>,
+    /// A keyed connection (HubSpot, Stripe, the website): it connects with a key typed into the
+    /// card, not a sign-in in the browser.
+    pub uses_key: bool,
+    /// For a keyed connection: the permissions its key needs for the parts as set, in the
+    /// service's words (the owner chooses them when making the key).
+    pub key_needs: Vec<String>,
+    /// For the website: a WooCommerce key is kept.
+    pub store_key_kept: bool,
 }
 
 /// A part on a connection's card.
@@ -455,6 +511,9 @@ struct State {
     /// renewal that finishes after a newer one of these keeps nothing.
     turns: HashMap<String, u64>,
     next_turn: u64,
+    /// Keys the owner typed into a card this session, kept or not (memory only): hidden in any
+    /// text, so a key refused by its service is never written anywhere either.
+    typed: Vec<String>,
 }
 
 /// What the sign-ins are doing, read before the saved connections (see [`Connections::page`]).
@@ -649,7 +708,22 @@ impl Connections {
                 .ok()
                 .flatten()
             {
-                out.push((v, format!("{} sign-in", c.label())));
+                if c.service.uses_key() {
+                    // A key, and every form it may take on its way (ADR-071 §1).
+                    for form in keyed::key_forms(&v) {
+                        out.push((form, format!("{} key", c.label())));
+                    }
+                } else {
+                    out.push((v, format!("{} sign-in", c.label())));
+                }
+            }
+            if let Some(v) = vault::read(self.store.as_ref(), &keyed::store_key_id(&c.id))
+                .ok()
+                .flatten()
+            {
+                for form in keyed::key_forms(&v) {
+                    out.push((form, "WooCommerce key".into()));
+                }
             }
             if c.own_app.as_ref().is_some_and(|a| a.secret_kept) {
                 if let Some(v) = vault::read(self.store.as_ref(), &app_secret_id(&c.id))
@@ -660,11 +734,16 @@ impl Connections {
                 }
             }
         }
+        let s = lock(&self.state);
         out.extend(
-            lock(&self.state)
-                .tokens
+            s.tokens
                 .iter()
                 .map(|(id, (t, _))| (t.clone(), format!("{} sign-in", name_of(id)))),
+        );
+        out.extend(
+            s.typed
+                .iter()
+                .map(|t| (t.clone(), "a typed key".to_owned())),
         );
         out
     }
@@ -795,6 +874,12 @@ impl Connections {
     ) -> Result<(), String> {
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
         let service = conn.service;
+        if service.uses_key() {
+            return Err(format!(
+                "{} connects with a key: type it into its card, then press Save and check.",
+                conn.label()
+            ));
+        }
         let app_id = self.app_id(&conn).ok_or_else(|| {
             format!(
                 "This copy of Plenipo has no app ID for {} yet.",
@@ -1398,12 +1483,14 @@ impl Connections {
             kept = vault::read(self.store.as_ref(), &vault_id(id))
                 .ok()
                 .flatten();
-            erased = vault::erase(self.store.as_ref(), &vault_id(id)).map_err(|e| {
-                format!(
-                    "Plenipo could not remove the sign-in from {} ({e}).",
-                    self.store.label()
-                )
-            });
+            erased = vault::erase(self.store.as_ref(), &vault_id(id))
+                .and_then(|()| vault::erase(self.store.as_ref(), &keyed::store_key_id(id)))
+                .map_err(|e| {
+                    format!(
+                        "Plenipo could not remove the sign-in from {} ({e}).",
+                        self.store.label()
+                    )
+                });
         }
         self.changed();
         if let (Some(conn), Some(kept)) = (conn, kept) {
@@ -1415,6 +1502,11 @@ impl Connections {
             .unwrap_or_else(|_| Err(format!("{} took too long to answer", conn.label())));
             if let Err(why) = cancelled {
                 let words = match conn.service {
+                    Service::Wordpress => format!(
+                        "Plenipo removed the password from this computer, but could not revoke it \
+                         at your site ({why}). To be sure, revoke it in WordPress: Users, then \
+                         Profile, then Application Passwords, then Revoke."
+                    ),
                     Service::Slack => format!(
                         "Plenipo removed the sign-in from this computer, but could not cancel it \
                          at Slack ({why}). To be sure, remove Plenipo in Slack: your workspace's \
@@ -1435,7 +1527,10 @@ impl Connections {
 
     /// Cancel a sign-in at the service. Slack: `auth.revoke` for the long-lived sign-in (with
     /// token rotation Slack cancels only the one it is given, so the renewal itself), then for
-    /// the short-lived one still in memory. Google: its revoke address. Nothing is kept from it.
+    /// the short-lived one still in memory. Google: its revoke address. The website: the
+    /// Application Password Plenipo used, which WordPress names for it. HubSpot's and Stripe's
+    /// keys cannot be cancelled from outside (the card says where to delete them). Nothing is
+    /// kept from it.
     async fn cancel_at_service(
         &self,
         service: Service,
@@ -1497,6 +1592,50 @@ impl Connections {
                     Err(format!("Google answered {}", reply.status))
                 }
             }
+            Service::Wordpress => {
+                let site = self
+                    .guard()
+                    .connection("wordpress")
+                    .ok()
+                    .and_then(|c| c.site)
+                    .ok_or("the site's address is gone")?;
+                let (user, password) = kept.rsplit_once(':').ok_or("the password was not whole")?;
+                let auth = http::Auth::Basic { user, password };
+                let send = |method: reqwest::Method, url: String| async move {
+                    self.http
+                        .send_with(
+                            service,
+                            method,
+                            &url,
+                            Some(auth),
+                            &[],
+                            Body::None,
+                            MAX_TOKEN_ANSWER,
+                            true,
+                        )
+                        .await
+                        .map_err(|e| e.to_string())
+                };
+                let base = format!("{site}/wp-json/wp/v2/users/me/application-passwords");
+                let me = send(reqwest::Method::GET, format!("{base}/introspect")).await?;
+                // A password the site no longer takes is revoked already.
+                if me.status == 401 {
+                    return Ok(());
+                }
+                let uuid = me.json()["uuid"]
+                    .as_str()
+                    .filter(|u| {
+                        u.len() <= 40 && u.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                    })
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("your site answered {}", me.status))?;
+                let gone = send(reqwest::Method::DELETE, format!("{base}/{uuid}")).await?;
+                if gone.ok() || gone.status == 401 {
+                    Ok(())
+                } else {
+                    Err(format!("your site answered {}", gone.status))
+                }
+            }
             _ => Ok(()),
         }
     }
@@ -1527,6 +1666,9 @@ impl Connections {
         };
         let name = name_of(id);
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
+        if conn.service.uses_key() {
+            return Err(format!("{name} uses a key, not a sign-in."));
+        }
         match conn.state {
             ConnectionState::Connected => {}
             ConnectionState::NeedsSignIn => {
@@ -1867,6 +2009,13 @@ impl Connections {
             vault_available,
             vault_label: self.store.label().to_owned(),
             slack_manifest: slack::manifest(),
+            secret_names: config
+                .secrets
+                .iter()
+                .filter(|s| s.env_var.is_some())
+                .map(|s| s.name.clone())
+                .collect(),
+            add_ons: config.add_ons,
         })
     }
 
@@ -1903,11 +2052,17 @@ impl Connections {
             .iter()
             .map(|g| PermissionWords {
                 name: g.clone(),
-                words: permission_words(service, g).into(),
+                words: permission_words(service, g),
             })
             .collect();
+        let store_key_kept = service == Service::Wordpress
+            && c.state != ConnectionState::NotConnected
+            && c.granted.iter().any(|g| g == "woocommerce:key");
         ConnectionCard {
-            has_app: self.app_id(&c).is_some(),
+            uses_key: service.uses_key(),
+            key_needs: key_permissions(&c),
+            store_key_kept,
+            has_app: service.uses_key() || self.app_id(&c).is_some(),
             built_in_app: self.built_in_app(service).is_some(),
             signing_in: seen.waiting.contains(&c.id),
             admin_link: seen.admin.get(&c.id).cloned(),

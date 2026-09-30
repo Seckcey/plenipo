@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::add_ons::{AddOn, AddOnCheck, ToolMark};
 use crate::commands::{first_match, rule_matches, CommandLine};
 use crate::config::GuardConfig;
 use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, ConnectionVerdict};
@@ -171,6 +172,57 @@ pub fn level_for_connection(
     narrowed(config, scope, c, level, Layer::Role, note, checks)
 }
 
+/// The level `scope` has for `mcp.invoke` through `add_on` (ADR-066 §3): the add-on's **Who may
+/// use it** list grants — the agent's own line, else its role's — **Read only** for its Reading
+/// tools, **Read and write** for its Changing tools too (`changing`); the project's and the
+/// department's limits can only narrow it.
+pub fn level_for_add_on(
+    config: &GuardConfig,
+    scope: &Scope,
+    add_on: &AddOn,
+    changing: bool,
+) -> LevelFor {
+    let c = Capability::McpInvoke;
+    let what = if changing {
+        "using its Changing tools"
+    } else {
+        "using its Reading tools"
+    };
+    let name = format!("The add-on {}", add_on.name);
+    let role = format!("the {} role", scope.role_name);
+    let (level, note) = match add_on.line_for(scope.position_id.as_deref(), &scope.role_id) {
+        None => (
+            Level::Blocked,
+            format!("{name}'s Who may use it list does not include this agent or {role}"),
+        ),
+        Some(line) => {
+            let whose = match line.who {
+                connections::Who::Agent { .. } => "this agent".to_owned(),
+                connections::Who::Role { .. } => role,
+            };
+            let l = if !changing || line.level == AccessLevel::ReadWrite {
+                Level::Allowed
+            } else {
+                Level::Blocked
+            };
+            (
+                l,
+                format!(
+                    "{name}'s Who may use it list gives {whose} {}, which {}",
+                    line.level.words(),
+                    says(l, what)
+                ),
+            )
+        }
+    };
+    let checks = vec![Check {
+        layer: Layer::Role,
+        verdict: verdict_of(level),
+        note: note.clone(),
+    }];
+    narrowed(config, scope, c, level, Layer::Role, note, checks)
+}
+
 /// A worker's level after the project's and department's limits and the owner's switches,
 /// starting from what its grant gives (`granted`, decided by `granted_by`, `because` …).
 fn narrowed(
@@ -305,6 +357,8 @@ pub struct Request<'a> {
     pub server: Option<ServerCheck<'a>>,
     /// The connection it uses (Phase 20), checked against the owner's settings for it.
     pub connection: Option<ConnectionCheck<'a>>,
+    /// The add-on tool it uses (Phase 20 part 20C, ADR-066), checked against the owner's marks.
+    pub add_on: Option<AddOnCheck<'a>>,
 }
 
 /// A website an action opens or acts on.
@@ -452,6 +506,49 @@ pub fn evaluate(
                 connection_sensitive = sensitive;
                 connection_all_listed = all_listed;
             }
+        }
+    }
+    // An add-on's tool (ADR-066): the add-on on, the tool marked Reading or Changing. A Changing
+    // tool always asks (below): no switch lets an add-on change anything without asking, because
+    // Plenipo cannot see what the program does with the call (ADR-066 §4).
+    let mut add_on_asks = None;
+    if let Some(check) = &request.add_on {
+        let (a, t) = (check.add_on, check.tool);
+        if !a.on {
+            return decision(
+                Verdict::Deny,
+                Layer::Target,
+                format!(
+                    "Blocked: the add-on {} is off (Settings → Connections → Add-on tools).",
+                    a.name
+                ),
+                risk,
+                None,
+                checks,
+            );
+        }
+        match t.mark {
+            ToolMark::Off => {
+                let why = if t.changed {
+                    "changed since the owner last looked, so it is Off until they look again"
+                } else {
+                    "Off"
+                };
+                return decision(
+                    Verdict::Deny,
+                    Layer::Rule,
+                    format!(
+                        "Blocked: the add-on {}'s tool {} is {why} (Settings → Connections → \
+                         Add-on tools).",
+                        a.name, t.name
+                    ),
+                    risk,
+                    None,
+                    checks,
+                );
+            }
+            ToolMark::Changing => add_on_asks = Some(format!("{} from {}", t.name, a.name)),
+            ToolMark::Reading => {}
         }
     }
     if request.writes_git_dir {
@@ -612,6 +709,20 @@ pub fn evaluate(
         return decision(verdict, Layer::Risk, reason, risk, Some(kind), checks);
     }
     // Layer 6: the owner's explicit rules.
+    if let Some(tool) = add_on_asks {
+        return decision(
+            Verdict::Ask,
+            Layer::Rule,
+            format!(
+                "{} needs your approval: you marked the add-on tool {tool} Changing, so it asks \
+                 you every time.",
+                capitalized(request.summary)
+            ),
+            risk,
+            None,
+            checks,
+        );
+    }
     if let Some(why) = server_asks {
         return decision(
             Verdict::Ask,
@@ -730,9 +841,10 @@ pub fn evaluate(
     checks.push(Check {
         layer: Layer::Target,
         verdict: Verdict::Allow,
-        note: match &request.connection {
-            Some(c) => format!("through {}", c.connection.label()),
-            None => "inside the project folder".into(),
+        note: match (&request.connection, &request.add_on) {
+            (Some(c), _) => format!("through {}", c.connection.label()),
+            (None, Some(a)) => format!("through the add-on {}", a.add_on.name),
+            (None, None) => "inside the project folder".into(),
         },
     });
     decision(
@@ -799,6 +911,7 @@ mod tests {
             site: None,
             server: None,
             connection: None,
+            add_on: None,
         }
     }
 
@@ -874,6 +987,152 @@ mod tests {
                 revoked: false,
             },
         )
+    }
+
+    /// An add-on with one Reading and one Changing tool, on; the Documentation Writer role may
+    /// use its Reading tools, and one agent may use its Changing tools too.
+    fn add_on() -> AddOn {
+        use crate::add_ons::AddOnTool;
+        use crate::connections::Access;
+        let tool = |name: &str, mark| AddOnTool {
+            name: name.into(),
+            alias: format!("addon_tickets_{name}"),
+            mark,
+            description: String::new(),
+            input: serde_json::json!({ "type": "object" }),
+            read_only_hint: None,
+            destructive_hint: None,
+            changed: false,
+        };
+        AddOn {
+            id: "tickets".into(),
+            name: "Tickets".into(),
+            program: "/usr/local/bin/tickets-mcp".into(),
+            args: Vec::new(),
+            secrets: Vec::new(),
+            on: true,
+            tools: vec![
+                tool("lookup", ToolMark::Reading),
+                tool("create", ToolMark::Changing),
+                tool("purge", ToolMark::Off),
+            ],
+            access: vec![
+                Access {
+                    who: connections::Who::Role {
+                        id: "writer".into(),
+                    },
+                    level: AccessLevel::ReadOnly,
+                },
+                Access {
+                    who: connections::Who::Agent {
+                        id: "pos-rw".into(),
+                    },
+                    level: AccessLevel::ReadWrite,
+                },
+            ],
+            checked_at: Some(1),
+            added_at: 1,
+        }
+    }
+
+    fn add_on_eval(c: &GuardConfig, s: &Scope, a: &AddOn, tool: &str) -> Decision {
+        let t = a.tools.iter().find(|t| t.name == tool).unwrap();
+        let now = level_for_add_on(c, s, a, t.mark == ToolMark::Changing);
+        let mut r = request(Capability::McpInvoke, &[], None);
+        r.summary = "use the add-on tool";
+        r.add_on = Some(AddOnCheck { add_on: a, tool: t });
+        evaluate(
+            c,
+            &r,
+            &now,
+            GrantState {
+                level: now.level,
+                revoked: false,
+            },
+        )
+    }
+
+    /// ADR-066 §3–§4: an add-on's list grants; Reading tools go ahead, Changing tools need Read
+    /// and write and ask every time, whatever the switches say; an Off tool, an add-on that is
+    /// off, or a project limit without add-on tools refuses.
+    #[test]
+    fn add_on_tools_follow_their_list_and_changing_ones_always_ask() {
+        let mut c = config();
+        let mut a = add_on();
+        let reader = writer("pos-1", None);
+        let d = add_on_eval(&c, &reader, &a, "lookup");
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        let d = add_on_eval(&c, &reader, &a, "create");
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(d.reason.contains("Read only"), "{}", d.reason);
+        let rw = writer("pos-rw", None);
+        c.switches.send_without_asking = true;
+        c.switches.buy_without_asking = true;
+        let d = add_on_eval(&c, &rw, &a, "create");
+        assert_eq!(d.verdict, Verdict::Ask, "{}", d.reason);
+        assert!(d.reason.contains("asks you every time"), "{}", d.reason);
+        let d = add_on_eval(&c, &rw, &a, "purge");
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(d.reason.contains("is Off"), "{}", d.reason);
+        a.tools[2].changed = true;
+        let d = add_on_eval(&c, &rw, &a, "purge");
+        assert!(d.reason.contains("look again"), "{}", d.reason);
+        // Nobody else, and nothing while the add-on is off.
+        let dev = Scope {
+            position_id: Some("pos-dev".into()),
+            ..scope("dev", None)
+        };
+        let d = add_on_eval(&c, &dev, &a, "lookup");
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(d.reason.contains("Who may use it"), "{}", d.reason);
+        a.on = false;
+        let d = add_on_eval(&c, &rw, &a, "lookup");
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert!(d.reason.contains("is off"), "{}", d.reason);
+        a.on = true;
+        // A project limited to a set without add-on tools: none there.
+        let d = add_on_eval(&c, &writer("pos-rw", Some("developer")), &a, "lookup");
+        assert_eq!(d.verdict, Verdict::Deny);
+        assert_eq!(d.layer, Layer::Project);
+    }
+
+    /// Money through Stripe (or a store refund) always asks: with both switches on, the
+    /// customer on the list, and the worker at Read and write (the owner's rule, ADR-071 §6.3).
+    #[test]
+    fn stripe_money_always_asks_whatever_the_switches_and_lists_say() {
+        use crate::connections::{ConnectionState, Part, PartLevel, Service, ToolKind};
+        let mut c = config();
+        c.switches.send_without_asking = true;
+        c.switches.buy_without_asking = true;
+        let mut m = microsoft();
+        m.id = "stripe".into();
+        m.service = Service::Stripe;
+        m.parts = Service::Stripe.starting_parts();
+        m.parts.insert(Part::Payments, PartLevel::FullAccess);
+        m.state = ConnectionState::Connected;
+        m.account_kind = None;
+        m.send_list = vec!["alex@8westit.com".into()];
+        let s = writer("pos-1", None);
+        let to = vec!["alex@8westit.com".to_owned()];
+        let now = level_for_connection(&c, &s, &m, Capability::ConnectionsWrite);
+        let mut r = request(Capability::ConnectionsWrite, &[], None);
+        r.summary = "refund USD 25.00";
+        r.connection = Some(ConnectionCheck {
+            connection: &m,
+            part: Part::Payments,
+            kind: ToolKind::Pay,
+            recipients: &to,
+        });
+        let grant = GrantState {
+            level: now.level,
+            revoked: false,
+        };
+        let d = evaluate(&c, &r, &now, grant);
+        assert_eq!(d.verdict, Verdict::Ask, "{}", d.reason);
+        assert_eq!(d.sensitive, Some(SensitiveKind::Payment));
+        // The owner's Blocked rule for money refuses outright.
+        c.set_sensitive(SensitiveKind::Payment, SensitiveRule::Block);
+        assert_eq!(evaluate(&c, &r, &now, grant).verdict, Verdict::Deny);
     }
 
     /// ADR-062 §3: the connection's list grants — the agent's own line, else its role's — and a

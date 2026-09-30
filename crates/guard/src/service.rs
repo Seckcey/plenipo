@@ -113,22 +113,33 @@ impl Guard {
         purpose: crate::outbound::Purpose,
         address: &str,
     ) -> std::result::Result<crate::websites::Site, String> {
-        rules.check(purpose, address).inspect_err(|why| {
-            let host = crate::websites::Site::parse(address)
-                .map(|s| s.shown())
-                .unwrap_or_else(|_| "an address that is not a website".into());
-            let event = plenipo_ledger::NewEvent {
-                source: PLENIPO.into(),
-                event_type: "guard.request_refused".into(),
-                payload: serde_json::json!({
-                    "purpose": purpose.label(),
-                    "host": host,
-                    "reason": why,
-                }),
-                ..plenipo_ledger::NewEvent::default()
-            };
-            let _ = self.ledger().append_event(event);
-        })
+        // The website connection reaches only the address saved on its card (ADR-071 §4),
+        // read afresh for every hop.
+        let site_host = match purpose {
+            crate::outbound::Purpose::Connection(crate::connections::Service::Wordpress) => self
+                .config()
+                .ok()
+                .and_then(|c| c.connection("wordpress").and_then(|w| w.site_host())),
+            _ => None,
+        };
+        rules
+            .check_for(purpose, address, site_host.as_deref())
+            .inspect_err(|why| {
+                let host = crate::websites::Site::parse(address)
+                    .map(|s| s.shown())
+                    .unwrap_or_else(|_| "an address that is not a website".into());
+                let event = plenipo_ledger::NewEvent {
+                    source: PLENIPO.into(),
+                    event_type: "guard.request_refused".into(),
+                    payload: serde_json::json!({
+                        "purpose": purpose.label(),
+                        "host": host,
+                        "reason": why,
+                    }),
+                    ..plenipo_ledger::NewEvent::default()
+                };
+                let _ = self.ledger().append_event(event);
+            })
     }
 
     /// The stored configuration.
