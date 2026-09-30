@@ -1,7 +1,7 @@
-# Plenipo website: follow the latest published release (ADR-069).
+# Plenipo website: follow published releases and checked website changes (ADR-069).
 # Installed to /etc/systemd/system/ on Coastline; see docs/development/website.md.
 [Unit]
-Description=Plenipo website: show the latest published release and its notes
+Description=Plenipo website: publish checked website changes and release notes
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
