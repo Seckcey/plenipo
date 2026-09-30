@@ -86,21 +86,47 @@ impl PaidGate for Gate {
         if let Some(why) = not_allowed(&self.broker) {
             return Err(why);
         }
+        // The service's own address, checked by Guard here too (a refusal is recorded), before
+        // the helper checks it again.
+        if let Some(service) = PaidService::from_id(&charge.runtime_id) {
+            let address = format!("{}{}", service.base_url(), service.chat_path());
+            self.broker
+                .guard()
+                .check_outbound(
+                    &plenipo_guard::outbound::OutboundRules::default(),
+                    plenipo_guard::outbound::Purpose::PaidAi(service),
+                    &address,
+                )
+                .map_err(|why| {
+                    format!("Guard stopped the request to {}: {why}", service.label())
+                })?;
+        }
         let ledger = self.broker.guard().ledger();
+        let unread = |e: plenipo_ledger::LedgerError| {
+            format!("The task's record could not be read, so the task did not start ({e}).")
+        };
         // The position doing the work, and the team it counts for (the team it is lent to while
-        // on loan), from the task's own record.
+        // on loan), from the task's own record. A record that cannot be read stops the task:
+        // only the business's cap would count otherwise.
         let workforce = ledger
             .task(&charge.task_id)
-            .ok()
-            .flatten()
+            .map_err(unread)?
             .map(|t| t.metadata["workforce"].clone())
             .unwrap_or_default();
-        let position = workforce["positionId"]
-            .as_str()
-            .and_then(|id| ledger.position(id).ok().flatten().map(|p| (p.id, p.title)));
-        let department = workforce["departmentId"]
-            .as_str()
-            .and_then(|id| ledger.department(id).ok().flatten().map(|d| (d.id, d.name)));
+        let position = match workforce["positionId"].as_str() {
+            Some(id) => ledger
+                .position(id)
+                .map_err(unread)?
+                .map(|p| (p.id, p.title)),
+            None => None,
+        };
+        let department = match workforce["departmentId"].as_str() {
+            Some(id) => ledger
+                .department(id)
+                .map_err(unread)?
+                .map(|d| (d.id, d.name)),
+            None => None,
+        };
         let task = PaidTask {
             task_id: Some(charge.task_id.clone()),
             execution_id: None,
@@ -135,16 +161,22 @@ impl PaidGate for Gate {
             },
             PaidBill::NotSent => Bill::Released,
         };
-        match self
-            .broker
-            .guard()
-            .ledger()
-            .settle_spending(ticket, &bill, now_ms())
-        {
-            Ok(settled) => settled.passed,
-            Err(e) => {
-                log::warn!("a paid task's spending could not be recorded: {e}");
-                Vec::new()
+        // A busy Ledger gets two more tries: a bill left set aside counts only at what was set
+        // aside after a restart, even when the service billed more.
+        let ledger = self.broker.guard().ledger();
+        let mut tries = 0;
+        loop {
+            match ledger.settle_spending(ticket, &bill, now_ms()) {
+                Ok(settled) => return settled.passed,
+                Err(e) if tries < 2 => {
+                    tries += 1;
+                    log::warn!("a paid task's spending could not be recorded yet: {e}");
+                    std::thread::sleep(std::time::Duration::from_millis(200 * tries));
+                }
+                Err(e) => {
+                    log::warn!("a paid task's spending could not be recorded: {e}");
+                    return Vec::new();
+                }
             }
         }
     }
@@ -165,10 +197,27 @@ fn clean_key(key: &str) -> Result<String, String> {
     Ok(key.to_owned())
 }
 
+/// Saving and removing keys happen one at a time, so a rollback never undoes another save.
+static KEY_CHANGES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Erase `id` from the Vault; a failure is logged (the caller keeps a reference to it, or says
+/// so).
+fn erase_logged(store: &dyn vault::SecretStore, id: &str) -> bool {
+    match vault::erase(store, id) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("a paid key could not be erased from the Vault: {e}");
+            false
+        }
+    }
+}
+
 /// Save the paid key for `runtime_id` (replacing one saved before), typed only into Plenipo's
 /// own screen. Refused while paid keys are off or the business's cap does not exist. The key is
 /// put in the Vault, checked with one cheap read call, and kept only if the service accepts it;
-/// otherwise nothing changes. Never returns or records the key.
+/// otherwise nothing changes. Never returns or records the key. A key is never left in the Vault
+/// with nothing pointing to it: the one being replaced stays listed with the new one until the
+/// new one's check passes.
 pub async fn save_key(
     broker: &Broker,
     agents: &AgentRuntime,
@@ -182,40 +231,78 @@ pub async fn save_key(
         return Err(why);
     }
     let key = clean_key(key)?;
+    // A name that is the key itself (or any key the secret filter knows the look of) would be
+    // kept in the settings and the Ledger's record.
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 60 || trimmed.chars().any(char::is_control) {
+        return Err("A key's name is one line of 1 to 60 characters.".into());
+    }
+    let looks_secret = (broker.text_filter())(trimmed) != trimmed;
+    if looks_secret
+        || (trimmed.chars().count() >= MIN_KEY && (key.contains(trimmed) || trimmed.contains(&key)))
+    {
+        return Err(
+            "That name looks like the key itself: give the key a name such as \"Office key\"."
+                .into(),
+        );
+    }
+    let _one_at_a_time = KEY_CHANGES.lock().await;
     let store = broker.secret_store();
+    let label = store.label();
+    // A key a save left behind (Plenipo stopped during its check) goes first.
+    if let Some(left) = broker
+        .guard()
+        .config()
+        .ok()
+        .and_then(|c| c.paid_key(runtime_id).and_then(|k| k.replaces.clone()))
+    {
+        vault::erase(store.as_ref(), &left).map_err(|e| {
+            format!("An earlier key could not be removed from {label} ({e}); nothing was saved.")
+        })?;
+    }
     let id = plenipo_guard::paid::new_key_id();
     vault::put(store.as_ref(), &id, &key)
-        .map_err(|e| format!("The key could not be kept in the Vault ({e}); nothing was saved."))?;
+        .map_err(|e| format!("The key could not be kept in {label} ({e}); nothing was saved."))?;
     let (info, previous) = match broker.guard().save_paid_key(runtime_id, name, &id) {
         Ok(saved) => saved,
         Err(e) => {
-            let _ = vault::erase(store.as_ref(), &id);
+            erase_logged(store.as_ref(), &id);
             return Err(e.to_string());
         }
     };
     // Hidden from every log and record from now on, the check's included.
     broker.refresh_redactor();
-    let (_, checked) = agents
-        .recheck(runtime_id)
-        .await
-        .ok_or_else(|| format!("Plenipo has no AI tool called {runtime_id:?}"))?;
-    if checked.auth.state == AuthState::PaidKey {
-        if let Some(previous) = previous {
-            let _ = vault::erase(store.as_ref(), &previous.id);
+    let checked = agents.recheck(runtime_id).await.map(|(_, info)| info);
+    if checked
+        .as_ref()
+        .is_some_and(|c| c.auth.state == AuthState::PaidKey)
+    {
+        // The key it replaces goes now; if the Vault will not let it go, it stays listed with
+        // the new key, for the next save or Remove.
+        let erased = previous
+            .as_ref()
+            .is_none_or(|p| erase_logged(store.as_ref(), &p.id));
+        if erased {
+            let _ = broker.guard().confirm_paid_key(runtime_id, &id);
         }
         broker.refresh_redactor();
         return Ok(info);
     }
-    // Refused, or not checked: put everything back as it was.
-    let _ = broker.guard().remove_paid_key(runtime_id);
-    if let Some(previous) = &previous {
-        let _ = broker
-            .guard()
-            .save_paid_key(runtime_id, &previous.name, &previous.id);
-    }
-    let _ = vault::erase(store.as_ref(), &id);
+    // Refused, or not checked: put everything back as it was (unless another save has since).
+    let _ = broker.guard().restore_paid_key(
+        runtime_id,
+        &id,
+        previous.map(|p| PaidKeyInfo {
+            replaces: None,
+            ..p
+        }),
+    );
+    erase_logged(store.as_ref(), &id);
     broker.refresh_redactor();
     let _ = agents.recheck(runtime_id).await;
+    let Some(checked) = checked else {
+        return Err(format!("Plenipo has no AI tool called {runtime_id:?}"));
+    };
     let detail = checked.auth.detail.unwrap_or_default();
     Err(if checked.auth.state == AuthState::SignedOut {
         format!(
@@ -232,17 +319,35 @@ pub async fn save_key(
     .to_owned())
 }
 
-/// Remove the paid key for `runtime_id`: its reference, and the key in the Vault.
+/// Remove the paid key for `runtime_id`: the key in the Vault first (and any key it was
+/// replacing), then its reference, so a key the Vault would not let go stays listed, for Remove
+/// to try again.
 pub async fn remove_key(
     broker: &Broker,
     agents: &AgentRuntime,
     runtime_id: &str,
 ) -> Result<PaidKeyInfo, String> {
+    let _one_at_a_time = KEY_CHANGES.lock().await;
+    let store = broker.secret_store();
+    let saved = broker
+        .guard()
+        .config()
+        .map_err(|e| e.to_string())?
+        .paid_key(runtime_id)
+        .cloned()
+        .ok_or_else(|| "That AI tool has no paid key.".to_owned())?;
+    for id in saved.vault_ids() {
+        vault::erase(store.as_ref(), id).map_err(|e| {
+            format!(
+                "The key could not be removed from {} ({e}); it is still saved. Try again.",
+                store.label()
+            )
+        })?;
+    }
     let info = broker
         .guard()
         .remove_paid_key(runtime_id)
         .map_err(|e| e.to_string())?;
-    let _ = vault::erase(broker.secret_store().as_ref(), &info.id);
     broker.refresh_redactor();
     let _ = agents.recheck(runtime_id).await;
     Ok(info)

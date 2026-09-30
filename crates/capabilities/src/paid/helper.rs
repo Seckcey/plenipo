@@ -44,6 +44,8 @@ const MAX_PROMPT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CHECK_BYTES: usize = 8 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+/// The longest a request may go without a byte from the service.
+const READ_TIMEOUT: Duration = Duration::from_secs(300);
 /// At most this many models are listed from a check.
 const MAX_MODELS: usize = 1_000;
 
@@ -70,7 +72,7 @@ pub fn run(
     let Some(service) = args.first().and_then(|s| PaidService::from_id(s)) else {
         emit(
             out,
-            &json!({ "type": "error", "message": "Unknown paid AI service" }),
+            &json!({ "type": "error", "message": "Unknown paid AI service", "kind": "input" }),
         );
         return 2;
     };
@@ -78,7 +80,10 @@ pub fn run(
     let key = match read_key(input) {
         Ok(key) => key,
         Err(message) => {
-            emit(out, &json!({ "type": "error", "message": message }));
+            emit(
+                out,
+                &json!({ "type": "error", "message": message, "kind": "input" }),
+            );
             return 2;
         }
     };
@@ -90,7 +95,7 @@ pub fn run(
         Err(e) => {
             emit(
                 out,
-                &json!({ "type": "error", "message": format!("The helper could not start: {e}") }),
+                &json!({ "type": "error", "message": format!("The helper could not start: {e}"), "kind": "input" }),
             );
             return 1;
         }
@@ -107,7 +112,7 @@ pub fn run(
         _ => {
             emit(
                 out,
-                &json!({ "type": "error", "message": "Unknown paid helper command" }),
+                &json!({ "type": "error", "message": "Unknown paid helper command", "kind": "input" }),
             );
             2
         }
@@ -173,6 +178,8 @@ impl Client {
         let mut b = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
+            // A stalled answer ends instead of waiting for the task's time limit.
+            .read_timeout(READ_TIMEOUT)
             .user_agent(concat!("Plenipo/", env!("CARGO_PKG_VERSION")));
         if let Some(t) = timeout {
             b = b.timeout(t);
@@ -204,21 +211,84 @@ fn error_text(service: PaidService, status: u16, body: &str, key: &str) -> (Stri
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
-        .unwrap_or_else(|| body.chars().take(300).collect());
-    let message = hide(&message, key);
+        .unwrap_or_else(|| body.to_owned());
+    // Hidden before it is cut short, so no part of an echoed key is left past the cut.
+    let message: String = hide(&message, key).chars().take(300).collect();
     let label = service.label();
     match status {
-        401 | 403 => (
+        401 => (
             format!("{label} refused the key ({status}): it needs a new key. {message}"),
             "key",
+        ),
+        // Not the key: this request (a guardrail or moderation, as OpenRouter says).
+        403 => (
+            format!("{label} refused this request ({status}). {message}"),
+            "refused",
         ),
         402 => (
             format!("{label} says the account is out of credit (402). {message}"),
             "credit",
         ),
         429 => (format!("{label} usage limit (429): {message}"), "limit"),
+        // The request never reached a model (a model it does not have, or too long): nothing
+        // was billed.
+        400 | 404 | 413 | 422 => (
+            format!("{label} did not take this request ({status}): {message}"),
+            "input",
+        ),
         _ => (format!("{label} answered {status}: {message}"), "service"),
     }
+}
+
+/// When a usage limit resets, in milliseconds since 1970, from the service's headers:
+/// `X-RateLimit-Reset` (OpenRouter's, in milliseconds or seconds) or `Retry-After` (seconds).
+fn reset_at(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_millis(),
+    )
+    .ok()?;
+    let number = |name: &str| headers.get(name)?.to_str().ok()?.trim().parse::<u64>().ok();
+    if let Some(n) = number("x-ratelimit-reset") {
+        let ms = if n < 100_000_000_000 {
+            n.checked_mul(1000)?
+        } else {
+            n
+        };
+        return (ms > now).then_some(ms);
+    }
+    number("retry-after").and_then(|secs| now.checked_add(secs.checked_mul(1000)?))
+}
+
+/// Micros per million tokens as dollars per million tokens (3_000_000 → 3.0).
+fn per_million_dollars(micros: u64) -> f64 {
+    // Exact for every price a service lists (at most six decimals).
+    #[allow(clippy::cast_precision_loss)]
+    let dollars = micros as f64 / 1_000_000.0;
+    dollars
+}
+
+/// The request's whole bill, as exact decimal dollars: OpenRouter's own charge, plus what the
+/// AI company billed the owner's own key on OpenRouter, when the account uses one
+/// (`cost_details.upstream_inference_cost`). None when the service gave neither.
+fn service_bill(usage: &Value) -> Option<String> {
+    let micros = |v: Option<&Value>| -> Option<u64> {
+        let text = match v? {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            _ => return None,
+        };
+        plenipo_runtime::pricing::dollars_to_micros(&text)
+    };
+    let own = micros(usage.get("cost"));
+    let upstream = micros(usage.pointer("/cost_details/upstream_inference_cost"));
+    let total = match (own, upstream) {
+        (None, None) => return None,
+        (a, b) => a.unwrap_or(0).checked_add(b.unwrap_or(0))?,
+    };
+    Some(format!("{}.{:06}", total / 1_000_000, total % 1_000_000))
 }
 
 /// `text` with the key, and anything that starts like it, hidden.
@@ -350,11 +420,16 @@ fn models_from(service: PaidService, body: &str) -> Vec<Value> {
                 .or_else(|| m.get("display_name"))
                 .and_then(Value::as_str)
                 .map(|n| n.chars().take(120).collect::<String>());
-            let price = m.get("pricing").and_then(|p| {
+            let price = m.get("pricing").filter(|p| !extra_fees(p)).and_then(|p| {
+                let output = per_million(p, "completion")?;
+                // Thinking priced above the answer would not be covered either.
+                if per_million(p, "internal_reasoning").is_some_and(|r| r > output) {
+                    return None;
+                }
                 Some(json!({
                     "input": per_million(p, "prompt")?,
                     "cachedInput": per_million(p, "input_cache_read"),
-                    "output": per_million(p, "completion")?,
+                    "output": output,
                 }))
             });
             let _ = service;
@@ -367,6 +442,30 @@ fn models_from(service: PaidService, body: &str) -> Vec<Value> {
         })
         .take(MAX_MODELS)
         .collect()
+}
+
+/// A fee a model's price list names beyond its token prices: a charge per request or per web
+/// search, or other prices for some requests (`overrides`). Plenipo's most-a-request-can-cost
+/// covers tokens only, so such a model is not priced (ADR-085 §3.4).
+fn extra_fees(pricing: &Value) -> bool {
+    let nonzero = |k: &str| {
+        pricing.get(k).is_some_and(|v| {
+            let text = match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Null => return false,
+                _ => return true,
+            };
+            text.chars().any(|c| c.is_ascii_digit() && c != '0')
+        })
+    };
+    let overrides = pricing.get("overrides").is_some_and(|o| match o {
+        Value::Null => false,
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(m) => !m.is_empty(),
+        _ => true,
+    });
+    nonzero("request") || nonzero("web_search") || overrides
 }
 
 async fn read_capped(mut response: reqwest::Response, max: usize) -> Result<String, String> {
@@ -406,6 +505,15 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
         .unwrap_or(MAX_OUTPUT_TOKENS)
         .clamp(1, MAX_OUTPUT_TOKENS);
     let effort = flag(args, "--effort");
+    // The price set aside for (micros per million tokens): OpenRouter may not route the request
+    // anywhere dearer.
+    let price = match (
+        flag(args, "--price-input").and_then(|n| n.parse::<u64>().ok()),
+        flag(args, "--price-output").and_then(|n| n.parse::<u64>().ok()),
+    ) {
+        (Some(input), Some(output)) => Some((input, output)),
+        _ => None,
+    };
 
     let mut prompt = String::new();
     if input
@@ -448,7 +556,14 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
             ) }),
         );
     }
-    let (path, body) = request_body(client.service, &model, &sent, max_output, effort.as_deref());
+    let (path, body) = request_body(
+        client.service,
+        &model,
+        &sent,
+        max_output,
+        effort.as_deref(),
+        price,
+    );
     let address = match client.address(path) {
         Ok(a) => a,
         Err(e) => return fail(out, &e, "guard"),
@@ -485,8 +600,16 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
     };
     let status = response.status().as_u16();
     if status != 200 {
+        let reset = (status == 429)
+            .then(|| reset_at(response.headers()))
+            .flatten();
         let text = read_capped(response, 64 * 1024).await.unwrap_or_default();
         let (message, kind) = error_text(client.service, status, &text, &client.key);
+        // The reset time, in the form the Router reads ("…|<ms>").
+        let message = match reset {
+            Some(ms) => format!("{message}|{ms}"),
+            None => message,
+        };
         return fail(out, &message, kind);
     }
     let mut stream = Stream::new(client.service);
@@ -518,9 +641,35 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
         }
     }
     for event in stream.end() {
-        if let Event::Emit(v) = event {
-            emit(out, &v);
+        match event {
+            Event::Emit(v) => emit(out, &v),
+            Event::Failed(message) => {
+                let message = hide(&message, &client.key);
+                return fail(out, &message, "service");
+            }
         }
+    }
+    // Complete only when the service said it was done: `[DONE]`, the end message, or a reason
+    // it stopped. A cut-off answer is not a finished one.
+    if !stream.finished && stream.stop.is_none() {
+        return fail(
+            out,
+            &format!(
+                "{}'s answer ended before it was complete",
+                client.service.label()
+            ),
+            "service",
+        );
+    }
+    if stream.stop.as_deref() == Some("error") {
+        return fail(
+            out,
+            &format!(
+                "{} stopped the answer with an error",
+                client.service.label()
+            ),
+            "service",
+        );
     }
     let Some(usage) = stream.usage.take() else {
         return fail(
@@ -556,6 +705,7 @@ fn request_body(
     messages: &[Value],
     max_output: u64,
     effort: Option<&str>,
+    price: Option<(u64, u64)>,
 ) -> (&'static str, Value) {
     match service.protocol() {
         plenipo_guard::PaidProtocol::OpenAiChat => {
@@ -571,6 +721,15 @@ fn request_body(
                 body["usage"] = json!({ "include": true });
                 if let Some(level) = effort {
                     body["reasoning"] = json!({ "effort": level });
+                }
+                // Only where it costs no more than the price set aside for, and no fee for the
+                // request itself (dollars per million tokens, ADR-085 §2.5).
+                if let Some((input, output)) = price {
+                    body["provider"] = json!({ "max_price": {
+                        "prompt": per_million_dollars(input),
+                        "completion": per_million_dollars(output),
+                        "request": 0,
+                    } });
                 }
             } else if let Some(level) = effort {
                 body["reasoning_effort"] = json!(level);
@@ -675,7 +834,7 @@ impl Stream {
 
     fn event(&mut self, v: &Value) -> Vec<Event> {
         let mut events = Vec::new();
-        if let Some(e) = v.get("error") {
+        if let Some(e) = v.get("error").filter(|e| !e.is_null()) {
             let message = e
                 .get("message")
                 .and_then(Value::as_str)
@@ -707,16 +866,14 @@ impl Stream {
                     }
                 }
                 if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
-                    let n = |p: &str| u.pointer(p).and_then(Value::as_u64).unwrap_or(0);
-                    let cost = u.get("cost").map(|c| match c {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    });
+                    // Counts as the service gave them: a count it did not give stays unknown
+                    // (never taken as zero).
+                    let n = |p: &str| u.pointer(p).and_then(Value::as_u64);
                     self.usage = Some(json!({
                         "inputTokens": n("/prompt_tokens"),
-                        "cachedTokens": n("/prompt_tokens_details/cached_tokens"),
+                        "cachedTokens": n("/prompt_tokens_details/cached_tokens").unwrap_or(0),
                         "outputTokens": n("/completion_tokens"),
-                        "costDollars": cost,
+                        "costDollars": service_bill(u),
                     }));
                 }
             }
@@ -764,7 +921,12 @@ impl Stream {
     }
 
     fn end(&mut self) -> Vec<Event> {
-        let mut events = Vec::new();
+        // A last line without a line break.
+        let mut events = if self.pending.is_empty() || self.finished {
+            Vec::new()
+        } else {
+            self.feed(b"\n")
+        };
         self.flush_thinking(&mut events);
         events
     }
@@ -883,6 +1045,12 @@ mod tests {
             error_text(PaidService::OpenRouter, 429, "{}", KEY).1,
             "limit"
         );
+        // A page that is not JSON, echoing the key where the words are cut short: hidden first,
+        // so no part of it is left past the cut.
+        let page = format!("{}Authorization: Bearer {KEY}", "x".repeat(268));
+        let (text, _) = error_text(PaidService::OpenRouter, 500, &page, KEY);
+        assert!(!text.contains(&KEY[12..20]), "{text}");
+        assert!(!text.contains("sk-or"), "{text}");
     }
 
     #[test]
@@ -935,5 +1103,114 @@ mod tests {
         let mut s = Stream::new(PaidService::OpenRouter);
         let events = s.feed(b"data: {\"error\":{\"message\":\"Provider down\"}}\n");
         assert!(matches!(&events[0], Event::Failed(m) if m.contains("Provider down")));
+    }
+
+    #[test]
+    fn each_answer_says_what_it_means_and_what_was_billed() {
+        let kind = |status| error_text(PaidService::OpenRouter, status, "{}", KEY).1;
+        assert_eq!(kind(401), "key");
+        // Not the key: a guardrail or moderation refused this request.
+        assert_eq!(kind(403), "refused");
+        assert!(error_text(PaidService::OpenRouter, 403, "{}", KEY)
+            .0
+            .contains("refused this request"));
+        // Never reached a model: nothing billed.
+        for status in [400, 404, 413, 422] {
+            assert_eq!(kind(status), "input", "{status}");
+        }
+        // It may have reached a model: counted at the most it could have cost.
+        assert_eq!(kind(500), "service");
+    }
+
+    #[test]
+    fn a_usage_limit_says_when_it_resets() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let now = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let mut h = HeaderMap::new();
+        let at = now + 60_000;
+        h.insert(
+            "x-ratelimit-reset",
+            HeaderValue::from_str(&at.to_string()).unwrap(),
+        );
+        assert_eq!(reset_at(&h), Some(at));
+        let mut h = HeaderMap::new();
+        h.insert("retry-after", HeaderValue::from_static("30"));
+        let got = reset_at(&h).unwrap();
+        assert!(got >= now + 30_000 && got < now + 40_000, "{got}");
+        assert_eq!(reset_at(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn a_request_goes_nowhere_dearer_than_the_price_set_aside_for() {
+        let (_, body) = request_body(
+            PaidService::OpenRouter,
+            "moonshotai/kimi-k3",
+            &[],
+            16_000,
+            None,
+            Some((3_000_000, 15_000_000)),
+        );
+        assert_eq!(
+            body["provider"]["max_price"],
+            json!({ "prompt": 3.0, "completion": 15.0, "request": 0 })
+        );
+        assert_eq!(body["max_tokens"], 16_000);
+    }
+
+    #[test]
+    fn a_model_with_a_fee_beyond_its_token_prices_is_not_priced() {
+        let body = json!({ "data": [
+            { "id": "plain/model", "pricing": { "prompt": "0.000003", "completion": "0.000015",
+              "request": "0", "web_search": "0", "internal_reasoning": "0.000015" } },
+            { "id": "per/request", "pricing": { "prompt": "0.000003", "completion": "0.000015",
+              "request": "0.005" } },
+            { "id": "web/search", "pricing": { "prompt": "0.000003", "completion": "0.000015",
+              "web_search": "0.01" } },
+            { "id": "dear/thinking", "pricing": { "prompt": "0.000003", "completion": "0.000015",
+              "internal_reasoning": "0.00006" } },
+            { "id": "long/prompts", "pricing": { "prompt": "0.000003", "completion": "0.000015",
+              "overrides": [{ "prompt": "0.000006" }] } },
+        ] })
+        .to_string();
+        let models = models_from(PaidService::OpenRouter, &body);
+        assert_eq!(models[0]["price"]["output"], 15_000_000);
+        for m in &models[1..] {
+            assert!(m["price"].is_null(), "{m}");
+        }
+    }
+
+    #[test]
+    fn the_bill_adds_what_the_owners_own_key_was_billed() {
+        let usage =
+            json!({ "cost": "0.001", "cost_details": { "upstream_inference_cost": 0.019 } });
+        assert_eq!(service_bill(&usage).as_deref(), Some("0.020000"));
+        assert_eq!(
+            service_bill(&json!({ "cost": 0.5 })).as_deref(),
+            Some("0.500000")
+        );
+        assert_eq!(service_bill(&json!({})), None);
+    }
+
+    #[test]
+    fn the_last_line_needs_no_line_break_and_a_null_error_is_no_error() {
+        let mut s = Stream::new(PaidService::OpenRouter);
+        let events =
+            s.feed(b"data: {\"error\":null,\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n");
+        assert!(events.iter().all(|e| matches!(e, Event::Emit(_))));
+        s.feed(b"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1}}");
+        assert_eq!(s.stop, None, "not read until the stream ends");
+        s.end();
+        assert_eq!(s.stop.as_deref(), Some("stop"));
+        assert_eq!(s.answer, "Hi");
+        // Counts the service did not give stay unknown, never zero.
+        let mut s = Stream::new(PaidService::OpenRouter);
+        s.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3}}\n");
+        assert!(s.usage.as_ref().unwrap()["outputTokens"].is_null());
     }
 }

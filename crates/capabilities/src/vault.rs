@@ -107,6 +107,8 @@ pub struct MemorySecretStore {
     /// When set, longer values are refused, as Windows Credential Manager refuses more than
     /// 1,280 characters.
     pub limit: Option<usize>,
+    /// While set, deleting fails (a store that is locked for a moment; tests).
+    pub refuse_deletes: std::sync::atomic::AtomicBool,
 }
 
 impl MemorySecretStore {
@@ -155,6 +157,12 @@ impl SecretStore for MemorySecretStore {
     }
 
     fn delete(&self, id: &str) -> std::result::Result<(), String> {
+        if self
+            .refuse_deletes
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err("the store is locked".into());
+        }
         self.map()?.remove(id);
         Ok(())
     }
@@ -243,7 +251,7 @@ pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
                 .flat_map(|s| crate::broker::servers::vault_ids(&s.id)),
         )
         .chain(crate::connections::Connections::vault_ids(config))
-        .chain(config.paid_keys.iter().map(|k| k.id.clone()))
+        .chain(config.paid_keys.iter().flat_map(|k| k.vault_ids().cloned()))
         .collect()
 }
 
@@ -273,7 +281,27 @@ pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
             ids("connections").iter().map(String::as_str),
         ))
         .chain(ids("paidKeys"))
+        .chain(paid_replaced(settings))
         .collect()
+}
+
+/// The keys paid keys' references replace (kept until the new key's check passes), from the
+/// raw settings.
+fn paid_replaced(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("paidKeys")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|i| {
+                    i.get("replaces")
+                        .and_then(|r| r.as_str())
+                        .map(str::to_owned)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Remove every value Plenipo keeps for `config` (with their pieces). Returns how many were

@@ -41,6 +41,18 @@ use crate::makers::maker_of;
 pub struct ToolState {
     pub info: AgentRuntimeInfo,
     pub limit: Option<UsageLimit>,
+    /// A paid AI tool (ADR-085): paid per use with the owner's key, whatever its check says now
+    /// (signed out, checking, or ready).
+    pub paid: bool,
+}
+
+/// The paid AI tools this version has (ADR-085), by ID.
+pub fn paid_tool_ids() -> std::collections::HashSet<String> {
+    plenipo_runtime::agent::builtin_adapters()
+        .iter()
+        .filter(|a| a.paid())
+        .map(|a| a.id().to_owned())
+        .collect()
 }
 
 /// A department's rule, with what the reason calls it.
@@ -78,23 +90,24 @@ pub struct RouteInput<'a> {
     pub spending_room: Option<u64>,
 }
 
-/// A paid AI tool with the owner's key (ADR-085): pay per use, within the spending caps.
-pub(crate) fn is_paid(info: &plenipo_runtime::agent::AgentRuntimeInfo) -> bool {
-    info.auth.state == AuthState::PaidKey
-}
-
-/// The price of `model` on a paid AI tool, from what it reported (its default when none).
-fn priced(info: &plenipo_runtime::agent::AgentRuntimeInfo, model: Option<&str>) -> bool {
-    let reported = info
-        .reported_models
-        .as_ref()
-        .map(|r| r.models.as_slice())
-        .unwrap_or_default();
-    match model {
-        Some(name) => reported.iter().any(|m| m.name == name && m.price.is_some()),
-        // Its default model: Plenipo prices it before the task (the runtime refuses it if not).
-        None => true,
-    }
+/// The price of `model` on a paid AI tool, from what it reported, when it makes sense (the
+/// runtime refuses any other). `Some(None)` for its default model, which Plenipo prices right
+/// before the task (the runtime refuses it then if it has no price); None: not priced.
+fn paid_price(
+    info: &plenipo_runtime::agent::AgentRuntimeInfo,
+    model: Option<&str>,
+) -> Option<Option<plenipo_runtime::pricing::Price>> {
+    let Some(name) = model else {
+        return Some(None);
+    };
+    info.reported_models
+        .as_ref()?
+        .models
+        .iter()
+        .find(|m| m.name == name)
+        .and_then(|m| m.price)
+        .filter(plenipo_runtime::pricing::Price::is_sane)
+        .map(Some)
 }
 
 /// A worker on this AI tool answers in text only (its own words say so).
@@ -388,7 +401,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         // A paid route is used only where the owner listed it (ADR-085 §8), never picked from
         // the whole list.
         all.into_iter()
-            .filter(|m| tool(&m.runtime_id).is_none_or(|t| !is_paid(&t.info)))
+            .filter(|m| tool(&m.runtime_id).is_none_or(|t| !t.paid))
             .map(|m| Candidate {
                 id: &m.id,
                 rank: None,
@@ -432,12 +445,35 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         Some(made) => reviewed_unknown || reviewed.iter().any(|r| r.id == made.id),
     };
     if cross == CrossCompany::Prefer {
-        // Another company first, then the same one, and a model whose maker is not known last
-        // (ADR-081 §7).
-        candidates.sort_by_key(|c| match c.model {
-            Some(m) if maker(m).is_none() => 2,
-            Some(m) if same_company(m) => 1,
-            _ => 0,
+        // A paid route the owner listed after a subscription stays after it: preferring another
+        // company never turns subscription use into paid use (ADR-036 §2.6, ADR-085 §8).
+        let mut listed_subscription = false;
+        let behind: std::collections::HashSet<&str> = candidates
+            .iter()
+            .filter_map(|c| {
+                let paid = c
+                    .model
+                    .and_then(|m| tool(&m.runtime_id))
+                    .is_some_and(|t| t.paid);
+                if !paid {
+                    listed_subscription = true;
+                    None
+                } else {
+                    listed_subscription.then_some(c.id)
+                }
+            })
+            .collect();
+        // Then another company first, then the same one, and a model whose maker is not known
+        // last (ADR-081 §7).
+        candidates.sort_by_key(|c| {
+            (
+                behind.contains(c.id),
+                match c.model {
+                    Some(m) if maker(m).is_none() => 2,
+                    Some(m) if same_company(m) => 1,
+                    _ => 0,
+                },
+            )
         });
     }
 
@@ -547,16 +583,28 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 waiting = Some((info.provider.as_str(), info.label.clone()));
             }
             Some(format!("{} {}", info.label, limit_words(limit, input.now)))
-        } else if is_paid(info) && !priced(info, m.name.as_deref()) {
+        } else if t.paid && paid_price(info, m.name.as_deref()).is_none() {
             Some(
                 "it is not priced yet: Plenipo does not know what it costs, so it will not use a \
                  paid key for it"
                     .into(),
             )
-        } else if is_paid(info) && input.spending_room == Some(0) {
+        } else if t.paid && input.spending_room == Some(0) {
             Some(format!(
                 "{} is paid per use, and nothing is left this month under the spending caps \
                  covering this work",
+                info.label
+            ))
+        } else if t.paid
+            && input.spending_room.is_some_and(|room| {
+                paid_price(info, m.name.as_deref())
+                    .flatten()
+                    .is_some_and(|p| room < plenipo_runtime::agent::paid::smallest_step_cost(&p))
+            })
+        {
+            Some(format!(
+                "{} is paid per use, and too little is left this month under the spending caps \
+                 covering this work for even its shortest task",
                 info.label
             ))
         } else if let Some((_, tool_label)) = waiting.as_ref().filter(|(p, _)| *p != info.provider)
@@ -586,7 +634,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                         effort,
                         label: label.clone(),
                         maker: made_by.clone(),
-                        paid: is_paid(info),
+                        paid: t.paid,
                     },
                     c.rank,
                 ));
@@ -785,6 +833,7 @@ mod tests {
                 held: None,
             },
             limit: None,
+            paid: false,
         }
     }
 
@@ -1650,6 +1699,7 @@ mod tests {
     /// OpenRouter key, which is paid per use.
     fn three_ways() -> World {
         let mut paid = tool("openrouter", "openrouter");
+        paid.paid = true;
         paid.info.label = "OpenRouter".into();
         paid.info.auth.state = AuthState::PaidKey;
         paid.info.capabilities.tool_posture =
@@ -1808,5 +1858,76 @@ mod tests {
         let note = &d.candidates[0].note;
         assert!(note.contains("OpenRouter cannot take work now"), "{note}");
         assert!(note.contains("Paid AI keys are switched off"), "{note}");
+    }
+
+    #[test]
+    fn a_paid_route_with_less_left_than_its_shortest_task_is_skipped() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        // A tenth of a cent left; Kimi K3's shortest task sets aside about $0.24.
+        let d = with_room(&w, &prefer(&["k3-openrouter"]), Some(1_000));
+        assert_eq!(chosen(&d), None, "{}", d.reason);
+        let note = &d.candidates[0].note;
+        assert!(note.contains("too little is left this month"), "{note}");
+        // With enough left, it runs.
+        let d = with_room(&w, &prefer(&["k3-openrouter"]), Some(5_000_000));
+        assert_eq!(chosen(&d), Some("k3-openrouter"), "{}", d.reason);
+    }
+
+    #[test]
+    fn a_signed_out_paid_tool_is_never_among_the_whole_lists_choices() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        let paid = &mut w.tools[2].info;
+        paid.ready = false;
+        paid.auth.state = AuthState::SignedOut;
+        paid.auth.detail = Some("Paid AI keys are switched off.".into());
+        let d = with_room(&w, &RolePolicy::default(), None);
+        assert!(
+            d.candidates
+                .iter()
+                .all(|c| !c.model_id.contains("openrouter") && c.model_id != "unpriced"),
+            "{:?}",
+            d.candidates
+        );
+        assert!(!d.reason.contains("switched off"), "{}", d.reason);
+    }
+
+    #[test]
+    fn preferring_another_company_never_puts_a_listed_paid_route_before_a_subscription() {
+        let mut w = three_ways();
+        w.models.push(ModelInfo {
+            name: Some("qwen/qwen3.8-flash".into()),
+            maker: Some(Maker::new("alibaba", "Alibaba (Qwen)")),
+            ..model("qwen-openrouter", "openrouter", "Qwen3.8 Flash")
+        });
+        w.tools[2]
+            .info
+            .reported_models
+            .as_mut()
+            .unwrap()
+            .models
+            .push(KnownModel {
+                price: Some(plenipo_runtime::pricing::Price::per_million_dollars(1, 2)),
+                ..KnownModel::new("qwen/qwen3.8-flash", "Qwen3.8 Flash", &[])
+            });
+        let kimi_work = [WorkDoneBy::new("kimi", Some("kimi-code/k3"))];
+        // The owner listed Kimi's subscription first: reviewing Kimi's own work, another
+        // company is preferred, but not by turning to a paid route listed after it.
+        let preferring = RolePolicy {
+            cross_company: CrossCompany::Prefer,
+            ..prefer(&["k3-kimi", "qwen-openrouter"])
+        };
+        let d = review(&w, &preferring, &kimi_work);
+        assert_eq!(chosen(&d), Some("k3-kimi"), "{}", d.reason);
+        // Listed first by the owner, the paid route goes first.
+        let preferring = RolePolicy {
+            cross_company: CrossCompany::Prefer,
+            ..prefer(&["qwen-openrouter", "k3-kimi"])
+        };
+        let d = review(&w, &preferring, &kimi_work);
+        assert_eq!(chosen(&d), Some("qwen-openrouter"), "{}", d.reason);
     }
 }

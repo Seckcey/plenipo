@@ -20,5 +20,7 @@ export function useRun<T>(onApply: (value: T) => void) {
       setPending(false);
     }
   };
-  return { pending, error, run };
+  /** Put a shown refusal away (the owner cancelled what it was about). */
+  const clear = () => setError(null);
+  return { pending, error, run, clear };
 }

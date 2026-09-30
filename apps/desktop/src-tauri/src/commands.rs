@@ -1411,6 +1411,7 @@ pub async fn set_guard_options(
 #[tauri::command]
 pub async fn set_switches(
     broker: State<'_, Broker>,
+    agents: State<'_, AgentRuntime>,
     switches: Switches,
 ) -> Result<PermissionsSnapshot, CommandError> {
     let was = broker
@@ -1418,6 +1419,7 @@ pub async fn set_switches(
         .config()
         .map(|c| c.switches)
         .unwrap_or_default();
+    let paid_changed = was.paid_ai_keys != switches.paid_ai_keys;
     let (browser_off, desktop_off, servers_off) = (
         was.browser && !switches.browser,
         was.desktop && !switches.desktop,
@@ -1439,6 +1441,10 @@ pub async fn set_switches(
         b.switch_off_control(ControlKind::Server)
             .await
             .map_err(broker_error)?;
+    }
+    // Paid AI keys switched on or off: the paid AI tools say so at once (ADR-085).
+    if paid_changed {
+        crate::spending_commands::recheck_paid_tools(&agents);
     }
     Ok(snapshot)
 }

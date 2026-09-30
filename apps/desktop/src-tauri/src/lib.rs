@@ -257,12 +257,8 @@ pub fn configure<R: Runtime>(
                 ledger.clone(),
                 supervisor.clone(),
             );
-            if options.persistence == Persistence::AppData {
-                agent_host::detect_in_background(&agents);
-            }
             // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
             let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
-            tauri::async_runtime::spawn(liaison.clone().run());
             // Router (Phase 6): model registry and role model policies.
             let router = Router::new(ledger.clone(), agents.clone());
             // Guard and the capability broker (Phase 7): permissions, Plenipo's tools for
@@ -275,6 +271,13 @@ pub fn configure<R: Runtime>(
                 &agents,
             );
             guard_host::start(&broker);
+            // The AI tools are checked, and Liaison starts handing work on, once the paid gate is
+            // in place (guard_host::create), so a paid AI tool's first check can read its key
+            // (ADR-085).
+            if options.persistence == Persistence::AppData {
+                agent_host::detect_in_background(&agents);
+            }
+            tauri::async_runtime::spawn(liaison.clone().run());
             // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models.
             let ai_tools = ai_tools_host::create(&agents, &broker);
             ai_tools_host::listen(&ledger, &ai_tools);
@@ -1276,12 +1279,28 @@ mod ipc_boundary_tests {
     fn agent_runtimes_not_installed_refuse_work_clearly() {
         let app = app();
         let main = window(&app, "main");
-        // Tests see no installed runtimes (hermetic: no real CLI is ever started).
+        // Tests see no installed runtimes (hermetic: no real CLI is ever started). OpenRouter
+        // comes with Plenipo (ADR-086): installed, and not ready while paid keys are switched
+        // off, so nothing is started for it either.
         let runtimes: Vec<plenipo_runtime::agent::AgentRuntimeInfo> =
             body(invoke(&main, "refresh_agent_runtimes"));
-        assert!(runtimes
-            .iter()
-            .all(|r| r.installation.state == plenipo_runtime::agent::InstallState::NotInstalled));
+        for r in &runtimes {
+            if r.id == "openrouter" {
+                assert_eq!(
+                    r.installation.state,
+                    plenipo_runtime::agent::InstallState::Installed
+                );
+                assert_eq!(r.auth.state, plenipo_runtime::agent::AuthState::SignedOut);
+                assert!(!r.ready, "{r:?}");
+            } else {
+                assert_eq!(
+                    r.installation.state,
+                    plenipo_runtime::agent::InstallState::NotInstalled,
+                    "{}",
+                    r.id
+                );
+            }
+        }
         let err = invoke_json(
             &main,
             "start_agent_session",
@@ -5114,5 +5133,41 @@ mod ipc_boundary_tests {
             serde_json::json!({ "capId": cap }),
         ));
         assert!(!page.has_business_cap);
+    }
+
+    #[test]
+    fn a_paid_keys_name_is_one_short_line_and_never_the_key() {
+        let app = app();
+        let main = window(&app, "main");
+        let guard = app.state::<plenipo_guard::Guard>();
+        guard
+            .set_switches(&plenipo_guard::dto::Switches {
+                paid_ai_keys: true,
+                ..plenipo_guard::dto::Switches::default()
+            })
+            .unwrap();
+        let _: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "set_spending_cap",
+            serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": 50_000_000 }),
+        ));
+        for (name, why) in [
+            ("n".repeat(61), "at most 60 characters"),
+            ("Office\u{7}key".to_owned(), "one line"),
+            (TEST_KEY.to_owned(), "looks like the key itself"),
+        ] {
+            let err = invoke_json(
+                &main,
+                "save_paid_key",
+                serde_json::json!({ "runtimeId": "openrouter", "name": name, "key": TEST_KEY }),
+            )
+            .expect_err("refused");
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(said.contains(why), "{name:?}: {said}");
+            assert!(!said.contains(TEST_KEY), "{said}");
+        }
+        assert!(guard.config().unwrap().paid_keys.is_empty());
     }
 }

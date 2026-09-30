@@ -249,69 +249,118 @@ them. Confirmed findings were fixed with a test; one was refuted.
 
 ### Keys (typed only into Plenipo's own screen)
 
-- [ ] A paid key is saved from the AI tool's card, only while the switch is on and the business
+- [x] A paid key is saved from the AI tool's card, only while the switch is on and the business
       cap exists. It is checked with one cheap read call, then kept only in the Vault (its own
       names, `paid-key-…`, beside servers and connections). Settings keep a name, the AI tool it is
       for, and when it was saved; never the key.
-- [ ] The key is never shown again. Replace it or remove it. Uninstall's "delete my data" removes
+- [x] The key is never shown again. Replace it or remove it. Uninstall's "delete my data" removes
       it (`vault::stored_ids`).
-- [ ] The key is added to the secret filter, so it cannot appear in a log, the diagnostics file,
+- [x] The key is added to the secret filter, so it cannot appear in a log, the diagnostics file,
       the Ledger, or a task's activity, even if a service echoes it back.
-- [ ] The key reaches only its own helper, on the helper's standard input, only for that AI tool,
+- [x] The key reaches only its own helper, on the helper's standard input, only for that AI tool,
       only while the switch is on. It is never put in an environment variable or on a command line,
       so the contract suite's "no key variables" check stays unchanged for every AI tool.
 
 ### Routes (ADR-036 §4)
 
-- [ ] A route is one model, the AI tool that runs it, and how it is paid for (subscription or a
+- [x] A route is one model, the AI tool that runs it, and how it is paid for (subscription or a
       named paid key). Models that are the same model on different AI tools are linked (for
       example Kimi K3 on Kimi Code, on Ollama, and on OpenRouter), so the owner sees one model with
       more than one way to reach it.
-- [ ] A position's (or role's) list is in the owner's order. With the switch on and no order set,
+- [x] A position's (or role's) list is in the owner's order. With the switch on and no order set,
       subscriptions come first (ADR-036 §2.6).
-- [ ] The Router moves to the next route when one is usage-limited, signed out, over its cap, not
+- [x] The Router moves to the next route when one is usage-limited, signed out, over its cap, not
       priced yet, or its key is missing, and says why. Its reason names the route it chose, says
       whether it costs money, and says "text only" for a route without tools (choice 6).
-- [ ] A route over its cap is skipped until the month turns over or the cap is raised; a usage
+- [x] A route over its cap is skipped until the month turns over or the cap is raised; a usage
       limit is remembered with its reset time, as today.
 
 ### OpenRouter through a Plenipo helper (ADR-086)
 
-- [ ] A helper run per task (`plenipo-desktop --plenipo-paid openrouter check|chat`), supervised
+- [x] A helper run per task (`plenipo-desktop --plenipo-paid openrouter check|chat`), supervised
       like the Ollama helper: an ID, a time limit, cancel, the Ledger record, restart handling.
-- [ ] One fixed address (`https://openrouter.ai/api/v1/…`), no redirects followed. Guard gains a
+- [x] One fixed address (`https://openrouter.ai/api/v1/…`), no redirects followed. Guard gains a
       purpose for paid AI services with each company's own addresses; the app checks the address
       before the helper starts, and the helper checks it again before it connects. Refusals are
       recorded.
-- [ ] The secure connection uses Windows' own TLS through the `reqwest` library already in
+- [x] The secure connection uses Windows' own TLS through the `reqwest` library already in
       Plenipo, inside the helper only, never in the app itself.
-- [ ] The helper keeps the conversation in the session's folder, like the Ollama helper, and caps
+- [x] The helper keeps the conversation in the session's folder, like the Ollama helper, and caps
       the answer's length so the gate knows the most a task can cost.
-- [ ] Streamed answer, then the service's own bill for the request (usage with cost), recorded as
+- [x] Streamed answer, then the service's own bill for the request (usage with cost), recorded as
       the spending. Errors: `401` → "Needs a new key"; `402` → "out of credit on OpenRouter";
       `429` → usage limited, with the reset time when given.
-- [ ] The short model list (choice 7), each with its maker; any other model by its exact name;
+- [x] The short model list (choice 7), each with its maker; any other model by its exact name;
       prices from OpenRouter's public list before each task, capped in size.
-- [ ] An `openrouter` persona in `plenipo-fake-agent` and the full contract suite.
+- [x] An `openrouter` persona in `plenipo-fake-agent` and the full contract suite.
 
 ### Wave 1's leftover (choice 9)
 
 - [ ] Once the paid Ollama plan shows, the paid-plan models are checked against what Ollama lists,
-      and the "(paid plan)" labels follow what really answers.
+      and the "(paid plan)" labels follow what really answers. (The plan starts 2026-10-01; checked
+      then, before part 3 merges.)
 
 ### Tests
 
-- [ ] A key cannot be saved while no business cap exists, or while the switch is off.
-- [ ] No key, and no part of a key, appears in the Ledger, a task's activity, a log, or the
+- [x] A key cannot be saved while no business cap exists, or while the switch is off.
+- [x] No key, and no part of a key, appears in the Ledger, a task's activity, a log, or the
       diagnostics file.
-- [ ] Route fallback: first route usage-limited → second route runs, and the reason says so.
-- [ ] Route fallback: first route over its cap → skipped until the cap resets or is raised.
-- [ ] The owner's example: Kimi Code usage-limited → Kimi K3 on Ollama carries the work (stand-ins).
-- [ ] A paid task records what it spent, against which caps, and which key by name.
-- [ ] The contract suite still refuses key variables for every subscription AI tool; the OpenRouter
+- [x] Route fallback: first route usage-limited → second route runs, and the reason says so.
+- [x] Route fallback: first route over its cap → skipped until the cap resets or is raised.
+- [x] The owner's example: Kimi Code usage-limited → Kimi K3 on Ollama carries the work (stand-ins).
+- [x] A paid task records what it spent, against which caps, and which key by name.
+- [x] The contract suite still refuses key variables for every subscription AI tool; the OpenRouter
       helper passes the suite with its own persona.
-- [ ] IPC tests for the key commands; Vitest for the key form, routes, and the reason's words;
-      end-to-end in the real app with the fake persona.
+- [x] IPC tests for the key commands; Vitest for the key form, routes, and the reason's words;
+      end-to-end in the real app: OpenRouter's card with paid keys switched off (the key form
+      locked, nothing sent). A key saved and a paid task run end to end use the fake helper in the
+      contract suite, since the real app's helper would reach OpenRouter itself.
+
+## Review of part 2
+
+Five reviewers each read part 2 for one area: secrets and the Vault, money and caps, Guard and the
+network, desktop commands and routes, and the screens and words. A second reviewer then checked
+every finding against the code (and OpenRouter's own documentation where it mattered), and said
+confirmed, plausible, or refuted. Confirmed and plausible findings were fixed with a test, or are
+listed below as a limit.
+
+| Area    | Finding                                                                                              | Second reviewer           | What was done                                                                                                                                |
+| ------- | ---------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network | The key check's price list (464 models, about 71 KB) was cut at 64 KB, so no key could be saved      | Confirmed (high)          | A paid check keeps up to 1 MB and gets 75 seconds; a test with 1,000 models                                                                  |
+| Money   | OpenRouter could send a request to a dearer company, or add a fee, past what was set aside           | Confirmed (high)          | Each request carries the price set aside as its most (`max_price`, no request fee); a model with a fee beyond its token prices is not priced |
+| Money   | With the owner's own company keys on OpenRouter, the bill read was only OpenRouter's 5%              | Confirmed (high, if used) | The bill adds what the company billed (`upstream_inference_cost`)                                                                            |
+| Routes  | A paid route was still chosen with less left than its shortest task, and failed every time           | Confirmed (medium)        | Skipped when less is left than its shortest task could cost, and the reason says so                                                          |
+| Routes  | Paid keys switched on or off, or the business cap set, did not refresh OpenRouter                    | Partly confirmed          | OpenRouter is checked again at once when either changes                                                                                      |
+| Routes  | At startup the first check could run before the paid gate existed                                    | Confirmed (medium)        | The AI tools are checked, and Liaison starts, after the gate is in place                                                                     |
+| Network | 403 (a guardrail or moderation) said "needs a new key"                                               | Confirmed (medium)        | "Refused this request", not billed, and the key is kept                                                                                      |
+| Network | A usage limit's reset time was not read                                                              | Confirmed (medium)        | Read from `X-RateLimit-Reset` or `Retry-After`, so OpenRouter is held only until then                                                        |
+| Network | Requests that never reached a model (400, 404, 413, 422) counted at the most they could cost         | Plausible                 | Not billed; counted as not sent                                                                                                              |
+| Secrets | A removed key stayed in Windows Credential Manager if the delete failed, with nothing pointing to it | Confirmed (medium)        | The key is erased first; if that fails it stays listed, and Remove says so                                                                   |
+| Secrets | Two saves at once could undo each other and leave a key unlisted                                     | Plausible                 | Saves and removes take turns; a failed check puts back only its own save                                                                     |
+| Secrets | Plenipo stopping during a key's check left the old key unlisted                                      | Confirmed (low)           | The new key's record keeps the old one's name until the check passes (`replaces`)                                                            |
+| Secrets | An echoed key cut short before it was hidden                                                         | Confirmed (low)           | Hidden first, then cut                                                                                                                       |
+| Secrets | A key pasted as its name would be kept in the Ledger                                                 | Plausible                 | A name that looks like a key is refused before anything is kept                                                                              |
+| Money   | Missing token counts priced as zero                                                                  | Confirmed (low)           | Without both counts or the service's bill, the step is "not priced yet"                                                                      |
+| Money   | Words in a conversation file other than plain text counted as nothing                                | Plausible                 | The file keeps only each message's role and words, and only its newest part                                                                  |
+| Money   | A task's record that could not be read left only the business cap                                    | Confirmed (low)           | The step does not start                                                                                                                      |
+| Money   | A bill the Ledger was too busy to record was lost                                                    | Confirmed (low)           | Two more tries                                                                                                                               |
+| Money   | Helper errors before sending counted at the most                                                     | Confirmed (low)           | Counted as not sent                                                                                                                          |
+| Network | No time limit while an answer was silent; a cut-off answer could pass as finished                    | Plausible                 | Five minutes without a byte ends it; an answer counts only when the service said it was done                                                 |
+| Network | The app did not check or record the address before the helper                                        | Confirmed (low)           | The gate checks it with Guard, which records a refusal                                                                                       |
+| Routes  | "Prefer another company" could put a listed paid route before a subscription listed first            | Plausible                 | A paid route listed after a subscription stays after it                                                                                      |
+| Routes  | A signed-out OpenRouter showed among the whole list's choices                                        | Confirmed (nit)           | A paid AI tool is known by what it is, not by its sign-in                                                                                    |
+| Screens | "Vault" on screen; the words said the key is kept before it is checked                               | Confirmed (medium)        | "If it works, it is kept in Windows Credential Manager"                                                                                      |
+| Screens | The card flickered to sign-in words while loading; the pill and the key check could disagree         | Confirmed (medium)        | Rows wait for the page; switched off counts as "Key not in use" everywhere                                                                   |
+| Screens | Old refusal and old name stayed after Cancel or Remove; button names; two "Spending caps" buttons    | Confirmed (low)           | Cleared; "Replace key for OpenRouter"; "Open Switches" and "Open Spending caps"                                                              |
+| Screens | "$3.00 in, $15.00 out"                                                                               | Nit                       | "$3.00 a million tokens read, $15.00 a million written", as the word list says                                                               |
+| Secrets | Another secret's save could overwrite a paid key                                                     | Refuted                   | A secret's name never matches a paid key's                                                                                                   |
+
+**Limits, recorded:** some companies behind OpenRouter do not count thinking inside the answer's
+length limit, so such a model's thinking can pass what was set aside (the bill is still recorded
+as it came); an on-demand overseer from another department is counted by the Router against its
+own department, while the gate counts the team's (the gate decides, so nothing is overspent); a
+bill still unrecorded after three tries counts only at what was set aside; and the key form's
+Ledger and Vault writes run on a background worker, not the window.
 
 ## Pull request 3 — direct keys and v1.16.0 (ADR-087)
 

@@ -136,7 +136,7 @@ pub async fn save_paid_key(
     key: String,
 ) -> Result<AiToolsPage, CommandError> {
     validate_runtime_id(&runtime_id)?;
-    if name.chars().count() > 60 {
+    if name.trim().chars().count() > 60 {
         return Err(CommandError::invalid_input(
             "A key's name is at most 60 characters.",
         ));
@@ -177,7 +177,7 @@ mod tests {
             .skip(1)
             .map(|rest| rest.lines().next().unwrap_or_default())
             .collect();
-        assert_eq!(commands.len(), 8, "{commands:?}");
+        assert_eq!(commands.len(), 10, "{commands:?}");
         for line in commands {
             assert!(line.starts_with("pub async fn "), "not async: {line}");
         }

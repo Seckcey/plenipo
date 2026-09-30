@@ -192,6 +192,9 @@ pub struct AiToolState {
     /// Why a paid AI tool's key cannot be saved or used now (paid keys switched off, or no
     /// business cap), in plain words.
     pub paid_blocked: Option<String>,
+    /// Where a paid AI tool's key is kept, as the screen names it ("Windows Credential
+    /// Manager"); none for a subscription AI tool.
+    pub key_kept_in: Option<String>,
     /// The tool has its own list of models (Claude Code's come with Plenipo's updates).
     pub has_model_list: bool,
     /// Asking for its models leaves an empty conversation in its history (Kimi), so Plenipo
@@ -518,6 +521,7 @@ impl AiTools {
         let stored = self.stored();
         let guard_config = self.inner.broker.guard().config().ok();
         let paid_blocked = crate::paid::not_allowed(&self.inner.broker);
+        let kept_in = self.inner.broker.secret_store().label().to_owned();
         let live = lock(&self.inner.live);
         let tools = plenipo_runtime::agent::builtin_adapters()
             .into_iter()
@@ -557,6 +561,7 @@ impl AiTools {
                         .filter(|_| a.paid())
                         .and_then(|c| c.paid_key(id).cloned()),
                     paid_blocked: paid_blocked.clone().filter(|_| a.paid()),
+                    key_kept_in: a.paid().then(|| kept_in.clone()),
                     has_model_list: !matches!(
                         a.status_check(std::path::Path::new(".")),
                         StatusCheck::None

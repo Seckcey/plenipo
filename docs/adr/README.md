@@ -92,4 +92,5 @@ architecture must be recorded here.
 | [083](ADR-083-github-copilot-as-an-ai-tool.md)           | GitHub Copilot as an AI tool, checked before every task over its two-way link (amends 014)    | Proposed |
 | [084](ADR-084-cursor-agent-waits.md)                     | Cursor's agent waits: no check a program can run for paid extra use                           | Accepted |
 | [085](ADR-085-paid-ai-keys-with-spending-caps.md)        | Paid AI keys with spending caps and a record of every paid task (amends 003, 007, 011, 014)   | Proposed |
+| [086](ADR-086-openrouter-through-a-plenipo-helper.md)    | OpenRouter through a Plenipo helper: one fixed address, the key on standard input             | Proposed |
 | [090](ADR-090-phase-21-alongside-phase-16-wave-2.md)     | Building Phase 21 alongside Phase 16's second wave; ADR-090 to 099 for Phase 21 (amends 039)  | Accepted |

@@ -86,7 +86,9 @@ export function Overview({
     <dl className="kv ai-tool__facts">
       <dt>{paid ? "Key check" : "Sign-in"}</dt>
       <dd>
-        {paid && tool ? (
+        {!tool ? (
+          <span className="muted">Loading…</span>
+        ) : paid ? (
           <KeyCheck info={info} tool={tool} checking={checking} />
         ) : (
           <SignIn info={info} checking={checking} />
@@ -94,7 +96,9 @@ export function Overview({
       </dd>
       <dt>Version</dt>
       <dd>
-        {tool?.builtIn ? (
+        {!tool ? (
+          <span className="muted">Loading…</span>
+        ) : tool.builtIn ? (
           <div>Comes with Plenipo {info.checkedVersion}</div>
         ) : (
           <div>
@@ -118,7 +122,14 @@ export function Overview({
         {!tool ? (
           <span className="muted">Loading…</span>
         ) : paid ? (
-          <PaidKey info={info} tool={tool} onApply={onApply} go={go} />
+          // A new instance for each saved key: nothing typed for the last one stays.
+          <PaidKey
+            key={tool.paidKey?.id ?? "no key"}
+            info={info}
+            tool={tool}
+            onApply={onApply}
+            go={go}
+          />
         ) : (
           <>
             <div>
@@ -183,7 +194,8 @@ function KeyCheck({
   checking: boolean;
 }) {
   if (checking) return <>Checking…</>;
-  if (info.ready) {
+  // Switched off (or no business cap) since the last check: not in use, whatever it said.
+  if (info.ready && tool.paidBlocked === null) {
     return <>Your key works{info.checkedAt ? ` (checked at ${when(info.checkedAt)})` : ""}.</>;
   }
   // Switched off or no business cap: the notice below says so once.

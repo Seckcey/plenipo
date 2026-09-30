@@ -13,9 +13,9 @@
   [ADR-011 (how Plenipo picks each worker's model)](ADR-011-model-policy-routing.md), and
   [ADR-014 (adding AI tools)](ADR-014-adding-ai-tools.md) bar item 3 (subscription sign-in only).
   It amends them; it does not rewrite them (§8).
-- **With:** [ADR-086 (OpenRouter through a Plenipo helper)](../phases/phase-16-wave-3-checklist.md)
+- **With:** [ADR-086 (OpenRouter through a Plenipo helper)](ADR-086-openrouter-through-a-plenipo-helper.md)
   and [ADR-087 (direct keys for every AI company whose models take one)](../phases/phase-16-wave-3-checklist.md),
-  written when their parts of Wave 3 are built.
+  written when its part of Wave 3 is built.
 
 > **On screen** (ADR-010, plain words and rank names): **Spending caps**, **a monthly cap**, **the
 > business's cap**, **Let workers use paid AI keys**, **set aside**, **not priced yet**, **80% of
@@ -161,10 +161,16 @@ paid (stricter than ADR-036 §2.4's "declares the variables it needs").
 
 A route is one model, the AI tool that runs it, and how it is paid for (a subscription or a named
 paid key). The same model on different AI tools is shown as one model with more than one way to
-reach it. A position's list is in the owner's order; with the switch on and no order set,
-subscriptions come first (ADR-036 §2.6). The Router moves to the next route when one is
-usage-limited, signed out, over its cap, not priced yet, or has no key, and its reason names the
-route it chose, says whether it costs money, and says "text only" for a route without tools.
+reach it (each AI tool's list names it by one short name, such as `kimi-k3`, and its card says
+where else it runs). A position's list is in the owner's order. **A paid route is used only where
+the owner listed it** (a position's, role's, department's, or the business's list, or a position
+set to always use it), never picked from the whole list of models, so with no order set,
+subscriptions come first (ADR-036 §2.6) and no paid route runs at all. The Router moves to the
+next route when one is usage-limited, signed out, over its cap, not priced yet, or has no key, and
+its reason names the route it chose, says whether it costs money ("It costs money: it is paid per
+use with your key, within your spending caps."), and says "A worker on it answers in text only."
+for a route without tools. A paid AI tool is ready only with its key: a check that claims a
+subscription for it is not believed.
 
 ### 7. Paid helpers (parts 2 and 3)
 
@@ -234,7 +240,8 @@ Workers on a paid route answer in text only in this wave (choice 6).
   Settings → **Spending caps**; the switch in Settings → Switches; the banner on every page; the
   notice choice in Settings → Notifications. On start, money left set aside is counted (§4).
 - The AI tools page's paid-key switch stays locked ("Comes in a later update, within your spending
-  caps") until part 2.
+  caps") until part 2. (Part 2 replaced it: a subscription AI tool's card says it always uses the
+  subscription, and a paid AI tool's card has the key form.)
 - Tests: the gate and the hard stop, caps for the business, a department, and a position, 80% and
   100% once a month, a bill over what was set aside, raising a cap, not priced yet, restart
   handling, settled rows never change, Pacific months and daylight saving time, exact prices;
@@ -249,3 +256,39 @@ Workers on a paid route answer in text only in this wave (choice 6).
   leaving this run's tasks alone (§4); spending in the export; and on the page, a cap on an
   inactive department shown, positions named with their department, amounts with commas only in
   groups of three, and the page and banner looking again when the month starts over.
+
+**Part 2 (2026-09-30), keys, routes, and OpenRouter** (the helper itself is in
+[ADR-086](ADR-086-openrouter-through-a-plenipo-helper.md#as-built)):
+
+- Keys (§5): `crates/capabilities/src/paid/mod.rs` saves a key only while the switch is on and the
+  business cap exists: into the Vault first, then OpenRouter checks it, then its reference is kept
+  in Guard's settings (name, AI tool, times), and a refused key is erased again. Replacing a key
+  erases the old one; removing it erases it from the Vault. Paid keys are in the secret filter
+  (`Broker::refresh_redactor`) and in `vault::stored_ids`, so Uninstall's "delete my data"
+  removes them. The business cap cannot be removed while a key is saved (IPC test).
+- The gate (§2.5): before each step of a paid task, the runtime asks the paid gate
+  (`PaidGate`) to set aside the most the step could cost at the model's price, for the task's
+  position and department (from the task's own record) and the business; after the step, the
+  service's bill (or the price list's) settles it. A step that could not start is not charged.
+- Routes (§6): `RouteInput.spending_room` (the smallest amount left under the caps covering the
+  work, `Ledger::spending_room`), `RouteChoice.paid`, and the reason's words; a paid route
+  skipped when not priced or when nothing is left, and never taken from the whole list.
+- Screens: OpenRouter's card on the AI tools page (**Key check**, **Comes with Plenipo**, the key
+  form with **Save and check**, **Replace key**, and **Remove key** that asks first, and a notice
+  with **Open Switches** and **Open Spending caps** while paid keys cannot be used), prices on
+  paid models ("$3.00 a million tokens read, $15.00 a million written"), and "also on …" for the
+  same model on other AI tools.
+- Tests: the Router (a paid route only where listed; the owner's example, Kimi usage-limited and
+  the Ollama plan carrying the work; a paid route next, with "It costs money"; skipped over its
+  cap, not priced, or without its key), the contract suite with a paid stand-in (the key only on
+  standard input, every step set aside and settled), keys saved, refused, replaced, and removed,
+  IPC tests for the key commands, and the screens.
+- **The review** (five reviewers — secrets and the Vault, money and caps, Guard and the network,
+  desktop commands and routes, and the screens — with each finding checked by a second reviewer;
+  details in the [checklist](../phases/phase-16-wave-3-checklist.md#review-of-part-2)) led to:
+  each request carrying the price set aside as its most, and models with other fees not priced
+  (§3.4); the whole bill when the owner's own company keys are used on OpenRouter (§3.3); a paid
+  route skipped when less is left than its shortest task (§6); OpenRouter checked again when paid
+  keys or the business cap change, and after the gate exists at startup; keys erased before they
+  are forgotten, saves taking turns, and the replaced key kept listed until the new one's check
+  passes (§5); and on screen, Windows Credential Manager by name.

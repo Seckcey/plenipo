@@ -111,6 +111,19 @@ pub struct PaidKeyInfo {
     pub created_at: u64,
     #[ts(type = "number")]
     pub updated_at: u64,
+    /// The key this one replaces, kept in the Vault until this one's check passes, then erased
+    /// (a key is never left in the Vault with nothing pointing to it, even if Plenipo stops
+    /// during the check).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub replaces: Option<String>,
+}
+
+impl PaidKeyInfo {
+    /// Every Vault name this reference holds: the key, and the one it replaces, if any.
+    pub fn vault_ids(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.id).chain(self.replaces.iter())
+    }
 }
 
 /// The Vault's name for a new paid key.

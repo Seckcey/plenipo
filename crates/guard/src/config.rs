@@ -1161,9 +1161,41 @@ impl GuardConfig {
             name,
             created_at: previous.as_ref().map_or(now, |p| p.created_at),
             updated_at: now,
+            replaces: previous.as_ref().map(|p| p.id.clone()),
         };
         self.paid_keys.push(key.clone());
         Ok((key, previous))
+    }
+
+    /// The key `id` passed its check: forget the one it replaced (already erased from the Vault)
+    /// and return its name. Nothing changes when a later save has replaced `id` since.
+    pub fn confirm_paid_key(&mut self, runtime_id: &str, id: &str) -> Option<String> {
+        self.paid_keys
+            .iter_mut()
+            .find(|k| k.runtime_id == runtime_id && k.id == id)
+            .and_then(|k| k.replaces.take())
+    }
+
+    /// The key `id` did not pass its check: put `previous` back. Only while `id` is still the
+    /// saved one (a save made meanwhile stays). Returns whether anything changed.
+    pub fn restore_paid_key(
+        &mut self,
+        runtime_id: &str,
+        id: &str,
+        previous: Option<PaidKeyInfo>,
+    ) -> bool {
+        let Some(i) = self
+            .paid_keys
+            .iter()
+            .position(|k| k.runtime_id == runtime_id && k.id == id)
+        else {
+            return false;
+        };
+        self.paid_keys.remove(i);
+        if let Some(previous) = previous {
+            self.paid_keys.push(previous);
+        }
+        true
     }
 
     /// Remove the paid key for `runtime_id`, by reference. Returns it.
@@ -1699,5 +1731,32 @@ mod tests {
         }
         assert!(c.remove_secret(&s.id).is_ok());
         assert!(c.remove_secret(&s.id).is_err());
+    }
+    #[test]
+    fn a_paid_keys_check_confirms_or_rolls_back_only_its_own_save() {
+        let mut c = GuardConfig::default();
+        let (p, _) = c
+            .save_paid_key("openrouter", "Old key", "paid-key-p", 1)
+            .unwrap();
+        assert_eq!(p.replaces, None);
+        // A saves over P; B saves over A before A's check ends.
+        let (a, before_a) = c.save_paid_key("openrouter", "A", "paid-key-a", 2).unwrap();
+        assert_eq!(a.replaces.as_deref(), Some("paid-key-p"));
+        let (b, _) = c.save_paid_key("openrouter", "B", "paid-key-b", 3).unwrap();
+        assert_eq!(b.replaces.as_deref(), Some("paid-key-a"));
+        // A's check fails: B is the saved key now, so nothing is rolled back.
+        assert!(!c.restore_paid_key("openrouter", "paid-key-a", before_a));
+        assert_eq!(c.paid_key("openrouter").unwrap().id, "paid-key-b");
+        // A cannot confirm either; B can, once.
+        assert_eq!(c.confirm_paid_key("openrouter", "paid-key-a"), None);
+        assert_eq!(
+            c.confirm_paid_key("openrouter", "paid-key-b").as_deref(),
+            Some("paid-key-a")
+        );
+        assert_eq!(c.confirm_paid_key("openrouter", "paid-key-b"), None);
+        // A failed check of the saved key puts the one before it back.
+        let (_, before) = c.save_paid_key("openrouter", "C", "paid-key-c", 4).unwrap();
+        assert!(c.restore_paid_key("openrouter", "paid-key-c", before));
+        assert_eq!(c.paid_key("openrouter").unwrap().id, "paid-key-b");
     }
 }

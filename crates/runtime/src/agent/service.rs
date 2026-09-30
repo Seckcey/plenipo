@@ -33,6 +33,7 @@ use crate::agent::brief::{
 };
 use crate::agent::discovery::{
     locate, run_probe, run_probe_with, run_talk, runtime_env, HostEnv, Located,
+    MAX_PAID_CHECK_OUTPUT, MAX_PROBE_OUTPUT,
 };
 use crate::agent::dto::*;
 use crate::agent::paid::{PaidBill, PaidCharge, PaidGate, PaidKey, PaidLimits};
@@ -218,6 +219,10 @@ pub trait TurnHook: Send + Sync + 'static {
 pub trait AgentSink: Send + Sync + 'static {
     fn emit(&self, update: AgentUpdate);
 }
+
+/// The longest a paid AI tool's key check may take: the helper's two requests (the key's
+/// details and the price list) of up to 30 seconds each, and starting it (ADR-086).
+const PAID_CHECK_TIMEOUT: Duration = Duration::from_secs(75);
 
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -959,12 +964,20 @@ impl AgentRuntime {
             None => {
                 let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
                 let input = paid_key.as_ref().map(PaidKey::stdin_line);
+                // A paid AI tool's check reads the key's details and the whole price list (two
+                // requests the helper gives up to 30 seconds each, ADR-086).
+                let (max_output, timeout) = if adapter.paid() {
+                    (MAX_PAID_CHECK_OUTPUT, timeout.max(PAID_CHECK_TIMEOUT))
+                } else {
+                    (MAX_PROBE_OUTPUT, timeout)
+                };
                 run_probe_with(
                     &executable,
                     &auth_args,
                     &env,
                     &workdir,
                     input.as_deref().map(str::as_bytes),
+                    max_output,
                     timeout,
                 )
                 .await
@@ -2149,7 +2162,8 @@ impl AgentRuntime {
             .price_of(&model, reported.as_ref().map(|r| r.models.as_slice()))
             .ok_or_else(|| {
                 format!(
-                    "{model} on {label} is not priced yet: Plenipo does not know what it costs,                      so it will not use a paid key for it."
+                    "{model} on {label} is not priced yet: Plenipo does not know what it costs, \
+                     so it will not use a paid key for it."
                 )
             })?;
         let limits = adapter.paid_limits(request, prompt_bytes);
@@ -2298,7 +2312,7 @@ impl AgentRuntime {
             (_, stdin) => stdin,
         };
         let paid_args = match &paid {
-            Some(Ok(step)) => step.limits.args(),
+            Some(Ok(step)) => crate::agent::paid::step_args(&step.limits, &step.price),
             _ => Vec::new(),
         };
         let (interrupt_tx, interrupt_rx) = match input {

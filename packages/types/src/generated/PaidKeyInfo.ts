@@ -16,4 +16,10 @@ runtimeId: string,
 /**
  * The owner's name for it ("Office key").
  */
-name: string, createdAt: number, updatedAt: number, };
+name: string, createdAt: number, updatedAt: number, 
+/**
+ * The key this one replaces, kept in the Vault until this one's check passes, then erased
+ * (a key is never left in the Vault with nothing pointing to it, even if Plenipo stops
+ * during the check).
+ */
+replaces?: string, };

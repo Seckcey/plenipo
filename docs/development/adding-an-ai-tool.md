@@ -67,6 +67,32 @@ adapter's parser reads, so the task keeps its time limit, cancel, and records. A
 workers cannot use Plenipo's tools yet returns `false` from `accepts_tools()`. Such a tool needs
 its own decision record (ADR-014 §7).
 
+### Paid AI tools: a web service paid per use with the owner's key (Phase 16 Wave 3)
+
+OpenRouter is the example: [`agent/paid.rs`](../../crates/runtime/src/agent/paid.rs) under
+ADR-085 (paid AI keys with spending caps) and ADR-086 (OpenRouter through a Plenipo helper). Such
+an adapter has no program at all:
+
+- **`built_in()`** is `true`: it comes with Plenipo, and its program is Plenipo run as a helper
+  (`--plenipo-paid <service> check|chat`, `bridge_args()`). Its version is Plenipo's.
+- **`paid()`** is `true`: it is ready only with the owner's key (`AuthState::PaidKey`), which the
+  runtime reads from the paid gate and sends on the helper's **first line of standard input**,
+  never as an argument or an environment variable. The contract suite's "no key variables" check
+  stays the same for it.
+- **`price_of(model, reported)`** gives the model's price from the check (`KnownModel.price`);
+  no price, no paid task. **`paid_limits()`** gives the most input and output a step may use, so
+  the most it can cost is set aside under the spending caps before it starts; the helper is given
+  the same limits (`--max-input-bytes`, `--max-output-tokens`).
+- The service itself is a row in `plenipo_guard::PaidService`: its fixed `https` address, its
+  hosts (Guard's `Purpose::PaidAi`), its paths, and its way of talking (`PaidProtocol`). The
+  helper (`crates/capabilities/src/paid/helper.rs`) checks every request with Guard's rules and
+  follows no redirects.
+- The parser's `paid_bill()` reads the step's bill (the service's own, or token counts to price);
+  the runtime settles what was set aside with it.
+- The fake agent answers `--plenipo-paid` under any persona name, for the contract suite.
+- Mark a model that is the same model on another AI tool with `.same("…")` (Kimi K3 is
+  `kimi-k3` on Kimi Code, Ollama, and OpenRouter).
+
 ## 1. Identity and AI company
 
 ```rust

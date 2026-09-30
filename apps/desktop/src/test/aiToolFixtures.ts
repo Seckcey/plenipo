@@ -206,6 +206,7 @@ export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolStat
     payment: PAID.has(id) ? "paidKey" : "subscription",
     paidKey: null,
     paidBlocked: null,
+    keyKeptIn: PAID.has(id) ? "Windows Credential Manager" : null,
     hasModelList: id !== "claude-code",
     modelsCheckLeavesATrace: id === "kimi",
     checking: false,

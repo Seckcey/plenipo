@@ -588,6 +588,36 @@ async fn sign_in_check_tells_a_subscription_from_an_api_key() {
     }
 }
 
+/// OpenRouter sells hundreds of models, all priced on one line of the key check: far more than
+/// an ordinary check's 64 KB (ADR-086). The whole list is read.
+#[tokio::test]
+async fn a_paid_ai_tools_check_reads_a_long_price_list() {
+    let fakes = Fakes::new("subscription");
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    std::fs::create_dir_all(&state).unwrap();
+    let names: Vec<String> = (0..1_000)
+        .map(|i| format!("a-company-with-a-long-name/a-model-with-a-long-name-{i:06}"))
+        .collect();
+    std::fs::write(state.join("models-openrouter"), names.join("\n")).unwrap();
+    let info = fakes
+        .rt
+        .refresh()
+        .await
+        .into_iter()
+        .find(|r| r.id == "openrouter")
+        .unwrap();
+    assert_eq!(
+        (info.auth.state, info.ready),
+        (AuthState::PaidKey, true),
+        "{:?}",
+        info.auth
+    );
+    let models = info.reported_models.unwrap().models;
+    assert!(models.len() > 1_000, "{} models", models.len());
+    let last = models.iter().find(|m| m.name == names[999]).unwrap();
+    assert_eq!(last.price.unwrap().output, 2_000_000);
+}
+
 /// A paid AI tool (ADR-085, ADR-086): ready only with a key; the key goes in on the helper's
 /// first line of input, never on its command line or in its environment; a step is set aside
 /// before it starts, at the model's price and within its limits, and settled with its bill;

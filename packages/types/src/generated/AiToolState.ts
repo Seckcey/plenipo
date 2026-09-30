@@ -52,6 +52,11 @@ paidKey: PaidKeyInfo | null,
  */
 paidBlocked: string | null, 
 /**
+ * Where a paid AI tool's key is kept, as the screen names it ("Windows Credential
+ * Manager"); none for a subscription AI tool.
+ */
+keyKeptIn: string | null, 
+/**
  * The tool has its own list of models (Claude Code's come with Plenipo's updates).
  */
 hasModelList: boolean, 

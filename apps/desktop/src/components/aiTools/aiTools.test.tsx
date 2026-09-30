@@ -1366,9 +1366,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(api.savePaidKey).toHaveBeenCalledTimes(1);
     expect(api.savePaidKey).toHaveBeenCalledWith("openrouter", "Office key", KEY);
     expect(openRouter.querySelector('input[type="password"]')).toBeNull();
-    expect(document.body.innerHTML).not.toContain(KEY);
+    expect(screen.queryByDisplayValue(KEY)).toBeNull();
     expect(
-      within(openRouter).getByRole("button", { name: "Replace OpenRouter's key" }),
+      within(openRouter).getByRole("button", { name: "Replace key for OpenRouter" }),
     ).toBeEnabled();
   });
 
@@ -1388,7 +1388,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       "OpenRouter did not accept the key: check it and try again.",
     );
     expect(key).toHaveValue("");
-    expect(document.body.innerHTML).not.toContain(KEY);
+    expect(screen.queryByDisplayValue(KEY)).toBeNull();
   });
 
   it("switched off: the notice says why once, opens Switches or Spending caps, and locks the form", async () => {
@@ -1403,10 +1403,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     const openRouter = card("OpenRouter");
     expect(within(openRouter).getAllByText(off)).toHaveLength(1);
     expect(within(openRouter).getByLabelText("OpenRouter key")).toBeDisabled();
-    await user.click(within(openRouter).getByRole("button", { name: "Switches" }));
+    await user.click(within(openRouter).getByRole("button", { name: "Open Switches" }));
     expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "switches" });
-    const caps = within(openRouter).getAllByRole("button", { name: "Spending caps" });
-    await user.click(caps[0]!);
+    await user.click(within(openRouter).getByRole("button", { name: "Open Spending caps" }));
     expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "spending" });
     expect(api.savePaidKey).not.toHaveBeenCalled();
   });
@@ -1423,20 +1422,57 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(openRouter).toHaveTextContent("Ready");
     expect(openRouter).toHaveTextContent("Your key works");
     expect(openRouter).toHaveTextContent("Key saved: Office key");
-    await user.click(within(openRouter).getByRole("button", { name: "Replace OpenRouter's key" }));
-    const form = within(openRouter).getByRole("form", { name: "Replace OpenRouter's key" });
+    await user.click(
+      within(openRouter).getByRole("button", { name: "Replace key for OpenRouter" }),
+    );
+    const form = within(openRouter).getByRole("form", { name: "Replace key for OpenRouter" });
     expect(within(form).getByLabelText("Name for the key")).toHaveValue("Office key");
+    expect(within(form).getByLabelText("OpenRouter key")).toHaveFocus();
     await user.click(within(form).getByRole("button", { name: "Cancel" }));
-    await user.click(within(openRouter).getByRole("button", { name: "Remove OpenRouter's key" }));
-    expect(api.removePaidKey).not.toHaveBeenCalled();
+    // Keep it: nothing is removed.
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    await user.click(within(openRouter).getByRole("button", { name: "Keep it" }));
+    expect(within(openRouter).queryByRole("group", { name: "Remove Office key?" })).toBeNull();
+    // A refused removal says why, and the key stays.
+    api.removePaidKey.mockRejectedValueOnce({
+      kind: "internal",
+      message: "Windows Credential Manager could not be reached.",
+    });
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    await user.click(
+      within(within(openRouter).getByRole("group", { name: "Remove Office key?" })).getByRole(
+        "button",
+        { name: "Remove key" },
+      ),
+    );
+    expect(await within(openRouter).findByRole("alert")).toHaveTextContent(
+      "Windows Credential Manager could not be reached.",
+    );
+    expect(openRouter).toHaveTextContent("Key saved: Office key");
+    await user.click(within(openRouter).getByRole("button", { name: "Keep it" }));
+    expect(within(openRouter).queryByRole("alert")).toBeNull();
+    // Removed: the form for a new key, with no trace of the old one's name.
+    await user.click(within(openRouter).getByRole("button", { name: "Remove key for OpenRouter" }));
+    expect(api.removePaidKey).toHaveBeenCalledTimes(1);
     const ask = within(openRouter).getByRole("group", { name: "Remove Office key?" });
     await user.click(within(ask).getByRole("button", { name: "Remove key" }));
-    expect(api.removePaidKey).toHaveBeenCalledWith("openrouter");
-    await waitFor(() =>
-      expect(
-        within(openRouter).getByRole("form", { name: "Add a key for OpenRouter" }),
-      ).toBeVisible(),
+    expect(api.removePaidKey).toHaveBeenLastCalledWith("openrouter");
+    const fresh = await within(openRouter).findByRole("form", { name: "Add a key for OpenRouter" });
+    expect(within(fresh).getByLabelText("Name for the key")).toHaveValue("OpenRouter key");
+  });
+
+  it("paid keys switched off since the last check: the card no longer says the key works", async () => {
+    const off =
+      "Paid AI keys are switched off: turn on Settings → Switches → Let workers use paid AI keys.";
+    withOpenRouter(
+      { ready: true, auth: { state: "paidKey", method: null, detail: null }, checkedAt: T0 },
+      { paidKey: SAVED, paidBlocked: off },
     );
+    await show();
+    const openRouter = card("OpenRouter");
+    expect(openRouter).not.toHaveTextContent("Your key works");
+    expect(within(openRouter).getAllByText("Key not in use")).toHaveLength(2);
+    expect(within(openRouter).getAllByText(off)).toHaveLength(1);
   });
 
   it("the same model on other AI tools says where else it runs (ADR-036 §4)", async () => {
@@ -1492,7 +1528,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     const openRouter = card("OpenRouter");
     await user.click(within(openRouter).getByRole("tab", { name: "Models" }));
     const models = within(openRouter).getByRole("list", { name: "OpenRouter's models" });
-    expect(models).toHaveTextContent("$3.00 in, $15.00 out per million tokens");
+    expect(models).toHaveTextContent("$3.00 a million tokens read, $15.00 a million written");
   });
 });
 

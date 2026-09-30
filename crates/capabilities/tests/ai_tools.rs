@@ -146,6 +146,7 @@ struct H {
     ledger: Arc<Ledger>,
     rt: AgentRuntime,
     broker: Broker,
+    vault: Arc<MemorySecretStore>,
     tools: AiTools,
     state: PathBuf,
     releases: Releases,
@@ -194,12 +195,8 @@ async fn harness(auth: &str) -> H {
     let mut broker_config =
         BrokerConfig::new(PathBuf::from("unused-relay"), dir.path().join("tickets"));
     broker_config.terminal_refuses_administrator = false;
-    let broker = Broker::new(
-        guard,
-        sup,
-        Arc::new(MemorySecretStore::default()),
-        broker_config,
-    );
+    let vault = Arc::new(MemorySecretStore::default());
+    let broker = Broker::new(guard, sup, vault.clone(), broker_config);
     rt.set_tools(Arc::new(broker.clone()));
     // Paid AI keys and the spending caps (ADR-085), as in the app.
     rt.set_paid_gate(plenipo_capabilities::paid::gate(&broker));
@@ -214,6 +211,7 @@ async fn harness(auth: &str) -> H {
         ledger,
         rt,
         broker,
+        vault,
         tools,
         state,
         releases,
@@ -1122,4 +1120,88 @@ async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_and_the_b
             .find(|r| r.id == "openrouter")
             .unwrap();
     assert!(!info.ready);
+}
+
+/// Replacing a key erases the old one once the new one passes its check; a key the Vault will
+/// not delete stays listed (for Remove to try again), never left with nothing pointing to it; and
+/// a name that is the key itself is refused before anything is kept.
+#[tokio::test]
+async fn a_replaced_or_removed_key_never_stays_in_the_vault_unlisted() {
+    use std::sync::atomic::Ordering;
+    let h = harness("subscription").await;
+    h.broker
+        .guard()
+        .set_switches(&plenipo_guard::dto::Switches {
+            paid_ai_keys: true,
+            ..plenipo_guard::dto::Switches::default()
+        })
+        .unwrap();
+    h.ledger
+        .set_spending_cap(
+            &plenipo_ledger::CapCovers::Business,
+            50_000_000,
+            "owner",
+            plenipo_ledger::now_ms(),
+        )
+        .unwrap();
+    let first = "sk-or-v1-first-key-not-real-000000000000";
+    let second = "sk-or-v1-second-key-not-real-11111111111";
+    let saved = |h: &H| h.broker.guard().config().unwrap().paid_keys;
+    // The key pasted as its name: refused, and nothing kept anywhere.
+    let err = h
+        .tools
+        .save_paid_key("openrouter", first, first)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("looks like the key itself"),
+        "{err}"
+    );
+    assert!(saved(&h).is_empty());
+    assert_eq!(h.vault.stored(), 0);
+    let events = serde_json::to_string(&h.ledger.recent_events(1_000).unwrap()).unwrap();
+    assert!(!events.contains(first));
+    // Saved, then replaced: the first key is erased once the second passes its check.
+    h.tools
+        .save_paid_key("openrouter", "Office key", first)
+        .await
+        .unwrap();
+    let first_id = saved(&h)[0].id.clone();
+    h.tools
+        .save_paid_key("openrouter", "Office key", second)
+        .await
+        .unwrap();
+    let now = saved(&h);
+    assert_eq!(now.len(), 1);
+    assert_ne!(now[0].id, first_id);
+    assert_eq!(now[0].replaces, None, "{now:?}");
+    assert_eq!(h.vault.stored(), 1);
+    let store = h.broker.secret_store();
+    assert!(plenipo_capabilities::vault::read(store.as_ref(), &first_id)
+        .unwrap()
+        .is_none());
+    // A replacement the service refuses puts the second key back, and erases the refused one.
+    std::fs::write(h.state.join("auth"), "signed-out").unwrap();
+    h.tools
+        .save_paid_key("openrouter", "Office key", first)
+        .await
+        .unwrap_err();
+    assert_eq!(saved(&h)[0].id, now[0].id);
+    assert_eq!(saved(&h)[0].replaces, None);
+    assert_eq!(h.vault.stored(), 1);
+    std::fs::write(h.state.join("auth"), "subscription").unwrap();
+    // The Vault will not delete for a moment: Remove says so, and the key stays listed (filtered,
+    // and removed by Uninstall's "delete my data").
+    h.vault.refuse_deletes.store(true, Ordering::SeqCst);
+    let err = h.tools.remove_paid_key("openrouter").await.unwrap_err();
+    assert!(err.to_string().contains("it is still saved"), "{err}");
+    let config = h.broker.guard().config().unwrap();
+    assert_eq!(config.paid_keys.len(), 1);
+    assert!(plenipo_capabilities::vault::stored_ids(&config).contains(&now[0].id));
+    assert!(!h.broker.text_filter()(&format!("said {second}")).contains(second));
+    // Once it lets go, Remove works.
+    h.vault.refuse_deletes.store(false, Ordering::SeqCst);
+    h.tools.remove_paid_key("openrouter").await.unwrap();
+    assert!(saved(&h).is_empty());
+    assert_eq!(h.vault.stored(), 0);
 }

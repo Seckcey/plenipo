@@ -861,11 +861,12 @@ impl Broker {
             .map(|c| c.paid_keys)
             .unwrap_or_default();
         keys.iter()
-            .filter_map(|k| {
-                vault::read(self.inner.store.as_ref(), &k.id)
+            .flat_map(|k| k.vault_ids().map(move |id| (id, &k.name)))
+            .filter_map(|(id, name)| {
+                vault::read(self.inner.store.as_ref(), id)
                     .ok()
                     .flatten()
-                    .map(|v| (v, format!("paid key {}", k.name)))
+                    .map(|v| (v, format!("paid key {name}")))
             })
             .collect()
     }

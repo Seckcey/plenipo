@@ -511,6 +511,37 @@ impl Guard {
         .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
     }
 
+    /// The paid key `id` passed its check: forget the key it replaced (erased from the Vault
+    /// already). Returns that key's Vault name, or none when there was none or a later save has
+    /// replaced `id` since.
+    pub fn confirm_paid_key(&self, runtime_id: &str, id: &str) -> Result<Option<String>> {
+        self.update("vault.paid_key_checked", OWNER, |c| {
+            Ok(c.confirm_paid_key(runtime_id, id).map(|replaced| {
+                (
+                    json!({ "runtime": runtime_id, "replacedKeyErased": true }),
+                    replaced,
+                )
+            }))
+        })
+    }
+
+    /// The paid key `id` did not pass its check: put `previous` back, while `id` is still the
+    /// saved one. Returns whether anything changed.
+    pub fn restore_paid_key(
+        &self,
+        runtime_id: &str,
+        id: &str,
+        previous: Option<PaidKeyInfo>,
+    ) -> Result<bool> {
+        let name = previous.as_ref().map(|p| p.name.clone());
+        Ok(self
+            .update("vault.paid_key_restored", OWNER, |c| {
+                Ok(c.restore_paid_key(runtime_id, id, previous)
+                    .then(|| (json!({ "runtime": runtime_id, "restored": name }), ())))
+            })?
+            .is_some())
+    }
+
     /// Remove the paid key's reference for `runtime_id`. Returns it.
     pub fn remove_paid_key(&self, runtime_id: &str) -> Result<PaidKeyInfo> {
         self.update("vault.paid_key_removed", OWNER, |c| {

@@ -255,9 +255,7 @@ impl Planner {
             &label,
         ));
         // A paid AI tool the owner chose by name (ADR-085): it costs money, within the caps.
-        let paid = self
-            .tool(runtime_id)
-            .is_some_and(|t| crate::engine::is_paid(&t.info));
+        let paid = self.tool(runtime_id).is_some_and(|t| t.paid);
         if paid {
             reason.push_str(
                 " It costs money: it is paid per use with your key, within your spending caps.",
@@ -450,11 +448,13 @@ impl Router {
             .ledger()
             .recent_turn_outcomes(now.saturating_sub(limits::LOOKBACK_MS))?;
         let mut active = limits::active(&outcomes, &config.cleared_limits, now);
+        let paid = crate::engine::paid_tool_ids();
         let tools = self
             .tools()
             .into_iter()
             .map(|info| ToolState {
                 limit: active.remove(&info.id),
+                paid: paid.contains(&info.id),
                 info,
             })
             .collect();

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AgentRuntimeInfo, AiToolsPage, AiToolState } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
@@ -14,9 +14,10 @@ const MAX_KEY = 400;
 
 /**
  * A paid AI tool's key (Phase 16 Wave 3, ADR-085): the name you gave it, Replace and Remove, or
- * the form to add one. The key is typed only here and kept in the Vault; Plenipo checks it with
- * the AI company before keeping it, and never shows it again. Paid work stays within your
- * spending caps.
+ * the form to add one. The key is typed only here; Plenipo checks it with the AI company, keeps it
+ * in the Vault (Windows Credential Manager, as the screen says) if it works, and never shows it
+ * again. Paid work stays within your spending caps. Overview gives each saved key a new instance
+ * (`key`), so nothing typed or asked for one key stays for the next.
  */
 export function PaidKey({
   info,
@@ -36,8 +37,14 @@ export function PaidKey({
   const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(saved?.name ?? `${label} key`);
   const [key, setKey] = useState("");
-  const { pending, error, run } = useRun<AiToolsPage>(onApply);
+  const { pending, error, run, clear } = useRun<AiToolsPage>(onApply);
   const blocked = tool.paidBlocked;
+  const keptIn = tool.keyKeptIn ?? "Windows Credential Manager";
+  // The keyboard goes to the key box when Replace opens the form.
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) box.current?.focus();
+  }, [editing]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -51,6 +58,12 @@ export function PaidKey({
     void run(() => removePaidKey(info.id)).then((ok) => {
       if (ok) setConfirming(false);
     });
+
+  const cancel = () => {
+    setKey("");
+    clear();
+    setEditing(false);
+  };
 
   const open = (id: "switches" | "spending", words: string) =>
     go ? (
@@ -69,8 +82,8 @@ export function PaidKey({
         <div className="notice-box" role="note">
           <p>{blocked}</p>
           <div className="ai-tool__buttons">
-            {open("switches", "Switches")}
-            {open("spending", "Spending caps")}
+            {open("switches", "Open Switches")}
+            {open("spending", "Open Spending caps")}
           </div>
         </div>
       )}
@@ -88,7 +101,14 @@ export function PaidKey({
               <Button size="sm" variant="danger" disabled={pending} onClick={remove}>
                 Remove key
               </Button>
-              <Button size="sm" variant="quiet" onClick={() => setConfirming(false)}>
+              <Button
+                size="sm"
+                variant="quiet"
+                onClick={() => {
+                  clear();
+                  setConfirming(false);
+                }}
+              >
                 Keep it
               </Button>
             </div>
@@ -97,8 +117,9 @@ export function PaidKey({
               <Button
                 size="sm"
                 disabled={pending || blocked !== null}
-                aria-label={`Replace ${label}'s key`}
+                aria-label={`Replace key for ${label}`}
                 onClick={() => {
+                  clear();
                   setName(saved.name);
                   setEditing(true);
                 }}
@@ -109,8 +130,11 @@ export function PaidKey({
                 size="sm"
                 variant="quiet"
                 disabled={pending}
-                aria-label={`Remove ${label}'s key`}
-                onClick={() => setConfirming(true)}
+                aria-label={`Remove key for ${label}`}
+                onClick={() => {
+                  clear();
+                  setConfirming(true);
+                }}
               >
                 Remove key
               </Button>
@@ -121,7 +145,7 @@ export function PaidKey({
       {(!saved || editing) && (
         <form
           className="paid-key__form"
-          aria-label={saved ? `Replace ${label}'s key` : `Add a key for ${label}`}
+          aria-label={saved ? `Replace key for ${label}` : `Add a key for ${label}`}
           onSubmit={submit}
         >
           <label className="field">
@@ -137,6 +161,7 @@ export function PaidKey({
           <label className="field">
             <span>{label} key</span>
             <input
+              ref={box}
               type="password"
               autoComplete="off"
               spellCheck={false}
@@ -148,8 +173,8 @@ export function PaidKey({
             />
           </label>
           <p className="muted">
-            Plenipo checks the key with {label}, then keeps it in the Vault. It is never shown again
-            and goes only to {label}.
+            Plenipo checks the key with {label}. If it works, it is kept in {keptIn} and never shown
+            again. Plenipo sends it only to {label}. Never paste a key into a chat.
           </p>
           <div className="ai-tool__buttons">
             <Button
@@ -161,14 +186,7 @@ export function PaidKey({
               {pending ? "Checking…" : "Save and check"}
             </Button>
             {editing && (
-              <Button
-                size="sm"
-                variant="quiet"
-                onClick={() => {
-                  setKey("");
-                  setEditing(false);
-                }}
-              >
+              <Button size="sm" variant="quiet" onClick={cancel}>
                 Cancel
               </Button>
             )}

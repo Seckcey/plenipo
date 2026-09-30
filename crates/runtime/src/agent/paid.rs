@@ -45,6 +45,34 @@ pub const DEFAULT_OUTPUT_TOKENS: u64 = 16_000;
 /// the text itself.
 const PER_MESSAGE_TOKENS: u64 = 8;
 const FIXED_TOKENS: u64 = 256;
+/// The largest conversation file read (the helper keeps each well under it).
+const MAX_CONVERSATION_FILE: u64 = 16 * 1024 * 1024;
+/// The conversation text kept on file: twice what a task sends, so the newest part is always
+/// there to send.
+const KEPT_TEXT: usize = 2 * MAX_INPUT_BYTES as usize;
+
+/// The least any step on a paid AI tool can set aside at `price`: its shortest words, its fixed
+/// wrapping, and the answer it asks for. A route with less left under the caps cannot run
+/// (the Router skips it, ADR-085 §6).
+pub fn smallest_step_cost(price: &Price) -> u64 {
+    price.most(
+        1 + 2 * PER_MESSAGE_TOKENS + FIXED_TOKENS,
+        DEFAULT_OUTPUT_TOKENS,
+    )
+}
+
+/// The helper's arguments for one step: its limits, and the price set aside for, so the service
+/// sends the request nowhere dearer.
+pub fn step_args(limits: &PaidLimits, price: &Price) -> Vec<String> {
+    let mut args = limits.args();
+    args.extend([
+        "--price-input".into(),
+        price.input.to_string(),
+        "--price-output".into(),
+        price.output.to_string(),
+    ]);
+    args
+}
 
 // ---- The gate the desktop app provides ------------------------------------------------------
 
@@ -200,9 +228,12 @@ impl PaidGate for MemoryPaidGate {
 
 // ---- Conversations, kept in the session's folder (shared with the helper) -------------------
 
-/// Conversation IDs Plenipo gives: letters, digits, and dashes.
+/// Conversation IDs Plenipo gives: letters, digits, and dashes, starting with a letter or digit
+/// (so one is never taken for an option).
 pub fn valid_conversation_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    id.len() <= 64
+        && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// The conversation's file, in the session's own folder.
@@ -210,16 +241,40 @@ pub fn conversation_file(dir: &Path, service: &str, id: &str) -> PathBuf {
     dir.join(format!(".plenipo-paid-{service}-{id}.json"))
 }
 
+/// A conversation's messages, as the helper keeps them: each a role and its words, nothing
+/// else (anything else in the file is left out, so what is sent is always what is counted).
 pub fn load_conversation(file: &Path) -> Option<Vec<Value>> {
+    if std::fs::metadata(file).ok()?.len() > MAX_CONVERSATION_FILE {
+        return None;
+    }
     let v: Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
-    v.get("messages")?.as_array().cloned()
+    Some(
+        v.get("messages")?
+            .as_array()?
+            .iter()
+            .filter_map(|m| {
+                let role = m.get("role").and_then(Value::as_str)?;
+                let content = m.get("content").and_then(Value::as_str)?;
+                matches!(role, "user" | "assistant" | "system")
+                    .then(|| json!({ "role": role, "content": content }))
+            })
+            .collect(),
+    )
 }
 
+/// Keep the conversation for its next task: its newest whole exchanges, at most twice what a task
+/// sends (older ones could never be sent again).
 pub fn save_conversation(file: &Path, model: &str, messages: &[Value]) -> std::io::Result<()> {
+    let mut start = 0;
+    let mut text: usize = messages.iter().map(content_len).sum();
+    while text > KEPT_TEXT && start + 2 < messages.len() {
+        text -= content_len(&messages[start]) + content_len(&messages[start + 1]);
+        start += 2;
+    }
     let tmp = file.with_extension("json.tmp");
     std::fs::write(
         &tmp,
-        json!({ "model": model, "messages": messages }).to_string(),
+        json!({ "model": model, "messages": &messages[start..] }).to_string(),
     )?;
     std::fs::rename(&tmp, file)
 }
@@ -455,6 +510,9 @@ impl RuntimeAdapter for OpenRouter {
         let ProviderSession::Resume { id } = &request.session else {
             return false;
         };
+        if !valid_conversation_id(id) {
+            return false;
+        }
         let file = conversation_file(&request.working_dir, OPENROUTER, id);
         load_conversation(&file).is_some_and(|history| {
             let prompt = " ".repeat(prompt_bytes.min(MAX_INPUT_BYTES as usize + 1));
@@ -655,6 +713,8 @@ pub struct PaidParser {
     cost: Option<u64>,
     /// The request was refused, or never reached the service: nothing was billed.
     refused: bool,
+    /// The service gave both token counts (without them the price list cannot price the step).
+    counted: bool,
 }
 
 impl PaidParser {
@@ -663,6 +723,7 @@ impl PaidParser {
             state: TurnState::new(label),
             cost: None,
             refused: false,
+            counted: false,
         }
     }
 }
@@ -706,6 +767,9 @@ impl TurnParser for PaidParser {
             }
             Some("done") => {
                 self.state.completed = true;
+                self.counted = ["inputTokens", "outputTokens"]
+                    .iter()
+                    .all(|k| v.get(*k).and_then(Value::as_u64).is_some());
                 let n = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
                 self.state.provider_duration_ms = v.get("durationMs").and_then(Value::as_u64);
                 let usage = TokenUsage {
@@ -745,7 +809,7 @@ impl TurnParser for PaidParser {
                 // nothing was billed.
                 self.refused = matches!(
                     kind,
-                    "key" | "credit" | "limit" | "guard" | "input" | "unreached"
+                    "key" | "credit" | "limit" | "refused" | "guard" | "input" | "unreached"
                 );
                 let outcome = match kind {
                     "key" => Some(TurnOutcome::AuthRequired),
@@ -791,7 +855,9 @@ impl TurnParser for PaidParser {
                 micros,
                 by_service: true,
             }
-        } else if let (true, Some(usage)) = (self.state.completed, self.state.usage) {
+        } else if let (true, true, Some(usage)) =
+            (self.state.completed, self.counted, self.state.usage)
+        {
             PaidBill::Spent {
                 micros: price.bill(&usage),
                 by_service: false,
@@ -1073,5 +1139,90 @@ mod tests {
             .map(|a| a.id().to_owned())
             .collect();
         assert_eq!(ways, ["kimi", "ollama", "openrouter"]);
+    }
+
+    #[test]
+    fn a_conversation_id_is_never_taken_for_an_option() {
+        assert!(valid_conversation_id(
+            "0f8fad5b-d9cb-469f-a165-70867728950e"
+        ));
+        assert!(!valid_conversation_id("--max-output-tokens"));
+        assert!(!valid_conversation_id("-x"));
+        assert!(!valid_conversation_id(""));
+        assert!(!valid_conversation_id("../x"));
+    }
+
+    #[test]
+    fn a_conversation_file_holds_only_words_and_its_newest_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("c.json");
+        // Anything but a role and its words is left out, so what is sent is what is counted.
+        std::fs::write(
+            &file,
+            json!({ "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": [{ "type": "text", "text": "hidden" }] },
+                { "role": "tool", "content": "x" },
+                { "role": "assistant", "content": "hi", "extra": "dropped" },
+            ] })
+            .to_string(),
+        )
+        .unwrap();
+        let history = load_conversation(&file).unwrap();
+        assert_eq!(
+            history,
+            vec![
+                json!({ "role": "user", "content": "hello" }),
+                json!({ "role": "assistant", "content": "hi" }),
+            ]
+        );
+        // Saved with more than twice what a task sends: the oldest exchanges go.
+        let long = "x".repeat(300_000);
+        let messages: Vec<Value> = (0..6)
+            .map(|i| {
+                json!({ "role": if i % 2 == 0 { "user" } else { "assistant" }, "content": long })
+            })
+            .collect();
+        save_conversation(&file, "m", &messages).unwrap();
+        let kept = load_conversation(&file).unwrap();
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().map(content_len).sum::<usize>() <= KEPT_TEXT);
+    }
+
+    #[test]
+    fn a_bill_without_counts_is_not_priced_and_a_refused_request_is_not_billed() {
+        let price = Price::per_million_dollars(3, 15);
+        let mut p = PaidParser::new("OpenRouter");
+        p.line(
+            r#"{"type":"done","inputTokens":12,"outputTokens":null,"costDollars":null}"#,
+            false,
+        );
+        assert!(matches!(
+            p.paid_bill(&price, true),
+            Some(PaidBill::NotPriced(_))
+        ));
+        let mut p = PaidParser::new("OpenRouter");
+        p.line(r#"{"type":"error","message":"OpenRouter refused this request (403).","kind":"refused"}"#, false);
+        assert!(matches!(p.paid_bill(&price, true), Some(PaidBill::NotSent)));
+    }
+
+    #[test]
+    fn the_smallest_step_sets_aside_its_answer_at_least() {
+        let price = Price::per_million_dollars(3, 15);
+        // 16,000 answer tokens at $15 a million is $0.24, and a little input.
+        let least = smallest_step_cost(&price);
+        assert!((240_000..250_000).contains(&least), "{least}");
+        let args = step_args(
+            &PaidLimits {
+                input_bytes: 10,
+                input_tokens: 300,
+                output_tokens: 16_000,
+            },
+            &price,
+        );
+        assert!(
+            args.windows(2).any(|w| w == ["--price-output", "15000000"]),
+            "{args:?}"
+        );
     }
 }

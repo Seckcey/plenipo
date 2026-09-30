@@ -10,9 +10,9 @@ export const MICROS_PER_DOLLAR = 1_000_000;
 export const MIN_CAP_MICROS = 10_000;
 export const MAX_CAP_MICROS = 1_000_000 * MICROS_PER_DOLLAR;
 
-/** What a paid model costs: "$3.00 in, $15.00 out per million tokens". */
+/** What a paid model costs: "$3.00 a million tokens read, $15.00 a million written". */
 export function priceWords(price: Price): string {
-  return `${dollars(price.input)} in, ${dollars(price.output)} out per million tokens`;
+  return `${dollars(price.input)} a million tokens read, ${dollars(price.output)} a million written`;
 }
 
 /** Money: "$12.34"; under a cent, "$0.0042"; nothing, "$0.00" (as the Ledger writes it). */

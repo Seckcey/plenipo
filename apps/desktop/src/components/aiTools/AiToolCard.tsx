@@ -40,8 +40,11 @@ function cardStatus(
   if (tool && MOVING.has(tool.update.state) && tool.update.state !== "waiting") {
     return { status: "pending", label: "Updating…" };
   }
-  // A paid AI tool is not signed in to: it has a key in use, or not (ADR-085).
-  if (tool?.payment === "paidKey" && !info.ready && info.auth.state === "signedOut") {
+  // Until the page's own part arrives, a card cannot tell a paid AI tool from another.
+  if (!tool && !info.ready) return { status: "offline", label: "Loading…" };
+  // A paid AI tool is not signed in to: it has a key in use, or not (ADR-085). Paid keys
+  // switched off (or no business cap) count even before the next check says so.
+  if (tool?.payment === "paidKey" && (!info.ready || tool.paidBlocked !== null)) {
     return { status: PILL_TONE.warn, label: tool.paidKey ? "Key not in use" : "No key yet" };
   }
   const s = runtimeStatus(info);
