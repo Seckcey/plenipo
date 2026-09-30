@@ -181,9 +181,9 @@ Found by the end-to-end test itself:
 
 ## 8. Test totals and CI
 
-Locally on Linux, 2026-09-29, before pushing:
+Locally on Linux, before pushing (last on 2026-09-30, after merging Phase 16's first wave, v1.14.0):
 
-- **Rust:** `cargo test --workspace --locked`: 1,296 tests pass, 33 of them in
+- **Rust:** `cargo test --workspace --locked`: 1,325 tests pass, 33 of them in
   `crates/capabilities/tests/connections.rs` (the Slack and Google tests and the review's) and
   117 in Guard. `cargo fmt` and `cargo clippy -D warnings` are clean.
 - **Screens:** `pnpm check`: 428 desktop and 304 UI tests pass, with lint, types, and formatting;
