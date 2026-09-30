@@ -67,7 +67,7 @@ for a decision that could seriously affect a person's rights, health, safety, or
 
 ## Privacy and information you share
 
-The [privacy statement](https://plenipo.8westit.com/privacy/) explains local app data,
+The [privacy statement](https://getplenipo.com/privacy/) explains local app data,
 data sent to your chosen services, website requests, and support information.
 Local storage does not mean that AI requests stay on your computer.
 

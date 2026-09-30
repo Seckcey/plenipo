@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/Seckcey/plenipo/releases/latest"><strong>Download for Windows</strong></a> ·
-  <a href="https://plenipo.8westit.com">Website</a> ·
+  <a href="https://getplenipo.com">Website</a> ·
   <a href="docs/development/setup.md">Build from source</a> ·
   <a href="docs/faq.md">FAQ</a> ·
   <a href="https://github.com/Seckcey/plenipo/discussions">Community</a>
@@ -174,8 +174,8 @@ project conventions, and licensing terms.
 
 Read the [terms of service](apps/website/legal/terms.md) and
 [privacy statement](apps/website/legal/privacy.md). The same statements are available on the
-website: [Terms](https://plenipo.8westit.com/terms/) ·
-[Privacy](https://plenipo.8westit.com/privacy/). For private privacy or legal requests, email
+website: [Terms](https://getplenipo.com/terms/) ·
+[Privacy](https://getplenipo.com/privacy/). For private privacy or legal requests, email
 [admin@8westventures.com](mailto:admin@8westventures.com).
 
 | For users                                       | For contributors                                        |

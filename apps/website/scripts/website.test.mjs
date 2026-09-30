@@ -13,6 +13,18 @@ test("production build includes every local asset and valid internal destination
     // The repository's own version (whatever the shell may have exported).
     await buildWebsite(output, { env: {} });
     const html = await readFile(join(output, "index.html"), "utf8");
+    // All crawler entry points agree on the new public address.
+    for (const file of [
+      "index.html",
+      "terms/index.html",
+      "privacy/index.html",
+      "robots.txt",
+      "sitemap.xml",
+    ]) {
+      const text = await readFile(join(output, file), "utf8");
+      assert.ok(!text.includes("plenipo.8westit.com"), `${file} still names the old website`);
+      assert.ok(text.includes("https://getplenipo.com/"), `${file} misses the canonical website`);
+    }
     // The page loader requests this bounded local island immediately on entry.
     // Keep its URLs in data attributes so failed loads can be retried explicitly.
     for (const type of ["module", "style"]) {
@@ -47,7 +59,7 @@ test("production build includes every local asset and valid internal destination
       assert.ok(html.includes(`href="/${slug}/"`), `Homepage is missing ${slug}`);
       assert.ok(page.includes(`<h1>${title}</h1>`));
       assert.equal([...page.matchAll(/<h1\b/g)].length, 1);
-      assert.ok(page.includes(`href="https://plenipo.8westit.com/${slug}/"`));
+      assert.ok(page.includes(`href="https://getplenipo.com/${slug}/"`));
       assert.ok(page.includes('href="mailto:admin@8westventures.com"'));
       assert.ok(page.includes('href="/terms/"') && page.includes('href="/privacy/"'));
       assert.ok(!page.includes("<script"), "Reading a policy must not require scripts");
@@ -57,7 +69,7 @@ test("production build includes every local asset and valid internal destination
         }
       }
       const sitemap = await readFile(join(output, "sitemap.xml"), "utf8");
-      assert.ok(sitemap.includes(`https://plenipo.8westit.com/${slug}/`));
+      assert.ok(sitemap.includes(`https://getplenipo.com/${slug}/`));
       assert.equal(
         page.match(/href="(\/styles\.css\?v=[^"]+)"/)?.[1],
         html.match(/href="(\/styles\.css\?v=[^"]+)"/)?.[1],
@@ -102,11 +114,13 @@ test("production build includes every local asset and valid internal destination
 test("search metadata describes the actual free Windows release without fabricated ratings", async () => {
   const html = await readFile(resolve(websiteRoot, "index.html"), "utf8");
   assert.equal([...html.matchAll(/<h1\b/g)].length, 1);
-  assert.match(html, /<link rel="canonical" href="https:\/\/plenipo\.8westit\.com\/"/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/getplenipo\.com\/"/);
   const data = JSON.parse(
     html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1],
   );
   assert.equal(data["@type"], "SoftwareApplication");
+  assert.equal(data.url, "https://getplenipo.com/");
+  assert.equal(data.image, "https://getplenipo.com/brand/plenipo-pip-social.png");
   assert.equal(data.operatingSystem, "Windows 11");
   assert.equal(data.offers.price, "0");
   assert.ok(!("aggregateRating" in data));

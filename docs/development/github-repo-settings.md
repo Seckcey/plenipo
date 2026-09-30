@@ -12,7 +12,7 @@ Description:
 Coordinate Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, and GitHub Copilot in one local-first Windows desktop app. Organize AI workers, route models, set permissions, review approvals, and keep a local activity record.
 ```
 
-Homepage: <https://plenipo.8westit.com>.
+Homepage: <https://getplenipo.com>.
 
 Topics (20, GitHub's limit):
 

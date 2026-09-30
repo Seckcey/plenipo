@@ -3,4 +3,4 @@ Allow: /
 Disallow: /release.json
 Disallow: /healthz
 
-Sitemap: https://plenipo.8westit.com/sitemap.xml
+Sitemap: https://getplenipo.com/sitemap.xml
