@@ -205,6 +205,11 @@ const COMMANDS: &[&str] = &[
     "bring_back_organization",
     "preview_delete_organization",
     "delete_organization_for_good",
+    // Phase 11A: Settings → License.
+    "get_license",
+    "enter_license_key",
+    "remove_license_key",
+    "check_license_now",
 ];
 
 fn main() {
@@ -219,6 +224,8 @@ fn main() {
     // 8 West's Slack app's client ID (public, not a secret; ADR-070 §3).
     println!("cargo:rerun-if-env-changed=PLENIPO_SLACK_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
+    // The stand-in for 8 West's license check in copies built for the tests (Phase 11A).
+    println!("cargo:rerun-if-env-changed=PLENIPO_LICENSE_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 

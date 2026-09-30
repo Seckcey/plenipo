@@ -49,6 +49,8 @@ pub struct Opening<'a> {
     pub control: ControlCenter,
     /// The first organization, once open: your Workforce, your tile, and your choices for the PC.
     pub first: Option<&'a OrgStack>,
+    /// The PC's Free or Pro (Phase 11A, ADR-110): one for every organization.
+    pub entitlements: Arc<plenipo_licensing::Entitlements>,
 }
 
 /// What opening the Ledger found, for the first organization's own start (its restore note
@@ -119,6 +121,8 @@ pub fn build<R: Runtime>(
     );
     // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
     let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
+    // Free runs three workers at once across the PC (ADR-113).
+    liaison.set_entitlements(how.entitlements.clone());
     // Router (Phase 6): model registry and role model policies.
     let router = Router::new(ledger.clone(), agents.clone());
     // Guard and the capability broker (Phase 7): permissions, Plenipo's tools for workers,
@@ -132,6 +136,9 @@ pub fn build<R: Runtime>(
         &agents,
         how.control.clone(),
     );
+    // Connections and add-on tools are part of Pro (ADR-068); Guard, approvals, and the Vault
+    // never are.
+    broker.set_entitlements(how.entitlements.clone());
     if how.run {
         guard_host::start(&broker);
     }
@@ -176,6 +183,8 @@ pub fn build<R: Runtime>(
         liaison.clone(),
         router.clone(),
     );
+    // Free's departments, projects, business teams, and lessons (Phase 11A).
+    workforce.set_entitlements(how.entitlements.clone());
     if let Some(first) = how.first {
         workforce.share_with(first.ledger.clone());
     }

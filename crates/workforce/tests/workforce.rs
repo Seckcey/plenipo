@@ -2151,7 +2151,8 @@ async fn a_business_template_is_part_of_pro() {
         team: &[("Senior Developer", "Senior Developer")],
         business: true,
     };
-    assert!(!plenipo_workforce::templates::DEVELOPMENT.business);
+    // The Development department is never a business department (it stays free).
+    const { assert!(!plenipo_workforce::templates::DEVELOPMENT.business) };
     let h = harness().await;
     let e = h.edition(Edition::Free);
     assert_eq!(

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-license-now"
+description = "Enables the check_license_now command without any pre-configured scope."
+commands.allow = ["check_license_now"]
+
+[[permission]]
+identifier = "deny-check-license-now"
+description = "Denies the check_license_now command without any pre-configured scope."
+commands.deny = ["check_license_now"]

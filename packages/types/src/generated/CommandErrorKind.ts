@@ -3,4 +3,4 @@
 /**
  * Category of a command failure. Stable, machine-readable.
  */
-export type CommandErrorKind = "invalidInput" | "internal";
+export type CommandErrorKind = "invalidInput" | "internal" | "partOfPro";

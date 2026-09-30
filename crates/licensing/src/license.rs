@@ -145,9 +145,15 @@ impl License {
     }
 
     /// Enter a key. It is checked at once, with no network; on success it replaces any other.
+    /// The same key entered again keeps its record: typing it in again never restarts the 30
+    /// days without a check.
     pub fn enter(&mut self, text: &str, clock: i64) -> Result<&LicenseKey, KeyError> {
         let key = key::parse(text)?;
-        self.record = Record::entered(&key, clock, &self.record);
+        if self.record.key_id.as_deref() == Some(key.key_id()) {
+            self.record.saw_clock(clock);
+        } else {
+            self.record = Record::entered(&key, clock, &self.record);
+        }
         Ok(self.key.insert(key))
     }
 
@@ -274,6 +280,21 @@ mod tests {
         assert_eq!(v.holder.as_deref(), Some("Contoso IT"));
         assert_eq!(v.plan, Some(Plan::Yearly));
         assert_eq!(v.reason, LicenseReason::NotCheckedYet);
+    }
+
+    #[test]
+    fn entering_the_same_key_again_never_restarts_the_30_days() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Active)), AS_OF);
+        let grace = l.status(AS_OF).grace_ends;
+        // Weeks with no check, then the key typed in again.
+        let later = AS_OF + 25 * DAY;
+        l.failed("no internet", later);
+        l.enter(&valid_key(), later).unwrap();
+        assert_eq!(l.status(later).grace_ends, grace);
+        assert_eq!(l.view(later).reason, LicenseReason::Active);
+        assert_eq!(l.edition(AS_OF + 31 * DAY), Edition::Free);
     }
 
     #[test]

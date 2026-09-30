@@ -1,8 +1,8 @@
 //! What the uninstaller asks of Plenipo (Phase 13). When the owner ticks "delete my Plenipo
 //! data", the uninstaller runs `plenipo-desktop.exe --plenipo-forget-secrets` before it deletes
 //! Plenipo's folder: the secrets Plenipo kept in Windows Credential Manager (the owner's, and
-//! servers' sign-ins) are removed too, so nothing of the owner's is left behind. Nothing else
-//! happens in this mode: no window, no tray, no work.
+//! servers' sign-ins, and the license key) are removed too, so nothing of the owner's is left
+//! behind. Nothing else happens in this mode: no window, no tray, no work.
 
 use std::path::{Path, PathBuf};
 
@@ -74,9 +74,18 @@ pub fn forget_every_organizations_secrets(
     let mut removed = 0;
     let mut problems = Vec::new();
     for (id, folder) in organization_folders(data) {
-        match forget_secrets(&folder, store_for(&id).as_ref()) {
+        let store = store_for(&id);
+        match forget_secrets(&folder, store.as_ref()) {
             Ok(n) => removed += n,
             Err(e) => problems.push(e),
+        }
+        // The PC's license key (Phase 11A), kept under the first organization's name.
+        if id == crate::orgs::FIRST {
+            match forget_license_key(store.as_ref()) {
+                Ok(true) => removed += 1,
+                Ok(false) => {}
+                Err(e) => problems.push(format!("the license key: {e}")),
+            }
         }
     }
     if problems.is_empty() {
@@ -84,6 +93,15 @@ pub fn forget_every_organizations_secrets(
     } else {
         Err(format!("{removed} removed; {}", problems.join("; ")))
     }
+}
+
+/// Remove the license key, when one is kept. True when there was one.
+fn forget_license_key(store: &dyn SecretStore) -> Result<bool, String> {
+    let id = crate::license_host::VAULT_ID;
+    if vault::read(store, id)?.is_none() {
+        return Ok(false);
+    }
+    vault::erase(store, id).map(|()| true)
 }
 
 /// Run the mode when asked for (in `main`, before anything else). Returns the exit code.
@@ -232,13 +250,20 @@ mod tests {
             .unwrap();
             assert_eq!(store.stored(), 1);
         }
+        // The PC's license key (Phase 11A), under the first organization's name.
+        vault::put(
+            stores[crate::orgs::FIRST].as_ref(),
+            crate::license_host::VAULT_ID,
+            "plenipo1.key",
+        )
+        .unwrap();
         // A folder that is not an organization's is left alone.
         std::fs::create_dir_all(dir.path().join(crate::orgs::FOLDER).join("notes")).unwrap();
         let removed = forget_every_organizations_secrets(dir.path(), |id| {
             Box::new(Shared(Arc::clone(&stores[id]))) as Box<dyn SecretStore>
         })
         .unwrap();
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 3);
         assert!(stores.values().all(|s| s.stored() == 0));
     }
 

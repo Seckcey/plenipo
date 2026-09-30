@@ -4197,6 +4197,7 @@ dependencies = [
  "plenipo-guard",
  "plenipo-ledger",
  "plenipo-liaison",
+ "plenipo-licensing",
  "plenipo-router",
  "plenipo-runtime",
  "plenipo-workforce",

@@ -16,6 +16,8 @@ pub mod files_commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
+pub mod license_commands;
+pub mod license_host;
 pub mod logs;
 pub mod notices;
 pub mod org_commands;
@@ -254,6 +256,24 @@ pub fn configure<R: Runtime>(
                 gather: notices::GATHER,
                 run: true,
             });
+            // Free and Pro (Phase 11A, ADR-110): the PC's one license, its key in the Vault
+            // under the first organization's name; its limits count across every organization.
+            let license = license_host::LicenseHost::load(
+                match options.persistence {
+                    Persistence::AppData => Arc::new(plenipo_capabilities::OsSecretStore::new(
+                        orgs::vault_name(&identifier, orgs::FIRST),
+                    )),
+                    Persistence::InMemory => {
+                        Arc::new(plenipo_capabilities::MemorySecretStore::default())
+                    }
+                },
+                data.as_ref().map(|d| d.join(license_host::RECORD_FILE)),
+                &version,
+            );
+            license
+                .entitlements()
+                .set_usage(Arc::new(license_host::PcUsage(Arc::downgrade(&orgs))));
+            app.manage(license.clone());
             let opening = org_host::Opening {
                 persistence: options.persistence,
                 notices: options.notices,
@@ -263,6 +283,7 @@ pub fn configure<R: Runtime>(
                 run: true,
                 control: orgs.control(),
                 first: None,
+                entitlements: license.entitlements(),
             };
             let first = org_host::build(app.handle(), place(orgs::FIRST), ledger.clone(), &opening);
             orgs.insert(first.clone());
@@ -339,6 +360,11 @@ pub fn configure<R: Runtime>(
                     .as_deref()
                     .is_some_and(start_close::shows_after_restart);
             manage_upkeep(app.handle(), RunNote(keeper), problems, updates, in_tray);
+            // The weekly license check, and Pro's end by the clock (a copy with no key never
+            // checks in, ADR-115).
+            if data.is_some() {
+                license_host::start(app.handle(), license);
+            }
             if options.window_watch {
                 window_watch::start(
                     app.handle(),
@@ -648,6 +674,10 @@ pub fn configure<R: Runtime>(
             org_commands::bring_back_organization,
             org_commands::preview_delete_organization,
             org_commands::delete_organization_for_good,
+            license_commands::get_license,
+            license_commands::enter_license_key,
+            license_commands::remove_license_key,
+            license_commands::check_license_now,
         ])
 }
 
@@ -904,6 +934,20 @@ mod ipc_boundary_tests {
         let ledger = ledger_host::open(app.handle(), &place, Persistence::InMemory);
         app.manage(ledger.clone());
         app.manage(Persistence::InMemory);
+        // The PC's license, kept in memory; these tests run on Pro (the contract's test key),
+        // and the Free tests remove it. Its check goes to a closed port on this computer: the
+        // tests never reach 8 West.
+        let license = license_host::LicenseHost::with(
+            Arc::new(plenipo_capabilities::MemorySecretStore::default()),
+            None,
+            "1.9.0",
+            license_host::check_for(Some("http://127.0.0.1:9")),
+            plenipo_licensing::clock,
+        );
+        license
+            .entitlements()
+            .set_usage(Arc::new(license_host::PcUsage(Arc::downgrade(&orgs))));
+        app.manage(license.clone());
         let first = org_host::build(
             app.handle(),
             place,
@@ -917,9 +961,11 @@ mod ipc_boundary_tests {
                 run: false,
                 control: orgs.control(),
                 first: None,
+                entitlements: license.entitlements(),
             },
         );
         orgs.insert(first.clone());
+        license.enter(&test_license_key(), &first.ledger).unwrap();
         // A copy built with an app ID would otherwise open the developer's real browser when a
         // test presses Connect: these tests open nothing.
         first.broker.set_connection_opener(Arc::new(NoBrowser));
@@ -946,6 +992,17 @@ mod ipc_boundary_tests {
         app.manage(first.router.clone());
         app.manage(first.workforce.clone());
         app
+    }
+
+    /// The license contract's test key (ADR-104): only test builds trust its signer.
+    fn test_license_key() -> String {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../contracts/license-check/v1/keys/valid.txt"),
+        )
+        .unwrap()
+        .trim()
+        .to_owned()
     }
 
     /// Opens no file (tests never start a program).
@@ -6026,5 +6083,151 @@ mod ipc_boundary_tests {
             assert!(!said.contains(TEST_KEY), "{said}");
         }
         assert!(guard.config().unwrap().paid_keys.is_empty());
+    }
+
+    // ---- Phase 11A: Free and Pro (ADR-021, ADR-110) ----
+
+    const LICENSE: [&str; 4] = [
+        "get_license",
+        "enter_license_key",
+        "remove_license_key",
+        "check_license_now",
+    ];
+
+    #[test]
+    fn the_license_commands_are_an_organization_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let popout = window(&app, "popout-terminal--main--1");
+        let args = serde_json::json!({ "key": "plenipo1.x" });
+        for cmd in LICENSE {
+            refused(
+                cmd,
+                invoke_json(&other, cmd, args.clone()),
+                "another window",
+            );
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(cmd, invoke_json(&popout, cmd, args.clone()), "a pop-out");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+        }
+        let view: plenipo_licensing::LicenseView = body(invoke(&main, "get_license"));
+        assert_eq!(view.edition, plenipo_licensing::Edition::Pro);
+    }
+
+    /// Settings → License shows the key's ID and holder, never the key; a key that does not
+    /// check is refused in plain words and changes nothing.
+    #[test]
+    fn settings_license_never_shows_the_key() {
+        let app = app();
+        let main = window(&app, "main");
+        let key = test_license_key();
+        let shown = invoke(&main, "get_license").unwrap();
+        let view: plenipo_licensing::LicenseView = body(Ok(shown.clone()));
+        assert!(view
+            .key_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("lk_")));
+        assert!(view.test_build, "a test copy says so");
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(!json.contains(&key));
+        for (text, why) in [
+            (
+                "plenipo1.not-a-key",
+                "doesn't look like a Plenipo license key",
+            ),
+            (&*"x".repeat(license_host::MAX_KEY_BYTES + 1), "too long"),
+        ] {
+            let err = invoke_json(
+                &main,
+                "enter_license_key",
+                serde_json::json!({ "key": text }),
+            )
+            .expect_err("refused");
+            assert_eq!(err["kind"], "invalidInput", "{err}");
+            assert!(err["message"].as_str().unwrap().contains(why), "{err}");
+        }
+        let after: plenipo_licensing::LicenseView = body(invoke(&main, "get_license"));
+        assert_eq!(after.key_id, view.key_id);
+        assert_eq!(after.edition, plenipo_licensing::Edition::Pro);
+    }
+
+    /// Free has one organization (ADR-110): a new one, a copy, or bringing one back is part of
+    /// Pro, said in plain words; an organization made on Pro is kept, archived or not, and
+    /// opens again with Pro back.
+    #[test]
+    fn on_free_a_second_organization_is_part_of_pro_and_nothing_is_lost() {
+        let app = app();
+        let main = window(&app, "main");
+        let (id, client) = second_organization(&app, &main, "Client Co");
+        drop(client);
+        let _: plenipo_core::OrgListing = body(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        let view: plenipo_licensing::LicenseView = body(invoke(&main, "remove_license_key"));
+        assert_eq!(view.edition, plenipo_licensing::Edition::Free);
+        let words = plenipo_licensing::words::message(plenipo_licensing::Limit::Organizations);
+        for (cmd, args) in [
+            (
+                "create_organization",
+                serde_json::json!({ "name": "Another", "start": { "kind": "scratch" } }),
+            ),
+            (
+                "create_organization",
+                serde_json::json!({ "name": "Copy", "start": { "kind": "copy", "from": orgs::FIRST } }),
+            ),
+            ("bring_back_organization", serde_json::json!({ "id": id })),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err("part of Pro");
+            assert_eq!(err["kind"], "partOfPro", "{cmd}: {err}");
+            assert_eq!(err["message"], words, "{cmd}");
+        }
+        let listing: plenipo_core::OrgListing = body(invoke(&main, "get_organizations"));
+        assert_eq!(listing.organizations.len(), 2, "nothing made, nothing lost");
+        assert!(listing
+            .organizations
+            .iter()
+            .any(|o| o.id == id && o.archived));
+        // Pro again: it comes back.
+        let view: plenipo_licensing::LicenseView = body(invoke_json(
+            &main,
+            "enter_license_key",
+            serde_json::json!({ "key": test_license_key() }),
+        ));
+        assert_eq!(view.edition, plenipo_licensing::Edition::Pro);
+        let listing: plenipo_core::OrgListing = body(invoke_json(
+            &main,
+            "bring_back_organization",
+            serde_json::json!({ "id": id }),
+        ));
+        assert!(listing
+            .organizations
+            .iter()
+            .any(|o| o.id == id && !o.archived));
+    }
+
+    /// A Free limit reaches the screen as "part of Pro", with its plain words.
+    #[test]
+    fn a_free_limit_reaches_the_screen_as_part_of_pro() {
+        use plenipo_licensing::{Blocked, Limit};
+        let e = crate::commands::workforce_error(plenipo_workforce::WorkforceError::PartOfPro(
+            Blocked::new(Limit::Departments),
+        ));
+        assert_eq!(e.kind, plenipo_core::CommandErrorKind::PartOfPro);
+        assert_eq!(
+            e.message,
+            plenipo_licensing::words::message(Limit::Departments)
+        );
+        let e = crate::commands::broker_error(plenipo_capabilities::BrokerError::PartOfPro(
+            Blocked::new(Limit::Connections),
+        ));
+        assert_eq!(e.kind, plenipo_core::CommandErrorKind::PartOfPro);
     }
 }

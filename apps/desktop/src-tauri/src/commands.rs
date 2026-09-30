@@ -522,6 +522,9 @@ pub async fn get_liaison_overview(
 const MAX_FIELD_BYTES: usize = 8_000;
 
 pub(crate) fn workforce_error(e: WorkforceError) -> CommandError {
+    if let WorkforceError::PartOfPro(blocked) = e {
+        return CommandError::part_of_pro(blocked.message);
+    }
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
@@ -1317,6 +1320,9 @@ pub(crate) fn guard_error(e: GuardError) -> CommandError {
 }
 
 pub(crate) fn broker_error(e: BrokerError) -> CommandError {
+    if let BrokerError::PartOfPro(blocked) = e {
+        return CommandError::part_of_pro(blocked.message);
+    }
     if e.is_caller_error() {
         CommandError::invalid_input(e.to_string())
     } else {
