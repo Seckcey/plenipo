@@ -1805,7 +1805,16 @@ async fn a_manager_hands_an_objective_to_its_supervisor_who_does_it_in_its_own_c
 async fn a_busy_supervisor_takes_a_handed_over_objective_when_it_is_free() {
     let h = harness().await;
     let o = h.development();
-    let busy = h.objective(&o.coordinator, "A long job [delay:3000]").await;
+    // Long enough for the manager's turn and its handover to arrive while the supervisor is
+    // still busy, even on a slow or crowded machine (a 3-second job was not, on Windows).
+    let busy = h
+        .objective(&o.coordinator, "A long job [delay:15000]")
+        .await;
+    let deadline = Instant::now() + WAIT;
+    while h.task(&busy).state != TaskState::Running {
+        assert!(Instant::now() < deadline, "the supervisor never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     let root = h
         .objective(
             &o.head,
