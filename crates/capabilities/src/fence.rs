@@ -31,6 +31,8 @@ pub enum Source {
     Document(String),
     /// Records a connection's service keeps: file and site lists, CRM, payments (Phase 20).
     Record(String),
+    /// What an add-on program answered (Phase 20 part 20C, ADR-066 §4), by the add-on's name.
+    AddOn(String),
 }
 
 impl Source {
@@ -47,6 +49,7 @@ impl Source {
             Source::Calendar(_) => "calendar entries",
             Source::Document(_) => "document text",
             Source::Record(_) => "records",
+            Source::AddOn(_) => "add-on output",
         }
     }
 
@@ -64,6 +67,7 @@ impl Source {
             Source::Calendar(_) => "the events' organizers",
             Source::Document(_) => "the document",
             Source::Record(_) => "the service",
+            Source::AddOn(_) => "the program",
         }
     }
 
@@ -79,7 +83,8 @@ impl Source {
             | Source::Chat(n)
             | Source::Calendar(n)
             | Source::Document(n)
-            | Source::Record(n) => n,
+            | Source::Record(n)
+            | Source::AddOn(n) => n,
         }
     }
 }

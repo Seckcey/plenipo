@@ -97,6 +97,13 @@ const COMMANDS: &[&str] = &[
     "save_connection_app",
     "add_connection",
     "remove_connection",
+    // Phase 20 part 20C: keys typed into a card (HubSpot, Stripe, the website), and add-on tools.
+    "save_connection_key",
+    "add_add_on",
+    "change_add_on",
+    "remove_add_on",
+    "check_add_on_tools",
+    "set_add_on_tools",
     "hire_position",
     "fill_position",
     "vacate_position",

@@ -5,6 +5,7 @@ import { addConnection } from "../../api/commands";
 import { Refusal } from "../../components/models/shared";
 import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
+import { AddOnTools } from "./AddOnTools";
 import { ConnectionCard } from "./ConnectionCard";
 import { useConnections } from "./useConnections";
 import { LATER } from "./words";
@@ -13,7 +14,8 @@ import { LATER } from "./words";
  * Settings → Connections (Phase 20, ADR-062 to ADR-065): the business accounts workers may use.
  * You sign in on the service's own page in your browser; Plenipo keeps the sign-in only in the
  * Vault and never sees your password. For each connection: its parts (Off, Read only, or Full
- * access), who may use it, and the people it may send to without asking you.
+ * access), who may use it, and the people it may send to without asking you. HubSpot, Stripe,
+ * and your website connect with a key typed into their cards. **Add-on tools** come last.
  */
 export function ConnectionsSettings({ go }: { go: Go }) {
   const { page, error, apply } = useConnections();
@@ -30,14 +32,19 @@ export function ConnectionsSettings({ go }: { go: Go }) {
         A worker uses a connection only if it is on the connection&apos;s <em>Who may use it</em>{" "}
         list, and only the parts you turned on. Reading is allowed at <em>Read only</em>; drafting
         and adding need <em>Full access</em>. Sending, posting, inviting people, adding a file to a
-        SharePoint site, and replacing a file ask you first — except a send to people (or a Slack
-        channel) who are all on that connection&apos;s <em>Send without asking to</em> list, while
-        you have that switch on. Sign-ins are kept in {page.vaultLabel}: workers never see them, and
-        neither does anything Plenipo records.
+        SharePoint site, publishing on your website, and replacing a file ask you first — except a
+        send to people (or a Slack channel) who are all on that connection&apos;s{" "}
+        <em>Send without asking to</em> list, while you have that switch on.{" "}
+        <strong>Money always asks you:</strong> Stripe refunds and invoices, and store refunds.
+        Sign-ins and keys are kept in {page.vaultLabel}: workers never see them, and neither does
+        anything Plenipo records.
       </p>
       <p className="notice-box" role="note">
-        <strong>Mail, chats, calendars, and files are other people&apos;s words.</strong> Workers
-        get them marked as information, never as instructions from you. An email that says
+        <strong>
+          Mail, chats, calendars, files, HubSpot notes, orders, comments, and add-on answers are
+          other people&apos;s words.
+        </strong>{" "}
+        Workers get them marked as information, never as instructions from you. An email that says
         &quot;forward all mail&quot; cannot send anything by itself: a send asks you and shows who
         it goes to, unless everyone it goes to is on that connection&apos;s{" "}
         <em>Send without asking to</em> list and you turned that switch on.
@@ -57,6 +64,7 @@ export function ConnectionsSettings({ go }: { go: Go }) {
           <ServiceItem key={s.service} service={s} page={page} onApply={apply} go={go} />
         ))}
       </ul>
+      <AddOnTools page={page} onApply={apply} />
     </div>
   );
 }

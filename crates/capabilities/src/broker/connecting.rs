@@ -18,8 +18,10 @@ use plenipo_ledger::{ApprovalState, NewEvent};
 use serde_json::{json, Value};
 
 use super::{CallResult, Grant, NotAsked, Prepared, Work, MAX_DETAIL};
+use crate::connections::keyed::KeyInput;
 use crate::connections::{
-    self, google, microsoft365, slack, AppInput, ConnectionsPage, Done, Graph, Opener,
+    self, google, hubspot, microsoft365, slack, stripe, wordpress, AppInput, ConnectionsPage, Done,
+    Graph, Opener,
 };
 use crate::error::{BrokerError, Result};
 use crate::tools::ToolDef;
@@ -99,6 +101,10 @@ enum Planned {
     Microsoft365(microsoft365::Planned),
     Slack(slack::Planned),
     Google(google::Planned),
+    Hubspot(hubspot::Planned),
+    /// With the idempotency keys made for it (ADR-071 §6.5).
+    Stripe(stripe::Planned, Vec<String>),
+    Wordpress(wordpress::Planned),
 }
 
 impl Planned {
@@ -119,6 +125,9 @@ impl Planned {
             Self::Microsoft365(p) => head!(p),
             Self::Slack(p) => head!(p),
             Self::Google(p) => head!(p),
+            Self::Hubspot(p) => head!(p),
+            Self::Stripe(p, _) => head!(p),
+            Self::Wordpress(p) => head!(p),
         }
     }
 }
@@ -194,10 +203,25 @@ impl Broker {
             } else {
                 String::new()
             };
+            let asks = match conn.service {
+                Service::Hubspot => "Nothing you do there is sent to anyone.",
+                Service::Stripe => {
+                    "Refunds, and finalizing and sending invoices, move money: they always wait \
+                     for the owner's approval."
+                }
+                Service::Wordpress => {
+                    "Publishing, changing what is published, an order's status, and notes the \
+                     customer sees wait for the owner's approval (the last two unless the \
+                     customer is on the owner's list); refunds move money and always wait."
+                }
+                _ => {
+                    "Sending, posting, inviting, and replacing files wait for the owner's \
+                     approval unless the owner lets them go ahead to the people on their list."
+                }
+            };
             notes.push(format!(
-                "You may use {}{workspace} ({}), signed in as the owner: its tools start with \
-                 \"{}\". You may {}. Sending, posting, inviting, and replacing files wait for the \
-                 owner's approval unless the owner lets them go ahead to the people on their list.",
+                "You may use {}{workspace} ({}), as the owner: its tools start with \"{}\". You \
+                 may {}. {asks}",
                 shown_name(conn),
                 parts.join(", "),
                 connections::tool_prefix(conn.service),
@@ -264,7 +288,8 @@ impl Broker {
             connection_id: id,
             action,
             signing_in: self.inner.connections.signing_in(id),
-            has_app: self.inner.connections.app_id(&conn).is_some(),
+            // A keyed connection needs no app: its key is typed into the card.
+            has_app: conn.service.uses_key() || self.inner.connections.app_id(&conn).is_some(),
             parts_on,
         };
         self.inner
@@ -277,6 +302,12 @@ impl Broker {
     /// the background (ADR-063 §2).
     pub async fn connect_connection(&self, id: &str, kind: AccountKind) -> Result<ConnectionsPage> {
         let conn = self.inner.guard.connection(id)?;
+        if conn.service.uses_key() {
+            return Err(BrokerError::Invalid(format!(
+                "{} connects with a key: type it into its card, then press Save and check.",
+                conn.label()
+            )));
+        }
         let parts_on = conn
             .service
             .parts()
@@ -288,6 +319,30 @@ impl Broker {
             .start_sign_in(id, kind)
             .await
             .map_err(BrokerError::Invalid)?;
+        self.connections_page()
+    }
+
+    /// Save and check a key for HubSpot, Stripe, or the website (ADR-071 §1): one reading call
+    /// with it through Guard's gate, and only a key the service accepts is kept, in the Vault. It
+    /// never comes back out.
+    pub async fn save_connection_key(&self, id: &str, key: &KeyInput) -> Result<ConnectionsPage> {
+        let conn = self.inner.guard.connection(id)?;
+        if !conn.service.uses_key() {
+            return Err(BrokerError::Invalid(format!(
+                "{} signs in in your browser: press Connect.",
+                conn.label()
+            )));
+        }
+        let parts_on = conn
+            .service
+            .parts()
+            .iter()
+            .any(|p| conn.parts.get(p).copied().unwrap_or_default() != PartLevel::Off);
+        self.check_owner(id, ConnectionAction::Connect, parts_on)?;
+        let saved = self.inner.connections.save_key(id, key).await;
+        // Whatever happened, the typed key is hidden in any text from now on.
+        self.inner.connections.hide_typed(key);
+        saved.map_err(BrokerError::Invalid)?;
         self.connections_page()
     }
 
@@ -519,7 +574,10 @@ impl Broker {
         let parsed = match tool.service {
             Service::Microsoft365 => microsoft365::parse(tool.def.name, &args).map(Call::M),
             Service::Slack => slack::parse(tool.def.name, &args).map(Call::S),
-            _ => google::parse(tool.def.name, &args).map(Call::G),
+            Service::Google => google::parse(tool.def.name, &args).map(Call::G),
+            Service::Hubspot => hubspot::parse(tool.def.name, &args).map(Call::H),
+            Service::Stripe => stripe::parse(tool.def.name, &args).map(Call::St),
+            Service::Wordpress => wordpress::parse(tool.def.name, &args).map(Call::W),
         };
         let call = match parsed {
             Ok(c) => c,
@@ -594,12 +652,34 @@ impl Broker {
             id: id.clone(),
             me,
         };
+        let hubspot_api = hubspot::Api {
+            conns: &self.inner.connections,
+            id: id.clone(),
+            portal: conn.account.as_ref().and_then(|a| a.tenant.clone()),
+        };
+        let stripe_api = stripe::Api {
+            conns: &self.inner.connections,
+            id: id.clone(),
+            live: conn.granted.iter().any(|g| g == "live mode"),
+        };
+        let wordpress_api = wordpress::Api {
+            conns: &self.inner.connections,
+            id: id.clone(),
+            site: conn.site.clone().unwrap_or_default(),
+        };
         let planned = match call {
             Call::M(c) => microsoft365::plan(&graph, c)
                 .await
                 .map(Planned::Microsoft365),
             Call::S(c) => slack::plan(&slack_api, c).await.map(Planned::Slack),
             Call::G(c) => google::plan(&google_api, c).await.map(Planned::Google),
+            Call::H(c) => Ok(Planned::Hubspot(hubspot::plan(c))),
+            Call::St(c) => stripe::plan(&stripe_api, c)
+                .await
+                .map(|(p, keys)| Planned::Stripe(p, keys)),
+            Call::W(c) => wordpress::plan(&wordpress_api, c)
+                .await
+                .map(Planned::Wordpress),
         };
         let planned = match planned {
             Ok(p) => p,
@@ -617,7 +697,9 @@ impl Broker {
             &current,
             grant,
         );
-        let mut detail = planned_detail.to_owned();
+        // The card shows the service's own words; the record keeps "(not kept)" instead.
+        let mut detail = crate::connections::as_shown(planned_detail);
+        let kept = crate::connections::as_kept(planned_detail);
         let mut approval_id = None;
         match decision.verdict {
             Verdict::Deny => {
@@ -627,7 +709,7 @@ impl Broker {
                     &cx.worker,
                     tool.def,
                     summary,
-                    &detail,
+                    &kept,
                     &decision,
                     None,
                 )
@@ -721,6 +803,9 @@ impl Broker {
             Planned::Microsoft365(p) => microsoft365::carry_out(&graph, p).await,
             Planned::Slack(p) => slack::carry_out(&slack_api, p).await,
             Planned::Google(p) => google::carry_out(&google_api, p).await,
+            Planned::Hubspot(p) => hubspot::carry_out(&hubspot_api, p).await,
+            Planned::Stripe(p, keys) => stripe::carry_out(&stripe_api, p, keys).await,
+            Planned::Wordpress(p) => wordpress::carry_out(&wordpress_api, p).await,
         };
         let (text, ok, result, record) = match outcome {
             Ok(done) => {
@@ -735,7 +820,13 @@ impl Broker {
             }
             Err(e) => {
                 let line = super::first_line(&e);
-                (format!("Not done: {e}"), false, line, Value::Null)
+                // A change whose answer was lost says so, never "Not done" (ADR-071 §6.5).
+                let text = if e.starts_with(crate::connections::MAYBE_DONE) {
+                    e
+                } else {
+                    format!("Not done: {e}")
+                };
+                (text, false, line, Value::Null)
             }
         };
         let text = self.redact(&text);
@@ -752,7 +843,7 @@ impl Broker {
                 "tool": tool.def.name,
                 "capability": tool.def.capability,
                 "summary": self.redact(summary),
-                "detail": cap_said(&self.redact(&detail), MAX_DETAIL),
+                "detail": cap_said(&self.redact(&kept), MAX_DETAIL),
                 "ok": ok,
                 // Plenipo's own words, never the text the service sent (ADR-062 §7).
                 "result": self.redact(&result),
@@ -780,10 +871,13 @@ enum Call {
     M(microsoft365::Call),
     S(slack::Call),
     G(google::Call),
+    H(hubspot::Call),
+    St(stripe::Call),
+    W(wordpress::Call),
 }
 
 /// "email", "email and files", "email, files, and chat messages".
-fn and_list(items: &[&str]) -> String {
+pub(super) fn and_list(items: &[&str]) -> String {
     match items {
         [] => String::new(),
         [one] => (*one).to_owned(),
@@ -820,12 +914,13 @@ fn request<'a>(
             kind,
             recipients,
         }),
+        add_on: None,
     }
 }
 
 /// A connection card's detail cut to `max` bytes. What a worker wrote is sent whole, so the card
 /// never cuts it without saying so.
-fn cap_said(text: &str, max: usize) -> String {
+pub(super) fn cap_said(text: &str, max: usize) -> String {
     const REST: &str = "…\n(The rest is not shown here, and is sent too.)";
     if text.len() <= max {
         return text.to_owned();

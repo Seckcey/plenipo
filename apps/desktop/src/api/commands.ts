@@ -30,7 +30,11 @@ import type {
   Access,
   AccountKind,
   AppInput,
+  AddOnChange,
+  AddOnInput,
   ConnectionsPage,
+  KeyInput,
+  ToolMark,
   OwnApp,
   Part,
   Service,
@@ -1153,4 +1157,40 @@ export function addConnection(service: Service): Promise<ConnectionsPage> {
 /** Remove a card that is not connected (a Slack workspace). */
 export function removeConnection(connectionId: string): Promise<ConnectionsPage> {
   return call<ConnectionsPage>("remove_connection", { connectionId });
+}
+
+/**
+ * Save and check a key typed into a card (HubSpot, Stripe, the website; ADR-071): checked with one
+ * reading call, kept only in the Vault if the service accepts it, and never returned.
+ */
+export function saveConnectionKey(connectionId: string, key: KeyInput): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("save_connection_key", { connectionId, key });
+}
+
+/** Add a program that offers tools (ADR-066): off, with no tool marked and nobody allowed. */
+export function addAddOn(addOn: AddOnInput): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("add_add_on", { addOn });
+}
+
+/** Change an add-on (switching it on looks at its tools first). */
+export function changeAddOn(addOnId: string, change: AddOnChange): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("change_add_on", { addOnId, change });
+}
+
+/** Remove an add-on. */
+export function removeAddOn(addOnId: string): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("remove_add_on", { addOnId });
+}
+
+/** Start the program once and list its tools: new or changed ones are Off. */
+export function checkAddOnTools(addOnId: string): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("check_add_on_tools", { addOnId });
+}
+
+/** Mark an add-on's tools Off, Reading, or Changing (by the program's names for them). */
+export function setAddOnTools(
+  addOnId: string,
+  marks: Record<string, ToolMark>,
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("set_add_on_tools", { addOnId, marks });
 }

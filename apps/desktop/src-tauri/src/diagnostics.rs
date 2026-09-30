@@ -265,7 +265,33 @@ mod tests {
             tenant: None,
             secret_kept: true,
         });
-        let v = connections(&[c, s, g]);
+        // Part 20C: the website (its address is the owner's, like an account) and Stripe.
+        let mut w = Connection::new("wordpress", Service::Wordpress);
+        w.state = ConnectionState::Connected;
+        w.site = Some("https://shop.example.com".into());
+        w.account = Some(Account {
+            name: "Plenipo".into(),
+            address: "https://shop.example.com".into(),
+            organization: None,
+            tenant: Some("7".into()),
+        });
+        w.granted = vec!["role:shop_manager".into()];
+        let mut st = Connection::new("stripe", Service::Stripe);
+        st.state = ConnectionState::Connected;
+        st.account = Some(Account {
+            name: "8 West IT".into(),
+            address: String::new(),
+            organization: Some("Test mode".into()),
+            tenant: Some("acct_1PlenipoTest".into()),
+        });
+        st.granted = vec!["test mode".into()];
+        let v = connections(&[c, s, g, w, st]);
+        assert_eq!(v[3]["service"], "WordPress and WooCommerce");
+        assert_eq!(
+            v[3]["parts"][0],
+            json!({ "part": "Posts and pages", "level": "Read only" })
+        );
+        assert_eq!(v[4]["granted"], json!(["test mode"]));
         assert_eq!(v[1]["service"], "Slack");
         assert_eq!(
             v[1]["parts"][0],
@@ -301,6 +327,8 @@ mod tests {
             "C0100000001",
             "3333333333",
             "123456789012",
+            "shop.example.com",
+            "acct_1Plenipo",
         ] {
             assert!(!text.contains(never), "{never} is in {text}");
         }

@@ -12,6 +12,7 @@
 //! which servers workers may reach over SSH and what they may run there. Nothing here carries the
 //! action out: the capability broker (`plenipo-capabilities`) does, after asking Guard.
 
+pub mod add_ons;
 pub mod ai_tools;
 pub mod commands;
 pub mod config;
@@ -29,6 +30,7 @@ pub mod servers;
 mod service;
 pub mod websites;
 
+pub use add_ons::{AddOn, AddOnChange, AddOnCheck, AddOnInput, AddOnTool, ToolMark};
 pub use ai_tools::{AiToolAction, AiToolBusy, AiToolRequest};
 pub use commands::CommandLine;
 pub use config::GuardConfig;
@@ -38,8 +40,8 @@ pub use connections::{
 };
 pub use dto::*;
 pub use engine::{
-    evaluate, level_for, level_for_connection, levels_for, GrantState, LevelFor, Request, Scope,
-    SiteCheck,
+    evaluate, level_for, level_for_add_on, level_for_connection, levels_for, GrantState, LevelFor,
+    Request, Scope, SiteCheck,
 };
 pub use error::{GuardError, Result};
 pub use outbound::{OutboundRules, Purpose};

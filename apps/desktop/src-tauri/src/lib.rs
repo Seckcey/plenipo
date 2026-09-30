@@ -480,6 +480,12 @@ pub fn configure<R: Runtime>(
             connections_commands::save_connection_app,
             connections_commands::add_connection,
             connections_commands::remove_connection,
+            connections_commands::save_connection_key,
+            connections_commands::add_add_on,
+            connections_commands::change_add_on,
+            connections_commands::remove_add_on,
+            connections_commands::check_add_on_tools,
+            connections_commands::set_add_on_tools,
             commands::hire_position,
             commands::fill_position,
             commands::vacate_position,
@@ -4104,7 +4110,7 @@ mod ipc_boundary_tests {
         assert!(page.auto_update);
     }
 
-    const PHASE_20: [&str; 11] = [
+    const PHASE_20: [&str; 17] = [
         "get_connections",
         "connect_connection",
         "cancel_connection_sign_in",
@@ -4117,6 +4123,13 @@ mod ipc_boundary_tests {
         "save_connection_app",
         "add_connection",
         "remove_connection",
+        // Part 20C (ADR-071): keys typed into a card, and add-on tools.
+        "save_connection_key",
+        "add_add_on",
+        "change_add_on",
+        "remove_add_on",
+        "check_add_on_tools",
+        "set_add_on_tools",
     ];
 
     /// Arguments that fit every Phase 20 command (each takes the ones it names).
@@ -4124,6 +4137,8 @@ mod ipc_boundary_tests {
         serde_json::json!({
             "connectionId": "microsoft365", "kind": "work", "parts": { "mail": "readOnly" },
             "access": [], "list": [], "app": null, "service": "slack",
+            "key": { "key": "pat-na1-ipc" }, "addOnId": "nothere", "change": {}, "marks": {},
+            "addOn": { "name": "Nope", "program": "npx", "args": ["-y", "x"] },
         })
     }
 
@@ -4201,7 +4216,7 @@ mod ipc_boundary_tests {
             (
                 "connect_connection",
                 serde_json::json!({ "connectionId": "hubspot", "kind": "work" }),
-                "HubSpot comes in a later update of Plenipo",
+                "HubSpot connects with a key",
             ),
             (
                 "connect_connection",
@@ -4344,7 +4359,7 @@ mod ipc_boundary_tests {
             (
                 "add_connection",
                 serde_json::json!({ "service": "stripe" }),
-                "Stripe comes in a later update of Plenipo",
+                "Plenipo keeps one Stripe account",
             ),
             (
                 "remove_connection",
@@ -4366,6 +4381,114 @@ mod ipc_boundary_tests {
                 serde_json::json!({ "connectionId": "slack", "parts": { "search": "fullAccess" } }),
                 "Search only reads",
             ),
+            // Part 20C: keys typed into a card, checked before anything is sent.
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "../hubspot", "key": { "key": "x" } }),
+                "invalid connection id",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "stripe", "key": { "key": "sk_live_51IpcSecretKey" } }),
+                "Plenipo takes only a restricted key",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "stripe", "key": { "key": "rk_test_1", "site": "https://x.com" } }),
+                "Stripe does not take a site address",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "stripe", "key": { "secret": "x" } }),
+                "not in the expected shape",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "stripe", "key": { "key": "r".repeat(401) } }),
+                "that key is too long",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "wordpress", "key": {
+                    "site": "http://shop.example.com", "user": "plenipo",
+                    "password": "abcdEFGH1234ijklMNOP5678" } }),
+                "only over https",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "wordpress", "key": {
+                    "site": "https://shop.example.com", "user": "plenipo",
+                    "password": "abcdEFGH1234ijklMNOP5678", "storeKey": "ck_1" } }),
+                "or neither",
+            ),
+            (
+                "save_connection_key",
+                serde_json::json!({ "connectionId": "google", "key": { "key": "x" } }),
+                "signs in in your browser",
+            ),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": "stripe", "kind": "work" }),
+                "connects with a key",
+            ),
+            // Add-on tools: an installed program, never a shell or a downloader.
+            (
+                "add_add_on",
+                serde_json::json!({ "addOn": { "name": "Notion", "program": "npx",
+                    "args": ["-y", "@notionhq/notion-mcp-server"] } }),
+                "downloads code each time",
+            ),
+            (
+                "add_add_on",
+                serde_json::json!({ "addOn": { "name": "Shell", "program": "powershell" } }),
+                "is a shell",
+            ),
+            (
+                "add_add_on",
+                serde_json::json!({ "addOn": { "name": "Gone", "program": "/no/such/program-mcp" } }),
+                "There is no program at",
+            ),
+            (
+                "add_add_on",
+                serde_json::json!({ "addOn": { "name": "x", "program": "x", "run": "y" } }),
+                "unknown field `run`",
+            ),
+            (
+                "add_add_on",
+                serde_json::json!({ "addOn": { "name": "x", "program": "x",
+                    "args": vec!["a"; 31] } }),
+                "at most 30 arguments",
+            ),
+            (
+                "change_add_on",
+                serde_json::json!({ "addOnId": "../x", "change": {} }),
+                "invalid add-on id",
+            ),
+            (
+                "change_add_on",
+                serde_json::json!({ "addOnId": "x", "change": { "on": true, "everything": 1 } }),
+                "unknown field `everything`",
+            ),
+            (
+                "change_add_on",
+                serde_json::json!({ "addOnId": "x", "change": { "on": true } }),
+                "no longer in the list",
+            ),
+            (
+                "set_add_on_tools",
+                serde_json::json!({ "addOnId": "x", "marks": { "lookup": "always" } }),
+                "unknown variant `always`",
+            ),
+            (
+                "remove_add_on",
+                serde_json::json!({ "addOnId": "Notion" }),
+                "invalid add-on id",
+            ),
+            (
+                "check_add_on_tools",
+                serde_json::json!({ "addOnId": "x" }),
+                "no longer in the list",
+            ),
         ] {
             let answer = invoke_json(&main, cmd, args.clone());
             let err = answer.expect_err(&format!("{cmd} must refuse {args}"));
@@ -4379,8 +4502,46 @@ mod ipc_boundary_tests {
         }
         // From the main window: the page, a part's level, the list, and Disconnect (always
         // allowed). Connecting needs this copy's app ID.
-        let page: plenipo_capabilities::connections::ConnectionsPage =
-            body(invoke(&main, "get_connections"));
+        // A key refused before it is sent never comes back out in the answer.
+        let refused = "sk_live_51IpcSecretKey";
+        let err = invoke_json(
+            &main,
+            "save_connection_key",
+            serde_json::json!({ "connectionId": "stripe", "key": { "key": refused } }),
+        )
+        .unwrap_err();
+        assert!(!err.to_string().contains(refused), "{err}");
+        // Nor a key sent in the wrong shape (as text, not in its box's field).
+        let err = invoke_json(
+            &main,
+            "save_connection_key",
+            serde_json::json!({ "connectionId": "stripe", "key": refused }),
+        )
+        .unwrap_err();
+        assert!(!err.to_string().contains(refused), "{err}");
+        // An installed program is added off, with no tools and nobody allowed, and removed.
+        let program = std::env::current_exe().unwrap().display().to_string();
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "add_add_on",
+            serde_json::json!({ "addOn": { "name": "Tickets", "program": program, "args": ["--stdio"] } }),
+        ));
+        let added = &page.add_ons[0];
+        assert!(!added.on && added.tools.is_empty() && added.access.is_empty());
+        assert_eq!(added.id, "tickets");
+        let err = invoke_json(
+            &main,
+            "set_add_on_tools",
+            serde_json::json!({ "addOnId": "tickets", "marks": { "lookup": "reading" } }),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no tool named"), "{err}");
+        let page: plenipo_capabilities::connections::ConnectionsPage = body(invoke_json(
+            &main,
+            "remove_add_on",
+            serde_json::json!({ "addOnId": "tickets" }),
+        ));
+        assert!(page.add_ons.is_empty());
         let labels: Vec<&str> = page.services.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(
             labels,

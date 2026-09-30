@@ -18,6 +18,7 @@ import {
 import { Refusal } from "../../components/models/shared";
 import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
+import { KeyForm } from "./KeyForm";
 import { GoogleApp, MicrosoftOwnApp, SlackOwnApp } from "./OwnApps";
 import { SendList } from "./SendList";
 import { WhoMayUse } from "./WhoMayUse";
@@ -30,6 +31,8 @@ import {
   accountLine,
   andList,
   cardTitle,
+  keyedAccountLine,
+  keyedDisconnectWords,
   noAppWords,
 } from "./words";
 
@@ -38,7 +41,9 @@ import {
  * personal one), Reconnect, and Disconnect; while signing in, "Finish signing in in your browser"
  * with Cancel; what it can do, part by part; what Plenipo was allowed; who may use it; the people
  * (and Slack channels) it may send to without asking; and the owner's own app — Google's under
- * **Your Google app**, Microsoft's and Slack's under **Advanced**.
+ * **Your Google app**, Microsoft's and Slack's under **Advanced**. HubSpot, Stripe, and the website
+ * connect with a key typed into the card instead (ADR-071): **Save and check**, then **Replace the
+ * key** or **Disconnect**.
  */
 export function ConnectionCard({
   service,
@@ -65,6 +70,8 @@ export function ConnectionCard({
   const canConnect = card.hasApp && page.vaultAvailable && partsOn && !card.signingIn && !pending;
   const connect = (kind: AccountKind) => void run(() => connectConnection(id, kind));
   const microsoft = c.service === "microsoft365";
+  const keyed = card.usesKey;
+  const live = c.service === "stripe" && c.granted.includes("live mode");
   const title = cardTitle(service, c);
   const titleId = `connection-${id}`;
   // Another Slack workspace's card can be removed while it is not connected.
@@ -76,12 +83,26 @@ export function ConnectionCard({
         <h3 id={titleId}>{title}</h3>
         <StatusPill
           status={card.signingIn ? "pending" : STATE_TONE[c.state]}
-          label={card.signingIn ? "Waiting for you in your browser" : STATE_LABEL[c.state]}
+          label={
+            card.signingIn
+              ? "Waiting for you in your browser"
+              : keyed && c.state === "needsSignIn"
+                ? "Needs a new key"
+                : STATE_LABEL[c.state]
+          }
         />
       </div>
       {connected && c.account && (
         <p className="connection__account">
-          Connected as <strong>{accountLine(c.account, c.accountKind)}</strong>.
+          Connected {keyed ? "to" : "as"}{" "}
+          <strong>{keyed ? keyedAccountLine(c) : accountLine(c.account, c.accountKind)}</strong>.
+        </p>
+      )}
+      {connected && live && (
+        <p className="notice-box" role="alert">
+          <strong>Live mode: this key moves real money.</strong> Refunds and invoices still wait for
+          you every time, and Stripe asks again for a key tagged for an agent. What an AI worker
+          does through Stripe binds you, as Stripe&apos;s terms say.
         </p>
       )}
       {card.signingIn && (
@@ -108,7 +129,14 @@ export function ConnectionCard({
           </p>
         )
       )}
-      {c.state === "needsSignIn" && (
+      {c.state === "needsSignIn" && keyed && (
+        <p className="notice-box" role="alert">
+          <strong>{service.label} needs a new key.</strong> It no longer accepts the key (it was
+          deleted, replaced, or revoked), so Plenipo removed it. Workers cannot use it until you
+          type a new one below.
+        </p>
+      )}
+      {c.state === "needsSignIn" && !keyed && (
         <p className="notice-box" role="alert">
           <strong>{service.label} needs you to sign in again.</strong> It no longer accepts
           Plenipo&apos;s sign-in (it expired, was removed, or your password changed
@@ -135,8 +163,9 @@ export function ConnectionCard({
       {c.service === "google" && (
         <GoogleApp card={card} vaultLabel={page.vaultLabel} onApply={onApply} />
       )}
+      {keyed && <KeyForm card={card} page={page} onApply={onApply} />}
       <div className="actions">
-        {connected ? (
+        {keyed ? null : connected ? (
           <Button
             variant="secondary"
             size="sm"
@@ -175,16 +204,22 @@ export function ConnectionCard({
           (confirmDisconnect ? (
             <>
               <span className="muted">
-                Disconnect {title}? Its tools stop now, and its sign-in is removed from{" "}
-                {page.vaultLabel}
-                {microsoft ? "" : ` and cancelled at ${service.label}`}.
+                {keyed ? (
+                  keyedDisconnectWords(c.service, title, page.vaultLabel)
+                ) : (
+                  <>
+                    Disconnect {title}? Its tools stop now, and its sign-in is removed from{" "}
+                    {page.vaultLabel}
+                    {microsoft ? "" : ` and cancelled at ${service.label}`}.
+                  </>
+                )}
               </span>
               <Button
                 variant="danger"
                 size="sm"
                 disabled={pending}
                 onClick={() => {
-                  setCancelling(!microsoft);
+                  setCancelling(!microsoft && c.service !== "hubspot" && c.service !== "stripe");
                   void run(() => disconnectConnection(id)).then(() => {
                     setCancelling(false);
                     setConfirmDisconnect(false);
@@ -215,7 +250,9 @@ export function ConnectionCard({
       </div>
       {cancelling && pending && (
         <p className="muted" role="status">
-          Cancelling the sign-in at {service.label}…
+          {c.service === "wordpress"
+            ? "Revoking the Application Password at your site…"
+            : `Cancelling the sign-in at ${service.label}…`}
         </p>
       )}
       <Refusal error={error} />
@@ -270,14 +307,16 @@ export function ConnectionCard({
       )}
 
       <WhoMayUse id={id} access={c.access} people={page.people} onApply={onApply} />
-      <SendList
-        id={id}
-        service={c.service}
-        list={c.sendList}
-        switchOn={page.sendSwitchOn}
-        go={go}
-        onApply={onApply}
-      />
+      {c.service !== "hubspot" && c.service !== "stripe" && (
+        <SendList
+          id={id}
+          service={c.service}
+          list={c.sendList}
+          switchOn={page.sendSwitchOn}
+          go={go}
+          onApply={onApply}
+        />
+      )}
       {microsoft && <MicrosoftOwnApp card={card} onApply={onApply} />}
       {c.service === "slack" && <SlackOwnApp card={card} page={page} onApply={onApply} />}
     </li>

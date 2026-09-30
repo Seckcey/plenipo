@@ -40,7 +40,9 @@ export function SendList({
         </strong>{" "}
         {service === "slack"
           ? "Add only addresses, domains, and channels you would be happy to receive anything a worker writes. A channel goes on the list by its ID (in Slack, click the channel's name; its ID is at the bottom of About), and a post there reaches everyone in it, guests from other organizations too. Everyone else, and every message with someone not on the list, still asks you."
-          : "Add only addresses and domains you would be happy to receive anything a worker writes. Everyone else, and every send with someone not on the list, still asks you."}
+          : service === "wordpress"
+            ? "Add only customers' addresses and domains you would be happy to receive anything a worker writes. An order's status and a note the customer sees go ahead without asking only to them; publishing on your site and refunds always ask you."
+            : "Add only addresses and domains you would be happy to receive anything a worker writes. Everyone else, and every send with someone not on the list, still asks you."}
         {service === "microsoft365" && " Posting in a Teams channel always asks you."}
       </p>
       <p className="muted">

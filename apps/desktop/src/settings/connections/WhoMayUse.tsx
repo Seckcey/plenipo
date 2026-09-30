@@ -20,14 +20,24 @@ export function WhoMayUse({
   access,
   people,
   onApply,
+  onSave,
+  levelWords,
+  headingLevel = 4,
 }: {
   id: string;
   access: Access[];
   people: PersonOption[];
   onApply: (page: ConnectionsPage) => void;
+  /** How the list is saved (an add-on's, ADR-066 §3); a connection's by default. */
+  onSave?: (next: Access[]) => Promise<ConnectionsPage>;
+  /** What each level means here, under the list. */
+  levelWords?: string;
+  /** Its heading's level: 4 on a connection's card, 5 inside an add-on's card. */
+  headingLevel?: 4 | 5;
 }) {
   const { pending, error, run } = useRun(onApply);
   const [adding, setAdding] = useState("");
+  const Heading = headingLevel === 5 ? "h5" : "h4";
   const listed = new Set(access.map((a) => key(a.who)));
   const nameOf = (who: Who) => {
     const p = people.find((x) => x.kind === who.kind && x.id === who.id);
@@ -42,7 +52,8 @@ export function WhoMayUse({
       label: p.kind === "agent" && p.role ? `${p.name} (${p.role})` : p.name,
       group: p.kind === "role" ? "Roles" : "Agents",
     }));
-  const save = (next: Access[]) => run(() => setConnectionAccess(id, next));
+  const save = (next: Access[]) =>
+    run(() => (onSave ? onSave(next) : setConnectionAccess(id, next)));
   const add = () => {
     const [kind, ...rest] = adding.split(":");
     const who: Who | null =
@@ -54,7 +65,7 @@ export function WhoMayUse({
   };
   return (
     <section className="connection__section" aria-labelledby={`${id}-who`}>
-      <h4 id={`${id}-who`}>Who may use it</h4>
+      <Heading id={`${id}-who`}>Who may use it</Heading>
       {access.length === 0 ? (
         <p className="empty">
           Nobody yet, so no worker can use it. Add a role or an agent; each starts at Read only.
@@ -88,8 +99,8 @@ export function WhoMayUse({
         </ul>
       )}
       <p className="muted">
-        An agent&apos;s own line wins over its role&apos;s. A project&apos;s or department&apos;s
-        limit can still narrow it.
+        {levelWords ? `${levelWords} ` : ""}An agent&apos;s own line wins over its role&apos;s. A
+        project&apos;s or department&apos;s limit can still narrow it.
       </p>
       {choices.length > 0 && (
         <div className="actions">

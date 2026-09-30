@@ -169,8 +169,8 @@ jobs:
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle
       - name: Build fake agent CLIs for Phase 3 tests
         run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
-      - name: Build the synthetic SSH server and the connections' stand-in for the tests
-        run: cargo build --release --locked -p plenipo-capabilities --bin plenipo-test-sshd --bin plenipo-test-services
+      - name: Build the synthetic SSH server and the connections' stand-in, and the test add-on program
+        run: cargo build --release --locked -p plenipo-capabilities --bin plenipo-test-sshd --bin plenipo-test-services --bin plenipo-test-addon
       # Phase 10 starts the runner's Google Chrome, with its sandbox on (as on Windows). Ubuntu's
       # AppArmor keeps unprivileged programs from the user namespaces that sandbox needs.
       - name: Let Chrome's sandbox use user namespaces

@@ -124,6 +124,123 @@ pub fn docx_text(bytes: &[u8]) -> Result<String, String> {
     Ok(out.trim().to_owned())
 }
 
+/// The most notes [`markup_notes`] gives.
+const MAX_MARKUP_NOTES: usize = 30;
+
+/// What a web page's markup holds that its text does not show: where each link goes, where
+/// each picture, frame, or script comes from, forms, and code run on a click or a load. For an
+/// approval card, so the owner sees what publishing puts on the site (ADR-071 §6.7). One line
+/// each, at most 30.
+pub fn markup_notes(html: &str) -> Vec<String> {
+    let mut notes: Vec<String> = Vec::new();
+    let mut add = |note: String| {
+        let note: String = note
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(240)
+            .collect();
+        if !notes.contains(&note) && notes.len() < MAX_MARKUP_NOTES {
+            notes.push(note);
+        }
+    };
+    let mut rest = html;
+    while let Some(i) = rest.find('<') {
+        let Some(end) = rest[i..].find('>') else {
+            break;
+        };
+        let tag = &rest[i + 1..i + end];
+        rest = &rest[i + end + 1..];
+        if tag.starts_with('/') || tag.starts_with('!') {
+            continue;
+        }
+        let name_end = tag
+            .find(|c: char| c.is_whitespace() || c == '/')
+            .unwrap_or(tag.len());
+        let name = tag[..name_end].to_ascii_lowercase();
+        match name.as_str() {
+            "script" => add("a script: publishing runs it for every visitor".into()),
+            "iframe" | "frame" | "object" | "embed" => add(format!("an embedded <{name}>")),
+            "form" => add("a form".into()),
+            "style" | "link" | "meta" | "base" => add(format!("a <{name}> tag")),
+            _ => {}
+        }
+        for (attr, value) in attributes(&tag[name_end..]) {
+            let what = match attr.as_str() {
+                "href" | "xlink:href" => "a link to",
+                "src" | "srcset" | "data" | "poster" | "background" => "content from",
+                "action" | "formaction" => "a form that sends to",
+                a if a.starts_with("on") && a.len() > 2 => {
+                    add(format!("code run on \"{}\" ({a})", &a[2..]));
+                    continue;
+                }
+                "style"
+                    if {
+                        let v = value.to_ascii_lowercase().replace(' ', "");
+                        v.contains("display:none") || v.contains("visibility:hidden")
+                    } =>
+                {
+                    add("text hidden from visitors (a style)".into());
+                    continue;
+                }
+                _ => continue,
+            };
+            let value = decode_entities(value.trim());
+            if !value.is_empty() {
+                add(format!("{what} {value}"));
+            }
+        }
+    }
+    notes
+}
+
+/// A tag's attributes, as (name in small letters, value).
+fn attributes(s: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        while i < b.len() && (b[i].is_ascii_whitespace() || b[i] == b'/') {
+            i += 1;
+        }
+        let start = i;
+        while i < b.len() && !b[i].is_ascii_whitespace() && b[i] != b'=' && b[i] != b'/' {
+            i += 1;
+        }
+        if start == i {
+            break;
+        }
+        let name = s[start..i].to_ascii_lowercase();
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let mut value = String::new();
+        if i < b.len() && b[i] == b'=' {
+            i += 1;
+            while i < b.len() && b[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < b.len() && (b[i] == b'"' || b[i] == b'\'') {
+                let q = b[i];
+                i += 1;
+                let v0 = i;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+                value = s[v0..i].to_owned();
+                i = (i + 1).min(b.len());
+            } else {
+                let v0 = i;
+                while i < b.len() && !b[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                value = s[v0..i].to_owned();
+            }
+        }
+        out.push((name, value));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +279,26 @@ mod tests {
             "Quarterly plan & budget\nSecond"
         );
         assert!(docx_text(b"not a zip").is_err());
+    }
+
+    #[test]
+    fn markup_the_text_does_not_show_is_named() {
+        let html = "<p>Holiday hours</p><a href=\"https://phish.example/pay\">Pay your invoice</a>\
+            <script src='https://evil.example/x.js'></script><img src=x onerror=alert(1)>\
+            <div style=\"display: none\">hidden</div><iframe src=\"https://frame.example\"></iframe>";
+        let notes = markup_notes(html);
+        for want in [
+            "a link to https://phish.example/pay",
+            "a script: publishing runs it for every visitor",
+            "content from https://evil.example/x.js",
+            "content from x",
+            "code run on \"error\" (onerror)",
+            "text hidden from visitors (a style)",
+            "an embedded <iframe>",
+            "content from https://frame.example",
+        ] {
+            assert!(notes.iter().any(|n| n == want), "{want}: {notes:?}");
+        }
+        assert!(markup_notes("<p>Just <b>words</b>.</p>").is_empty());
     }
 }

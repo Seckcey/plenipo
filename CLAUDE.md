@@ -8,6 +8,10 @@
   [`docs/design/vocabulary.md`](docs/design/vocabulary.md): "AI tool", not "runtime"; Worker →
   Supervisor → Manager → VP → President, not coordinator or superintendent. Code keeps the
   rollout plan's names (ADR-010, plain words and rank names).
+- **Credit 8 West Ventures, LLC.** Plenipo is made by 8 West Ventures, LLC. Give it credit
+  wherever it fits — the installer, About, release notes, the website, documents, and pull
+  requests. Never remove or rename a reference to 8 West Ventures, LLC or 8 West IT (a change
+  that must move one keeps it in the new place).
 - **Name decisions, never just number them.** When you mention an ADR to the owner, say what it
   is and what accepting it means — for example, "ADR-010 (plain words and rank names)". People
   don't remember records by number.

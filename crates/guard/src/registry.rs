@@ -199,9 +199,13 @@ const REGISTRY: [Info; 18] = [
         capability: Capability::McpInvoke,
         id: "mcp.invoke",
         label: "Use add-on tools",
-        description: "Use add-on tools (MCP servers) you set up.",
-        tools: false,
-        arrives: Some("a later phase"),
+        description: "Use the add-on tools you set up (programs that speak MCP), as each \
+                      add-on's Who may use it list allows: Reading tools go ahead, Changing \
+                      tools ask you every time. Who may use each add-on is chosen in Settings → \
+                      Connections; in a project's or department's limit, this is the most it \
+                      allows.",
+        tools: true,
+        arrives: None,
     },
     Info {
         capability: Capability::NetworkLocal,
@@ -268,10 +272,14 @@ impl Capability {
         self.info().tools
     }
 
-    /// Given through a connection's own list, not a role's permission set (Phase 20, ADR-062
-    /// §3): its tools and a worker's level for them are worked out per connection.
+    /// Given through a connection's or an add-on's own list, not a role's permission set (Phase
+    /// 20, ADR-062 §3, ADR-066 §3): its tools and a worker's level for them are worked out per
+    /// connection or add-on.
     pub fn is_connection(self) -> bool {
-        matches!(self, Self::ConnectionsRead | Self::ConnectionsWrite)
+        matches!(
+            self,
+            Self::ConnectionsRead | Self::ConnectionsWrite | Self::McpInvoke
+        )
     }
 
     /// Uses the project folder (so it needs one).

@@ -39,4 +39,10 @@ sendList: Array<string>,
 /**
  * The organization's own app, instead of 8 West's (Advanced).
  */
-ownApp?: OwnApp, connectedAt?: number, state: ConnectionState, };
+ownApp?: OwnApp, 
+/**
+ * The website connection's address (`https://example.com`, or the folder WordPress is in):
+ * the only host Guard's gate lets it reach (ADR-071 §4). Not a secret; kept after
+ * Disconnect, and changed only while not connected.
+ */
+site?: string, connectedAt?: number, state: ConnectionState, };

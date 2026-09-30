@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::add_ons::{self, AddOn, AddOnChange, AddOnInput, Listed, ToolMark, MAX_ADD_ONS};
 use crate::commands::valid_rule;
 use crate::connections::{
     self, Access, Account, AccountKind, Connection, ConnectionState, OwnApp, Part, PartLevel, Who,
@@ -48,6 +49,9 @@ pub struct GuardConfig {
     /// The owner's connections (Phase 20, ADR-062): never their sign-ins, which only the Vault
     /// keeps. Missing in older documents: none.
     pub connections: Vec<Connection>,
+    /// The owner's add-on programs (Phase 20 part 20C, ADR-066): never a secret's value. Missing
+    /// in older documents: none.
+    pub add_ons: Vec<AddOn>,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -864,6 +868,259 @@ impl GuardConfig {
         c.granted = Vec::new();
         c.connected_at = None;
         self.put_connection(c)
+    }
+
+    /// Save the website connection's address (ADR-071 §4), checked and kept one way. Only while
+    /// it is not connected: a password is never sent to a new address.
+    pub fn set_connection_site(&mut self, id: &str, typed: &str) -> Result<Connection> {
+        let mut c = self.connection_or_new(id)?;
+        if c.service != connections::Service::Wordpress {
+            return Err(invalid(format!("{} has no site address", c.label())));
+        }
+        let site = connections::site_address(typed).map_err(invalid)?;
+        if c.site.as_deref() == Some(site.as_str()) {
+            return Ok(c);
+        }
+        if c.state != ConnectionState::NotConnected {
+            return Err(invalid(
+                "Disconnect the website first to change its address: its password is never sent \
+                 to a new address",
+            ));
+        }
+        c.site = Some(site);
+        self.put_connection(c)
+    }
+
+    // ---- Add-on tools (Phase 20 part 20C) ---------------------------------------------------
+
+    pub fn add_on(&self, id: &str) -> Option<&AddOn> {
+        self.add_ons.iter().find(|a| a.id == id)
+    }
+
+    /// An add-on's program, arguments, and secrets, checked (ADR-066 §1, ADR-071 §2).
+    fn add_on_program(
+        &self,
+        program: &str,
+        args: &[String],
+        secrets: &[String],
+    ) -> Result<(String, Vec<String>, Vec<String>)> {
+        let program = program.trim();
+        let absolute = program.starts_with('/')
+            || program.starts_with("\\\\")
+            || (program.len() > 3
+                && program.as_bytes()[0].is_ascii_alphabetic()
+                && program.get(1..3) == Some(":\\"));
+        if program.is_empty()
+            || program.chars().count() > 400
+            || program.chars().any(char::is_control)
+            || !absolute
+        {
+            return Err(invalid(
+                "the program must be an installed program: its full path, or a name Plenipo \
+                 finds on PATH",
+            ));
+        }
+        if args.len() > add_ons::MAX_ARGS {
+            return Err(invalid(format!("at most {} arguments", add_ons::MAX_ARGS)));
+        }
+        for a in args {
+            if a.chars().count() > add_ons::MAX_ARG_CHARS || a.chars().any(char::is_control) {
+                return Err(invalid(format!(
+                    "each argument must be one line of at most {} characters",
+                    add_ons::MAX_ARG_CHARS
+                )));
+            }
+        }
+        if let Some(why) = add_ons::refused_program(program, args) {
+            return Err(invalid(why));
+        }
+        if secrets.len() > add_ons::MAX_SECRETS {
+            return Err(invalid(format!(
+                "at most {} stored secrets for one program",
+                add_ons::MAX_SECRETS
+            )));
+        }
+        let mut names: Vec<String> = Vec::new();
+        for n in secrets {
+            let found = self
+                .secrets
+                .iter()
+                .find(|s| s.name.eq_ignore_ascii_case(n.trim()))
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "there is no stored secret named {:?} (Settings → Secrets)",
+                        n.trim()
+                    ))
+                })?;
+            if found.env_var.is_none() {
+                return Err(invalid(format!(
+                    "the stored secret {:?} has no variable name to give it as (Settings → \
+                     Secrets)",
+                    found.name
+                )));
+            }
+            if !names.iter().any(|x| x == &found.name) {
+                names.push(found.name.clone());
+            }
+        }
+        Ok((program.to_owned(), args.to_vec(), names))
+    }
+
+    /// Add a program, **off**, with no tools marked and nobody allowed yet.
+    pub fn add_add_on(&mut self, input: &AddOnInput, now: u64) -> Result<AddOn> {
+        let name = line("the program's name", &input.name, 60)?;
+        if self.add_ons.len() >= MAX_ADD_ONS {
+            return Err(invalid(format!("at most {MAX_ADD_ONS} add-on programs")));
+        }
+        if self
+            .add_ons
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case(&name))
+        {
+            return Err(invalid(format!(
+                "an add-on named \"{name}\" is already in the list"
+            )));
+        }
+        let (program, args, secrets) =
+            self.add_on_program(&input.program, &input.args, &input.secrets)?;
+        let taken: Vec<&str> = self.add_ons.iter().map(|a| a.id.as_str()).collect();
+        let a = AddOn {
+            id: add_ons::id_for(&name, &taken),
+            name,
+            program,
+            args,
+            secrets,
+            on: false,
+            tools: Vec::new(),
+            access: Vec::new(),
+            checked_at: None,
+            added_at: now,
+        };
+        self.add_ons.push(a.clone());
+        Ok(a)
+    }
+
+    fn add_on_index(&self, id: &str) -> Result<usize> {
+        self.add_ons
+            .iter()
+            .position(|a| a.id == id)
+            .ok_or_else(|| invalid("that add-on is no longer in the list"))
+    }
+
+    /// Change an add-on. A new program or new arguments turn it off and forget its tools, so the
+    /// owner looks at them again; switching it on needs its tools looked at first.
+    pub fn change_add_on(
+        &mut self,
+        id: &str,
+        change: &AddOnChange,
+        roles: &[String],
+        agents: &[String],
+    ) -> Result<AddOn> {
+        let i = self.add_on_index(id)?;
+        let mut a = self.add_ons[i].clone();
+        if let Some(name) = &change.name {
+            let name = line("the program's name", name, 60)?;
+            if self
+                .add_ons
+                .iter()
+                .any(|x| x.id != id && x.name.eq_ignore_ascii_case(&name))
+            {
+                return Err(invalid(format!(
+                    "an add-on named \"{name}\" is already in the list"
+                )));
+            }
+            a.name = name;
+        }
+        if change.program.is_some() || change.args.is_some() || change.secrets.is_some() {
+            let program = change.program.clone().unwrap_or_else(|| a.program.clone());
+            let args = change.args.clone().unwrap_or_else(|| a.args.clone());
+            let secrets = change.secrets.clone().unwrap_or_else(|| a.secrets.clone());
+            let (program, args, secrets) = self.add_on_program(&program, &args, &secrets)?;
+            if program != a.program || args != a.args {
+                a.on = false;
+                a.tools = Vec::new();
+                a.checked_at = None;
+            }
+            a.program = program;
+            a.args = args;
+            a.secrets = secrets;
+        }
+        if let Some(access) = &change.access {
+            if access.len() > MAX_ACCESS {
+                return Err(invalid(format!(
+                    "at most {MAX_ACCESS} lines on Who may use it"
+                )));
+            }
+            let mut seen = std::collections::HashSet::new();
+            for x in access {
+                let kept = a.access.iter().any(|y| y.who == x.who);
+                match &x.who {
+                    Who::Role { id } if !kept && !roles.contains(id) => {
+                        return Err(invalid("a role you added no longer exists"))
+                    }
+                    Who::Agent { id } if !kept && !agents.contains(id) => {
+                        return Err(invalid("an agent you added no longer exists"))
+                    }
+                    _ => {}
+                }
+                if !seen.insert(&x.who) {
+                    return Err(invalid("a role or an agent is on Who may use it only once"));
+                }
+            }
+            a.access = access.clone();
+        }
+        if let Some(on) = change.on {
+            if on && a.checked_at.is_none() {
+                return Err(invalid(
+                    "Look at its tools first: Plenipo starts it once and lists them",
+                ));
+            }
+            a.on = on;
+        }
+        self.add_ons[i] = a.clone();
+        Ok(a)
+    }
+
+    /// Keep the tools the program listed, with the owner's marks where nothing changed.
+    pub fn add_on_tools_listed(
+        &mut self,
+        id: &str,
+        listed: Vec<Listed>,
+        now: Option<u64>,
+    ) -> Result<AddOn> {
+        let i = self.add_on_index(id)?;
+        let a = &mut self.add_ons[i];
+        a.tools = add_ons::merge_tools(&a.id, &a.tools, listed);
+        // Only the owner's look counts as looked at.
+        if now.is_some() {
+            a.checked_at = now;
+        }
+        Ok(a.clone())
+    }
+
+    /// Mark tools by the program's names for them. A mark clears "changed": the owner looked.
+    pub fn set_add_on_tools(
+        &mut self,
+        id: &str,
+        marks: &BTreeMap<String, ToolMark>,
+    ) -> Result<AddOn> {
+        let i = self.add_on_index(id)?;
+        let a = &mut self.add_ons[i];
+        for (name, mark) in marks {
+            let t = a
+                .tools
+                .iter_mut()
+                .find(|t| &t.name == name)
+                .ok_or_else(|| invalid(format!("{} has no tool named {name:?}", a.name)))?;
+            t.mark = *mark;
+            t.changed = false;
+        }
+        Ok(a.clone())
+    }
+
+    pub fn remove_add_on(&mut self, id: &str) -> Result<AddOn> {
+        let i = self.add_on_index(id)?;
+        Ok(self.add_ons.remove(i))
     }
 
     pub fn remove_secret(&mut self, id: &str) -> Result<SecretInfo> {

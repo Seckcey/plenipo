@@ -14,14 +14,26 @@ const MAX_REDIRECTS: usize = 5;
 /// The longest a service may ask Plenipo to wait before trying once more ("too many requests").
 pub const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 
-/// The hosts that get the access token: the service's API, nothing else.
+/// The hosts that get the access token or key: the service's API, nothing else. (The website's
+/// is the address saved on its card, ADR-071 §4.)
 pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
     match service {
         Service::Microsoft365 => &["graph.microsoft.com"],
         Service::Slack => &["slack.com"],
         Service::Google => &["gmail.googleapis.com", "www.googleapis.com"],
-        _ => &[],
+        Service::Hubspot => &["api.hubapi.com"],
+        Service::Stripe => &["api.stripe.com"],
+        Service::Wordpress => &[],
     }
+}
+
+/// How a request proves who it is for: an access token or a key (`Authorization: Bearer`), or
+/// a user name and password (`Authorization: Basic`: a WordPress Application Password, or a
+/// WooCommerce key and its secret).
+#[derive(Clone, Copy)]
+pub(crate) enum Auth<'a> {
+    Bearer(&'a str),
+    Basic { user: &'a str, password: &'a str },
 }
 
 /// What a request carries.
@@ -63,8 +75,11 @@ impl Reply {
 pub(crate) enum HttpError {
     /// Guard's gate refused an address (the reason, in plain words).
     Refused(String),
-    /// The network or the service failed (plain words).
+    /// The network or the service failed before the request reached it (plain words).
     Network(String),
+    /// The request may have reached the service, but no whole answer came back (plain words):
+    /// a change may have been made.
+    NoAnswer(String),
     /// The answer was bigger than allowed.
     TooBig,
 }
@@ -72,7 +87,7 @@ pub(crate) enum HttpError {
 impl std::fmt::Display for HttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Refused(why) | Self::Network(why) => f.write_str(why),
+            Self::Refused(why) | Self::Network(why) | Self::NoAnswer(why) => f.write_str(why),
             Self::TooBig => f.write_str("the answer was too big"),
         }
     }
@@ -182,19 +197,60 @@ impl Http {
         body: Body,
         limit: usize,
     ) -> Result<Reply, HttpError> {
+        self.send_with(
+            service,
+            method,
+            url,
+            bearer.map(Auth::Bearer),
+            headers,
+            body,
+            limit,
+            true,
+        )
+        .await
+    }
+
+    /// As [`Http::send`], with `auth` of either kind, and `retry: false` for a request that must
+    /// never be sent twice (a store refund, which has no way to tell a repeat, ADR-071 §6.5).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_with(
+        &self,
+        service: Service,
+        method: reqwest::Method,
+        url: &str,
+        auth: Option<Auth<'_>>,
+        headers: &[(&'static str, &str)],
+        body: Body,
+        limit: usize,
+        retry: bool,
+    ) -> Result<Reply, HttpError> {
         let reply = self
-            .send_once(service, method.clone(), url, bearer, headers, &body, limit)
+            .send_once(service, method.clone(), url, auth, headers, &body, limit)
             .await?;
-        if matches!(reply.0.status, 429 | 503) {
+        if retry && matches!(reply.0.status, 429 | 503) {
             if let Some(wait) = reply.1.filter(|w| *w <= MAX_RETRY_WAIT) {
                 tokio::time::sleep(wait).await;
                 return Ok(self
-                    .send_once(service, method, url, bearer, headers, &body, limit)
+                    .send_once(service, method, url, auth, headers, &body, limit)
                     .await?
                     .0);
             }
         }
         Ok(reply.0)
+    }
+
+    /// Whether `host` is the service's API host, the only one that gets its token or key: for
+    /// the website, the host of the address saved on its card, read afresh.
+    fn api_host(&self, service: Service, host: &str) -> bool {
+        match service {
+            Service::Wordpress => self
+                .guard
+                .config()
+                .ok()
+                .and_then(|c| c.connection("wordpress").and_then(|w| w.site_host()))
+                .is_some_and(|h| h == host),
+            _ => api_hosts(service).contains(&host),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -203,7 +259,7 @@ impl Http {
         service: Service,
         method: reqwest::Method,
         url: &str,
-        bearer: Option<&str>,
+        auth: Option<Auth<'_>>,
         headers: &[(&'static str, &str)],
         body: &Body,
         limit: usize,
@@ -215,8 +271,12 @@ impl Http {
             self.check(service, &address)?;
             let host = self.real_host(&address).unwrap_or_default();
             let mut request = self.client.request(method.clone(), &address);
-            if let Some(token) = bearer.filter(|_| api_hosts(service).contains(&host.as_str())) {
-                request = request.bearer_auth(token);
+            // Only for the service's own API host (the website: only its saved host).
+            if let Some(auth) = auth.filter(|_| self.api_host(service, &host)) {
+                request = match auth {
+                    Auth::Bearer(token) => request.bearer_auth(token),
+                    Auth::Basic { user, password } => request.basic_auth(user, Some(password)),
+                };
             }
             if first {
                 for (name, value) in headers {
@@ -242,13 +302,23 @@ impl Http {
                 };
             }
             let response = request.send().await.map_err(|e| {
-                HttpError::Network(if e.is_timeout() {
-                    format!("{} took too long to answer", service.label())
+                if e.is_connect() {
+                    HttpError::Network(format!("Plenipo could not reach {}", service.label()))
+                } else if e.is_timeout() {
+                    HttpError::NoAnswer(format!("{} took too long to answer", service.label()))
                 } else {
-                    format!("Plenipo could not reach {}", service.label())
-                })
+                    HttpError::NoAnswer(format!("{}'s answer was lost on the way", service.label()))
+                }
             })?;
             let status = response.status();
+            // A change is never followed to another page (as a GET, it would read as done): the
+            // service may or may not have acted.
+            if status.is_redirection() && first && method != reqwest::Method::GET {
+                return Err(HttpError::NoAnswer(format!(
+                    "{} sent Plenipo to another page instead of answering",
+                    service.label()
+                )));
+            }
             if status.is_redirection() {
                 let next = response
                     .headers()
@@ -284,7 +354,7 @@ impl Http {
             let mut data = Vec::new();
             let mut response = response;
             while let Some(chunk) = response.chunk().await.map_err(|_| {
-                HttpError::Network(format!("{}'s answer was cut off", service.label()))
+                HttpError::NoAnswer(format!("{}'s answer was cut off", service.label()))
             })? {
                 data.extend_from_slice(&chunk);
                 if data.len() > limit {

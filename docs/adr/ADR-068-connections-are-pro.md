@@ -83,3 +83,9 @@ What exists today (read at `066e9af`, `main`, after the Phase 20 design merged):
 
 As decided: no lock yet. Settings → Connections says "Connections are part of Plenipo Pro. Every
 copy can use them for now; disconnecting always works." Phase 11A adds the lock.
+
+## As built (v1.14.2, part 20C)
+
+As decided: HubSpot, Stripe, the website, and add-on tools are under the same "part of Plenipo Pro"
+line on Settings → Connections, with no lock yet. Phase 11A adds the lock; **Disconnect** and
+**Remove** (an add-on) always work.

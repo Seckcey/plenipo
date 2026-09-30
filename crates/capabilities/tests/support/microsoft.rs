@@ -57,6 +57,12 @@ pub struct World {
     pub slow_sign_in_ms: u64,
     /// Wait this long before answering a token request (tests disconnect or cancel meanwhile).
     pub slow_token_ms: u64,
+    /// Do the next N requests whose method and path start with this ("POST /api.stripe.com/…"),
+    /// then close the connection without answering: the answer is lost after the service acted.
+    pub lose_answers_to: Option<(String, u32)>,
+    /// Answer the next N requests whose method and path start with this with a redirect to
+    /// another page on the same host (as a host's bot check does), after acting on them.
+    pub redirect_answers_to: Option<(String, u32)>,
     /// Answer the sign-in page as when the owner goes back from Microsoft's "Need admin
     /// approval" page (Microsoft says the user declined, AADSTS65004).
     pub decline_consent: bool,
@@ -93,6 +99,10 @@ pub struct World {
     pub slack: super::slack::Slack,
     /// The stand-in Google (part 20B).
     pub google: super::google::Google,
+    /// The stand-in HubSpot, Stripe, and website (part 20C).
+    pub hubspot: super::hubspot::Hubspot,
+    pub stripe: super::stripe::Stripe,
+    pub wordpress: super::wordpress::Site,
     next: u64,
 }
 
@@ -240,6 +250,9 @@ impl World {
             })],
             slack: super::slack::Slack::seeded(),
             google: super::google::Google::seeded(),
+            hubspot: super::hubspot::Hubspot::seeded(),
+            stripe: super::stripe::Stripe::seeded(),
+            wordpress: super::wordpress::Site::seeded(),
             ..World::default()
         };
         w.chat_messages.insert(
@@ -471,6 +484,51 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
         tokio::time::sleep(std::time::Duration::from_millis(slow_token)).await;
     }
     let resp = route(&req, &world);
+    let lost = {
+        let mut w = world.lock().unwrap();
+        match &mut w.lose_answers_to {
+            Some((prefix, n))
+                if *n > 0
+                    && format!("{} {}", req.method, req.path).starts_with(prefix.as_str()) =>
+            {
+                *n -= 1;
+                w.requests.push(format!("LOST {} {}", req.method, req.path));
+                true
+            }
+            _ => false,
+        }
+    };
+    if lost {
+        return stream.shutdown().await;
+    }
+    let redirected = {
+        let mut w = world.lock().unwrap();
+        match &mut w.redirect_answers_to {
+            Some((prefix, n))
+                if *n > 0
+                    && format!("{} {}", req.method, req.path).starts_with(prefix.as_str()) =>
+            {
+                *n -= 1;
+                true
+            }
+            _ => false,
+        }
+    };
+    let resp = if redirected {
+        let host = req
+            .path
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap_or_default();
+        Resp {
+            status: "302 Found",
+            headers: vec![("Location".into(), format!("/{host}/.well-known/check/"))],
+            body: Vec::new(),
+        }
+    } else {
+        resp
+    };
     let mut head = format!(
         "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         resp.status,
@@ -514,6 +572,11 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 "sent": w.sent, "requests": w.requests, "issued": w.issued, "asked": w.asked,
                 "slackRevoked": w.slack.revoked.len(), "googleRevoked": w.google.revoked.len(),
                 "slackRenewalsLeft": w.slack.refresh.len(),
+                "hubspotSaved": w.hubspot.saved,
+                "stripeChanges": w.stripe.changes, "stripeHeld": w.stripe.held,
+                "stripeVersions": w.stripe.versions,
+                "siteDone": w.wordpress.done,
+                "sitePasswordsRevoked": w.wordpress.users.iter().filter(|u| u.revoked).count(),
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
             ("POST", "knobs") => {
@@ -549,6 +612,20 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     }
     if let Some(rest) = path.strip_prefix("login.microsoftonline.com/") {
         return login(req, rest, &mut w);
+    }
+    // HubSpot's, Stripe's, and the website's stand-ins (part 20C).
+    if let Some(rest) = path.strip_prefix("api.hubapi.com/") {
+        return super::hubspot::route(req, rest, &mut w);
+    }
+    if let Some(rest) = path.strip_prefix("api.stripe.com/") {
+        return super::stripe::route(req, rest, &mut w);
+    }
+    if let Some(rest) = path.strip_prefix(&format!("{}/", super::wordpress::HOST)) {
+        return super::wordpress::route(req, rest, &mut w);
+    }
+    // A site that moved: it sends every request on to the stand-in site (another host).
+    if let Some(rest) = path.strip_prefix("old.example.com/") {
+        return redirect(&format!("https://{}/{rest}", super::wordpress::HOST));
     }
     // Slack's and Google's stand-ins (part 20B).
     if let Some(rest) = path.strip_prefix("slack.com/") {
