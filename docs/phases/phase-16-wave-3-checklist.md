@@ -37,7 +37,8 @@ New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090)
   billing), ADR-011 (how Plenipo picks each worker's model: paid use was fixed off), and ADR-014
   (adding AI tools: subscription sign-in only). It amends them; it does not rewrite them.
 - **ADR-086 (OpenRouter through a Plenipo helper).** A helper run per task, like ADR-017's.
-- **ADR-087 (direct keys for Anthropic, OpenAI, xAI, and Google).**
+- **ADR-087 (direct keys for every AI company whose models take one).** The plan named four
+  companies; the owner asked for every one (choice 14).
 
 ## Step 0 — checks on the owner's PC (2026-09-30)
 
@@ -100,7 +101,10 @@ New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090)
     passes, Windows included.
 12. **v1.16.0:** the last pull request sets the version.
 13. **The owner's go-ahead:** create and merge this phase's pull requests, and run any GitHub
-    Actions needed.
+    Actions needed, the release included.
+14. **Direct keys for every AI company whose models take one**, not only the plan's four: "We
+    should be able to add api keys to any of the models that support api keys." Recorded in
+    ADR-087 as a change to the plan.
 
 ## Owner's rules for every pull request
 
@@ -281,18 +285,36 @@ New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090)
 
 ## Pull request 3 — direct keys and v1.16.0 (ADR-087)
 
-- [ ] Anthropic (`api.anthropic.com`), OpenAI (`api.openai.com`), xAI (`api.x.ai`), and Google
-      (`generativelanguage.googleapis.com`): the same helper, one small part per company, each with
-      its fixed address, key check, streamed answer, token counts priced from the dated list, and
-      errors in plain words.
-- [ ] Each company's models listed with their maker and price, checked against the company's own
-      list with the owner's key where the owner has one (Anthropic, OpenAI, xAI); Google is marked
-      "not checked with a real key yet" until the owner's key arrives.
-- [ ] A persona per company in `plenipo-fake-agent`; the full contract suite for each.
-- [ ] Proposed, waiting for the owner's yes: a direct key for Kimi (Moonshot AI,
-      `api.moonshot.ai`), because the owner has one. The plan names four companies; a fifth would
-      be recorded in ADR-087.
-- [ ] Version 1.16.0.
+- [ ] **Every AI company whose models take a key (choice 14):** the makers Plenipo lists today, and
+      the makers on OpenRouter's short list that sell keys themselves:
+
+      | Company              | Address (fixed)                     | The owner's key         |
+      | -------------------- | ----------------------------------- | ----------------------- |
+      | Anthropic            | `api.anthropic.com`                 | yes                     |
+      | OpenAI               | `api.openai.com`                    | yes                     |
+      | xAI (Grok)           | `api.x.ai`                          | yes                     |
+      | Moonshot AI (Kimi)   | `api.moonshot.ai`                   | yes                     |
+      | Google (Gemini)      | `generativelanguage.googleapis.com` | later                   |
+      | DeepSeek             | `api.deepseek.com`                  | later                   |
+      | Z.ai (GLM)           | `api.z.ai`                          | later                   |
+      | MiniMax              | `api.minimax.io`                    | later                   |
+      | NVIDIA               | `integrate.api.nvidia.com`          | later                   |
+      | Mistral              | `api.mistral.ai`                    | later                   |
+      | Alibaba Cloud (Qwen) | `dashscope-intl.aliyuncs.com`       | later                   |
+
+      Each address is checked against the company's own documentation when built. Meta's Llama is
+      reached through OpenRouter. GitHub Copilot and Cursor sell no key; Ollama's own key is not a
+      pay-per-use key, so it stays refused (ADR-017).
+
+- [ ] The same helper for all of them, with one small part per way of talking: Anthropic's own,
+      and the OpenAI-style chat most of the others offer. Each company is a row: its fixed
+      address, its key check, its models with their maker, and its dated prices.
+- [ ] Each company's models checked against its own list with the owner's key where the owner has
+      one; the others marked "not checked with a real key yet" until the owner's key arrives.
+- [ ] A persona per way of talking in `plenipo-fake-agent`, and the full contract suite for every
+      company.
+- [ ] Version 1.16.0 (1.17.0 if Phase 21 merges first; ADR-090 §6), and the release started once
+      every check passes (choice 13).
 
 ## Paperwork
 
