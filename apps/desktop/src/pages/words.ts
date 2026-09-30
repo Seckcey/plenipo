@@ -75,6 +75,8 @@ export function eventStatus(e: LedgerEvent): { status: Status; label: string } |
         : { status: "warn", label: "Free" };
     case "license.check_failed":
       return { status: "warn", label: "Not checked" };
+    case "license.key_refused":
+      return { status: "warn", label: "Refused" };
     case "approval.requested":
       return { status: "pending", label: "Waiting for you" };
     case "approval.resolved":

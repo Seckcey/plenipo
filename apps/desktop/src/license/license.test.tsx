@@ -186,6 +186,11 @@ describe("license words", () => {
     expect(describeLicenseEvent("license.key_entered", { keyId: KEY_ID })).toBe(
       `You entered a license key (${KEY_ID})`,
     );
+    expect(
+      describeLicenseEvent("license.key_refused", {
+        reason: "This key wasn't signed by 8 West, so Plenipo can't use it.",
+      }),
+    ).toBe("A license key was refused: This key wasn't signed by 8 West, so Plenipo can't use it.");
     expect(describeLicenseEvent("license.checked", { keyId: KEY_ID, state: "active" })).toBe(
       "The weekly check with 8 West: Pro is paid",
     );

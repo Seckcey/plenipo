@@ -91,6 +91,8 @@ export function describeLicenseEvent(type: string, p: Record<string, unknown>): 
   switch (type) {
     case "license.key_entered":
       return `You entered a license key${id}`;
+    case "license.key_refused":
+      return `A license key was refused${str(p.reason) ? `: ${str(p.reason)}` : ""}`;
     case "license.key_removed":
       return `You removed the license key${id}`;
     case "license.checked":

@@ -37,6 +37,8 @@ pub const RECORD_FILE: &str = "license.json";
 pub const LICENSE_EVENT: &str = "plenipo://license";
 /// Ledger events (the first organization's). Never the key itself: its ID only.
 pub const KEY_ENTERED: &str = "license.key_entered";
+/// A key that did not check: why, in plain words (never what was typed).
+pub const KEY_REFUSED: &str = "license.key_refused";
 pub const KEY_REMOVED: &str = "license.key_removed";
 pub const CHECKED: &str = "license.checked";
 pub const CHECK_FAILED: &str = "license.check_failed";
@@ -179,9 +181,10 @@ impl LicenseHost {
         let now = (self.clock)();
         let mut license = lock(&self.license);
         let mut next = license.clone();
-        let key = next
-            .enter(text, now)
-            .map_err(|e| CommandError::invalid_input(e.to_string()))?;
+        let key = next.enter(text, now).map_err(|e| {
+            record(ledger, KEY_REFUSED, json!({ "reason": e.to_string() }));
+            CommandError::invalid_input(e.to_string())
+        })?;
         let (key_id, text) = (key.key_id().to_owned(), key.text().to_owned());
         vault::put(self.store.as_ref(), VAULT_ID, &text).map_err(|e| {
             CommandError::internal(format!(
@@ -648,10 +651,16 @@ mod tests {
             events(&ledger, CHECKED),
             [json!({ "keyId": id, "state": "active" })]
         );
-        // A bad key changes nothing.
+        // A bad key changes nothing, and is recorded by its reason only.
         let err = h.enter("plenipo1.nope", &ledger).unwrap_err();
         assert_eq!(err.kind, plenipo_core::CommandErrorKind::InvalidInput);
         assert_eq!(h.view().reason, LicenseReason::Active);
+        assert_eq!(
+            events(&ledger, KEY_REFUSED),
+            [json!({ "reason": err.message })]
+        );
+        let recorded = serde_json::to_string(&ledger.recent_events(200).unwrap()).unwrap();
+        assert!(!recorded.contains("plenipo1.nope"));
         // Plenipo starts again: the same license, read from the Vault and the record.
         let again = host(store.clone(), Some(file), s.port);
         assert_eq!(again.view().reason, LicenseReason::Active);
