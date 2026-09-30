@@ -139,7 +139,7 @@ export function Overview({
             {/* A subscription AI tool never takes a paid key (ADR-085 §5). */}
             <p className="muted">
               {info.label} always uses your subscription. To pay per use, add a key to a paid AI
-              tool such as OpenRouter, within your spending caps.
+              tool (OpenRouter, or the AI company's own), within your spending caps.
             </p>
           </>
         )}

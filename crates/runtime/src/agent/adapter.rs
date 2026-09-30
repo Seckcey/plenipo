@@ -302,6 +302,17 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     fn paid(&self) -> bool {
         false
     }
+    /// A paid AI tool's words for its card (ADR-087): until `key_works`, that it has not been
+    /// checked with a real key; after, where its prices come from.
+    fn paid_note(&self, _key_works: bool) -> Option<String> {
+        None
+    }
+    /// The most output tokens a step on `request`'s model can be billed for, thinking included,
+    /// where the answer-length field does not limit the thinking (ADR-087 §3): the step sets that
+    /// aside instead of its asked-for answer. None: the field limits the thinking too.
+    fn most_output_tokens(&self, _request: &TurnRequest) -> Option<u64> {
+        None
+    }
     /// The model a step runs when it names none (paid AI tools price it before it starts).
     fn default_model(&self) -> Option<&'static str> {
         None

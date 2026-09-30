@@ -50,6 +50,9 @@ const MAX_CONVERSATION_FILE: u64 = 16 * 1024 * 1024;
 /// The conversation text kept on file: twice what a task sends, so the newest part is always
 /// there to send.
 const KEPT_TEXT: usize = 2 * MAX_INPUT_BYTES as usize;
+/// The most messages kept on file: their wrapping (8 tokens each) stays well inside the room left
+/// under a price step (ADR-087 §3).
+const KEPT_MESSAGES: usize = 500;
 
 /// The least any step on a paid AI tool can set aside at `price`: its shortest words, its fixed
 /// wrapping, and the answer it asks for. A route with less left under the caps cannot run
@@ -151,11 +154,13 @@ pub trait PaidGate: Send + Sync {
     fn settle(&self, ticket: &str, bill: &PaidBill) -> Vec<String>;
 }
 
-/// A gate kept in memory, for tests: one key for every paid AI tool (or none), a refusal to
-/// give when asked, and every charge and bill it saw.
+/// A gate kept in memory, for tests: one key for the paid AI tools it names (or every one, or
+/// none), a refusal to give when asked, and every charge and bill it saw.
 #[derive(Debug, Default)]
 pub struct MemoryPaidGate {
     key: std::sync::Mutex<Option<PaidKey>>,
+    /// The paid AI tools that have the key; none: every one.
+    only: std::sync::Mutex<Option<Vec<String>>>,
     refusal: std::sync::Mutex<Option<String>>,
     charges: std::sync::Mutex<Vec<PaidCharge>>,
     bills: std::sync::Mutex<Vec<(String, PaidBill)>>,
@@ -171,6 +176,19 @@ impl MemoryPaidGate {
             "sk-or-v1-test-key-not-real-0123456789",
         )));
         gate
+    }
+
+    /// A gate with a test key saved for `runtime_ids` only.
+    pub fn with_key_for(runtime_ids: &[&str]) -> Self {
+        let gate = Self::with_key();
+        *gate.only.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(runtime_ids.iter().map(|id| (*id).to_owned()).collect());
+        gate
+    }
+
+    /// The key for every paid AI tool from now on.
+    pub fn key_for_every_tool(&self) {
+        *self.only.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     pub fn set_key(&self, key: Option<PaidKey>) {
@@ -195,7 +213,16 @@ impl MemoryPaidGate {
 }
 
 impl PaidGate for MemoryPaidGate {
-    fn key(&self, _runtime_id: &str) -> Result<PaidKey, String> {
+    fn key(&self, runtime_id: &str) -> Result<PaidKey, String> {
+        let named = self
+            .only
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_none_or(|ids| ids.iter().any(|id| id == runtime_id));
+        if !named {
+            return Err("No paid key is saved for this AI tool.".to_owned());
+        }
         self.key
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -267,7 +294,8 @@ pub fn load_conversation(file: &Path) -> Option<Vec<Value>> {
 pub fn save_conversation(file: &Path, model: &str, messages: &[Value]) -> std::io::Result<()> {
     let mut start = 0;
     let mut text: usize = messages.iter().map(content_len).sum();
-    while text > KEPT_TEXT && start + 2 < messages.len() {
+    while (text > KEPT_TEXT || messages.len() - start > KEPT_MESSAGES) && start + 2 < messages.len()
+    {
         text -= content_len(&messages[start]) + content_len(&messages[start + 1]);
         start += 2;
     }
@@ -369,9 +397,11 @@ impl OpenRouter {
             )
             .by(makers::ALIBABA),
             KnownModel::new(OPENROUTER_DEFAULT_MODEL, "Qwen3.8 Flash", OPENROUTER_EFFORT)
-                .by(makers::ALIBABA),
+                .by(makers::ALIBABA)
+                .same("qwen3.8-flash"),
             KnownModel::new("mistralai/mistral-medium-3-5", "Mistral Medium 3.5", &[])
-                .by(makers::MISTRAL),
+                .by(makers::MISTRAL)
+                .same("mistral-medium-3.5"),
             KnownModel::new("mistralai/devstral-2512", "Devstral 2 (coding)", &[])
                 .by(makers::MISTRAL),
             KnownModel::new("meta-llama/llama-4-maverick", "Llama 4 Maverick", &[])
@@ -475,6 +505,14 @@ impl RuntimeAdapter for OpenRouter {
 
     fn paid(&self) -> bool {
         true
+    }
+
+    fn paid_note(&self, key_works: bool) -> Option<String> {
+        (!key_works).then(|| {
+            "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come \
+             from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
+                .into()
+        })
     }
 
     fn default_model(&self) -> Option<&'static str> {
@@ -641,10 +679,11 @@ fn price_of(v: &Value) -> Option<Price> {
         input: v.get("input")?.as_u64()?,
         cached_input: v.get("cachedInput").and_then(Value::as_u64),
         output: v.get("output")?.as_u64()?,
+        cache_write: None,
     })
 }
 
-fn last_json(out: &ProbeOutput) -> Option<Value> {
+pub(crate) fn last_json(out: &ProbeOutput) -> Option<Value> {
     out.stdout
         .lines()
         .rev()
@@ -809,14 +848,23 @@ impl TurnParser for PaidParser {
                 // nothing was billed.
                 self.refused = matches!(
                     kind,
-                    "key" | "credit" | "limit" | "refused" | "guard" | "input" | "unreached"
+                    "key"
+                        | "credit"
+                        | "limit"
+                        | "refused"
+                        | "guard"
+                        | "input"
+                        | "unreached"
+                        | "busy"
                 );
                 let outcome = match kind {
                     "key" => Some(TurnOutcome::AuthRequired),
                     // Out of credit on the service, or its own usage limit: this way to the
                     // model is held back, as a usage limit is, and a backup can run.
                     "credit" | "limit" => Some(TurnOutcome::UsageLimited),
-                    "guard" | "service" | "unreached" => Some(TurnOutcome::ProviderUnavailable),
+                    "guard" | "service" | "unreached" | "busy" => {
+                        Some(TurnOutcome::ProviderUnavailable)
+                    }
                     _ => None,
                 };
                 match outcome {
@@ -1126,8 +1174,8 @@ mod tests {
     }
 
     #[test]
-    fn kimi_k3_is_one_model_with_three_ways_to_reach_it() {
-        // ADR-036 §4: Kimi Code's subscription, Ollama's paid plan, and an OpenRouter key.
+    fn kimi_k3_is_one_model_with_four_ways_to_reach_it() {
+        // ADR-036 §4: Kimi Code's subscription, Ollama's paid plan, an OpenRouter key, and a Moonshot key.
         let ways: Vec<String> = crate::agent::builtin_adapters()
             .iter()
             .filter(|a| {
@@ -1138,7 +1186,7 @@ mod tests {
             })
             .map(|a| a.id().to_owned())
             .collect();
-        assert_eq!(ways, ["kimi", "ollama", "openrouter"]);
+        assert_eq!(ways, ["kimi", "ollama", "openrouter", "moonshot-key"]);
     }
 
     #[test]
@@ -1224,5 +1272,38 @@ mod tests {
             args.windows(2).any(|w| w == ["--price-output", "15000000"]),
             "{args:?}"
         );
+    }
+
+    #[test]
+    fn a_conversation_keeps_at_most_five_hundred_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("c.json");
+        let messages: Vec<Value> = (0..1_200)
+            .map(|i| json!({ "role": if i % 2 == 0 { "user" } else { "assistant" }, "content": "hi" }))
+            .collect();
+        save_conversation(&file, "m", &messages).unwrap();
+        let kept = load_conversation(&file).unwrap();
+        assert!(kept.len() <= KEPT_MESSAGES, "{}", kept.len());
+        // Whole exchanges: it still starts with the owner's words.
+        assert_eq!(kept[0]["role"], "user");
+    }
+
+    #[test]
+    fn a_busy_service_bills_nothing_and_is_unavailable_for_now() {
+        let price = Price::per_million_dollars(3, 15);
+        let mut p = PaidParser::new("Anthropic");
+        p.line(
+            r#"{"type":"error","message":"Anthropic is too busy right now (529).","kind":"busy"}"#,
+            false,
+        );
+        assert!(matches!(p.paid_bill(&price, true), Some(PaidBill::NotSent)));
+        let end = ProcessEnd {
+            state: ExecutionState::Failed,
+            exit_code: Some(1),
+            started: true,
+            detail: None,
+            duration_ms: None,
+        };
+        assert_eq!(p.finish(&end).outcome, TurnOutcome::ProviderUnavailable);
     }
 }

@@ -519,7 +519,9 @@ impl Fakes {
         );
         // The same persona plays Plenipo's paid helper (ADR-085): a test key, and caps that
         // let every charge through unless a test says otherwise.
-        let gate = Arc::new(plenipo_runtime::agent::paid::MemoryPaidGate::with_key());
+        let gate = Arc::new(plenipo_runtime::agent::paid::MemoryPaidGate::with_key_for(
+            &["openrouter"],
+        ));
         rt.set_paid_gate(gate.clone());
         Self { rt, dir, gate }
     }
@@ -651,10 +653,10 @@ async fn a_paid_ai_tool_uses_its_key_only_on_stdin_and_every_step_is_set_aside_a
     assert_eq!(kimi.price.unwrap().output, 15_000_000);
     assert_eq!(kimi.maker.as_ref().unwrap().id, "moonshot");
 
-    let (turn, args) = fakes.run("openrouter", "Contract check 7c1e").await;
+    let (turn, args) = fakes.run("openrouter", "Contract check zqxw").await;
     let result = turn.result.unwrap();
     assert_eq!(result.outcome, TurnOutcome::Completed, "{result:#?}");
-    assert!(result.text.unwrap().contains("Contract check 7c1e"));
+    assert!(result.text.unwrap().contains("Contract check zqxw"));
     let key = "sk-or-v1-test-key-not-real-0123456789";
     assert!(
         !args.iter().any(|a| a.contains(key) || a.contains("sk-or")),
@@ -736,20 +738,23 @@ async fn a_paid_ai_tool_uses_its_key_only_on_stdin_and_every_step_is_set_aside_a
 #[tokio::test]
 async fn prompts_go_on_stdin_and_limits_and_sign_in_errors_are_normalized() {
     let fakes = Fakes::new("subscription");
+    // Every AI tool, each paid one with its key (ADR-085, ADR-087).
+    fakes.gate.key_for_every_tool();
     fakes.rt.refresh().await;
     for a in builtin_adapters() {
         let id = a.id();
-        let (turn, args) = fakes.run(id, "Contract check 7c1e").await;
+        let (turn, args) = fakes.run(id, "Contract check zqxw").await;
         let result = turn.result.unwrap();
         assert_eq!(result.outcome, TurnOutcome::Completed, "{id}: {result:#?}");
         assert!(
             result
                 .text
                 .unwrap_or_default()
-                .contains("Contract check 7c1e"),
+                .contains("Contract check zqxw"),
             "{id}: the prompt reached the CLI on stdin"
         );
-        assert!(!args.iter().any(|a| a.contains("7c1e")), "{id}: {args:?}");
+        // Letters no ID or number can hold (IDs use 0-9 and a-f), so a match is the prompt itself.
+        assert!(!args.iter().any(|a| a.contains("zqxw")), "{id}: {args:?}");
         for (marker, outcome) in [
             ("[usage-limit]", TurnOutcome::UsageLimited),
             ("[auth-expired]", TurnOutcome::AuthRequired),

@@ -78,6 +78,8 @@ export function PaidKey({
         Paid per use with your key, within your spending caps. A worker on {label} answers in text
         only.
       </p>
+      {/* What is not checked yet, and where to make a key (ADR-087). */}
+      {tool.paidNote && <p className="muted">{tool.paidNote}</p>}
       {blocked && (
         <div className="notice-box" role="note">
           <p>{blocked}</p>

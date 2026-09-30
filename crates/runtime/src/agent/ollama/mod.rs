@@ -87,18 +87,24 @@ impl RuntimeAdapter for Ollama {
                     "DeepSeek V4 Pro (paid plan)",
                     TO_MAX,
                 )
-                .by(makers::DEEPSEEK),
+                .by(makers::DEEPSEEK)
+                .same("deepseek-v4-pro"),
                 KnownModel::new(
                     "deepseek-v4.1-flash:cloud",
                     "DeepSeek V4.1 Flash (paid plan)",
                     TO_MAX,
                 )
-                .by(makers::DEEPSEEK),
-                KnownModel::new("glm-5.3:cloud", "GLM-5.3 (paid plan)", TO_MAX).by(makers::ZAI),
+                .by(makers::DEEPSEEK)
+                .same("deepseek-v4.1-flash"),
+                KnownModel::new("glm-5.3:cloud", "GLM-5.3 (paid plan)", TO_MAX)
+                    .by(makers::ZAI)
+                    .same("glm-5.3"),
                 KnownModel::new("glm-5.3-flash:cloud", "GLM-5.3 Flash (paid plan)", TO_MAX)
-                    .by(makers::ZAI),
+                    .by(makers::ZAI)
+                    .same("glm-5.3-flash"),
                 KnownModel::new("minimax-m3:cloud", "MiniMax M3 (paid plan)", &[])
-                    .by(makers::MINIMAX),
+                    .by(makers::MINIMAX)
+                    .same("minimax-m3"),
             ],
             // Its default, gpt-oss 120B, is OpenAI's.
             default_maker: Some(Maker::new(makers::OPENAI.0, makers::OPENAI.1)),

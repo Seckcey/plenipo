@@ -306,6 +306,8 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Key check / Your key works / No key yet / Key not in use                       | auth status, credential validated, missing credential                                      |
 | Save and check / Replace key / Remove key (a paid AI tool's key)               | validate API key, rotate key, revoke credential                                            |
 | Comes with Plenipo (an AI tool that is Plenipo's own helper)                   | built-in runtime, bundled adapter, bridge                                                  |
+| Anthropic (the card for an AI company's own service, with your key)            | Anthropic API, direct integration, API provider                                            |
+| Plenipo has not checked … with a real key yet                                  | unverified integration, untested endpoint                                                  |
 | $3.00 a million tokens read, $15.00 a million written                          | $/Mtok, input/output pricing, per-token rate                                               |
 | also on Ollama, OpenRouter (the same model on other AI tools)                  | model alias, provider route, model mapping                                                 |
 | It costs money (a paid route) / A worker on it answers in text only            | metered route, paid fallback, no tool use                                                  |

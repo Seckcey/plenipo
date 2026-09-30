@@ -2173,7 +2173,13 @@ impl AgentRuntime {
             model,
             key_id: key.id.clone(),
             key_name: key.name.clone(),
-            most_micros: price.most(limits.input_tokens, limits.output_tokens),
+            // Where the answer-length field leaves the thinking out, the most the model can write.
+            most_micros: price.most(
+                limits.input_tokens,
+                adapter
+                    .most_output_tokens(request)
+                    .map_or(limits.output_tokens, |most| most.max(limits.output_tokens)),
+            ),
         };
         let g = gate.clone();
         let ticket = tokio::task::spawn_blocking(move || g.set_aside(&charge))
