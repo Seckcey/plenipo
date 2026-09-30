@@ -43,6 +43,16 @@ impl Purpose {
             },
             Self::PaidAi(s) => match s {
                 PaidService::OpenRouter => "the OpenRouter paid key",
+                PaidService::Anthropic => "the Anthropic paid key",
+                PaidService::OpenAi => "the OpenAI paid key",
+                PaidService::Xai => "the xAI paid key",
+                PaidService::Moonshot => "the Moonshot AI paid key",
+                PaidService::Google => "the Google paid key",
+                PaidService::DeepSeek => "the DeepSeek paid key",
+                PaidService::Zai => "the Z.ai paid key",
+                PaidService::MiniMax => "the MiniMax paid key",
+                PaidService::Mistral => "the Mistral paid key",
+                PaidService::Alibaba => "the Alibaba Cloud paid key",
             },
         }
     }
@@ -688,6 +698,23 @@ mod tests {
         assert_eq!(refused.len(), 1);
         assert_eq!(refused[0].payload["host"], "evil.example");
         assert!(!refused[0].payload.to_string().contains("token=abc"));
+    }
+
+    #[test]
+    fn each_paid_service_reaches_its_own_addresses_and_no_other_services() {
+        let rules = OutboundRules::default();
+        for s in PaidService::ALL {
+            let paid = Purpose::PaidAi(s);
+            for path in [s.key_check_path(), s.chat_path()] {
+                let address = format!("{}{path}", s.base_url());
+                assert!(rules.check(paid, &address).is_ok(), "{address}");
+            }
+            for other in PaidService::ALL.into_iter().filter(|o| *o != s) {
+                let address = format!("{}{}", other.base_url(), other.chat_path());
+                let err = rules.check(paid, &address).expect_err(&address);
+                assert!(err.contains(paid.label()), "{err}");
+            }
+        }
     }
 
     #[test]

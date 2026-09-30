@@ -923,13 +923,30 @@ async fn a_task_that_runs_past_midnight_on_two_models_is_counted_once() {
 async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_as_reported() {
     let h = harness("subscription").await;
     // Every AI tool that signs in with a subscription uses it; a paid AI tool (OpenRouter,
-    // ADR-085) uses its key and has none saved yet.
+    // ADR-085, and each company's own service, ADR-087) uses its key and has none saved yet,
+    // and its card says what is not checked yet.
     let page = h.tools.page();
+    let paid = |id: &str| id == "openrouter" || id.ends_with("-key");
     assert!(page
         .tools
         .iter()
-        .filter(|t| t.runtime_id != "openrouter")
-        .all(|t| t.payment == PaymentMethod::Subscription));
+        .filter(|t| !paid(&t.runtime_id))
+        .all(|t| t.payment == PaymentMethod::Subscription && t.paid_note.is_none()));
+    let direct: Vec<_> = page
+        .tools
+        .iter()
+        .filter(|t| t.runtime_id.ends_with("-key"))
+        .collect();
+    assert_eq!(direct.len(), 10);
+    for t in direct {
+        assert_eq!(t.payment, PaymentMethod::PaidKey, "{}", t.runtime_id);
+        assert!(t.built_in && t.paid_key.is_none());
+        assert!(
+            t.paid_note.as_deref().unwrap().contains("not checked"),
+            "{:?}",
+            t.paid_note
+        );
+    }
     let openrouter = page
         .tools
         .iter()

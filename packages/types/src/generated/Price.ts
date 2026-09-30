@@ -16,4 +16,10 @@ cachedInput: number | null,
 /**
  * Each million tokens written out.
  */
-output: number, };
+output: number, 
+/**
+ * Each million input tokens the service stores for reuse, where it does so by itself and
+ * charges more for it (OpenAI's newest models, ADR-087). Plenipo cannot tell which tokens
+ * were stored, so it counts every fresh input token at this price when it is the dearer.
+ */
+cacheWrite?: number, };

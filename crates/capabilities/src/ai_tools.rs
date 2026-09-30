@@ -195,6 +195,8 @@ pub struct AiToolState {
     /// Where a paid AI tool's key is kept, as the screen names it ("Windows Credential
     /// Manager"); none for a subscription AI tool.
     pub key_kept_in: Option<String>,
+    /// A paid AI tool's words about what is not checked yet, and where to make a key (ADR-087).
+    pub paid_note: Option<String>,
     /// The tool has its own list of models (Claude Code's come with Plenipo's updates).
     pub has_model_list: bool,
     /// Asking for its models leaves an empty conversation in its history (Kimi), so Plenipo
@@ -562,6 +564,7 @@ impl AiTools {
                         .and_then(|c| c.paid_key(id).cloned()),
                     paid_blocked: paid_blocked.clone().filter(|_| a.paid()),
                     key_kept_in: a.paid().then(|| kept_in.clone()),
+                    paid_note: a.paid_note(),
                     has_model_list: !matches!(
                         a.status_check(std::path::Path::new(".")),
                         StatusCheck::None

@@ -151,11 +151,13 @@ pub trait PaidGate: Send + Sync {
     fn settle(&self, ticket: &str, bill: &PaidBill) -> Vec<String>;
 }
 
-/// A gate kept in memory, for tests: one key for every paid AI tool (or none), a refusal to
-/// give when asked, and every charge and bill it saw.
+/// A gate kept in memory, for tests: one key for the paid AI tools it names (or every one, or
+/// none), a refusal to give when asked, and every charge and bill it saw.
 #[derive(Debug, Default)]
 pub struct MemoryPaidGate {
     key: std::sync::Mutex<Option<PaidKey>>,
+    /// The paid AI tools that have the key; none: every one.
+    only: std::sync::Mutex<Option<Vec<String>>>,
     refusal: std::sync::Mutex<Option<String>>,
     charges: std::sync::Mutex<Vec<PaidCharge>>,
     bills: std::sync::Mutex<Vec<(String, PaidBill)>>,
@@ -171,6 +173,19 @@ impl MemoryPaidGate {
             "sk-or-v1-test-key-not-real-0123456789",
         )));
         gate
+    }
+
+    /// A gate with a test key saved for `runtime_ids` only.
+    pub fn with_key_for(runtime_ids: &[&str]) -> Self {
+        let gate = Self::with_key();
+        *gate.only.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(runtime_ids.iter().map(|id| (*id).to_owned()).collect());
+        gate
+    }
+
+    /// The key for every paid AI tool from now on.
+    pub fn key_for_every_tool(&self) {
+        *self.only.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     pub fn set_key(&self, key: Option<PaidKey>) {
@@ -195,7 +210,16 @@ impl MemoryPaidGate {
 }
 
 impl PaidGate for MemoryPaidGate {
-    fn key(&self, _runtime_id: &str) -> Result<PaidKey, String> {
+    fn key(&self, runtime_id: &str) -> Result<PaidKey, String> {
+        let named = self
+            .only
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_none_or(|ids| ids.iter().any(|id| id == runtime_id));
+        if !named {
+            return Err("No paid key is saved for this AI tool.".to_owned());
+        }
         self.key
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -369,9 +393,11 @@ impl OpenRouter {
             )
             .by(makers::ALIBABA),
             KnownModel::new(OPENROUTER_DEFAULT_MODEL, "Qwen3.8 Flash", OPENROUTER_EFFORT)
-                .by(makers::ALIBABA),
+                .by(makers::ALIBABA)
+                .same("qwen3.8-flash"),
             KnownModel::new("mistralai/mistral-medium-3-5", "Mistral Medium 3.5", &[])
-                .by(makers::MISTRAL),
+                .by(makers::MISTRAL)
+                .same("mistral-medium-3.5"),
             KnownModel::new("mistralai/devstral-2512", "Devstral 2 (coding)", &[])
                 .by(makers::MISTRAL),
             KnownModel::new("meta-llama/llama-4-maverick", "Llama 4 Maverick", &[])
@@ -475,6 +501,14 @@ impl RuntimeAdapter for OpenRouter {
 
     fn paid(&self) -> bool {
         true
+    }
+
+    fn paid_note(&self) -> Option<String> {
+        Some(
+            "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come \
+             from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
+                .into(),
+        )
     }
 
     fn default_model(&self) -> Option<&'static str> {
@@ -641,10 +675,11 @@ fn price_of(v: &Value) -> Option<Price> {
         input: v.get("input")?.as_u64()?,
         cached_input: v.get("cachedInput").and_then(Value::as_u64),
         output: v.get("output")?.as_u64()?,
+        cache_write: None,
     })
 }
 
-fn last_json(out: &ProbeOutput) -> Option<Value> {
+pub(crate) fn last_json(out: &ProbeOutput) -> Option<Value> {
     out.stdout
         .lines()
         .rev()
@@ -809,14 +844,23 @@ impl TurnParser for PaidParser {
                 // nothing was billed.
                 self.refused = matches!(
                     kind,
-                    "key" | "credit" | "limit" | "refused" | "guard" | "input" | "unreached"
+                    "key"
+                        | "credit"
+                        | "limit"
+                        | "refused"
+                        | "guard"
+                        | "input"
+                        | "unreached"
+                        | "busy"
                 );
                 let outcome = match kind {
                     "key" => Some(TurnOutcome::AuthRequired),
                     // Out of credit on the service, or its own usage limit: this way to the
                     // model is held back, as a usage limit is, and a backup can run.
                     "credit" | "limit" => Some(TurnOutcome::UsageLimited),
-                    "guard" | "service" | "unreached" => Some(TurnOutcome::ProviderUnavailable),
+                    "guard" | "service" | "unreached" | "busy" => {
+                        Some(TurnOutcome::ProviderUnavailable)
+                    }
                     _ => None,
                 };
                 match outcome {
@@ -1126,8 +1170,8 @@ mod tests {
     }
 
     #[test]
-    fn kimi_k3_is_one_model_with_three_ways_to_reach_it() {
-        // ADR-036 §4: Kimi Code's subscription, Ollama's paid plan, and an OpenRouter key.
+    fn kimi_k3_is_one_model_with_four_ways_to_reach_it() {
+        // ADR-036 §4: Kimi Code's subscription, Ollama's paid plan, an OpenRouter key, and a Moonshot key.
         let ways: Vec<String> = crate::agent::builtin_adapters()
             .iter()
             .filter(|a| {
@@ -1138,7 +1182,7 @@ mod tests {
             })
             .map(|a| a.id().to_owned())
             .collect();
-        assert_eq!(ways, ["kimi", "ollama", "openrouter"]);
+        assert_eq!(ways, ["kimi", "ollama", "openrouter", "moonshot-key"]);
     }
 
     #[test]

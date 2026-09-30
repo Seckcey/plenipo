@@ -1339,6 +1339,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(openRouter).toHaveTextContent(
       "No plan: OpenRouter is paid per use. What is left this month is under your spending caps.",
     );
+    // What is not checked yet, and where to make a key (ADR-087).
+    expect(openRouter).toHaveTextContent("Plenipo has not checked OpenRouter with a real key yet.");
+    expect(openRouter).toHaveTextContent("make a key at openrouter.ai → Keys");
     // Nothing to sign in to, and no update button of its own.
     expect(within(openRouter).queryByRole("button", { name: /Sign in|Update/ })).toBeNull();
     const form = within(openRouter).getByRole("form", { name: "Add a key for OpenRouter" });

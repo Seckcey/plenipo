@@ -12,13 +12,35 @@ use ts_rs::TS;
 /// At most this many paid keys (one per paid AI tool, with room to spare).
 pub const MAX_PAID_KEYS: usize = 32;
 
-/// A paid AI service Plenipo can reach with the owner's key.
+/// A paid AI service Plenipo can reach with the owner's key: OpenRouter (ADR-086), and each AI
+/// company's own service (ADR-087). Each address was checked against the company's own
+/// documentation on 2026-09-30.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum PaidService {
     /// OpenRouter: one key, hundreds of models from dozens of companies (ADR-086).
     OpenRouter,
+    /// Anthropic's own service (Claude models).
+    Anthropic,
+    /// OpenAI's own service (GPT models).
+    OpenAi,
+    /// xAI's own service (Grok models).
+    Xai,
+    /// Moonshot AI's own service (Kimi models).
+    Moonshot,
+    /// Google's Gemini service, through its OpenAI-style chat.
+    Google,
+    /// DeepSeek's own service.
+    DeepSeek,
+    /// Z.ai's own service (GLM models), international.
+    Zai,
+    /// MiniMax's own service, international.
+    MiniMax,
+    /// Mistral's own service.
+    Mistral,
+    /// Alibaba Cloud Model Studio (Qwen models), international (Singapore).
+    Alibaba,
 }
 
 /// How a service is talked to.
@@ -30,13 +52,46 @@ pub enum PaidProtocol {
     Anthropic,
 }
 
-impl PaidService {
-    pub const ALL: [Self; 1] = [Self::OpenRouter];
+/// How a request carries the key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidAuth {
+    /// `Authorization: Bearer <key>`.
+    Bearer,
+    /// Anthropic's `x-api-key` and `anthropic-version`.
+    AnthropicKey,
+    /// Google's `x-goog-api-key`.
+    GoogleKey,
+}
 
-    /// The service's ID: also its paid AI tool's ID ("openrouter").
+impl PaidService {
+    pub const ALL: [Self; 11] = [
+        Self::OpenRouter,
+        Self::Anthropic,
+        Self::OpenAi,
+        Self::Xai,
+        Self::Moonshot,
+        Self::Google,
+        Self::DeepSeek,
+        Self::Zai,
+        Self::MiniMax,
+        Self::Mistral,
+        Self::Alibaba,
+    ];
+
+    /// The service's ID: also its paid AI tool's ID ("openrouter", "anthropic-key").
     pub fn id(self) -> &'static str {
         match self {
             Self::OpenRouter => "openrouter",
+            Self::Anthropic => "anthropic-key",
+            Self::OpenAi => "openai-key",
+            Self::Xai => "xai-key",
+            Self::Moonshot => "moonshot-key",
+            Self::Google => "google-key",
+            Self::DeepSeek => "deepseek-key",
+            Self::Zai => "zai-key",
+            Self::MiniMax => "minimax-key",
+            Self::Mistral => "mistral-key",
+            Self::Alibaba => "alibaba-key",
         }
     }
 
@@ -44,10 +99,20 @@ impl PaidService {
         Self::ALL.into_iter().find(|s| s.id() == id)
     }
 
-    /// Its name on screen.
+    /// Its name on screen and in its own words ("OpenRouter refused the key").
     pub fn label(self) -> &'static str {
         match self {
             Self::OpenRouter => "OpenRouter",
+            Self::Anthropic => "Anthropic",
+            Self::OpenAi => "OpenAI",
+            Self::Xai => "xAI",
+            Self::Moonshot => "Moonshot AI",
+            Self::Google => "Google",
+            Self::DeepSeek => "DeepSeek",
+            Self::Zai => "Z.ai",
+            Self::MiniMax => "MiniMax",
+            Self::Mistral => "Mistral",
+            Self::Alibaba => "Alibaba Cloud",
         }
     }
 
@@ -55,6 +120,16 @@ impl PaidService {
     pub fn hosts(self) -> &'static [&'static str] {
         match self {
             Self::OpenRouter => &["openrouter.ai"],
+            Self::Anthropic => &["api.anthropic.com"],
+            Self::OpenAi => &["api.openai.com"],
+            Self::Xai => &["api.x.ai"],
+            Self::Moonshot => &["api.moonshot.ai"],
+            Self::Google => &["generativelanguage.googleapis.com"],
+            Self::DeepSeek => &["api.deepseek.com"],
+            Self::Zai => &["api.z.ai"],
+            Self::MiniMax => &["api.minimax.io"],
+            Self::Mistral => &["api.mistral.ai"],
+            Self::Alibaba => &["dashscope-intl.aliyuncs.com"],
         }
     }
 
@@ -62,36 +137,79 @@ impl PaidService {
     pub fn base_url(self) -> &'static str {
         match self {
             Self::OpenRouter => "https://openrouter.ai/api/v1",
+            Self::Anthropic => "https://api.anthropic.com/v1",
+            Self::OpenAi => "https://api.openai.com/v1",
+            Self::Xai => "https://api.x.ai/v1",
+            Self::Moonshot => "https://api.moonshot.ai/v1",
+            Self::Google => "https://generativelanguage.googleapis.com/v1beta",
+            Self::DeepSeek => "https://api.deepseek.com",
+            Self::Zai => "https://api.z.ai/api/paas/v4",
+            Self::MiniMax => "https://api.minimax.io/v1",
+            Self::Mistral => "https://api.mistral.ai/v1",
+            Self::Alibaba => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         }
     }
 
     pub fn protocol(self) -> PaidProtocol {
         match self {
-            Self::OpenRouter => PaidProtocol::OpenAiChat,
+            Self::Anthropic => PaidProtocol::Anthropic,
+            _ => PaidProtocol::OpenAiChat,
         }
     }
 
-    /// A cheap read that tells whether the key works (OpenRouter's `/key` also gives the key's
-    /// own limit).
+    pub fn auth(self) -> PaidAuth {
+        match self {
+            Self::Anthropic => PaidAuth::AnthropicKey,
+            Self::Google => PaidAuth::GoogleKey,
+            _ => PaidAuth::Bearer,
+        }
+    }
+
+    /// A cheap read that tells whether the key works: OpenRouter's `/key` (with the key's own
+    /// limit); the others' list of models, which costs nothing.
     pub fn key_check_path(self) -> &'static str {
         match self {
             Self::OpenRouter => "/key",
+            // Google's own list (its OpenAI-style one has none), every model on one page.
+            Self::Google => "/models?pageSize=1000",
+            _ => "/models",
         }
     }
 
-    /// Where its models and their prices are listed, if it lists them.
+    /// Where its models are listed (OpenRouter's with their prices), if it lists them.
     pub fn models_path(self) -> Option<&'static str> {
         match self {
             Self::OpenRouter => Some("/models"),
+            other => Some(other.key_check_path()),
         }
     }
 
     /// Where a task's request goes.
     pub fn chat_path(self) -> &'static str {
-        match self.protocol() {
-            PaidProtocol::OpenAiChat => "/chat/completions",
-            PaidProtocol::Anthropic => "/messages",
+        match self {
+            Self::Google => "/openai/chat/completions",
+            other => match other.protocol() {
+                PaidProtocol::OpenAiChat => "/chat/completions",
+                PaidProtocol::Anthropic => "/messages",
+            },
         }
+    }
+
+    /// The request's field for the longest answer: `max_completion_tokens` where the service
+    /// takes only that (its reasoning models), `max_tokens` elsewhere. Either way the thinking
+    /// counts inside it, where the service says so.
+    pub fn max_tokens_field(self) -> &'static str {
+        match self {
+            Self::OpenAi | Self::Moonshot | Self::MiniMax => "max_completion_tokens",
+            _ => "max_tokens",
+        }
+    }
+
+    /// Whether to ask for the counts at the end of a streamed answer
+    /// (`stream_options.include_usage`); a service that refuses fields it does not know (Mistral)
+    /// sends them by itself.
+    pub fn asks_for_stream_usage(self) -> bool {
+        !matches!(self, Self::Mistral | Self::Anthropic)
     }
 }
 
@@ -144,6 +262,21 @@ mod tests {
             assert!(s.hosts().contains(&host), "{s:?}: {host}");
             assert!(s.key_check_path().starts_with('/'));
             assert!(s.chat_path().starts_with('/'));
+            assert!(!s.label().is_empty());
+        }
+        // One ID each, and none an AI tool's that signs in with a subscription.
+        let ids: std::collections::HashSet<_> = PaidService::ALL.iter().map(|s| s.id()).collect();
+        assert_eq!(ids.len(), PaidService::ALL.len());
+        for taken in [
+            "claude-code",
+            "codex",
+            "grok",
+            "kimi",
+            "ollama",
+            "antigravity",
+            "copilot",
+        ] {
+            assert!(!ids.contains(taken), "{taken}");
         }
         assert_eq!(PaidService::from_id("nope"), None);
     }

@@ -236,7 +236,7 @@ fn harness_config(
     );
     // The `ollama` persona plays Plenipo's paid helper too (ADR-085), with a test key.
     rt.set_paid_gate(Arc::new(
-        plenipo_runtime::agent::paid::MemoryPaidGate::with_key(),
+        plenipo_runtime::agent::paid::MemoryPaidGate::with_key_for(&["openrouter"]),
     ));
     let h = H {
         rt,
@@ -296,7 +296,21 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 8);
+    // Seven AI tools with subscriptions, OpenRouter, and ten AI companies' own services with a
+    // key (ADR-087).
+    assert_eq!(runtimes.len(), 18);
+    // Each company's own service comes with Plenipo too; without its key it is not ready.
+    let (runtimes, direct) = runtimes.split_at(8);
+    for info in direct {
+        assert!(info.id.ends_with("-key"), "{}", info.id);
+        assert_eq!(
+            info.installation.state,
+            InstallState::Installed,
+            "{info:#?}"
+        );
+        assert_eq!(info.auth.state, AuthState::SignedOut, "{info:#?}");
+        assert!(!info.ready);
+    }
     // OpenRouter (ADR-086) is Plenipo's own helper: its version is Plenipo's, checked below.
     let (runtimes, paid) = runtimes.split_at(7);
     assert_eq!(paid[0].id, "openrouter");
@@ -793,7 +807,14 @@ async fn usage_limited_session_can_be_resumed_later() {
 async fn provider_unavailable_after_detection_is_refused() {
     for (runtime, stem) in [("claude-code", "claude"), ("codex", "codex")] {
         let h = harness();
-        assert!(h.rt.refresh().await.iter().all(|r| r.ready));
+        // Every AI tool but the companies' own services, which have no key here.
+        assert!(h
+            .rt
+            .refresh()
+            .await
+            .iter()
+            .filter(|r| !r.id.ends_with("-key"))
+            .all(|r| r.ready));
         std::fs::remove_file(h.bin().join(exe_name(stem))).unwrap();
         let err =
             h.rt.start_session(runtime, "hello", None)

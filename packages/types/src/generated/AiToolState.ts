@@ -57,6 +57,10 @@ paidBlocked: string | null,
  */
 keyKeptIn: string | null, 
 /**
+ * A paid AI tool's words about what is not checked yet, and where to make a key (ADR-087).
+ */
+paidNote: string | null, 
+/**
  * The tool has its own list of models (Claude Code's come with Plenipo's updates).
  */
 hasModelList: boolean, 

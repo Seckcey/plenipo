@@ -32,6 +32,12 @@ pub struct Price {
     /// Each million tokens written out.
     #[ts(type = "number")]
     pub output: u64,
+    /// Each million input tokens the service stores for reuse, where it does so by itself and
+    /// charges more for it (OpenAI's newest models, ADR-087). Plenipo cannot tell which tokens
+    /// were stored, so it counts every fresh input token at this price when it is the dearer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub cache_write: Option<u64>,
 }
 
 /// `tokens` at `per_million` micros per million tokens, rounded up.
@@ -47,6 +53,32 @@ impl Price {
             input: input * MILLION,
             cached_input: None,
             output: output * MILLION,
+            cache_write: None,
+        }
+    }
+
+    /// A price in micros per million tokens: input, cached input, and output.
+    pub const fn micros(input: u64, cached_input: Option<u64>, output: u64) -> Self {
+        Self {
+            input,
+            cached_input,
+            output,
+            cache_write: None,
+        }
+    }
+
+    /// With a dearer price for input the service stores for reuse by itself.
+    pub const fn with_cache_write(mut self, cache_write: u64) -> Self {
+        self.cache_write = Some(cache_write);
+        self
+    }
+
+    /// What each fresh input token is counted at: the input price, or the price of storing it
+    /// for reuse when the service does that by itself and charges more.
+    fn fresh_input(&self) -> u64 {
+        match self.cache_write {
+            Some(write) if write > self.input => write,
+            _ => self.input,
         }
     }
 
@@ -55,13 +87,14 @@ impl Price {
     pub fn is_sane(&self) -> bool {
         self.input <= MAX_PRICE_MICROS
             && self.output <= MAX_PRICE_MICROS
+            && self.cache_write.is_none_or(|w| w <= MAX_PRICE_MICROS)
             && self.cached_input.is_none_or(|c| c <= self.input)
     }
 
     /// The most a request could cost: `input_tokens` sent in, none of them cached, and at most
     /// `max_output_tokens` written out.
     pub fn most(&self, input_tokens: u64, max_output_tokens: u64) -> u64 {
-        cost(input_tokens, self.input).saturating_add(cost(max_output_tokens, self.output))
+        cost(input_tokens, self.fresh_input()).saturating_add(cost(max_output_tokens, self.output))
     }
 
     /// What a finished request cost from its token counts. `input_tokens` includes the cached
@@ -77,7 +110,7 @@ impl Price {
                 usage.cached_input_tokens,
             )
         };
-        cost(fresh, self.input)
+        cost(fresh, self.fresh_input())
             .saturating_add(cost(cached, self.cached_input.unwrap_or(self.input)))
             .saturating_add(cost(usage.output_tokens, self.output))
     }
@@ -166,6 +199,7 @@ mod tests {
             input: 1,
             cached_input: None,
             output: 1,
+            cache_write: None,
         };
         assert_eq!(
             cheap.most(1, 1),
@@ -185,6 +219,7 @@ mod tests {
             input: 3_000_000,
             cached_input: Some(300_000),
             output: 15_000_000,
+            cache_write: None,
         };
         // 1,000 fresh in, 9,000 cached in, 2,000 out.
         assert_eq!(p.bill(&usage(10_000, 9_000, 2_000)), 3_000 + 2_700 + 30_000);
@@ -199,19 +234,40 @@ mod tests {
     }
 
     #[test]
+    fn input_stored_for_reuse_by_the_service_is_counted_at_its_dearer_price() {
+        // OpenAI's GPT-6.1 Sol: $2 in, $0.10 cached, $10 out, and $2.50 to store input for reuse.
+        let p = Price::micros(2_000_000, Some(100_000), 10_000_000).with_cache_write(2_500_000);
+        assert!(p.is_sane());
+        // A million fresh input tokens at the storing price, none written out.
+        assert_eq!(p.most(1_000_000, 0), 2_500_000);
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            cached_input_tokens: 400_000,
+            output_tokens: 0,
+        };
+        // 600,000 fresh at $2.50, 400,000 cached at $0.10.
+        assert_eq!(p.bill(&usage), 1_500_000 + 40_000);
+        // A storing price below the input price changes nothing.
+        let cheap = Price::micros(2_000_000, None, 0).with_cache_write(1_000_000);
+        assert_eq!(cheap.most(1_000_000, 0), 2_000_000);
+    }
+
+    #[test]
     fn a_price_list_mistake_is_caught() {
         assert!(Price::per_million_dollars(3, 15).is_sane());
         assert!(!Price {
             input: MAX_PRICE_MICROS + 1,
             cached_input: None,
-            output: 0
+            output: 0,
+            cache_write: None,
         }
         .is_sane());
         // Cached input dearer than other input would make the most a request could cost wrong.
         assert!(!Price {
             input: 1_000_000,
             cached_input: Some(2_000_000),
-            output: 0
+            output: 0,
+            cache_write: None,
         }
         .is_sane());
     }

@@ -190,11 +190,12 @@ impl Client {
 
     /// The service's own sign-in headers for the key.
     fn signed(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        match self.service.protocol() {
-            plenipo_guard::PaidProtocol::Anthropic => request
+        match self.service.auth() {
+            plenipo_guard::paid::PaidAuth::AnthropicKey => request
                 .header("x-api-key", &self.key)
                 .header("anthropic-version", "2023-06-01"),
-            plenipo_guard::PaidProtocol::OpenAiChat => request.bearer_auth(&self.key),
+            plenipo_guard::paid::PaidAuth::GoogleKey => request.header("x-goog-api-key", &self.key),
+            plenipo_guard::paid::PaidAuth::Bearer => request.bearer_auth(&self.key),
         }
     }
 }
@@ -235,6 +236,11 @@ fn error_text(service: PaidService, status: u16, body: &str, key: &str) -> (Stri
         400 | 404 | 413 | 422 => (
             format!("{label} did not take this request ({status}): {message}"),
             "input",
+        ),
+        // Too busy to take the request (Anthropic's 529): nothing was billed.
+        503 | 529 => (
+            format!("{label} is too busy right now ({status}). {message}"),
+            "busy",
         ),
         _ => (format!("{label} answered {status}: {message}"), "service"),
     }
@@ -333,7 +339,10 @@ async fn check(client: &Client, out: &mut dyn Write) -> i32 {
     let body = read_capped(response, MAX_CHECK_BYTES)
         .await
         .unwrap_or_default();
-    if status == 401 || status == 403 {
+    // Google answers a key it does not know with 400 and says so.
+    let bad_key = status == 400
+        && (body.contains("API_KEY_INVALID") || body.to_lowercase().contains("api key not valid"));
+    if status == 401 || status == 403 || bad_key {
         let (reason, _) = error_text(client.service, status, &body, &client.key);
         emit(out, &json!({ "signedIn": false, "reason": reason }));
         return 0;
@@ -398,6 +407,27 @@ fn models_from(service: PaidService, body: &str) -> Vec<Value> {
     let Ok(v) = serde_json::from_str::<Value>(body) else {
         return Vec::new();
     };
+    // Google lists `models`, each named "models/<id>".
+    if let Some(list) = v.get("models").and_then(Value::as_array) {
+        return list
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("name").and_then(Value::as_str)?;
+                let id = id.strip_prefix("models/").unwrap_or(id);
+                if id.is_empty() || id.len() > 200 || id.chars().any(char::is_control) {
+                    return None;
+                }
+                Some(json!({
+                    "id": id,
+                    "name": m.get("displayName").and_then(Value::as_str)
+                        .map(|n| n.chars().take(120).collect::<String>()),
+                    "contextTokens": m.get("inputTokenLimit").and_then(Value::as_u64),
+                    "price": Value::Null,
+                }))
+            })
+            .take(MAX_MODELS)
+            .collect();
+    }
     let Some(list) = v.get("data").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -713,9 +743,15 @@ fn request_body(
                 "model": model,
                 "messages": messages,
                 "stream": true,
-                "max_tokens": max_output,
-                "stream_options": { "include_usage": true },
             });
+            body[service.max_tokens_field()] = json!(max_output);
+            if service.asks_for_stream_usage() {
+                body["stream_options"] = json!({ "include_usage": true });
+            }
+            // MiniMax puts the thinking apart from the answer only when asked.
+            if service == PaidService::MiniMax {
+                body["reasoning_split"] = json!(true);
+            }
             if service == PaidService::OpenRouter {
                 // OpenRouter's own bill for the request, in its final line.
                 body["usage"] = json!({ "include": true });
@@ -755,6 +791,9 @@ fn request_body(
             });
             if !system.is_empty() {
                 body["system"] = json!(system.join("\n\n"));
+            }
+            if let Some(level) = effort {
+                body["output_config"] = json!({ "effort": level });
             }
             (service.chat_path(), body)
         }
@@ -869,10 +908,21 @@ impl Stream {
                     // Counts as the service gave them: a count it did not give stays unknown
                     // (never taken as zero).
                     let n = |p: &str| u.pointer(p).and_then(Value::as_u64);
+                    let input = n("/prompt_tokens");
+                    // The answer's tokens, thinking included: where a service counts the thinking
+                    // only in the total, the total less the input (never fewer than it says).
+                    let output = match (n("/completion_tokens"), n("/total_tokens"), input) {
+                        (Some(c), Some(t), Some(i)) => Some(c.max(t.saturating_sub(i))),
+                        (c, _, _) => c,
+                    };
+                    let cached = n("/prompt_tokens_details/cached_tokens")
+                        .or_else(|| n("/prompt_cache_hit_tokens"))
+                        .or_else(|| n("/cached_tokens"))
+                        .unwrap_or(0);
                     self.usage = Some(json!({
-                        "inputTokens": n("/prompt_tokens"),
-                        "cachedTokens": n("/prompt_tokens_details/cached_tokens").unwrap_or(0),
-                        "outputTokens": n("/completion_tokens"),
+                        "inputTokens": input,
+                        "cachedTokens": cached,
+                        "outputTokens": output,
                         "costDollars": service_bill(u),
                     }));
                 }
@@ -1212,5 +1262,77 @@ mod tests {
         let mut s = Stream::new(PaidService::OpenRouter);
         s.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3}}\n");
         assert!(s.usage.as_ref().unwrap()["outputTokens"].is_null());
+    }
+
+    #[test]
+    fn each_company_is_asked_in_its_own_words() {
+        let messages = [json!({ "role": "user", "content": "Hi" })];
+        let body = |s: PaidService, effort: Option<&str>| {
+            request_body(s, "m", &messages, 16_000, effort, None)
+        };
+        // OpenAI and Moonshot take only max_completion_tokens; xAI max_tokens.
+        let (path, openai) = body(PaidService::OpenAi, Some("high"));
+        assert_eq!(path, "/chat/completions");
+        assert_eq!(openai["max_completion_tokens"], 16_000);
+        assert!(openai.get("max_tokens").is_none());
+        assert_eq!(openai["reasoning_effort"], "high");
+        assert_eq!(openai["stream_options"]["include_usage"], true);
+        assert!(openai.get("provider").is_none(), "only OpenRouter routes");
+        assert_eq!(body(PaidService::Xai, None).1["max_tokens"], 16_000);
+        // Mistral refuses fields it does not know, and sends the counts by itself.
+        assert!(body(PaidService::Mistral, None)
+            .1
+            .get("stream_options")
+            .is_none());
+        // MiniMax keeps its thinking apart when asked.
+        assert_eq!(body(PaidService::MiniMax, None).1["reasoning_split"], true);
+        // Google's OpenAI-style chat lives under its own base.
+        assert_eq!(
+            body(PaidService::Google, None).0,
+            "/openai/chat/completions"
+        );
+        // Anthropic's own messages, with its effort.
+        let (path, anthropic) = body(PaidService::Anthropic, Some("max"));
+        assert_eq!(path, "/messages");
+        assert_eq!(anthropic["max_tokens"], 16_000);
+        assert_eq!(anthropic["output_config"]["effort"], "max");
+        assert!(anthropic.get("stream_options").is_none());
+    }
+
+    #[test]
+    fn googles_own_list_of_models_is_read() {
+        let body = json!({ "models": [
+            { "name": "models/gemini-3.8-flash", "displayName": "Gemini 3.8 Flash",
+              "inputTokenLimit": 1_048_576 },
+            { "name": "models/gemini-3.5-flash-lite" },
+        ] })
+        .to_string();
+        let models = models_from(PaidService::Google, &body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["id"], "gemini-3.8-flash");
+        assert_eq!(models[0]["contextTokens"], 1_048_576);
+        assert!(models[0]["price"].is_null());
+        assert_eq!(models[1]["id"], "gemini-3.5-flash-lite");
+    }
+
+    #[test]
+    fn a_busy_service_took_nothing() {
+        for status in [503, 529] {
+            let (text, kind) = error_text(PaidService::Anthropic, status, "{}", KEY);
+            assert_eq!(kind, "busy");
+            assert!(text.contains("too busy"), "{text}");
+        }
+    }
+
+    #[test]
+    fn counts_come_as_each_company_gives_them() {
+        // DeepSeek names its cached tokens its own way.
+        let mut s = Stream::new(PaidService::DeepSeek);
+        s.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"prompt_cache_hit_tokens\":40,\"completion_tokens\":10}}\n");
+        assert_eq!(s.usage.as_ref().unwrap()["cachedTokens"], 40);
+        // A service that counts the thinking only in the total: the total less the input.
+        let mut s = Stream::new(PaidService::Google);
+        s.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"total_tokens\":150}}\n");
+        assert_eq!(s.usage.as_ref().unwrap()["outputTokens"], 50);
     }
 }

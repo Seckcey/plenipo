@@ -519,7 +519,9 @@ impl Fakes {
         );
         // The same persona plays Plenipo's paid helper (ADR-085): a test key, and caps that
         // let every charge through unless a test says otherwise.
-        let gate = Arc::new(plenipo_runtime::agent::paid::MemoryPaidGate::with_key());
+        let gate = Arc::new(plenipo_runtime::agent::paid::MemoryPaidGate::with_key_for(
+            &["openrouter"],
+        ));
         rt.set_paid_gate(gate.clone());
         Self { rt, dir, gate }
     }
@@ -736,6 +738,8 @@ async fn a_paid_ai_tool_uses_its_key_only_on_stdin_and_every_step_is_set_aside_a
 #[tokio::test]
 async fn prompts_go_on_stdin_and_limits_and_sign_in_errors_are_normalized() {
     let fakes = Fakes::new("subscription");
+    // Every AI tool, each paid one with its key (ADR-085, ADR-087).
+    fakes.gate.key_for_every_tool();
     fakes.rt.refresh().await;
     for a in builtin_adapters() {
         let id = a.id();

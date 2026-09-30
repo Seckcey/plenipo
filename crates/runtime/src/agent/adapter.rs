@@ -303,6 +303,10 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
         false
     }
     /// The model a step runs when it names none (paid AI tools price it before it starts).
+    /// A paid AI tool's words for its card, where something is not checked yet (ADR-087).
+    fn paid_note(&self) -> Option<String> {
+        None
+    }
     fn default_model(&self) -> Option<&'static str> {
         None
     }

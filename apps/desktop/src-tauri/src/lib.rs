@@ -1280,12 +1280,13 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         // Tests see no installed runtimes (hermetic: no real CLI is ever started). OpenRouter
-        // comes with Plenipo (ADR-086): installed, and not ready while paid keys are switched
-        // off, so nothing is started for it either.
+        // and each AI company's own service come with Plenipo (ADR-086, ADR-087): installed,
+        // and not ready while paid keys are switched off, so nothing is started for them
+        // either.
         let runtimes: Vec<plenipo_runtime::agent::AgentRuntimeInfo> =
             body(invoke(&main, "refresh_agent_runtimes"));
         for r in &runtimes {
-            if r.id == "openrouter" {
+            if r.id == "openrouter" || r.id.ends_with("-key") {
                 assert_eq!(
                     r.installation.state,
                     plenipo_runtime::agent::InstallState::Installed

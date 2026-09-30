@@ -207,6 +207,9 @@ export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolStat
     paidKey: null,
     paidBlocked: null,
     keyKeptIn: PAID.has(id) ? "Windows Credential Manager" : null,
+    paidNote: PAID.has(id)
+      ? "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
+      : null,
     hasModelList: id !== "claude-code",
     modelsCheckLeavesATrace: id === "kimi",
     checking: false,
