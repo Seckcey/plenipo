@@ -1911,6 +1911,21 @@ async fn a_moved_full_time_agent_works_under_its_new_projects_limit_from_its_nex
 // ---- Phase 21: the owner's files, one writer at a time, and files on an objective -------------
 
 /// The file view's top folder of the objective's working copy, once it exists.
+/// Stop the worker, as the owner's Stop the worker does. A turn still starting says to try again
+/// in a moment (Windows starts programs more slowly), so it is tried again.
+async fn stop_the_worker(h: &H, session_id: &str) {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match h.rt.cancel_turn(session_id).await {
+            Ok(_) => return,
+            Err(plenipo_runtime::RuntimeError::NotReady(_)) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("the worker could not be stopped: {e}"),
+        }
+    }
+}
+
 async fn working_copy_root(h: &H) -> plenipo_capabilities::FileRoot {
     let deadline = Instant::now() + WAIT;
     loop {
@@ -1993,7 +2008,7 @@ async fn a_working_copy_a_worker_is_writing_is_read_only_for_the_owner_until_it_
         plenipo_capabilities::SaveOutcome::Saved { .. }
     ));
     // Stop the worker: its step ends, and the working copy is the owner's to edit.
-    h.rt.cancel_turn(&writer.session_id).await.unwrap();
+    stop_the_worker(&h, &writer.session_id).await;
     h.until("the working copy to be free", |h| {
         h.broker
             .file_roots()
@@ -2139,7 +2154,7 @@ async fn a_file_reached_through_another_projects_folder_is_read_only_while_a_wor
         .unwrap_err()
         .to_string();
     assert!(refused.contains("Senior Developer is writing"), "{refused}");
-    h.rt.cancel_turn(&writer.session_id).await.unwrap();
+    stop_the_worker(&h, &writer.session_id).await;
     let _ = h.finished(&root).await;
 }
 
