@@ -1121,6 +1121,8 @@ Guard and capability system stable. Phase 10 runs before the postponed Phase 9 (
 
 # Phase 11A — Free and Pro Editions and the License Key
 
+**Status: delivered in v1.18.0** (checklist and acceptance report in `docs/phases/phase-11a-*`). Decisions: ADR-021 (Free and Pro editions), ADR-022 (the subscription and the weekly check), ADR-068 (Connections are part of Pro), and ADR-100 to ADR-118 (the owner's answers for Phases 11A and 22), with their deviations recorded as built: a fourth worker on Free waits its turn instead of being refused (ADR-113); Free keeps one organization (ADR-110); lessons pause on Free (ADR-112); a Free copy never contacts 8 West (ADR-115); the weekly answer is signed, and the 30 days count from 8 West's signed time (ADR-116). The license key is Ed25519, signed in AWS KMS (ADR-104), and the app trusts the key in use and one spare. A review of three areas, each finding checked by a second reviewer, is in the acceptance report. Entering a real key on a real Windows PC is the owner's check.
+
 **Order (ADR-039, 2026-09-28):** the owner will sell Pro once the app is finished, so this phase comes after Phase 21, eighth in the order of work. Phase 22 builds the 8 West account service this phase checks in with, in its own repository, alongside it. The key format follows what Phase 22's key vault can sign: Ed25519 if it can, otherwise P-256 (ADR-039 §2.14), decided before this phase is built. This phase stays as written: it ships against the written contract and a local test double, so it does not wait for the service.
 
 ## Goal
@@ -2114,6 +2116,8 @@ Phase 13 (backups per Ledger), Phase 8 (working copies, ADR-016). Phase 11A's ed
 ---
 
 # Phase 22 — The 8 West Account Service: Users, Billing, Email, and Licenses
+
+**Status: built, not live** (checklist and acceptance report in `docs/phases/phase-22-*`; the code is in the private repository `plenipo-account`, ADR-101). Decisions: ADR-101 to ADR-109, ADR-111, and ADR-118. Stripe is in test mode only; Stripe sends every billing email (ADR-106). A security review, each finding checked by a second reviewer and fixed with tests, is in the acceptance report. Before launch: the owner's server, Stripe, Microsoft 365, and Cloudflare settings (listed in the report), the buying test against Stripe's test mode, the attorney's review of the terms, and a second security review.
 
 **Added at the owner's direction (2026-09-28), ADR-039.** Eighth in the order of work, **together with Phase 11A**: selling Pro starts once the app is finished.
 
