@@ -130,6 +130,16 @@ pub fn record_restore(ledger: &Ledger, outcome: &plenipo_ledger::RestoreOutcome)
     if let Err(e) = ledger.append_event(event) {
         log::warn!("the restore could not be recorded: {e}");
     }
+    // Paid spending since the backup was made still counts (Phase 16 Wave 3, ADR-085): the
+    // Ledger as it was before the restore was kept as a backup, and its spending records come
+    // back, so restoring never opens room under a spending cap.
+    if let (Some(_), Some(kept)) = (&outcome.restored, &outcome.kept_as) {
+        match ledger.carry_spending_from_backup(kept) {
+            Ok(0) => {}
+            Ok(n) => log::info!("{n} spending record(s) were kept through the restore"),
+            Err(e) => log::warn!("spending records could not be kept through the restore: {e}"),
+        }
+    }
 }
 
 /// Move Phase 1's `executions.json` into the ledger (once), then rename the file.

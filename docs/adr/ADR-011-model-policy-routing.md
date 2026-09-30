@@ -5,6 +5,9 @@
 - **Amended by:** [ADR-041 (model, effort, and learning in layers)](ADR-041-model-effort-learning-layers.md):
   rules for the organization, each department, and each agent beside each role's (§5, §9, §11,
   §15), the closest winning, and an effort for each agent.
+- **Amended by:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md):
+  paid use is the owner's switch, not fixed off; a paid route over a cap, not priced yet, or with
+  no key is skipped, and the reason says so.
 - **Date:** 2026-09-26
 - **Phase:** 6
 

@@ -27,6 +27,8 @@ import type {
   AiToolsPage,
   AiToolUsage,
   PaymentMethod,
+  CapCovers,
+  SpendingPage,
   Access,
   AccountKind,
   AppInput,
@@ -1093,6 +1095,24 @@ export function setAiToolsAutoUpdate(on: boolean): Promise<AiToolsPage> {
  */
 export function setAiToolPayment(runtimeId: string, method: PaymentMethod): Promise<AiToolsPage> {
   return call<AiToolsPage>("set_ai_tool_payment", { runtimeId, method });
+}
+
+// ---- Settings → Spending caps (Phase 16 Wave 3, ADR-085) --------------------------------------
+// Money is whole millionths of a dollar ("micros"). None of these spends money or takes a key.
+
+/** This month's spending, each cap, and the month's latest paid tasks. */
+export function getSpending(): Promise<SpendingPage> {
+  return call<SpendingPage>("get_spending");
+}
+
+/** Set (or change) the monthly cap for the business, a department, or one position. */
+export function setSpendingCap(covers: CapCovers, monthlyMicros: number): Promise<SpendingPage> {
+  return call<SpendingPage>("set_spending_cap", { covers, monthlyMicros });
+}
+
+/** Remove a cap. */
+export function removeSpendingCap(capId: string): Promise<SpendingPage> {
+  return call<SpendingPage>("remove_spending_cap", { capId });
 }
 
 // ---- Settings → Connections (Phase 20, ADR-062 to ADR-065) ------------------------------------

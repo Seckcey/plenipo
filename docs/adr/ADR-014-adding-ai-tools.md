@@ -3,6 +3,9 @@
 - **Status:** Accepted (by the owner, 2026-09-26). Bar item 1 is widened by
   [ADR-015](ADR-015-acp-ai-tools.md) (running AI tools over ACP): the prompt may also go in on
   stdin over ACP.
+- **Amended by:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md) (bar
+  item 3): a paid AI tool is allowed through a Plenipo helper, with its key typed into Plenipo and
+  kept in the Vault, and a spending cap over every task.
 - **Date:** 2026-09-26
 - **Phase:** 15 (adapter parts pulled forward, after v0.7.0)
 

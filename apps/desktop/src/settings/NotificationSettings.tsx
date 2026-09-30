@@ -45,6 +45,11 @@ const KINDS: readonly { key: Kind; label: string; hint: string }[] = [
     label: "Plenipo itself",
     hint: "Plenipo closed unexpectedly or Windows closed it, or a new version is ready.",
   },
+  {
+    key: "spending",
+    label: "Paid AI spending",
+    hint: "80% of a spending cap is used, or a cap stopped paid AI work.",
+  },
 ];
 
 /**

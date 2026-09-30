@@ -106,6 +106,9 @@ pub fn build<R: Runtime>(
     if let Some(first) = how.first {
         copy_preferences(&first.ledger, &ledger);
     }
+    // When this organization's services began: spending set aside before it belongs to its last
+    // run.
+    let started = plenipo_ledger::now_ms();
     let supervisor = runtime_host::create_supervisor(app, &place, how.persistence, ledger.clone());
     let agents = agent_host::create(
         app,
@@ -150,6 +153,19 @@ pub fn build<R: Runtime>(
             home: how.first.map(|f| f.ledger.clone()),
         },
     ));
+    // Money still set aside for paid tasks from before belongs to tasks that stopped with the
+    // last run (Phase 16 Wave 3, ADR-085): each counts at the most it could have cost, so a
+    // spending cap is never passed unseen. After the notices start, so a cap this reaches is
+    // told; a task this run started is left alone.
+    if how.run {
+        match ledger.recover_spending(started, plenipo_ledger::now_ms()) {
+            Ok(0) => {}
+            Ok(n) => log::info!(
+                "{n} paid task(s) from the last run count at the most they could have cost"
+            ),
+            Err(e) => log::warn!("could not settle spending left from the last run: {e}"),
+        }
+    }
     // Workforce (Phase 5): the organization, and Liaison's directory for its members; your
     // Workforce and tile are the first organization's (ADR-094 §5).
     let workforce = Workforce::new(

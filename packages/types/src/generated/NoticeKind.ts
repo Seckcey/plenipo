@@ -3,4 +3,4 @@
 /**
  * What a notice is about. The owner turns each kind on or off.
  */
-export type NoticeKind = "approvals" | "checks" | "problems" | "finished" | "lessons" | "plenipo";
+export type NoticeKind = "approvals" | "checks" | "problems" | "finished" | "lessons" | "plenipo" | "spending";

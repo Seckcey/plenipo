@@ -296,6 +296,12 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | New organization / Use a template / Copy from one of your organizations        | provision, clone, fork, seed                                                               |
 | Switch to / Open in a new window / Show its window                             | change context, rebind window, new webview                                                 |
 | Archive organization / Bring back / Delete for good                            | deactivate, restore, purge, hard delete                                                    |
+| Spending caps / a monthly cap / the business's cap                             | budget, spend limit, quota, billing threshold                                              |
+| Let workers use paid AI keys (the switch)                                      | enable BYOK, metered API access, API billing                                               |
+| set aside (the most a paid task could cost, before it starts)                  | reservation, hold, pre-authorization, escrow                                               |
+| not priced yet (counted at the most it could have cost)                        | unpriced, cost unknown, null cost                                                          |
+| 80% of a cap is used / Paid AI work stopped                                    | soft limit, budget alert, hard limit, quota exceeded                                       |
+| the month starts over (the 1st, Pacific time)                                  | billing cycle reset, period rollover                                                       |
 
 ## Where technical words may stay
 

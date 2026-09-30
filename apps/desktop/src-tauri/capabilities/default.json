@@ -195,6 +195,9 @@
     "allow-archive-organization",
     "allow-bring-back-organization",
     "allow-preview-delete-organization",
-    "allow-delete-organization-for-good"
+    "allow-delete-organization-for-good",
+    "allow-get-spending",
+    "allow-set-spending-cap",
+    "allow-remove-spending-cap"
   ]
 }

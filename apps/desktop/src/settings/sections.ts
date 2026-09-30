@@ -4,6 +4,7 @@ import type { IconName } from "@plenipo/ui";
 export type SettingsSection =
   | "aiTools"
   | "aiModels"
+  | "spending"
   | "permissions"
   | "organization"
   | "servers"
@@ -36,6 +37,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "AI models",
     icon: "list",
     lead: "The models and effort your agents use: rules for the organization, departments, roles, and agents, each with a first choice and backups tried in order.",
+  },
+  {
+    id: "spending",
+    label: "Spending caps",
+    icon: "spending",
+    lead: "The most paid AI keys may spend each month: for the whole business, a department, or one position. No paid key works without the business's cap.",
   },
   {
     id: "permissions",

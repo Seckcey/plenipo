@@ -91,6 +91,7 @@ architecture must be recorded here.
 | [082](ADR-082-antigravity-as-an-ai-tool.md)              | Antigravity as an AI tool, with a settings folder of its own (amends 081; adds to 007, 058)   | Accepted |
 | [083](ADR-083-github-copilot-as-an-ai-tool.md)           | GitHub Copilot as an AI tool, checked before every task over its two-way link (amends 014)    | Proposed |
 | [084](ADR-084-cursor-agent-waits.md)                     | Cursor's agent waits: no check a program can run for paid extra use                           | Accepted |
+| [085](ADR-085-paid-ai-keys-with-spending-caps.md)        | Paid AI keys with spending caps and a record of every paid task (amends 003, 007, 011, 014)   | Proposed |
 | [090](ADR-090-phase-21-alongside-phase-16-wave-2.md)     | Building Phase 21 alongside Phase 16's second wave; ADR-090 to 099 for Phase 21 (amends 039)  | Accepted |
 | [091](ADR-091-phase-21-owners-answers.md)                | Phase 21: what the check found, and the owner's answers (amends 021, 033, 055)                | Accepted |
 | [092](ADR-092-panels-and-windows.md)                     | Panels and windows: resize, dock, pop out, drag out, and Reset layout (amends 031, 033, 055)  | Accepted |

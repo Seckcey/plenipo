@@ -101,11 +101,11 @@ export function Overview({
           {tool?.payment === "paidKey" ? "Paid AI key" : "Subscription"}
           {plan ? ` (${plan})` : ""}
         </div>
-        {/* Locked until spending caps exist (Phase 16): it never asks for a paid key. */}
+        {/* Locked until paid keys can be saved (Phase 16 Wave 3): it never asks for a paid key. */}
         <Toggle
           label="Paid AI key (pay per use)"
           name={`Paid AI key for ${info.label} (pay per use)`}
-          hint="Comes with spending caps in a later version."
+          hint="Comes in a later update, within your spending caps (Settings → Spending caps)."
           checked={tool?.payment === "paidKey"}
           disabled
           onChange={() => undefined}
