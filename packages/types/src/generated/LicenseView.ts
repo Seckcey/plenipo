@@ -39,4 +39,8 @@ problem: string | null, freeLimits: FreeLimits,
 /**
  * Copies built for the tests say so on screen.
  */
-testBuild: boolean, };
+testBuild: boolean, 
+/**
+ * How many days the PC's clock was ahead of 8 West's at the last check, when more than one.
+ */
+clockAheadDays: number | null, };

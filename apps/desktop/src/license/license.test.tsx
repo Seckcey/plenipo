@@ -59,6 +59,7 @@ function free(patch: Partial<LicenseView> = {}): LicenseView {
     problem: null,
     freeLimits: { organizations: 1, departments: 1, projects: 1, workersAtOnce: 3 },
     testBuild: false,
+    clockAheadDays: null,
     ...patch,
   };
 }
@@ -144,6 +145,14 @@ describe("Settings → License", () => {
     await user.click(buttons[buttons.length - 1]!);
     await waitFor(() => expect(api.removeLicenseKey).toHaveBeenCalled());
     expect(await screen.findByText(/You're on Free/)).toBeTruthy();
+  });
+
+  it("says when the PC's clock is ahead of 8 West's", async () => {
+    api.getLicense.mockResolvedValue(
+      free({ reason: "noCheck", keyId: KEY_ID, clockAheadDays: 40 }),
+    );
+    render(<LicenseSettings />);
+    expect(await screen.findByText(/clock is 40 days ahead of 8 West/)).toBeTruthy();
   });
 
   it("says a test copy accepts test keys", async () => {

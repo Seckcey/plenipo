@@ -21,8 +21,9 @@ fn first(orgs: &Orgs) -> Result<Arc<OrgStack>, CommandError> {
 
 /// The license on this PC: Free or Pro, why, and the last check (never the key).
 #[tauri::command]
-pub fn get_license(host: State<'_, Arc<LicenseHost>>) -> LicenseView {
-    host.view()
+pub async fn get_license(host: State<'_, Arc<LicenseHost>>) -> Result<LicenseView, CommandError> {
+    // Off the main thread: the license may be busy with a check or the Vault for a moment.
+    Ok(host.view())
 }
 
 /// Enter a license key: checked at once on this PC, kept in the Vault, and Pro from now. The

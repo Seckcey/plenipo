@@ -78,6 +78,36 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The clocks the license goes by.
+#[derive(Clone, Copy)]
+pub(crate) struct Clocks {
+    /// The PC's clock, in Unix seconds.
+    pub pc: fn() -> i64,
+    /// Seconds on a clock that only moves forward while Plenipo runs (not the PC's clock).
+    pub running: fn() -> i64,
+}
+
+impl Clocks {
+    pub(crate) const REAL: Self = Self {
+        pc: plenipo_licensing::clock,
+        running: running_seconds,
+    };
+}
+
+fn running_seconds() -> i64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    i64::try_from(
+        START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_secs(),
+    )
+    .unwrap_or(i64::MAX)
+}
+
+/// A Ledger event to record once the license is no longer held.
+type Event = (&'static str, serde_json::Value);
+
 /// The license on this PC, and the PC's Free or Pro.
 pub struct LicenseHost {
     entitlements: Arc<Entitlements>,
@@ -86,10 +116,13 @@ pub struct LicenseHost {
     version: String,
     address: String,
     rules: OutboundRules,
-    clock: fn() -> i64,
+    clocks: Clocks,
+    /// The running clock and the PC's clock at one moment: while Plenipo runs, its time moves on
+    /// from there even if the PC's clock is set back.
+    anchor: Mutex<(i64, i64)>,
     license: Mutex<License>,
-    /// Why the key could not be read when Plenipo started. The record is then left as it was
-    /// (a Vault that answers again next time finds it whole).
+    /// Why the key could not be read from the Vault. The record is then left as it was, and each
+    /// look tries the Vault again.
     unreadable: Mutex<Option<String>>,
     /// The record as last written (nothing is written when it has not changed).
     saved: Mutex<Vec<u8>>,
@@ -105,14 +138,7 @@ impl LicenseHost {
         record_file: Option<PathBuf>,
         version: &str,
     ) -> Arc<Self> {
-        let (address, rules) = built_check();
-        Self::with(
-            store,
-            record_file,
-            version,
-            (address, rules),
-            plenipo_licensing::clock,
-        )
+        Self::with(store, record_file, version, built_check(), Clocks::REAL)
     }
 
     pub(crate) fn with(
@@ -120,27 +146,11 @@ impl LicenseHost {
         record_file: Option<PathBuf>,
         version: &str,
         (address, rules): (String, OutboundRules),
-        clock: fn() -> i64,
+        clocks: Clocks,
     ) -> Arc<Self> {
-        let now = clock();
-        let (text, unreadable) = match vault::read(store.as_ref(), VAULT_ID) {
-            Ok(text) => (text, None),
-            Err(e) => {
-                log::warn!("the license key could not be read from the Vault: {e}");
-                (
-                    None,
-                    Some(format!(
-                        "Plenipo couldn't read your license key from {}. Enter it again, or \
-                         restart the PC and open Plenipo again.",
-                        store.label()
-                    )),
-                )
-            }
-        };
-        let saved = record_file
-            .as_deref()
-            .and_then(|f| std::fs::read(f).ok())
-            .unwrap_or_default();
+        let now = (clocks.pc)();
+        let (text, unreadable) = read_key(store.as_ref());
+        let saved = read_record_bytes(record_file.as_deref());
         let record: Record = serde_json::from_slice(&saved).unwrap_or_default();
         let license = License::load(text.as_deref(), record, now);
         let host = Arc::new(Self {
@@ -150,7 +160,8 @@ impl LicenseHost {
             version: version.to_owned(),
             address,
             rules,
-            clock,
+            clocks,
+            anchor: Mutex::new(((clocks.running)(), now)),
             license: Mutex::new(license),
             unreadable: Mutex::new(unreadable),
             saved: Mutex::new(saved),
@@ -165,9 +176,21 @@ impl LicenseHost {
         Arc::clone(&self.entitlements)
     }
 
+    /// Plenipo's time: the PC's clock, or more when the clock was set back while Plenipo ran.
+    fn now(&self) -> i64 {
+        let (running, pc) = *lock(&self.anchor);
+        (self.clocks.pc)().max(pc.saturating_add((self.clocks.running)().saturating_sub(running)))
+    }
+
+    /// Start Plenipo's time again from the PC's clock (8 West's newest answer showed the clock
+    /// that held it was ahead).
+    fn restart_time(&self) {
+        *lock(&self.anchor) = ((self.clocks.running)(), (self.clocks.pc)());
+    }
+
     /// Settings → License (never the key itself).
     pub fn view(&self) -> LicenseView {
-        let now = (self.clock)();
+        let now = self.now();
         let mut view = lock(&self.license).view(now);
         if view.problem.is_none() {
             view.problem.clone_from(&lock(&self.unreadable));
@@ -178,51 +201,69 @@ impl LicenseHost {
     /// Enter a key (Settings → License): checked at once, with no network, kept in the Vault,
     /// and Pro from now. The caller starts the first check.
     pub fn enter(&self, text: &str, ledger: &Ledger) -> Result<LicenseView, CommandError> {
-        let now = (self.clock)();
-        let mut license = lock(&self.license);
-        let mut next = license.clone();
-        let key = next.enter(text, now).map_err(|e| {
+        let key = plenipo_licensing::key::parse(text).map_err(|e| {
             record(ledger, KEY_REFUSED, json!({ "reason": e.to_string() }));
             CommandError::invalid_input(e.to_string())
         })?;
-        let (key_id, text) = (key.key_id().to_owned(), key.text().to_owned());
-        vault::put(self.store.as_ref(), VAULT_ID, &text).map_err(|e| {
+        // Kept in the Vault first: the key is in use only once it is kept.
+        vault::put(self.store.as_ref(), VAULT_ID, key.text()).map_err(|e| {
             CommandError::internal(format!(
                 "Plenipo couldn't keep the key in {}: {e}",
                 self.store.label()
             ))
         })?;
-        *license = next;
-        *lock(&self.unreadable) = None;
-        self.save(&license);
-        record(ledger, KEY_ENTERED, json!({ "keyId": key_id }));
-        self.settle(&license, ledger, now);
-        Ok(license.view(now))
+        let was_unreadable = lock(&self.unreadable).take().is_some();
+        let now = self.now();
+        let mut events = vec![(KEY_ENTERED, json!({ "keyId": key.key_id() }))];
+        let view = {
+            let mut license = lock(&self.license);
+            if was_unreadable {
+                // The record in memory was never read with its key: take the one kept on disk.
+                let record =
+                    serde_json::from_slice(&read_record_bytes(self.record_file.as_deref()))
+                        .unwrap_or_default();
+                *license = License::load(None, record, now);
+            }
+            license
+                .enter(key.text(), now)
+                .map_err(|e| CommandError::invalid_input(e.to_string()))?;
+            self.save(&license);
+            events.extend(self.settle(&license, now));
+            license.view(now)
+        };
+        record_all(ledger, events);
+        Ok(view)
     }
 
     /// Remove the key: Free from now, with nothing else changed (ADR-021).
     pub fn remove(&self, ledger: &Ledger) -> Result<LicenseView, CommandError> {
-        let now = (self.clock)();
-        let mut license = lock(&self.license);
         vault::erase(self.store.as_ref(), VAULT_ID).map_err(|e| {
             CommandError::internal(format!(
                 "Plenipo couldn't remove the key from {}: {e}",
                 self.store.label()
             ))
         })?;
-        if let Some(key) = license.remove() {
-            record(ledger, KEY_REMOVED, json!({ "keyId": key.key_id() }));
-        }
         *lock(&self.unreadable) = None;
-        self.save(&license);
-        self.settle(&license, ledger, now);
-        Ok(license.view(now))
+        let now = self.now();
+        let mut events = Vec::new();
+        let view = {
+            let mut license = lock(&self.license);
+            if let Some(key) = license.remove() {
+                events.push((KEY_REMOVED, json!({ "keyId": key.key_id() })));
+            }
+            self.save(&license);
+            events.extend(self.settle(&license, now));
+            license.view(now)
+        };
+        record_all(ledger, events);
+        Ok(view)
     }
 
     /// Check with 8 West now: the key's ID and this version, nothing else (ADR-022). With no
     /// key, nothing is sent (a Free copy never checks in, ADR-115).
     pub async fn check(&self, guard: &Guard, ledger: &Ledger) -> LicenseView {
         let _one = self.checking.lock().await;
+        self.read_the_vault_again(ledger);
         let request = lock(&self.license).check_request(&self.version);
         let Some((key_id, body)) = request else {
             return self.view();
@@ -230,51 +271,89 @@ impl LicenseHost {
         let answer =
             plenipo_capabilities::license_check::post(guard, &self.rules, &self.address, body)
                 .await;
-        let now = (self.clock)();
+        let mut events = Vec::new();
         {
             let mut license = lock(&self.license);
             // The key was removed or replaced while the check ran: its answer is not this one's.
             if license.key().map(|k| k.key_id()) == Some(key_id.as_str()) {
+                // The next check is timed by the PC's clock.
+                let pc = (self.clocks.pc)();
+                let before = license.record().clock_high;
                 let outcome = match answer {
-                    Ok(body) => license.answered(&body, now),
-                    Err(why) => license.failed(&why, now),
+                    Ok(body) => license.answered(&body, pc),
+                    Err(why) => license.failed(&why, pc),
                 };
+                if license.record().clock_high < before {
+                    self.restart_time();
+                }
                 match outcome {
                     CheckOutcome::Answered(state) => {
-                        record(ledger, CHECKED, json!({ "keyId": key_id, "state": state }));
+                        events.push((CHECKED, json!({ "keyId": key_id, "state": state })));
                     }
                     CheckOutcome::Failed(why) => {
                         log::info!("the weekly license check did not go through: {why}");
-                        record(
-                            ledger,
-                            CHECK_FAILED,
-                            json!({ "keyId": key_id, "problem": why }),
-                        );
+                        events.push((CHECK_FAILED, json!({ "keyId": key_id, "problem": why })));
                     }
                 }
                 self.save(&license);
-                self.settle(&license, ledger, now);
+                events.extend(self.settle(&license, self.now()));
             }
         }
+        record_all(ledger, events);
         self.view()
     }
 
-    /// The regular look: remember the clock, check when a check is due, and follow the edition
-    /// (Pro ends by the clock when a cancelled subscription reaches its end, or 30 days pass with
-    /// no check). True when something changed that the screen shows.
+    /// The regular look: try the Vault again if it could not be read, remember the time, check
+    /// when a check is due, and follow the edition (Pro ends by the clock when a cancelled
+    /// subscription reaches its end, or 30 days pass with no check). True when something changed
+    /// that the screen shows.
     pub async fn look(&self, guard: &Guard, ledger: &Ledger) -> bool {
-        let now = (self.clock)();
-        let due = {
+        let read_again = self.read_the_vault_again(ledger);
+        let (pc, now) = ((self.clocks.pc)(), self.now());
+        let (due, events) = {
             let mut license = lock(&self.license);
             license.saw_clock(now);
             self.save(&license);
-            license.check_due(now)
+            let due = license.check_due(pc);
+            let events = if due {
+                Vec::new()
+            } else {
+                self.settle(&license, now).into_iter().collect()
+            };
+            (due, events)
         };
         if due {
             self.check(guard, ledger).await;
             return true;
         }
-        self.settle(&lock(&self.license), ledger, now)
+        let changed = !events.is_empty();
+        record_all(ledger, events);
+        changed || read_again
+    }
+
+    /// When the key could not be read from the Vault, try again; on success, carry on with the
+    /// record kept on disk. True when the key was read now.
+    fn read_the_vault_again(&self, ledger: &Ledger) -> bool {
+        if lock(&self.unreadable).is_none() {
+            return false;
+        }
+        let Ok(text) = vault::read(self.store.as_ref(), VAULT_ID) else {
+            return false;
+        };
+        let now = self.now();
+        let record: Record =
+            serde_json::from_slice(&read_record_bytes(self.record_file.as_deref()))
+                .unwrap_or_default();
+        let events: Vec<Event> = {
+            let mut license = lock(&self.license);
+            *license = License::load(text.as_deref(), record, now);
+            *lock(&self.unreadable) = None;
+            self.save(&license);
+            self.settle(&license, now).into_iter().collect()
+        };
+        log::info!("the license key could be read from the Vault again");
+        record_all(ledger, events);
+        true
     }
 
     /// Whether `limit` allows the owner's action now, in plain words when it does not.
@@ -285,24 +364,22 @@ impl LicenseHost {
             .map_err(|b| CommandError::part_of_pro(b.message))
     }
 
-    /// Follow the license's edition; true when it changed (recorded in the Ledger).
-    fn settle(&self, license: &License, ledger: &Ledger, now: i64) -> bool {
+    /// Follow the license's edition; the event to record when it changed.
+    fn settle(&self, license: &License, now: i64) -> Option<Event> {
         let status = license.status(now);
         let before = self.entitlements.edition();
         if !self.entitlements.set_edition(status.edition) {
-            return false;
+            return None;
         }
         let reason = LicenseReason::from(status.reason);
         log::info!("Plenipo is now on {:?} ({reason:?})", status.edition);
-        record(
-            ledger,
+        Some((
             EDITION_CHANGED,
             json!({ "from": before, "to": status.edition, "reason": reason }),
-        );
-        true
+        ))
     }
 
-    /// Keep the record (when the key could be read at start, and it changed).
+    /// Keep the record (when the key could be read, and it changed).
     fn save(&self, license: &License) {
         if lock(&self.unreadable).is_some() {
             return;
@@ -321,6 +398,34 @@ impl LicenseHost {
             Ok(()) => *saved = bytes,
             Err(e) => log::warn!("could not keep the license record: {e}"),
         }
+    }
+}
+
+/// The key kept in the Vault, or why it could not be read (in plain words).
+fn read_key(store: &dyn SecretStore) -> (Option<String>, Option<String>) {
+    match vault::read(store, VAULT_ID) {
+        Ok(text) => (text, None),
+        Err(e) => {
+            log::warn!("the license key could not be read from the Vault: {e}");
+            (
+                None,
+                Some(format!(
+                    "Plenipo couldn't read your license key from {}. It tries again every few \
+                     minutes; you can also enter the key again.",
+                    store.label()
+                )),
+            )
+        }
+    }
+}
+
+fn read_record_bytes(file: Option<&Path>) -> Vec<u8> {
+    file.and_then(|f| std::fs::read(f).ok()).unwrap_or_default()
+}
+
+fn record_all(ledger: &Ledger, events: Vec<Event>) {
+    for (event_type, payload) in events {
+        record(ledger, event_type, payload);
     }
 }
 
@@ -469,6 +574,13 @@ mod tests {
         NOW.store(at, Ordering::SeqCst);
     }
 
+    /// The tests' running clock (moves only when a test says so).
+    static RUNNING: AtomicI64 = AtomicI64::new(0);
+
+    fn running() -> i64 {
+        RUNNING.load(Ordering::SeqCst)
+    }
+
     struct Service {
         port: u16,
         /// Every request's body, as it arrived.
@@ -557,7 +669,7 @@ mod tests {
             file,
             "1.18.0",
             check_for(Some(&format!("http://127.0.0.1:{port}"))),
-            clock,
+            Clocks { pc: clock, running },
         )
     }
 
@@ -747,6 +859,79 @@ mod tests {
         assert_eq!(h.entitlements().edition(), Edition::Free);
         assert!(h.view().problem.unwrap().contains("couldn't read"));
         assert_eq!(std::fs::read(&file).unwrap(), kept);
+    }
+
+    /// Review finding: a Vault that could not be read when Plenipo started kept a paying owner
+    /// on Free until a restart. Each look now tries it again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_vault_that_answers_again_brings_the_key_back_at_the_next_look() {
+        let _one = CLOCK.lock().await;
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(RECORD_FILE);
+        let store = Arc::new(MemorySecretStore::default());
+        let h = host(store.clone(), Some(file.clone()), s.port);
+        h.enter(&test_key(), &ledger).unwrap();
+        assert_eq!(h.check(&guard, &ledger).await.reason, LicenseReason::Active);
+        // Plenipo starts while the Vault does not answer.
+        let flaky = Arc::new(Flaky {
+            inner: store,
+            failing: std::sync::atomic::AtomicBool::new(true),
+        });
+        let again = host(flaky.clone(), Some(file), s.port);
+        assert_eq!(again.entitlements().edition(), Edition::Free);
+        // It answers again: the next look brings the key back, with its record.
+        flaky.failing.store(false, Ordering::SeqCst);
+        assert!(again.look(&guard, &ledger).await);
+        assert_eq!(again.entitlements().edition(), Edition::Pro);
+        assert_eq!(again.view().reason, LicenseReason::Active);
+    }
+
+    /// Review finding: a clock held back stopped Plenipo's time instead of being caught. While
+    /// Plenipo runs, its time moves on with the running clock.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn holding_the_clock_back_while_plenipo_runs_does_not_stop_its_time() {
+        let _one = CLOCK.lock().await;
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        let h = host(Arc::new(MemorySecretStore::default()), None, s.port);
+        h.enter(&test_key(), &ledger).unwrap();
+        assert_eq!(h.check(&guard, &ledger).await.reason, LicenseReason::Active);
+        // 8 West is down; 31 days pass while the PC's clock is held where it was.
+        *lock(&s.says) = None;
+        RUNNING.store(31 * 86_400, Ordering::SeqCst);
+        h.look(&guard, &ledger).await;
+        RUNNING.store(0, Ordering::SeqCst);
+        assert_eq!(h.entitlements().edition(), Edition::Free);
+        assert_eq!(h.view().reason, LicenseReason::NoCheck);
+    }
+
+    /// A store that fails until told otherwise.
+    struct Flaky {
+        inner: Arc<MemorySecretStore>,
+        failing: std::sync::atomic::AtomicBool,
+    }
+
+    impl SecretStore for Flaky {
+        fn label(&self) -> &str {
+            "Windows Credential Manager"
+        }
+        fn check(&self) -> Result<(), String> {
+            self.inner.check()
+        }
+        fn set(&self, id: &str, value: &str) -> Result<(), String> {
+            self.inner.set(id, value)
+        }
+        fn get(&self, id: &str) -> Result<Option<String>, String> {
+            if self.failing.load(Ordering::SeqCst) {
+                return Err("locked".into());
+            }
+            self.inner.get(id)
+        }
+        fn delete(&self, id: &str) -> Result<(), String> {
+            self.inner.delete(id)
+        }
     }
 
     struct Broken;

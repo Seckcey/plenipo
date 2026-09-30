@@ -15,8 +15,8 @@ the answer so it can't be faked. A Free copy never sends anything.
 
 - `POST https://account.getplenipo.com/v1/check`. The address is built into every copy and never
   changes (ADR-105).
-- Headers: `Content-Type: application/json`, `User-Agent: Plenipo/<version>`, and the ones HTTP
-  itself needs (`Host`, `Content-Length`). No cookies, no sign-in, no other headers.
+- Headers: `Content-Type: application/json`, `Accept: */*`, `User-Agent: Plenipo/<version>`, and
+  the ones HTTP itself needs (`Host`, `Content-Length`). No cookies, no sign-in, no other headers.
 - Body: exactly `{"key_id":"<key ID>","app_version":"<version>"}`. That means those two fields,
   in that order, with no spaces and no trailing newline. [`request.json`](request.json) is the
   example, byte for byte.

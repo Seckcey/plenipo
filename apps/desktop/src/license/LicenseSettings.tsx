@@ -75,6 +75,14 @@ export function LicenseSettings() {
         {pill}
         <p>{reasonWords(view)}</p>
       </div>
+      {view.clockAheadDays !== null && (
+        <p className="notice-box" role="note">
+          <strong>
+            This PC&apos;s clock is {view.clockAheadDays} days ahead of 8 West&apos;s.
+          </strong>{" "}
+          Set the right date and time in Windows, then choose <strong>Check now</strong>.
+        </p>
+      )}
       {view.problem && view.edition === "pro" && (
         <p className="muted" role="status">
           The last check didn&apos;t go through: {view.problem}

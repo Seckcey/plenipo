@@ -942,7 +942,7 @@ mod ipc_boundary_tests {
             None,
             "1.9.0",
             license_host::check_for(Some("http://127.0.0.1:9")),
-            plenipo_licensing::clock,
+            license_host::Clocks::REAL,
         );
         license
             .entitlements()

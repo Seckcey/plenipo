@@ -100,6 +100,7 @@ Three ways out were considered, and are recorded in **Alternatives considered** 
 - **Settings → License.** It shows Free or Pro and why, the key's ID (never the key), the plan, the
   paid-through date, the last and next check, and **Enter**, **Replace**, **Check now**, and
   **Remove the key**. Removing the key asks first.
-- **Limit: the 30 days are kept on the PC.** Deleting the license record, or removing the key and
-  starting again, starts a new 30 days for that key. Typing the same key in again does not. As this
-  record decided, there is no anti-tamper; the licence covers working around the check.
+- **Limit: the 30 days are kept on the PC.** Deleting the license record starts a new 30 days for
+  that key. Removing the key and entering it again does not, and neither does typing it in again or
+  a restart. As this record decided, there is no anti-tamper; the licence covers working around the
+  check.

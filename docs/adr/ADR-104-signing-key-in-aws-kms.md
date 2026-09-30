@@ -76,6 +76,8 @@ sign, and every signature is logged. Plenipo carries two public keys: the one in
 - **Test key.** The contract's test key (`test-1`) is trusted only by copies built for the tests
   (the `license-test-keys` build option, used by CI's end-to-end job). A released copy never
   trusts it.
+- **A key signed by a key Plenipo no longer trusts** (§3 retires an at-risk key once 8 West has
+  emailed new keys) says so on Settings → License, and its record is kept for the new key.
 - **Waiting on the owner.** The list of production public keys is empty until the owner makes the
   two KMS keys. Their public halves go in as `prod-1` (current) and `prod-2` (spare), the names the
   account service signs with. Until then, a released copy accepts no key.

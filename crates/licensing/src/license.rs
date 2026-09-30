@@ -96,6 +96,8 @@ pub struct LicenseView {
     pub free_limits: FreeLimits,
     /// Copies built for the tests say so on screen.
     pub test_build: bool,
+    /// How many days the PC's clock was ahead of 8 West's at the last check, when more than one.
+    pub clock_ahead_days: Option<u32>,
 }
 
 /// What the last check did, for the record.
@@ -110,6 +112,9 @@ pub enum CheckOutcome {
 pub struct License {
     key: Option<LicenseKey>,
     record: Record,
+    /// Why the key kept in the Vault no longer checks (a signing key retired, say), in plain
+    /// words. Its record is kept for when a key that checks is entered.
+    kept_key_problem: Option<String>,
 }
 
 fn ms(secs: i64) -> i64 {
@@ -118,22 +123,35 @@ fn ms(secs: i64) -> i64 {
 
 impl License {
     /// What was kept: the key text from the Vault (checked again) and the record. A key that no
-    /// longer checks (for example, a test key in a release build) is ignored.
+    /// longer checks (for example, a test key in a release build) is not used, and the screen
+    /// says why. With no key, the record is kept as it is: entering the same key again picks it
+    /// up, so removing and re-entering a key never restarts the 30 days.
     pub fn load(key_text: Option<&str>, record: Record, clock: i64) -> Self {
-        let key = key_text.and_then(|t| key::parse(t).ok());
+        let (key, kept_key_problem) = match key_text.map(key::parse) {
+            Some(Ok(k)) => (Some(k), None),
+            Some(Err(e)) => (None, Some(e.to_string())),
+            None => (None, None),
+        };
         let mut record = record;
-        if key.as_ref().map(LicenseKey::key_id) != record.key_id.as_deref() {
-            // The record is about another key (or none): start over for this one.
-            record = match &key {
-                Some(k) => Record::entered(k, clock, &record),
-                None => Record {
-                    clock_high: record.clock_high,
-                    ..Record::default()
-                },
-            };
+        if let Some(k) = &key {
+            if record.key_id.as_deref() == Some(k.key_id()) {
+                // The time it was entered is only believed when it is not in the future: a record
+                // changed by hand cannot move the 30 days on.
+                let now = record.now(clock);
+                if record.entered_at.is_none_or(|at| at > now) {
+                    record.entered_at = Some(now);
+                }
+            } else {
+                // The record is about another key: start over for this one.
+                record = Record::entered(k, clock, &record);
+            }
         }
         record.saw_clock(clock);
-        Self { key, record }
+        Self {
+            key,
+            record,
+            kept_key_problem,
+        }
     }
 
     pub fn key(&self) -> Option<&LicenseKey> {
@@ -154,15 +172,14 @@ impl License {
         } else {
             self.record = Record::entered(&key, clock, &self.record);
         }
+        self.kept_key_problem = None;
         Ok(self.key.insert(key))
     }
 
-    /// Remove the key: Free, with nothing else changed.
+    /// Remove the key: Free, with nothing else changed. Its record stays, so entering the same
+    /// key again carries on where it was (never a new 30 days, never forgetting an "ended").
     pub fn remove(&mut self) -> Option<LicenseKey> {
-        self.record = Record {
-            clock_high: self.record.clock_high,
-            ..Record::default()
-        };
+        self.kept_key_problem = None;
         self.key.take()
     }
 
@@ -174,9 +191,16 @@ impl License {
         self.status(clock).edition
     }
 
-    /// Whether a check is due at `clock` (never, with no key: a Free copy never checks in).
+    /// Whether a check is due at `clock`, the PC's clock (never, with no key: a Free copy never
+    /// checks in). A clock set back past the last try makes one due, so a clock that was once
+    /// ahead cannot put the next check off.
     pub fn check_due(&self, clock: i64) -> bool {
-        self.key.is_some() && self.record.next_check().is_some_and(|at| clock >= at)
+        self.key.is_some()
+            && (self.record.next_check().is_some_and(|at| clock >= at)
+                || self
+                    .record
+                    .last_attempt
+                    .is_some_and(|at| at > clock.saturating_add(3600)))
     }
 
     /// The key ID and the exact body of a check, when there is a key.
@@ -220,6 +244,17 @@ impl License {
     pub fn view(&self, clock: i64) -> LicenseView {
         let status = self.status(clock);
         let payload = self.key.as_ref().map(LicenseKey::payload);
+        let has_key = self.key.is_some();
+        let problem = if has_key {
+            self.record.last_problem.clone()
+        } else {
+            self.kept_key_problem.as_ref().map(|why| {
+                format!(
+                    "The license key kept on this PC no longer works: {why} Enter the newest key 8 \
+                     West emailed you."
+                )
+            })
+        };
         LicenseView {
             edition: status.edition,
             reason: status.reason.into(),
@@ -229,16 +264,21 @@ impl License {
             paid_through: status.paid_through.map(ms),
             ends_at: status.ends_at.map(ms),
             last_checked: status.last_success.map(ms),
-            last_tried: self.record.last_attempt.map(ms),
+            last_tried: self.record.last_attempt.filter(|_| has_key).map(ms),
             next_check: self
                 .key
                 .as_ref()
                 .and(self.record.next_check())
                 .map(|at| ms(at.max(clock))),
             grace_ends: status.grace_ends.map(ms),
-            problem: self.record.last_problem.clone(),
+            problem,
             free_limits: FREE_LIMITS,
             test_build: crate::trust::built_for_tests(),
+            clock_ahead_days: self
+                .record
+                .clock_ahead
+                .filter(|_| has_key)
+                .map(|s| u32::try_from(s / crate::state::DAY).unwrap_or(u32::MAX)),
         }
     }
 }
@@ -295,6 +335,115 @@ mod tests {
         assert_eq!(l.status(later).grace_ends, grace);
         assert_eq!(l.view(later).reason, LicenseReason::Active);
         assert_eq!(l.edition(AS_OF + 31 * DAY), Edition::Free);
+    }
+
+    /// An answer from 8 West, signed, as of `as_of`.
+    fn signed_at(state: SubscriptionState, as_of: i64) -> Vec<u8> {
+        let mut a = answer(state);
+        a.as_of = as_of;
+        signed(&a)
+    }
+
+    /// Review finding: a clock once set far ahead held Plenipo's "now" there for good, so even a
+    /// fresh "paid" answer left a paying owner on Free, and the next check was a year away.
+    #[test]
+    fn a_clock_set_ahead_once_is_undone_by_8_wests_next_answer() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Active)), AS_OF);
+        // The clock is wrong for a while: a year ahead, and a check fails then.
+        l.saw_clock(AS_OF + 365 * DAY);
+        l.failed("no internet", AS_OF + 365 * DAY);
+        // The clock is put right. A check is due at once.
+        let fixed = AS_OF + 2 * DAY;
+        assert!(l.check_due(fixed));
+        // 8 West answers "paid": Pro.
+        l.answered(&signed_at(SubscriptionState::Active, fixed), fixed);
+        assert_eq!(l.edition(fixed), Edition::Pro);
+        assert_eq!(l.view(fixed).clock_ahead_days, None);
+        // While the PC's clock is well ahead of 8 West's, the screen says so.
+        let ahead = fixed + 40 * DAY;
+        l.answered(&signed_at(SubscriptionState::Active, fixed + DAY), ahead);
+        assert_eq!(l.view(ahead).clock_ahead_days, Some(39));
+    }
+
+    /// Lowering Plenipo's "now" takes a strictly newer signed answer: the answer already kept,
+    /// sent again, never gives back days the clock took.
+    #[test]
+    fn a_replayed_answer_never_brings_back_what_the_clock_took() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Active)), AS_OF);
+        l.saw_clock(AS_OF + 31 * DAY);
+        assert_eq!(l.edition(AS_OF + 31 * DAY), Edition::Free);
+        // The clock wound back, and the old answer sent again.
+        let back = AS_OF + DAY;
+        l.answered(&signed(&answer(SubscriptionState::Active)), back);
+        assert_eq!(l.edition(back), Edition::Free);
+    }
+
+    /// Review finding: removing a key and entering it again started a new 30 days, and forgot
+    /// an "ended" answer.
+    #[test]
+    fn removing_and_entering_a_key_again_never_restarts_the_30_days_or_forgets_ended() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Ended)), AS_OF);
+        l.remove();
+        l.enter(&valid_key(), AS_OF + DAY).unwrap();
+        assert_eq!(l.view(AS_OF + DAY).reason, LicenseReason::Ended);
+        // Paid, then no check for 31 days; removed and entered again (after a restart too).
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Active)), AS_OF);
+        let later = AS_OF + 31 * DAY;
+        l.remove();
+        let mut again = License::load(None, l.record().clone(), later);
+        assert_eq!(
+            again.view(later).last_tried,
+            None,
+            "no key: nothing about checks"
+        );
+        again.enter(&valid_key(), later).unwrap();
+        assert_eq!(again.edition(later), Edition::Free);
+        assert_eq!(again.view(later).reason, LicenseReason::NoCheck);
+    }
+
+    /// Review finding: a kept key that no longer checks (its signing key retired) was dropped
+    /// with no word on screen, and its record wiped.
+    #[test]
+    fn a_kept_key_that_no_longer_checks_says_why_and_keeps_its_record() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        l.answered(&signed(&answer(SubscriptionState::Active)), AS_OF);
+        let damaged = format!("{}x", valid_key());
+        let kept = License::load(Some(&damaged), l.record().clone(), AS_OF + 60);
+        assert_eq!(kept.edition(AS_OF + 60), Edition::Free);
+        let problem = kept.view(AS_OF + 60).problem.unwrap();
+        assert!(problem.contains("no longer works"), "{problem}");
+        assert!(kept.record().answer.is_some(), "the record is kept");
+    }
+
+    /// Review finding: a record changed by hand (no time entered, or one in the future) made
+    /// the 30 days slide on for ever.
+    #[test]
+    fn a_missing_or_future_entered_time_is_not_believed() {
+        let mut l = License::default();
+        l.enter(&valid_key(), AS_OF).unwrap();
+        let text = l.key().unwrap().text().to_owned();
+        for entered_at in [None, Some(AS_OF + 1000 * DAY)] {
+            let record = Record {
+                entered_at,
+                ..l.record().clone()
+            };
+            let loaded = License::load(Some(&text), record, AS_OF);
+            assert_eq!(loaded.edition(AS_OF + 29 * DAY), Edition::Pro);
+            assert_eq!(
+                loaded.edition(AS_OF + 31 * DAY),
+                Edition::Free,
+                "{entered_at:?}"
+            );
+        }
     }
 
     #[test]

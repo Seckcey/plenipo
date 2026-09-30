@@ -117,7 +117,7 @@ Known limits, each kept on purpose:
 
 - **Bringing back a department** on Free checks the department limit only. Its projects come back
   with it, even past Free's one project: they were made on Pro, and nothing is hidden.
-- **A Vault that cannot be read** when Plenipo starts means Free for that run. Settings → License
-  says so, and the record is left whole for the next start.
+- **A Vault that cannot be read** when Plenipo starts means Free until it answers again. Plenipo
+  tries again every few minutes, Settings → License says so, and the record is left whole.
 - **No pop-up notice when Pro ends.** Settings → License and the Activity trail say so. When Pro ends
   while Plenipo is closed, the next start shows Free without an Activity entry for the change.

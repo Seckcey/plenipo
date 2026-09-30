@@ -24,6 +24,8 @@ pub const GRACE: i64 = 30 * DAY;
 pub const EVERY: i64 = 7 * DAY;
 /// After failed checks, Plenipo tries again after these waits (the last repeats).
 pub const RETRY_AFTER: [i64; 5] = [3600, 3 * 3600, 6 * 3600, 12 * 3600, DAY];
+/// How far the PC's clock may be from 8 West's before Plenipo says so.
+pub const CLOCK_SLACK: i64 = DAY;
 
 /// Kept in the data folder (not a secret: the key itself is in the Vault).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +45,9 @@ pub struct Record {
     pub failures: u32,
     /// Why the last check failed, in plain words.
     pub last_problem: Option<String>,
+    /// How far the PC's clock was ahead of 8 West's at the last successful check, in seconds,
+    /// when it was more than [`CLOCK_SLACK`] (Settings → License says so).
+    pub clock_ahead: Option<i64>,
 }
 
 /// Why the edition is what it is.
@@ -85,6 +90,7 @@ impl Record {
             last_attempt: None,
             failures: 0,
             last_problem: None,
+            clock_ahead: None,
         }
     }
 
@@ -114,13 +120,21 @@ impl Record {
             self.failed("8 West doesn't know this key yet", clock);
             return;
         }
+        let kept = self.verified_answer().map(|a| a.as_of);
         // Never go back to an older answer (a replayed one).
-        let newer = self
-            .verified_answer()
-            .is_none_or(|kept| payload.as_of >= kept.as_of);
-        if newer {
+        if kept.is_none_or(|k| payload.as_of >= k) {
             self.answer = Some(signed);
         }
+        // A strictly newer signed answer carries 8 West's own time: a PC clock that was once set
+        // ahead no longer holds Plenipo's "now" there. A replayed answer is never newer, so this
+        // never lets a clock wound back gain a day.
+        if kept.is_none_or(|k| payload.as_of > k) {
+            self.clock_high = clock
+                .max(payload.as_of)
+                .min(payload.as_of.saturating_add(CLOCK_SLACK));
+        }
+        let ahead = clock.saturating_sub(payload.as_of);
+        self.clock_ahead = (ahead > CLOCK_SLACK).then_some(ahead);
         self.failures = 0;
         self.last_problem = None;
     }
