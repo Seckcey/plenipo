@@ -16,8 +16,8 @@ Contact supplied by the owner: `admin@8westventures.com`.
       without JavaScript.
 - [x] Validate the workspace and standalone website builds and website tests.
 - [x] Complete repository checks and confirm generated bindings before pushing.
-- [ ] Review policy wording for publication, merge, and deploy the website.
-- [ ] Verify both pages and their navigation on the public site after deployment.
+- [x] Obtain the owner's publication approval and merge the statements.
+- [x] Verify both pages, their complete policy content, and navigation on the public site.
 
 ## Acceptance evidence
 
@@ -51,14 +51,22 @@ were not run in this Linux task.
 
 ## Publication status
 
-The cloud environment can read GitHub and its native Git route permits publishing a
-task branch. The GitHub API is denied by the current network policy. Required
-`api.github.com` and `plenipo.8westit.com` destinations were saved in the environment
-draft; saving a draft does not apply it to the running machine.
+The owner approved publication. [Pull request #114](https://github.com/Seckcey/plenipo/pull/114)
+merged as `6776e0c767feb3c980155b28102e3a69436eef5a`. Its full GitHub checks passed,
+including Windows and app E2E. Initial API access was blocked; it became available
+before the merge.
 
-The documented `coastline` SSH name has no configured host mapping and cannot resolve
-here. No live website deploy or public-page acceptance has been performed. Follow the
-[website deploy procedure](../development/website.md#reserve-deploy-and-roll-back)
-after review and merge, using a configured Coastline connection. A website-only change
-may require the existing updater's `--force` option. Do not treat a local build or a
-GitHub branch as a production deployment.
+On September 30, 2026, public `/terms/` and `/privacy/` requests returned HTTP 200.
+Both contained the complete content rendered from their canonical Markdown, the correct
+canonical URL, and links to Home and both policies. Cloudflare's email protection
+encodes the public email links; decoding them confirmed `admin@8westventures.com`,
+and the full policy HTML matched after accounting for that rewrite. The
+homepage and sitemap linked to both pages. Public `release.json` reported the merge
+revision above and published installer version `1.16.0`.
+
+This establishes public publication; the cloud session did not itself run the server
+deploy command. The documented `coastline` SSH name still has no mapping here, and no
+laptop or Tailscale connection is attached. The separate
+[automatic website-change update](website-automatic-updates.md) still needs its
+one-time server installation. Repository publication alone cannot replace that
+installed script.

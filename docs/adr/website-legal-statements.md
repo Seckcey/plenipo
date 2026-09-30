@@ -1,6 +1,6 @@
 # Decision: Shared terms and privacy statements for GitHub and the website
 
-- **Status:** Accepted for implementation; policy wording awaits publication review
+- **Status:** Accepted for publication by the owner; published September 30, 2026
 - **Date:** 2026-09-30
 - **Phase:** Website
 
@@ -34,11 +34,13 @@ of regulatory certification.
 
 ## Consequences
 
-The public GitHub documents and website pages use one source. Publishing website
-code requires a reviewed merge and a normal website deploy; the existing automatic
-updater does not necessarily pick up a website-only change immediately. The owner
-should review the policy wording before publication and keep it current as practices
-change.
+The public GitHub documents and website pages use one source. The owner approved
+publication, and [pull request #114](https://github.com/Seckcey/plenipo/pull/114)
+merged the statements. Both public pages were verified on September 30, 2026;
+`release.json` reported that merge's source revision with published version 1.16.0.
+Keep the wording current as practices change. Future website updates use
+[the checked website deployment](website-changes-follow-checks.md) once that updated
+script is installed on Coastline.
 
 The statements do not add an in-app acceptance screen, change software license rights,
 configure provider accounts, or change Cloudflare settings. Those require separate work

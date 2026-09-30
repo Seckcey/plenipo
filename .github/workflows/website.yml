@@ -38,6 +38,11 @@ jobs:
           grep -Eq '<h1 id="hero-title">[^<]*[^[:space:]<]' /tmp/plenipo-home.html
           curl --fail http://127.0.0.1:14380/ | grep -q "What&rsquo;s new in v$version<"
           curl --fail http://127.0.0.1:14380/sitemap.xml | grep -q 'https://plenipo.8westit.com/'
+          for page in terms privacy; do
+            curl --fail "http://127.0.0.1:14380/$page/" -o "/tmp/plenipo-$page.html"
+            grep -Fq "<link rel=\"canonical\" href=\"https://plenipo.8westit.com/$page/\"" "/tmp/plenipo-$page.html"
+            grep -Fq 'href="mailto:admin@8westventures.com"' "/tmp/plenipo-$page.html"
+          done
           curl --fail http://127.0.0.1:14380/release.json | grep -q "\"version\": \"$version\""
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:14380/missing)" = 404
       - name: Stop CI container
