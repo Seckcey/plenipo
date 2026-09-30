@@ -326,7 +326,9 @@ impl Workforce {
     }
 
     /// Run `hire` with saved agent `saved_id` brought into this organization from the shared
-    /// Workforce first: on success it leaves the shared Workforce; on failure it goes back.
+    /// Workforce first. It is taken out of the shared Workforce before anything else, so of two
+    /// organizations hiring it at once only one gets it; if the hire does not happen, it goes
+    /// back.
     fn with_saved<T>(&self, saved_id: Option<&str>, hire: impl FnOnce() -> Result<T>) -> Result<T> {
         let (Some(id), Some(shared)) = (saved_id, self.shared()) else {
             return hire();
@@ -335,41 +337,49 @@ impl Workforce {
             return hire();
         }
         let saved = shared
-            .saved_agent(id)?
+            .take_saved_agent(id)?
             .ok_or_else(|| invalid("that agent is no longer in your Workforce"))?;
-        let local = self.localize(&shared, saved)?;
-        if self.ledger().role(&local.role_id)?.is_none() {
-            let role = local.settings["roleName"]
-                .as_str()
-                .unwrap_or("its role")
-                .to_owned();
-            return Err(invalid(format!(
-                "{} is a {role}, and this organization has no such role; add it first",
-                local.title
-            )));
+        let give_back = |why: WorkforceError| {
+            if let Err(e) = shared.put_saved_agent(&saved) {
+                self.notice(format!(
+                    "{} could not go back to your Workforce: {e}",
+                    saved.title
+                ));
+            }
+            why
+        };
+        let placed = (|| -> Result<()> {
+            let local = self.localize(&shared, saved.clone())?;
+            if self.ledger().role(&local.role_id)?.is_none() {
+                let role = local.settings["roleName"]
+                    .as_str()
+                    .unwrap_or("its role")
+                    .to_owned();
+                return Err(invalid(format!(
+                    "{} is a {role}, and this organization has no such role; add it first",
+                    local.title
+                )));
+            }
+            self.ledger().put_saved_agent(&local)?;
+            Ok(())
+        })();
+        if let Err(e) = placed {
+            return Err(give_back(e));
         }
-        self.ledger().put_saved_agent(&local)?;
         match hire() {
-            Ok(v) => {
-                if let Err(e) = shared.take_saved_agent(id) {
-                    self.notice(format!(
-                        "{} was hired, but could not leave your Workforce: {e}",
-                        local.title
-                    ));
-                }
-                Ok(v)
-            }
-            Err(e) => {
-                let _ = self.ledger().take_saved_agent(id);
-                Err(e)
-            }
+            Ok(v) => Ok(v),
+            // Still here: it was not hired, so it goes back. Gone: it was hired, and stays.
+            Err(e) => match self.ledger().take_saved_agent(id) {
+                Ok(None) => Err(e),
+                _ => Err(give_back(e)),
+            },
         }
     }
 
     /// Agents this organization just saved go to the shared Workforce, with their role's and
     /// specialty's names, so any organization can hire them again. One whose role the first
     /// organization does not have stays in this organization's own Workforce.
-    fn send_saved_home(&self) {
+    pub fn send_saved_home(&self) {
         let Some(shared) = self.shared() else { return };
         let own = self.ledger();
         let Ok(saved) = own.saved_agents() else {
@@ -393,16 +403,32 @@ impl Workforce {
         }
     }
 
-    /// Save position `position_id` of this organization, about to be deleted for good, to your
-    /// Workforce in `to` (the first organization's Ledger) without changing this one (Phase 21,
-    /// ADR-094 §18). `None`: `to` has no role of its role's name, so it could not be hired there.
-    pub fn save_copy_to(&self, position_id: &str, to: &Ledger) -> Result<Option<SavedAgent>> {
+    /// Save position `position_id` of this organization (`organization`), about to be deleted
+    /// for good, to your Workforce in `to` (the first organization's Ledger) without changing
+    /// this one (Phase 21, ADR-094 §18). Saved once: asked again (a retry), the one already
+    /// saved is given. `None`: `to` has no role of its role's name, so it could not be hired
+    /// there.
+    pub fn save_copy_to(
+        &self,
+        organization: &str,
+        position_id: &str,
+        to: &Ledger,
+    ) -> Result<Option<SavedAgent>> {
+        let from = json!({ "organization": organization, "position": position_id });
+        if let Some(done) = to
+            .saved_agents()?
+            .into_iter()
+            .find(|s| s.settings["savedFrom"] == from)
+        {
+            return Ok(Some(done));
+        }
         let own = self.ledger();
         let settings = self.saved_settings(position_id)?;
         let mut saved = own.saved_copy(position_id, &settings)?;
         if !saved.settings.is_object() {
             saved.settings = json!({});
         }
+        saved.settings["savedFrom"] = from;
         if let Some(role) = own.role(&saved.role_id)? {
             saved.settings["roleName"] = role.name.into();
         }
@@ -1203,10 +1229,15 @@ impl Workforce {
         self.snapshot()
     }
 
-    /// Delete an agent in the Workforce for good.
+    /// Delete an agent in the Workforce for good: from this organization's own Workforce when
+    /// it is kept there (its role is not the first organization's), else from the shared one.
     pub fn delete_saved_agent(&self, saved_id: &str) -> Result<OrgSnapshot> {
-        self.workforce_ledger()
-            .delete_saved_agent(saved_id, OWNER)?;
+        if self.ledger().saved_agent(saved_id)?.is_some() {
+            self.ledger().delete_saved_agent(saved_id, OWNER)?;
+        } else {
+            self.workforce_ledger()
+                .delete_saved_agent(saved_id, OWNER)?;
+        }
         self.snapshot()
     }
 

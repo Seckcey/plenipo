@@ -1,8 +1,9 @@
 //! Files on an objective (Phase 21, ADR-093 §19–§22): the owner drops files on an objective,
 //! from Plenipo's Files panel or from anywhere on the PC.
 //!
-//! - A file inside the objective's own project folder is **named**, not copied (its workers see
-//!   it there).
+//! - A file inside the objective's own project folder is **named**, not copied, when its workers
+//!   see it there as it is: committed and unchanged, or the project works in its own folder.
+//!   Anything else (a change not committed yet, a new file) is copied.
 //! - Every other file is **copied** when the objective is given, into Plenipo's own folder for
 //!   it (`attachments/<ID>` in the data folder), so the original is never touched again. The
 //!   objective's text lists the files and carries a mark (`[plenipo-files:<ID>]`) that says
@@ -10,12 +11,17 @@
 //! - When a worker of the objective starts working in a folder (its working copy, or the project
 //!   folder when it works in place), Plenipo puts the copies in an `attachments` folder there,
 //!   once for each folder, never replacing anything already there, and never through a link.
+//!   Git leaves that folder out (`info/exclude`), so the copies are never committed or pushed.
+//! - A blocked file never goes on an objective, and nothing does while a worker uses the screen,
+//!   mouse, and keyboard.
 //! - Recorded: `objective.files_attached` (each file's name and size, whether it was copied) and
 //!   `objective.files_delivered`; never a file's contents or where it came from on the PC.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
+
+use plenipo_guard::paths::blocked_by;
 
 use super::Broker;
 use crate::error::{BrokerError, Result};
@@ -106,6 +112,13 @@ impl Broker {
                 "An objective can have up to {MAX_FILES} files."
             )));
         }
+        if self.inner.control.status().desktop_active() {
+            return Err(BrokerError::Invalid(
+                "A worker is using the screen, mouse, and keyboard. Take over first, then put \
+                 files on the objective."
+                    .into(),
+            ));
+        }
         let project = self
             .ledger()
             .project(project_id)?
@@ -114,6 +127,28 @@ impl Broker {
             .local_path
             .as_deref()
             .and_then(|p| dunce::canonicalize(p).ok());
+        let blocked = self.inner.guard.config()?.blocked_files;
+        let refuse_blocked = |shown: &str| {
+            BrokerError::Invalid(format!(
+                "{shown} is a blocked file: workers may not read it, so it cannot go on an \
+                 objective."
+            ))
+        };
+        // Workers get a working copy made from the last commit: a file there only if it is
+        // committed and unchanged; any other is copied.
+        let git = self
+            .inner
+            .git
+            .as_ref()
+            .filter(|_| project.branch_per_objective);
+        let as_committed = |rel: &str| -> bool {
+            match (git, folder.as_ref()) {
+                (None, _) | (_, None) => true,
+                (Some(git), Some(f)) => git
+                    .run(f, &["status", "--porcelain", "--ignored", "--", rel])
+                    .is_ok_and(|out| out.trim().is_empty()),
+            }
+        };
         let mut staged = Staged::default();
         let mut copies: Vec<(PathBuf, String, u64)> = Vec::new();
         let mut total = 0u64;
@@ -140,10 +175,15 @@ impl Broker {
                     .map(|c| c.as_os_str().to_string_lossy().into_owned())
                     .collect::<Vec<_>>()
                     .join("/");
-                if !staged.named.contains(&rel) {
-                    staged.named.push(rel);
+                if blocked_by(&blocked, &rel).is_some() {
+                    return Err(refuse_blocked(&rel));
                 }
-                continue;
+                if as_committed(&rel) {
+                    if !staged.named.contains(&rel) {
+                        staged.named.push(rel);
+                    }
+                    continue;
+                }
             }
             if meta.len() > MAX_FILE_BYTES {
                 return Err(BrokerError::Invalid(format!(
@@ -163,7 +203,14 @@ impl Broker {
                 .map(|n| n.to_string_lossy().into_owned())
                 .filter(|n| !n.starts_with('.') || n.len() > 1)
                 .unwrap_or_else(|| "file".into());
+            if blocked_by(&blocked, &name).is_some() {
+                return Err(refuse_blocked(&name));
+            }
             let name = free_name(&name, &taken);
+            // Where workers find it must not be a blocked name either.
+            if blocked_by(&blocked, &format!("{FOLDER}/{name}")).is_some() {
+                return Err(refuse_blocked(&name));
+            }
             copies.push((real, name, meta.len()));
         }
         if copies.is_empty() {
@@ -219,6 +266,44 @@ impl Broker {
 
     /// Put an objective's copied files in the folder a worker of it works in: once for each
     /// folder, into `attachments`, never replacing anything there and never through a link.
+    /// Add `/attachments/` to the folder's git exclude list (`info/exclude`, shared by the
+    /// repository's working copies), once. Nothing happens outside a git repository.
+    fn keep_out_of_git(&self, folder: &Path) {
+        let Some(git) = &self.inner.git else { return };
+        let Ok(out) = git.run(folder, &["rev-parse", "--git-path", "info/exclude"]) else {
+            return;
+        };
+        let path = PathBuf::from(out.trim());
+        let exclude = if path.is_absolute() {
+            path
+        } else {
+            folder.join(path)
+        };
+        let line = format!("/{FOLDER}/");
+        let now = std::fs::read_to_string(&exclude).unwrap_or_default();
+        if now.lines().any(|l| l.trim() == line) {
+            return;
+        }
+        let write = || -> std::io::Result<()> {
+            if let Some(dir) = exclude.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let mut text = now.clone();
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str("# Files the owner put on objectives (Plenipo)\n");
+            text.push_str(&line);
+            text.push('\n');
+            std::fs::write(&exclude, text)
+        };
+        if let Err(e) = write() {
+            self.notice(format!(
+                "Git could not be told to leave out the files on an objective: {e}"
+            ));
+        }
+    }
+
     pub(super) fn deliver_files(&self, task_id: &str, folder: &Path) {
         let Ok(root) = self.ledger().task_root(task_id) else {
             return;
@@ -240,6 +325,9 @@ impl Broker {
             return;
         }
         let target = folder.join(FOLDER);
+        // The copies are the owner's, not the project's: git leaves them out, so a worker adding
+        // everything never commits or pushes them.
+        self.keep_out_of_git(folder);
         match std::fs::symlink_metadata(&target) {
             Ok(m) if !m.is_dir() || m.file_type().is_symlink() => {
                 self.notice(format!(

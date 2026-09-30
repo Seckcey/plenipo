@@ -456,22 +456,34 @@ fn experienced(
         .into_iter()
         .map(|r| r.name)
         .collect();
-    let (mut can, mut cannot) = (Vec::new(), Vec::new());
-    for p in records.positions.iter().filter(|p| p.deleted_at.is_none()) {
-        let Some(c) = counts.get(&p.id) else { continue };
-        if c.tasks_done == 0 && c.kept_lessons == 0 {
-            continue;
-        }
-        let role = records
+    let role_name = |id: &str| {
+        records
             .roles
             .iter()
-            .find(|r| r.id == p.role_id)
-            .map_or_else(String::new, |r| r.name.clone());
+            .find(|r| r.id == id)
+            .map_or_else(String::new, |r| r.name.clone())
+    };
+    let (mut can, mut cannot) = (Vec::new(), Vec::new());
+    for p in records.positions.iter().filter(|p| p.deleted_at.is_none()) {
+        // Its work here, and any it brought back from your Workforce.
+        let here = counts.get(&p.id);
+        let carried = &p.metadata["experience"];
+        let count = |v: &serde_json::Value| {
+            v.as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or_default()
+        };
+        let tasks_done = here.map_or(0, |c| c.tasks_done) + count(&carried["tasksDone"]);
+        let kept_lessons = here.map_or(0, |c| c.kept_lessons) + count(&carried["keptLessons"]);
+        if tasks_done == 0 && kept_lessons == 0 {
+            continue;
+        }
+        let role = role_name(&p.role_id);
         let worker = OrgWorker {
             position_id: p.id.clone(),
             title: p.title.clone(),
-            tasks_done: c.tasks_done,
-            kept_lessons: c.kept_lessons,
+            tasks_done,
+            kept_lessons,
             role_name: role.clone(),
         };
         if first_roles.contains(&role) {
@@ -479,6 +491,23 @@ fn experienced(
         } else {
             cannot.push(worker);
         }
+    }
+    // Agents in its own Workforce (their role is not your first organization's), after the
+    // ones that can move have moved: they go with it.
+    for saved in stack.ledger.saved_agents().map_err(ledger_error)? {
+        let count = |key: &str| {
+            saved.experience[key]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or_default()
+        };
+        cannot.push(OrgWorker {
+            position_id: saved.id.clone(),
+            title: saved.title.clone(),
+            tasks_done: count("tasksDone"),
+            kept_lessons: count("keptLessons"),
+            role_name: role_name(&saved.role_id),
+        });
     }
     Ok((can, cannot))
 }
@@ -495,6 +524,8 @@ pub async fn preview_delete_organization<R: Runtime>(
     let orgs = orgs.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let stack = archived(&app, &orgs, &id)?;
+        // Agents it kept in its own Workforce go to yours, where they can.
+        stack.workforce.send_saved_home();
         let (experienced, not_saved) = experienced(&stack, &first(&orgs)?.ledger)?;
         Ok(OrgDeletePreview {
             name: orgs::name_in(&stack.ledger),
@@ -528,12 +559,18 @@ pub async fn delete_organization_for_good<R: Runtime>(
             "too many workers to save at once",
         ));
     }
+    let mut seen = std::collections::HashSet::new();
+    let save: Vec<String> = save
+        .into_iter()
+        .filter(|p| seen.insert(p.clone()))
+        .collect();
     let orgs2 = orgs.inner().clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), CommandError> {
         let stack = archived(&app2, &orgs2, &id)?;
         let first = first(&orgs2)?;
         let name = orgs::name_in(&stack.ledger);
+        stack.workforce.send_saved_home();
         let (can, _) = experienced(&stack, &first.ledger)?;
         let mut saved = Vec::new();
         for position in &save {
@@ -546,7 +583,7 @@ pub async fn delete_organization_for_good<R: Runtime>(
         for position in &save {
             if let Some(s) = stack
                 .workforce
-                .save_copy_to(position, &first.ledger)
+                .save_copy_to(&id, position, &first.ledger)
                 .map_err(crate::commands::workforce_error)?
             {
                 saved.push(serde_json::json!({ "savedId": s.id, "title": s.title }));

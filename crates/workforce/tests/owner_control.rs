@@ -22,8 +22,9 @@ use plenipo_runtime::{
 use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::learning::{self, LearningFrom};
 use plenipo_workforce::{
-    DepartmentInput, HireInput, LeadInput, OrgSnapshot, PositionInfo, PositionPatchInput,
-    PositionStatus, ProjectInput, RoleJob, SpecialtyInput, SpecialtySuggest, Workforce,
+    DepartmentInput, HireInput, LeadInput, OrgSnapshot, PositionInfo, PositionKind,
+    PositionPatchInput, PositionStatus, ProjectInput, RoleInput, RoleJob, SpecialtyInput,
+    SpecialtySuggest, Staffing, Workforce,
 };
 use serde_json::json;
 
@@ -1119,6 +1120,196 @@ async fn your_workforce_and_tile_are_shared_by_every_organization() {
         .find(|p| p.title == "Mobile Supervisor" && p.active)
         .unwrap();
     assert_eq!(back.experience.tasks_done, 1);
+}
+
+/// Phase 21 (review): an agent in your Workforce moves between organizations whole and once.
+/// Hired from another organization's window, it leaves the shared Workforce at once (the view
+/// the hire gives back shows it gone); a hire that fails puts it back; one kept in an
+/// organization's own Workforce (its role is not the first organization's) can be deleted
+/// there; and a position ID from another Ledger is never kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agent_in_the_shared_workforce_moves_whole_and_once() {
+    let first = harness().await;
+    let client = harness().await;
+    client.workforce.share_with(Arc::clone(&first.ledger));
+    let org = client.development();
+
+    // One whose role only the client has stays in the client's own Workforce, and is deleted
+    // there.
+    let s = client
+        .workforce
+        .create_role(&RoleInput {
+            name: "Bookkeeper".into(),
+            description: "Keeps the books.".into(),
+            kind: PositionKind::Worker,
+            staffing: Staffing::OnDemand,
+            job: None,
+        })
+        .unwrap();
+    let bookkeeper = s.roles.iter().find(|r| r.name == "Bookkeeper").unwrap();
+    let s = client
+        .workforce
+        .hire(&HireInput {
+            role_id: bookkeeper.id.clone(),
+            title: "Bookkeeper".into(),
+            reports_to: Some(org.coordinator.clone()),
+            runtime_id: Some("claude-code".into()),
+            model: None,
+            vacant: None,
+            specialty_id: None,
+        })
+        .unwrap();
+    let position = s
+        .positions
+        .iter()
+        .find(|p| p.title == "Bookkeeper" && p.active)
+        .unwrap()
+        .id
+        .clone();
+    client.workforce.archive_position(&position).unwrap();
+    let s = client.workforce.save_to_workforce(&position).unwrap();
+    let kept = client.ledger.saved_agents().unwrap();
+    assert_eq!(kept.len(), 1, "kept in the client's own Workforce");
+    assert!(first.ledger.saved_agents().unwrap().is_empty());
+    assert_eq!(s.workforce.len(), 1);
+    let s = client.workforce.delete_saved_agent(&kept[0].id).unwrap();
+    assert!(s.workforce.is_empty());
+    assert!(client.ledger.saved_agents().unwrap().is_empty());
+
+    // Moved into another Ledger, the position it came from is never kept: the same ID there is
+    // a different position.
+    let mut moved = kept[0].clone();
+    moved.id = "moved".into();
+    moved.role_id = first.role("Manager");
+    moved.from_position = Some(first.development().head);
+    first.ledger.put_saved_agent(&moved).unwrap();
+    assert_eq!(
+        first
+            .ledger
+            .take_saved_agent("moved")
+            .unwrap()
+            .unwrap()
+            .from_position,
+        None
+    );
+
+    // The client's supervisor works, then is saved to the shared Workforce.
+    client.done(&org.coordinator, "Plan the launch.").await;
+    client.workforce.archive_project(&org.project).unwrap();
+    let (s, _) = client
+        .workforce
+        .delete_for_good(
+            "project",
+            &org.project,
+            std::slice::from_ref(&org.coordinator),
+        )
+        .unwrap();
+    let saved = s.workforce[0].id.clone();
+
+    // A hire that fails puts it back in the shared Workforce.
+    assert!(client
+        .workforce
+        .hire_from_workforce(&saved, Some("no-such-position"), None)
+        .is_err());
+    assert_eq!(first.ledger.saved_agents().unwrap().len(), 1);
+    assert!(client.ledger.saved_agents().unwrap().is_empty());
+
+    // Hired in the client's organization: gone from every organization's Workforce, in the view
+    // the hire gives back too.
+    let s = client
+        .workforce
+        .create_project(&ProjectInput {
+            department_id: Some(org.department.clone()),
+            coordinator: Some(LeadInput {
+                from_workforce: Some(saved.clone()),
+                ..lead(
+                    &client.role("Supervisor"),
+                    "Returning Supervisor",
+                    "claude-code",
+                )
+            }),
+            ..project_input("Mobile")
+        })
+        .unwrap();
+    assert!(s.workforce.is_empty(), "{:?}", s.workforce);
+    assert!(first.ledger.saved_agents().unwrap().is_empty());
+    assert!(client.ledger.saved_agents().unwrap().is_empty());
+    // A second hire finds nothing to take.
+    assert!(first
+        .workforce
+        .hire_from_workforce(&saved, None, None)
+        .is_err());
+}
+
+/// Phase 21 (review): a copy never carries the experience a worker brought back from your
+/// Workforce (its work and lessons are the other organization's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_copy_leaves_out_experience_brought_back_from_the_workforce() {
+    let h = harness().await;
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Operations".into(),
+            description: String::new(),
+            head: Some(lead(
+                &h.role("Manager"),
+                "Operations Manager",
+                "claude-code",
+            )),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let d = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Operations")
+        .unwrap();
+    let (ops, head) = (d.id.clone(), d.head_position_id.clone().unwrap());
+    h.done(&head, "Plan the move.").await;
+    h.workforce.archive_department(&ops).unwrap();
+    let (s, deleted) = h
+        .workforce
+        .delete_for_good("department", &ops, std::slice::from_ref(&head))
+        .unwrap();
+    assert_eq!(deleted.saved.len(), 1);
+    let saved = s.workforce[0].id.clone();
+    // Back as the head of a new department, with its experience.
+    let s = h
+        .workforce
+        .create_department(&DepartmentInput {
+            name: "Design".into(),
+            description: String::new(),
+            head: Some(LeadInput {
+                from_workforce: Some(saved),
+                ..lead(&h.role("Manager"), "Design Manager", "claude-code")
+            }),
+            reports_to: None,
+            active: None,
+        })
+        .unwrap();
+    let design_head = s
+        .departments
+        .iter()
+        .find(|d| d.name == "Design")
+        .unwrap()
+        .head_position_id
+        .clone()
+        .unwrap();
+    assert_eq!(h.position(&design_head).experience.tasks_done, 1);
+    let copy = Ledger::open_in_memory().unwrap();
+    copy.copy_setup_from(&h.ledger, "8 West", "owner").unwrap();
+    let records = copy.org_records().unwrap();
+    let copied = records
+        .positions
+        .iter()
+        .find(|p| p.id == design_head)
+        .unwrap();
+    assert!(
+        copied.metadata.get("experience").is_none(),
+        "{}",
+        copied.metadata
+    );
 }
 
 /// Phase 21 (ADR-094 §15): a new organization copied from another has its setup — the

@@ -288,8 +288,9 @@ impl Ledger {
                                     r[i] = SqlValue::Integer(at);
                                 }
                             }
-                            // Where it came from on loan, or an archive's note, is the other
-                            // organization's.
+                            // Where it came from on loan, an archive's note, and the
+                            // experience a worker brought back from the Workforce (its work and
+                            // lessons) are the other organization's.
                             if let Some(i) = p.at("metadata") {
                                 if let SqlValue::Text(m) = &r[i] {
                                     let mut v: Value =
@@ -297,6 +298,7 @@ impl Ledger {
                                     if let Some(o) = v.as_object_mut() {
                                         o.remove("archive");
                                         o.remove("loan");
+                                        o.remove("experience");
                                     }
                                     r[i] = SqlValue::Text(v.to_string());
                                 }

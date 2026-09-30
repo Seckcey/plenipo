@@ -5220,6 +5220,98 @@ mod ipc_boundary_tests {
             .organizations
             .iter()
             .any(|o| o.id == id && !o.archived));
+        // Its workers: a manager hired from your Workforce with the experience it brought, and
+        // two agents in its own Workforce (one whose role your first organization has, one
+        // whose role it does not).
+        let orgs_state = app.state::<Arc<orgs::Orgs>>();
+        let stack = orgs_state.stack(&id).unwrap();
+        let first = orgs_state.first().unwrap();
+        let role_in = |l: &plenipo_ledger::Ledger, name: &str| {
+            l.list_roles()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.name == name)
+                .unwrap()
+                .id
+        };
+        let saved =
+            |id: &str, title: &str, role_id: String, tasks: u64| plenipo_ledger::SavedAgent {
+                id: id.into(),
+                title: title.into(),
+                role_id,
+                specialty_id: None,
+                from_position: None,
+                settings: serde_json::json!({}),
+                experience: serde_json::json!({ "tasksDone": tasks, "keptLessons": 0 }),
+                lessons: Vec::new(),
+                saved_at: 1,
+            };
+        first
+            .ledger
+            .put_saved_agent(&saved(
+                "brought",
+                "Operations Manager",
+                role_in(&first.ledger, "Manager"),
+                2,
+            ))
+            .unwrap();
+        let s = stack
+            .workforce
+            .create_department(&plenipo_workforce::DepartmentInput {
+                name: "Operations".into(),
+                description: String::new(),
+                head: Some(plenipo_workforce::LeadInput {
+                    role_id: role_in(&stack.ledger, "Manager"),
+                    title: "Operations Manager".into(),
+                    runtime_id: Some("claude-code".into()),
+                    model: None,
+                    vacant: None,
+                    from_workforce: Some("brought".into()),
+                }),
+                reports_to: None,
+                active: None,
+            })
+            .unwrap();
+        let head = s
+            .departments
+            .iter()
+            .find(|d| d.name == "Operations")
+            .unwrap()
+            .head_position_id
+            .clone()
+            .unwrap();
+        stack
+            .ledger
+            .put_saved_agent(&saved(
+                "kept-home",
+                "Kept Manager",
+                role_in(&stack.ledger, "Manager"),
+                1,
+            ))
+            .unwrap();
+        let s = stack
+            .workforce
+            .create_role(&plenipo_workforce::RoleInput {
+                name: "Bookkeeper".into(),
+                description: "Keeps the books.".into(),
+                kind: plenipo_workforce::PositionKind::Worker,
+                staffing: plenipo_workforce::Staffing::OnDemand,
+                job: None,
+            })
+            .unwrap();
+        let bookkeeper = s.roles.iter().find(|r| r.name == "Bookkeeper").unwrap();
+        stack
+            .ledger
+            .put_saved_agent(&saved("kept-here", "Bookkeeper", bookkeeper.id.clone(), 1))
+            .unwrap();
+        // Saved once, however often it is asked (a retry after a failure).
+        for _ in 0..2 {
+            stack
+                .workforce
+                .save_copy_to(&id, &head, &first.ledger)
+                .unwrap();
+        }
+        drop(stack);
         body::<plenipo_core::OrgListing>(invoke_json(
             &main,
             "archive_organization",
@@ -5231,13 +5323,34 @@ mod ipc_boundary_tests {
             serde_json::json!({ "id": id }),
         ));
         assert_eq!(preview.name, "Client Co");
-        assert!(preview.experienced.is_empty());
+        // The experience it brought counts; the agent whose role your first organization has
+        // moved to your Workforce; the other is named as one that goes with it.
+        assert_eq!(preview.experienced.len(), 1, "{:?}", preview.experienced);
+        assert_eq!(preview.experienced[0].position_id, head);
+        assert_eq!(preview.experienced[0].tasks_done, 2);
+        assert!(first.ledger.saved_agent("kept-home").unwrap().is_some());
+        assert_eq!(
+            preview
+                .not_saved
+                .iter()
+                .map(|w| w.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Bookkeeper"]
+        );
         let listing: plenipo_core::OrgListing = body(invoke_json(
             &main,
             "delete_organization_for_good",
-            serde_json::json!({ "id": id, "save": [] }),
+            serde_json::json!({ "id": id, "save": [head, head] }),
         ));
         assert!(listing.organizations.iter().all(|o| o.id != id));
+        let managers = first
+            .ledger
+            .saved_agents()
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.title == "Operations Manager")
+            .count();
+        assert_eq!(managers, 1, "saved once");
         // Recorded in the first organization's Ledger.
         let events: Vec<plenipo_ledger::LedgerEvent> = body(invoke_json(
             &main,
@@ -5247,6 +5360,35 @@ mod ipc_boundary_tests {
         assert!(events
             .iter()
             .any(|e| e.event_type == "organization.deleted"));
+    }
+
+    #[test]
+    fn your_tile_set_in_one_organizations_window_is_told_to_every_window() {
+        use tauri::Listener as _;
+        let app = app();
+        let main = window(&app, "main");
+        let (_, client) = second_organization(&app, &main, "Client Co");
+        let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let into = Arc::clone(&heard);
+        app.listen_any(orgs::SHARED_EVENT, move |e| {
+            into.lock().unwrap().push(e.payload().to_owned());
+        });
+        body::<serde_json::Value>(invoke_json(
+            &client,
+            "set_owner_profile",
+            serde_json::json!({ "input": {
+                "status": "busy",
+                "mood": null,
+                "message": "At the client",
+                "picture": { "kind": "keep" },
+            } }),
+        ));
+        assert_eq!(*heard.lock().unwrap(), vec!["\"tile\"".to_owned()]);
+        assert_eq!(
+            ledger_host::shared_change("org.saved_agent_moved"),
+            Some("workforce")
+        );
+        assert_eq!(ledger_host::shared_change("task.created"), None);
     }
 
     #[test]

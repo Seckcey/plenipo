@@ -51,6 +51,7 @@ const RUNS: &[&str] = &[
     "adp",
     "app",
     "appcontent-ms",
+    "appinstaller",
     "application",
     "appref-ms",
     "appx",
@@ -63,13 +64,18 @@ const RUNS: &[&str] = &[
     "bat",
     "bgi",
     "cab",
+    "cer",
     "chm",
     "cmd",
     "cnt",
     "com",
     "command",
     "cpl",
+    "crt",
     "csh",
+    "der",
+    "deskthemepack",
+    "desktop",
     "diagcab",
     "dll",
     "docm",
@@ -86,6 +92,7 @@ const RUNS: &[&str] = &[
     "img",
     "inf",
     "ins",
+    "iqy",
     "iso",
     "isp",
     "its",
@@ -128,6 +135,7 @@ const RUNS: &[&str] = &[
     "mst",
     "msu",
     "ocx",
+    "one",
     "ops",
     "osd",
     "pcd",
@@ -163,13 +171,17 @@ const RUNS: &[&str] = &[
     "scr",
     "sct",
     "search-ms",
+    "searchconnector-ms",
     "settingcontent-ms",
     "sh",
     "shb",
     "shs",
     "sldm",
+    "slk",
     "sys",
     "theme",
+    "themepack",
+    "udl",
     "url",
     "vb",
     "vbe",
@@ -177,6 +189,7 @@ const RUNS: &[&str] = &[
     "vbs",
     "vhd",
     "vhdx",
+    "vsix",
     "vsmacros",
     "vsw",
     "webpnp",
@@ -187,8 +200,10 @@ const RUNS: &[&str] = &[
     "wsf",
     "wsh",
     "xbap",
+    "xla",
     "xlam",
     "xll",
+    "xlm",
     "xlsm",
     "xltm",
     "xnk",
@@ -391,7 +406,7 @@ fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         ".{name}.plenipo-{}.tmp",
         uuid::Uuid::new_v4().simple()
     ));
-    let result = (|| {
+    let written = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -402,13 +417,22 @@ fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         if let Ok(meta) = std::fs::metadata(path) {
             let _ = std::fs::set_permissions(&temp, meta.permissions());
         }
-        std::fs::rename(&temp, path)
+        Ok(())
     })();
-    match result {
+    if let Err(e) = written {
+        // The new copy could not be written whole (the disk is full, say): the file stays as it
+        // was, never half written.
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    match std::fs::rename(&temp, path) {
         Ok(()) => Ok(()),
+        // Only the swap was refused (another program holds the file open on Windows): the new
+        // copy is whole, so the file is written in place from it.
         Err(_) => {
+            let result = std::fs::read(&temp).and_then(|whole| std::fs::write(path, whole));
             let _ = std::fs::remove_file(&temp);
-            std::fs::write(path, bytes)
+            result
         }
     }
 }
@@ -472,6 +496,23 @@ impl Broker {
             }
         }
         out
+    }
+
+    /// The worker writing in a folder that holds `abs` — through whichever known folder the file
+    /// is reached (a project folder inside another, ADR-093 §13) — if one is.
+    fn writer_over(&self, abs: &Path) -> Option<FolderWriter> {
+        for (root, writer) in self.folder_writers() {
+            let Ok(known) = self.known_root(&root) else {
+                continue;
+            };
+            let Ok(folder) = Folder::open(&known.folder.display().to_string()) else {
+                continue;
+            };
+            if abs.starts_with(folder.root()) {
+                return Some(writer);
+            }
+        }
+        None
     }
 
     /// A worker is using the screen, mouse, and keyboard now (the owner has not taken over).
@@ -582,6 +623,7 @@ impl Broker {
                     .map(std::fs::Metadata::len),
                 modified: meta.as_ref().and_then(modified_ms),
                 blocked: blocked_by(&blocked, &rel).is_some(),
+                runs: !folder && runs(&name),
                 name,
                 path: rel,
                 folder,
@@ -685,8 +727,7 @@ impl Broker {
             }
         };
         let read_only = if matches!(content, FileContent::Text { .. }) {
-            self.folder_writers()
-                .remove(&known.id)
+            self.writer_over(&resolved.abs)
                 .map(|writer| ReadOnlyWhy::Writer { writer })
                 .or(desktop.then_some(ReadOnlyWhy::Desktop))
                 .or(meta.permissions().readonly().then_some(ReadOnlyWhy::Disk))
@@ -735,7 +776,7 @@ impl Broker {
                     .into(),
             ));
         }
-        if let Some(writer) = self.folder_writers().remove(&known.id) {
+        if let Some(writer) = self.writer_over(&resolved.abs) {
             return Err(BrokerError::Invalid(format!(
                 "{} is writing in this {} now. Save once it is done, or stop the worker.",
                 writer.worker,
@@ -824,6 +865,13 @@ impl Broker {
                     .into(),
             ));
         }
+        // Windows' File Explorer reads a comma as the end of a name: such a file opens in
+        // Plenipo only, so another program is never handed half a name.
+        if to_open && resolved.abs.to_string_lossy().contains(',') {
+            return Err(BrokerError::Invalid(
+                "A file whose name or folder has a comma opens in Plenipo only.".into(),
+            ));
+        }
         if to_open && resolved.abs.is_dir() {
             return Err(BrokerError::Invalid(format!(
                 "{} is a folder.",
@@ -894,6 +942,11 @@ mod tests {
             "tool.sh",
             "tricky.exe.",
             "tricky.exe ",
+            "notes.one",
+            "update.appinstaller",
+            "root.cer",
+            "extension.vsix",
+            "query.iqy",
         ] {
             assert!(runs(name), "{name} runs");
         }
@@ -1230,6 +1283,10 @@ mod tests {
             matches!(&program.content, FileContent::Other { what } if what.contains("never starts"))
         );
         assert!(p.broker.owner_file_path(&p.root, "tool.exe", true).is_err());
+        let listed = p.broker.list_folder(&p.root, "").unwrap();
+        let runs_of = |name: &str| listed.entries.iter().find(|e| e.name == name).unwrap().runs;
+        assert!(runs_of("tool.exe") && runs_of("setup.ps1"));
+        assert!(!runs_of("logo.png") && !runs_of("src"));
         assert!(p
             .broker
             .owner_file_path(&p.root, "setup.ps1", true)
@@ -1238,6 +1295,11 @@ mod tests {
             p.broker.owner_file_path(&p.root, "tool.exe", false).is_ok(),
             "shown in its folder"
         );
+        // A comma ends a name for Windows' File Explorer: such a file opens in Plenipo only.
+        std::fs::write(p.folder.join("a,b.txt"), "comma\n").unwrap();
+        assert!(p.broker.read_file(&p.root, "a,b.txt").is_ok());
+        assert!(p.broker.owner_file_path(&p.root, "a,b.txt", true).is_err());
+        assert!(p.broker.owner_file_path(&p.root, "a,b.txt", false).is_ok());
         let picture = p.broker.read_file(&p.root, "logo.png").unwrap();
         assert!(
             matches!(&picture.content, FileContent::Picture { mime, .. } if mime == "image/png")

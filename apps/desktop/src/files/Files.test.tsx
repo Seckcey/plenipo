@@ -177,8 +177,17 @@ beforeEach(() => {
                 size: null,
                 modified: null,
                 blocked: false,
+                runs: false,
               },
-              { name: ".env", path: ".env", folder: false, size: 12, modified: 1, blocked: true },
+              {
+                name: ".env",
+                path: ".env",
+                folder: false,
+                size: 12,
+                modified: 1,
+                blocked: true,
+                runs: false,
+              },
               {
                 name: "README.md",
                 path: "README.md",
@@ -186,6 +195,7 @@ beforeEach(() => {
                 size: 20,
                 modified: 1,
                 blocked: false,
+                runs: false,
               },
             ]
           : [
@@ -196,6 +206,7 @@ beforeEach(() => {
                 size: 4,
                 modified: 1,
                 blocked: false,
+                runs: false,
               },
             ],
     }),
@@ -241,6 +252,36 @@ describe("the Files panel (Phase 21, ADR-093)", () => {
     expect(api.openFileOutside).toHaveBeenCalledWith(ROOT, "README.md");
     await user.click(screen.getByRole("button", { name: "Show in folder" }));
     expect(api.showInFolder).toHaveBeenCalledWith(ROOT, "README.md");
+  });
+
+  it("never offers another program for a program or a script", async () => {
+    const user = userEvent.setup();
+    api.listFolder.mockImplementation((root, path) =>
+      Promise.resolve({
+        root,
+        path,
+        more: 0,
+        entries: [
+          {
+            name: "setup.ps1",
+            path: "setup.ps1",
+            folder: false,
+            size: 9,
+            modified: 1,
+            blocked: false,
+            runs: true,
+          },
+        ],
+      }),
+    );
+    render(<FilesPanel go={vi.fn()} />);
+    const tree = await screen.findByRole("tree", { name: "Project folders and working copies" });
+    await user.click(within(tree).getByText("Website"));
+    await user.keyboard("{Enter}");
+    await user.dblClick(await within(tree).findByText("Project folder"));
+    await user.click(await within(tree).findByText("setup.ps1"));
+    expect(screen.getByRole("button", { name: "Open in Plenipo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Open in another program" })).toBeDisabled();
   });
 
   it("reads the folders again when a worker's step starts or ends", async () => {
@@ -310,6 +351,46 @@ describe("the editor (Phase 21, ADR-093)", () => {
     await waitFor(() =>
       expect(api.saveFile).toHaveBeenLastCalledWith(ROOT, "README.md", "x\ny", false, "lf", null),
     );
+  });
+
+  it("keeps the fingerprint of the file as you started editing it, so a worker's change is never saved over", async () => {
+    const user = userEvent.setup();
+    const writer = { worker: "Senior Developer", sessionId: "s1", taskId: "t1" };
+    api.readFile.mockResolvedValueOnce(text(COPY, "src/app.txt", "a\n"));
+    api.saveFile.mockResolvedValue({ kind: "changedOnDisk" });
+    render(<EditorPage id={`${COPY}/src/app.txt`} go={vi.fn()} />);
+    await user.type(await screen.findByRole("textbox", { name: "app.txt, editable" }), "mine");
+    // A worker starts writing here, changes the file, and finishes: each step reads it again.
+    api.readFile.mockResolvedValueOnce(
+      text(COPY, "src/app.txt", "a\nb\n", {
+        hash: "d".repeat(64),
+        readOnly: { kind: "writer", writer },
+      }),
+    );
+    act(() => ledger(event("guard.grant_opened")));
+    expect(
+      await screen.findByText("Senior Developer is writing in this working copy"),
+    ).toBeInTheDocument();
+    api.readFile.mockResolvedValue(text(COPY, "src/app.txt", "a\nb\n", { hash: "e".repeat(64) }));
+    act(() => ledger(event("guard.grant_closed")));
+    expect(
+      await screen.findByText("Senior Developer is done. You can edit again."),
+    ).toBeInTheDocument();
+    // Your unsaved text stays, and Save sends the file's fingerprint from before the worker.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(api.saveFile).toHaveBeenLastCalledWith(
+        COPY,
+        "src/app.txt",
+        "a\nmine",
+        false,
+        "lf",
+        "a".repeat(64),
+      ),
+    );
+    expect(
+      await screen.findByText("This file changed on the disk since you opened it"),
+    ).toBeInTheDocument();
   });
 
   it("opens a working copy a worker is writing read-only, with Wait and Stop the worker", async () => {

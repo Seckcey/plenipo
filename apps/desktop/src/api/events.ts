@@ -39,6 +39,8 @@ export const CONTROL_EVENT = "plenipo://control";
 export const WINDOWS_EVENT = "plenipo://windows";
 export const DROP_EVENT = "plenipo://drop";
 export const ORGANIZATIONS_EVENT = "plenipo://organizations";
+/** Your tile or your Workforce changed: they are shared by every organization (Phase 21). */
+export const SHARED_EVENT = "plenipo://shared";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -102,4 +104,14 @@ export async function subscribeDrops(
  */
 export async function subscribeOrganizations(handler: () => void): Promise<() => void> {
   return listenHere<null>(ORGANIZATIONS_EVENT, () => handler());
+}
+
+/**
+ * Subscribe to changes in what every organization shares (Phase 21, ADR-094 §5): your tile, or
+ * your Workforce (an agent saved, hired, deleted, or moved), from any organization's window.
+ */
+export async function subscribeShared(
+  handler: (what: "tile" | "workforce") => void,
+): Promise<() => void> {
+  return listenHere<"tile" | "workforce">(SHARED_EVENT, (event) => handler(event.payload));
 }

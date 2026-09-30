@@ -34,6 +34,8 @@ pub const LIST_FILE: &str = "organizations.json";
 pub const FOLDER: &str = "organizations";
 /// Told to every organization's window when the list changes (the page reads it again).
 pub const ORGANIZATIONS_EVENT: &str = "plenipo://organizations";
+/// Told to every window when your tile or your Workforce changes (shared by every organization).
+pub const SHARED_EVENT: &str = "plenipo://shared";
 /// The longest name an organization may have (the Workforce's rule for its name).
 pub const MAX_NAME: usize = 80;
 
@@ -525,6 +527,13 @@ pub fn emit_to_org<R: Runtime, S: Serialize + Clone>(
 }
 
 /// Tell every organization's window that the list changed.
+/// Your tile or your Workforce changed (`what`): every organization's window reads it again.
+pub fn shared_changed<R: Runtime>(app: &AppHandle<R>, what: &str) {
+    if let Err(e) = app.emit(SHARED_EVENT, what) {
+        log::warn!("failed to emit {SHARED_EVENT}: {e}");
+    }
+}
+
 pub fn list_changed<R: Runtime>(app: &AppHandle<R>) {
     if let Err(e) = app.emit(ORGANIZATIONS_EVENT, ()) {
         log::warn!("failed to emit {ORGANIZATIONS_EVENT}: {e}");

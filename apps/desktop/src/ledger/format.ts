@@ -734,6 +734,10 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
       return `Hired from your Workforce: ${title}`;
     case "org.saved_agent_deleted":
       return `Deleted for good from your Workforce: ${title}`;
+    case "org.saved_agent_moved":
+      return p.way === "out"
+        ? `Left your Workforce for another organization: ${title}`
+        : `Came into your Workforce from another organization: ${title}`;
     case "org.specialty_created":
       return `Specialty added${str(p.role) ? ` to ${str(p.role)}` : ""}: ${name}`;
     case "org.specialty_updated":

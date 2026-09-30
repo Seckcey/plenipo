@@ -43,8 +43,11 @@ export function CodeEditor({
   /** The edited contents, while `shown` covers them. */
   const edited = useRef<EditorState | null>(null);
   const changed = useRef(onChange);
+  /** The state the page gives now: a replaced one is not reported back when its editor goes. */
+  const given = useRef(state);
   useLayoutEffect(() => {
     changed.current = onChange;
+    given.current = state;
   });
 
   useEffect(() => {
@@ -63,7 +66,9 @@ export function CodeEditor({
     v.contentDOM.setAttribute("aria-label", label);
     view.current = v;
     return () => {
-      changed.current(edited.current ?? v.state);
+      // Closing (the page goes): the page keeps what was typed. Replaced (Reload, a worker's
+      // change read again): the old text is thrown away, never kept as "not saved".
+      if (given.current === state) changed.current(edited.current ?? v.state);
       edited.current = null;
       v.destroy();
       view.current = null;

@@ -41,6 +41,8 @@ interface Row {
   expanded?: boolean | undefined;
   size?: number | null;
   blocked?: boolean;
+  /** A program or a script: opened in Plenipo only. */
+  runs?: boolean;
   changing?: ChangingFile;
   writer?: string | undefined;
   note?: string | undefined;
@@ -202,6 +204,7 @@ export function FilesPanel({ go }: { go: Go }) {
           expanded: e.folder ? open : undefined,
           size: e.size,
           blocked: e.blocked,
+          runs: e.runs,
         };
         const c = changingAt.get(key);
         if (c) row.changing = c;
@@ -353,8 +356,12 @@ export function FilesPanel({ go }: { go: Go }) {
         <Button
           size="sm"
           variant="quiet"
-          disabled={!selectedFile}
-          title="Open it with the program Windows uses for it (never a program or a script)"
+          disabled={!selectedFile || selectedFile.runs === true}
+          title={
+            selectedFile?.runs
+              ? "Plenipo never starts programs or scripts: open it in Plenipo"
+              : "Open it with the program Windows uses for it (never a program or a script)"
+          }
           onClick={() =>
             selectedFile?.rootId &&
             selectedFile.path &&

@@ -2073,6 +2073,77 @@ async fn a_workers_change_says_which_working_copy_and_the_file_view_marks_it() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_reached_through_another_projects_folder_is_read_only_while_a_worker_writes_there() {
+    let h = harness_with(false).await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Change src/app.txt.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Changed.", "delay": 20000,
+              "tools": [write("src/app.txt", "version = 2\n")] }
+        ]
+    }));
+    // A second project whose folder is inside the Website's.
+    let inner = h
+        .ledger
+        .create_project(
+            "Website Source",
+            Some(&h.folder.join("src").display().to_string()),
+            None,
+            None,
+            "test",
+        )
+        .unwrap();
+    let inner_root = format!("project:{}", inner.id);
+    let root = h.objective(&h.team.supervisor, "Change the app").await;
+    let project = format!("project:{}", h.project);
+    h.until("the worker to write in the project folder", |h| {
+        h.broker
+            .file_roots()
+            .unwrap()
+            .roots
+            .iter()
+            .any(|r| r.id == project && r.writer.is_some())
+    })
+    .await;
+    let writer = h
+        .broker
+        .file_roots()
+        .unwrap()
+        .roots
+        .into_iter()
+        .find(|r| r.id == project)
+        .and_then(|r| r.writer)
+        .unwrap();
+    // The same file, reached through the other project's folder, is held too.
+    let view = h.broker.read_file(&inner_root, "app.txt").unwrap();
+    assert!(
+        matches!(
+            view.read_only,
+            Some(plenipo_capabilities::ReadOnlyWhy::Writer { .. })
+        ),
+        "{view:?}"
+    );
+    let refused = h
+        .broker
+        .save_file(
+            &inner_root,
+            "app.txt",
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Senior Developer is writing"), "{refused}");
+    h.rt.cancel_turn(&writer.session_id).await.unwrap();
+    let _ = h.finished(&root).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_once() {
     let h = harness().await;
     h.script(&json!({
@@ -2120,11 +2191,61 @@ async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_on
         .is_file());
     // The owner's checkout gets nothing.
     assert!(!h.folder.join("attachments").exists());
+    // Git leaves the copies out: a worker adding everything never commits them.
+    let status = git(Path::new(&copy.path), &["status", "--porcelain"]);
+    assert!(!status.contains("attachments"), "{status}");
     // Recorded: the files by name, never their contents; delivered once.
     let attached = h.events(&root, "objective.files_attached");
     assert_eq!(attached.len(), 1);
     assert!(!attached[0].to_string().contains("logo"), "{}", attached[0]);
     assert_eq!(h.events(&root, "objective.files_delivered").len(), 1);
+    // A change not committed yet is not in the working copy a worker gets: it is copied.
+    std::fs::write(h.folder.join("README.md"), "# Website\n\nNot committed.\n").unwrap();
+    std::fs::write(h.folder.join("new.txt"), "brand new\n").unwrap();
+    let staged = h
+        .broker
+        .stage_files(
+            &h.project,
+            &[h.folder.join("README.md"), h.folder.join("new.txt")],
+        )
+        .unwrap();
+    assert!(staged.named.is_empty(), "{:?}", staged.named);
+    assert_eq!(
+        staged
+            .copied
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>(),
+        vec!["README.md", "new.txt"]
+    );
+    // A blocked file never goes on an objective, from the project or from anywhere.
+    std::fs::write(h.folder.join(".env"), "KEY=secret\n").unwrap();
+    let env_outside = h.dir.path().join(".env");
+    std::fs::write(&env_outside, "KEY=secret\n").unwrap();
+    for blocked in [h.folder.join(".env"), env_outside] {
+        let refused = h
+            .broker
+            .stage_files(&h.project, &[blocked])
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("blocked"), "{refused}");
+    }
+    // Nothing goes on an objective while a worker uses the screen, mouse, and keyboard.
+    let desktop = h.broker.control_center().begin(
+        plenipo_capabilities::control::ControlKind::Desktop,
+        "g1",
+        "t1",
+        "Operator",
+        None,
+    );
+    let refused = h
+        .broker
+        .stage_files(&h.project, &[outside.clone()])
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Take over"), "{refused}");
+    h.broker.control_center().end(&desktop.id);
+    assert!(h.broker.stage_files(&h.project, &[outside.clone()]).is_ok());
     // Too many or too large files are refused before anything is given.
     let many: Vec<PathBuf> = (0..21).map(|_| outside.clone()).collect();
     assert!(h.broker.stage_files(&h.project, &many).is_err());

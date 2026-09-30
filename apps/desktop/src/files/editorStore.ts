@@ -36,10 +36,17 @@ function readKeys(): string[] {
   }
 }
 
+/** What the editor last read from the disk, or saved to it. */
+export interface Base {
+  hash: string | null;
+  text: string;
+}
+
 /** One window's open files. */
 export class EditorStore {
   private files: EditorFiles;
   private states = new Map<string, EditorState>();
+  private bases = new Map<string, Base>();
   private listeners = new Set<() => void>();
 
   /** Read the kept list the first time it is asked for (after the window knows its organization). */
@@ -93,6 +100,7 @@ export class EditorStore {
     this.states.delete(key);
     const unsaved = new Set(this.current.unsaved);
     unsaved.delete(key);
+    this.bases.delete(key);
     this.set({ keys: this.current.keys.filter((k) => k !== key), unsaved });
   }
 
@@ -104,6 +112,19 @@ export class EditorStore {
     if (unsaved) next.add(key);
     else next.delete(key);
     this.set({ ...this.current, unsaved: next });
+  }
+
+  /**
+   * The file as the editor last read or saved it: its fingerprint (sent with Save, so a change
+   * made on the disk since is caught, ADR-093 §7) and its text (what "not saved" compares with).
+   * Kept apart from reads that only look (a worker starting or ending): those never change it.
+   */
+  base(key: string): Base | undefined {
+    return this.bases.get(key);
+  }
+
+  setBase(key: string, base: Base) {
+    this.bases.set(key, base);
   }
 
   /** A file's editor as it was left (`undefined`: none kept). */

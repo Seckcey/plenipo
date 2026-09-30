@@ -196,6 +196,24 @@ const KEPT_ON_ITS_OWN: &str = "plenipo";
 /// experience carries on, its lessons its role no longer has come back as kept (by the owner, or
 /// on their own and unreviewed, as they were) for its project, and it leaves the Workforce.
 #[allow(clippy::too_many_arguments)]
+/// A saved agent came into (`in`) or left (`out`) this Ledger's Workforce for another
+/// organization's (Phase 21, ADR-094 §5): every window showing the Workforce reads it again.
+fn moved(
+    out: &mut Vec<LedgerEvent>,
+    tx: &Connection,
+    id: &str,
+    title: &str,
+    way: &str,
+) -> Result<()> {
+    org_event(
+        out,
+        tx,
+        "plenipo",
+        "saved_agent_moved",
+        json!({ "savedId": id, "title": title, "way": way }),
+    )
+}
+
 pub(super) fn adopt(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
@@ -374,36 +392,39 @@ impl Ledger {
     /// moving between the Workforce every organization shares and one organization. Its role
     /// must be here; a specialty or first position this Ledger does not have is left empty.
     /// Nothing is recorded here; the move is recorded where it is hired or saved.
+    ///
+    /// The position it came from is another Ledger's, so it is never kept: the same ID here (a
+    /// copied organization keeps its positions' IDs) is a different position.
     pub fn put_saved_agent(&self, s: &SavedAgent) -> Result<()> {
-        self.write(|tx, _out| {
+        self.write(|tx, out| {
             tx.execute(
                 "INSERT OR REPLACE INTO saved_agents (id, title, role_id, specialty_id,
                      from_position, settings, experience, lessons, saved_at)
                  VALUES (?1, ?2, ?3, (SELECT id FROM specialties WHERE id = ?4),
-                         (SELECT id FROM positions WHERE id = ?5), ?6, ?7, ?8, ?9)",
+                         NULL, ?5, ?6, ?7, ?8)",
                 params![
                     s.id,
                     s.title,
                     s.role_id,
                     s.specialty_id,
-                    s.from_position,
                     s.settings.to_string(),
                     s.experience.to_string(),
                     serde_json::to_string(&s.lessons).unwrap_or_else(|_| "[]".into()),
                     s.saved_at as i64
                 ],
             )?;
-            Ok(())
+            moved(out, tx, &s.id, &s.title, "in")
         })
     }
 
     /// Take a saved agent out of this Ledger's Workforce as it is (it moved to another one;
     /// Phase 21, ADR-094). `None` when it is not here.
     pub fn take_saved_agent(&self, id: &str) -> Result<Option<SavedAgent>> {
-        self.write(|tx, _out| {
+        self.write(|tx, out| {
             let s = get(tx, id)?;
-            if s.is_some() {
+            if let Some(s) = &s {
                 tx.execute("DELETE FROM saved_agents WHERE id = ?1", [id])?;
+                moved(out, tx, id, &s.title, "out")?;
             }
             Ok(s)
         })

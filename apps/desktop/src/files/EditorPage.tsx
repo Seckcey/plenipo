@@ -143,8 +143,6 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
   const desktop = (control.status?.sessions ?? []).some(
     (s) => s.kind === "desktop" && s.state === "active",
   );
-  /** The text as last read or saved (unsaved changes differ from it). */
-  const savedText = useRef<string | null>(null);
   const viewRef = useRef<FileView | null>(null);
   useEffect(() => {
     viewRef.current = view;
@@ -159,14 +157,18 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
           setView(v);
           setError(null);
           if (v.content.kind !== "text") return;
+          // What you typed stays, with the fingerprint of the file as you started editing it: a
+          // change on the disk since is caught when you save (ADR-093 §7, §12).
           const keep = !fresh && editorStore.kept(fileId);
           if (keep) {
-            if (savedText.current === null) savedText.current = v.content.text;
+            if (!editorStore.base(fileId)) {
+              editorStore.setBase(fileId, { hash: v.hash ?? null, text: v.content.text });
+            }
             return;
           }
           // Unchanged on disk and nothing typed: the editor stays as it is.
           if (before?.hash === v.hash && state !== null && !fresh) return;
-          savedText.current = v.content.text;
+          editorStore.setBase(fileId, { hash: v.hash ?? null, text: v.content.text });
           editorStore.forget(fileId);
           setState(editorState(v.content.text, false));
         })
@@ -211,7 +213,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
               setDoneNote(`${was.worker} is done. You can edit again.`);
               const unsaved = editorStore.snapshot().unsaved.has(fileId);
               if (!unsaved && v.content.kind === "text") {
-                savedText.current = v.content.text;
+                editorStore.setBase(fileId, { hash: v.hash ?? null, text: v.content.text });
                 editorStore.forget(fileId);
                 setState(editorState(v.content.text, false));
               }
@@ -284,7 +286,8 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
         body,
         v.content.bom,
         v.content.lineEnding,
-        anyway ? null : (v.hash ?? null),
+        // The file as you started editing it, not as a later look found it (ADR-093 §7).
+        anyway ? null : (editorStore.base(fileId)?.hash ?? v.hash ?? null),
       )
         .then((outcome) => {
           if (outcome.kind === "changedOnDisk") {
@@ -292,7 +295,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
             return;
           }
           setChangedOnDisk(false);
-          savedText.current = body;
+          editorStore.setBase(fileId, { hash: outcome.hash, text: body });
           editorStore.keep(fileId, now, false);
           if (v.content.kind === "text") {
             setView({
@@ -327,7 +330,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
 
   const onChange = useCallback(
     (next: EditorState) => {
-      editorStore.keep(fileId, next, next.doc.toString() !== savedText.current);
+      editorStore.keep(fileId, next, next.doc.toString() !== editorStore.base(fileId)?.text);
       setSaved(null);
       setDoneNote(null);
     },

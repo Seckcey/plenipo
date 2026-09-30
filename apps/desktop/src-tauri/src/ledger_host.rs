@@ -49,8 +49,26 @@ pub fn open<R: Runtime>(
     let id = org.id.clone();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         crate::orgs::emit_to_org(&handle, &id, LEDGER_EVENT, event);
+        if id == crate::orgs::FIRST {
+            if let Some(what) = shared_change(&event.event_type) {
+                crate::orgs::shared_changed(&handle, what);
+            }
+        }
     }));
     ledger
+}
+
+/// What an event in the first organization's Ledger changes of what every organization shares
+/// (Phase 21, ADR-094 §5): your tile, or your Workforce.
+pub fn shared_change(event_type: &str) -> Option<&'static str> {
+    match event_type {
+        "owner.profile_changed" => Some("tile"),
+        "org.agent_saved"
+        | "org.agent_hired_from_workforce"
+        | "org.saved_agent_deleted"
+        | "org.saved_agent_moved" => Some("workforce"),
+        _ => None,
+    }
 }
 
 /// The Ledger file in an organization's folder.

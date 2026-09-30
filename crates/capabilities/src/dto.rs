@@ -602,6 +602,8 @@ pub struct FolderEntry {
     pub modified: Option<u64>,
     /// Workers may not touch it (Settings → Permissions → blocked files).
     pub blocked: bool,
+    /// A program or a script: it opens in Plenipo as text only, never in another program.
+    pub runs: bool,
 }
 
 /// One folder's contents.

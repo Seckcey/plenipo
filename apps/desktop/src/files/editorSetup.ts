@@ -118,6 +118,9 @@ export function editorState(text: string, readOnly: boolean): EditorState {
   return EditorState.create({
     doc: text,
     extensions: [
+      // Plenipo gives the text with `\n` line breaks and puts the file's own back on save: a
+      // lone `\r` inside a line stays as it is, never a new line.
+      EditorState.lineSeparator.of("\n"),
       basicSetup,
       keymap.of([
         indentWithTab,
