@@ -2518,3 +2518,46 @@ async fn a_streamed_change_shows_being_written_then_saved_and_a_refused_one_neve
         .iter()
         .all(|u| !format!("{u:?}").contains("streamed-secret-99")));
 }
+
+/// Phase 11A: permissions, approvals, and Guard behave identically on Free and Pro. Safety is
+/// never part of Pro: the same objective offers the same tools, allows the same read, refuses
+/// the same write for the same reason, and records the same events on either edition.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn guard_and_permissions_behave_the_same_on_free_and_pro() {
+    use plenipo_licensing::{Edition, Entitlements};
+    let mut seen = Vec::new();
+    for edition in [Edition::Free, Edition::Pro] {
+        let h = harness().await;
+        h.broker.set_entitlements(Entitlements::fixed(edition));
+        let task = h
+            .objective(&format!(
+                "[tools-list] {} {}",
+                tool("read_file", serde_json::json!({ "path": "README.md" })),
+                tool(
+                    "write_file",
+                    serde_json::json!({ "path": "notes.txt", "content": "x" })
+                ),
+            ))
+            .await;
+        assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+        let text = h.text(&task);
+        let tools = lines_of(&text, "Tools:");
+        let denied = lines_of(&text, "Tool write_file failed:");
+        assert!(
+            text.contains("Tool read_file: README.md (2 lines)"),
+            "{edition:?}: {text}"
+        );
+        assert!(!h.folder.join("notes.txt").exists());
+        let events: Vec<(String, usize)> = [
+            "guard.grant_opened",
+            "capability.used",
+            "guard.denied",
+            "guard.grant_closed",
+        ]
+        .iter()
+        .map(|t| ((*t).to_owned(), h.events(&task, t).len()))
+        .collect();
+        seen.push((tools, denied, events));
+    }
+    assert_eq!(seen[0], seen[1], "Free and Pro differ");
+}

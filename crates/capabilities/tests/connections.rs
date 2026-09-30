@@ -5938,3 +5938,117 @@ async fn every_ai_tool_uses_hubspot_stripe_the_website_and_an_add_on() {
         ]);
     }
 }
+
+// ---- Phase 11A: Connections and add-on tools are part of Pro (ADR-068) ----------------------
+
+/// On Free, Connect, a key, another account, and Add a program are refused in plain words naming
+/// what Pro adds; Settings still shows every connection, and Disconnect always works.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_free_connecting_is_part_of_pro_and_disconnect_always_works() {
+    use plenipo_capabilities::BrokerError;
+    use plenipo_licensing::{words, Edition, Entitlements, Limit};
+    let h = harness().await;
+    // Connected while every copy could (before the lock, ADR-068 §2).
+    h.connect(AccountKind::Work).await;
+    h.broker
+        .set_entitlements(Entitlements::fixed(Edition::Free));
+    let part_of_pro = |e: BrokerError, limit| {
+        assert!(matches!(e, BrokerError::PartOfPro(_)), "{e}");
+        assert!(e.is_caller_error());
+        assert_eq!(e.to_string(), words::message(limit));
+    };
+    part_of_pro(
+        h.broker
+            .connect_connection(ID, AccountKind::Work)
+            .await
+            .unwrap_err(),
+        Limit::Connections,
+    );
+    part_of_pro(
+        h.broker
+            .save_connection_key(HUBSPOT, &key(hubspot::KEY))
+            .await
+            .unwrap_err(),
+        Limit::Connections,
+    );
+    part_of_pro(
+        h.broker.add_connection(Service::Slack).unwrap_err(),
+        Limit::Connections,
+    );
+    part_of_pro(
+        h.broker
+            .add_add_on(&AddOnInput {
+                name: "Notes".into(),
+                program: env!("CARGO_BIN_EXE_plenipo-test-addon").into(),
+                args: Vec::new(),
+                secrets: Vec::new(),
+            })
+            .unwrap_err(),
+        Limit::AddOnTools,
+    );
+    // Settings still shows the connection; Disconnect works and takes the sign-in away.
+    assert_eq!(h.card().connection.state, ConnectionState::Connected);
+    h.broker.disconnect_connection(ID).await.unwrap();
+    assert_ne!(h.card().connection.state, ConnectionState::Connected);
+}
+
+/// When Pro ends, connections pause (ADR-068 §4): a task that started on Pro keeps its tools for
+/// its next step; new work gets none, and its worker is told why; with Pro back, the same
+/// connection works again with no new sign-in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn when_pro_ends_connections_pause_and_come_back_without_a_new_sign_in() {
+    use plenipo_licensing::{Edition, Entitlements};
+    use plenipo_runtime::agent::{StepInfo, ToolProvider};
+    let h = harness().await;
+    h.allow(&[(h.role_line("Supervisor"), AccessLevel::ReadOnly)]);
+    h.connect(AccountKind::Work).await;
+    let signed_in = h.ms.world().issued.len();
+    let e = Entitlements::new(Edition::Pro);
+    h.broker.set_entitlements(e.clone());
+    let (on_pro, text) = h.run("[tools-list]").await;
+    assert!(!m365_offered(&text).is_empty(), "{text}");
+    // Pro ends.
+    e.set_edition(Edition::Free);
+    let (_, text) = h.run("[tools-list]").await;
+    assert!(m365_offered(&text).is_empty(), "{text}");
+    // The task that started on Pro keeps them for another step.
+    let overview = h.rt.overview().await.unwrap();
+    let session = overview
+        .sessions
+        .iter()
+        .find(|s| !s.metadata["workforce"].is_null())
+        .unwrap();
+    let names = |task_id: &str| {
+        let info = StepInfo {
+            session,
+            task_id,
+            step: 2,
+            ai_tool: "Claude Code",
+            takes_tools: true,
+        };
+        let Some(tools) = ToolProvider::open(&h.broker, &info) else {
+            // No tools at all: the note for a step without tools says why.
+            let note = ToolProvider::note_without_tools(&h.broker, &info).unwrap_or_default();
+            return (Vec::new(), note);
+        };
+        let names: Vec<String> = h
+            .broker
+            .tool_list(&tools.grant_id)
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_owned))
+            .collect();
+        let note = h.broker.instructions(&tools.grant_id);
+        ToolProvider::close(&h.broker, &tools.grant_id);
+        (names, note)
+    };
+    let (kept, _) = names(&on_pro);
+    assert!(kept.iter().any(|n| n.starts_with("m365_")), "{kept:?}");
+    let (none, note) = names("a-task-started-on-free");
+    assert!(!none.iter().any(|n| n.starts_with("m365_")), "{none:?}");
+    assert!(note.contains("part of Plenipo Pro"), "{note}");
+    // Pro back: the same connection, with no new sign-in.
+    e.set_edition(Edition::Pro);
+    let (_, text) = h.run("[tools-list]").await;
+    assert!(!m365_offered(&text).is_empty(), "{text}");
+    assert_eq!(h.ms.world().issued.len(), signed_in);
+}

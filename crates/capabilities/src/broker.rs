@@ -470,6 +470,10 @@ struct Inner {
     terminals: terminals::Terminals,
     /// The owner's connections (Phase 20): sign-ins and calls.
     connections: Arc<crate::connections::Connections>,
+    /// The PC's Free or Pro (Phase 11A): Connections and add-on tools are part of Pro
+    /// (ADR-068). Until the app gives the PC's, always Pro. Nothing else here depends on it:
+    /// Guard, approvals, the Vault, and the record are never behind Pro.
+    entitlements: RwLock<Arc<plenipo_licensing::Entitlements>>,
 }
 
 /// Cheap to clone; clones share state.
@@ -764,6 +768,7 @@ impl Broker {
                 terminals: terminals::Terminals::default(),
                 connections,
                 config,
+                entitlements: RwLock::new(plenipo_licensing::Entitlements::unlocked()),
             }),
         };
         // A connection's sign-in changed: hide the new one in text too.
@@ -960,6 +965,31 @@ impl Broker {
         task.unwrap_or_else(|| session.clone())
     }
 
+    /// Use the PC's Free or Pro for Connections and add-on tools (ADR-068).
+    pub fn set_entitlements(&self, entitlements: Arc<plenipo_licensing::Entitlements>) {
+        *self
+            .inner
+            .entitlements
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = entitlements;
+    }
+
+    pub(crate) fn entitlements(&self) -> Arc<plenipo_licensing::Entitlements> {
+        self.inner
+            .entitlements
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Allowed now, or the plain-words reason a Free copy cannot (the owner's own actions).
+    pub(crate) fn pro(&self, limit: plenipo_licensing::Limit) -> Result<()> {
+        self.entitlements()
+            .check(limit)
+            .into_result()
+            .map_err(BrokerError::PartOfPro)
+    }
+
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
         let workforce = self.workforce_of(step);
         let workforce = &workforce;
@@ -1028,11 +1058,28 @@ impl Broker {
             })
             .map(|t| t.name)
             .collect();
+        // Connections and add-on tools are part of Pro (ADR-068): a task that started on Free
+        // gets none, and its worker's note says why; one that started on Pro keeps them until it
+        // finishes, even if Pro ends meanwhile.
+        let entitlements = self.entitlements();
+        let pro_for = |limit| {
+            entitlements
+                .check_for_task(Some(step.task_id), limit)
+                .is_allowed()
+        };
         // The connections this worker may use (Phase 20, ADR-062 §3–§4).
-        let offers = self.connection_offers(&config, &scope);
+        let offers = if pro_for(plenipo_licensing::Limit::Connections) {
+            self.connection_offers(&config, &scope)
+        } else {
+            connecting::paused_connections(&config)
+        };
         offered.extend(offers.tools.iter().copied());
         // The add-on tools it may use (ADR-066 §3).
-        let add_ons = self.add_on_offers(&config, &scope);
+        let add_ons = if pro_for(plenipo_licensing::Limit::AddOnTools) {
+            self.add_on_offers(&config, &scope)
+        } else {
+            Self::paused_add_ons(&config)
+        };
         let position_id = workforce["positionId"].as_str().map(str::to_owned);
         let worker = position_id
             .as_deref()
@@ -3078,10 +3125,27 @@ impl ToolProvider for Broker {
                 None => "this work belongs to no project, so there is no folder".into(),
             }
         };
+        // On Free, the owner's connections and add-on tools are paused (ADR-068 §4): the worker
+        // is told why, not only that it has no tools.
+        let paused = !self
+            .entitlements()
+            .check_for_task(Some(step.task_id), plenipo_licensing::Limit::Connections)
+            .is_allowed()
+            && (config
+                .connections
+                .iter()
+                .any(|c| c.state == plenipo_guard::ConnectionState::Connected)
+                || config.add_ons.iter().any(|a| a.on));
+        let paused = if paused {
+            " The owner's Connections and add-on tools are paused: they are part of Plenipo Pro, \
+             and this copy of Plenipo is on Free."
+        } else {
+            ""
+        };
         Some(format!(
             "You have no Plenipo tools in this task ({why}), so you cannot open or change files, \
              run programs, use git, or use websites or servers here. Work from what you are given; if your \
-             job needs more, say so in your answer and your lead or the owner can arrange it."
+             job needs more, say so in your answer and your lead or the owner can arrange it.{paused}"
         ))
     }
 }
