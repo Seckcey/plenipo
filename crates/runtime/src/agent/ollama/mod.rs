@@ -80,7 +80,8 @@ impl RuntimeAdapter for Ollama {
                 KnownModel::new("nemotron-3-ultra:cloud", "Nemotron 3 Ultra", &[])
                     .by(makers::NVIDIA),
                 KnownModel::new("kimi-k3:cloud", "Kimi K3 (paid plan)", TO_MAX)
-                    .by(makers::MOONSHOT),
+                    .by(makers::MOONSHOT)
+                    .same("kimi-k3"),
                 KnownModel::new(
                     "deepseek-v4-pro:cloud",
                     "DeepSeek V4 Pro (paid plan)",
@@ -215,6 +216,8 @@ impl RuntimeAdapter for Ollama {
                     effort_levels: Vec::new(),
                     maker: None,
                     points_to: None,
+                    price: None,
+                    same: None,
                 })
                 .collect(),
         )

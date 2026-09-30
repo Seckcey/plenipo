@@ -382,6 +382,9 @@ pub struct RouteChoice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub maker: Option<Maker>,
+    /// A paid route: pay per use with the owner's key, within the spending caps (ADR-085).
+    #[serde(default)]
+    pub paid: bool,
 }
 
 /// The router's decision and its reasons.

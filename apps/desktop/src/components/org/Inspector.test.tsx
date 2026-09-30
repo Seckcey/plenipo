@@ -78,6 +78,7 @@ function organization(): OrgSnapshot {
       model: "opus",
       effort: "high",
       label: "Opus (Claude Code)",
+      paid: false,
     },
     reason:
       "Opus (Claude Code) is Senior Developer's first choice and is ready. It runs at high effort, from Senior Developer's rule.",

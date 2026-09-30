@@ -289,6 +289,18 @@ Notes:
   Settings → Notifications, and a banner on every page). Every paid task is recorded with what it
   cost and which key it used, by the key's name.
 
+  - **OpenRouter** ([ADR-086](../adr/ADR-086-openrouter-through-a-plenipo-helper.md), OpenRouter
+    through a Plenipo helper): with the cap and the switch set, open **AI tools → OpenRouter**
+    (it comes with Plenipo; nothing to install). Make a key on openrouter.ai (**Keys → Create
+    key**), then type a name for it and the key into the card and press **Save and check**.
+    Plenipo checks the key with OpenRouter, keeps it in Windows Credential Manager, and never
+    shows it again. Never paste a key into a chat. **Replace key** and **Remove key** are on the
+    same card.
+  - **Using it:** a paid model is used only where you put it in a position's list (Settings → AI
+    models), for example after Kimi on Kimi Code, so Kimi K3 on OpenRouter runs only when Kimi
+    Code has reached its usage limit. The model menus show what each paid model costs. A worker
+    on OpenRouter answers in text only (it reads no files and runs nothing in this version).
+
 ## 4. Plenipo's browser, and the screen, mouse, and keyboard (Phase 10, optional)
 
 Workers that you allow to visit or use websites work in **Plenipo's browser**: the Microsoft

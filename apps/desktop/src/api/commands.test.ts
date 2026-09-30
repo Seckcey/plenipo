@@ -10,7 +10,9 @@ import {
   setAiToolPayment,
   setAiToolsAutoUpdate,
   getSpending,
+  removePaidKey,
   removeSpendingCap,
+  savePaidKey,
   setSpendingCap,
   updateAiTool,
   archiveDepartment,
@@ -214,5 +216,16 @@ describe("command client", () => {
     });
     await removeSpendingCap("cap-1");
     expect(mockedInvoke).toHaveBeenLastCalledWith("remove_spending_cap", { capId: "cap-1" });
+  });
+
+  it("sends a paid key only to its own command (Phase 16 Wave 3)", async () => {
+    await savePaidKey("openrouter", "Office key", "sk-or-v1-made-up");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("save_paid_key", {
+      runtimeId: "openrouter",
+      name: "Office key",
+      key: "sk-or-v1-made-up",
+    });
+    await removePaidKey("openrouter");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("remove_paid_key", { runtimeId: "openrouter" });
   });
 });

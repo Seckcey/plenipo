@@ -36,11 +36,27 @@ const MODELS: Record<string, KnownModel[]> = {
   ],
   // Only Auto on the owner's plan, Copilot's default: no model is listed (ADR-083 §5).
   copilot: [],
+  // A paid AI tool's starter list, each model priced (ADR-085).
+  openrouter: [
+    {
+      name: "qwen/qwen3.8-flash",
+      label: "Qwen3.8 Flash",
+      effortLevels: [],
+      maker: { id: "alibaba", label: "Alibaba (Qwen)" },
+      price: { input: 3_000_000, cachedInput: null, output: 15_000_000 },
+    },
+  ],
 };
 
 const FACTS: Record<
   string,
-  { label: string; provider: string; providerLabel: string; signIn: string; signOut: string | null }
+  {
+    label: string;
+    provider: string;
+    providerLabel: string;
+    signIn: string | null;
+    signOut: string | null;
+  }
 > = {
   "claude-code": {
     label: "Claude Code",
@@ -91,6 +107,14 @@ const FACTS: Record<
     signIn: "copilot login",
     signOut: null,
   },
+  // Nothing to sign in to: the key is added on its card.
+  openrouter: {
+    label: "OpenRouter",
+    provider: "openrouter",
+    providerLabel: "OpenRouter",
+    signIn: null,
+    signOut: null,
+  },
 };
 
 export const AI_TOOL_IDS = [
@@ -104,7 +128,10 @@ export const AI_TOOL_IDS = [
 ] as const;
 
 /** The AI tools that run other companies' models (ADR-081). */
-const OTHER_MAKERS = new Set(["ollama", "antigravity", "copilot"]);
+const OTHER_MAKERS = new Set(["ollama", "antigravity", "copilot", "openrouter"]);
+
+/** The paid AI tools (ADR-085): they come with Plenipo and are paid per use with a key. */
+const PAID = new Set(["openrouter"]);
 
 /** An AI tool's check: installed at `version`, signed in with a subscription. */
 export function aiRuntime(
@@ -132,7 +159,7 @@ export function aiRuntime(
       runsOtherMakers: OTHER_MAKERS.has(id),
     },
     installHint: `Install ${f.label}.`,
-    loginHint: `Open a terminal, run: ${f.signIn}`,
+    loginHint: f.signIn ? `Open a terminal, run: ${f.signIn}` : "Add a key on its card.",
     ready: true,
     // Checked long ago (a sign-in tab that ends after it waits for a newer check).
     checkedAt: 1,
@@ -160,18 +187,26 @@ export const idle = (patch: Partial<AiToolUpdate> = {}): AiToolUpdate => ({
 export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolState {
   return {
     runtimeId: id,
+    builtIn: PAID.has(id),
     newestFrom:
-      id === "grok" ? "own" : id === "kimi" || id === "antigravity" ? "updateChecks" : "published",
+      id === "grok"
+        ? "own"
+        : id === "kimi" || id === "antigravity" || PAID.has(id)
+          ? "updateChecks"
+          : "published",
     newest: null,
     newestCheckedAt: T0,
     newestProblem: null,
-    canUpdate: id !== "ollama",
+    canUpdate: id !== "ollama" && !PAID.has(id),
     update: idle(),
     updateByHand: null,
     outOfService: null,
     reportsPlanLeft: id === "claude-code" || id === "codex" || id === "copilot",
     plan: null,
-    payment: "subscription",
+    payment: PAID.has(id) ? "paidKey" : "subscription",
+    paidKey: null,
+    paidBlocked: null,
+    keyKeptIn: PAID.has(id) ? "Windows Credential Manager" : null,
     hasModelList: id !== "claude-code",
     modelsCheckLeavesATrace: id === "kimi",
     checking: false,

@@ -21,4 +21,8 @@ label: string,
 /**
  * Who made the model (ADR-081); absent: not known.
  */
-maker?: Maker, };
+maker?: Maker, 
+/**
+ * A paid route: pay per use with the owner's key, within the spending caps (ADR-085).
+ */
+paid: boolean, };

@@ -98,7 +98,7 @@ impl RuntimeAdapter for Kimi {
             // 2026-09-26), K3 (Kimi's default) first. K3's thinking levels were listed; the
             // others' were not checked, except K2.7 Code Highspeed's (`on`, `low`).
             known_models: vec![
-                KnownModel::new("kimi-code/k3", "K3", K3_THINKING),
+                KnownModel::new("kimi-code/k3", "K3", K3_THINKING).same("kimi-k3"),
                 KnownModel::new("kimi-code/k3-256k", "K3-256k", &[]),
                 KnownModel::new("kimi-code/kimi-for-coding", "K2.8 Preview", &[]),
                 KnownModel::new(
@@ -233,6 +233,8 @@ impl RuntimeAdapter for Kimi {
                         effort_levels: Vec::new(),
                         maker: None,
                         points_to: None,
+                        price: None,
+                        same: None,
                     })
                 })
                 .collect(),

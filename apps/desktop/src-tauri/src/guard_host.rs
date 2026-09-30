@@ -151,6 +151,9 @@ pub fn create<R: Runtime>(
     let broker = Broker::sharing_control(guard.clone(), supervisor, store, config, control);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());
+    // Paid AI keys and the spending caps (Phase 16 Wave 3, ADR-085), before anything below
+    // returns: every organization's AI tools read its own keys and caps.
+    agents.set_paid_gate(plenipo_capabilities::paid::gate(&broker));
     // Watch (Phase 18, ADR-055): the file changes a worker makes, to its organization's window's
     // own channels only — never another organization's, the sign window, or a web page.
     let subscribers = WatchSubscribers::default();

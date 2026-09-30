@@ -11,13 +11,20 @@ import { AiToolCard } from "./aiTools/AiToolCard";
 import { useAiTools } from "./aiTools/useAiTools";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 import { Toggle } from "./SwitchSettings";
+import type { Go } from "./views";
 
 /**
- * Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot) in one place (Phase 19): sign in, see its
- * usage, see how it is paid for, keep it up to date, and see its models. `focusId`: the tool whose
- * card to show (another page asked for it).
+ * Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot, OpenRouter)
+ * in one place (Phase 19): sign in, see its usage, see how it is paid for, keep it up to date, and
+ * see its models. `focusId`: the tool whose card to show (another page asked for it).
  */
-export function AgentRuntimeCards({ focusId = null }: { focusId?: string | null }) {
+export function AgentRuntimeCards({
+  focusId = null,
+  go,
+}: {
+  focusId?: string | null;
+  go?: Go | undefined;
+}) {
   const { state, refresh } = useAgents();
   const ai = useAiTools();
   const routing = useRouting();
@@ -111,6 +118,7 @@ export function AgentRuntimeCards({ focusId = null }: { focusId?: string | null 
               usageRevision={ai.usageRevision}
               onApply={ai.apply}
               onRouting={routing.apply}
+              go={go}
             />
           </li>
         ))}

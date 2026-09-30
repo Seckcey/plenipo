@@ -465,7 +465,12 @@ function Shell({ core }: { core: CoreState }) {
             <ApprovalsView onOpenTask={openTask} approvals={approvals} learning={learning} />
           )}
           {view === "runtimes" && (
-            <RuntimesView selectedId={selected} onSelect={select} toolId={place.id} />
+            <RuntimesView
+              selectedId={selected}
+              onSelect={select}
+              toolId={place.id}
+              onOpenPage={go}
+            />
           )}
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />

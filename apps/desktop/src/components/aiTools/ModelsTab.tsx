@@ -8,25 +8,31 @@ import type {
 } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
 
+import { useAgents } from "../../agents/useAgents";
 import { checkAiTool } from "../../api/commands";
 import { useRun } from "../../guard/useRun";
 import { when } from "../../pages/words";
 import { EFFORT_LABEL, madeByWords } from "../../routing/format";
+import { priceWords } from "../../spending/words";
 import { Refusal } from "../models/shared";
 
 /**
- * "Opus (opus) · now Opus 5.5 · made by Anthropic · Effort: Low, Medium, High" (ADR-081 §6, §8).
+ * "Opus (opus) · now Opus 5.5 · made by Anthropic · Effort: Low, Medium, High" (ADR-081 §6, §8),
+ * then what it costs and the other AI tools that run the same model (ADR-036 §4).
  */
 function ModelWords({
   model,
   listed,
   unlisted,
+  also = [],
 }: {
   model: KnownModel;
   /** The AI tool's checked models, to name the exact model a name points to now. */
   listed: KnownModel[];
   /** Who made a model its list does not name: its own company, or not known. */
   unlisted: Maker | null;
+  /** The other AI tools that run the same model. */
+  also?: string[];
 }) {
   const now = model.pointsTo ? listed.find((k) => k.name === model.pointsTo) : undefined;
   return (
@@ -45,6 +51,8 @@ function ModelWords({
         {model.effortLevels.length > 0
           ? `Effort: ${model.effortLevels.map((e) => EFFORT_LABEL[e]).join(", ")}`
           : "No effort setting"}
+        {model.price && ` · ${priceWords(model.price)}`}
+        {also.length > 0 && ` · also on ${also.join(", ")}`}
       </span>
     </>
   );
@@ -67,8 +75,18 @@ export function ModelsTab({
   onApply: (page: AiToolsPage) => void;
 }) {
   const { pending, error, run } = useRun<AiToolsPage>(onApply);
+  const { state } = useAgents();
   const label = info.label;
   const known = info.capabilities.knownModels;
+  // The same model on the other AI tools (Kimi K3 on Kimi, Ollama, and OpenRouter).
+  const alsoOn = (m: KnownModel) =>
+    m.same
+      ? state.runtimes
+          .filter(
+            (r) => r.id !== info.id && r.capabilities.knownModels.some((k) => k.same === m.same),
+          )
+          .map((r) => r.label)
+      : [];
   const unlisted = new Set(route?.unlistedModels ?? []);
   const fresh = route
     ? route.newModels
@@ -88,7 +106,7 @@ export function ModelsTab({
         <ul className="ai-tool__list" aria-label={`${label}'s models`}>
           {known.map((m) => (
             <li key={m.name}>
-              <ModelWords model={m} listed={known} unlisted={unlistedMaker} />
+              <ModelWords model={m} listed={known} unlisted={unlistedMaker} also={alsoOn(m)} />
               {unlisted.has(m.name) && (
                 <>
                   {" "}

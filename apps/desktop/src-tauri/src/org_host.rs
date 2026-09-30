@@ -117,14 +117,8 @@ pub fn build<R: Runtime>(
         ledger.clone(),
         supervisor.clone(),
     );
-    if how.run && how.persistence == Persistence::AppData {
-        agent_host::detect_in_background(&agents);
-    }
     // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
     let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
-    if how.run {
-        tauri::async_runtime::spawn(liaison.clone().run());
-    }
     // Router (Phase 6): model registry and role model policies.
     let router = Router::new(ledger.clone(), agents.clone());
     // Guard and the capability broker (Phase 7): permissions, Plenipo's tools for workers,
@@ -140,6 +134,14 @@ pub fn build<R: Runtime>(
     );
     if how.run {
         guard_host::start(&broker);
+    }
+    // The AI tools are checked, and Liaison starts handing work on, once the paid gate is in
+    // place (guard_host::create), so a paid AI tool's first check can read its key (ADR-085).
+    if how.run && how.persistence == Persistence::AppData {
+        agent_host::detect_in_background(&agents);
+    }
+    if how.run {
+        tauri::async_runtime::spawn(liaison.clone().run());
     }
     // Pop-up notices (Phase 12): what needs the owner, from each committed event.
     let notices = Arc::new(notices::start(

@@ -1090,11 +1090,24 @@ export function setAiToolsAutoUpdate(on: boolean): Promise<AiToolsPage> {
 }
 
 /**
- * How an AI tool is paid for. Only `subscription` is accepted until spending caps exist
- * (Phase 16); the page never asks for a paid key.
+ * How an AI tool is paid for. A subscription AI tool always uses its subscription; a paid AI tool
+ * (OpenRouter) is paid per use with the owner's key (Phase 16 Wave 3, ADR-085).
  */
 export function setAiToolPayment(runtimeId: string, method: PaymentMethod): Promise<AiToolsPage> {
   return call<AiToolsPage>("set_ai_tool_payment", { runtimeId, method });
+}
+
+/**
+ * Save a paid AI tool's key (ADR-085): Plenipo checks it with the AI company, then keeps it in
+ * the Vault. The key is typed only on this screen; no answer repeats it.
+ */
+export function savePaidKey(runtimeId: string, name: string, key: string): Promise<AiToolsPage> {
+  return call<AiToolsPage>("save_paid_key", { runtimeId, name, key });
+}
+
+/** Remove a paid AI tool's key, from the Vault too. */
+export function removePaidKey(runtimeId: string): Promise<AiToolsPage> {
+  return call<AiToolsPage>("remove_paid_key", { runtimeId });
 }
 
 // ---- Settings → Spending caps (Phase 16 Wave 3, ADR-085) --------------------------------------
